@@ -1,0 +1,7 @@
+menu "httpclient configuration"
+
+    config MODULE_HTTPCLIENT
+        bool "httpclient support"
+        default n
+
+endmenu

@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "disk driver"
+
+config DISK_DRIVER
+	bool "Disk driver support"
+	help
+	  Enables support for disk driver.
+
+if DISK_DRIVER
+
+config DISK_IOCACHE_ENABLE
+	bool "Enable IO cache"
+	default n
+
+rsource "Kconfig.flash"
+rsource "Kconfig.ram"
+rsource "Kconfig.sdmmc"
+
+endif # FILE_SYSTEM
+
+endmenu

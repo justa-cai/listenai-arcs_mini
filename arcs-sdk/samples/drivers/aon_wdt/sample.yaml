@@ -1,0 +1,9 @@
+tests:
+  samples.aon_timer:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Aon_Wdt end"
+
+

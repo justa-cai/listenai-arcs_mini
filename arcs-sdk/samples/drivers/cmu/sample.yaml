@@ -1,0 +1,9 @@
+tests:
+  samples.drivers.cmu:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "CMU check success"
+
+

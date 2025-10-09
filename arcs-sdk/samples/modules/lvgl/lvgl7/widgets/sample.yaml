@@ -1,0 +1,7 @@
+tests:
+  samples.lvgl7.widgets:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "LVGL widgets start"

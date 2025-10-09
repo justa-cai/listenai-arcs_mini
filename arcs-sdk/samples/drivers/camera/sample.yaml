@@ -1,0 +1,3 @@
+tests:
+  samples.camera:
+    build_only: true

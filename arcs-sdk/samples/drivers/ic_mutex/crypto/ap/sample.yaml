@@ -1,0 +1,4 @@
+tests:
+  samples.drivers.ic_mutex.crypto.ap:
+    build_only: true
+

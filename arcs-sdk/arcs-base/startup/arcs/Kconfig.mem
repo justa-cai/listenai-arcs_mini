@@ -1,0 +1,150 @@
+
+menu "memory config"
+
+config MEM_CONFIG
+    bool "memory config"
+    default y
+
+config MEM_CONFIG_USE_CUSTOM_FILE
+    bool "use custom memory config file"
+    depends on !MEM_CONFIG
+    default n
+
+if MEM_CONFIG
+
+config MEM_INTERRUPT_STACK_SIZE
+    hex "interrupt stack size"
+    default 0x1000
+
+menu "sram memory config"
+
+config MEM_SRAM_BASE
+    hex "sram base address"
+    default 0x20000000 if !MEM_WFRAM_ISOLATED
+    default 0x20010000 if MEM_WFRAM_ISOLATED
+
+config MEM_SRAM_SIZE
+    hex "sram size"
+    default 0x00040000
+endmenu
+
+menu "psram memory config"
+
+config MEM_CMN_SRAM_BASE
+    hex "cmn sram base address"
+    default 0x20040000
+
+config MEM_CMN_SRAM_SIZE
+    hex "cmn sram size"
+    default 0x00010000
+
+config MEM_PSRAM_BASE
+    hex "psram base address"
+    default 0x28000000
+
+config MEM_PSRAM_SIZE
+    hex "psram size"
+    default 0x00800000
+endmenu
+
+menu "flash memory config"
+config MEM_FLASH_BASE
+    hex "flash base address"
+    default 0x30000000
+
+config MEM_FLASH_SIZE
+    hex "flash size"
+    default 0x00800000
+endmenu
+
+menu "local memory config"
+config MEM_ILM_BASE
+    hex "ilm base address"
+    default 0x00080000 if ARCS_AP_CORE
+    default 0x00280000 if ARCS_CP_CORE
+
+config MEM_ILM_SIZE
+    hex "ilm size"
+    default 0x00004000
+
+config MEM_DLM_BASE
+    hex "dlm base address"
+    default 0x00100000 if ARCS_AP_CORE
+    default 0x00300000 if ARCS_CP_CORE
+
+config MEM_DLM_SIZE
+    hex "dlm size"
+    default 0x00002000
+endmenu
+
+menu "luna ram memory config"
+config MEM_LUNA_BASE
+    hex "luna ram base address"
+    default 0x200B0000
+
+config MEM_LUNA_SIZE
+    hex "luna ram size"
+    default 0x00006000
+endmenu
+
+
+menu "bluetooth ram memory config"
+config MEM_BTRAM_BASE
+    hex "bluetooth ram base address"
+    default 0x200C0000
+
+config MEM_BTRAM_SIZE
+    hex "bluetooth ram size"
+    default 0x00008000
+endmenu
+
+menu "ipc memory config"
+
+config MEM_IPC_ISOLATED
+    bool "ipc ram isolated"
+    default y
+
+config MEM_IPC_BASE
+    hex "ipc base address"
+    default 0x20050000
+    depends on MEM_IPC_ISOLATED
+
+config MEM_IPC_SIZE
+    hex "ipc size"
+    default 0x00002000
+    depends on MEM_IPC_ISOLATED
+endmenu
+
+menu "wifi memory config"
+config MEM_WFRAM_ISOLATED
+    bool "wifi ram isolated"
+    default y
+    help
+        wifi ram will be allocated from sram by linker if not set
+
+config MEM_WFRAM_BASE
+    hex "wifi ram base address"
+    default 0x20000080
+    depends on MEM_WFRAM_ISOLATED
+    help
+        WiFi RAM base address (note: the first 128 bytes are reserved for WiFi hardware)
+
+config MEM_WFRAM_SIZE
+    hex "wifi ram size "
+    default 0x00010000
+    depends on MEM_WFRAM_ISOLATED
+
+config MEM_WIFI_CALIBRATION_SIZE
+    hex "wifi calibration data size reserved"
+    default 0x4000 if ARCS_AP_CORE
+    default 0
+
+config MEM_WIFI_TRACE_SIZE
+    hex "wifi trace data size reserved"
+    default 0x2000 if ARCS_AP_CORE
+    default 0
+endmenu
+
+endif
+
+endmenu

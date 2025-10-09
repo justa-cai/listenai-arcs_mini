@@ -1,0 +1,15 @@
+#!/bin/bash
+set -e
+
+# Clear the environment
+rm -fr build fff.h
+mkdir build
+
+# Configure the build
+cmake -B build -DFFF_GENERATE=ON -DFFF_UNIT_TESTING=ON || exit -1
+
+# Build all targets
+cmake --build build || exit -1
+
+# Run all tests
+ctest --test-dir build --output-on-failure

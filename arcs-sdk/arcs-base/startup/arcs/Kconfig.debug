@@ -1,0 +1,9 @@
+menu "back trace"
+
+config BACK_TRACE
+    bool "backtrace support"
+    default n
+    help
+        Enable the exception back trace
+
+endmenu

@@ -1,0 +1,64 @@
+menu "easylogger configuration"
+
+config SDK_MODULE_EASYLOGGER
+    bool "easylogger support"
+    default n
+
+if SDK_MODULE_EASYLOGGER
+config EASYLOGGER_LOG_MODE_ASYNC
+    bool "Enable asynchronous logging"
+    default n
+    help
+        Enable this option to allow asynchronous logging
+
+config EASYLOGGER_ASYNC_BUF_SIZE
+    int "asynchronous buffer size"
+    default 10240
+    depends on EASYLOGGER_LOG_MODE_ASYNC
+
+config EASYLOGGER_LOG_ASYNC_TASK_STACK_SIZE
+    int "asynchronous task stack size"
+    default 512
+    depends on EASYLOGGER_LOG_MODE_ASYNC
+
+config EASYLOGGER_LOG_ASYNC_TASK_PRIORITY
+    int "asynchronous task priority"
+    default 1
+    depends on EASYLOGGER_LOG_MODE_ASYNC
+
+config EASYLOGGER_USE_POSIX_TIME
+    bool "Use POSIX time"
+    default n
+
+config EASYLOGGER_LINE_BUF_SIZE
+    int "line buffer size"
+    default 1024
+
+config EASYLOGGER_LOG_LEVEL_ASSERT
+    bool "assert"
+    default n
+
+config EASYLOGGER_LOG_LEVEL_ERROR
+    bool "error"
+    default n
+
+config EASYLOGGER_LOG_LEVEL_WARN
+    bool "warning"
+    default n
+
+config EASYLOGGER_LOG_LEVEL_INFO
+    bool "info"
+    default n
+
+config EASYLOGGER_LOG_LEVEL_DEBUG
+    bool "debug"
+    default n
+
+config EASYLOGGER_LOG_LEVEL_VERBOSE
+    bool "verbose"
+    default n
+
+
+endif
+
+endmenu

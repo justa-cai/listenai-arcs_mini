@@ -1,0 +1,8 @@
+tests:
+  samples.helloworld:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "collections-c sample done"
+

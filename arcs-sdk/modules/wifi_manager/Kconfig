@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "wifi manager configuration"
+
+config WIFI_MANAGER
+	bool "enable wifi manager"
+	default n
+	select LOG
+	select LISA_KV
+
+if WIFI_MANAGER
+    choice
+        prompt "wifi manager selection"
+        default WIFI_MANAGER_MEM_HEAP_CAPS
+
+    config WIFI_MANAGER_MEM_HEAP_CAPS
+        bool "heap caps"
+
+    endchoice
+
+    choice
+        prompt "wifi manager os"
+        default WIFI_MANAGER_OS_LISA
+
+        config WIFI_MANAGER_OS_LISA
+            bool "lisa os"
+    endchoice
+
+    choice
+        prompt "wifi manager wifi type"
+        default WIFI_MANAGER_WIFI_TYPE_STATION
+
+        config WIFI_MANAGER_WIFI_TYPE_STATION
+            bool "station"
+
+        config WIFI_MANAGER_WIFI_TYPE_AP
+            bool "ap"
+            
+    endchoice
+
+    choice
+        prompt "wifi manager dev impl"
+        default WIFI_MANAGER_WIFI_DEV_ARCS
+
+        config WIFI_MANAGER_WIFI_DEV_ARCS
+            bool "arcs"
+
+    endchoice
+endif
+
+if WIFI_MANAGER
+	config WIFI_MANAGER_MEM_HEAP_CAPS
+		bool
+		default y
+		help
+			Use heap_caps memory management from ESP-IDF.
+
+	config WIFI_MGR_NVS_PARTITION_OFFSET
+		hex "WiFi manager NVS partition offset"
+		default 0xFF4000
+		help
+			Offset of the NVS partition used by WiFi manager.
+
+	config WIFI_MGR_NVS_FLASH_SECTOR_SIZE
+		int "WiFi manager NVS flash sector size"
+		default 4096
+		help
+			Flash sector size used by WiFi manager NVS.
+
+	config WIFI_MGR_NVS_PARTITION_SIZE
+		hex "WiFi manager NVS partition size"
+		default 0x4000
+		help
+			Size of the NVS partition used by WiFi manager.
+			
+	config WIFI_MGR_THREAD_STACK
+		int "WiFi manager thread stack size (bytes)"
+		default 4096
+		help
+			Stack size in bytes for WiFi manager thread.
+			
+	config WIFI_MGR_THREAD_PRIORITY
+		int "WiFi manager thread priority"
+		default 5
+		help
+			Thread priority for WiFi manager thread.
+	
+	config WIFI_MGR_AUTO_CONNECT_TIMEOUT_MS
+		int "WiFi manager auto connect timeout (ms)"
+		default 15000
+		help
+			Timeout for WiFi manager auto connect.
+
+	config WIFI_MGR_CONNECT_TIMEOUT
+		int "WiFi manager connect timeout (ms)"
+		default 15000
+		help
+			Timeout for WiFi manager api wifi_mgr_sta_connect with synchronous mode.
+
+endif #WIFI_MANAGER
+
+endmenu

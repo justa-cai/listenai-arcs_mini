@@ -1,0 +1,13 @@
+config FLEXIBLE_BUTTON
+    bool "Flexible Button"
+    default n
+
+config BATTERY_COLLECTION
+    bool "Battery Collection"
+    default n
+
+config LOW_WIFI_CLI
+    bool "Low Wifi Cli"
+    default n
+
+osource "$LISTENAI_MODULES"

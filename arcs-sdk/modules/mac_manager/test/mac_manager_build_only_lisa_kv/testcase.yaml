@@ -1,0 +1,8 @@
+tests:
+  test.mac_manager_build_only_lisa_kv:
+    runner: linux
+    builder: cmake
+    build_only: true
+    log_analyzer: "unity"
+
+

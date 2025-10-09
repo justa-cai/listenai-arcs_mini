@@ -1,0 +1,7 @@
+tests:
+  samples.cjson:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Zip Code: 12345"

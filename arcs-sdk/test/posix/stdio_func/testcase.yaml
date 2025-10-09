@@ -1,0 +1,6 @@
+tests:
+  test.posix.stdio_func:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity
+    

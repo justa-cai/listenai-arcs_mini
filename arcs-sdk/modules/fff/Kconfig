@@ -1,0 +1,3 @@
+config TEST_FFF
+    bool "Enable fff"
+    default n

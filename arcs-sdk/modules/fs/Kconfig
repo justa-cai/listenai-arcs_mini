@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "File Systems"
+
+config FILE_SYSTEM
+	bool "File system support"
+	help
+	  Enables support for file system.
+
+if FILE_SYSTEM
+
+config FS_LARGE64_FILES
+    bool "Support __LARGE64_FILES"
+    default n
+
+
+orsource "subfs/Kconfig"
+orsource "lsfs/Kconfig"
+orsource "lvfs/Kconfig"
+orsource "lvfs/posix/Kconfig"
+
+endif # FILE_SYSTEM
+
+orsource "port/Kconfig"
+orsource "disk/Kconfig"
+
+endmenu

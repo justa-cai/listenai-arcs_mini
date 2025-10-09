@@ -1,0 +1,5 @@
+tests:
+  samples.sqlite3:
+    build_only: true
+
+

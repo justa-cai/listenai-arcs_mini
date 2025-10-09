@@ -1,0 +1,1 @@
+#include "stdint.h"const uint32_t jpeg_dec_min_table_golden[16] = {    0xf0e0c082,    0xf6f6f6f4,    0x2b5d78f8,    0x01,    0xf0e0c080,    0xfefefcf8,    0xbbdf7efe,    0x00,    0xf0e0c288,    0xf4f6f6f4,    0x2b1c78f6,    0x01,    0xfcf8f0e0,    0xfefefefe,    0xbbdf7efe,    0x01,};

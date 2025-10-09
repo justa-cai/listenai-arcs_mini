@@ -1,0 +1,7 @@
+tests:
+  samples.lvgl8.benchmark:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "LVGL benchmark start"

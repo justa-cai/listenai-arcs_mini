@@ -1,0 +1,24 @@
+# 添加所有源文件到主库
+
+set(${TARGET_NAME}_GROUP_LAUNCHER_SOURCES
+    launcher.c
+)
+
+set(${TARGET_NAME}_GROUP_LAUNCHER_PAGE_SOURCES
+    pages/page_main.c
+)
+
+set(${TARGET_NAME}_GROUP_LAUNCHER_WIDGETS_SOURCES
+    widgets/lv_group_grid.c
+)
+
+set(${TARGET_NAME}_GROUP_LAUNCHER_UI_RESOURCES
+    assets/icons/icon_img_app_launcher_png.c
+)
+
+target_sources(${TARGET_NAME} PRIVATE
+    ${${TARGET_NAME}_GROUP_LAUNCHER_SOURCES}
+    ${${TARGET_NAME}_GROUP_LAUNCHER_PAGE_SOURCES}
+    ${${TARGET_NAME}_GROUP_LAUNCHER_WIDGETS_SOURCES}
+    ${${TARGET_NAME}_GROUP_LAUNCHER_UI_RESOURCES}
+)

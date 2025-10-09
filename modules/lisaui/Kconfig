@@ -1,0 +1,20 @@
+menuconfig LISAUI
+    bool "LISAUI menuconfig"
+    default n
+    depends on SDK_MODULE_LVGL8
+    depends on EBUS
+    help
+        Enable LISAUI functionality base on LVGL
+
+if LISAUI
+   
+    choice 
+        prompt "LISAUI environment"
+        default LISAUI_ENV_ARCS_SDK
+        config LISAUI_ENV_ARCS_SDK
+            bool "ARCS SDK"
+        config LISAUI_ENV_SIMULATOR
+            bool "Simulator"
+    endchoice
+    rsource "user/Kconfig"
+endif

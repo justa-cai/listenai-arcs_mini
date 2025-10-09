@@ -1,0 +1,52 @@
+[核间mutex测试程序]
+
+* 功能
+ap/cp 各自抢占自增 共享计数 1百万次.
+预期结果:
+最终计数 = AP计数 + CP计数 = 2百万
+
+* 代码组成
+
+测试程序ap端:
+src\drv_demo\drv_demo_arcs\ic_mutex_cp\
+
+测试程序cp端:
+src\drv_demo\drv_demo_arcs\ic_mutex_cp\
+
+AP侧编译:
+make CHIP=arcs TGT=drv_demo_arcs/ic_mutex_ap IC_BOARD=1 BUILD_NANO=0 CONFIG_RTOS_AL=0
+
+CP侧编译:
+make CHIP=arcs TGT=drv_demo_arcs/ic_mutex_cp IC_BOARD=1 BUILD_NANO=0 CONFIG_RTOS_AL=0 CONFIG_HARTID=1
+
+[ap端依赖库]
+
+编译宏 CONFIG_HARTID=0
+
+* 核间Mutex (归入 lsf 核间原语库)
+ap端路径: chip/arcs/lsf_client
+
+* urpc库
+ap端路径: chip/arcs/urpc_client
+
+* mbox驱动 (ap/cp共用代码)
+mbox驱动提供互斥访问寄存器.
+mbox驱动提供核间中断通知.
+
+[cp端依赖库]
+
+编译宏 CONFIG_HARTID=1
+
+* 核间Mutex (归入 lsf 核间原语库)
+cp端路径: chip/arcs/lsf_server
+
+* urpc库
+cp端路径: chip/arcs/urpc_server
+
+* mbox驱动 (ap/cp共用代码)
+mbox驱动提供互斥访问寄存器.
+mbox驱动提供核间中断通知.
+
+[使用须知]
+
+* 计数器 共享内存地址 由 lsf 运行时分配通知, 无需编译修正.

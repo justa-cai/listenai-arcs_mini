@@ -1,0 +1,7 @@
+tests:
+  samples.giflib:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "GifLib sample completed successfully"

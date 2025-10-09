@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: BSD-3-Clause
+menuconfig CSK_SQLITE
+    bool "CSK SQLite"
+
+if CSK_SQLITE
+
+choice CSK_SQLITE_SDK
+    prompt "Select SDK Type"
+    default CSK_SQLITE_SDK_CSK6
+
+config CSK_SQLITE_SDK_CSK6
+    bool "CSK6 SDK"
+    help
+      Use CSK6 SDK for SQLite implementation
+
+config CSK_SQLITE_SDK_ARCS
+    bool "ARCS SDK"
+    help
+      Use ARCS SDK for SQLite implementation
+
+endchoice
+
+config CSK_SQLITE_CSK_MEM
+    bool "CSK SQLite CSK Memory"
+    default y if CSK_SQLITE_SDK_CSK6
+
+if CSK_SQLITE_SDK_ARCS
+    config CSK_SQLITE_ARCS_MEM_RAM
+        bool "CSK SQLite ARCS RAM Memory"
+        default n
+endif
+
+endif

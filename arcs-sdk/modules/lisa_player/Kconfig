@@ -1,0 +1,7 @@
+menu "lisa player"
+
+config SDK_MODULE_LISA_PLAYER
+    bool "Enable lisa player"
+    default n
+
+endmenu

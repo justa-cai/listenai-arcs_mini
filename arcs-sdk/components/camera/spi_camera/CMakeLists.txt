@@ -1,0 +1,2 @@
+listenai_library_sources_ifdef(CONFIG_SPI_INTERFACE_NORM spi_normal_xfer.c)
+listenai_library_sources_ifdef(CONFIG_SPI_INTERFACE_VIC spi_vic_xfer.c)

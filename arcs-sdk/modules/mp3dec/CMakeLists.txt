@@ -1,0 +1,9 @@
+if (DEFINED CONFIG_SDK_MODULE_MP3_DECODER)
+listenai_link_libraries(
+  ${CMAKE_CURRENT_SOURCE_DIR}/libmp3dec.a
+)
+
+listenai_include_directories(
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+endif()

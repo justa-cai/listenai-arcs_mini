@@ -1,0 +1,6 @@
+
+config LVFS_POSIX_API_DEFAULT_MOUNT_PATH
+    string "Default mount path"
+    default "/SD:/"
+    depends on LVFS_POSIX_API
+

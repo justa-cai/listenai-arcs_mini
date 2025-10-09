@@ -1,0 +1,7 @@
+menu "SNTP C Client Configuration"
+
+    config MODULE_CORESNTP
+        bool "coresntp support"
+        default n
+
+endmenu

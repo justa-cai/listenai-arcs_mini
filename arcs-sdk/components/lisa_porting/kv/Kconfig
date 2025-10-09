@@ -1,0 +1,44 @@
+
+menuconfig LISA_KV
+    prompt "lisa kv configuration"
+    bool "lisa kv configuration"
+    default n
+    help
+        lisa kv configuration
+
+if LISA_KV
+
+choice LISA_KV_TYPE
+    prompt "lisa kv type"
+    default LISA_KV_TYPE_LSFS
+
+    config LISA_KV_TYPE_LSFS
+        bool "lisa kv type lsfs"
+        select LSFS
+        help
+            lisa kv type lsfs, please make sure the fs is mounted
+
+    config LISA_KV_TYPE_EF
+        bool "lisa kv type easyflash"
+        select MODULE_EASYFLASH
+        help
+            lisa kv type easyflash
+endchoice
+
+config LISA_KV_FS_PATH
+    string "lisa kv fs path"
+    default "/NAND:/lisa_kv.ini"
+    depends on LISA_KV_TYPE_LSFS
+    help
+        lisa kv fs path
+
+config LISA_KV_POWEROFF_SAVE
+    bool "lisa kv poweroff save support"
+    depends on LISA_KV
+    depends on LISA_KV_TYPE_LSFS
+    default n
+    help
+        Enable automatic KV data save when system poweroff.
+        This ensures KV data is persisted before shutdown.
+
+endif

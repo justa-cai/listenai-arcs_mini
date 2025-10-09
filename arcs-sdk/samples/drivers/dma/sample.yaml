@@ -1,0 +1,9 @@
+tests:
+  samples.dma:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Memory compare success"
+
+

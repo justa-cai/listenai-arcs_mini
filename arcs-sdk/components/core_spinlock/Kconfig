@@ -1,0 +1,3 @@
+config CORE_SPINLOCK
+    bool "core spinlock support"
+    default n

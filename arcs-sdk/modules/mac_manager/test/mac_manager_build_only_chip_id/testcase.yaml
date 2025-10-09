@@ -1,0 +1,8 @@
+tests:
+  test.mac_manager_build_only_chip_id:
+    runner: linux
+    builder: cmake
+    build_only: true
+    log_analyzer: "unity"
+
+

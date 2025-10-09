@@ -1,0 +1,6 @@
+tests:
+  test.driver.dualtimer:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity
+    

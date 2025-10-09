@@ -1,0 +1,82 @@
+menu "arcs hal"
+
+config ARCS_HAL_WARNING_DISABLE
+    bool "disable hal warnings"
+    default n
+
+config ARCS_FREE_RTOS
+    bool "Enable FreeRTOS support"
+    default n
+
+choice
+    prompt "core type"
+    default ARCS_AP_CORE
+
+    config ARCS_AP_CORE
+        bool "ap core"
+        imply FPU
+
+    config ARCS_CP_CORE
+        bool "cp core"
+
+endchoice
+
+config BOOT_HART
+    bool "boot hart"
+    default y
+
+config HARTID
+    int
+    default 0 if ARCS_AP_CORE
+    default 1 if ARCS_CP_CORE
+
+choice
+    prompt "GPDMA initialization level"
+    default ARCS_GPDMA_FULL_INIT
+    help
+      In AP/CP dual-core systems, GPDMA registers only need to be initialized by one core.
+      Select the appropriate initialization level for the current core.
+
+    config ARCS_GPDMA_FULL_INIT
+        bool "Complete GPDMA initialization"
+        help
+          Enable full GPDMA initialization including register configuration.
+          Only one core in a dual-core system should use this option.
+
+    config ARCS_GPDMA_DATA_ONLY
+        bool "GPDMA data structure only"
+        help
+          Initialize only data structures but skip register initialization.
+          Use this for cores that need to use GPDMA but rely on another core
+          to initialize the GPDMA hardware registers.
+endchoice
+
+config SMP_CPU_COUNT
+    int "cpu count"
+    default 1
+
+config ARCS_HAL_FAST_FUNC_SRAM_SECTION
+    string "_FAST_FUNC_SRAM section"
+    default ".fast_text"
+
+rsource "chip/arcs/event/Kconfig"
+rsource "chip/arcs/wlif/Kconfig"
+rsource "chip/arcs/cli_cmd/Kconfig"
+rsource "chip/arcs/driver/Kconfig"
+rsource "chip/arcs/wcnd/Kconfig"
+rsource "chip/arcs/simsocket/Kconfig"
+rsource "chip/arcs/ipc/Kconfig"
+rsource "modules/shell/Kconfig"
+rsource "modules/vrtc/Kconfig"
+rsource "modules/nvs/Kconfig"
+rsource "chip/arcs/lwip/Kconfig"
+rsource "chip/arcs/lib/Kconfig.wifi"
+rsource "chip/arcs/atcmd/Kconfig"
+rsource "chip/arcs/flash_if/Kconfig"
+rsource "chip/arcs/ic_lock/Kconfig"
+rsource "chip/arcs/utils/Kconfig"
+rsource "chip/arcs/lib/Kconfig.ble"
+rsource "chip/arcs/btos/Kconfig"
+rsource "modules/profiles/Kconfig"
+
+endmenu

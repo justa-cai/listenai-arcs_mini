@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config LVFS
+  bool "LVFS file system support"
+  help
+    Lightweight Virtual File System (LVFS) provides a unified file system
+    abstraction layer that supports standard file operations and multiple
+    file system types. It is designed to be lightweight and suitable for
+    embedded systems. Enable this if you need to support different file 
+    systems in your system with a common interface.
+
+
+if LVFS
+
+config LVFS_NFILE_DESC_PER_BLOCK
+    int "Number of file descriptors per block"
+    default 32
+    help
+      Number of file descriptors per block. Each block can contain up to
+      LVFS_NFILE_DESC_PER_BLOCK file descriptors. The larger this number, the
+      more memory is used. The smaller this number, the more blocks are
+      needed to store the file descriptors and the more overhead is
+      incurred when traversing the file descriptor list.
+
+config LVFS_PREFIX_PATH_LENGTH_MAX
+    int "Maximum length of a path for LVFS"
+    default 64
+    help
+      The maximum length of a path for LVFS.
+
+config LVFS_POSIX_API
+      bool "POSIX-like file system API support"
+      default n
+      help
+          Enable POSIX-like file system API support in LVFS. This includes
+          standard functions like open(), close(), read(), write(), etc.
+          This allows applications to use familiar POSIX file operations
+          through the LVFS layer.
+
+config LVFS_POSIX_API_ALIAS
+      bool "POSIX-like file system API support alias"
+      default n
+      depends on LVFS_POSIX_API
+      help
+
+config LVFS_POSIX_RESERVE_FD
+      int "POSIX-like file system API reserve fd"
+      default 3
+      help
+          Reserve file descriptors for stdin/stdout/stderr use.
+
+config LVFS_LSFS_AUTO_REGISTER
+      bool "Auto register LSFS file system"
+      default n
+      help
+          Auto register LSFS file system.
+
+endif

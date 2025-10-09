@@ -1,0 +1,32 @@
+menu "display st77926 configuration"
+
+
+if LISA_DISPLAY_ST77926
+
+    config DISPLAY_ST77926_WIDTH
+        int "screen width"
+        default 320
+        help
+        The pixel length in the x-axis direction of the display screen, the maximum value is 320.
+
+    config DISPLAY_ST77926_HEIGHT
+        int "screen height"
+        default 480
+        help
+        The pixel length in the y-axis direction of the display screen, the maximum value is 480.
+
+    config DISPLAY_ST77926_X_OFFSET
+        int "screen x offset"
+        default 0
+        help
+        The pixel offset in the x-axis direction of the display screen.
+
+    config DISPLAY_ST77926_Y_OFFSET
+        int "screen y offset"
+        default 0
+        help
+        The pixel offset in the y-axis direction of the display screen.
+
+endif
+
+endmenu

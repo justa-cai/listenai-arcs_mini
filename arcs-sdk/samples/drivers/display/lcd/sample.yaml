@@ -1,0 +1,3 @@
+tests:
+  samples.display:
+    build_only: true

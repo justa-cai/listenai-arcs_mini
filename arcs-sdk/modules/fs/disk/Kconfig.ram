@@ -1,0 +1,37 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config DISK_DRIVER_RAM
+	bool "RAM Disk"
+	default n
+	help
+	  RAM buffer used to emulate storage disk.
+	  This option can be used to test the file
+	  system.
+
+if DISK_DRIVER_RAM
+
+config DISK_RAM_VOLUME_NAME
+	string "RAM mount point or drive name"
+	default "RAM"
+	help
+	  Disk name as per file system naming guidelines.
+
+config DISK_RAM_SECTOR_SIZE
+	int "RAM device sector size in decimal"
+	default 512
+	help
+	  This is the file system sector size in bytes.
+
+config DISK_RAM_SECTOR_COUNT
+	int "RAM device sector size in decimal"
+	default 128
+	help
+	  This is the file system sector count.
+
+config DISK_RAM_MEMORY_SECTION_NAME
+	string "RAM device used memory segment name"
+	default ".bss"
+	help
+	  This is the name memory segment used.
+
+endif # DISK_DRIVER_RAM

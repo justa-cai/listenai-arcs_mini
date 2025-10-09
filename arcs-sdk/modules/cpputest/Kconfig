@@ -1,0 +1,3 @@
+config CPPUTEST
+    bool "Enable cpputest"
+    default n

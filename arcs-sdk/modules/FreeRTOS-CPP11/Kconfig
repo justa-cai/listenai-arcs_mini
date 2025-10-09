@@ -1,0 +1,12 @@
+menu "FreeRTOS-CPP11"
+
+config FREERTOS_CPP11
+    bool "Enable FreeRTOS-CPP11"
+    default n
+
+config FREERTOS_CPP11_FORCE_USE_EXRAM
+    bool "Force use exram for memory management (C++ new/delete)"
+    default y
+    depends on FREERTOS_CPP11
+
+endmenu

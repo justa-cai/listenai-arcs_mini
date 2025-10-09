@@ -1,0 +1,10 @@
+menu "nopoll configuration"
+
+    config MODULE_NOPOLL
+        bool "nopoll support"
+        default n
+
+    config NOPOLL_DELIVER_PONG_FRAME_ENABLED
+        bool "nopoll deliver pong frame enable"
+        default n
+endmenu

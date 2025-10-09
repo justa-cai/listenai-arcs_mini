@@ -1,0 +1,37 @@
+menuconfig IPC_LSF
+  bool "based on lsf's inter-core communication module"
+  default n
+  select ARCS_HAL_LSF
+
+if IPC_LSF
+
+choice
+prompt "lsf type"
+
+config LSF_CLIENT
+    bool "lsf client"
+    depends on HAL_LSF_CLIENT
+
+
+config LSF_SERVER
+    bool "lsf server"
+    depends on HAL_LSF_SERVER
+
+endchoice
+
+config LSF_IC_MESSAGE_DEPRECATED
+    bool "lsf ic message api deprecated"
+    default n
+    help
+      lsf ic message api deprecated
+
+config LSF_IC_MESSAGE_EP_ID
+    int "lsf ic message endpoint id"
+    default 5
+    range 0 15
+    help
+       lsf ic message endpoint id
+
+orsource "Kconfig.diskmem"
+
+endif

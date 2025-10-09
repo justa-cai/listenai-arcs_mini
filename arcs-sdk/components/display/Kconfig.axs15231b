@@ -1,0 +1,39 @@
+menu "display axs15231b configuration"
+
+
+if LISA_DISPLAY_AXS15231B
+
+    config DISPLAY_AXS15231B_WIDTH
+        int "screen width"
+        default 176
+        help
+        The pixel length in the x-axis direction of the display screen, the maximum value is 172.
+
+    config DISPLAY_AXS15231B_HEIGHT
+        int "screen height"
+        default 560
+        help
+        The pixel length in the y-axis direction of the display screen, the maximum value is 640.
+
+    config DISPLAY_AXS15231B_X_OFFSET
+        int "display screen x offset"
+        default 0
+        help
+        The pixel offset in the x-axis direction of the display screen.
+
+    config DISPLAY_AXS15231B_Y_OFFSET
+        int "screen y offset"
+        default 0
+        help
+        The pixel offset in the y-axis direction of the display screen.
+    
+    config ROTATE_BUF_MAX_HEIGHT
+        int "roate buffer buffer max height"
+        default DISPLAY_AXS15231B_WIDTH
+
+    config USE_TRANS_CTX
+        bool "use trans context"
+        default y
+endif
+
+endmenu

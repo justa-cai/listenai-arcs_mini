@@ -1,0 +1,51 @@
+config LS_LV_INDEV_TASK_FILTERING
+    bool "Enable LVGL input task"
+    default n
+    help
+        Enable LVGL input task.
+
+if LS_LV_INDEV_TASK_FILTERING
+
+  config LS_LV_INDEV_TASK_PRIO
+      int "indev task priority"
+      default 5
+      help
+          Set the priority of the LVGL input task.
+
+  config LS_LV_INDEV_TASK_STACK_SIZE
+      int "indev task stack size"
+      default 1024
+      help
+          Set the stack size of the LVGL input task.
+
+  config LS_LV_INDEV_TASK_QUEUE_SIZE
+      int "indev task queue size"
+      default 100
+      help
+          Set the queue size of the LVGL input task.
+endif
+
+config LV_POINTER_SWAP_XY
+	bool "Swap keyboard scan X,Y axes"
+	help
+	  Swap keyboard scan X,Y axes. This option can be used to align keyboard
+	  scan coordinates with the display.
+
+config LV_POINTER_INVERT_X
+	bool "Invert keyboard scan X axis"
+	help
+	  Invert keyboard scan X axis. This option can be used to align keyboard
+	  scan coordinates with the display.
+
+config LV_POINTER_INVERT_Y
+	bool "Invert keyboard scan Y axis"
+	help
+	  Invert keyboard scan Y axis. This option can be used to align keyboard
+	  scan coordinates with the display.
+
+config LV_INDEV_DEF_SCROLL_THROW
+	int "indev scroll throw"
+	default 10
+	help
+	  Set the scroll throw of the indev.
+

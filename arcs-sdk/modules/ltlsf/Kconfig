@@ -1,0 +1,7 @@
+menu "ltlsf configuration"
+
+    config SDK_MODULE_LTLSF
+        bool "ltlsf support"
+        default n
+
+endmenu

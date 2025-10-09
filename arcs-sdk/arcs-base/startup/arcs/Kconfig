@@ -1,0 +1,47 @@
+
+config MAIN_TASK_STACK_SIZE
+    int "main task stack size"
+    default 2048
+
+config MAIN_TASK_PRIORITY
+    int "main task priority"
+    default 1
+
+config DCACHE_ENABLE
+    bool "Enable DCACHE"
+    default y
+
+config ICACHE_ENABLE
+    bool "Enable ICACHE"
+    default y
+
+config LINK_CPP_RUNTIME_SECTIONS
+    bool "link cpp runtime sections"
+    default y
+    help
+        Link the C++ runtime sections
+
+config CPP_EXCEPTIONS
+    bool "Enable C++ exceptions"
+    default y
+
+config EXCEPTION_REBOOT_IMMEDIATELY
+    bool "reboot immediately in exception handler"
+    default n
+
+config BOOT_WITH_WATCHDOG
+    bool "boot with watchdog"
+    default n
+    help
+        Enable the watchdog in boot
+
+config WATCHDOG_ENABLE
+    bool "watchdog enable"
+    default y if BOOT_WITH_WATCHDOG
+    help
+        Enable the watchdog
+
+rsource "Kconfig.mem"
+rsource "Kconfig.syslog"
+rsource "Kconfig.heap"
+rsource "Kconfig.debug"

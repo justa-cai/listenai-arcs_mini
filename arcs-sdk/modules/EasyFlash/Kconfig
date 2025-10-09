@@ -1,0 +1,59 @@
+menuconfig MODULE_EASYFLASH
+    prompt "EasyFlash"
+    bool "EasyFlash"
+    default n
+
+if MODULE_EASYFLASH
+
+config LS_EF_USING_ENV
+    bool "EasyFlash using ENV"
+    default y
+    help
+        EasyFlash using ENV
+
+config LS_EF_ENV_VER_NUM
+    int "EasyFlash env version number"
+    default 0
+    depends on LS_EF_USING_ENV
+    help
+        EasyFlash env version number
+
+config LS_EF_ENV_NAME_MAX
+    int "EasyFlash env name max"
+    default 32
+    depends on LS_EF_USING_ENV
+    help
+        EasyFlash env name max
+
+config LS_EF_ERASE_MIN_SIZE
+    int "EasyFlash erase min size"
+    default 4096
+    help
+        EasyFlash erase min size
+
+config LS_EF_WRITE_GRAN
+    int "EasyFlash write granularity"
+    default 1
+    help
+        EasyFlash write granularity
+
+config LS_EF_READ_BUF_SIZE
+    int "EasyFlash read buffer size"
+    default 32
+    help
+        EasyFlash read buffer size
+
+config LS_EF_START_ADDR
+    hex "EasyFlash start address"
+    default 0x30F00000
+    help
+        EasyFlash start address
+
+config LS_EF_ENV_AREA_SIZE
+    int "EasyFlash env area size"
+    default 8192
+    help
+        EasyFlash env area size
+    depends on LS_EF_USING_ENV
+
+endif

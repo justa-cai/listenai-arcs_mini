@@ -1,0 +1,8 @@
+tests:
+  samples.ecdh:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "mbedtls ecdh test end"
+

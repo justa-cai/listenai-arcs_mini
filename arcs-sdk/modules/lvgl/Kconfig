@@ -1,0 +1,209 @@
+menu "LVGL configuration"
+
+    config SDK_MODULE_LVGL
+        bool "lvgl support"
+        default n
+
+if SDK_MODULE_LVGL
+    config LV_HOR_RES_MAX
+        int "Horizontal Screen Resolution"
+        default 320
+        help
+        Horizontal screen resolution in pixels
+
+    config LV_VER_RES_MAX
+        int "Vertical Screen Resolution"
+        default 480
+        help
+        Vertical screen resolution in pixels
+
+    config LV_CUSTOM_MONITOR
+        bool "custom monitor"
+        default n
+
+    config LV_CUSTOM_TASK_CPU_PER
+        bool "Use task runtime ticks to calculate CPU usage"
+        default n
+
+    config LV_DISP_DEF_REFR_PERIOD
+        int "Default display refresh period (ms)."
+        default 30
+        help
+            Can be changed in the display driver (`lv_disp_drv_t`).
+
+    config LV_DOUBLE_VDB
+        bool "Use two rendering buffers"
+        default n
+        help
+        Use two buffers to render and flush data in parallel
+
+    config LV_USE_RPC
+        bool "Using Remote Procedure Call"
+        depends on IRQ_PROXY
+        default n
+
+    config LV_USE_RPC_THRESHOLD
+        int "Threshold for RPC" if LV_USE_RPC=y
+        depends on LV_USE_RPC
+        default 50000
+        help
+            If the area size is larger than this value, RPC will be executed
+
+    config LV_RPC_SERVER
+        bool "Remote proxy server"
+        default n
+            
+    config LV_REFR_UNCONDITIONAL_AREA_JOIN
+        bool "Unconditionally join invalidated areas"
+        default n
+        help
+        When enabled, all invalidated areas will be joined unconditionally
+        during screen refresh, regardless of whether they overlap or not.
+
+    menu "Demos"
+        config LV_USE_DEMO_WIDGETS
+        bool "Show some widget"
+        default n
+
+        config LV_USE_DEMO_KEYPAD_AND_ENCODER
+            bool "Demonstrate the usage of encoder and keyboard"
+            default n
+
+        config LV_USE_DEMO_BENCHMARK
+            bool "Benchmark your system"
+            default n
+
+        config LV_USE_DEMO_MUSIC
+            bool "Music player demo"
+            default n   
+    endmenu
+
+
+    config LV_DRIVER_PIXEL_ALIGN_SIZE
+        int "lvgl display driver pixel alignment size"
+        default 1
+
+    choice LV_DRIVER_ROTATION
+        prompt "Display Rotation"
+        default LV_DRIVER_ROTATE_NORMAL
+        help
+            Select the rotation angle for the display
+
+        config LV_DRIVER_ROTATE_NORMAL
+            bool "No rotation (0 degrees)"
+            
+        config LV_DRIVER_ROTATE_90
+            bool "Rotate 90 degrees clockwise"
+            
+            
+        config LV_DRIVER_ROTATE_270
+            bool "Rotate 270 degrees clockwise"
+    endchoice
+
+    config LV_DRIVER_FULL_REFRESH
+        bool "full refresh"
+        default n
+        help
+        Always make the whole screen redrawn
+
+    config LV_USE_PERF_MONITOR
+        bool "Show CPU usage and FPS count."
+        default n
+
+    menu "CSK GPU"
+        config LV_USE_GPU_CSK_DMA2D
+            bool "use csk dma2d"
+            default n
+
+        config LV_CSK_DMA2D_CH
+            int "csk dma2d channel"
+            default 0
+
+        config LV_CSK_SW_LETTER
+            bool "csk dma2d software letter"
+            depends on LV_USE_GPU_CSK_DMA2D
+            default n
+
+        config LVGL_GPU_CSK_COPY
+            bool "csk dma2d copy"
+            depends on LV_USE_GPU_CSK_DMA2D
+            default y
+
+        config LVGL_GPU_CSK_FILL
+            bool "csk dma2d fill"
+            depends on LV_USE_GPU_CSK_DMA2D
+            default y
+        
+        config LVGL_GPU_CSK_FILL_MASK
+            bool "csk dma2d fill mask"
+            depends on LV_USE_GPU_CSK_DMA2D
+            default n
+        
+        config LVGL_GPU_CSK_BLEND
+            bool "csk dma2d blend"
+            depends on LV_USE_GPU_CSK_DMA2D
+            default n
+
+        config LVGL_GPU_CSK_COPY_MIN_SIZE
+            int "csk dma2d copy size"
+            depends on LVGL_GPU_CSK_COPY
+            default 5000
+
+        config LVGL_GPU_CSK_FILL_MIN_SIZE
+            int "csk dma2d fill size"
+            depends on LVGL_GPU_CSK_FILL
+            default 5000
+        
+        config LVGL_GPU_CSK_FILL_MASK_MIN_SIZE
+            int "csk dma2d fill mask size"
+            depends on LVGL_GPU_CSK_FILL_MASK
+            default 240
+        
+        config LVGL_GPU_CSK_BLEND_MIN_SIZE
+            int "csk dma2d blend size"
+            depends on LVGL_GPU_CSK_BLEND
+            default 240
+
+        config LVGL_GPU_CSK_GPDMA_DMA2D_MUTEX
+            bool "csk dma2d mutex"
+            default n
+
+        config LVGL_GPU_CSK_CPDMA_DMA2D
+            bool "csk cpdma do blend and fill"
+            default y
+
+        config LVGL_GPU_CSK_CPDMA_DMA2D_CH
+            depends on LVGL_GPU_CSK_CPDMA_DMA2D
+            int "csk cpdma channel for blend and fill "
+            default 1
+    endmenu
+
+    config LV_POINTER_SWAP_XY
+        bool "Swap keyboard scan X,Y axes"
+        help
+        Swap keyboard scan X,Y axes. This option can be used to align keyboard
+        scan coordinates with the display.
+
+    config LV_POINTER_INVERT_X
+        bool "Invert keyboard scan X axis"
+        help
+        Invert keyboard scan X axis. This option can be used to align keyboard
+        scan coordinates with the display.
+
+    config LV_POINTER_INVERT_Y
+        bool "Invert keyboard scan Y axis"
+        help
+        Invert keyboard scan Y axis. This option can be used to align keyboard
+        scan coordinates with the display.
+    
+    config LV_COORD_TYPE_INT32
+        bool "Use 32-bit coordinates"
+        default n
+        help
+        Use 32-bit coordinates instead of the default 16-bit coordinates.
+        This is useful for high-resolution displays or when working with large
+        coordinate values.
+
+endif
+
+endmenu 

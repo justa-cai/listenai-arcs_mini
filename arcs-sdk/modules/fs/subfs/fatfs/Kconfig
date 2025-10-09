@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config FATFS_FILESYSTEM
+	bool "FATFS file system support"
+	depends on FILE_SYSTEM
+	help
+	  Use the FATFS File system implementation.
+
+if FATFS_FILESYSTEM
+
+config FATFS_FFCONF_OVERRIDE
+	bool "FATFS file system config file override"
+	default n
+	help
+		FATFS file system config file override.	
+if FATFS_FFCONF_OVERRIDE
+
+config FATFS_FFCONF_NAME
+	string "FATFS file system config file name"
+	default ""
+	help 
+		FATFS file system config file name
+
+endif
+
+endif # FAT_FILESYSTEM_ELM

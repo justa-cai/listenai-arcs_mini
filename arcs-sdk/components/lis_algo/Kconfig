@@ -1,0 +1,11 @@
+menu "lis algo"
+
+config LIS_ALGO
+    bool "lis algo"
+    default n
+
+config LIS_ALGO_WORDSEG
+    bool "lis algo"
+    default n
+
+endmenu

@@ -1,0 +1,40 @@
+# Kconfig.nv3030b
+#
+# Copyright (c) 2024, LISTENAI
+#
+# SPDX-License-Identifier: Apache-2.0
+
+if LISA_DISPLAY_NV3030B
+
+config DISPLAY_NV3030B_WIDTH
+    int "Width of the NV3030B display"
+    default 170
+
+config DISPLAY_NV3030B_HEIGHT
+    int "Height of the NV3030B display"
+    default 320
+
+config DISPLAY_NV3030B_X_OFFSET
+    int "X offset of the NV3030B display"
+    default 35
+
+config DISPLAY_NV3030B_Y_OFFSET
+    int "Y offset of the NV3030B display"
+    default 0
+
+    config ROTATE_BUF_MAX_HEIGHT
+        int "Rotate buffer max height for NV3030B"
+        default DISPLAY_NV3030B_WIDTH
+        help
+          Specifies the maximum height of the buffer used for rotation operations.
+          This is typically related to the display's width or height.
+
+    config USE_TRANS_CTX
+        bool "Use transaction context for NV3030B"
+        default y
+        select LISA_DISPLAY_INTERFACE_SPI_4_LINE
+        help
+          Enables the transaction context layer for the NV3030B driver,
+          which is required for its operation and 4-line SPI interface.
+
+endif # LISA_DISPLAY_NV3030B

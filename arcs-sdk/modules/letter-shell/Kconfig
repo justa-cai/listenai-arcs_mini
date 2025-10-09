@@ -1,0 +1,22 @@
+menu "letter-shell configuration"
+
+    menuconfig SDK_MODULE_LETTER_SHELL
+        bool "letter-shell support"
+        default n
+
+        config SDK_MODULE_LETTER_SHELL_CONFIG_FILE
+            string "letter-shell config file"
+
+        config SDK_MODULE_LETTER_SHELL_CPP_SUPPORT
+            bool "letter-shell cpp support"
+            default n
+
+        config SDK_MODULE_LETTER_SHELL_FS_SUPPORT
+            bool "letter-shell fs support"
+            default n
+
+        config SDK_MODULE_LETTER_SHELL_ENHANCE
+            bool "letter-shell enhance support"
+            default n
+
+endmenu

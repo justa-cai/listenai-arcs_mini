@@ -1,0 +1,7 @@
+tests:
+  test.driver.gpadc:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity
+    
+

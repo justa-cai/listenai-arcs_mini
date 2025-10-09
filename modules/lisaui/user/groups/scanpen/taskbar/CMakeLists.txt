@@ -1,0 +1,20 @@
+# 添加所有源文件到主库
+
+set(${TARGET_NAME}_GROUP_TASKBAR_SOURCES
+    group_taskbar.c
+)
+
+set(${TARGET_NAME}_GROUP_TASKBAR_PAGE_SOURCES
+    pages/taskbar_top_page.c
+)
+
+set(${TARGET_NAME}_GROUP_TASKBAR_WIDGETS_SOURCES
+    widgets/lv_top_taskbar.c
+)
+
+
+target_sources(${TARGET_NAME} PRIVATE
+    ${${TARGET_NAME}_GROUP_TASKBAR_SOURCES}
+    ${${TARGET_NAME}_GROUP_TASKBAR_PAGE_SOURCES}
+    ${${TARGET_NAME}_GROUP_TASKBAR_WIDGETS_SOURCES}
+)

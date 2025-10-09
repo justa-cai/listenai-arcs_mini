@@ -1,0 +1,7 @@
+menu "irq proxy configuration"
+
+    config IRQ_PROXY
+        bool "irq proxy support"
+        default n
+
+endmenu

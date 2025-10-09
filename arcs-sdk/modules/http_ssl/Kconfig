@@ -1,0 +1,7 @@
+menu "SSL/TLS transport layer configuration"
+
+    config MODULE_ZE_TLS
+        bool "ze_tls support"
+        default n
+
+endmenu

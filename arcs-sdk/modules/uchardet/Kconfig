@@ -1,0 +1,8 @@
+menu "uchardet configuration"
+
+    config SDK_MODULE_UCHARDET
+        bool "uchardet support"
+        default n
+        select UCHARDET
+
+endmenu

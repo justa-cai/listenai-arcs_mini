@@ -1,0 +1,3 @@
+tests:
+  samples.network.wifi_dual_core.ap:
+    build_only: true

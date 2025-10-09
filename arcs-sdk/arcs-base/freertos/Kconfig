@@ -1,0 +1,54 @@
+menuconfig MODULE_FREERTOS
+    bool "FreeRTOS Module"
+    default y
+    help
+        Free RTOS(Real Time Operation System)
+
+config FREERTOS_STATIC_ALLOCATION_ENABLE
+    bool "support static allocation"
+    default n
+    help
+        support static allocation
+    depends on MODULE_FREERTOS
+
+config FREERTOS_FAST_FUNC_SECTION
+    string "freertos fast function section name"
+    default ".fast_text"
+    help
+      freertos fast function section name
+    depends on MODULE_FREERTOS
+
+config FREERTOS_TIMER_TASK_STACK_SIZE
+    int "freertos timer task stack size"
+    default 1024
+    help
+      freertos timer task stack size
+    depends on MODULE_FREERTOS
+
+config FREERTOS_STACK_HW_CHECK
+    bool "support stack hw check"
+    default y
+    help
+        support stack hw check
+    depends on MODULE_FREERTOS
+
+config FREERTOS_STATIC_STACK_MEM_SECTION_ENABLE
+    bool "support static stack mem section"
+    default n
+    help
+      support static stack mem section
+    depends on MODULE_FREERTOS
+
+if FREERTOS_STATIC_STACK_MEM_SECTION_ENABLE
+    config FREERTOS_STATIC_STACK_MEM_SECTION
+        string "freertos static stack mem section name"
+        default ""
+        help
+        freertos static stack mem section name
+endif
+
+menuconfig RISCV_FPU
+    bool "support fpu"
+    default n
+    help
+        support fpu

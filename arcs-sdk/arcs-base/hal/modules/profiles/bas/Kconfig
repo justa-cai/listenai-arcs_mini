@@ -1,0 +1,13 @@
+
+config BLE_PROFILE_BASC
+    bool "Enable BLE Profile BAS Client"
+    default n
+    help
+        Enable BLE Battery Service Client (BAS-C) support
+
+config BLE_PROFILE_BASS
+    bool "Enable BLE Profile BAS Server"
+    default n
+    help
+        Enable BLE Battery Service Server (BAS-S) support
+

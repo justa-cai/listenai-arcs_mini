@@ -1,0 +1,20 @@
+menu "ebus translation"
+
+    config EBUS
+        bool "ebus support"
+        default n
+        help
+            Enable ebus support
+        
+        choice
+            prompt "Select Operating System"
+            default EBUS_ENV_OS_FREERTOS
+        
+        config  EBUS_ENV_OS_POSIX
+            bool "POSIX"
+        
+        config EBUS_ENV_OS_FREERTOS
+            bool "FreeRTOS"
+        
+        endchoice
+endmenu

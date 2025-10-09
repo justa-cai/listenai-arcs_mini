@@ -1,0 +1,8 @@
+tests:
+  samples.pwm:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Hello, world! PWM"
+

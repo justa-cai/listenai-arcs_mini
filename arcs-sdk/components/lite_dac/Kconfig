@@ -1,0 +1,10 @@
+menu "dac configuration"
+
+config LITE_DAC
+    bool "DAC support"
+    default y
+
+config LITE_DAC_PROXY
+    bool "DAC proxy support"
+    default n
+endmenu

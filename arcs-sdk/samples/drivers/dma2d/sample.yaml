@@ -1,0 +1,9 @@
+tests:
+  samples.dma2d:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "YUV444 Transfer to RGB888 with DMA2D function Success!"
+
+

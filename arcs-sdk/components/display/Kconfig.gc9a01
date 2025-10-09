@@ -1,0 +1,39 @@
+menu "display gc9a01 configuration"
+
+
+if LISA_DISPLAY_GC9A01
+
+    config DISPLAY_GC9A01_WIDTH
+        int "display screen width"
+        default 170
+        help
+        The pixel length in the x-axis direction of the display screen, the maximum value is 172.
+
+    config DISPLAY_GC9A01_HEIGHT
+        int "display screen height"
+        default 320
+        help
+        The pixel length in the y-axis direction of the display screen, the maximum value is 640.
+
+    config DISPLAY_GC9A01_X_OFFSET
+        int "display screen x offset"
+        default 35
+        help
+        The pixel offset in the x-axis direction of the display screen.
+
+    config DISPLAY_GC9A01_Y_OFFSET
+        int "screen y offset"
+        default 0
+        help
+        The pixel offset in the y-axis direction of the display screen.
+
+    config ROTATE_BUF_MAX_HEIGHT
+        int "roate buffer buffer max height"
+        default DISPLAY_GC9A01_WIDTH
+
+    config USE_TRANS_CTX
+        bool "use trans context"
+        default y
+endif
+
+endmenu

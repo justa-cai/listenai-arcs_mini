@@ -1,0 +1,9 @@
+tests:
+  samples.dualtimer:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "DUAL_TIMER_Interrupt_Periodic end"
+
+

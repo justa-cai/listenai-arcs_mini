@@ -1,0 +1,7 @@
+menu "mp3dec"
+
+config SDK_MODULE_MP3_DECODER
+    bool "Enable mp3dec"
+    default n
+
+endmenu

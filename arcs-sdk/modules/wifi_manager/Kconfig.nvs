@@ -1,0 +1,21 @@
+menuconfig WIFI_MGR_NVS
+	bool "WiFi Manager NVS Support"
+    # depends on NVS
+	default n
+
+if WIFI_MGR_NVS
+
+config WIFI_MGR_NVS_PARTITION_OFFSET
+	hex "WiFi Manager NVS Partition Offset"
+	default 0xffc000
+
+config WIFI_MGR_NVS_PARTITION_SIZE
+	hex "WiFi Manager NVS Partition Size"
+	default 0x4000
+
+config WIFI_MGR_NVS_FLASH_SECTOR_SIZE
+	int "WiFi Manager NVS Partition Flash Sector Size"
+	default 4096
+
+
+endif #WIFI_MGR_NVS

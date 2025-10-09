@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "zlib"
+
+config ZLIB
+    bool "zlib support"
+    default n
+    help
+        A massively spiffy yet delicately unobtrusive compression library.
+        zlib.net/
+        https://github.com/madler/zlib/tree/master
+
+
+config ZLIB_SOLO
+    bool "zlib solo without gzip"
+    depends on ZLIB
+    default n
+    help
+        compiler without gzip
+        compiler without standard c file i/o stream.
+        application must provide custom memory allocation functions.
+
+endmenu

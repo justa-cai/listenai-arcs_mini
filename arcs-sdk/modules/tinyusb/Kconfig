@@ -1,0 +1,16 @@
+menu "tiny usb configuration"
+
+    config TINY_USB
+        bool "tiny usb support"
+        default n
+
+    config TINY_USB_USE_CUSTOM_CONFIG_FILE
+        bool "use custom tiny usb configuration file"
+        default y
+
+    config TINY_USB_CONFIG_FILE
+        string "tiny usb configuration file"
+        depends on TINY_USB_USE_CUSTOM_CONFIG_FILE
+        default "tusb_config.h"
+
+endmenu
