@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "ijg"
+
+config SDK_MODULE_IJG
+    bool "ijg support"
+    default n
+    help
+        Reference repository for The Independent JPEG Group's JPEG software, 
+        with the TurboJPEG API bolted on (for benchmarking purposes)
+        https://github.com/libjpeg-turbo/ijg/tree/main
+
+endmenu

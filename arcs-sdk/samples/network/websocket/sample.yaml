@@ -1,0 +1,3 @@
+tests:
+  samples.websocket:
+    build_only: true

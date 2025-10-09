@@ -1,0 +1,3 @@
+tests:
+  samples.touch:
+    build_only: true

@@ -1,0 +1,37 @@
+BEGIN CLIENT_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_otp_api_msg.h"
+#include "mrpc_otp_api_server.h"
+END
+
+BEGIN SERVER_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "net_al.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_otp_api_msg.h"
+#include "mrpc_otp_api_server.h"
+
+END
+
+BEGIN MSG_HDR_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "mrpc.h"
+END
+
+BEGIN API_DECLARE_TYPE_OTHER
+
+int8_t nv_selfcali_erase_otp(void);
+END

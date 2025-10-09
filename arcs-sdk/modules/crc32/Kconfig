@@ -1,0 +1,17 @@
+menuconfig MODULE_CRC32
+    bool "CRC32 Module"
+    default y
+    help
+        CRC32(Cyclic Redundancy Check 32) Module
+    if MODULE_CRC32
+        config CRC32_DEFAULT_POLYNOM
+            hex "CRC32 Generator Polynom"
+            default 0x04C11DB7
+
+        config CRC32_USE_STATIC_TABLE
+            bool "Use Static Table"
+            default y
+            help
+                say y to use static table in ROM
+                say n to use dynmic table in RAM, and calc in init
+    endif

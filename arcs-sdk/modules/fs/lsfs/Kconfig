@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config LSFS
+  bool "LSFS file system support"
+  help
+    Use the LSFS File system implementation.
+
+if LSFS
+
+config LSFS_MAX_NUMBER
+    int "Maximum number of subfs instances"
+    default 1
+    help
+      Maximum number of subfs instances that can be created.
+
+config LSFS_FAT
+    bool "Support fatfs under lsfs"
+    depends on FATFS_FILESYSTEM
+    default n
+
+config LSFS_REGISTER_VFS
+    bool "Register lsfs to lvfs"
+    depends on LVFS
+    default n
+    help
+        Register lsfs to lvfs.
+
+config LSFS_SUPPORT_FREEZE
+    bool "Support freeze file system"
+    default n
+    help
+        Support freeze file system.
+
+config LSFS_TRUNCATE_ALLOC_UNIT_SIZE
+    int "Truncate allc unit size"
+    default 32768
+    help
+        Truncate allc unit size.
+
+endif # LSFS

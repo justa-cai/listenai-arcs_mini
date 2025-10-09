@@ -1,0 +1,28 @@
+menu "collections-c configuration"
+
+config SDK_MODULE_COLLECTIONS_C
+    bool "collections-c support"
+    default n
+
+if SDK_MODULE_COLLECTIONS_C
+
+config SDK_MODULE_COLLECTIONS_C_WITHOUT_PREFIX
+    bool "collections-c prefix"
+    default n
+
+config SDK_MODULE_COLLECTIONS_C_CUSTOM_INCLUDE
+    bool "collections-c custom include"
+    default n
+
+config SDK_MODULE_COLLECTIONS_C_LIST_COMPILE_EN
+    bool "collections-c compile list"
+    default y
+
+config SDK_MODULE_COLLECTIONS_C_CUSTOM_INCLUDE_PATH
+    string "collections-c custom include path"
+    default ""
+    depends on SDK_MODULE_COLLECTIONS_C_CUSTOM_INCLUDE
+
+endif
+
+endmenu

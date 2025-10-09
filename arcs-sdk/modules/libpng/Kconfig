@@ -1,0 +1,8 @@
+menu "libpng configuration"
+
+    config SDK_MODULE_LIBPNG
+        bool "libpng support"
+        default n
+        select ZLIB
+
+endmenu

@@ -1,0 +1,5 @@
+config RTOS_AL
+    bool "RTOS Abstraction Layer"
+    default n
+    help
+        RTOS Abstraction Layer provides a unified interface for RTOS operations

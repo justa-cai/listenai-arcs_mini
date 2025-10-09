@@ -1,0 +1,9 @@
+config SDK_MODULE_ICO
+    bool "ico support"
+    default y
+
+menuconfig ICO
+    bool "ico support"
+    depends on SDK_MODULE_ICO
+    default y
+

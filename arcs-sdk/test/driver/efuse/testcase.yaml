@@ -1,0 +1,6 @@
+tests:
+  test.driver.gpio:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity
+    

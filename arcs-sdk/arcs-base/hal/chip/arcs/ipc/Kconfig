@@ -1,0 +1,145 @@
+
+config ARCS_HAL_IPC
+    bool "Enable ARCS HAL IPC"
+    select ARCS_HAL_IC_LOCK
+    default n
+    help
+        Enable IPC (Inter-Process Communication) support
+
+if ARCS_HAL_IPC
+    config ARCS_HAL_IPC_UTILS_IPC_FUNC_SECTION
+        string "IPC utils function section"
+        default .itcm_text
+        help
+            Enable IPC utils function section
+
+    choice
+        prompt "arcs hal wifi/lwip ipc type"
+        default ARCS_HAL_IPC_MASTER if LWIP
+        default ARCS_HAL_IPC_SLAVE if WIFI
+        config ARCS_HAL_IPC_SLAVE
+            bool "IPC Slave"
+            select ARCS_HAL_IPC_MRPC_SERVER_WIFI if WIFI_LWIP_DIFF_CORE
+            select ARCS_HAL_IPC_MRPC_CLIENT_LWIP if WIFI_LWIP_DIFF_CORE
+        config ARCS_HAL_IPC_MASTER
+            bool "IPC Master"
+            select ARCS_HAL_IPC_MRPC_CLIENT_WIFI if WIFI_LWIP_DIFF_CORE
+            select ARCS_HAL_IPC_MRPC_SERVER_LWIP if WIFI_LWIP_DIFF_CORE
+    endchoice
+
+    config ARCS_HAL_IPC_MRPC_SERVER
+        bool "Enable MRPC server"
+        default y
+        help
+            Enable MRPC (Message Remote Procedure Call) server support
+
+    config ARCS_HAL_IPC_MRPC_CLIENT
+        bool "Enable MRPC client"
+        default y
+        help
+            Enable MRPC (Message Remote Procedure Call) client support
+
+    config ARCS_HAL_IPC_MRPC_SERVER_LWIP
+        bool "Enable LWIP MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for LWIP API
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_LWIP
+        bool "Enable LWIP MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for LWIP API
+
+    config ARCS_HAL_IPC_MRPC_SERVER_WIFI
+        bool "Enable WIFI MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for WIFI API
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_WIFI
+        bool "Enable WIFI MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for WIFI API
+
+    config ARCS_HAL_IPC_MRPC_SERVER_NVS
+        bool "Enable NVS MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for NVS API
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_NVS
+        bool "Enable NVS MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for NVS API
+    
+    config ARCS_HAL_IPC_MRPC_SERVER_UTILS
+        bool "Enable utils MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for utils API
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_UTILS
+        bool "Enable utils MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for utils API
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_FLASH_IF
+        bool "Enable flash if MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for flash if API
+
+    config ARCS_HAL_IPC_MRPC_SERVER_FLASH_IF
+        bool "Enable flash if MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for flash if API
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_OTP
+        bool "Enable otp MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for otp API
+    
+    config ARCS_HAL_IPC_MRPC_SERVER_OTP
+        bool "Enable otp MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for otp API
+ 
+    config ARCS_HAL_IPC_HALT_BY_PEER_CORE
+        bool "Halt by peer core"
+        default n
+        help
+            Halt by peer core
+
+    config ARCS_HAL_IPC_HALT_PEER_CORE
+        bool "Halt peer core"
+        default n
+        help
+            Halt peer core
+    
+    config ARCS_HAL_IPC_FLASH_AGENT
+        bool "Enable flash agent"
+        default n
+        depends on ARCS_HAL_FLASH_IF
+        help
+            Enable flash agent
+
+endif

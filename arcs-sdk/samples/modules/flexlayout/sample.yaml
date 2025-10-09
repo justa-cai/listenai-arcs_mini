@@ -1,0 +1,8 @@
+tests:
+  samples.flexlayout:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Start flexlayout sample"
+

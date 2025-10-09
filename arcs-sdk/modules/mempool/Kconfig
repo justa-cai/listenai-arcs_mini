@@ -1,0 +1,7 @@
+menu "mempool"
+
+config SDK_MODULE_MEMPOOL
+    bool "enable sdk module mempool"
+    default n
+
+endmenu

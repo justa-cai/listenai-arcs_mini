@@ -1,0 +1,9 @@
+config SDK_MODULE_CURL
+    bool "curl support"
+    default y
+
+menuconfig CURL
+    bool "curl support"
+    depends on SDK_MODULE_CURL
+    default y
+

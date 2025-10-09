@@ -1,0 +1,6 @@
+
+config ARCS_HAL_BTOS
+    bool "Enable ARCS HAL BTOS"
+    default n
+    help
+        Enable BTOS support

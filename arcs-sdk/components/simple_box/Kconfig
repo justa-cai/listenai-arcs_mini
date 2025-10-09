@@ -1,0 +1,30 @@
+menu "SimpleBox (Simple BusyBox)"
+
+config SIMPLE_BOX
+    bool "Simple BusyBox"
+    select LSFS
+    select LVFS
+    select LVFS_POSIX_API
+    select LVFS_POSIX_API_ALIAS
+    select DIRENT
+    select SDK_MODULE_LETTER_SHELL
+    select MODULE_HEAP
+    select LOG
+    default n
+
+config SIMPLE_BOX_DEFAULT_MOUNT_PATH
+    string "Default mount path"
+    default "/SD:/"
+    depends on SIMPLE_BOX
+
+config SIMPLE_BOX_LS_SHOW_TIME
+    bool "Show time in ls command"
+    default n
+    depends on SIMPLE_BOX
+
+config SIMPLE_BOX_COPY_BUF_SIZE
+    int "Buffer size for copy command"
+    default 4096
+    depends on SIMPLE_BOX
+
+endmenu

@@ -1,0 +1,7 @@
+tests:
+  samples.wifi_single_core:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "EVENT_WIFI_INIT_DONE"

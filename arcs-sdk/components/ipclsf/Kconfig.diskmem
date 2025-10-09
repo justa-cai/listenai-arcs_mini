@@ -1,0 +1,43 @@
+config DISK_MEM
+    bool "disk memory"
+    default y
+
+if DISK_MEM
+
+config DISK_MEMORY_CACHE
+    bool "disk memory cache "
+    default n
+    
+config DISK_MEM_PSRAM_BASE
+    hex "Disk memory PSRAM base address"
+    default 0x28000000
+
+config DISK_MEM_THREAD_PRIORITY
+    int "Disk memory thread priority"
+    default 10
+
+config DISK_MEM_THREAD_STACK_SIZE
+    int "Disk memory thread stack size"
+    default 0x600
+
+choice
+    prompt "disk memory type"
+    default DISK_MEM_SERVER if LSF_CLIENT
+    default DISK_MEM_CLIENT if LSF_SERVER
+    config DISK_MEM_CLIENT
+        bool "disk memory client"
+    
+    config DISK_MEM_SERVER
+        bool "disk memory server"
+
+endchoice
+
+if DISK_MEM_SERVER
+
+    
+    config DISK_MEM_SD_INDEX
+        int "Disk memory SD index"
+        default 0
+endif
+
+endif

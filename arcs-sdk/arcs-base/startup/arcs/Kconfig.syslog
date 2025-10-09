@@ -1,0 +1,40 @@
+menu "syslog backend uart"
+
+config SYSLOG_UART_PORT
+    int "uart port"
+    default 0
+    range 0 2
+
+config SYSLOG_UART_BAUDRATE
+    int "uart baudrate"
+    default 921600
+
+config SYSLOG_UART_TX_PORT
+    int "log uart tx port"
+    default 0
+
+config SYSLOG_UART_TX_PIN
+    int "log uart tx pin"
+    default 3
+
+config SYSLOG_UART_TX_PIN_FUNC_SEL
+    int "log uart tx pin func sel"
+    default 0x2
+
+config SYSLOG_PRINTK_REDIRECT
+    bool "printk redirect"
+    default n
+
+config SYSLOG_PRINTF_REDIRECT
+    bool "printf redirect"
+    default n
+
+config SYSLOG_STDOUT
+    bool "stdout"
+    default y
+
+config SYSLOG_BANNER
+    bool "banner"
+    default y
+
+endmenu

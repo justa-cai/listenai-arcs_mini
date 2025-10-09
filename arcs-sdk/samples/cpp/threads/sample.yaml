@@ -1,0 +1,8 @@
+tests:
+  samples.cpp.threads:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Variable Tests Completed"
+

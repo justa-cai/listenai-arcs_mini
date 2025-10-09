@@ -1,0 +1,7 @@
+menu "flexlayout configuration"
+
+    config SDK_MODULE_FLEXLAYOUT
+        bool "flexlayout support"
+        default n
+
+endmenu

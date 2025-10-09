@@ -1,0 +1,5 @@
+config RINGBUF
+    bool "Enable RINGBUF"
+    default n
+    help
+        Enable RINGBUF

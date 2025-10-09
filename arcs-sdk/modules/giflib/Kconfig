@@ -1,0 +1,7 @@
+menu "giflib configuration"
+
+    config SDK_MODULE_GIFLIB
+        bool "giflib support"
+        default n
+
+endmenu

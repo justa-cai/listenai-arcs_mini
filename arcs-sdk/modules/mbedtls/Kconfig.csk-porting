@@ -1,0 +1,88 @@
+menu "Mbedtls hardware acceleration"
+     depends on SDK_MODULE_MBEDTLS && MBEDTLS_CFG_FILE = "config-tls-generic.h"
+
+menu "hardware acceleration ic_mutex"
+    config MBEDTLS_HARDWARE_IC_MUTEX
+        bool "Enable hardware acceleration for multi-core by use ic_mutex"
+        depends on ARCS_HAL_IC_MUTEX
+        default y
+endmenu
+
+menu "General hardware acceleration"
+
+    config MBEDTLS_PLATFORM_PRINTF_ALT
+        bool "Enable platform custom printf"
+        default n
+
+endmenu
+
+menu " Cipher hardware acceleration"
+
+    config MBEDTLS_HARDWARE_AES
+        bool "Enable hardware AES acceleration"
+        default n
+
+    config MBEDTLS_HARDWARE_AES_CCM
+        bool "Enable hardware aes ccm acceleration"
+        default n
+
+    config MBEDTLS_HARDWARE_AES_GCM
+        bool "Enable hardware aes gcm acceleration"
+        default n
+
+    config MBEDTLS_HARDWARE_AES_CMAC
+        bool "Enable hardware aes cmac acceleration"
+        default n
+
+endmenu
+
+menu "Message digest hardware acceleration"
+
+    config MBEDTLS_HARDWARE_SHA1
+        bool "Currently not available, do not use it now. Enable hardware SHA1 acceleration"
+        depends on n
+
+    config MBEDTLS_HARDWARE_SHA256
+        bool "Currently not available, do not use it now. Enable hardware SHA256 acceleration"
+        depends on n
+
+    config MBEDTLS_HARDWARE_SHA512
+        bool "Currently not available, do not use it now. Enable hardware SHA512 acceleration"
+        depends on n
+
+    config MBEDTLS_HARDWARE_SHA_HMAC
+        bool "Enable hardware sha hmac acceleration"
+        default n
+
+endmenu
+
+menu "Entropy source hardware acceleration"
+
+    config MBEDTLS_HARDWARE_ENTROPY
+        bool "mbed TLS entropy source based on hardware entropy"
+        help
+            This option enables the entropy source based on hardware entropy
+            for mbed TLS.
+
+endmenu
+
+menu "Rsa hardware acceleration"
+
+    config MBEDTLS_HARDWARE_MPI_MODULAR_EXPONENTIATION
+        bool "Enable hardware MPI modular exponent acceleration"
+        default n
+        help
+            Enable hardware acceleration for MPI modular exponentiation(X = A^E mod N).
+            This option can accelerate RSA and other algorithms that use modular exponentiation.
+
+endmenu
+
+menu "Ecp hardware acceleration"
+
+    config MBEDTLS_HARDWARE_ECC
+        bool "Enable hardware ECC acceleration"
+        default n
+
+endmenu
+
+endmenu

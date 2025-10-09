@@ -1,0 +1,11 @@
+config CJSON
+    bool "CJSON"
+    default n
+
+config CJSON_CUSTOM_INCLUDE
+    bool "CJSON custom include"
+    default n
+
+config CJSON_CUSTOM_INCLUDE_PATH
+    string "CJSON custom include path"
+    default ""

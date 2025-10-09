@@ -1,0 +1,7 @@
+tests:
+  test.mac_manager:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"
+
+

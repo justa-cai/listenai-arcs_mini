@@ -1,0 +1,13 @@
+menu "Custom dirent.h"
+
+config DIRENT
+    bool "custom <dirent.h>"
+    select LSFS
+    select MODULE_HEAP
+    default n
+
+config DIRENT_EMPTY_IMPLEMENTATION
+    bool "empty implementation"
+    default n
+
+endmenu

@@ -1,0 +1,8 @@
+tests:
+  samples.freetype.benchmark:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "FreeType Benchmark Completed"
+

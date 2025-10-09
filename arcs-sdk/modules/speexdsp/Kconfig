@@ -1,0 +1,7 @@
+menu "speexdsp"
+
+config SDK_MODULE_SPEEXDSP
+    bool "enable sdk module speexdsp"
+    default n
+
+endmenu

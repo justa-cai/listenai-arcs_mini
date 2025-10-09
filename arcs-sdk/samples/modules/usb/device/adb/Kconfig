@@ -1,0 +1,2 @@
+osource "$LISTENAI_MODULES"
+osource "../../../modules/fs/Kconfig"

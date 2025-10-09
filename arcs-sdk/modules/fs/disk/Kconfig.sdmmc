@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config DISK_DRIVER_SDMMC
+	bool "SDMMC disk driver"
+	default n
+	help
+		Support using sdmmc devices as storage media for file systems
+
+if DISK_DRIVER_SDMMC
+
+config DISK_SDMMC_VOLUME_NAME
+	string "SDMMC mount point or drive name"
+	default "SD"
+	help
+	  Disk name as per file system naming guidelines.
+
+config DISK_SDMMC_START_SECTOR_NUMBER
+	int "SDMMC disk start sector number"
+	default 0x0
+	help
+	  The starting sector number of the file system in the SD/MMC device.
+config DISK_SDMMC_ACCESS_BUFFER_ALIGN_ENABLE
+	bool "Enable SDMMC access buffer alignment"
+	default y
+
+if DISK_SDMMC_ACCESS_BUFFER_ALIGN_ENABLE
+
+config DISK_SDMMC_ACCESS_BUFFER_ALIGN_SIZE
+	int "SDMMC access buffer alignment size"
+	default 32
+
+config DISK_SDMMC_ACCESS_WRAP_BUFFER_SIZE
+	int "SDMMC access wrap buffer size"
+	default 4096
+
+endif
+
+config DISK_SDMMC_IOCACHE_ENABLE
+	bool "Enable SDMMC IO cache"
+	default n
+	depends on DISK_IOCACHE_ENABLE
+
+if DISK_SDMMC_IOCACHE_ENABLE
+	config DISK_SDMMC_IOCACHE_ENTRY_COUNT
+		int "SDMMC IO cache entry count"
+		default 1024
+	config DISK_SDMMC_IOCACHE_MAX_BLOCK_SIZE
+		int "SDMMC IO cache max block size"
+		default 512
+	config DISK_SDMMC_IOCACHE_SECTOR_SIZE
+		int "SDMMC IO cache sector size"
+		default 512
+
+endif
+
+endif # DISK_DRIVER_SDMMC

@@ -1,0 +1,7 @@
+tests:
+  test.port_content_chip_id:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"
+
+

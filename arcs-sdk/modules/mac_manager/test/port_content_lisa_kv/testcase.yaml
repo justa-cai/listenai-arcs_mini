@@ -1,0 +1,7 @@
+tests:
+  test.port_content_lisa_kv:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"
+
+

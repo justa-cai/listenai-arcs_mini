@@ -1,0 +1,6 @@
+tests:
+  test.components.simple_box:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity
+    

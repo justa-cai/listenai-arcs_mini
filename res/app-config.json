@@ -1,0 +1,93 @@
+{
+    "application": {
+        "name": "arcs-mini",
+        "version": "1.0.0",
+        "abilities": {
+            "chat": {
+                "cloud": {
+                    "name": "ls-platform",
+                    "config": {
+                        "pid": "2c56b225-24ae-45a9-831a-47647ddd0e97",
+                        "sid": "34d89359-a781-4639-a26d-b3022d2d3730",
+                        "app-id": "77e37093",
+                        "app-key": "821424562fa9c775da446e998e0e5303"
+                    },
+                    "auth": {
+                        "url": "http://api.listenai.com/v1/auth/tokens"
+                    },
+                    "websocket": {
+                        "host": "api.listenai.com",
+                        "port": "80",
+                        "path": "/v1/websocket",
+                        "scheme": "ws"
+                    }
+                }
+            }
+        },
+        "config": {
+            "wake-up": {
+                "voice": {
+                    "enable": true,
+                    "keywords-filter": false,
+                    "keywords": [
+                        "xiao ling xiao ling"
+                    ]
+                },
+                "button": {
+                    "enable": true,
+                    "mode": "one-shot"
+                }
+            },
+            "role": {
+                "name": "小聆",
+                "prompt": "请用\"小聆小聆\"唤醒我",
+                "keywords": [
+                    "xiao ling xiao ling"
+                ],
+                "hello": {
+                    "text": "你好，我是小聆",
+                    "tone-id": 1
+                }
+            },
+            "network": {
+                "dns": {
+                    "servers": [
+                        "114.114.114.114",
+                        "223.5.5.5"
+                    ],
+                    "timeout-ms": 1000,
+                    "retry-interval-ms": 1000,
+                    "retry-times": 3
+                },
+                "sntp": {
+                    "servers": [
+                        "time1.cloud.tencent.com",
+                        "time2.cloud.tencent.com",
+                        "time3.cloud.tencent.com"
+                    ],
+                    "timezone": "Asia/Shanghai",
+                    "timeout-ms": 1000,
+                    "retry-interval-ms": 1000,
+                    "retry-times": 3
+                }
+            },
+            "resources": [
+                {
+                    "name": "wrap",
+                    "address": 807403520,
+                    "size": 761
+                },
+                {
+                    "name": "esr",
+                    "address": 807469056,
+                    "size": 2621440
+                },
+                {
+                    "name": "tone",
+                    "address": 806354944,
+                    "size": 4389
+                }
+            ]
+        }
+    }
+}

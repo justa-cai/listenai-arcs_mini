@@ -1,0 +1,7 @@
+menu "googletest configuration"
+
+    config MODULE_GTEST
+        bool "google's c++ test framework support"
+        default n
+
+endmenu

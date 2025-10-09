@@ -1,0 +1,6 @@
+tests:
+  test.components.exclib:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity
+    

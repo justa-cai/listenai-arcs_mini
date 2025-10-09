@@ -1,0 +1,4 @@
+tests:
+  samples.ic_mutex_shared_variable_ap:
+    build_only: true
+

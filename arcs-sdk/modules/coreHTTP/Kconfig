@@ -1,0 +1,7 @@
+menu "coreHttp"
+
+config SDK_MODULE_COREHTTP
+    bool "enable sdk module core http"
+    default n
+
+endmenu

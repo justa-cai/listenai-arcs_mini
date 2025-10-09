@@ -1,0 +1,32 @@
+menu "mac manager configuration"
+
+config MAC_MANAGER
+        bool "enable mac manager"
+        default n
+        select LOG
+        select LISA_KV
+
+if MAC_MANAGER
+    choice
+        prompt "MAC manager selection"
+        default MAC_MANAGER_MAC_IN_LISA_KV
+
+    config MAC_MANAGER_MAC_IN_LISA_KV
+        bool "mac from lisa kv"
+
+    config MAC_MANAGER_MAC_IN_FLASH
+        bool "mac in flash"
+
+    config MAC_MANAGER_MAC_BY_CHIP_ID
+        bool "mac by chip id"
+
+    endchoice
+
+    config MAC_MANAGER_MAC_IN_FLASH_ADDR
+        hex "mac in flash address"
+        default 0xFF0000
+        depends on MAC_MANAGER_MAC_IN_FLASH
+
+endif #MAC_MANAGER
+
+endmenu

@@ -1,0 +1,3 @@
+tests:
+  samples.wifi_manage:
+    build_only: true

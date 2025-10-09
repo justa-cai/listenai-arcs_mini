@@ -1,0 +1,17 @@
+
+menu "algo components"
+
+config ACOMP
+    bool "algo components"
+    default n
+
+if ACOMP
+    config ACOMP_WSP
+        bool "algo component word spell"
+        default n
+
+endif
+
+rsource "Kconfig.res"
+endmenu
+

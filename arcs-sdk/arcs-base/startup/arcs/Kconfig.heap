@@ -1,0 +1,43 @@
+menu "heap"
+
+config HEAP
+    bool
+    default y
+    help
+        Enable the heap
+
+config HEAP_SIZE
+    hex "Heap size"
+    default 0x5000
+    depends on HEAP
+    help
+        Size of the heap in bytes
+
+config PSRAM_HEAP
+    bool "Enable PSRAM heap"
+    default y
+    help
+        Enable the PSRAM heap
+
+config PSRAM_HEAP_SIZE
+    hex "PSRAM heap size"
+    default 0x20000
+    depends on PSRAM_HEAP
+    help
+        Size of the PSRAM heap in bytes
+
+config PSRAM_NOCACHE_HEAP
+    bool "Enable non-cache PSRAM heap"
+    default n
+    help
+        Enable the non-cache PSRAM heap
+    
+if PSRAM_NOCACHE_HEAP
+config PSRAM_NOCACHE_HEAP_SIZE
+    hex "no-cache PSRAM heap size"
+    default 0x1000
+    help
+        Size of the non-cache PSRAM heap in bytes, must be a power of 2.
+endif
+
+endmenu

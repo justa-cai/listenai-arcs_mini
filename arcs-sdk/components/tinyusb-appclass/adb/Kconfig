@@ -1,0 +1,38 @@
+menu "adb"
+
+config ADB
+    bool "adb"
+    default n
+
+config ADB_MAX_PAYLOAD_SIZE
+    int "adb max payload size"
+    default 51200
+    range 1024 65536
+
+config ADB_TASK_PRIORITY
+    int "adb task priority"
+    default 5
+
+config ADB_SYNC
+    bool "adb sync"
+    default n
+    select ADB
+    select LSFS
+
+config ADB_SHELL
+    bool "adb shell"
+    default n
+    select ADB
+
+config ADB_SHELL_BUFFER_SIZE
+    int "adb shell buffer size"
+    default 4096
+
+config ADB_PUSH_PULL_DEFAULT_ROOT
+    string "adb push/pull default root"
+    default "/RAM:/adb/"
+    depends on ADB_SYNC
+
+
+
+endmenu

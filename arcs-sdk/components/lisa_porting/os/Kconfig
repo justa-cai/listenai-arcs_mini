@@ -1,0 +1,7 @@
+menu "lisa os configuration"
+
+    config LISA_OS
+        bool "lisa os support"
+        default n
+
+endmenu

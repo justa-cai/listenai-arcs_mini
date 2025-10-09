@@ -1,0 +1,8 @@
+tests:
+  samples.cpp.io_stream:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "IO Stream Tests Completed"
+

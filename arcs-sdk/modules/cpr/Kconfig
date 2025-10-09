@@ -1,0 +1,8 @@
+config LIB_CPR
+    bool "lib cpr"
+    default n
+    select SDK_MODULE_CURL if LIB_CPR
+    help
+        Enable lib cpr (A http requests library based on curl)
+
+

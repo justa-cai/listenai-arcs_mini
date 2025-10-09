@@ -1,0 +1,8 @@
+tests:
+  samples.keysense:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Hello, world! KEYSENSE"
+

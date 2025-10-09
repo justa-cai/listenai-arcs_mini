@@ -1,0 +1,9 @@
+tests:
+  samples.trng:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "trng interrupt test end!!!!"
+
+

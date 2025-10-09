@@ -1,0 +1,119 @@
+
+config LV_CUSTOM_MONITOR
+    bool "Custom monitor"
+    default n
+
+config LV_USE_RPC
+    bool "Using Remote Procedure Call"
+    default n
+
+config LV_USE_RPC_THRESHOLD
+    int "Threshold for RPC" if LV_USE_RPC=y
+    default 50000
+    help
+        If the area size is larger than this value, RPC will be executed
+
+config LV_DOUBLE_VDB
+    bool "Use two rendering buffers"
+    default n
+    help
+    Use two buffers to render and flush data in parallel
+
+config LV_DRIVER_PIXEL_ALIGN_SIZE
+    int "lvgl display driver pixel alignment size"
+    default 1
+
+config LV_CUSTOM_TASK_CPU_PER
+    bool "Use task runtime ticks to calculate CPU usage"
+    default n
+
+config LV_DRIVER_FULL_REFRESH
+    bool "full refresh"
+    default n
+    help
+    Always make the whole screen redrawn
+
+choice LV_DRIVER_ROTATION
+    prompt "Display Rotation"
+    default LV_DRIVER_ROTATE_NORMAL
+    help
+        Select the rotation angle for the display
+
+    config LV_DRIVER_ROTATE_NORMAL
+        bool "No rotation (0 degrees)"
+        
+    config LV_DRIVER_ROTATE_90
+        bool "Rotate 90 degrees clockwise"
+        
+        
+    config LV_DRIVER_ROTATE_270
+        bool "Rotate 270 degrees clockwise"
+endchoice
+
+menu "CSK GPU"
+    config LV_USE_GPU_CSK_DMA2D
+        bool "use csk dma2d"
+        default n
+
+    config LV_CSK_DMA2D_CH
+        int "csk dma2d channel"
+        default 0
+
+    config LV_CSK_SW_LETTER
+        bool "csk dma2d software letter"
+        depends on LV_USE_GPU_CSK_DMA2D
+        default n
+
+    config LVGL_GPU_CSK_COPY
+        bool "csk dma2d copy"
+        depends on LV_USE_GPU_CSK_DMA2D
+        default n
+
+    config LVGL_GPU_CSK_FILL
+        bool "csk dma2d fill"
+        depends on LV_USE_GPU_CSK_DMA2D
+        default n
+    
+    config LVGL_GPU_CSK_FILL_MASK
+        bool "csk dma2d fill mask"
+        depends on LV_USE_GPU_CSK_DMA2D
+        default n
+    
+    config LVGL_GPU_CSK_BLEND
+        bool "csk dma2d blend"
+        depends on LV_USE_GPU_CSK_DMA2D
+        default n
+
+    config LVGL_GPU_CSK_COPY_MIN_SIZE
+        int "csk dma2d copy size"
+        depends on LVGL_GPU_CSK_COPY
+        default 1024
+
+    config LVGL_GPU_CSK_FILL_MIN_SIZE
+        int "csk dma2d fill size"
+        depends on LVGL_GPU_CSK_FILL
+        default 1024
+    
+    config LVGL_GPU_CSK_FILL_MASK_MIN_SIZE
+        int "csk dma2d fill mask size"
+        depends on LVGL_GPU_CSK_FILL_MASK
+        default 240
+    
+    config LVGL_GPU_CSK_BLEND_MIN_SIZE
+        int "csk dma2d blend size"
+        depends on LVGL_GPU_CSK_BLEND
+        default 240
+
+    config LVGL_GPU_CSK_GPDMA_DMA2D_MUTEX
+        bool "csk dma2d mutex"
+        default n
+
+    config LVGL_GPU_CSK_CPDMA_DMA2D
+        bool "csk cpdma do blend and fill"
+        default y
+
+    config LVGL_GPU_CSK_CPDMA_DMA2D_CH
+        depends on LVGL_GPU_CSK_CPDMA_DMA2D
+        int "csk cpdma channel for blend and fill "
+        default 1
+endmenu

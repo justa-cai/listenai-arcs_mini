@@ -1,0 +1,8 @@
+tests:
+  samples.uart:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Hello, world! UART RX TX"
+

@@ -1,0 +1,8 @@
+tests:
+  samples.usb.device.msc:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Device mounted"
+

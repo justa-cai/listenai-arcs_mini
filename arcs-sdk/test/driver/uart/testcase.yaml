@@ -1,0 +1,8 @@
+tests:
+  test.driver.uart:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity
+    
+
+

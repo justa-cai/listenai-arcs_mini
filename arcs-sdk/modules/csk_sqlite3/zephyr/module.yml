@@ -1,0 +1,4 @@
+name: csk_sqlite3
+build:
+  cmake: .
+  kconfig: Kconfig

@@ -1,0 +1,7 @@
+menu "aac decoder"
+
+config SDK_MODULE_AAC_DECODER
+    bool "Enable aac decoder"
+    default n
+
+endmenu

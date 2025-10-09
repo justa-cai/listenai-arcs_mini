@@ -1,0 +1,8 @@
+tests:
+  samples.self_check:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "[ All tests PASS ]"
+

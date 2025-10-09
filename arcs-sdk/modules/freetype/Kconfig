@@ -1,0 +1,7 @@
+menu "freetype configuration"
+
+    config SDK_MODULE_FREETYPE
+        bool "freetype support"
+        default n
+
+endmenu

@@ -1,0 +1,8 @@
+menu "libxml2 configuration"
+
+    config SDK_MODULE_LIBXML
+        bool "libxml2 support"
+        default n
+        select LIBXML2
+
+endmenu

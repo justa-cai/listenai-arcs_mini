@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+includedir=${prefix}/include
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+
+Name: libid3tag
+Description: ID3 tag manipulation library for MP3 files
+Version: @CMAKE_PROJECT_VERSION@
+URL: https://codeberg.org/tenacityteam/libid3tag
+Libs: -L${libdir} -lid3tag -lz
+Cflags: -I${includedir}

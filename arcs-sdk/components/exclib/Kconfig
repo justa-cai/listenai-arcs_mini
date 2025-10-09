@@ -1,0 +1,6 @@
+config EXCLIB
+    bool "exclib"
+    default n
+    help
+        exclib is a library for extending the Clib
+        

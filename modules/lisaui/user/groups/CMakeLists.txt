@@ -1,0 +1,7 @@
+if(CONFIG_LISAUI_GROUPS_VOICEASSISTANT)
+    add_subdirectory(voiceassistant)
+elseif(CONFIG_LISAUI_GROUPS_SCANPEN)
+    add_subdirectory(scanpen)
+elseif(CONFIG_LISAUI_GROUPS_LLM)
+    add_subdirectory(llm)
+endif()

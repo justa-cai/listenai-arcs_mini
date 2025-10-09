@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: Apache-2.0
+choice
+    prompt "Select Operating System"
+    default FS_ENV_OS_FREERTOS
+
+config  FS_ENV_OS_BARE_METAL
+    bool "Bare Metal (No OS)"
+
+config FS_ENV_OS_FREERTOS
+    bool "FreeRTOS"
+
+endchoice
+
+choice FS_ENV_MEMORY_SELECTION
+    prompt "Memory Management Selection"
+    default FS_ENV_MEMORY_MANAGEMENT_OS if FS_ENV_OS_FREERTOS
+    default FS_ENV_MEMORY_MANAGEMENT_CLIB
+    help
+        Select the memory management strategy for the file system.
+
+config FS_ENV_MEMORY_MANAGEMENT_CLIB
+    bool "Standard C Library (malloc/free)"
+    help
+        Use standard C library memory management functions.
+        This is suitable for simple systems or when no special memory requirements exist.
+        Functions used: malloc(), free(), realloc()
+
+config FS_ENV_MEMORY_MANAGEMENT_OS
+    bool "OS Heap Management"
+    depends on FS_ENV_OS_FREERTOS
+    help
+        Use OS memory management system.
+
+endchoice
+
+config FS_ENV_MEMORY_MANAGEMENT_USE_PSRAM
+    bool "Use PSRAM for memory management"
+    default y
+    depends on FS_ENV_MEMORY_MANAGEMENT_OS
+
+if FS_ENV_OS_FREERTOS
+    config FS_ENV_OS_LIBRARY_NAME
+        string "Library name"
+        default "freertos"
+endif

@@ -1,0 +1,7 @@
+menu "lisa evs configuration"
+
+    config LISA_EVS
+        bool "lisa evs support"
+        default n
+
+endmenu

@@ -1,0 +1,4 @@
+tests:
+  samples.audio_adc:
+    build_only: true
+

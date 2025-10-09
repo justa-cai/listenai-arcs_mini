@@ -1,0 +1,7 @@
+tests:
+  samples.jpeg:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Conversion completed successfully"

@@ -1,0 +1,3 @@
+listenai_library_named(config)
+listenai_library_sources(config_parser.c)
+listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})

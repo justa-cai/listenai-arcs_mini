@@ -1,0 +1,8 @@
+tests:
+  samples.lsfs:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "LSFS sample"
+

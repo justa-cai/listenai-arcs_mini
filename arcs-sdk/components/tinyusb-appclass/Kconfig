@@ -1,0 +1,12 @@
+menu "tiny usb app class"
+
+config TUSB_APP_CLASS
+    bool "tiny usb app class"
+    default n
+    depends on TINY_USB
+
+if TUSB_APP_CLASS
+    rsource "adb/Kconfig"
+endif
+
+endmenu

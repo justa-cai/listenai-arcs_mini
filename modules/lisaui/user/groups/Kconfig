@@ -1,0 +1,11 @@
+choice 
+    prompt "LISAUI group selection"
+    default LISAUI_GROUPS_LLM
+    config LISAUI_GROUPS_VOICEASSISTANT
+        bool "Groups for Voice Assistant"
+    config LISAUI_GROUPS_SCANPEN
+        bool "Groups for SCANPEN"
+    config LISAUI_GROUPS_LLM
+        bool "Groups for Large language model"
+endchoice
+

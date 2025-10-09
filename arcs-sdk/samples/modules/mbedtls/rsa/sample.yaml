@@ -1,0 +1,8 @@
+tests:
+  samples.rsa:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "PKCS#1 sig. verify: all passed"
+
