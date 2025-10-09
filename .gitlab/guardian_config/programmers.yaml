@@ -1,0 +1,14 @@
+# 编程器配置
+# 参数：
+# device: 目标设备（一般为串口）
+# firmware: 固件路径
+
+programmers:
+  arcs:
+    commands:
+      - "./tools/burn/cskburn -s {device} -b 3000000 0x0 {firmware} --verify-all"
+    log_file: "program.log"
+  jlink:
+    commands:
+      - "JLinkExe -USB {device} -device vega -if SWD -speed 4000 -autoconnect 1 -CommanderScript {firmware}"
+    log_file: "program.log" 
