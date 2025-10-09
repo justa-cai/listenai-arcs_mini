@@ -1,0 +1,13 @@
+.git/
+.git
+.gitattributes
+.gitignore
+.gitmodules
+.gitlab
+.github
+build/
+.cache
+guardian-out*/
+.vscode
+listenai-tools/
+listenai-tools.tar.gz

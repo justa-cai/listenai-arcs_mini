@@ -1,0 +1,9 @@
+- connected: true                   # 设备是否连接
+  platform: arcs                    # 设备平台（可选）
+  program:                         # 烧录配置
+    programmer: arcs        # 使用的烧录器（对应programmers.yaml中的配置）
+    device: /dev/ttyACM3          # 烧录串口号（此为默认值，CI会根据$TARGET_SERIAL_NUM查找正确的串口号）
+  log:                            # 日志配置
+    serial_port: /dev/ttyACM3     # 日志串口（此为默认值，CI会根据$TARGET_SERIAL_NUM查找正确的串口号）
+    serial_baud: 921600          # 波特率
+
