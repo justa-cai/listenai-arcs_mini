@@ -98,7 +98,7 @@ static mcp_param_def_t brightness_get_params[] = {
 
 // 使用静态段注册宏注册设置亮度工具
 MCP_REGISTER_TOOL_STATIC(display_set_brightness, 
-                         "设置显示器的亮度。亮度可以10%为步长进行设置 (0, 10, 20, ..., 100)。", 
+                         "设置显示器的亮度。亮度可以10%为步长进行设置 (0, 10, 20, ..., 100)。当用户无具体设置数值时,得先调用display_get_brightness工具获取当前音量，再做调整。", 
                          "1.0", 
                          brightness_control_params, 
                          1, 

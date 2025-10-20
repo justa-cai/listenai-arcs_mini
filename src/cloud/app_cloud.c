@@ -210,7 +210,7 @@ static int _wifi_conn_runnable(void *arg)
 	LISA_LOGI(TAG, "cloud connect, curr state: %d", s_cloud->ws_state);
 	listen_soundplayer_play(s_cloud->m_client->sound_player, TONE_ID_59, 0);
 	if (s_cloud->ws_state == LS_WS_DISCONNECT) {
-		lisa_aiui_connect(s_cloud->aiui, false);
+		lisa_aiui_connect(s_cloud->aiui, true);
 		s_cloud->ws_state = LS_WS_CONNECTING;
 	}
 
@@ -243,7 +243,7 @@ static int _ws_reconnect(void *arg)
 	// 重连前需要主动调用断开链接
 	s_cloud->ws_state = LS_WS_DISCONNECT;
 	lisa_aiui_disconnect(s_cloud->aiui);
-	if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, s_cloud->m_fast_reconnect)) {
+	if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, true)) {
 		evs_handler_post_runnable_delay(_ws_reconnect, NULL, 1000);
 	} else {
 		s_cloud->ws_state = LS_WS_CONNECTING;
