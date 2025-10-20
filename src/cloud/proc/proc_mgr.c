@@ -495,6 +495,12 @@ static int _proc_msg_continue(void *arg)
 			}
 		}
 
+		// 暂时屏蔽画画技能，避免死机
+		if (nlp_origin && cJSON_IsString(nlp_origin) && strcmp(nlp_origin->valuestring, "image_generation") == 0) {
+			LISA_LOGI(TAG, "Ignoring image_generation skill to prevent crash");
+			goto PARSER_END;
+		}
+
 		// 不处理reply_text
 		// if (nlp_origin && cJSON_IsString(nlp_origin) && strcmp(nlp_origin->valuestring, "reply_text") == 0) {
 		// 	cJSON *nlp = cJSON_GetObjectItem(data, "nlp");

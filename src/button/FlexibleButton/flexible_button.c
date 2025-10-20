@@ -205,7 +205,7 @@ static uint8_t flex_button_process(void)
                     if (target->scan_cnt > target->max_multiple_clicks_interval)
                     {
                         EVENT_SET_AND_EXEC_CB(target, 
-                            target->click_cnt < FLEX_BTN_PRESS_REPEAT_CLICK ? 
+                            target->click_cnt <= FLEX_BTN_PRESS_QUINTUPLE_CLICK ? 
                                 target->click_cnt :
                                 FLEX_BTN_PRESS_REPEAT_CLICK);
 
@@ -275,7 +275,7 @@ static uint8_t flex_button_process(void)
                 if (target->scan_cnt > target->max_multiple_clicks_interval)
                 {
                     EVENT_SET_AND_EXEC_CB(target, 
-                        target->click_cnt < FLEX_BTN_PRESS_REPEAT_CLICK ? 
+                        target->click_cnt <= FLEX_BTN_PRESS_QUINTUPLE_CLICK ? 
                             target->click_cnt :
                             FLEX_BTN_PRESS_REPEAT_CLICK);
 

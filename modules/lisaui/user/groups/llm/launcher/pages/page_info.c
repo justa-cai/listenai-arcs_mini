@@ -28,7 +28,8 @@ static bool g_info_page_active = false;
 
 // 函数声明
 static void auto_return_timer_cb(lv_timer_t *timer);
-void info_page_toggle(void);
+bool is_info_page_active(void);
+void set_info_page_active(bool active);
 
 typedef struct {
     lv_obj_t *screen;
@@ -176,6 +177,9 @@ static lisaui_err_t show(lisaui_page_t *page)
         return LISAUI_ERR_INVALID_PARAM;
     }
 
+    // 设置页面激活状态
+    set_info_page_active(true);
+
     // 使用延时加载避免竞态条件
     lv_scr_load_anim(view->screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
     
@@ -245,22 +249,16 @@ lisaui_page_t page_info = {
     .update_data = update_data,
 };
 
-// 全局函数用于显示/隐藏页面
-void info_page_toggle(void)
+// 提供给外部模块的接口函数
+bool is_info_page_active(void)
 {
-    // 检查是否已经在info页面或定时器正在运行
-    if (g_info_page_active) {
-        LISAUI_LOGI(TAG, "Info page is already active, ignoring toggle request");
-        return;
-    }
+    return g_info_page_active;
+}
 
-    // 设置页面激活状态
-    g_info_page_active = true;
-    
-    lisaui_manager_group_enter(LISAUI_GROUP_INDEX_LAUNCHER, GROUP_ENTER_PAGE_METHOD_FIX_PAGE_INDEX,
-                               LISAUI_GROUP_LAUNCHER_PAGE_INDEX_INFO, 0);
-
-    LISAUI_LOGI(TAG, "info page shown");
+void set_info_page_active(bool active)
+{
+    g_info_page_active = active;
+    LISAUI_LOGI(TAG, "Info page active state set to: %d", active);
 }
 
 LISAUI_PAGE_EXPORT(page_info);

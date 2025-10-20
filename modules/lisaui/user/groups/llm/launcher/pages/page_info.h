@@ -1,17 +1,23 @@
 #ifndef __PAGE_INFO_H__
 #define __PAGE_INFO_H__
 
+#include <stdbool.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief Toggle the info page visibility
- * Shows the page if hidden, hides if shown
+ * @brief Check if info page is currently active
+ * @return true if info page is active, false otherwise
  */
-void info_page_toggle(void);
+bool is_info_page_active(void);
 
-
+/**
+ * @brief Set info page active state
+ * @param active true to set active, false to set inactive
+ */
+void set_info_page_active(bool active);
 
 #ifdef __cplusplus
 }

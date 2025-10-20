@@ -46,6 +46,7 @@
 #include "lsfs.h"
 void shunt_down(void);
 static bool kv_initialized = false;
+#include "listen_volume.h"
 #include "led.h"
 #include "assistant_controller.h"
 
@@ -80,7 +81,7 @@ static void factory_reset(void)
     printf("  - wifi-list delete: %s\n", ret4 == 0 ? "Success" : "Failed");
     
     // Add any additional reset operations here
-    
+    listen_set_volume(70);
     printf("=== Factory Reset Completed ===\n\n");
 }
 
@@ -193,10 +194,10 @@ static void button_callback_handle(lisa_btn_event_t event, void *user)
             // shunt_down();
             break;
             
-        case LISA_BTN_PRESS_REPEAT_CLICK:
+        case LISA_BTN_PRESS_TRIPLE_CLICK:
             /* 重复点击：恢复出厂设置 */
             {
-                printf("factory reset LISA_BTN_PRESS_REPEAT_CLICK\n");
+                printf("factory reset LISA_BTN_PRESS_TRIPLE_CLICK\n");
                 kv_initialized = true;
                 factory_reset();
                 extern int play_factory_reset_audio(void);

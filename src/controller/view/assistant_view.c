@@ -247,6 +247,13 @@ static int update_event(view_event_e event)
 }
 int change_info_page(void)
 {
+    // 检查是否已经在info页面
+    extern bool is_info_page_active(void);
+    if (is_info_page_active()) {
+        printf("Info page is already active, ignoring toggle request\n");
+        return 0;
+    }
+
     workqueue_submit(view_handler->view->workq,
         EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE), NULL, 0);
     void enter_ble_config(void);

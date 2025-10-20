@@ -53,8 +53,9 @@ static uint8_t common_btn_read(void *arg)
 const char *lisa_btn_evt_desc_get(lisa_btn_event_t evt)
 {
     const char *evt_descs[] = {
-        "down",       "click",   "double_click", "repeat_click", "short_start", "short_up",
-        "long_start", "long_up", "long_hold",    "long_hold_up", "max",         "none",
+        "down",       "click",   "double_click", "triple_click", "quadruple_click", "quintuple_click",
+        "repeat_click", "short_start", "short_up", "long_start", "long_up", "long_hold",
+        "long_hold_up", "max", "none",
     };
 
     if (evt >= LISA_BTN_PRESS_NONE) {
