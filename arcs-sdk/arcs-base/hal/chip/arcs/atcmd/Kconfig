@@ -1,7 +1,0 @@
-config ARCS_HAL_AT_CMD
-    bool "Enable ARCS HAL AT CMD"
-    default n
-    help
-        Enable AT CMD support
-
-

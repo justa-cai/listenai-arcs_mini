@@ -1,9 +1,0 @@
-config ARCS_HAL_IC_LOCK
-    bool "Inter-cores Lock"
-    default n
-    help
-        Inter-cores Lock
-
-if ARCS_HAL_IC_LOCK
-endif
-

@@ -1,5 +1,0 @@
-config ARCS_HAL_VRTC
-    bool "Virtual RTC Support in HAL"
-    default n
-    help
-        Enable Virtual RTC support in HAL

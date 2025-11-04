@@ -1,7 +1,0 @@
-si 1
-connect
-device N308
-SelectInterface cJTAG
-JTAGConf 0,0
-speed 4000
-
