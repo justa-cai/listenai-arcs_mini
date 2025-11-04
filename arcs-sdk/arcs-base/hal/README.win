@@ -1,9 +1,0 @@
--- Download Git for windows from https://git-scm.com/downloads and install it.
--- Copy 2 files(make.exe, sh.exe) in "tools" folder to "GIT_INSTALL_PATH/cmd" folder.
--- Install toolchain to the PATH which shouldn't include space and illegal characters.
-   (https://nucleisys.com/download.php for Nuclei RISC-V & https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads for ARM)
--- Set environment variable GNUARMEMB_TOOLCHAIN_PATH(for ARM) or NUCLEI_TOOLCHAIN_PATH(for Nuclei RISC-V) according to your TOOLCHAIN PATH, eg. C:/GNUArmEmbedded/2020-q2-update.
--- Download gnumcueclipse or Nuclei IDE and run it. (https://gnu-mcu-eclipse.github.io/ or https://nucleisys.com/download.php)
--- Window/Show View/Make Target, click "all" to build in Make Target view. 
--- If build fail, move up GIT_PATH item in environment variable path.
-

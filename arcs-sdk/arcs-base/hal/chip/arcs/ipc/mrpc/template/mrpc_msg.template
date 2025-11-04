@@ -1,7 +1,0 @@
-#ifndef __MRPC_{API_NAME}_API_MSG_H__
-#define __MRPC_{API_NAME}_API_MSG_H__
-
-/*code template*/
-{msg_structs}
-
-#endif //__MRPC_{API_NAME}_API_MSG_H__

@@ -1,6 +1,0 @@
-
-config ARCS_HAL_WLIF
-    bool "Enable ARCS HAL WLIF"
-    default n
-    help
-        Enable WLIF (Wireless Link Interface) support
