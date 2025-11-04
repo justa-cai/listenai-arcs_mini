@@ -1,0 +1,8 @@
+rsource "startup/Kconfig"
+rsource "soc/Kconfig"
+rsource "components/Kconfig"
+rsource "drivers/Kconfig"
+rsource "boards/Kconfig"
+rsource "modules/Kconfig"
+rsource "cmake/Kconfig"
+

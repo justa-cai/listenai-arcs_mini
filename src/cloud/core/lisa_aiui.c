@@ -136,17 +136,13 @@ void update_device_id(void)
             id_buffer[4], id_buffer[5], id_buffer[6], id_buffer[7]);
 }
 
-lisa_aiui_t *lisa_aiui_create(const lisa_aiui_config_t *const config, lisa_aiui_cb_t *aiui_cb)
+lisa_aiui_t *lisa_aiui_create(lisa_aiui_cb_t *aiui_cb)
 {
     update_device_id();
 	lisa_aiui_rid_man_init();
 
 	LISA_LOGD(TAG, "lisa aiui create. [START]");
 
-	if (!config) {
-		LISA_LOGE(TAG, "config pointer is null.");
-		return NULL;
-	}
 	s_lisa_aiui = (lisa_aiui_t *)lisa_mem_calloc(1, sizeof(lisa_aiui_t));
 	if (!s_lisa_aiui) {
 		LISA_LOGE(TAG, "alloc lisa_aiui pointer error.");
@@ -158,46 +154,11 @@ lisa_aiui_t *lisa_aiui_create(const lisa_aiui_config_t *const config, lisa_aiui_
 	s_lisa_aiui->aiui_ws_onmessage = aiui_cb->aiui_ws_onmessage_cb;
 	s_lisa_aiui->aiui_ws_disconnect = aiui_cb->aiui_ws_disconnect_cb;
 
-	lisa_aiui_config_t *aiui_config = NULL;
-	uint8_t appid_len = 0;
-	uint8_t api_key_len = 0;
-	uint8_t api_secret_len = 0;
-	uint8_t scene_len = 0;
-
-	// alloc config
-	aiui_config = (lisa_aiui_config_t *)lisa_mem_alloc(sizeof(lisa_aiui_config_t));
-	if (!aiui_config) {
-		LISA_LOGE(TAG, "alloc config pointer error.");
-		goto LISA_AIUI_EXIT_ERROR_CONFIG;
-	}
-
     token_queue = xQueueCreate(10, sizeof(char *));
     if (token_queue == NULL) {
         LISA_LOGE(TAG, "---- no mem");
-        goto LISA_AIUI_EXIT_ERROR_APPID;
+        goto LISA_AIUI_EXIT_ERROR_CONFIG;
     }
-
-	// appid
-	appid_len = strlen(config->appid);
-	aiui_config->appid = (char *)lisa_mem_alloc(sizeof(char) * (appid_len + 1));
-	if (!aiui_config->appid) {
-		LISA_LOGE(TAG, "alloc appid pointer error.");
-		goto LISA_AIUI_EXIT_ERROR_APPID;
-	}
-	memcpy(aiui_config->appid, config->appid, appid_len);
-	aiui_config->appid[appid_len] = '\0';
-
-	// apikey
-	api_key_len = strlen(config->api_key);
-	aiui_config->api_key = (char *)lisa_mem_alloc(sizeof(char) * (api_key_len + 1));
-	if (!aiui_config->api_key) {
-		LISA_LOGE(TAG, "alloc api_key pointer error.");
-		goto LISA_AIUI_EXIT_ERROR_API_KEY;
-	}
-	memcpy(aiui_config->api_key, config->api_key, api_key_len);
-	aiui_config->api_key[api_key_len] = '\0';
-
-	s_lisa_aiui->config = aiui_config;
 
 	if (lisa_kv_get_int(KV_KEY_INTERACTIVE_MODE, (int *)&current_intera_mode) != 0) {
 		LISA_LOGI(TAG, "get interactive mode failed, use default mode: %d", DEFAULT_INTERACTIVE_MODE);
@@ -208,10 +169,6 @@ lisa_aiui_t *lisa_aiui_create(const lisa_aiui_config_t *const config, lisa_aiui_
 
 	goto LISA_AIUI_EXIT_SUCCESS;
 
-LISA_AIUI_EXIT_ERROR_API_KEY:
-	lisa_mem_free(aiui_config->appid);
-LISA_AIUI_EXIT_ERROR_APPID:
-	lisa_mem_free(aiui_config);
 LISA_AIUI_EXIT_ERROR_CONFIG:
 	lisa_mem_free(s_lisa_aiui->aiui_ws);
 	lisa_mem_free(s_lisa_aiui);
@@ -492,15 +449,6 @@ void lisa_aiui_clear_token(void)
 {
 }
 
-lisa_aiui_config_t *lisa_aiui_get_config()
-{
-	if(s_lisa_aiui == NULL){
-		return NULL;
-	}
-	
-	return s_lisa_aiui->config;
-}
-
 lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
 {
     if (lisa_aiui_is_staging_mode_enable()) {
@@ -737,166 +685,7 @@ lisa_err_t lisa_aiui_destroy(lisa_aiui_t *handle)
 	return LISA_OK;
 }
 
-#define HTTP_ACTIVE_SERVER "https://adf.xfyun.cn/kuwo/active"
-#define HTTP_ACTIVE_HEADER "Content-Type: application/x-www-form-urlencoded"
-#define HTTP_BODY_FORMAT "appId=%s&token=%s&timestamp=%s&serialNumber=%s"
-static void* _get_heads(void) { return HTTP_ACTIVE_HEADER; }
 
-static void _http_on_data(lisa_http_data_t *data) {
-	cJSON *root = cJSON_Parse(data->buf);
-	if (root) {
-		cJSON *param = cJSON_GetObjectItem(root, "code");
-		if (param && param->valueint == 200) {
-			LISA_LOGI(TAG, "active success!!!!");
-			// evs_pref_put_int(MUSIC_ACTIVATING, 1);
-		}
-		cJSON_Delete(root);
-	}
-}
-
-static void _active_func()
-{
-	lisa_aiui_config_t *cfg = lisa_aiui_get_config();
-	lisa_http_request_t req;
-	memset(&req, 0, sizeof(lisa_http_request_t));
-	req.method = LISA_HTTP_POST;
-	req.url = HTTP_ACTIVE_SERVER;
-	req.timeout = 5;
-	req.on_data = _http_on_data;
-
-	char current_time[12];
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
-	sprintf(current_time, "%ld", (long)tv.tv_sec);
-
-	int base_str_len = strlen(cfg->appid) + strlen(cfg->api_key) + strlen(current_time) + 1;
-	char *origin_str = (char *)lisa_mem_alloc(base_str_len);
-	sprintf(origin_str, "%s%s%s", cfg->appid, cfg->api_key, current_time);
-
-	char hex_output[33];
-	char md5_hash_origin[16];
-	mbedtls_md5_context md5_ctx_origin;
-	mbedtls_md5_init(&md5_ctx_origin);
-	mbedtls_md5_starts(&md5_ctx_origin);
-	mbedtls_md5_update(&md5_ctx_origin, origin_str, base_str_len - 1);
-	mbedtls_md5_finish(&md5_ctx_origin, md5_hash_origin);
-	mbedtls_md5_free(&md5_ctx_origin);
-	for (int i = 0; i < 16; ++i) {
-		sprintf(hex_output + i * 2, "%02x", md5_hash_origin[i]);
-	}
-	lisa_mem_free(origin_str);
-	int body_len = strlen(HTTP_BODY_FORMAT) + strlen(cfg->appid) + strlen(current_time) +
-				   strlen(hex_output) + strlen(current_time) + strlen(id_buffer_str);
-	char *body = lisa_mem_alloc(body_len);
-	sprintf(body, HTTP_BODY_FORMAT, cfg->appid, hex_output, current_time, id_buffer_str);
-	req.body = body;
-	req.body_len = strlen(body);
-	req.user = NULL;
-	req.headers = (uint8_t *)_get_heads;
-
-	lisa_http_t *http = lisa_http_init(&req);
-	lisa_mem_free(body);
-	if (!http) {
-		return;
-	}
-	if (lisa_http_perform(http) == LISA_HTTP_OK) {
-		lisa_http_cleanup(http);
-	} else {
-		lisa_http_cleanup(http);
-	}
-}
-
-lisa_err_t lisa_aiui_active()
-{
-	// int act = 0;
-	// evs_pref_get_int(MUSIC_ACTIVATING, &act);
-	// LISA_LOGD(TAG, "music active state %d\n", act);
-	// if (act == 0) {
-		_active_func();
-	// }
-	return LISA_OK;
-}
-
-lisa_err_t lisa_aiui_not_active()
-{
-	return LISA_OK;
-}
-
-#define HTTP_REQUEST_URL_SERVER "http://adf.xfyun.cn/kuwo/tranklink"
-#define HTTP_REQUEST_URL_HEADER "Content-Type: application/x-www-form-urlencoded"
-#define HTTP_REQ_URL_BODY_FORMAT "appId=%s&token=%s&timestamp=%s&serialNumber=%s&itemid=%s&format=128kmp3"
-
-static void* _req_url_get_heads(void) { return HTTP_REQUEST_URL_HEADER; }
-static void _req_url_http_on_data(lisa_http_data_t *data) {
-	LISA_LOGI(TAG, "_req_url_http_on_data, data: %s", data->buf);
-	cJSON *root = cJSON_Parse(data->buf);
-	if (root) {
-		cJSON *param = cJSON_GetObjectItem(root, "data");
-		if (param && cJSON_GetArraySize(param) > 0) {
-			cJSON *item = cJSON_GetArrayItem(param, 0);
-			if (item) {
-				cJSON *url = cJSON_GetObjectItem(item, "audiopath");
-				if (url && url->valuestring) {
-					LISA_LOGI(TAG, "audio url : %s ", url->valuestring);
-					strcpy(data->user, url->valuestring);
-				}
-			}
-		}
-		cJSON_Delete(root);
-	}
-}
-
-void ls_req_url(const char *item_id, char *url)
-{
-	lisa_aiui_config_t *cfg = lisa_aiui_get_config();
-	lisa_http_request_t req;
-	memset(&req, 0, sizeof(lisa_http_request_t));
-	req.method = LISA_HTTP_POST;
-	req.url = HTTP_REQUEST_URL_SERVER;
-	req.timeout = 2;
-	req.on_data = _req_url_http_on_data;
-
-	char current_time[12];
-	struct timeval tv;
-	gettimeofday(&tv, NULL);
-	sprintf(current_time, "%ld", (long)tv.tv_sec);
-
-	int base_str_len = strlen(cfg->appid) + strlen(cfg->api_key) + strlen(current_time) + 1;
-	char *origin_str = (char *)lisa_mem_alloc(base_str_len);
-	sprintf(origin_str, "%s%s%s", cfg->appid, cfg->api_key, current_time);
-
-	char hex_output[33];
-	char md5_hash_origin[16];
-	mbedtls_md5_context md5_ctx_origin;
-	mbedtls_md5_init(&md5_ctx_origin);
-	mbedtls_md5_starts(&md5_ctx_origin);
-	mbedtls_md5_update(&md5_ctx_origin, origin_str, base_str_len - 1);
-	mbedtls_md5_finish(&md5_ctx_origin, md5_hash_origin);
-	mbedtls_md5_free(&md5_ctx_origin);
-	for (int i = 0; i < 16; ++i) {
-		sprintf(hex_output + i * 2, "%02x", md5_hash_origin[i]);
-	}
-	lisa_mem_free(origin_str);
-	int body_len = strlen(HTTP_REQ_URL_BODY_FORMAT) + strlen(cfg->appid) + strlen(current_time) +
-				   strlen(hex_output) + strlen(current_time) + strlen(item_id) + strlen(get_device_id_str());
-	char *body = lisa_mem_alloc(body_len);
-	sprintf(body, HTTP_REQ_URL_BODY_FORMAT, cfg->appid, hex_output, current_time, get_device_id_str(), item_id);
-	req.body = body;
-	req.body_len = strlen(body);
-	req.user = url;
-	req.headers = (uint8_t *)_req_url_get_heads;
-
-	lisa_http_t *http = lisa_http_init(&req);
-	lisa_mem_free(body);
-	if (!http) {
-		return;
-	}
-	if (lisa_http_perform(http) == LISA_HTTP_OK) {
-		lisa_http_cleanup(http);
-	} else {
-		lisa_http_cleanup(http);
-	}
-}
 
 int lisa_aiui_img_recognition(lisa_aiui_t *hd, const void *img_data, int img_len)
 {
@@ -1138,4 +927,228 @@ int lisa_aiui_send_jpg_img(lisa_aiui_t *handle, const void *img_data, int img_le
 	}
 
     return 0;
+}
+
+// lsc_core音乐激活方案
+static void _http_on_data(lisa_http_data_t *data)
+{
+    cJSON *root = cJSON_Parse(data->buf);
+    if (root) {
+        cJSON *param = cJSON_GetObjectItem(root, "code");
+        if (param && param->valueint == 200) {
+            LISA_LOGI(TAG, "active success!!!!");
+        }
+        cJSON_Delete(root);
+    }
+}
+
+static void *_http_reg_headers(void)
+{
+    if (s_lisa_aiui && s_lisa_aiui->auth_header) {
+        // auth_header格式是"\r\nAuthorization: Bearer token"，需要去掉前面的\r\n
+        const char *clean_auth = s_lisa_aiui->auth_header;
+        if (clean_auth[0] == '\r' && clean_auth[1] == '\n') {
+            clean_auth += 2; // 跳过开头的\r\n
+        }
+        LISA_LOGI(TAG, "music active headers: %s", clean_auth);
+        return (void *)clean_auth;
+    }
+    LISA_LOGW(TAG, "no auth_header, using default headers");
+    return "Content-Type: application/json";
+}
+
+lisa_err_t lisa_aiui_active(void)
+{
+    int ret;
+    if (!s_lisa_aiui) {
+        LISA_LOGE(TAG, "aiui not create");
+        return LISA_FAIL;
+    }
+
+    if (!s_lisa_aiui->auth_token) {
+        LISA_LOGE(TAG, "aiui not auth - no auth_token");
+        return LISA_FAIL;
+    }
+
+    LISA_LOGI(TAG, "auth_token: %s", s_lisa_aiui->auth_token);
+    LISA_LOGI(TAG, "auth_header: %s", s_lisa_aiui->auth_header ? s_lisa_aiui->auth_header : "NULL");
+
+    lisa_http_request_t req = {0};
+    req.method = LISA_HTTP_POST;
+    req.url = "http://api.listenai.com/v1/kuwo/active";
+    req.timeout = 3;
+    req.on_data = _http_on_data;
+    req.body = NULL;
+    req.body_len = 0;
+    req.headers = (uint8_t *)_http_reg_headers;
+
+    lisa_http_t *http = lisa_http_init(&req);
+    if (!http) {
+        LISA_LOGE(TAG, "http init faild");
+        goto _err;
+    }
+
+    ret = lisa_http_perform(http);
+    if (ret != LISA_HTTP_OK) {
+        LISA_LOGE(TAG, "http perform faild(ret=%d)", ret);
+        goto _err;
+    }
+
+    lisa_http_cleanup(http);
+    return LISA_OK;
+    
+_err:
+    if (http) {
+        lisa_http_cleanup(http);
+    }
+    return LISA_FAIL;
+}
+
+lisa_err_t lisa_aiui_not_active()
+{
+    return LISA_OK;
+}
+
+static void _http_music_req_url_data(lisa_http_data_t *data)
+{
+    LISA_LOGI(TAG, "http req music url %s", (char *)data->buf);
+
+    cJSON *root = cJSON_Parse(data->buf);
+    if (root) {
+        cJSON *cj_data = cJSON_GetObjectItem(root, "data");
+        if (cj_data && (cJSON_GetArraySize(cj_data) > 0)) {
+            cJSON *item = cJSON_GetArrayItem(cj_data, 0);
+            if (item) {
+                cJSON *url = cJSON_GetObjectItem(item, "audiopath");
+                if (url && url->valuestring) {
+                    strcpy(data->user, url->valuestring);
+                }
+
+                LISA_LOGI(TAG, "get music url %s", (char *)data->user);
+                goto _destroy;
+            }
+        }
+    }
+
+    LISA_LOGE(TAG, "http req music url faild");
+
+_destroy:
+    if (root != NULL) {
+        cJSON_Delete(root);
+    }
+}
+
+static char *http_req_headers_strings = NULL;
+static void *_http_music_req_url_headers(void)
+{
+    if (!s_lisa_aiui || !s_lisa_aiui->auth_header) {
+        return "Content-Type: application/json";
+    }
+
+    // auth_header格式是"\r\nAuthorization: Bearer token"，需要去掉前面的\r\n
+    const char *clean_auth = s_lisa_aiui->auth_header;
+    if (clean_auth[0] == '\r' && clean_auth[1] == '\n') {
+        clean_auth += 2; // 跳过开头的\r\n
+    }
+
+    http_req_headers_strings =
+        lisa_mem_calloc(1, strlen(clean_auth) + strlen("\r\nContent-Type: application/json") + 1);
+
+    if (http_req_headers_strings) {
+        strcpy(http_req_headers_strings, clean_auth);
+        strcat(http_req_headers_strings, "\r\nContent-Type: application/json");
+
+        LISA_LOGI(TAG, "music url req headers: %s", http_req_headers_strings);
+        return (void *)http_req_headers_strings;
+    }
+
+    return "Content-Type: application/json";
+}
+
+void ls_req_url(const char *item_id, char *url)
+{
+    int ret;
+    if (!s_lisa_aiui) {
+        LISA_LOGE(TAG, "aiui not create");
+        return;
+    }
+
+    if (!s_lisa_aiui->auth_token) {
+        LISA_LOGE(TAG, "aiui auth_header not set");
+        return;
+    }
+
+    if (!item_id || !url) {
+        LISA_LOGE(TAG, "invalid parameters");
+        return;
+    }
+
+    LISA_LOGI(TAG, "request music url for item: %s", item_id);
+
+    strcpy(url, "req faild");
+
+    cJSON *jsonItem = cJSON_CreateObject();
+    cJSON_AddStringToObject(jsonItem, "itemid", item_id);
+    cJSON_AddStringToObject(jsonItem, "format", "128kmp3");
+
+    char *req_body = cJSON_Print(jsonItem);
+
+    lisa_http_request_t req = {0};
+    req.method = LISA_HTTP_POST;
+    req.url = "http://api.listenai.com/v1/kuwo/tranklink";
+    req.timeout = 3;
+    req.on_data = _http_music_req_url_data;
+    req.body = req_body;
+    req.body_len = strlen(req_body);
+    req.headers = (uint8_t *)_http_music_req_url_headers;
+    req.user = url;
+
+    LISA_LOGD(TAG, "req body:%s len:%d", req_body, req.body_len);
+
+    lisa_http_t *http = lisa_http_init(&req);
+    if (!http) {
+        LISA_LOGE(TAG, "http init faild");
+        goto _err;
+    }
+
+    ret = lisa_http_perform(http);
+    if (ret != LISA_HTTP_OK) {
+        LISA_LOGE(TAG, "http perform faild(ret=%d)", ret);
+        goto _err;
+    }
+
+    lisa_http_cleanup(http);
+
+    cJSON_free(req_body);
+    cJSON_Delete(jsonItem);
+
+    if (http_req_headers_strings) {
+        lisa_mem_free(http_req_headers_strings);
+        http_req_headers_strings = NULL;
+    }
+
+    if (strcmp(url, "req faild") == 0) {
+        LISA_LOGE(TAG, "music url request failed");
+        return;
+    }
+
+    LISA_LOGI(TAG, "music url request completed successfully");
+    return;
+    
+_err:
+    if (http) {
+        lisa_http_cleanup(http);
+    }
+
+    if (req_body) {
+        cJSON_free(req_body);
+    }
+    if (jsonItem) {
+        cJSON_Delete(jsonItem);
+    }
+    if (http_req_headers_strings) {
+        lisa_mem_free(http_req_headers_strings);
+        http_req_headers_strings = NULL;
+    }
+    LISA_LOGE(TAG, "music url request failed");
 }

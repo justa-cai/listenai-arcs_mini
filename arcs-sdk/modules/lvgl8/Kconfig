@@ -78,7 +78,7 @@ if SDK_MODULE_LVGL8
         config LV_MEM_SIZE_KILOBYTES
             int "Size of the memory used by `lv_mem_alloc` in kilobytes (>= 2kB)"
             range 2 128
-            default 32
+            default 48
             depends on !LV_MEM_CUSTOM
 
         config LV_MEM_ADDR

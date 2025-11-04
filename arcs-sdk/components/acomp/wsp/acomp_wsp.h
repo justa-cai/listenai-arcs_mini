@@ -29,6 +29,20 @@ typedef struct {
     int32_t stream_channel_index; /* 录音通道号，0:左声道有效，1：右声道有效*/
 } __attribute__((packed)) acomp_wsp_params_t;
 
+
+typedef enum{
+    COMP_WSP_RESULT_TYPE_UNKNOWN = 0,
+    COMP_WSP_RESULT_TYPE_STREAM,
+    COMP_WSP_RESULT_TYPE_FINISH,
+}comp_wsp_result_type_e;
+
+typedef struct{
+    comp_wsp_result_type_e type;
+    uint32_t len;
+    uint8_t data[];
+}__attribute__((packed)) comp_wsp_result_t;
+
+
 typedef struct {
     int32_t mlp_res_type; /* 引擎声学模型类型*/
     char version[64];     /* 引擎版本信息*/

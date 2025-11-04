@@ -70,7 +70,12 @@ static void _st7789p3_init(void)
         display_trans_cmd_data(init_items[i].cmd, (uint8_t *)init_items[i].data, init_items[i].data_len);
     }
 
+#if CONFIG_LISA_DISPLAY_COLOR_INVERT
     display_trans_cmd_data(DISPLAY_COMM_CMD_INV_ON, NULL, 0);
+#else
+    display_trans_cmd_data(DISPLAY_COMM_CMD_INV_OFF, NULL, 0);
+#endif
+
 }
 
 int st7789p3_display_init(display_hw_config_t *config)
@@ -223,6 +228,20 @@ int st7789p3_display_sleep(const uint8_t onoff)
     return 0;
 }
 
+int st7789p3_display_color_invert(const uint8_t onoff)
+{
+    xSemaphoreTake(g_display_obj.mutex, portMAX_DELAY);
+
+    if (onoff) {
+        display_trans_cmd_data(DISPLAY_COMM_CMD_INV_ON, NULL, 0);
+    } else {
+        display_trans_cmd_data(DISPLAY_COMM_CMD_INV_OFF, NULL, 0);
+    }
+
+    xSemaphoreGive(g_display_obj.mutex);
+    return 0;
+}
+
 static const struct display_driver_api st7789p3_driver_api = {
     .display_blanking_on = st7789p3_display_blanking_on,
     .display_blanking_off = st7789p3_display_blanking_off,
@@ -231,6 +250,7 @@ static const struct display_driver_api st7789p3_driver_api = {
     .display_write = st7789p3_display_write,
     .display_set_orientation = st7789p3_display_set_orientation,
     .display_sleep = st7789p3_display_sleep,
+    .display_color_invert = st7789p3_display_color_invert,
 };
 
 const struct display_device display_st7789p3 = {

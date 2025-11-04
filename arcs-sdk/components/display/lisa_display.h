@@ -142,6 +142,7 @@ struct display_driver_api {
 			     const void *buf);
 	int (*display_set_orientation)(const enum display_orientation orientation);
 	int (*display_sleep)(const uint8_t onoff);
+	int (*display_color_invert)(const uint8_t onoff);
 };
 
 /** @brief Structure display device. */

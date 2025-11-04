@@ -1,0 +1,7 @@
+menu "libid3tag configuration"
+
+    config SDK_MODULE_LIBID3TAG
+        bool "enable libid3tag"
+        default n
+
+endmenu 

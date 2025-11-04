@@ -10,7 +10,10 @@ PNG to EPD Data Converter
 - Sierra Dithering
 
 用法:
-python png_to_epd.py input.png [--algorithm floyd|ordered|atkinson|sierra] [--output output.h] [--threshold 128]
+python png_to_epd.py input.png [--algorithm floyd|ordered|atkinson|sierra] [--output output.h] [--threshold 128] [--invert]
+
+选项:
+--invert: 反转黑白颜色映射（默认：黑色=1，白色=0；反转后：白色=1，黑色=0）
 """
 
 import argparse
@@ -181,7 +184,7 @@ class EPDConverter:
         else:
             raise ValueError(f"不支持的抖动算法: {algorithm}")
     
-    def image_to_1bpp_bytes(self, img_array):
+    def image_to_1bpp_bytes(self, img_array, invert=False):
         """将图像转换为1bpp字节数组（适用于墨水屏）"""
         print("转换为1bpp数据...")
         
@@ -203,12 +206,19 @@ class EPDConverter:
                 for bit in range(8):
                     x = byte_idx * 8 + bit
                     if x < width:
-                        # 黑色像素 = 0, 白色像素 = 1 (墨水屏逻辑)
-                        if binary_img[y, x] == 0:  # 黑色像素
-                            byte_val |= (1 << (7 - bit))
+                        # 根据invert参数决定黑白映射
+                        if invert:
+                            # 反转模式: 黑色像素 = 1, 白色像素 = 0
+                            if binary_img[y, x] == 255:  # 白色像素设为1
+                                byte_val |= (1 << (7 - bit))
+                        else:
+                            # 默认模式: 黑色像素 = 1, 白色像素 = 0 (墨水屏逻辑)
+                            if binary_img[y, x] == 0:  # 黑色像素设为1
+                                byte_val |= (1 << (7 - bit))
                 byte_data.append(byte_val)
         
-        print(f"生成 {len(byte_data)} 字节的1bpp数据")
+        invert_msg = "（颜色反转）" if invert else "（正常模式）"
+        print(f"生成 {len(byte_data)} 字节的1bpp数据 {invert_msg}")
         return byte_data
     
     def save_as_c_header(self, byte_data, output_path, var_name="epd_image"):
@@ -261,6 +271,8 @@ def main():
                        help='保存预览图像')
     parser.add_argument('--width', type=int, default=240, help='屏幕宽度 (默认: 240)')
     parser.add_argument('--height', type=int, default=412, help='屏幕高度 (默认: 412)')
+    parser.add_argument('--invert', '-i', action='store_true', 
+                       help='反转黑白颜色 (默认: 黑=1, 白=0)')
     
     args = parser.parse_args()
     
@@ -290,7 +302,7 @@ def main():
         sys.exit(1)
     
     # 转换为1bpp数据
-    byte_data = converter.image_to_1bpp_bytes(dithered_img)
+    byte_data = converter.image_to_1bpp_bytes(dithered_img, args.invert)
     
     # 保存C头文件
     converter.save_as_c_header(byte_data, args.output)
@@ -303,6 +315,7 @@ def main():
     print(f"\n转换完成!")
     print(f"算法: {args.algorithm}")
     print(f"阈值: {args.threshold}")
+    print(f"颜色: {'反转' if args.invert else '正常'}")
     print(f"输出: {args.output}")
     print(f"数据大小: {len(byte_data)} 字节")
 

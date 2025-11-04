@@ -73,6 +73,8 @@ typedef uint8_t disp_mem_coord[4];
 
 struct display_obj {
     bool initialized;
+    bool power_on;
+    bool sleep;
     enum display_orientation orientation;
     SemaphoreHandle_t mutex;
 #if CONFIG_LISA_DISPLAY_TE_SYNC
@@ -82,6 +84,12 @@ struct display_obj {
     SemaphoreHandle_t busy_sem;
 #endif
 };
+
+typedef enum {
+    EPD_REFRESH_MODE_GC = 0, // Gobal Clear(Global Update)
+    EPD_REFRESH_MODE_DU = 1, // Direct Update(Fast Update)
+    EPD_REFRESH_MODE_PART = 2 // Partial Update
+} epd_refresh_mode_e;
 
 void disp_comm_rst_init(pin_info_t *rst_pin);
 
@@ -96,7 +104,7 @@ int disp_comm_te_wait(SemaphoreHandle_t sem_handle, uint32_t timeout_ms);
 #endif
 
 #if CONFIG_LISA_DISPLAY_BUSY_SYNC
-void disp_comm_busy_init(SemaphoreHandle_t sem_handle, pin_info_t *busy_pin);
+void disp_comm_busy_init(SemaphoreHandle_t sem_handle, pin_info_t *busy_pin, int active_level);
 
 int disp_comm_busy_wait(SemaphoreHandle_t sem_handle, uint32_t timeout_ms);
 #endif

@@ -29,6 +29,9 @@
 #ifdef CONFIG_LISA_DISPLAY_UC8253C
 #include "display_uc8253c.h"
 #endif
+#ifdef CONFIG_LISA_DISPLAY_SSD1683
+#include "display_ssd1683.h"
+#endif
 const struct display_device *dev = NULL;
 
 const struct display_device *lisa_display_get(void)
@@ -68,7 +71,7 @@ void *lisa_display_create(display_hw_config_t *config)
 #ifdef CONFIG_LISA_DISPLAY_ST7789V
 	dev = &display_st7789v;
 	if (dev->device_init) {
-		if (dev->device_init()) {
+		if (dev->device_init(config)) {
 			return NULL;
 		}
 	}
@@ -103,6 +106,15 @@ void *lisa_display_create(display_hw_config_t *config)
 
 #ifdef CONFIG_LISA_DISPLAY_UC8253C
 	dev = &display_uc8253c;
+	if (dev->device_init) {
+		if (dev->device_init(config)) {
+			return NULL;
+		}
+	}
+#endif
+
+#ifdef CONFIG_LISA_DISPLAY_SSD1683
+	dev = &display_ssd1683;
 	if (dev->device_init) {
 		if (dev->device_init(config)) {
 			return NULL;
@@ -198,6 +210,19 @@ int lisa_display_sleep(const struct display_device *dev, const uint8_t onoff)
 
 	if (dev->api->display_sleep) {
 		return dev->api->display_sleep(onoff);
+	}	
+
+	return -1;
+}
+
+int lisa_display_color_invert(const struct display_device *dev, const uint8_t onoff)
+{
+	if (dev == NULL) {
+		return -1;
+	}
+
+	if (dev->api->display_color_invert) {
+		return dev->api->display_color_invert(onoff);
 	}	
 
 	return -1;

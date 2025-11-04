@@ -1,0 +1,5 @@
+config BLE_PROFILE_NETCFG_BLES
+    bool "Enable BLE Profile NETCFG over BLE Server"
+    default n
+    help
+        Enable BLE-based Network Configuration Server support

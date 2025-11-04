@@ -5,6 +5,6 @@ target_sources(${TARGET_NAME} PRIVATE
     img_utils.c
     lv_port_file.c
 )
-target_include_directories(${TARGET_NAME} PRIVATE
+listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )

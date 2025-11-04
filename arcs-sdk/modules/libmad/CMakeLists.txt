@@ -1,4 +1,5 @@
 ########################################
+if(DEFINED CONFIG_SDK_MODULE_LIBMAD)
 set(LIBRARY_NAME mad)
 add_library(${LIBRARY_NAME} STATIC "")
 target_compile_options(${LIBRARY_NAME} PRIVATE  -Wno-return-local-addr -Wno-unused -Wno-implicit -Wno-cast-function-type -Wno-implicit-fallthrough -Wpointer-arith -Wno-error=unused-function -Wno-error=unused-but-set-variable -Wno-error=unused-variable -Wno-error=deprecated-declarations -Wno-unused-parameter -Wno-sign-compare -Wno-old-style-declaration -Wno-error=maybe-uninitialized -Wno-error=char-subscripts -Wno-error=unused-label -Wno-error=unused-value -DCORE_DEBUG_LEVEL=0 -DNDEBUG -DSQLITE_DEBUG)
@@ -84,4 +85,4 @@ endif()
 #check_type_size(int SIZEOF_INT BUILTIN_TYPES_ONLY LANGUAGE C)
 #configure_file(${CMAKE_CURRENT_SOURCE_DIR}/include/mad.h.in ${CMAKE_CURRENT_BINARY_DIR}/mad.h @ONLY)
 
-
+endif()

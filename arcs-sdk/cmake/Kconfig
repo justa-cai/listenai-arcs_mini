@@ -1,0 +1,78 @@
+menu "Common Compile and Link Options"
+
+config DEBUG
+    bool "debug"
+    default y
+
+choice
+    prompt "optimize level"
+    default COMPILE_OPTION_OPTIMIZE_LEVEL_OS
+    config COMPILE_OPTION_OPTIMIZE_LEVEL_O0
+        bool "O0"
+    config COMPILE_OPTION_OPTIMIZE_LEVEL_O1
+        bool "O1"
+    config COMPILE_OPTION_OPTIMIZE_LEVEL_O2
+        bool "O2"
+    config COMPILE_OPTION_OPTIMIZE_LEVEL_O3
+        bool "O3"
+    config COMPILE_OPTION_OPTIMIZE_LEVEL_OS
+        bool "OS"
+endchoice
+
+config LINK_OPTION_LISTENAI_LIBRARY_WHOLE_ARCHIVE
+    bool "whole arch link"
+    default y
+    help
+        Enable whole archive link option for listenai libraries (libm.a is automatically excluded)
+
+config LINK_OPTION_LISTENAI_LIBRARY_GROUP
+    bool "group link"
+    default n
+    help
+        Enable group link option for listenai libraries
+
+config LINK_OPTION_GC_SECTIONS
+    bool "gc sections"
+    default y
+
+config COMPILE_OPTION_GENERATE_DEBUG_FILES
+    bool "generate debug files"
+    default y
+    help
+        Enable generate debug files like lst, relf, symbol table, etc
+
+config COMPILE_OPTION_WARNING_AS_ERROR
+    bool "warning as error"
+    default n
+
+config COMPILE_OPTION_WARNING_ALL
+    bool "warning all"
+    default n
+
+config COMPILE_OPTION_WARNING_DISABLE
+    bool "warning disable"
+    default n
+
+config FPU
+    bool "fpu"
+    default n
+
+config PRINT_MEMORY_USAGE
+    bool "print memory usage"
+    default y
+
+choice
+    prompt "link options specs"
+    default LINK_OPTION_NONE_SPECS
+
+    config LINK_OPTION_NOSYS_SPECS
+        bool "link options nosys specs"
+
+    config LINK_OPTION_NANO_SPECS
+        bool "link options nano specs"
+
+    config LINK_OPTION_NONE_SPECS
+        bool "link options none specs"
+endchoice
+
+endmenu

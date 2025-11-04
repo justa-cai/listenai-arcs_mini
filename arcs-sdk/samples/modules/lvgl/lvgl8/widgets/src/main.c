@@ -45,6 +45,7 @@ int main(int argc, char **argv)
 			.spi_4line = {
 				.spi_dev = SPI1(),
 				.spi_tx_dma_ch = 3,
+				.spi_sck_freq = 25000000,
 				.spi_pins = {
 					.cs = {
 						.pad = CSK_IOMUX_PAD_B,
@@ -93,7 +94,8 @@ int main(int argc, char **argv)
 		.gpio_pins.intr.int_func = CSK_IOMUX_FUNC_DEFAULT,
 	};
 	lv_port_indev_init(&touch_config);
-
+	lisa_display_blanking_off(lisa_display_get());
+	
 	xTaskCreate(task_ui, "task_ui", 4*1024, NULL, configMAX_PRIORITIES - 2, NULL);
 
 	return 0;

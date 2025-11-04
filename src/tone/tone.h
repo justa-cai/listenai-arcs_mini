@@ -106,5 +106,6 @@ TONE_ID_100 = 100,// 100_wukong.mp3
 TONE_ID_101 = 101,// 101_peiji.mp3
 TONE_ID_102 = 102,// 102_xiaoxian.mp3
 TONE_ID_103 = 103,// 103_reset_factory.mp3
+TONE_ID_104 = 104,// 104_device_config.mp3
 };
 #endif

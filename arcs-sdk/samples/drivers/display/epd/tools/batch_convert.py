@@ -8,18 +8,18 @@ import os
 import subprocess
 import sys
 
-def run_conversion(algorithm, threshold=128, width=240, height=416):
+
+def run_conversion(title, input_file, algorithm, threshold=128, width=400, height=300):
     """运行转换并生成对应的文件"""
-    input_file = "Meisje_met_de_parel_240x416.png"
     # 确保输出目录存在
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
-    
-    output_file = os.path.join(output_dir, f"pearl_girl_{algorithm}.h")
-    preview_file = os.path.join(output_dir, f"pearl_girl_{algorithm}_preview.png")
-    
+
+    output_file = os.path.join(output_dir, f"{title}_{algorithm}.h")
+    preview_file = os.path.join(output_dir, f"{title}_{algorithm}_preview.png")
+
     print(f"\n=== 转换使用 {algorithm.upper()} 抖动算法 (阈值: {threshold}) ===")
-    
+
     try:
         # 运行通用转换脚本
         cmd = [
@@ -31,29 +31,30 @@ def run_conversion(algorithm, threshold=128, width=240, height=416):
             "--width", str(width),
             "--height", str(height)
         ]
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True)
-        
+
         if result.returncode == 0:
             print(f"✓ 成功生成: {output_file}")
-            
+
             # 重命名预览文件
             default_preview = output_file.replace('.h', '_preview.png')
             if os.path.exists(default_preview):
                 os.rename(default_preview, preview_file)
                 print(f"✓ 预览图像: {preview_file}")
-            
+
         else:
             print(f"✗ 转换失败: {result.stderr}")
-            
+
     except Exception as e:
         print(f"✗ 执行错误: {e}")
 
-def generate_comparison_html(input_file, width, height):
+
+def generate_comparison_html(title, input_file, width, height):
     """生成HTML比较页面"""
     # 从输入文件名提取基本信息
     base_name = os.path.splitext(os.path.basename(input_file))[0]
-    
+
     html_content = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -98,11 +99,11 @@ def generate_comparison_html(input_file, width, height):
     # 计算数据大小 (1bpp = 1位每像素，所以总位数除以8得字节数)
     data_size_bytes = (width * height) // 8
     data_size_kb = data_size_bytes / 1024
-    
+
     for algo, name, desc in algorithms:
-        preview_file = f"output/pearl_girl_{algo}_preview.png"
-        header_file = f"output/pearl_girl_{algo}.h"
-        
+        preview_file = f"output/{title}_{algo}_preview.png"
+        header_file = f"output/{title}_{algo}.h"
+
         html_content += f"""
             <div class="algorithm-card">
                 <h3>{name}</h3>
@@ -125,74 +126,82 @@ def generate_comparison_html(input_file, width, height):
             <p><strong>数据格式:</strong> C头文件，包含静态字节数组</p>
             <p><strong>在代码中使用:</strong></p>
             <pre style="background: #f8f8f8; padding: 10px; border-radius: 4px; overflow-x: auto;">
-#include "pearl_girl_floyd.h"
+#include "{title}_floyd.h"
 
 // 显示图像到墨水屏
-lisa_display_write(display_dev, 0, 0, &desc, pearl_girl_floyd_image);
+lisa_display_write(display_dev, 0, 0, &desc, {title}_floyd_image);
             </pre>
         </div>
     </div>
 </body>
 </html>
 """
-    
+
     # 确保输出目录存在
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
-    
+
     # html_file = os.path.join(output_dir, "algorithm_comparison.html")
     html_file = os.path.join("algorithm_comparison.html")
     with open(html_file, "w", encoding="utf-8") as f:
         f.write(html_content)
-    
+
     print(f"✓ 生成比较页面: {html_file}")
+
 
 def main():
     print("批量生成墨水屏图像数据 - 不同抖动算法比较")
     print("=" * 50)
-    
+
     # 转换参数配置
-    input_file = "Meisje_met_de_parel_240x416.png"  # 与run_conversion函数中保持一致
-    width = 240
-    height = 416
-    
+    # title = "Meisje_met_de_parel"
+    # input_file = "Meisje_met_de_parel_240x416.png"  # 与 run_conversion 函数中保持一致
+    # width = 240
+    # height = 416
+    title = "Earthrise"
+    input_file = "Earthrise_400x300.png"  # 与 run_conversion 函数中保持一致
+    width = 400
+    height = 300
+
     # 检查输入文件
     if not os.path.exists(input_file):
         print(f"✗ 错误: 找不到输入文件 {input_file}")
         sys.exit(1)
-    
+
     # 检查通用转换脚本
     if not os.path.exists("convert_to_epd.py"):
         print("✗ 错误: 找不到 convert_to_epd.py 脚本")
         sys.exit(1)
-    
+
     # 转换不同算法
     algorithms = ["floyd", "ordered", "atkinson", "sierra"]
-    
-    for algorithm in algorithms:
-        run_conversion(algorithm)
-    
+
+    for algo in algorithms:
+        run_conversion(title, input_file, algo, threshold=128,
+                       width=width, height=height)
+
     # 生成比较页面
     print(f"\n=== 生成比较页面 ===")
-    generate_comparison_html(input_file, width, height)
-    
+    generate_comparison_html(title, input_file, width, height)
+
     print(f"\n=== 完成! ===")
     print("生成的文件:")
     output_dir = "output"
-    for algorithm in algorithms:
-        header_file = os.path.join(output_dir, f"pearl_girl_{algorithm}.h")
-        preview_file = os.path.join(output_dir, f"pearl_girl_{algorithm}_preview.png")
+    for algo in algorithms:
+        header_file = os.path.join(output_dir, f"{title}_{algo}.h")
+        preview_file = os.path.join(output_dir, f"{title}_{algo}_preview.png")
         if os.path.exists(header_file):
             print(f"  ✓ {header_file}")
         if os.path.exists(preview_file):
             print(f"  ✓ {preview_file}")
-    
+
     # html_file = os.path.join(output_dir, "algorithm_comparison.html")
     html_file = os.path.join("algorithm_comparison.html")
     if os.path.exists(html_file):
         print(f"  ✓ {html_file}")
-    
+
     print(f"\n可以打开 {html_file} 查看效果比较")
+
 
 if __name__ == "__main__":
     main()

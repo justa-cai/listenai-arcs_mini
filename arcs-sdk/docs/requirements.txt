@@ -1,0 +1,7 @@
+Sphinx>=6.0.0
+sphinx-rtd-theme
+myst-parser>=0.18.1
+sphinx-inline-tabs
+sphinxcontrib-moderncmakedomain
+sphinx-tabs
+standard-imghdr

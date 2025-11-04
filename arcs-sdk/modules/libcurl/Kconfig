@@ -1,6 +1,7 @@
 config SDK_MODULE_CURL
     bool "curl support"
-    default y
+    default n
+    select LWIP
 
 menuconfig CURL
     bool "curl support"

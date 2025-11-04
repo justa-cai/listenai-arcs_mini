@@ -2,7 +2,7 @@ menu "adc configuration"
 
 config LITE_ADC
     bool "ADC support"
-    default y
+    default n
 
 config LITE_ADC_PROXY
     bool "ADC proxy support"

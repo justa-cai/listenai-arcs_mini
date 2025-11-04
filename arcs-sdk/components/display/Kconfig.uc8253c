@@ -35,6 +35,14 @@ if LISA_DISPLAY_UC8253C
         bool "use trans context"
         default y
         select LISA_DISPLAY_INTERFACE_SPI_4_LINE
+
+    config USE_OPT_LUT_TABLE
+        bool "use <One-Time Programming> LUT table"
+        default n
+        help
+            If enabled, the LUT table stored in the UC8253C OTP memory will be used.
+            Otherwise, the default LUT table defined in the driver will be used.
+
 endif
 
 endmenu

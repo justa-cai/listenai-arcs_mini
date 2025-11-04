@@ -1,0 +1,43 @@
+config LWIP
+    bool "LwIP TCP/IP Stack"
+    default n
+    select RTOS_AL
+    select ARCS_HAL_WLIF
+    select ARCS_HAL_EVENT
+    select ARCS_HAL_CLI_CMD
+    help
+        Lightweight TCP/IP stack (LwIP)
+
+if LWIP
+
+choice LWIP_NET_IMPL
+    prompt "Network Implementation"
+    default LWIP_NET_REAL
+
+    config LWIP_NET_REAL
+        bool "Real Network Implementation"
+        help
+            Use real network implementation from net_al directory
+
+    config LWIP_NET_SIM
+        bool "Simulated Network Implementation"
+        help
+            Use simulated network implementation (simsocket)
+
+endchoice
+
+config LWIP_TX_BUF_COPY
+    bool "Enable TX buffer copy for LWIP"
+    default n
+    help
+        Enable TX buffer copy for LWIP
+
+config LWIP_OPTION_LWIP_DNS
+    bool "Turn on DNS module. UDP must be available for DNS transport."
+    default n
+
+config LWIP_OPTION_SO_REUSE
+    bool "Enable SO_REUSEADDR option"
+    default n
+
+endif # LWIP

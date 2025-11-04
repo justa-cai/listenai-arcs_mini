@@ -10,4 +10,5 @@ config LOW_WIFI_CLI
     bool "Low Wifi Cli"
     default n
 
-osource "$LISTENAI_MODULES"
+rsource "$LISTENAI_MODULES"
+rsource "modules/Kconfig"

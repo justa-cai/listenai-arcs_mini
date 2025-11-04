@@ -1,0 +1,54 @@
+BEGIN CLIENT_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "spiflash.h"
+#include "mrpc_flash_if_api_msg.h"
+#include "mrpc_flash_if_api_server.h"
+END
+
+BEGIN SERVER_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "flash_if.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_flash_if_api_msg.h"
+#include "mrpc_flash_if_api_server.h"
+END
+
+BEGIN MSG_HDR_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "mrpc.h"
+END
+
+BEGIN API_DECLARE_TYPE_OTHER
+
+int32_t flash_if_init(FLASH_DEV *dev, unsigned char ud0, unsigned char ud1);
+
+int32_t flash_if_read(int32_t offset, direct void *data, size_t len);
+
+int32_t flash_if_write(int32_t offset, direct const void *data, size_t len);
+
+int32_t flash_if_erase(int32_t offset, size_t size);
+
+int32_t flash_if_write_protection_set(bool enable);
+
+int flash_if_security_read(off_t offset, direct void *data, size_t len);
+
+int flash_if_security_write(off_t offset, direct const void *data, size_t len);
+
+int flash_if_security_erase(off_t offset);
+
+uint8_t flash_if_check_security_support(void);
+
+END

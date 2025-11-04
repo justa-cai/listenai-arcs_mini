@@ -32,7 +32,12 @@ if LISA_DISPLAY
             bool "LCD GC9A01"
 
         config LISA_DISPLAY_UC8253C
-            bool "LCD UC8253C"
+            bool "EPD UC8253C"
+            select LISA_DISPLAY_INTERFACE_SPI_4_LINE
+            select LISA_DISPLAY_BUSY_SYNC
+        
+        config LISA_DISPLAY_SSD1683
+            bool "EPD SSD1683"
             select LISA_DISPLAY_INTERFACE_SPI_4_LINE
             select LISA_DISPLAY_BUSY_SYNC
 
@@ -73,8 +78,13 @@ if LISA_DISPLAY
         config LISA_DISPLAY_BRIGHTNESS_TYPE_WIRE_DIMMING
             bool "LCD Brightness Type Wire Dimming"
     endchoice
-            
-            
+
+    config LISA_DISPLAY_COLOR_INVERT
+        bool "Enable LCD color invert"
+        default y
+        help
+            If enabled, LCD color will be inverted.
+
 endif # LISA_DISPLAY
 
 endmenu
@@ -87,5 +97,6 @@ rsource "Kconfig.gc9309na"
 rsource "Kconfig.nv3030b"
 rsource "Kconfig.gc9a01"
 rsource "Kconfig.uc8253c"
+rsource "Kconfig.ssd1683"
 rsource "trans_ctx/Kconfig.trans_ctx"
 

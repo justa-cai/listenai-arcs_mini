@@ -8,7 +8,7 @@ listenai_library_sources(
     ./view/view_events.c
     ./view/task_statistics.c
 )
-
+add_subdirectory(apps)
 listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/view

@@ -23,9 +23,6 @@
 #define TJE_IMPLEMENTATION
 #include "tiny_jpeg.h"
 
-#define PREF_KEY_AIUI_APPID "aiui_appid"
-#define PREF_KEY_AIUI_APPKEY "aiui_appkey"
-
 static void _ws_conn_cb();
 static void _ws_disconnect_cb();
 static void _ws_ms_cb(const char *msg, int len);
@@ -53,45 +50,13 @@ app_cloud_t *app_cloud_create(app_client_t *client)
 		return NULL;
 	}
 
-	int r;
-	char *appid = NULL;
-	char *appkey = NULL;
-	bool is_kv_appid = true;
-	bool is_kv_appkey = true;
 
-	r = lisa_kv_get_string(KV_KEY_APPID, &appid);
-	if (r || appid == NULL) {
-		LISA_LOGW(TAG, "get appid from kv failed, use default appid");
-		appid = AIUI_APPID;
-		is_kv_appid = false;
-	}
-
-	r = lisa_kv_get_string(KV_KEY_APPKEY, &appkey);
-	if (r || appkey == NULL) {
-		LISA_LOGW(TAG, "get appkey from kv failed, use default appkey");
-		appkey = AIUI_API_KEY;
-		is_kv_appkey = false;
-	}
-
-	LISA_LOGI(TAG, "appid: %s", appid);
-	LISA_LOGI(TAG, "appkey: %s", appkey);
-
-	lisa_aiui_config_t config;
-	config.api_key = appkey;
-	config.appid = appid;
-	handle->aiui = lisa_aiui_create(&config, &s_aiui_cb);
+	handle->aiui = lisa_aiui_create( &s_aiui_cb);
 	handle->m_client = client;
 	handle->m_rec = recognizer_create(
 			client->short_player, client->tts_player, client->audio_mgr, handle->aiui);
 	app_proc_init(client, handle);
 	s_cloud = handle;
-
-	if (is_kv_appid) {
-		lisa_kv_free(appid);
-	}
-	if (is_kv_appkey) {
-		lisa_kv_free(appkey);
-	}
 
 	// 使用默认配置
 	mcp_integration_init(NULL);

@@ -69,9 +69,11 @@ static void factory_reset(void)
     int ret1 = lisa_kv_del("user.pid");
     int ret2 = lisa_kv_del("user.sid");
     int ret5 = lisa_kv_del("user.token");
+    int ret6 = lisa_kv_del("user.mic_gain");
     printf("  - user_pid delete: %s\n", ret1 == 0 ? "Success" : "Failed");
     printf("  - user_sid delete: %s\n", ret2 == 0 ? "Success" : "Failed");
     printf("  - user_token delete: %s\n", ret5 == 0 ? "Success" : "Failed");
+    printf("  - user_mic_gain delete: %s\n", ret6 == 0 ? "Success" : "Failed");
     
     // Clear WiFi configurations
     printf("Clearing WiFi configurations...\n");
@@ -203,6 +205,9 @@ static void button_callback_handle(lisa_btn_event_t event, void *user)
                 extern int play_factory_reset_audio(void);
                 wifi_mgr_sta_disconnect(false);
                 play_factory_reset_audio();
+                extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
+                change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
+                enter_ble_config();
             }
             break;
 
@@ -410,8 +415,8 @@ static void app_task(void *param)
     
     if (!has_wifi_config) {
         printf("No valid WiFi configuration found\n");
-        extern int change_info_page(void);
-        change_info_page();
+        extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
+        change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
         enter_ble_config();
     } else {
         ;

@@ -23,6 +23,9 @@
 #include "ebus/ebus.h"
 #include "lisaui_user_data.h"
 #include "led.h"
+#include "app_client.h"
+#include "cloud/app_cloud.h"
+#include "tone.h"
 
 #define TAG "controller"
 #include "lisa_log.h"
@@ -96,6 +99,9 @@ static int ctrl_event_wifi_scanned_handler(void *arg, uint32_t len);
 static int ctrl_event_role_emoji_update_handler(void *arg, uint32_t len);
 static int ctrl_event_mcp_emoji_update_handler(void *arg, uint32_t len);
 static int ctrl_event_reply_text_update_handler(void *arg, uint32_t len);
+static int ctrl_event_standby_texts_update_handler(void *arg, uint32_t len);
+static int ctrl_event_device_config_update_handler(void *arg, uint32_t len);
+static int ctrl_event_outof_limit_error_handler(void *arg, uint32_t len);
 static int ctrl_event_battery_info_update_handler(void *arg, uint32_t len);
 
 static int ctrl_event_opt_wifi_connect_handler(ctr_event_message_t *msg);
@@ -138,6 +144,9 @@ static assistant_controller_event_handlers_t s_ctrl_event_handlers[] = {
     {ctrl_event_role_emoji_update_handler, NULL, NULL}, // CONTROLLER_EVENT_STATE_ROLE_EMOJI_UPDATE,
     {ctrl_event_mcp_emoji_update_handler, NULL, NULL}, // CONTROLLER_EVENT_STATE_MCP_EMOJI_UPDATE,
     {ctrl_event_reply_text_update_handler, NULL, NULL}, // CONTROLLER_EVENT_STATE_REPLY_TEXT_UPDATE,
+    {ctrl_event_standby_texts_update_handler, NULL, NULL}, // CONTROLLER_EVENT_STATE_STANDBY_TEXTS_UPDATE,
+    {ctrl_event_device_config_update_handler, NULL, NULL}, // CONTROLLER_EVENT_STATE_DEVICE_CONFIG_UPDATE,
+    {ctrl_event_outof_limit_error_handler, NULL, NULL}, // CONTROLLER_EVENT_STATE_OUTOF_LIMIT_ERROR,
     {ctrl_event_battery_info_update_handler, NULL, NULL}, // CONTROLLER_EVENT_BATTERY_INFO_UPDATE
 
     {NULL, ctrl_event_opt_wifi_connect_handler, NULL},    // CONTROLLER_EVENT_OPT_WIFI_CONNECT,
@@ -637,7 +646,8 @@ static int ctrl_event_wifi_scanned_handler(void *arg, uint32_t len)
             // 触发信息页面显示 - 发送页面切换事件
             if (assist_controller && assist_controller->view) {
                 // 发布页面切换事件
-                change_info_page();
+                change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
+                enter_ble_config();
         }
     }
 
@@ -1028,10 +1038,115 @@ static int view_cb_wifi_rety_cnt_clear(void)
 static int ctrl_event_opt_toggle_info_page_handler(ctr_event_message_t *msg)
 {
     LISA_LOGI(TAG, "Toggle info page event received");
+    app_client_t *client = app_client_get_instance();
 
-    extern int change_info_page(void);
-    change_info_page();
+    if (!app_cloud_is_connected()) {
+        /* server is not connected, play tone */
+        LISA_LOGW(TAG, "server is not connected");
+        
+        if (client && client->sound_player) {
+            listen_soundplayer_play(client->sound_player, TONE_ID_64, 0);
+        }
+        return 0;
+    }
+
+    extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
+    change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE);
+
+    if (client && client->sound_player) {
+        listen_soundplayer_play(client->sound_player, TONE_ID_104, 0);
+    }
     
+    return 0;
+}
+
+static int ctrl_event_standby_texts_update_handler(void *arg, uint32_t len)
+{
+    if (arg == NULL || len == 0) {
+        LISA_LOGE(TAG, "Invalid standby texts data");
+        return -1;
+    }
+
+    LISA_LOGI(TAG, "Standby texts update: %s", (char *)arg);
+    
+    if (!assist_controller) {
+        LISA_LOGE(TAG, "Error: assist_controller is NULL");
+        return -EINVAL;
+    }
+    
+    if (!assist_controller->view) {
+        LISA_LOGE(TAG, "Error: assist_controller->view is NULL");
+        return -EINVAL;
+    }
+    
+    if (!assist_controller->view->ops.update_standby_texts) {
+        LISA_LOGE(TAG, "Error: update_standby_texts callback is not set");
+        return -ENOTSUP;
+    }
+
+    assist_controller->view->ops.update_standby_texts((const char *)arg);
+    LISA_LOGI(TAG, "update_standby_texts called successfully");
+
+    return 0;
+}
+
+static int ctrl_event_device_config_update_handler(void *arg, uint32_t len)
+{
+    if (arg == NULL || len == 0) {
+        LISA_LOGE(TAG, "Invalid device config data");
+        return -1;
+    }
+
+    LISA_LOGI(TAG, "Device config update: %s", (char *)arg);
+    
+    if (!assist_controller) {
+        LISA_LOGE(TAG, "Error: assist_controller is NULL");
+        return -EINVAL;
+    }
+    
+    if (!assist_controller->view) {
+        LISA_LOGE(TAG, "Error: assist_controller->view is NULL");
+        return -EINVAL;
+    }
+    
+    if (!assist_controller->view->ops.update_device_config) {
+        LISA_LOGE(TAG, "Error: update_device_config callback is not set");
+        return -ENOTSUP;
+    }
+
+    assist_controller->view->ops.update_device_config((const char *)arg);
+    LISA_LOGI(TAG, "update_device_config called successfully");
+
+    return 0;
+}
+
+static int ctrl_event_outof_limit_error_handler(void *arg, uint32_t len)
+{
+    if (arg == NULL || len == 0) {
+        LISA_LOGE(TAG, "Invalid OutOfLimit error data");
+        return -1;
+    }
+
+    LISA_LOGI(TAG, "OutOfLimit error received: %s", (char *)arg);
+    
+    if (!assist_controller) {
+        LISA_LOGE(TAG, "Error: assist_controller is NULL");
+        return -EINVAL;
+    }
+    
+    if (!assist_controller->view) {
+        LISA_LOGE(TAG, "Error: assist_controller->view is NULL");
+        return -EINVAL;
+    }
+    
+    if (!assist_controller->view->ops.update_outof_limit_error) {
+        LISA_LOGE(TAG, "Error: update_outof_limit_error callback is not set");
+        return -ENOTSUP;
+    }
+
+    assist_controller->view->ops.update_outof_limit_error((const char *)arg);
+    LISA_LOGI(TAG, "update_outof_limit_error called successfully");
+
     return 0;
 }
 

@@ -105,6 +105,9 @@ typedef struct {
     int (*update_mcp_emoji)(const char * emoji);
     int (*update_battery_status)(view_battery_info_t *battery_info);
     int (*update_reply_text)(const char *text, lisaui_userdata_text_mode_e mode);
+    int (*update_standby_texts)(const char *json_data);
+    int (*update_device_config)(const char *json_data);
+    int (*update_outof_limit_error)(const char *error_json);
 
 } assistant_view_ops_t;
 

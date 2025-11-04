@@ -1,0 +1,10 @@
+config ARCS_HAL_FLASH_IF
+    bool "Flash Interface"
+    default n
+    help
+        Flash Interface
+
+if ARCS_HAL_FLASH_IF
+
+endif
+
