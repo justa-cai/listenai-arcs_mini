@@ -452,7 +452,7 @@ static int _proc_msg_continue(void *arg)
 	}
 
 	cJSON *action = cJSON_GetObjectItem(root, "action");
-	if (!action) {
+	if (!action || !cJSON_IsString(action)) {
 		LISA_LOGD(TAG, "%s@%d parser failed", __FUNCTION__, __LINE__);
 		goto PARSER_END;
 	}
@@ -495,9 +495,42 @@ static int _proc_msg_continue(void *arg)
 			}
 		}
 
-		// 暂时屏蔽画画技能，避免死机
 		if (nlp_origin && cJSON_IsString(nlp_origin) && strcmp(nlp_origin->valuestring, "image_generation") == 0) {
-			LISA_LOGI(TAG, "Ignoring image_generation skill to prevent crash");
+			LISA_LOGI(TAG, "Processing image_generation skill");
+			
+			// 检查是否有错误，如有错误则提前处理
+			cJSON *_data = cJSON_GetObjectItem(data, "data");
+			if (_data) {
+				cJSON *result_array = cJSON_GetObjectItem(_data, "result");
+				if (result_array && cJSON_IsArray(result_array)) {
+					int result_count = cJSON_GetArraySize(result_array);
+					
+					// 快速检查是否有错误
+					for (int i = 0; i < result_count; i++) {
+						cJSON *result_item = cJSON_GetArrayItem(result_array, i);
+						if (result_item) {
+							cJSON *error = cJSON_GetObjectItem(result_item, "error");
+							if (error) {
+								cJSON *error_code = cJSON_GetObjectItem(error, "code");
+								if (error_code && cJSON_IsString(error_code) && (strcmp(error_code->valuestring, "OutOfLimit") == 0)) {
+									// 传递完整的 result_item JSON 对象，包含 error 和 url 信息
+									char *result_item_json_str = cJSON_Print(result_item);
+									if (result_item_json_str) {
+										LISA_LOGI(TAG, "Sending OutOfLimit error with full result_item: %s", result_item_json_str);
+										// 触发错误处理事件，传递完整的 result_item
+										assist_controller_trigger_event(CONTROLLER_EVENT_STATE_OUTOF_LIMIT_ERROR, 
+																		result_item_json_str, strlen(result_item_json_str) + 1);
+										cJSON_free(result_item_json_str);
+									}
+									break;
+								}
+								
+
+							}
+						}
+					}
+				}
+			}
 			goto PARSER_END;
 		}
 
@@ -513,8 +546,46 @@ static int _proc_msg_continue(void *arg)
 		// 	}
 		// }
 
+		cJSON *theme = cJSON_GetObjectItem(data, "theme");
+		if (theme) {
+			// 解析主题配置，提取待机文本
+			cJSON *frontend = cJSON_GetObjectItem(theme, "frontend");
+			if (frontend) {
+				cJSON *banner = cJSON_GetObjectItem(frontend, "banner");
+				if (banner) {
+					cJSON *resources = cJSON_GetObjectItem(banner, "resources");
+					if (resources && cJSON_IsArray(resources)) {
+						// 将整个 banner 对象转换为字符串，通过事件总线发送
+						char *banner_str = cJSON_Print(banner);
+						if (banner_str) {
+							LISA_LOGI(TAG, "Sending standby texts update: %s", banner_str);
+							assist_controller_trigger_event(CONTROLLER_EVENT_STATE_STANDBY_TEXTS_UPDATE, 
+															banner_str, strlen(banner_str) + 1);
+							cJSON_free(banner_str);
+						}
+					}
+				}
+			}
+		}
+
+		// 解析 mp_guide 配置，用于设备配置页面
+		cJSON *mp_guide = cJSON_GetObjectItem(data, "mp_guide");
+		if (mp_guide) {
+			cJSON *role_config = cJSON_GetObjectItem(mp_guide, "role_config");
+			if (role_config) {
+				// 将整个 role_config 对象转换为字符串，通过事件总线发送
+				char *role_config_str = cJSON_Print(role_config);
+				if (role_config_str) {
+					LISA_LOGI(TAG, "Sending device config update: %s", role_config_str);
+					assist_controller_trigger_event(CONTROLLER_EVENT_STATE_DEVICE_CONFIG_UPDATE, 
+													role_config_str, strlen(role_config_str) + 1);
+					cJSON_free(role_config_str);
+				}
+			}
+		}
+
 		cJSON *vad_sub = cJSON_GetObjectItem(data, "sub");
-		if (strcmp(vad_sub->valuestring, "vad") == 0) {
+		if (vad_sub && cJSON_IsString(vad_sub) && (strcmp(vad_sub->valuestring, "vad") == 0)) {
 			if (lisa_aiui_get_interactive_mode() == INTER_ONESHOT) {
 				// assist_controller_trigger_event(CONTROLLER_EVENT_STATE_VAD_END, NULL, 0);
 				recognizer_stop_record(s_rec);

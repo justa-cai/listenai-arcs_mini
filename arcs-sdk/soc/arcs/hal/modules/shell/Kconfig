@@ -1,0 +1,22 @@
+
+config ARCS_HAL_MODULE_SHELL
+    bool "Enable ARCS HAL MODULE SHELL"
+    default n
+    help
+        Enable Shell module support for command line interface
+
+if ARCS_HAL_MODULE_SHELL
+    config ARCS_HAL_MODULE_SHELL_TASK_STACK_SIZE
+        int "ARCS HAL MODULE SHELL TASK STACK SIZE"
+        default 1024
+        help
+            Set the stack size of the shell task
+
+    config ARCS_HAL_MODULE_SHELL_TASK_PRIORITY
+        int "ARCS HAL MODULE SHELL TASK PRIORITY"
+        default 9
+        help
+            Set the priority of the shell task
+    
+endif
+

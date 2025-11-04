@@ -7,7 +7,8 @@
 #define __LISAUI_PAGE_H__
 
 #include "lisaui_type.h"
-#include "dlist.h"
+#include "utils/dlist.h"
+#include "port/platform.h"
 
 #ifdef __cplusplus
 extern "C" {

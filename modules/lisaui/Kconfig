@@ -16,5 +16,4 @@ if LISAUI
         config LISAUI_ENV_SIMULATOR
             bool "Simulator"
     endchoice
-    rsource "user/Kconfig"
 endif

@@ -1,0 +1,22 @@
+# Components Configuration
+# This file includes all component Kconfig files
+
+rsource "acomp/Kconfig"
+rsource "camera/Kconfig"
+rsource "core_spinlock/Kconfig"
+rsource "dirent/Kconfig"
+rsource "display/Kconfig"
+rsource "exclib/Kconfig"
+rsource "flash/Kconfig"
+rsource "ipclsf/Kconfig"
+rsource "irq_proxy/Kconfig"
+rsource "libs/Kconfig"
+rsource "lis_algo/Kconfig"
+rsource "lisa_evs/Kconfig"
+rsource "lisa_porting/Kconfig"
+rsource "lite_adc/Kconfig"
+rsource "lite_dac/Kconfig"
+rsource "ringbuf/Kconfig"
+rsource "simple_box/Kconfig"
+rsource "tinyusb-appclass/Kconfig"
+rsource "touch/Kconfig"

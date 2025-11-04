@@ -2,6 +2,7 @@
 #include "lisa_log.h"
 #include "cJSON.h"
 #include <string.h>
+#include "lisaui_user_data.h"
 
 #define TAG "model_config"
 
@@ -18,8 +19,8 @@ static mcp_result_t model_config_handler(const mcp_context_t *ctx, mcp_response_
     // 这里可以添加参数解析和配置更新逻辑
     
     LISA_LOGI(TAG, "Model configuration update requested");
-    extern int change_info_page(void);
-    change_info_page();
+    extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
+    change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE);
     response->content = cJSON_CreateString("大模型配置已更新");
     response->result = MCP_RESULT_SUCCESS;
     
@@ -37,8 +38,8 @@ static mcp_result_t model_persona_handler(const mcp_context_t *ctx, mcp_response
 
     // TODO: 实现人设修改逻辑
     // 这里可以添加人设参数解析和更新逻辑
-    extern int change_info_page(void);
-    change_info_page();
+    extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
+    change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE);
     LISA_LOGI(TAG, "Model persona update requested");
     
     response->content = cJSON_CreateString("人设配置已更新");
@@ -58,8 +59,8 @@ static mcp_result_t general_config_handler(const mcp_context_t *ctx, mcp_respons
 
     // TODO: 实现通用配置修改逻辑
     // 这里可以添加通用配置参数解析和更新逻辑
-    extern int change_info_page(void);
-    change_info_page();
+    extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
+    change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE);
     LISA_LOGI(TAG, "General configuration update requested");
     
     response->content = cJSON_CreateString("配置已更新");

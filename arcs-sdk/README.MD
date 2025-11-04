@@ -1,35 +1,24 @@
-# 说明
-## 代码拉取
-仓库需要使用到git-lfs
+# ARCS SDK概述
 
-git-lfs安装
-
+## 目录结构
 ```
-apt install git-lfs
-```
-
-拉取代码
-```
-git clone https://cloud.listenai.com/CSKG836746/arcs-sdk/arcs-sdk.git --recurse-submodules
-```
-或
-
-```
-git clone https://cloud.listenai.com/CSKG836746/arcs-sdk/arcs-sdk.git
-git submodule update --recursive --init
-```
-
-## 目录说明
-```
-.
-├── arcs-base       ARCS的最小依赖目录
-├── components      存放组件
-├── modules         存放第三方模块
-├── projects        存放工程代码
-├── samples         存放示例代码
-├── tests           存放测试代码
-├── tools           存放工具或者脚本
-├── build.sh        工程构建脚本
+arcs-sdk/
+├── boards/                            ← 板级文件
+├── soc/                               ← soc相关文件                             
+├── startup/                           ← 系统启动相关初始化
+├── drivers/                           ← 驱动文件 
+├── cmake/                             ← CMake构建扩展 
+├── components/                        ← 自研软件库
+├── modules/                           ← 第三方开源库 
+├── tools/                             ← 开发工具集
+├── samples/                           ← 示例代码 
+├── tests/                             ← 测试代码
+├── docs/                              ← 完整文档 
+├── README.md                          ← 说明文档
+├── VERSION                            ← 版本信息
+├── LICENSE                            ← 开源许可证
 ```
 
-在开发前请阅读[开发文档](./doc/开发文档.MD)
+## 详细文档
+
+## 代码仓库

@@ -17,6 +17,7 @@
 #include "view_events.h"
 #include "lisaui_user_data.h"
 #include "assistant_view.h"
+#include "cJSON.h"
 
 #include "lisa_log.h"
 // #include "ui.h"
@@ -111,6 +112,7 @@ EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_INTER_WAKEUP)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_ROLES_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_ROLE_EMOJI_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_MCP_EMOJI_UPDATE)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_STANDBY_TEXTS_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_INTER_END)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_SETTING_WIFI_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_SETTING_BATTERY_UPDATE)
@@ -245,19 +247,30 @@ static int update_event(view_event_e event)
 
     return 0;
 }
-int change_info_page(void)
+int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode)
 {
     // 检查是否已经在info页面
+    LISA_LOGI(TAG, "change_info_page, mode: %d", mode);
     extern bool is_info_page_active(void);
     if (is_info_page_active()) {
         printf("Info page is already active, ignoring toggle request\n");
         return 0;
     }
 
+    if (mode >= LISAUI_USERDATA_QRCODE_INTER_UNKNOW_MODE) {
+        LISA_LOGE(TAG, "Unknow mode, mode: %d", mode);
+        return -1;
+    }
+
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        _userdata->qrcode_inter.mode = mode;
+    }
+
     workqueue_submit(view_handler->view->workq,
         EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE), NULL, 0);
-    void enter_ble_config(void);
-    enter_ble_config();
+    // void enter_ble_config(void);
+    // enter_ble_config();
     return 0;
 }
 
@@ -636,6 +649,310 @@ static int update_mcp_emoji(const char *emoji_string) {
 
     return 0;
 }
+
+static int update_standby_texts(const char *json_data) {
+    if (!json_data) {
+        LISA_LOGE(TAG, "[%s] json_data is NULL", __FUNCTION__);
+        return -EINVAL;
+    }
+    
+    LISA_LOGI(TAG, "[%s] Updating standby texts with JSON: %s", __FUNCTION__, json_data);
+    
+    // 解析 banner JSON 数据
+    cJSON *banner = cJSON_Parse(json_data);
+    if (!banner) {
+        LISA_LOGE(TAG, "[%s] Invalid JSON", __FUNCTION__);
+        return -EINVAL;
+    }
+    
+    // 获取 resources 数组
+    cJSON *resources = cJSON_GetObjectItem(banner, "resources");
+    if (!resources || !cJSON_IsArray(resources)) {
+        LISA_LOGE(TAG, "[%s] Invalid resources array", __FUNCTION__);
+        cJSON_Delete(banner);
+        return -EINVAL;
+    }
+    
+    // 获取 interval_ms
+    cJSON *interval_ms_item = cJSON_GetObjectItem(banner, "interval_ms");
+    uint32_t interval_ms = 3000;  // 默认3秒
+    if (interval_ms_item && cJSON_IsNumber(interval_ms_item)) {
+        interval_ms = (uint32_t)interval_ms_item->valueint;
+    }
+    
+    int resources_count = cJSON_GetArraySize(resources);
+    if (resources_count < 0 || resources_count > 10) {
+        LISA_LOGE(TAG, "[%s] Invalid resources count: %d", __FUNCTION__, resources_count);
+        cJSON_Delete(banner);
+        return -EINVAL;
+    }
+    
+    // 提取文本数组
+    const char *texts[10];  // 最大数量
+    int valid_count = 0;
+    
+    for (int i = 0; i < resources_count && i < 10; i++) {
+        cJSON *resource = cJSON_GetArrayItem(resources, i);
+        if (resource) {
+            cJSON *text_item = cJSON_GetObjectItem(resource, "text");
+            if (text_item && cJSON_IsString(text_item) && strlen(text_item->valuestring) > 0) {
+                texts[valid_count] = text_item->valuestring;
+                LISA_LOGI(TAG, "[%s] Found standby text: %s", __FUNCTION__, texts[valid_count]);
+                valid_count++;
+            } else if (text_item && cJSON_IsString(text_item)) {
+                LISA_LOGW(TAG, "[%s] Skipping empty text at index %d", __FUNCTION__, i);
+            }
+        }
+    }
+    
+    if (valid_count == 0) {
+        LISA_LOGE(TAG, "[%s] No valid texts found", __FUNCTION__);
+        lisaui_userdata_clear_standby_texts();
+        cJSON_Delete(banner);
+        goto exit;
+    }
+
+    int ret = lisaui_userdata_set_standby_texts(texts, valid_count, interval_ms, true);
+
+    cJSON_Delete(banner);
+    
+    if (ret != 0) {
+        LISA_LOGE(TAG, "[%s] Failed to set standby texts, ret=%d", __FUNCTION__, ret);
+        return ret;
+    }
+    
+    LISA_LOGI(TAG, "[%s] Successfully set %d standby texts with interval %dms", 
+             __FUNCTION__, valid_count, interval_ms);
+exit:
+    // 触发待机文本更新事件，通知 UI 层数据已更新
+    workqueue_submit(view_handler->view->workq,
+        EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_STANDBY_TEXTS_UPDATE), 
+        NULL, 0);
+
+    return 0;
+}
+
+// 辅助函数：为URL添加阿里云OSS图片处理参数
+static char* add_oss_image_params(const char* original_url, int width, int quality, const char* format) {
+    if (!original_url || !format) {
+        LISA_LOGE(TAG, "Invalid parameters for OSS image params");
+        return NULL;
+    }
+    
+    // 检查width和quality参数范围
+    if (width <= 0 || width > 2048) {
+        LISA_LOGW(TAG, "Width %d out of range, using default 200", width);
+        width = 200;
+    }
+    
+    if (quality <= 0 || quality > 100) {
+        LISA_LOGW(TAG, "Quality %d out of range, using default 100", quality);
+        quality = 100;
+    }
+    
+    // 找到URL中的查询参数位置（'?'字符）
+    const char *query_start = strchr(original_url, '?');
+    size_t base_url_len;
+    
+    if (query_start) {
+        // 如果URL中已有参数，只取基础URL部分
+        base_url_len = query_start - original_url;
+    } else {
+        // 如果URL中没有参数，使用完整URL长度
+        base_url_len = strlen(original_url);
+    }
+    
+    // 构建OSS处理参数字符串
+    // ?x-oss-process=image/resize,m_pad,w_200,limit_0,color_000000/quality,q_100/format,jpg
+    char oss_params[256];
+    snprintf(oss_params, sizeof(oss_params), 
+             "?x-oss-process=image/resize,m_pad,w_%d,limit_0,color_000000/quality,q_%d/format,%s",
+             width, quality, format);
+    
+    // 计算新URL的总长度
+    size_t params_len = strlen(oss_params);
+    size_t new_len = base_url_len + params_len;
+    
+    // 分配内存
+    char *new_url = exram_malloc(4, new_len + 1);
+    if (!new_url) {
+        LISA_LOGE(TAG, "Failed to allocate memory for URL with OSS params");
+        return NULL;
+    }
+    
+    // 拼接基础URL和新参数
+    snprintf(new_url, new_len + 1, "%.*s%s", (int)base_url_len, original_url, oss_params);
+    
+    LISA_LOGI(TAG, "Added OSS params: %s -> %s", original_url, new_url);
+    
+    return new_url;
+}
+
+static int update_device_config(const char *json_data) {
+    if (!json_data) {
+        LISA_LOGE(TAG, "[%s] json_data is NULL", __FUNCTION__);
+        return -EINVAL;
+    }
+    
+    LISA_LOGI(TAG, "[%s] Updating device config with JSON: %s", __FUNCTION__, json_data);
+    
+    // 解析 role_config JSON 数据
+    cJSON *role_config = cJSON_Parse(json_data);
+    if (!role_config) {
+        LISA_LOGE(TAG, "[%s] Invalid JSON", __FUNCTION__);
+        return -EINVAL;
+    }
+    
+    // 获取文本信息
+    cJSON *text_item = cJSON_GetObjectItem(role_config, "text");
+    const char *text = NULL;
+    if (text_item && cJSON_IsString(text_item)) {
+        text = text_item->valuestring;
+    }
+    
+    // 获取图片URL信息
+    cJSON *image_url_item = cJSON_GetObjectItem(role_config, "image_url");
+    const char *image_url = NULL;
+    if (image_url_item && cJSON_IsString(image_url_item)) {
+        image_url = image_url_item->valuestring;
+    }
+    
+    LISA_LOGI(TAG, "[%s] Device config - text: %s, image_url: %s", 
+             __FUNCTION__, text ? text : "NULL", image_url ? image_url : "NULL");
+    
+    // 更新用户数据中的设备配置信息
+    LISAUI_USERDATA_WITH_LOCK(_userdata) {
+        // 清理之前的设备配置文本
+        if (_userdata->qrcode_inter.device_label_text) {
+            exram_free(_userdata->qrcode_inter.device_label_text);
+            _userdata->qrcode_inter.device_label_text = NULL;
+        }
+        
+        // 设置新的设备配置文本
+        if (text && strlen(text) > 0) {
+            size_t text_len = strlen(text);
+            _userdata->qrcode_inter.device_label_text = exram_malloc(4, text_len + 1);
+            if (_userdata->qrcode_inter.device_label_text) {
+                strncpy(_userdata->qrcode_inter.device_label_text, text, text_len);
+                _userdata->qrcode_inter.device_label_text[text_len] = '\0';
+            }
+        }
+        
+        // 清理之前的设备配置URL
+        if (_userdata->qrcode_inter.device_url) {
+            exram_free(_userdata->qrcode_inter.device_url);
+            _userdata->qrcode_inter.device_url = NULL;
+        }
+        
+        // 设置新的设备配置URL（添加"N:"前缀）
+        if (image_url && strlen(image_url) > 0) {
+            // 为URL添加OSS图片处理参数 (宽度168, 质量100, 格式jpg)
+            char *url_with_params = add_oss_image_params(image_url, 168, 100, "jpg");
+            if (url_with_params) {
+                size_t url_len = strlen(url_with_params);
+                _userdata->qrcode_inter.device_url = exram_malloc(4, url_len + 3); // +2 for "N:" +1 for '\0'
+                if (_userdata->qrcode_inter.device_url) {
+                    snprintf(_userdata->qrcode_inter.device_url, url_len + 3, "N:%s", url_with_params);
+                }
+                exram_free(url_with_params); // 释放临时URL
+            }
+        }
+    }
+    
+    cJSON_Delete(role_config);
+    
+    LISA_LOGI(TAG, "[%s] Successfully updated device config", __FUNCTION__);
+    
+    return 0;
+}
+
+static int update_outof_limit_error(const char *result_item_json)
+{
+    if (!result_item_json) {
+        LISA_LOGE(TAG, "[%s] result_item_json is NULL", __FUNCTION__);
+        return -EINVAL;
+    }
+    
+    LISA_LOGI(TAG, "[%s] Processing OutOfLimit error from result_item: %s", __FUNCTION__, result_item_json);
+    
+    // 解析完整的 result_item JSON 数据
+    cJSON *result_item = cJSON_Parse(result_item_json);
+    if (!result_item) {
+        LISA_LOGE(TAG, "[%s] Invalid JSON", __FUNCTION__);
+        return -EINVAL;
+    }
+    
+    // 获取错误信息
+    cJSON *error = cJSON_GetObjectItem(result_item, "error");
+    if (!error) {
+        LISA_LOGE(TAG, "[%s] No error object found", __FUNCTION__);
+        cJSON_Delete(result_item);
+        return -EINVAL;
+    }
+    
+    cJSON *message = cJSON_GetObjectItem(error, "message");
+    if (!message || !cJSON_IsString(message)) {
+        LISA_LOGE(TAG, "[%s] Invalid error message", __FUNCTION__);
+        cJSON_Delete(result_item);
+        return -EINVAL;
+    }
+    
+    // 获取URL信息
+    cJSON *url = cJSON_GetObjectItem(result_item, "url");
+    
+    LISA_LOGI(TAG, "[%s] Error message: %s", __FUNCTION__, message->valuestring);
+    if (url && cJSON_IsString(url)) {
+        LISA_LOGI(TAG, "[%s] Error URL: %s", __FUNCTION__, url->valuestring);
+    }
+    
+    // 更新用户数据，设置二维码交互模式为配额页面
+    // OutOfLimit 错误通常需要显示二维码引导用户处理
+    LISAUI_USERDATA_WITH_LOCK(_userdata) {
+        // 将错误消息保存到配额模式专用的 label 文本中进行显示
+        if (_userdata->qrcode_inter.quota_label_text) {
+            exram_free(_userdata->qrcode_inter.quota_label_text);
+            _userdata->qrcode_inter.quota_label_text = NULL;
+        }
+        
+        size_t msg_len = strlen(message->valuestring);
+        _userdata->qrcode_inter.quota_label_text = exram_malloc(4, msg_len + 1);
+        if (_userdata->qrcode_inter.quota_label_text) {
+            strncpy(_userdata->qrcode_inter.quota_label_text, message->valuestring, msg_len);
+            _userdata->qrcode_inter.quota_label_text[msg_len] = '\0';
+        }
+        
+        // 清理之前的配额模式 URL
+        if (_userdata->qrcode_inter.quota_url) {
+            exram_free(_userdata->qrcode_inter.quota_url);
+            _userdata->qrcode_inter.quota_url = NULL;
+        }
+        
+        // 如果有URL，保存到配额模式专用的URL字段
+        if (url && cJSON_IsString(url) && url->valuestring) {
+            // 为URL添加OSS图片处理参数 (宽度168, 质量100, 格式jpg)
+            char *url_with_params = add_oss_image_params(url->valuestring, 168, 100, "jpg");
+            if (url_with_params) {
+                size_t url_len = strlen(url_with_params);
+                // 为URL添加"N:"前缀，表示网络URL格式
+                _userdata->qrcode_inter.quota_url = exram_malloc(4, url_len + 3);  // +2 for "N:" +1 for '\0'
+                if (_userdata->qrcode_inter.quota_url) {
+                    snprintf(_userdata->qrcode_inter.quota_url, url_len + 3, "N:%s", url_with_params);
+                }
+                exram_free(url_with_params); // 释放临时URL
+            }
+        }
+    }
+    
+    cJSON_Delete(result_item);
+    
+    LISA_LOGI(TAG, "[%s] Successfully updated OutOfLimit error info", __FUNCTION__);
+    
+    // 切换到配额相关的二维码页面
+    change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA);
+    
+    return 0;
+}
+
 static int update_reply_text(const char *text, lisaui_userdata_text_mode_e mode)
 {
     int ret = 0;
@@ -743,6 +1060,9 @@ assistant_view_t *assistant_view_init(assistant_view_cbs_t *cbs)
     view->ops.update_role_emoji = update_role_emoji;
     view->ops.update_mcp_emoji = update_mcp_emoji;
     view->ops.update_reply_text = update_reply_text;
+    view->ops.update_standby_texts = update_standby_texts;
+    view->ops.update_device_config = update_device_config;
+    view->ops.update_outof_limit_error = update_outof_limit_error;
     view->ops.update_battery_status = update_battery_info_work;
 
     view_setting_init(view);

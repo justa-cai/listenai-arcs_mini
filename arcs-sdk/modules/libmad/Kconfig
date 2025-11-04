@@ -1,0 +1,7 @@
+menu "libmad configuration"
+
+    config SDK_MODULE_LIBMAD
+        bool "enable libmad"
+        default n
+
+endmenu 

@@ -1,0 +1,43 @@
+BEGIN CLIENT_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_client.h"
+#include "mrpc_s2m_test_api_msg.h"
+#include "mrpc_s2m_test_api_server.h"
+END
+
+BEGIN SERVER_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "net_al.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_s2m_test_api_msg.h"
+#include "mrpc_s2m_test_api_server.h"
+END
+
+BEGIN MSG_HDR_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include <lwip/opt.h>
+#include <lwip/pbuf.h>
+#include <lwip/netif.h>
+#include "ls_err.h"
+#include "ls_wifi_type.h"
+#include "mrpc.h"
+#include "ipc_test.h"
+END
+
+BEGIN API_DECLARE_TYPE_OTHER
+
+ls_err_t s2m_echo_req(direct struct ipc_ep *mrpc_ep, struct cfg_ipc_echo *echo_req, in struct cfg_ipc_echo_resp *echo_resp);
+
+
+END

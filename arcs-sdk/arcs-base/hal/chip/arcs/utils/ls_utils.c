@@ -52,7 +52,7 @@
  *    - 0 : succeed
  *    - others: other errors.
  */
-int ls_read_temp_voltage(int count, float *vout)
+__WEAK int ls_read_temp_voltage(int count, float *vout)
 {
     float vptat_sum = 0.0, vptat, vfs = 1.2;
     uint32_t code = 0x00;

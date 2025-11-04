@@ -1,0 +1,17 @@
+config BLE_PROFILE_HOGPBH
+    bool "Enable BLE Profile HOGP Boot Host"
+    default n
+    help
+        Enable BLE HID over GATT Profile Boot Host support
+
+config BLE_PROFILE_HOGPD
+    bool "Enable BLE Profile HOGP Device"
+    default n
+    help
+        Enable BLE HID over GATT Profile Device support
+
+config BLE_PROFILE_HOGPRH
+    bool "Enable BLE Profile HOGP Report Host"
+    default n
+    help
+        Enable BLE HID over GATT Profile Report Host support

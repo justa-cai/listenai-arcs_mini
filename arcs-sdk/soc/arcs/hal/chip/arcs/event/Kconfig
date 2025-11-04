@@ -1,0 +1,5 @@
+config ARCS_HAL_EVENT
+    bool "Enable ARCS HAL Event"
+    default n
+    help
+        Enable Event (Inter-Thread Communication) support

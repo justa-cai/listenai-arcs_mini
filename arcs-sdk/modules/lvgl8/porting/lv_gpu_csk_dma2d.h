@@ -14,7 +14,7 @@ extern "C" {
 #include "../src/hal/lv_hal_disp.h"
 #include "../src/draw/sw/lv_draw_sw.h"
 
-#if LV_USE_GPU_CSK_DMA2D
+#if CONFIG_LV_USE_GPU_CSK_DMA2D
 
 /*********************
  *      INCLUDES

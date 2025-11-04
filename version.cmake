@@ -11,7 +11,7 @@ set(PROJECT_VERSION_STR "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PRO
 find_package(Git QUIET)
 if(GIT_FOUND)
     execute_process(
-            COMMAND git describe --always --dirty --tag --abbrev=8
+            COMMAND git describe --always --dirty --tag --long --abbrev=8
             OUTPUT_VARIABLE                  PROJECT_VERSION_COMMIT
             OUTPUT_STRIP_TRAILING_WHITESPACE
             ERROR_STRIP_TRAILING_WHITESPACE

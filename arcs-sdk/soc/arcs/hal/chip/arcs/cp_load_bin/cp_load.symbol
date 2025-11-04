@@ -1,0 +1,161 @@
+00000001 A __SMP_CPU_CNT
+00000400 A __HEAP_SIZE
+00000800 A __STACK_SIZE
+00000800 A __TOT_STACK_SIZE
+00100000 D _data	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:93
+00100000 D SystemCoreClock	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:93
+00100004 D cloglvl	E:\code\listenai_rtos\chip\arcs\driver/debug/log_print.c:16
+00100008 D __atexit_recursive_mutex
+00100370 D __clz_tab
+00100470 D __bss_start
+00100470 D __fsymtab_end
+00100470 D __fsymtab_start
+00100470 D __rt_init_end
+00100470 D __rt_init_start
+00100470 D __tls_base
+00100470 D __vsymtab_end
+00100470 D __vsymtab_start
+00100470 D _edata
+00100480 b logd_close_flag	E:\code\listenai_rtos\chip\arcs\driver/debug/log_print.c:189
+00100484 b stdout_putp	E:\code\listenai_rtos\chip\arcs\driver/debug/tinyprintf.c:469
+00100488 b stdout_putf	E:\code\listenai_rtos\chip\arcs\driver/debug/tinyprintf.c:468
+0010048c B __atexit
+00100490 B __lock___atexit_recursive_mutex
+001004c0 B OS_CPU_Vector_Table	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:667
+001005f8 B SystemIRegionInfo	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:392
+0010060c b SystemExceptionHandlers	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:164
+00100650 B __atexit0
+001007e0 B _end
+00100800 D __global_pointer$
+00102000 B _sp
+30000000 T vector_base
+30000180 T _start	E:\code\listenai_rtos\chip\arcs\bsp/gcc/startup_demosoc.S:191
+300001ea t __init_common	E:\code\listenai_rtos\chip\arcs\bsp/gcc/startup_demosoc.S:309
+3000025c T _start_premain	E:\code\listenai_rtos\chip\arcs\bsp/gcc/startup_demosoc.S:357
+3000026e t __skip_init	E:\code\listenai_rtos\chip\arcs\bsp/gcc/startup_demosoc.S:367
+30000298 t __amp_wait	E:\code\listenai_rtos\chip\arcs\bsp/gcc/startup_demosoc.S:414
+300002c0 T early_exc_entry	E:\code\listenai_rtos\chip\arcs\bsp/gcc/startup_demosoc.S:452
+300002f2 T __sync_harts	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:426
+30000300 T _text	E:\code\listenai_rtos\src\arcs\cp_load/main.c:9
+30000300 A _text_lma
+30000300 T main	E:\code\listenai_rtos\src\arcs\cp_load/main.c:8
+30000324 t register_fini
+30000338 T SystemInit	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:126
+3000036a T Exception_DumpFrame	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:232
+30000414 t system_default_exception_handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:182
+300004b8 T core_exception_handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:311
+3000050a T _premain_init	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:569
+300007be T _postmain_fini	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:631
+300007c0 T _init	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:647
+300007c2 T _fini	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:661
+300007c4 T Interrupt1_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:753
+300007ce T Interrupt2_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:754
+300007d8 T Interrupt3_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:755
+300007e2 T Interrupt4_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:756
+300007ec T Interrupt5_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:757
+300007f6 T Interrupt6_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:758
+30000800 T Interrupt7_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:759
+3000080a T Interrupt8_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:760
+30000814 T Interrupt9_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:761
+3000081e T Interrupt10_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:762
+30000828 T Interrupt11_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:763
+30000832 T Interrupt12_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:764
+3000083c T Interrupt13_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:765
+30000846 T Interrupt14_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:766
+30000850 T Interrupt15_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:767
+3000085a T Interrupt16_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:768
+30000864 T Interrupt17_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:769
+3000086e T Interrupt18_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:770
+30000878 T Interrupt19_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:771
+30000882 T Interrupt20_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:772
+3000088c T Interrupt21_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:773
+30000896 T Interrupt22_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:774
+300008a0 T Interrupt23_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:775
+300008aa T Interrupt24_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:776
+300008b4 T Interrupt25_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:777
+300008be T Interrupt26_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:778
+300008c8 T Interrupt27_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:779
+300008d2 T Interrupt28_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:780
+300008dc T Interrupt29_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:781
+300008e6 T Interrupt30_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:782
+300008f0 T Interrupt31_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:783
+300008fa T Interrupt32_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:784
+30000904 T Interrupt33_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:785
+3000090e T Interrupt34_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:786
+30000918 T Interrupt35_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:787
+30000922 T Interrupt36_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:788
+3000092c T Interrupt37_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:789
+30000936 T Interrupt38_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:790
+30000940 T Interrupt39_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:791
+3000094a T Interrupt40_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:792
+30000954 T Interrupt41_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:793
+3000095e T Interrupt42_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:794
+30000968 T Interrupt43_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:795
+30000972 T Interrupt44_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:796
+3000097c T Interrupt45_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:797
+30000986 T Interrupt46_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:798
+30000990 T Interrupt47_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:799
+3000099a T Interrupt48_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:800
+300009a4 T Interrupt49_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:801
+300009ae T Interrupt50_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:802
+300009b8 T Interrupt51_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:803
+300009c2 T Interrupt52_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:804
+300009cc T Interrupt53_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:805
+300009d6 T Interrupt54_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:806
+300009e0 T Interrupt55_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:807
+300009ea T Interrupt56_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:808
+300009f4 T Interrupt57_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:809
+300009fe T Interrupt58_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:810
+30000a08 T Interrupt59_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:811
+30000a12 T Interrupt60_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:812
+30000a1c T Interrupt61_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:813
+30000a26 T Interrupt62_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:814
+30000a30 T Interrupt63_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:815
+30000a3a T Interrupt64_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:816
+30000a44 T Interrupt65_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:817
+30000a4e T Interrupt66_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:818
+30000a58 T Interrupt67_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:819
+30000a62 T Interrupt68_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:820
+30000a6c T Interrupt69_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:821
+30000a76 T Interrupt70_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:822
+30000a80 T Interrupt71_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:823
+30000a8a T Interrupt72_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:824
+30000a94 T Interrupt73_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:825
+30000a9e T Interrupt74_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:826
+30000aa8 T Interrupt75_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:827
+30000ab2 T Interrupt76_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:828
+30000abc T Interrupt77_Handler	E:\code\listenai_rtos\chip\arcs\bsp/system_RISCVN300.c:829
+30000b00 W exc_entry	E:\code\listenai_rtos\chip\arcs\bsp/gcc/intexc_demosoc.S:160
+30000b80 W irq_entry	E:\code\listenai_rtos\chip\arcs\bsp/gcc/intexc_demosoc.S:204
+30000bf2 W default_intexc_handler	E:\code\listenai_rtos\chip\arcs\bsp/gcc/intexc_demosoc.S:232
+30000bf2 t Undef_Handler	E:\code\listenai_rtos\chip\arcs\bsp/gcc/intexc_demosoc.S:232
+30000bf6 T BootClock_Init	E:\code\listenai_rtos\chip\arcs\driver/cmu/clock_config.c:26
+30000bf8 T logDbg	E:\code\listenai_rtos\chip\arcs\driver/debug/log_print.c:195
+30000c22 t ulli2a	E:\code\listenai_rtos\chip\arcs\driver/debug/tinyprintf.c:85
+30000d3a t ui2a	E:\code\listenai_rtos\chip\arcs\driver/debug/tinyprintf.c:121
+30000d3a t uli2a	E:\code\listenai_rtos\chip\arcs\driver/debug/tinyprintf.c:116
+30000dbe t putchw	E:\code\listenai_rtos\chip\arcs\driver/debug/tinyprintf.c:234
+30000f12 T tfp_format	E:\code\listenai_rtos\chip\arcs\driver/debug/tinyprintf.c:286
+30001372 T tfp_vprintf	E:\code\listenai_rtos\chip\arcs\driver/debug/tinyprintf.c:477
+30001388 T atexit
+30001392 T __libc_init_array
+300013fc T __libc_fini_array
+30001432 T __register_exitproc
+300014cc T __retarget_lock_acquire_recursive
+300014ce T __retarget_lock_release_recursive
+300014d0 T __udivdi3
+3000180e T __umoddi3
+30001b14 T __ledf2
+30001b14 T __ltdf2
+30001bb4 T __muldf3
+30001fce T __subdf3
+30002586 T __fixdfsi
+300025e8 T __floatsidf
+3000263c d __init_array_start
+3000263c d __preinit_array_end
+3000263c d __preinit_array_start
+30002640 d __fini_array_end
+30002640 d __fini_array_start
+30002640 d __init_array_end
+30002640 A _data_lma
+30002640 D _etext

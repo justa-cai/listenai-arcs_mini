@@ -1,0 +1,13 @@
+config ARCS_HAL_NVS
+    bool "NVS Support in HAL"
+    default n
+    help
+        Enable NVS support in HAL
+
+if ARCS_HAL_NVS
+    config NVS_FLASH_XIP
+        bool "NVS Flash XIP"
+        default n
+        help
+            Enable NVS Flash XIP
+endif

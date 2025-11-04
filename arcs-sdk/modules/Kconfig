@@ -1,0 +1,80 @@
+# ARCS SDK Third-party Modules Configuration
+
+menu "Third-party Modules"
+
+# Operating System
+rsource "freertos/Kconfig"
+rsource "FreeRTOS-CPP11/Kconfig"
+rsource "rtos_al/Kconfig"
+
+# Audio/Media Processing
+rsource "aacdec/Kconfig"
+rsource "libmad/Kconfig"
+rsource "mp3dec/Kconfig"
+rsource "speexdsp/Kconfig"
+rsource "resample/Kconfig"
+rsource "lisa_player/Kconfig"
+rsource "libid3tag/Kconfig"
+
+# Graphics and UI
+rsource "lvgl/Kconfig"
+rsource "lvgl8/Kconfig"
+rsource "freetype/Kconfig"
+rsource "libpng/Kconfig"
+rsource "giflib/Kconfig"
+rsource "ijg/Kconfig"
+rsource "libico/Kconfig"
+rsource "flexlayout/Kconfig"
+
+# File System and Storage
+rsource "fs/Kconfig"
+rsource "EasyFlash/Kconfig"
+rsource "csk_sqlite3/Kconfig"
+
+# Network and Communication
+rsource "libcurl/Kconfig"
+rsource "httpclient/Kconfig"
+rsource "http_ssl/Kconfig"
+rsource "coreHTTP/Kconfig"
+rsource "coresntp/Kconfig"
+rsource "nopoll/Kconfig"
+rsource "cpr/Kconfig"
+
+# Security and Encryption
+rsource "mbedtls/Kconfig"
+
+# Data Processing
+rsource "cjson/Kconfig"
+rsource "libxml2/Kconfig"
+rsource "zlib/Kconfig"
+rsource "crc32/Kconfig"
+rsource "uchardet/Kconfig"
+rsource "collections-c/Kconfig"
+
+# Memory Management
+rsource "heap/Kconfig"
+rsource "mempool/Kconfig"
+
+# USB Support
+rsource "tinyusb/Kconfig"
+
+# WiFi and Network Management
+rsource "wifi_manager/Kconfig"
+rsource "mac_manager/Kconfig"
+
+# Logging and Shell
+rsource "easylogger/Kconfig"
+rsource "letter-shell/Kconfig"
+rsource "lshell/Kconfig"
+
+# Testing Frameworks
+rsource "unity/Kconfig"
+rsource "cpputest/Kconfig"
+rsource "googletest/Kconfig"
+rsource "fff/Kconfig"
+
+# Custom Modules
+rsource "ltlsf/Kconfig"
+
+endmenu
+

@@ -10,6 +10,7 @@ if (DEFINED CONFIG_LISA_DISPLAY)
     listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_NV3030B display_nv3030b.c)
     listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_GC9A01 display_gc9a01.c)
     listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_UC8253C display_uc8253c.c)
+    listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_SSD1683 display_ssd1683.c)
 
     listenai_include_directories(.)
 

@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include "lisaui_page.h"
 #include "lisaui_type.h"
-#include "dlist.h"
+#include "utils/dlist.h"
 
 #ifdef __cplusplus
 extern "C" {

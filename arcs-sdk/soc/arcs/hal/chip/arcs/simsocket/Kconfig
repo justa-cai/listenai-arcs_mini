@@ -1,0 +1,7 @@
+config ARCS_HAL_SIMSOCKET
+    bool "Simulated Socket"
+    default n
+    select RTOS_AL
+    select ARCS_HAL_IPC
+    help
+        Simulated socket

@@ -70,6 +70,7 @@ int view_runner_start(assistant_view_t *view)
         },
     };
     lv_port_disp_init(&disp_config);
+    lv_img_net_loader_init();
     // lv_port_indev_init();
     lisa_display_blanking_on(lisa_display_get());
     lisaui_ui_init();

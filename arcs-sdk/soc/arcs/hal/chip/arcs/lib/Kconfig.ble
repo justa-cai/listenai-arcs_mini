@@ -1,0 +1,9 @@
+menuconfig BLE
+    bool "BLE Support"
+    default n
+    select ARCS_HAL_WCND
+    select RTOS_AL
+    select ARCS_HAL_BTOS
+    select BLE_PROFILE_DISS
+    help
+        Enable BLE support including core BLE functionality

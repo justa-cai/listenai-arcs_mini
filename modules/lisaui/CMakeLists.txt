@@ -11,7 +11,8 @@ add_library(${TARGET_NAME} STATIC
     ${APP_USER_SOURCES}
 )
 
-target_include_directories(${TARGET_NAME} PUBLIC
+listenai_include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
@@ -19,7 +20,8 @@ add_subdirectory(core)
 add_subdirectory(port)
 add_subdirectory(utils)
 add_subdirectory(source)
-add_subdirectory(user)
+add_subdirectory(widgets)
+add_subdirectory(sys_events)
 
 if(CONFIG_LVGL_ENV_SIMULATOR)
     set(LINKER_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/port/lisaui.ld)

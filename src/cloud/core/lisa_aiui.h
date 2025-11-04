@@ -19,20 +19,12 @@ enum {
     LISA_AIUI_FRAME_TYPE_IMAGE,
 };
 
-/**
- * @brief	AIUI开放平台配置信息
- */
-typedef struct lisa_aiui_config {
-	uint8_t *appid;
-	uint8_t *api_key;
-} lisa_aiui_config_t;
 
 /**
  * @brief	AIUI实例
  */
 typedef struct lisa_aiui {
-	/// @brief AIUI配置信息
-	lisa_aiui_config_t *config;
+
 	/// @brief aiui websocket 句柄
 	lisa_aiui_ws_t *aiui_ws;
 
@@ -80,16 +72,15 @@ void lisa_aiui_update_product_id(const char *pid);
 void lisa_aiui_update_secret_id(const char *sid);
 void lisa_aiui_clear_token(void);
 
-lisa_aiui_config_t *lisa_aiui_get_config();
 /**
  * @brief SDK初始化函数
  *
- * @param config            初始化参数配置，必填
+
  * @param aiui_cb           AIUI回调事件，非局部变量
  * @param aiui_audio_cb     AIUI识别音频回调
  * @return lisa_aiui_t*
  */
-lisa_aiui_t *lisa_aiui_create(const lisa_aiui_config_t *const config, lisa_aiui_cb_t *aiui_cb);
+lisa_aiui_t *lisa_aiui_create(lisa_aiui_cb_t *aiui_cb);
 
 /**
  * @brief 建立websocket连接

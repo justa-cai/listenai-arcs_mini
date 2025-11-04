@@ -1,0 +1,48 @@
+menu "display ssd1683 configuration"
+
+
+if LISA_DISPLAY_SSD1683
+
+    config DISPLAY_SSD1683_WIDTH
+        int "screen width"
+        default 400
+        help
+        The pixel length in the x-axis direction of the display screen, the maximum value is 240.
+
+    config DISPLAY_SSD1683_HEIGHT
+        int "screen height"
+        default 300
+        help
+        The pixel length in the y-axis direction of the display screen, the maximum value is 416.
+
+    config DISPLAY_SSD1683_X_OFFSET
+        int "screen x offset"
+        default 0
+        help
+        The pixel offset in the x-axis direction of the display screen.
+
+    config DISPLAY_SSD1683_Y_OFFSET
+        int "screen y offset"
+        default 0
+        help
+        The pixel offset in the y-axis direction of the display screen.
+
+    config ROTATE_BUF_MAX_HEIGHT
+        int "roate buffer buffer max height"
+        default DISPLAY_SSD1683_WIDTH
+
+    config USE_TRANS_CTX
+        bool "use trans context"
+        default y
+        select LISA_DISPLAY_INTERFACE_SPI_4_LINE
+
+    config USE_OPT_LUT_TABLE
+        bool "use <One-Time Programming> LUT table"
+        default n
+        help
+            If enabled, the LUT table stored in the SSD1683 OTP memory will be used.
+            Otherwise, the default LUT table defined in the driver will be used.
+
+endif
+
+endmenu

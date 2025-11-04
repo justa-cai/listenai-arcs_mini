@@ -8,17 +8,19 @@
 #include "lisa_display.h"
 #include "lisa_log.h"
 
-void *disp_rst_dev = NULL;
-uint8_t disp_rst_pin = 0;
+static void *disp_rst_dev = NULL;
+static uint8_t disp_rst_pin = 0;
 
 void disp_comm_rst_init(pin_info_t *rst_pin)
 {
-    void *rst_dev = rst_pin->pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
-    IOMuxManager_PinConfigure(rst_pin->pad, rst_pin->pin, rst_pin->func); // GPIO LCD_RESET
+    disp_rst_dev = rst_pin->pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
+    disp_rst_pin = rst_pin->pin;
+    IOMuxManager_PinConfigure(rst_pin->pad, disp_rst_pin, rst_pin->func); // GPIO LCD_RESET
 
-    GPIO_Initialize(rst_dev, NULL, NULL);
-    GPIO_SetDir(rst_dev, (1UL << rst_pin->pin), CSK_GPIO_DIR_OUTPUT);
-    GPIO_PinWrite(rst_dev, (1UL << rst_pin->pin), 1);
+    GPIO_Initialize(disp_rst_dev, NULL, NULL);
+    GPIO_Control(disp_rst_dev, CSK_GPIO_DEBOUNCE_DISABLE, (1UL << disp_rst_pin));
+    GPIO_PinWrite(disp_rst_dev, (1UL << disp_rst_pin), 1);
+    GPIO_SetDir(disp_rst_dev, (1UL << disp_rst_pin), CSK_GPIO_DIR_OUTPUT);
 }
 
 void disp_comm_rst_set(void)
@@ -86,7 +88,7 @@ static void GPIO_BUSY_EventCallback(uint32_t event, void *workspace)
     }
 }
 
-void disp_comm_busy_init(SemaphoreHandle_t sem_handle, pin_info_t *busy_pin)
+void disp_comm_busy_init(SemaphoreHandle_t sem_handle, pin_info_t *busy_pin, int active_level)
 {
     void *busy_dev = busy_pin->pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
     disp_busy_pin = busy_pin->pin;
@@ -94,8 +96,9 @@ void disp_comm_busy_init(SemaphoreHandle_t sem_handle, pin_info_t *busy_pin)
 
     GPIO_Initialize(busy_dev, NULL, NULL);
     GPIO_SetDir(busy_dev, (1UL << busy_pin->pin), CSK_GPIO_DIR_INPUT);
-    GPIO_Control(busy_dev, CSK_GPIO_DEBOUNCE_DISABLE | CSK_GPIO_SET_INTR_POSITIVE_EDGE |
-                                    CSK_GPIO_INTR_ENABLE , (1UL << busy_pin->pin));
+    uint32_t intr_mode = active_level ? CSK_GPIO_SET_INTR_POSITIVE_EDGE : CSK_GPIO_SET_INTR_NEGATIVE_EDGE;
+    uint32_t config_flags = CSK_GPIO_DEBOUNCE_DISABLE | intr_mode | CSK_GPIO_INTR_ENABLE;
+    GPIO_Control(busy_dev, config_flags, (1UL << busy_pin->pin));
     GPIO_SetCallback(busy_dev, (1UL << busy_pin->pin), GPIO_BUSY_EventCallback, sem_handle);
 }
 

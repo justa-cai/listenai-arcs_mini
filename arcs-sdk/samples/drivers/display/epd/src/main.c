@@ -13,7 +13,64 @@
 #include "Driver_SPI.h"
 #include "Driver_GPT_PWM.h"
 
+#include "lv_port_disp.h"
+// #include "lv_port_indev.h"
+#include "lv_demos.h"
 #include "pearl_girl_image.h"
+// #include "pearl_girl_atkinson.h"
+
+#define CONFIG_USE_LVGL 0
+static void *display_device = NULL;
+
+#if CONFIG_USE_LVGL
+lv_obj_t *label = NULL;
+uint32_t cnt = 0;
+static void user_btn_label_cb(lv_timer_t * timer)
+{
+	LV_UNUSED(timer);
+	if (label) {
+		char buf[64];
+		snprintf(buf, sizeof(buf), "Hello LVGL %d", cnt++);
+		lv_label_set_text(label, buf);
+		LOGI("btn label set text: %s", buf);
+	}
+}
+
+void lv_btn_test(void)
+{
+	lv_obj_t *btn = lv_btn_create(lv_scr_act());
+	lv_obj_set_size(btn, 200, 160);
+	lv_obj_center(btn);
+	label = lv_label_create(btn);
+	lv_label_set_text(label, "Hello World!");
+	lv_obj_center(label);
+	lv_timer_create(user_btn_label_cb, 1000, NULL);
+
+	/* 在当前屏幕上创建一个黑色方块 */
+	lv_obj_t *rect = lv_obj_create(lv_scr_act());   /* 父对象为屏幕 */
+	lv_obj_set_size(rect, 100, 100);                /* 宽 100 高 100 */
+	lv_obj_set_pos(rect, 20, 20);                   /* x=20,y=20 */
+
+	/* 设置样式为黑色背景、不透明、无边框 */
+	lv_obj_set_style_bg_color(rect, lv_color_hex(0x000000), 0);
+	lv_obj_set_style_bg_opa(rect, LV_OPA_COVER, 0);
+	lv_obj_set_style_border_width(rect, 0, 0);
+
+}
+
+static void task_ui(void *pvParameters)
+{
+	LOGI("LVGL widgets start\r\n");
+	// lv_demo_widgets();
+	lv_btn_test();
+
+	while (1) {
+		uint32_t wait_time = lv_task_handler();
+		vTaskDelay(pdMS_TO_TICKS(10));
+	}
+}
+
+#endif
 
 // EPD 测试图案
 enum epd_pattern {
@@ -33,29 +90,29 @@ static void fill_buffer_mono(enum epd_pattern pattern, uint8_t *buf, uint16_t wi
 	uint32_t buf_size = (width * height) / 8;  // 1bpp
 	uint32_t i, x, y;
 	uint8_t byte_val;
-	
+
 	// 清空缓冲区
 	memset(buf, 0x00, buf_size);
-	LOGI("Filling buffer: pattern=%d, width=%d, height=%d, buf_size=%d\r\n", 
+	LOGI("Filling buffer: pattern=%d, width=%d, height=%d, buf_size=%d\r\n",
 			pattern, width, height, buf_size);
 	switch (pattern) {
 	case EPD_PATTERN_CLEAR:
 		// 全白 (墨水屏：0xFF = 白色)
 		memset(buf, 0xFF, buf_size);
 		break;
-		
+
 	case EPD_PATTERN_FILL:
 		// 全黑 (墨水屏：0x00 = 黑色)
 		memset(buf, 0x00, buf_size);
 		break;
-		
+
 	case EPD_PATTERN_CHESS:
 		// 棋盘格 8x8
 		for (y = 0; y < height; y++) {
 			for (x = 0; x < width; x += 8) {
 				uint32_t byte_idx = (y * width + x) / 8;
 				byte_val = 0;
-				
+
 				for (int bit = 0; bit < 8 && (x + bit) < width; bit++) {
 					int px = x + bit;
 					// 8x8棋盘格
@@ -67,7 +124,7 @@ static void fill_buffer_mono(enum epd_pattern pattern, uint8_t *buf, uint16_t wi
 			}
 		}
 		break;
-		
+
 	case EPD_PATTERN_STRIPE_H:
 		// 水平条纹
 		for (y = 0; y < height; y++) {
@@ -78,14 +135,14 @@ static void fill_buffer_mono(enum epd_pattern pattern, uint8_t *buf, uint16_t wi
 			}
 		}
 		break;
-		
+
 	case EPD_PATTERN_STRIPE_V:
 		// 垂直条纹
 		for (y = 0; y < height; y++) {
 			for (x = 0; x < width; x += 8) {
 				uint32_t byte_idx = (y * width + x) / 8;
 				byte_val = 0;
-				
+
 				for (int bit = 0; bit < 8 && (x + bit) < width; bit++) {
 					int px = x + bit;
 					if ((px / 4) % 2 == 0) {  // 4像素宽的条纹
@@ -96,7 +153,7 @@ static void fill_buffer_mono(enum epd_pattern pattern, uint8_t *buf, uint16_t wi
 			}
 		}
 		break;
-		
+
 	case EPD_PATTERN_FRAME:
 		// 边框
 		memset(buf, 0xFF, buf_size);  // 先填白色
@@ -105,7 +162,7 @@ static void fill_buffer_mono(enum epd_pattern pattern, uint8_t *buf, uint16_t wi
 			for (x = 0; x < width; x += 8) {
 				uint32_t byte_idx = (y * width + x) / 8;
 				byte_val = 0xFF;
-				
+
 				for (int bit = 0; bit < 8 && (x + bit) < width; bit++) {
 					int px = x + bit;
 					// 边框区域
@@ -117,12 +174,12 @@ static void fill_buffer_mono(enum epd_pattern pattern, uint8_t *buf, uint16_t wi
 			}
 		}
 		break;
-		
+
 	case EPD_PATTERN_TEXT:
 		// 文本测试图案
 		// generate_text_image(buf, "UC8253c");
 		break;
-	
+
 	case EPD_PATTERN_IMAGE:
 		memcpy(buf, epd_image, buf_size);
 		// LOGI("Using embedded image data\r\n");
@@ -136,7 +193,6 @@ static void fill_buffer_mono(enum epd_pattern pattern, uint8_t *buf, uint16_t wi
 
 int main(int argc, char **argv)
 {
-	void *display_device = NULL;
 	struct display_capabilities caps;
 	struct display_buffer_descriptor desc;
 	uint8_t *image_buf = NULL;
@@ -145,7 +201,7 @@ int main(int argc, char **argv)
 
 	LOGI("UC8253c E-Paper Display Sample\r\n");
 
-	
+
 	display_hw_config_t config = {
 		.reset = {
 			.pad = CSK_IOMUX_PAD_A,
@@ -197,7 +253,15 @@ int main(int argc, char **argv)
 			}
 		}
 	};
+
+#if CONFIG_USE_LVGL
+	lv_init();
+	lv_port_disp_init(&config);
+	display_device = lv_port_get_display_device();
+#else
 	display_device = lisa_display_create(&config);
+#endif
+
 	if(display_device == NULL){
 		LOGE("lisa_display_create fail\r\n");
 		return -1;
@@ -208,7 +272,7 @@ int main(int argc, char **argv)
 		LOGE("display format is not mono 1bpp, got format = 0x%x\r\n", caps.current_pixel_format);
 	}
 
-	LOGI("display capabilities: width = %d, height = %d, format = 0x%x\r\n", 
+	LOGI("display capabilities: width = %d, height = %d, format = 0x%x\r\n",
 		 caps.x_resolution, caps.y_resolution, caps.current_pixel_format);
 
 	desc.width = caps.x_resolution;
@@ -227,12 +291,17 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	// 初始化为全白
-	fill_buffer_mono(EPD_PATTERN_CLEAR, image_buf, desc.width, desc.height);
-	lisa_display_write(display_device, 0, 0, &desc, image_buf);
-	
-	LOGI("Starting pattern cycle...\r\n");
-	
+#if CONFIG_USE_LVGL
+	LOGI("Starting pattern cycle...");
+	xTaskCreate(task_ui, "task_ui", 4*1024, NULL, configMAX_PRIORITIES - 2, NULL);
+
+	while (1) {
+		vTaskDelay(pdMS_TO_TICKS(3000));
+		LOGI("tick...");
+	}
+#endif
+
+
 	while (1) {
 		// 循环显示不同图案
 		switch(pattern_count % 8) {
@@ -276,9 +345,9 @@ int main(int argc, char **argv)
 
 		fill_buffer_mono(pattern, image_buf, desc.width, desc.height);
 		lisa_display_write(display_device, 0, 0, &desc, image_buf);
-		
+
 		pattern_count++;
-		
+
 		// 墨水屏刷新较慢，间隔时间长一些
 		LOGD("Waiting 1 seconds for next pattern...\r\n");
 		vTaskDelay(pdMS_TO_TICKS(1000));
