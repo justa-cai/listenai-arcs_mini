@@ -32,7 +32,6 @@ static const emotion_info_t emotion_map[] = {
 #define EMOTION_COUNT   4
 
 static int current_emotion = EMOTION_NEUTRAL;
-static rtos_timer emoji_reset_timer = NULL;
 
 // 表情设置处理函数
 static mcp_result_t emotion_set_handler(const mcp_context_t *ctx, mcp_response_t *response)
@@ -98,48 +97,6 @@ static mcp_result_t emotion_set_handler(const mcp_context_t *ctx, mcp_response_t
     return MCP_RESULT_SUCCESS;
 }
 
-// 表情获取处理函数
-static mcp_result_t emotion_get_handler(const mcp_context_t *ctx, mcp_response_t *response)
-{
-    if (!ctx || !response) {
-        return MCP_RESULT_INVALID_PARAM;
-    }
-    
-    LISA_LOGI(TAG, "Current emotion requested: %s", emotion_map[current_emotion].chinese);
-    
-    char result_msg[256];
-    snprintf(result_msg, sizeof(result_msg), 
-            "当前表情为: %s (%s)", 
-            emotion_map[current_emotion].chinese,
-            emotion_map[current_emotion].english);
-    response->content = cJSON_CreateString(result_msg);
-    response->result = MCP_RESULT_SUCCESS;
-    
-    return MCP_RESULT_SUCCESS;
-}
-
-// 表情清除处理函数
-static mcp_result_t emotion_clear_handler(const mcp_context_t *ctx, mcp_response_t *response)
-{
-    if (!ctx || !response) {
-        return MCP_RESULT_INVALID_PARAM;
-    }
-
-    int old_emotion = current_emotion;
-    current_emotion = EMOTION_NEUTRAL;
-    
-    LISA_LOGI(TAG, "Emotion cleared from %s to neutral", emotion_map[old_emotion].chinese);
-    
-    char result_msg[256];
-    snprintf(result_msg, sizeof(result_msg), 
-            "表情已从 %s 清除为 无表情", 
-            emotion_map[old_emotion].chinese);
-    response->content = cJSON_CreateString(result_msg);
-    response->result = MCP_RESULT_SUCCESS;
-    
-    return MCP_RESULT_SUCCESS;
-}
-
 // 表情设置工具参数定义
 static mcp_param_def_t emotion_set_params[] = {
     MCP_PARAM_DEF("emotion", MCP_PARAM_STRING, true, 
@@ -165,26 +122,6 @@ MCP_REGISTER_TOOL_STATIC(emotion_set,
                          emotion_set_params, 
                          1, 
                          emotion_set_handler, 
-                         false, 
-                         NULL);
-
-// 注册表情获取工具
-MCP_REGISTER_TOOL_STATIC(emotion_get, 
-                         "Get current device emotion expression.", 
-                         "1.0", 
-                         emotion_get_params, 
-                         0, 
-                         emotion_get_handler, 
-                         false, 
-                         NULL);
-
-// 注册表情清除工具
-MCP_REGISTER_TOOL_STATIC(emotion_clear, 
-                         "Clear current emotion and set to neutral state.", 
-                         "1.0", 
-                         emotion_clear_params, 
-                         0, 
-                         emotion_clear_handler, 
                          false, 
                          NULL);
 

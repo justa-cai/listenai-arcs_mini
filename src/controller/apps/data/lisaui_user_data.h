@@ -53,12 +53,21 @@ typedef enum {
     LISAUI_EBUS_CH_EVENT_U2M_SETTING_MIC_MUTE_UPDATE,
     LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE,
     LISAUI_EBUS_CH_EVENT_U2M_SETTING_HOME_UPDATE,
+    LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW,
+    LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE,
 
 } lisaui_ebus_ch_event_e;
 
 typedef struct {
     lisaui_ebus_ch_event_e event;
 } lisaui_ebus_userdata_message_t;
+
+// 拍照图片参数结构
+typedef struct {
+    const uint16_t *rgb565_data;  // RGB565图片数据指针
+    uint32_t width;                // 图片宽度
+    uint32_t height;               // 图片高度
+} lisaui_camera_image_params_t;
 
 typedef enum {
 

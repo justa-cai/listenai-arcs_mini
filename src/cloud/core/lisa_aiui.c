@@ -26,6 +26,9 @@
 #include "kv.h"
 #include "lisa_time.h"
 #include "lisa_aiui_rid_man.h"
+#include "app_cloud.h"
+#include "assistant_controller.h"
+
 
 #define AIUI_TIMEOUT (10)
 
@@ -433,7 +436,10 @@ exit:
 		lisa_mem_free(token);
 	}
 
-    return 0;
+    if (token == NULL) 
+        return -1;
+    else 
+        return 0;
 }
 
 void lisa_aiui_update_product_id(const char *pid)
@@ -462,7 +468,11 @@ lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
     }
 
 	LISA_LOGI(TAG, "is need refresh token: %d", update_token);
-    aiui_update_auto_header(handle, update_token);
+    int ret = aiui_update_auto_header(handle, update_token);
+    if (ret) {
+        assist_controller_trigger_event(CONTROLLER_EVENT_OPT_AUTH_FAILED, NULL, 0);
+        return LISA_FAIL;
+    }
 
 	char *url = aiui_generate_url();
 
@@ -1151,4 +1161,13 @@ _err:
         http_req_headers_strings = NULL;
     }
     LISA_LOGE(TAG, "music url request failed");
+}
+
+const char *lisa_aiui_get_auth_token(void)
+{
+    if (s_lisa_aiui == NULL) {
+        return NULL;
+    }
+
+    return s_lisa_aiui->auth_token;
 }

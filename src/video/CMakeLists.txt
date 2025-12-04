@@ -5,6 +5,7 @@ listenai_library_named(video)
 
 listenai_library_sources(
     video_camera.c
+    image_convert.c
 )
 
 listenai_include_directories(

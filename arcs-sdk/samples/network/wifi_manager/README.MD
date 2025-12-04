@@ -6,10 +6,10 @@
 
 ### 烧录 AP 固件
 ```shell
-./cskburn -s /dev/ttyACM0 -b 3000000 0x0 ap.bin
+cskburn -s /dev/ttyACM0 -b 3000000 0x0 ap.bin -C arcs
 ```
 
 ### 烧录 CP 应用固件
 ```shell
-./cskburn -s /dev/ttyACM0 -b 3000000 0xA00000 build/arcs.bin
+cskburn -s /dev/ttyACM0 -b 3000000 0xA00000 build/arcs.bin -C arcs
 ```

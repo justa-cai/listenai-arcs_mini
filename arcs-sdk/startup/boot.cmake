@@ -1,6 +1,11 @@
 include(ExternalProject)
 add_dependencies(${LISTENAI_EXECUTABLE_NAME} boot)
 
+# 允许外部指定生成 app.bin 的 target，默认为 mkhdr
+if(NOT DEFINED LISTENAI_BOOT_APP_BIN_TARGET)
+    set(LISTENAI_BOOT_APP_BIN_TARGET "mkhdr")
+endif()
+
 set(boot_bin_path ${CMAKE_BINARY_DIR}/boot/boot.bin)
 set(app_bin_path ${CMAKE_BINARY_DIR}/${LISTENAI_EXECUTABLE_NAME}.bin)
 set(MERGED_BINARY_PATH ${CMAKE_BINARY_DIR}/${LISTENAI_EXECUTABLE_NAME}_with_boot.bin)
@@ -36,10 +41,19 @@ foreach(VAR IN LISTS VARS)
 endforeach()
 list(APPEND BOOT_CONFIGS "CONFIG_BOOT_CP_ENTRY=${CP_ENTRY_HEX}")
 
+# 收集需要传递给 boot 的额外编译定义
+set(BOOT_EXTRA_DEFINES "")
+if(DEFINED CONFIG_MEM_FLASH_BASE)
+    list(APPEND BOOT_EXTRA_DEFINES "CONFIG_MEM_FLASH_BASE=${CONFIG_MEM_FLASH_BASE}")
+endif()
+
 set(BOOT_APP_CONFIG_FILE ${CMAKE_BINARY_DIR}/boot/app.config)
 foreach(config IN LISTS BOOT_CONFIGS)
     file(APPEND ${BOOT_APP_CONFIG_FILE} "${config}\n")
 endforeach()
+
+# 将列表转换为字符串传递
+string(REPLACE ";" "|" BOOT_EXTRA_DEFINES_STR "${BOOT_EXTRA_DEFINES}")
 
 ExternalProject_Add(
     boot
@@ -48,6 +62,7 @@ ExternalProject_Add(
     CMAKE_ARGS
         -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
         -DCONFIG_FILES=${BOOT_APP_CONFIG_FILE}
+        -DBOOT_EXTRA_DEFINES=${BOOT_EXTRA_DEFINES_STR}
     BUILD_COMMAND ${CMAKE_COMMAND} --build .
     INSTALL_COMMAND ${CMAKE_COMMAND} --install .
 )
@@ -61,6 +76,6 @@ add_custom_target(
     COMMAND ${CMAKE_COMMAND} -E rename ${LISTENAI_EXECUTABLE_NAME}.bin ${LISTENAI_EXECUTABLE_NAME}.bin.without.boot
     COMMAND ${CMAKE_COMMAND} -E rename ${MERGED_BINARY_PATH} ${LISTENAI_EXECUTABLE_NAME}.bin
 
-    DEPENDS boot ${PROJECT_NAME}
+    DEPENDS boot ${LISTENAI_BOOT_APP_BIN_TARGET}
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )

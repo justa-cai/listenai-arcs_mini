@@ -6,17 +6,22 @@
 #include "acomp_err.h"
 #include "gcl_cb_list/gcl_cb_list.h"
 #include "private/wsp_ipc.h"
+#include "acomp_stream_ipc.h"
 
 #define TAG "acomp_wsp"
 #include "lisa_log.h"
 
+
 #define ACOMP_WSP_DEV_NAME "acomp.wsp"
+
+
 typedef struct {
     uint32_t dev_index;
     gcl_cb_list_t event_callbacks;
+    acomp_stream_t *stream;
 } acomp_wsp_handle_t;
 
-acomp_wsp_handle_t *wsp_handle = NULL;
+static acomp_wsp_handle_t *wsp_handle = NULL;
 
 void event_callback(acomp_ipc_message_t *message, void *priv)
 {
@@ -57,6 +62,23 @@ void event_callback(acomp_ipc_message_t *message, void *priv)
                 }
             }
         }
+        else if(message->acomp_cmd == ACOMP_IPC_CMD_NOTIFY_STREAM_UPDATE){
+
+            if (((void *)message->address != NULL) && (message->len > 0)) {
+                acomp_ipc_stream_update_t *ipc_msg;
+                uint32_t chn;
+                ipc_msg = (acomp_ipc_stream_update_t *)message->address;
+                chn = ipc_msg->index;
+                if(chn < sizeof(handle->stream->ch)/sizeof(handle->stream->ch[0])){
+                    gcl_cb_event_dispatch(handle->event_callbacks, 
+                        WSP_CB_EVENT_STREAM_UPDATE, 
+                        handle->stream->ch[chn], 
+                        sizeof(acomp_stream_channel_t));
+                }
+            }
+            
+            
+        }
     }
 }
 
@@ -93,6 +115,12 @@ int acomp_wsp_init(void)
                                           0, NULL, 0);
     if (ret != ACOMP_ERR_OK) {
         return ret;
+    }
+
+    wsp_handle->stream = acomp_stream_create(NULL);
+    if(wsp_handle->stream == NULL){
+
+        return ACOMP_ERR_CREATE_STREAM_FAILED;
     }
 
     return 0;
@@ -193,4 +221,125 @@ int acomp_wsp_remove_callback(wsp_event_cb_t cb)
 
     ret = gcl_cb_list_remove(wsp_handle->event_callbacks, cb);
     return ret;
+}
+
+int acomp_wsp_stream_ch_enable(int chn,acomp_stream_chn_create_desc_t *desc){
+
+    int ret = 0;
+    
+    if ((wsp_handle == NULL) || (wsp_handle->stream == NULL)) {
+       
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    if(chn >= ACOMP_STREAM_MAX_CHANNEL){
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    wsp_handle->stream->ch[chn] = acomp_stream_ipc_channel_create(wsp_handle->stream,chn,wsp_handle->dev_index,desc);
+    if(wsp_handle->stream->ch[chn] == NULL){
+        return ACOMP_ERR_CREATE_STREAM_FAILED;
+    }
+    LISA_LOGI(TAG,"acomp_wsp_stream_ch_enable chn(%s) index(%d),desc(%p)",desc->cname,chn,desc);
+    return ret;
+}
+
+int acomp_wsp_stream_ch_disable(int chn){
+    int ret;
+    if (wsp_handle == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    if(chn >= ACOMP_STREAM_MAX_CHANNEL){
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    ret = acomp_stream_ipc_channel_destroy(chn);
+    LISA_LOGI(TAG,"acomp_wsp_stream_ch_disable chn index(%d),ret(%d)",chn,ret);
+    wsp_handle->stream->ch[chn] = NULL;
+    return ret;
+}
+
+void* acomp_wsp_stream_rx_buffer_get(int chn, uint32_t* len, uint16_t* desc_idx){
+    
+    uint8_t *ptr;
+    
+    if (wsp_handle == NULL) {
+        return NULL;
+    }
+
+    if(chn >= ACOMP_STREAM_MAX_CHANNEL){
+        return NULL;
+    }
+
+    if(wsp_handle->stream->ch[chn] == NULL){
+        return NULL;
+    }
+
+    ptr = wsp_handle->stream->ops.rx_buffer_get(wsp_handle->stream->ch[chn], len, desc_idx);
+    return ptr;
+}
+
+int acomp_wsp_stream_rx_buffer_release(int chn, uint16_t desc_idx, uint32_t len,void* buffer){
+    int ret;
+
+    if (wsp_handle == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    if(chn >= ACOMP_STREAM_MAX_CHANNEL){
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    ret =  wsp_handle->stream->ops.rx_buffer_release(wsp_handle->stream->ch[chn],buffer, len, desc_idx);
+
+    return ret;
+}
+
+void* acomp_wsp_stream_tx_buffer_alloc(int chn, uint32_t* len, uint16_t* desc_idx){
+
+    uint8_t* buffer;
+
+    if (wsp_handle == NULL) {
+        return NULL;
+    }
+
+    if(chn >= ACOMP_STREAM_MAX_CHANNEL){
+        return NULL;
+    }
+
+    if(wsp_handle->stream->ch[chn] == NULL){
+        return NULL;
+    }
+
+    buffer = wsp_handle->stream->ops.tx_buffer_alloc(wsp_handle->stream->ch[chn], len, desc_idx);
+
+    return buffer;
+}
+
+
+int acomp_wsp_stream_tx_buffer_submit(int chn, void* buffer, uint32_t len, uint16_t desc_idx){
+    int ret;
+
+    if (wsp_handle == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    if(chn >= ACOMP_STREAM_MAX_CHANNEL){
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    if(wsp_handle->stream->ch[chn] == NULL){
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    ret = wsp_handle->stream->ops.tx_buffer_submit(wsp_handle->stream->ch[chn], buffer, len, desc_idx);
+
+    return ret;
+}
+
+int acomp_virtqueue_dump(int chn)
+{
+    virtqueue_dump(wsp_handle->stream->ch[chn]->vq);
+    return 0;
 }

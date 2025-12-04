@@ -74,6 +74,7 @@ if SDK_MODULE_LVGL8
     menu "Memory settings"
         config LV_MEM_CUSTOM
             bool "If true use custom malloc/free, otherwise use the built-in `lv_mem_alloc()` and `lv_mem_free()`"
+            default y
 
         config LV_MEM_SIZE_KILOBYTES
             int "Size of the memory used by `lv_mem_alloc` in kilobytes (>= 2kB)"
@@ -88,7 +89,7 @@ if SDK_MODULE_LVGL8
 
         config LV_MEM_CUSTOM_INCLUDE
             string "Header to include for the custom memory function"
-            default "stdlib.h"
+            default "lv_port_mem.h"
             depends on LV_MEM_CUSTOM
 
         config LV_MEM_BUF_MAX_NUM

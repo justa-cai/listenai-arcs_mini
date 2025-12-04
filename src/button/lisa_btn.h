@@ -39,7 +39,14 @@ typedef enum {
     LISA_BTN_ID_MAX,
 } lisa_btn_id_t;
 
-typedef void (*lisa_btn_cb_t)(lisa_btn_event_t evt, void *user);
+typedef struct {
+    lisa_btn_id_t id;
+    uint16_t click_count;
+    uint16_t press_duration_ms;
+    void *user;
+} lisa_btn_info_t;
+
+typedef void (*lisa_btn_cb_t)(lisa_btn_event_t evt, const lisa_btn_info_t *info);
 
 void lisa_btn_init(lisa_btn_cb_t cb, void *user);
 

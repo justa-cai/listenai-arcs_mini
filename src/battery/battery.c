@@ -1,6 +1,6 @@
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdlib.h>  // 添加abs函数需要的头文件
+#include <stdlib.h> // 添加abs函数需要的头文件
 
 #include "IOMuxManager.h"
 #include "arcs_ap.h"
@@ -11,6 +11,7 @@
 
 #include "adc_sample.h"
 #include "battery.h"
+#include "power_manager.h"
 #include "lisa_timer.h"
 
 #include "assistant_controller.h"
@@ -18,22 +19,22 @@
 
 #define TAG "battery"
 
-#define VBAT_ID_PIN_NUM (4)
-#define VBAT_VOLTAGE_PIN_NUM (5)
+#define VBAT_ID_PIN_NUM            (4)
+#define VBAT_VOLTAGE_PIN_NUM       (5)
 #define VBAT_CHARGE_STATUS_PIN_NUM (8)
-#define USB_PLUG_DETECT_PIN_NUM      (0)     //USB插入检测
+#define USB_PLUG_DETECT_PIN_NUM    (0) // USB插入检测
 
-#define GPADC_CHANNEL_VBAT_VOLTAGE_PIN          CSK_GPADC_CHANNEL_SEL_3
+#define GPADC_CHANNEL_VBAT_VOLTAGE_PIN CSK_GPADC_CHANNEL_SEL_3
 
-#define VBAT_MAX_VOLTAGE                        (4350)      /* 锂电池理论最大电压 */
-#define VBAT_MIN_VOLTAGE                        (3500)      /* 锂电池理论最小电压 */
-#define VBAT_PARTIAL_VOLTAGE_PERCENTAGE         (40)        /* 硬件电池分压2/5, 百分比为40 */
+#define VBAT_MAX_VOLTAGE                (4350) /* 锂电池理论最大电压 */
+#define VBAT_MIN_VOLTAGE                (3500) /* 锂电池理论最小电压 */
+#define VBAT_PARTIAL_VOLTAGE_PERCENTAGE (40)   /* 硬件电池分压2/5, 百分比为40 */
 
-#define VBAT_SAMPLE_PRIOD       (1000)
+#define VBAT_SAMPLE_PRIOD (1000)
 
 // 电压滤波相关定义
-#define VOLTAGE_FILTER_WINDOW_SIZE 5
-#define PERCENTAGE_CHANGE_THRESHOLD 10  // 电量百分比变化阈值
+#define VOLTAGE_FILTER_WINDOW_SIZE  5
+#define PERCENTAGE_CHANGE_THRESHOLD 10 // 电量百分比变化阈值
 
 lisa_timer_t *battery_timer = NULL;
 
@@ -44,52 +45,51 @@ static bool voltage_buffer_full = false;
 
 // 电池电压百分比查找表 (按10%步进，从0%到100%)
 // 请根据实际电池特性填充对应的电压值 (单位: mV)
-// 
+//
 // 建议测量方法：
 // 1. 将电池充满到100%，记录电压值
 // 2. 以10%为步长，逐步放电并记录对应电压值
 // 3. 确保测量时电池处于静置状态（非充放电状态）
 // 4. 多次测量取平均值以提高准确性
-// 
+//
 static const uint16_t battery_voltage_table[11] = {
-    3300,      // 0%  - 最低工作电压，系统关机电压
-    3783,      // 10%
-    3843,      // 20% 
-    3870,      // 30%
-    3885,      // 40%
-    3919,      // 50%
-    3973,      // 60%
-    4024,      // 70%
-    4085,      // 80%
-    4179,      // 90%
-    4199       // 100%
+    3300, // 0%  - 最低工作电压，系统关机电压
+    3783, // 10%
+    3843, // 20%
+    3870, // 30%
+    3885, // 40%
+    3919, // 50%
+    3973, // 60%
+    4024, // 70%
+    4085, // 80%
+    4179, // 90%
+    4199  // 100%
 };
-
 
 /**
  * @brief 移动平均滤波器 - 对电压进行平滑滤波
  * @param new_voltage 新的电压值 (mV)
  * @return 滤波后的电压值 (mV)
  */
-static uint16_t voltage_moving_average_filter(uint16_t new_voltage) 
+static uint16_t voltage_moving_average_filter(uint16_t new_voltage)
 {
     // 将新电压值存入循环缓冲区
     voltage_history[voltage_index] = new_voltage;
     voltage_index = (voltage_index + 1) % VOLTAGE_FILTER_WINDOW_SIZE;
-    
+
     // 检查缓冲区是否已满
     if (!voltage_buffer_full && voltage_index == 0) {
         voltage_buffer_full = true;
     }
-    
+
     // 计算平均值
     uint32_t sum = 0;
     uint8_t count = voltage_buffer_full ? VOLTAGE_FILTER_WINDOW_SIZE : voltage_index;
-    
+
     for (uint8_t i = 0; i < count; i++) {
         sum += voltage_history[i];
     }
-    
+
     return (uint16_t)(sum / count);
 }
 
@@ -98,7 +98,7 @@ static uint16_t voltage_moving_average_filter(uint16_t new_voltage)
  * @param voltage 当前电池电压 (mV)
  * @return 电池电量百分比 (0-100)
  */
-static uint8_t voltage_to_percentage_by_table(uint16_t voltage) 
+static uint8_t voltage_to_percentage_by_table(uint16_t voltage)
 {
     // 边界处理
     if (voltage <= battery_voltage_table[0]) {
@@ -107,27 +107,27 @@ static uint8_t voltage_to_percentage_by_table(uint16_t voltage)
     if (voltage >= battery_voltage_table[10]) {
         return 100;
     }
-    
+
     // 在查找表中寻找合适的区间
     for (uint8_t i = 0; i < 10; i++) {
         if (voltage >= battery_voltage_table[i] && voltage <= battery_voltage_table[i + 1]) {
             // 线性插值计算精确百分比
             uint16_t voltage_diff = battery_voltage_table[i + 1] - battery_voltage_table[i];
             uint16_t current_diff = voltage - battery_voltage_table[i];
-            
+
             // 避免除零错误
             if (voltage_diff == 0) {
                 return i * 10;
             }
-            
+
             // 计算插值百分比
             uint8_t base_percentage = i * 10;
             uint8_t interpolated_percentage = (uint8_t)((current_diff * 10) / voltage_diff);
-            
+
             return base_percentage + interpolated_percentage;
         }
     }
-    
+
     // 如果没有找到合适区间，使用线性计算作为备选
     return (uint8_t)((voltage - VBAT_MIN_VOLTAGE) * 100 / (VBAT_MAX_VOLTAGE - VBAT_MIN_VOLTAGE));
 }
@@ -164,7 +164,7 @@ static void battery_voltage_sample_cb(void *arg)
 
     LISA_LOGI(TAG, "Battery: raw=%d%%, status=%d", raw_percentage, status);
     assist_controller_trigger_event(CONTROLLER_EVENT_BATTERY_INFO_UPDATE, &battery_info, sizeof(battery_info));
-    
+
     lisa_timer_start(battery_timer);
 }
 
@@ -206,7 +206,6 @@ uint8_t get_battery_voltage_percentage(void)
     uint16_t filtered_voltage;
     uint8_t vbat_voltage_percentage;
 
-
     adc_real_voltage = adc_sample_get_channel_value(GPADC_CHANNEL_VBAT_VOLTAGE_PIN);
 
     /* remove Hardware voltage division  */
@@ -215,15 +214,14 @@ uint8_t get_battery_voltage_percentage(void)
     // 应用移动平均滤波
     filtered_voltage = voltage_moving_average_filter(vbat_real_voltage);
 
-    LISA_LOGI(TAG, "adc_raw: %d, vbat_raw: %d, vbat_filtered: %d", 
-              adc_real_voltage, vbat_real_voltage, filtered_voltage);
+    LISA_LOGI(TAG, "adc_raw: %d, vbat_raw: %d, vbat_filtered: %d", adc_real_voltage, vbat_real_voltage,
+              filtered_voltage);
 
     // 电压范围限制
     if (filtered_voltage < VBAT_MIN_VOLTAGE) {
         filtered_voltage = VBAT_MIN_VOLTAGE;
         if (get_usb_status() == USB_STATUS_UNPLUG) {
-            extern void shunt_down(void);
-            shunt_down();
+            power_shutdown();
         }
     } else if (filtered_voltage > VBAT_MAX_VOLTAGE) {
         filtered_voltage = VBAT_MAX_VOLTAGE;
@@ -238,7 +236,7 @@ uint8_t get_battery_voltage_percentage(void)
 battery_status_t get_battery_status(void)
 {
     uint32_t pin_value = GPIO_PinRead(GPIOB(), 1 << VBAT_CHARGE_STATUS_PIN_NUM);
-    
+
     if (pin_value) {
         return BATTERY_STATUS_NOT_CONNECT;
     } else {

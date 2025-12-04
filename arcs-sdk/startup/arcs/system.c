@@ -177,9 +177,9 @@ static void system_default_exception_handler(unsigned long mcause, unsigned long
     elog_async_enabled(false);  // 切换到同步模式确保异常信息不会丢失
 #endif
 
-    //关闭可能存在的后端,比如shell
+    // 关闭可能存在的后端,比如shell
 #if defined(CONFIG_LOG)
-    lisa_log_output_handle_set(NULL);
+    lisa_log_backend_pause_all();
 #endif
 
     __disable_irq();

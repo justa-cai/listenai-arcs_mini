@@ -314,6 +314,7 @@ static const uint8_t gc0328_default_regs[][2] = {
     {0x4f,0x01,},
     {0xf1,0x07,},
     {0xf2,0x01,},
+    {0x49,0x23,},
 };
 
 #endif

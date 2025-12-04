@@ -9,6 +9,7 @@
  *      INCLUDES
  *********************/
 #include "lv_port_indev.h"
+#include "lv_port_disp.h"
 #include "lisa_touch.h"
 #include "lisa_display.h"
 #include <stdbool.h>
@@ -132,7 +133,7 @@ void touchpad_task(void *p)
 }
 
 /*Initialize your touchpad*/
-static void touchpad_init(touch_hw_config_t *config)
+void touchpad_init(touch_hw_config_t *config)
 {
     touch_device = lisa_touch_create(config);
     if (touch_device == NULL) {
@@ -198,7 +199,11 @@ static void touchpad_read(struct _lv_indev_drv_t *indev_drv, lv_indev_data_t *da
 static void touchpad_get_xy(lv_coord_t *x, lv_coord_t *y, bool *pressed)
 {
     lv_coord_t cur_x = 0, cur_y = 0;
-    extern const struct display_device *lv_display_device;
+    struct display_device *lv_display_device = lv_port_get_display_device();
+    if (lv_display_device == NULL) {
+        LV_LOG_ERROR("No display device or lv_display_device not initialized");
+        return;
+    }
     struct display_capabilities caps = {0};
 
     if (lisa_touch_read_coordinates(touch_device, (uint16_t *)&cur_x, (uint16_t *)&cur_y, pressed) == 0) {

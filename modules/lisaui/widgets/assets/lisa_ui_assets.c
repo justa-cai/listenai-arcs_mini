@@ -1,25 +1,43 @@
+#include "lv_img_utils.h"
 #include "lisa_ui_assets.h"
 
-UI_RES_IMG_NAME(img_png_ic_status2_charging0, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging0.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging1, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging1.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging2, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging2.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging3, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging3.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging4, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging4.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging5, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging5.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging6, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging6.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging7, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging7.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging8, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging8.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_charging9, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging9.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power0, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power0.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power1, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power1.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power2, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power2.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power3, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power3.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power4, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power4.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power5, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power5.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power6, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power6.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power7, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power7.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power8, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power8.png"));
-UI_RES_IMG_NAME(img_png_ic_status2_power9, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power9.png"));
+#define LISA_UI_ASSETS_PATH(_path) "assets/" _path
+
+#define LISA_UI_ASSETS_ICON_PATH(path) LISA_UI_ASSETS_PATH("icon/" path)
+#define LISA_UI_ASSETS_FONT_PATH(path) LISA_UI_ASSETS_PATH("fonts/" path)
+#define LISA_UI_ASSETS_GIF_PATH(path)  LISA_UI_ASSETS_PATH("gif/" path)
+#define LISA_UI_ASSETS_JPG_PATH(path)  LISA_UI_ASSETS_PATH("jpg/" path)
+#define LISA_UI_ASSETS_PNG_PATH(path)  LISA_UI_ASSETS_PATH("png/" path)
+
+
+UI_RES_IMG_NAME(img_png_wifi0, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi0.png"))
+UI_RES_IMG_NAME(img_png_wifi1, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi1.png"))
+UI_RES_IMG_NAME(img_png_wifi2, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi2.png"))
+UI_RES_IMG_NAME(img_png_wifi3, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi3.png"))
+UI_RES_IMG_NAME(img_png_wifi4, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi4.png"))
+
+UI_RES_IMG_NAME(img_png_charging0, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging0.png"))
+UI_RES_IMG_NAME(img_png_charging1, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging1.png"))
+UI_RES_IMG_NAME(img_png_charging2, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging2.png"))
+UI_RES_IMG_NAME(img_png_charging3, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging3.png"))
+UI_RES_IMG_NAME(img_png_charging4, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging4.png"))
+UI_RES_IMG_NAME(img_png_charging5, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging5.png"))
+UI_RES_IMG_NAME(img_png_charging6, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging6.png"))
+UI_RES_IMG_NAME(img_png_charging7, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging7.png"))
+UI_RES_IMG_NAME(img_png_charging8, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging8.png"))
+UI_RES_IMG_NAME(img_png_charging9, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_charging9.png"))
+
+UI_RES_IMG_NAME(img_png_power0, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power0.png"))
+UI_RES_IMG_NAME(img_png_power1, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power1.png"))
+UI_RES_IMG_NAME(img_png_power2, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power2.png"))
+UI_RES_IMG_NAME(img_png_power3, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power3.png"))
+UI_RES_IMG_NAME(img_png_power4, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power4.png"))
+UI_RES_IMG_NAME(img_png_power5, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power5.png"))
+UI_RES_IMG_NAME(img_png_power6, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power9.png"))
+UI_RES_IMG_NAME(img_png_power7, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power7.png"))
+UI_RES_IMG_NAME(img_png_power8, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power8.png"))
+UI_RES_IMG_NAME(img_png_power9, LISA_UI_ASSETS_PNG_PATH("battery/ic_status2_power9.png"))
+
 UI_RES_IMG_NAME(img_png_angry_000, LISA_UI_ASSETS_PNG_PATH("emoji/angry/angry_000.png"));
 UI_RES_IMG_NAME(img_png_angry_001, LISA_UI_ASSETS_PNG_PATH("emoji/angry/angry_001.png"));
 UI_RES_IMG_NAME(img_png_angry_002, LISA_UI_ASSETS_PNG_PATH("emoji/angry/angry_002.png"));
@@ -41,6 +59,7 @@ UI_RES_IMG_NAME(img_png_blink_001, LISA_UI_ASSETS_PNG_PATH("emoji/blink/blink_00
 UI_RES_IMG_NAME(img_png_blink_002, LISA_UI_ASSETS_PNG_PATH("emoji/blink/blink_002.png"));
 UI_RES_IMG_NAME(img_png_blink_003, LISA_UI_ASSETS_PNG_PATH("emoji/blink/blink_003.png"));
 UI_RES_IMG_NAME(img_png_blink_004, LISA_UI_ASSETS_PNG_PATH("emoji/blink/blink_004.png"));
+
 UI_RES_IMG_NAME(img_png_eye_000, LISA_UI_ASSETS_PNG_PATH("emoji/eye/eye_000.png"));
 UI_RES_IMG_NAME(img_png_eye_001, LISA_UI_ASSETS_PNG_PATH("emoji/eye/eye_001.png"));
 UI_RES_IMG_NAME(img_png_eye_002, LISA_UI_ASSETS_PNG_PATH("emoji/eye/eye_002.png"));
@@ -78,6 +97,7 @@ UI_RES_IMG_NAME(img_png_hug_021, LISA_UI_ASSETS_PNG_PATH("emoji/hug/hug_021.png"
 UI_RES_IMG_NAME(img_png_hug_022, LISA_UI_ASSETS_PNG_PATH("emoji/hug/hug_022.png"));
 UI_RES_IMG_NAME(img_png_hug_023, LISA_UI_ASSETS_PNG_PATH("emoji/hug/hug_023.png"));
 UI_RES_IMG_NAME(img_png_hug_024, LISA_UI_ASSETS_PNG_PATH("emoji/hug/hug_024.png"));
+
 UI_RES_IMG_NAME(img_png_love_000, LISA_UI_ASSETS_PNG_PATH("emoji/love/love_000.png"));
 UI_RES_IMG_NAME(img_png_love_001, LISA_UI_ASSETS_PNG_PATH("emoji/love/love_001.png"));
 UI_RES_IMG_NAME(img_png_love_002, LISA_UI_ASSETS_PNG_PATH("emoji/love/love_002.png"));
@@ -101,6 +121,7 @@ UI_RES_IMG_NAME(img_png_love_019, LISA_UI_ASSETS_PNG_PATH("emoji/love/love_019.p
 UI_RES_IMG_NAME(img_png_love_020, LISA_UI_ASSETS_PNG_PATH("emoji/love/love_020.png"));
 UI_RES_IMG_NAME(img_png_love_021, LISA_UI_ASSETS_PNG_PATH("emoji/love/love_021.png"));
 UI_RES_IMG_NAME(img_png_love_022, LISA_UI_ASSETS_PNG_PATH("emoji/love/love_022.png"));
+
 UI_RES_IMG_NAME(img_png_puzzled_000, LISA_UI_ASSETS_PNG_PATH("emoji/puzzled/puzzled_000.png"));
 UI_RES_IMG_NAME(img_png_puzzled_001, LISA_UI_ASSETS_PNG_PATH("emoji/puzzled/puzzled_001.png"));
 UI_RES_IMG_NAME(img_png_puzzled_002, LISA_UI_ASSETS_PNG_PATH("emoji/puzzled/puzzled_002.png"));
@@ -120,6 +141,7 @@ UI_RES_IMG_NAME(img_png_puzzled_015, LISA_UI_ASSETS_PNG_PATH("emoji/puzzled/puzz
 UI_RES_IMG_NAME(img_png_puzzled_016, LISA_UI_ASSETS_PNG_PATH("emoji/puzzled/puzzled_016.png"));
 UI_RES_IMG_NAME(img_png_puzzled_017, LISA_UI_ASSETS_PNG_PATH("emoji/puzzled/puzzled_017.png"));
 UI_RES_IMG_NAME(img_png_puzzled_018, LISA_UI_ASSETS_PNG_PATH("emoji/puzzled/puzzled_018.png"));
+
 UI_RES_IMG_NAME(img_png_sad_000, LISA_UI_ASSETS_PNG_PATH("emoji/sad/sad_000.png"));
 UI_RES_IMG_NAME(img_png_sad_001, LISA_UI_ASSETS_PNG_PATH("emoji/sad/sad_001.png"));
 UI_RES_IMG_NAME(img_png_sad_002, LISA_UI_ASSETS_PNG_PATH("emoji/sad/sad_002.png"));
@@ -139,6 +161,7 @@ UI_RES_IMG_NAME(img_png_sad_015, LISA_UI_ASSETS_PNG_PATH("emoji/sad/sad_015.png"
 UI_RES_IMG_NAME(img_png_sad_016, LISA_UI_ASSETS_PNG_PATH("emoji/sad/sad_016.png"));
 UI_RES_IMG_NAME(img_png_sad_017, LISA_UI_ASSETS_PNG_PATH("emoji/sad/sad_017.png"));
 UI_RES_IMG_NAME(img_png_sad_018, LISA_UI_ASSETS_PNG_PATH("emoji/sad/sad_018.png"));
+
 UI_RES_IMG_NAME(img_png_sleepy_000, LISA_UI_ASSETS_PNG_PATH("emoji/sleepy/sleepy_000.png"));
 UI_RES_IMG_NAME(img_png_sleepy_001, LISA_UI_ASSETS_PNG_PATH("emoji/sleepy/sleepy_001.png"));
 UI_RES_IMG_NAME(img_png_sleepy_002, LISA_UI_ASSETS_PNG_PATH("emoji/sleepy/sleepy_002.png"));
@@ -180,6 +203,7 @@ UI_RES_IMG_NAME(img_png_sleepy_037, LISA_UI_ASSETS_PNG_PATH("emoji/sleepy/sleepy
 UI_RES_IMG_NAME(img_png_sleepy_038, LISA_UI_ASSETS_PNG_PATH("emoji/sleepy/sleepy_038.png"));
 UI_RES_IMG_NAME(img_png_sleepy_039, LISA_UI_ASSETS_PNG_PATH("emoji/sleepy/sleepy_039.png"));
 UI_RES_IMG_NAME(img_png_sleepy_040, LISA_UI_ASSETS_PNG_PATH("emoji/sleepy/sleepy_040.png"));
+
 UI_RES_IMG_NAME(img_png_wait_000, LISA_UI_ASSETS_PNG_PATH("emoji/wait/wait_000.png"));
 UI_RES_IMG_NAME(img_png_wait_001, LISA_UI_ASSETS_PNG_PATH("emoji/wait/wait_001.png"));
 UI_RES_IMG_NAME(img_png_wait_002, LISA_UI_ASSETS_PNG_PATH("emoji/wait/wait_002.png"));
@@ -188,6 +212,7 @@ UI_RES_IMG_NAME(img_png_wait_004, LISA_UI_ASSETS_PNG_PATH("emoji/wait/wait_004.p
 UI_RES_IMG_NAME(img_png_wait_005, LISA_UI_ASSETS_PNG_PATH("emoji/wait/wait_005.png"));
 UI_RES_IMG_NAME(img_png_wait_006, LISA_UI_ASSETS_PNG_PATH("emoji/wait/wait_006.png"));
 UI_RES_IMG_NAME(img_png_wait_007, LISA_UI_ASSETS_PNG_PATH("emoji/wait/wait_007.png"));
+
 UI_RES_IMG_NAME(img_png_wakeup_000, LISA_UI_ASSETS_PNG_PATH("emoji/wakeup/wakeup_000.png"));
 UI_RES_IMG_NAME(img_png_wakeup_001, LISA_UI_ASSETS_PNG_PATH("emoji/wakeup/wakeup_001.png"));
 UI_RES_IMG_NAME(img_png_wakeup_002, LISA_UI_ASSETS_PNG_PATH("emoji/wakeup/wakeup_002.png"));
@@ -216,12 +241,8 @@ UI_RES_IMG_NAME(img_png_wakeup_024, LISA_UI_ASSETS_PNG_PATH("emoji/wakeup/wakeup
 UI_RES_IMG_NAME(img_png_wakeup_025, LISA_UI_ASSETS_PNG_PATH("emoji/wakeup/wakeup_025.png"));
 UI_RES_IMG_NAME(img_png_wakeup_026, LISA_UI_ASSETS_PNG_PATH("emoji/wakeup/wakeup_026.png"));
 UI_RES_IMG_NAME(img_png_wakeup_027, LISA_UI_ASSETS_PNG_PATH("emoji/wakeup/wakeup_027.png"));
-UI_RES_IMG_NAME(img_png_ic_status_wifi0, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi0.png"));
-UI_RES_IMG_NAME(img_png_ic_status_wifi1, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi1.png"));
-UI_RES_IMG_NAME(img_png_ic_status_wifi2, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi2.png"));
-UI_RES_IMG_NAME(img_png_ic_status_wifi3, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi3.png"));
-UI_RES_IMG_NAME(img_png_ic_status_wifi4, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi4.png"));
 
+// Battery emoji frames
 UI_RES_IMG_NAME(img_png_battery_frame_000, LISA_UI_ASSETS_PNG_PATH("emoji/battery/frame_000000.png"));
 UI_RES_IMG_NAME(img_png_battery_frame_001, LISA_UI_ASSETS_PNG_PATH("emoji/battery/frame_000001.png"));
 UI_RES_IMG_NAME(img_png_battery_frame_002, LISA_UI_ASSETS_PNG_PATH("emoji/battery/frame_000002.png"));
@@ -245,53 +266,83 @@ UI_RES_IMG_NAME(img_png_battery_frame_019, LISA_UI_ASSETS_PNG_PATH("emoji/batter
 UI_RES_IMG_NAME(img_png_battery_frame_020, LISA_UI_ASSETS_PNG_PATH("emoji/battery/frame_000020.png"));
 UI_RES_IMG_NAME(img_png_battery_frame_021, LISA_UI_ASSETS_PNG_PATH("emoji/battery/frame_000021.png"));
 
+UI_RES_IMG_NAME(img_png_happy_frame_00, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000000.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_01, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000001.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_02, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000002.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_03, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000003.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_04, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000004.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_05, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000005.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_06, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000006.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_07, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000007.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_08, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000008.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_09, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000009.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_10, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000010.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_11, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000011.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_12, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000012.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_13, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000013.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_14, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000014.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_15, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000015.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_16, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000016.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_17, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000017.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_18, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000018.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_19, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000019.png"));
+UI_RES_IMG_NAME(img_png_happy_frame_20, LISA_UI_ASSETS_PNG_PATH("emoji/happy/frame-000020.png"));
+
+UI_RES_IMG_NAME(img_png_cute_frame_00, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000000.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_01, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000001.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_02, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000002.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_03, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000003.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_04, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000004.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_05, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000005.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_06, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000006.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_07, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000007.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_08, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000008.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_09, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000009.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_10, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000010.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_11, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000011.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_12, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000012.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_13, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000013.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_14, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000014.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_15, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000015.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_16, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000016.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_17, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000017.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_18, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000018.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_19, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000019.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_20, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000020.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_21, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000021.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_22, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000022.png"));
+UI_RES_IMG_NAME(img_png_cute_frame_23, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-000023.png"));
+
 void lisa_ui_assets_init(void)
 {
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging0));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging1));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging2));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging3));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging4));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging5));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging6));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging7));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging8));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_charging9));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power0));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power1));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power2));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power3));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power4));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power5));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power6));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power7));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power8));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status2_power9));
-    
-    // Battery frame images initialization
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_000));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_001));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_002));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_003));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_004));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_005));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_006));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_007));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_008));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_009));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_010));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_011));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_012));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_013));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_014));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_015));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_016));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_017));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_018));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_019));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_020));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_021));
-    
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wifi0));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wifi1));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wifi2));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wifi3));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wifi4));
+
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging0));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging1));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging2));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging3));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging4));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging5));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging6));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging7));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging8));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_charging9));
+
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power0));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power1));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power2));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power3));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power4));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power5));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power6));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power7));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power8));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_power9));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_angry_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_angry_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_angry_002));
@@ -308,11 +359,13 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_angry_013));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_angry_014));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_angry_015));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_blink_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_blink_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_blink_002));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_blink_003));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_blink_004));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_eye_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_eye_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_eye_002));
@@ -325,6 +378,7 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_eye_009));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_eye_010));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_eye_011));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_hug_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_hug_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_hug_002));
@@ -350,6 +404,7 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_hug_022));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_hug_023));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_hug_024));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_love_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_love_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_love_002));
@@ -373,6 +428,7 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_love_020));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_love_021));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_love_022));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_puzzled_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_puzzled_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_puzzled_002));
@@ -392,6 +448,7 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_puzzled_016));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_puzzled_017));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_puzzled_018));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sad_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sad_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sad_002));
@@ -411,6 +468,7 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sad_016));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sad_017));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sad_018));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sleepy_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sleepy_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sleepy_002));
@@ -452,6 +510,7 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sleepy_038));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sleepy_039));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_sleepy_040));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wait_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wait_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wait_002));
@@ -460,6 +519,7 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wait_005));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wait_006));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wait_007));
+
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wakeup_000));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wakeup_001));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wakeup_002));
@@ -488,9 +548,74 @@ void lisa_ui_assets_init(void)
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wakeup_025));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wakeup_026));
     lv_img_png_src_init(UI_RES_IMG_PNG(img_png_wakeup_027));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status_wifi0));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status_wifi1));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status_wifi2));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status_wifi3));
-    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_ic_status_wifi4));
+
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_000));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_001));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_002));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_003));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_004));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_005));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_006));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_007));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_008));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_009));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_010));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_011));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_012));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_013));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_014));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_015));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_016));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_017));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_018));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_019));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_020));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_battery_frame_021));
+
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_00));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_01));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_02));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_03));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_04));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_05));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_06));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_07));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_08));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_09));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_10));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_11));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_12));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_13));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_14));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_15));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_16));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_17));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_18));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_19));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_20));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_21));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_22));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_cute_frame_23));
+
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_00));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_01));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_02));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_03));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_04));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_05));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_06));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_07));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_08));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_09));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_10));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_11));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_12));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_13));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_14));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_15));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_16));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_17));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_18));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_19));
+    lv_img_png_src_init(UI_RES_IMG_PNG(img_png_happy_frame_20));
 }

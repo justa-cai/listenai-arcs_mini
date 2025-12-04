@@ -40,12 +40,12 @@ int qspi_trans_init(void *conf)
         return -1;
     }
 
-    for (int i = 0; i < 4; i++) {
-        IOMuxManager_PinConfigure(config->qspi_pins.dio[i].pad, config->qspi_pins.dio[i].pin, config->qspi_pins.dio[i].func);
-    }
+    // for (int i = 0; i < 4; i++) {
+    //     IOMuxManager_PinConfigure(config->qspi_pins.dio[i].pad, config->qspi_pins.dio[i].pin, config->qspi_pins.dio[i].func);
+    // }
 
-    IOMuxManager_PinConfigure(config->qspi_pins.clk.pad, config->qspi_pins.clk.pin, config->qspi_pins.clk.func);
-    IOMuxManager_PinConfigure(config->qspi_pins.cs.pad, config->qspi_pins.cs.pin, config->qspi_pins.cs.func);
+    // IOMuxManager_PinConfigure(config->qspi_pins.clk.pad, config->qspi_pins.clk.pin, config->qspi_pins.clk.func);
+    // IOMuxManager_PinConfigure(config->qspi_pins.cs.pad, config->qspi_pins.cs.pin, config->qspi_pins.cs.func);
 
     cs_dev = config->qspi_pins.cs.pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
     cs_pin = config->qspi_pins.cs.pin;

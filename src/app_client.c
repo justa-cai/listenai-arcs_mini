@@ -32,6 +32,7 @@
 #include "alarm_aiui.h"
 #include "lisa_aiui.h"
 #include "config_parser.h"
+#include "recognizer.h"
 
 static app_client_t *s_app_client = NULL;
 
@@ -152,6 +153,21 @@ static int btn_wakeup_runnable(void *arg)
     return 0;
 }
 
+static int btn_idle_runnable(void *arg)
+{
+	recognizer_record_suspend();
+    assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_IDLE, NULL, 0);
+	assistant_view_hide_camera_image();
+
+    return 0;
+}
+
+void app_btn_idle(void)
+{
+	LISA_LOGD(TAG, "audio idle---");
+    evs_handler_post_runnable(btn_idle_runnable, NULL);
+}
+
 void app_btn_wakeup(void)
 {
     // int mode = lisa_aiui_get_interactive_mode();
@@ -160,7 +176,7 @@ void app_btn_wakeup(void)
     //     LISA_LOGW(TAG, "not in button wakeup mode, current mode: %d", mode);
     //     return;
     // }
-
+	LISA_LOGD(TAG, "audio Wakeup---");
     evs_handler_post_runnable(btn_wakeup_runnable, NULL);
 }
 

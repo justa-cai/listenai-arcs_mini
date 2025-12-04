@@ -5,4 +5,5 @@ rsource "drivers/Kconfig"
 rsource "boards/Kconfig"
 rsource "modules/Kconfig"
 rsource "cmake/Kconfig"
+rsource "boards/Kconfig"
 

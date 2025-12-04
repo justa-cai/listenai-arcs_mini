@@ -1108,8 +1108,16 @@ DAC_Abort(void *dac_grp, uint8_t dev_bmp, uint8_t echo_bmp)
     uint8_t bmp = 0;
     uint8_t bmp2 = 0;
 
-    if (dac == NULL || ((bmp = dac->info->ch_bmp & dev_bmp) == 0 &&
-                        (bmp2 = dac->info->echo_bmp & echo_bmp) == 0)) {
+    if (dac == NULL) {
+        CLOGW("%s: invalid parameter, DAC group: 0x%08x, dev_bmp: 0x%x, echo_bmp: 0x%x",
+                __func__, dac_grp, dev_bmp, echo_bmp);
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    bmp = dac->info->ch_bmp & dev_bmp;
+    bmp2 = dac->info->echo_bmp & echo_bmp;
+
+    if (bmp == 0 && bmp2 == 0) { 
         CLOGW("%s: invalid parameter, DAC group: 0x%08x, dev_bmp: 0x%x, echo_bmp: 0x%x",
                 __func__, dac_grp, dev_bmp, echo_bmp);
         return CSK_DRIVER_ERROR_PARAMETER;

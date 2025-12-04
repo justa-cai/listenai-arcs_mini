@@ -24,8 +24,7 @@ extern void update_device_id(void);
 static int device_cmd_set_pid(int argc, char **argv)
 {
     if (argc < 1) {
-        printf("Usage: device set_pid [product_id]\n");
-        adb_printf("Usage: device set_pid [product_id]\n");
+        shellPrint(shellGetCurrent(), "Usage: device set_pid [product_id]\n");
         return -1;
     }
 
@@ -33,18 +32,15 @@ static int device_cmd_set_pid(int argc, char **argv)
     
     // 检查产品ID长度是否符合要求 (36字符，包含连字符)
     if (strlen(pid) != 36) {
-        printf("Invalid product ID length: %zu, expected 36 characters\n", strlen(pid));
-        adb_printf("Invalid product ID length: %zu, expected 36 characters\n", strlen(pid));
+        shellPrint(shellGetCurrent(), "Invalid product ID length: %zu, expected 36 characters\n", strlen(pid));
         return -1;
     }
     
     if (lisa_kv_set_string(KV_KEY_USER_PID, pid) != 0) {
-        printf("Set product ID failed: %s\n", pid);
-        adb_printf("Set product ID failed: %s\n", pid);
+        shellPrint(shellGetCurrent(), "Set product ID failed: %s\n", pid);
         return -1;
     } else {
-        printf("Set product ID success: %s\n", pid);
-        adb_printf("Set product ID success: %s\n", pid);
+        shellPrint(shellGetCurrent(), "Set product ID success: %s\n", pid);
         return 0;
     }
 }
@@ -60,7 +56,7 @@ static int device_cmd_set_sid(int argc, char **argv)
 {
     if (argc < 1) {
         printf("Usage: device set_sid [secret_id]\n");
-        adb_printf("Usage: device set_sid [secret_id]\n");
+        shellPrint(shellGetCurrent(), "Usage: device set_sid [secret_id]\n");
         return -1;
     }
 
@@ -68,18 +64,15 @@ static int device_cmd_set_sid(int argc, char **argv)
     
     // 检查密钥ID长度是否符合要求 (36字符，包含连字符)
     if (strlen(sid) != 36) {
-        printf("Invalid secret ID length: %zu, expected 36 characters\n", strlen(sid));
-        adb_printf("Invalid secret ID length: %zu, expected 36 characters\n", strlen(sid));
+        shellPrint(shellGetCurrent(), "Invalid secret ID length: %zu, expected 36 characters\n", strlen(sid));
         return -1;
     }
     
     if (lisa_kv_set_string(KV_KEY_USER_SID, sid) != 0) {
-        printf("Set secret ID failed: %s\n", sid);
-        adb_printf("Set secret ID failed: %s\n", sid);
+        shellPrint(shellGetCurrent(), "Set secret ID failed: %s\n", sid);
         return -1;
     } else {
-        printf("Set secret ID success: %s\n", sid);
-        adb_printf("Set secret ID success: %s\n", sid);
+        shellPrint(shellGetCurrent(), "Set secret ID success: %s\n", sid);
         return 0;
     }
 }
@@ -99,25 +92,21 @@ static int device_cmd_get_pid(int argc, char **argv)
     
     if (ret != 0 || pid == NULL) {
         // 从默认宏获取产品ID
-        printf("Product ID from default macro: %s\n", PRODUCT_ID);
-        adb_printf("Product ID from default macro: %s\n", PRODUCT_ID);
+        shellPrint(shellGetCurrent(), "Product ID from default macro: %s\n", PRODUCT_ID);
         
         // 检查默认宏长度
         if (strlen(PRODUCT_ID) != 36) {
-            printf("Warning: Default Product ID has invalid length: %zu, expected 36 characters\n", strlen(PRODUCT_ID));
-            adb_printf("Warning: Default Product ID has invalid length: %zu, expected 36 characters\n", strlen(PRODUCT_ID));
+            shellPrint(shellGetCurrent(), "Warning: Default Product ID has invalid length: %zu, expected 36 characters\n", strlen(PRODUCT_ID));
         }
         
         return 0;
     } else {
         // 检查KV中存储的ID长度
         if (strlen(pid) != 36) {
-            printf("Warning: Stored Product ID has invalid length: %zu, expected 36 characters\n", strlen(pid));
-            adb_printf("Warning: Stored Product ID has invalid length: %zu, expected 36 characters\n", strlen(pid));
+            shellPrint(shellGetCurrent(), "Warning: Stored Product ID has invalid length: %zu, expected 36 characters\n", strlen(pid));
         }
         
-        printf("Product ID from KV: %s\n", pid);
-        adb_printf("Product ID from KV: %s\n", pid);
+        shellPrint(shellGetCurrent(), "Product ID from KV: %s\n", pid);
         lisa_kv_free(pid);
         return 0;
     }
@@ -137,25 +126,21 @@ static int device_cmd_get_sid(int argc, char **argv)
     
     if (ret != 0 || sid == NULL) {
         // 从默认宏获取密钥ID
-        printf("Secret ID from default macro: %s\n", SECRET_ID);
-        adb_printf("Secret ID from default macro: %s\n", SECRET_ID);
+        shellPrint(shellGetCurrent(), "Secret ID from default macro: %s\n", SECRET_ID);
         
         // 检查默认宏长度
         if (strlen(SECRET_ID) != 36) {
-            printf("Warning: Default Secret ID has invalid length: %zu, expected 36 characters\n", strlen(SECRET_ID));
-            adb_printf("Warning: Default Secret ID has invalid length: %zu, expected 36 characters\n", strlen(SECRET_ID));
+            shellPrint(shellGetCurrent(), "Warning: Default Secret ID has invalid length: %zu, expected 36 characters\n", strlen(SECRET_ID));
         }
         
         return 0;
     } else {
         // 检查KV中存储的ID长度
         if (strlen(sid) != 36) {
-            printf("Warning: Stored Secret ID has invalid length: %zu, expected 36 characters\n", strlen(sid));
-            adb_printf("Warning: Stored Secret ID has invalid length: %zu, expected 36 characters\n", strlen(sid));
+            shellPrint(shellGetCurrent(), "Warning: Stored Secret ID has invalid length: %zu, expected 36 characters\n", strlen(sid));
         }
         
-        printf("Secret ID from KV: %s\n", sid);
-        adb_printf("Secret ID from KV: %s\n", sid);
+        shellPrint(shellGetCurrent(), "Secret ID from KV: %s\n", sid);
         lisa_kv_free(sid);
         return 0;
     }
@@ -182,8 +167,7 @@ static int device_cmd_get_device_id(int argc, char **argv)
     
     // 读取芯片ID
     if (*id_1 == 0 && *id_2 == 0) {
-        printf("Chip ID is all zero\n");
-        adb_printf("Chip ID is all zero\n");
+        shellPrint(shellGetCurrent(), "Chip ID is all zero\n");
     } else {
         memcpy(id_buffer, id_1, sizeof(uint32_t));
         memcpy(id_buffer + 4, id_2, sizeof(uint32_t));
@@ -192,17 +176,14 @@ static int device_cmd_get_device_id(int argc, char **argv)
                 id_buffer[0], id_buffer[1], id_buffer[2], id_buffer[3],
                 id_buffer[4], id_buffer[5], id_buffer[6], id_buffer[7]);
                 
-        printf("Chip ID: %s\n", chip_id_str);
-        adb_printf("Chip ID: %s\n", chip_id_str);
+        shellPrint(shellGetCurrent(), "Chip ID: %s\n", chip_id_str);
     }
     
     // 显示KV存储中的设备ID
     if (ret != 0 || device_id == NULL) {
-        printf("KV Device ID not set or failed to get\n");
-        adb_printf("KV Device ID not set or failed to get\n");
+        shellPrint(shellGetCurrent(), "KV Device ID not set or failed to get\n");
     } else {
-        printf("KV Device ID: %s\n", device_id);
-        adb_printf("KV Device ID: %s\n", device_id);
+        shellPrint(shellGetCurrent(), "KV Device ID: %s\n", device_id);
         lisa_kv_free(device_id);
     }
     
@@ -221,8 +202,7 @@ static int device_cmd_reset_ids(int argc, char **argv)
     lisa_kv_del(KV_KEY_USER_PID);
     lisa_kv_del(KV_KEY_USER_SID);
     
-    printf("All IDs have been reset to default\n");
-    adb_printf("All IDs have been reset to default\n");
+    shellPrint(shellGetCurrent(), "All IDs have been reset to default\n");
     update_device_id();  // Update device ID immediately
     
     return 0;
@@ -257,12 +237,10 @@ static const struct listen_cmd_t g_device_cmds[] = {
 static int device_cmd_help(int argc, char **argv)
 {
     int cmd_len = sizeof(g_device_cmds) / sizeof(g_device_cmds[0]);
-    printf("Device ID management commands:\n");
-    adb_printf("Device ID management commands:\n");
+    shellPrint(shellGetCurrent(), "Device ID management commands:\n");
     for (int i = 0; i < cmd_len; i++) {
         if (g_device_cmds[i].help != NULL) {
-            printf("%-17s\t:\t%s\n", g_device_cmds[i].name, g_device_cmds[i].help);
-            adb_printf("%-17s\t:\t%s\n", g_device_cmds[i].name, g_device_cmds[i].help);
+            shellPrint(shellGetCurrent(), "%-17s\t:\t%s\n", g_device_cmds[i].name, g_device_cmds[i].help);
         }
     }
 

@@ -10,6 +10,6 @@ git lfs pull
 
 ## 烧录固件
 ```shell
-./tools/sqlite/image/cskburn_v2.0.2 -s /dev/ttyACM0 -b 3000000 0x0 build/arcs.bin
+cskburn -s /dev/ttyACM0 -b 3000000 0x0 build/arcs.bin -C arcs
 ```
 

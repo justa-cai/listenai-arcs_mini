@@ -26,6 +26,7 @@ static const char *TAG = "assistant_view";
 
 workqueue_t *view_workq = NULL;
 TimerHandle_t view_timer = NULL;
+static bool audio_listen_status = 0;
 
 #define WEATHER_JSON_MAX_LEN          (4096)
 #define MUSIC_TITLE_MAX_LEN           (128)
@@ -118,6 +119,15 @@ EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_SETTING_WIFI_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_SETTING_BATTERY_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_U2M_SETTING_HOME_UPDATE)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE)
+
+/* 0: other status 1: listening */
+bool get_audio_listen_status(void)
+{
+    return audio_listen_status;
+}
+
 static int setup(void)
 {
     return 0;
@@ -149,6 +159,7 @@ static int update_event(view_event_e event)
     bool is_roles_update = false;
     bool is_wakeup = false;
     bool is_cloud_end = false;
+    bool is_image_hide = false;
 
     if (view_handler == NULL) {
         return -ENODEV;
@@ -176,6 +187,7 @@ static int update_event(view_event_e event)
             if (_userdata->inter.iat_text != NULL) {
                 _userdata->inter.iat_text[0] = '\0';
             }
+            is_image_hide = true;
             is_wakeup = true;
             is_inter_state_update = true;
             break;
@@ -191,14 +203,17 @@ static int update_event(view_event_e event)
                 _userdata->inter.iat_text[0] = '\0';
             }
             is_inter_state_update = true;
+            is_image_hide = true;
             break;
         case VIEW_EVENT_AUDIO_TRIGGERED_VAD:
             _userdata->inter.remote_state = LISAUI_USERDATA_INTER_REMOTE_STATE_THINKING;
             is_inter_state_update = true;
             break;
         case VIEW_EVENT_AUDIO_PLAY_START:
+            // is_image_hide = true;
             break;
         case VIEW_EVENT_TTS_PLAY_START:
+            // is_image_hide = true;
             _userdata->inter.remote_state = LISAUI_USERDATA_INTER_REMOTE_STATE_TALKING;
             is_inter_state_update = true;
             break;
@@ -223,6 +238,17 @@ static int update_event(view_event_e event)
         default:
             break;
         }
+
+        if (((_userdata->inter.remote_state == LISAUI_USERDATA_INTER_REMOTE_STATE_IDLE) && (_userdata->inter.local_state == LISAUI_USERDATA_INTER_LOCAL_STATE_RECOGNITION)) || \
+            (_userdata->inter.remote_state == LISAUI_USERDATA_INTER_REMOTE_STATE_LISTENING)) {
+            audio_listen_status = 1;
+        } else {
+            audio_listen_status = 0;
+        }
+    }
+
+    if (is_image_hide) {
+        assistant_view_hide_camera_image();
     }
 
     if(is_inter_state_update){
@@ -274,6 +300,58 @@ int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode)
     return 0;
 }
 
+static void camera_image_show_work(void *param)
+{
+    ebus_message_pub(view_handler->view->ebus_info.base_event_chn,
+                     LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW,
+                     param,
+                     sizeof(lisaui_camera_image_params_t));
+}
+
+// 显示拍照图片到页面
+int assistant_view_show_camera_image(const uint16_t *rgb565_data, uint32_t width, uint32_t height)
+{
+    if (!rgb565_data) {
+        printf("Invalid rgb565_data\n");
+        return -1;
+    }
+    
+    // 使用exram_malloc动态分配内存（ebus系统需要动态内存）
+    lisaui_camera_image_params_t *params = exram_malloc(32, sizeof(lisaui_camera_image_params_t));
+    if (!params) {
+        printf("ERROR: Failed to allocate memory for camera image params\n");
+        return -1;
+    }
+    
+    params->rgb565_data = rgb565_data;
+    params->width = width;
+    params->height = height;
+    
+    printf("DEBUG: Sending camera image event: params=%p, buffer=%p, size=%dx%d, params_size=%zu\n",
+           params, rgb565_data, width, height, sizeof(lisaui_camera_image_params_t));
+    
+    // 使用工作队列提交任务（接收端会用exram_free释放内存）
+    int result = workqueue_submit(view_handler->view->workq,
+                                  camera_image_show_work,
+                                  params,
+                                  0);
+    
+    printf("DEBUG: workqueue_submit result: %d\n", result);
+    
+    return 0;
+}
+
+// 隐藏拍照图片
+int assistant_view_hide_camera_image(void)
+{
+    // 使用工作队列提交任务，无需参数
+    workqueue_submit(view_handler->view->workq,
+        EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE), 
+        NULL, 0);
+    
+    return 0;
+}
+
 static int update_iat_append_text(bool is_refresh, const char *text)
 {
     int text_len;
@@ -300,6 +378,7 @@ static int update_iat_append_text(bool is_refresh, const char *text)
         }
     }
 
+    assistant_view_hide_camera_image();
     if (ret == 0) {
         workqueue_submit(view_handler->view->workq,
                          EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_INTER_STATE_UPDATE), NULL, 0);
@@ -470,7 +549,7 @@ static int update_wifi_state(view_wifi_info_t *info)
                 _userdata->setting.wifi.p_hotspot_info = exram_realloc(_userdata->setting.wifi.p_hotspot_info,
                     sizeof(lisaui_userdata_setting_wifi_hotspot_info_t));
 
-                _userdata->setting.wifi.p_hotspot_info->state = wifi_connect_state_map[info->state];
+                _userdata->setting.wifi.p_hotspot_info->state = wifi_connect_state_map[info->state];//wifi_connect_state_map
                 _userdata->setting.wifi.p_hotspot_info->number = 0;
             }
             else if (info->state == VIEW_WIFI_STATE_SCANNED) {

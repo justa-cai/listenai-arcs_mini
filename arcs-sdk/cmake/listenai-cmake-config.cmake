@@ -27,7 +27,7 @@ option(LISTENAI_ADD_BIN_HEADR "kconfig no generate header of bin " ON)
 string(REPLACE "\\" "/" LISTENAI_CMAKE_PATH "${LISTENAI_CMAKE_PATH}")
 
 if (NOT DEFINED LISTENAI_MODULES_DIR_LIST)
-    message(WARNING "LISTENAI_MODULES_DIR_LIST is not defined")
+    message(STATUS "LISTENAI_MODULES_DIR_LIST is not defined")
     set(LISTENAI_MODULES_DIR_LIST "")
 endif()
 

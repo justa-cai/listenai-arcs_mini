@@ -162,28 +162,28 @@
         #ifdef CONFIG_LV_MEM_CUSTOM_INCLUDE
             #define LV_MEM_CUSTOM_INCLUDE CONFIG_LV_MEM_CUSTOM_INCLUDE
         #else
-            #define LV_MEM_CUSTOM_INCLUDE <stdlib.h>   /*Header for the dynamic memory function*/
+            #define LV_MEM_CUSTOM_INCLUDE lv_port_mem.h   /*Header for the dynamic memory function*/
         #endif
     #endif
     #ifndef LV_MEM_CUSTOM_ALLOC
         #ifdef CONFIG_LV_MEM_CUSTOM_ALLOC
             #define LV_MEM_CUSTOM_ALLOC CONFIG_LV_MEM_CUSTOM_ALLOC
         #else
-            #define LV_MEM_CUSTOM_ALLOC   malloc
+            #define LV_MEM_CUSTOM_ALLOC   lvgl_port_malloc
         #endif
     #endif
     #ifndef LV_MEM_CUSTOM_FREE
         #ifdef CONFIG_LV_MEM_CUSTOM_FREE
             #define LV_MEM_CUSTOM_FREE CONFIG_LV_MEM_CUSTOM_FREE
         #else
-            #define LV_MEM_CUSTOM_FREE    free
+            #define LV_MEM_CUSTOM_FREE    lvgl_port_free
         #endif
     #endif
     #ifndef LV_MEM_CUSTOM_REALLOC
         #ifdef CONFIG_LV_MEM_CUSTOM_REALLOC
             #define LV_MEM_CUSTOM_REALLOC CONFIG_LV_MEM_CUSTOM_REALLOC
         #else
-            #define LV_MEM_CUSTOM_REALLOC realloc
+            #define LV_MEM_CUSTOM_REALLOC lvgl_port_realloc
         #endif
     #endif
 #endif     /*LV_MEM_CUSTOM*/

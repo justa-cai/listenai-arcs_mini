@@ -3,7 +3,8 @@
  */
 #pragma once
 #include <stdint.h>
-#include "acomp_err.h"
+#include "comm/stream/acomp_stream_ipc.h"
+#include "utils/acomp_err.h"
 
 #ifdef __cplusplus
 extern "C" {

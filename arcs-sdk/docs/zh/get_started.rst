@@ -134,7 +134,7 @@
 
 .. code-block:: shell
 
-   ./tools/burn/cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/helloworld.bin
+   ./tools/burn/cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/helloworld.bin -C arcs
 
 命令参数说明：
 

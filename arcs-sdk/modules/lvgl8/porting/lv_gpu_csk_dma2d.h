@@ -42,7 +42,7 @@ void lv_draw_csk_dma2d_ctx_deinit(struct _lv_disp_drv_t * drv, lv_draw_ctx_t * d
  *      MACROS
  **********************/
 
-#endif  /*LV_USE_GPU_CSK_DMA2D*/
+#endif  /*CONFIG_LV_USE_GPU_CSK_DMA2D*/
 
 #ifdef __cplusplus
 } /*extern "C"*/

@@ -23,5 +23,5 @@
 ### cp固件烧录
 
 ```shell
-cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/arcs.bin
+cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/arcs.bin -C arcs
 ```

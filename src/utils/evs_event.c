@@ -20,7 +20,7 @@
 /** Event Queue Max Count */
 #define EVENT_QUEUE_COUNT_MAX (20)
 /** Event Thread Stack Size */
-#define EVENT_THREAD_STACK_SIZE (5 * 1024)
+#define EVENT_THREAD_STACK_SIZE (10 * 1024)
 /** Event Thread Name */
 #define EVENT_THREAD_NAME ("evs_event")
 /** Event Queue Wait Time */
@@ -121,7 +121,10 @@ static void _evs_event_run_task(void *param)
 				lisa_mem_free(first_node);
 				lisa_mutex_unlock(s_event->mutex);
 			} else {
-				uint32_t diff_time = first_node->msg_wrap->time - cur_time;
+				uint32_t diff_time = 0;
+				if (first_node->msg_wrap->time > cur_time)
+					diff_time = first_node->msg_wrap->time - cur_time;
+					
 				s_event->is_wait = true;
 				lisa_mutex_unlock(s_event->mutex);
 				lisa_semaphore_take(s_event->semaphore, diff_time);

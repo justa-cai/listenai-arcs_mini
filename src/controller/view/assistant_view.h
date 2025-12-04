@@ -142,8 +142,16 @@ typedef struct {
     } ebus_info;
     workqueue_t *workq;
 } assistant_view_t;
+
+bool get_audio_listen_status(void);
 void assistant_view_userdata_load(void);
 assistant_view_t *assistant_view_init(assistant_view_cbs_t *cbs);
+
+// 显示拍照图片到页面
+int assistant_view_show_camera_image(const uint16_t *rgb565_data, uint32_t width, uint32_t height);
+
+// 隐藏拍照图片
+int assistant_view_hide_camera_image(void);
 
 #ifdef __cplusplus
 }

@@ -4,7 +4,9 @@
 #include "cache.h"
 #include "PSRAMManager.h"
 #include "log_print.h"
+#if defined(CFG_AMP_IPC_FLASH_AGENT) && (CFG_AMP_IPC_FLASH_AGENT == 1)
 #include "ipc_utils.h"
+#endif
 #include "spiflash.h"
 
 #ifdef CFG_FLASH_IF

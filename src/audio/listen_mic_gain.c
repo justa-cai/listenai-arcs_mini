@@ -93,7 +93,7 @@ void listen_mic_gain_init()
 			s_gain = 0;
 		}
 	}
-	LISA_LOGI(TAG,"[%s]s_gain:------------------------------------%d\r\n", __func__, s_gain);
+	LISA_LOGI(TAG,"[%s]s_gain---: %d\r\n", __func__, s_gain);
     // 设置初始化音量
 	listen_mic_gain_set(s_gain);
 }

@@ -26,8 +26,7 @@ def get_submodule_paths(gitmodules_path):
         A set of normalized paths for all submodules
     """
     if not os.path.exists(gitmodules_path):
-        print(f"Error: {gitmodules_path} does not exist")
-        sys.exit(1)
+        return set()
         
     submodule_paths = set()
     
@@ -67,66 +66,86 @@ def is_git_repo(path):
         
     return False
 
-def find_potential_modules(root_dir):
+def load_submodule_whitelist(base_dir):
+    """Load whitelist paths from .gitmodules in base_dir. Paths are normalized."""
+    gm_path = os.path.join(base_dir, '.gitmodules')
+    return get_submodule_paths(gm_path)
+
+def scan_unexpected_git_repos(root_dir):
     """
-    Find all potential module directories in the given directory.
-    This includes git repositories and directories that might be submodules.
-    
-    Args:
-        root_dir: Root directory to search from
-        
-    Returns:
-        A list of paths to potential module directories that are git repositories
+    Walk the tree from root_dir. For any git repo encountered under a base directory,
+    compare against that base's .gitmodules whitelist. If a child repo path relative to base
+    is not listed, mark it as unexpected. When a listed submodule is encountered, treat it
+    as a new base and use its own .gitmodules for deeper comparisons.
+    Returns list of paths (relative to root_dir) to remove.
     """
-    potential_modules = []
-    
-    # Find all git repositories in the project
-    for dirpath, dirnames, filenames in os.walk(root_dir):
-        # Skip the root .git directory and other hidden directories
-        if os.path.basename(dirpath).startswith('.') and dirpath != root_dir:
-            dirnames[:] = []  # Don't descend into hidden directories
+    # Maintain mapping of base absolute path -> whitelist set
+    base_whitelists = {}
+    root_abs = os.path.abspath(root_dir)
+    base_whitelists[root_abs] = load_submodule_whitelist(root_abs)
+
+    def find_base_for(path_abs):
+        # choose deepest base that is a prefix of path_abs
+        candidates = [b for b in base_whitelists.keys() if path_abs == b or path_abs.startswith(b + os.sep)]
+        if not candidates:
+            return root_abs
+        return max(candidates, key=len)
+
+    unexpected = []
+
+    for dirpath, dirnames, filenames in os.walk(root_abs):
+        # skip hidden directories at traversal level
+        dirnames[:] = [d for d in dirnames if not d.startswith('.')]
+
+        if not is_git_repo(dirpath):
             continue
-            
-        # Check if this is a git repository
-        if is_git_repo(dirpath):
-            # Get the relative path from the root directory
-            rel_path = os.path.relpath(dirpath, root_dir)
-            if rel_path == '.':
-                continue  # Skip the root repository
-            potential_modules.append(rel_path)
-            
-            # Don't descend into this directory further
+
+        current_base = find_base_for(dirpath)
+        rel_to_base = os.path.relpath(dirpath, current_base)
+
+        # If this is exactly the base repo directory, allow and ensure its whitelist is loaded
+        if rel_to_base == '.':
+            # already loaded for root; for nested bases, load when we encounter them as listed modules below
+            continue
+
+        whitelist = base_whitelists.get(current_base, set())
+
+        if rel_to_base in whitelist:
+            # It's a declared submodule under current_base; treat it as a new base and load its whitelist
+            sub_base_abs = dirpath
+            if sub_base_abs not in base_whitelists:
+                base_whitelists[sub_base_abs] = load_submodule_whitelist(sub_base_abs)
+            # continue walking inside (allowed)
+            continue
+        else:
+            # Not declared in the nearest base's .gitmodules -> unexpected
+            rel_to_root = os.path.relpath(dirpath, root_abs)
+            unexpected.append(rel_to_root)
+            # no need to descend into this unexpected repo
             dirnames[:] = []
-    
-    return potential_modules
+
+    return unexpected, base_whitelists[root_abs]
 
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Clean up git repositories that are not listed in .gitmodules file.')
     parser.add_argument('-y', '--yes', action='store_true', help='Automatically confirm removal without prompting')
     parser.add_argument('--dry-run', action='store_true', help='Only show what would be removed, but do not actually remove anything')
-    parser.add_argument('--root-path', action='store_true', help='Which path to clean up', default=os.getcwd())
+    parser.add_argument('--root-path', type=str, help='Project root path containing .gitmodules', default=os.getcwd())
     args = parser.parse_args()
     
     root_dir = args.root_path
     # Get the project root directory (where .gitmodules is located)
     gitmodules_path = os.path.join(root_dir, '.gitmodules')
     
-    # Get all submodule paths from .gitmodules
-    submodule_paths = get_submodule_paths(gitmodules_path)
-    print(f"Found {len(submodule_paths)} submodules in .gitmodules:")
-    for path in sorted(submodule_paths):
+    # Get all submodule paths from root .gitmodules
+    root_submodule_paths = get_submodule_paths(gitmodules_path)
+    print(f"Found {len(root_submodule_paths)} submodules in .gitmodules:")
+    for path in sorted(root_submodule_paths):
         print(f"  - {path}")
-    
-    # Find all potential module directories that are git repositories
-    potential_modules = find_potential_modules(root_dir)
-    print(f"\nFound {len(potential_modules)} potential module directories that are git repositories")
-    
-    # Find directories that are not in the submodules list
-    dirs_to_remove = []
-    for module in potential_modules:
-        if module not in submodule_paths:
-            dirs_to_remove.append(module)
+
+    # Scan with hierarchical .gitmodules
+    dirs_to_remove, _ = scan_unexpected_git_repos(root_dir)
     
     if not dirs_to_remove:
         print("\nNo unexpected module directories found. Nothing to clean up.")

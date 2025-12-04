@@ -1,1 +1,12 @@
-# init
+listenai_library_named(module_boards)
+
+if(DEFINED CONFIG_BOARDS_CHOICE_ARCS_MINI)
+    listenai_library_sources(arcs_mini/board.c)
+    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR}/arcs_mini)
+elseif(DEFINED CONFIG_BOARDS_CHOICE_ARCS_EVB_IV01)
+    listenai_library_sources(arcs_evb_iv01/board.c)
+    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR}/arcs_evb_iv01)
+elseif(DEFINED CONFIG_BOARDS_CHOICE_ARCS_WORDCARD)
+    listenai_library_sources(arcs_wordcard/board.c)
+    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR}/arcs_wordcard)
+endif()

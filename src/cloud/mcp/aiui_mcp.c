@@ -318,6 +318,22 @@ mcp_result_t mcp_list_tools(mcp_tool_def_t ***tools, uint32_t *count)
 
 /* ==================== 工具执行接口实现 ==================== */
 
+// 全局变量用于临时存储call_id（线程不安全，仅单线程调用）
+static char g_temp_call_id_buf[128] = {0};
+
+/**
+ * @brief 设置下次工具调用的call_id
+ */
+void mcp_set_next_call_id(const char *call_id)
+{
+    if (call_id) {
+        strncpy(g_temp_call_id_buf, call_id, sizeof(g_temp_call_id_buf) - 1);
+        g_temp_call_id_buf[sizeof(g_temp_call_id_buf) - 1] = '\0';
+    } else {
+        g_temp_call_id_buf[0] = '\0';
+    }
+}
+
 mcp_result_t mcp_call_tool_sync(const char *tool_name, 
                                const mcp_param_t *params, 
                                uint32_t param_count,
@@ -351,7 +367,7 @@ mcp_result_t mcp_call_tool_sync(const char *tool_name,
     // 准备执行上下文
     mcp_context_t ctx = {0};
     ctx.tool_name = tool_name;
-    ctx.call_id = _generate_call_id();
+    ctx.call_id = (g_temp_call_id_buf[0] != '\0') ? g_temp_call_id_buf : _generate_call_id();  // 使用全局临时call_id
     ctx.params = (mcp_param_t *)params;
     ctx.param_count = param_count;
 
@@ -370,7 +386,14 @@ mcp_result_t mcp_call_tool_sync(const char *tool_name,
     _update_tool_stats(registry, exec_result, exec_time);
     lisa_mutex_unlock(g_mcp_manager.registry_mutex);
 
-    lisa_mem_free((void *)ctx.call_id);
+    // 释放call_id（仅当是动态生成的，不是静态缓冲区）
+    if (ctx.call_id != g_temp_call_id_buf) {
+        lisa_mem_free((void *)ctx.call_id);
+    }
+    
+    // 清除临时call_id（在工具执行和清理完毕后）
+    g_temp_call_id_buf[0] = '\0';
+   
     return exec_result;
 }
 

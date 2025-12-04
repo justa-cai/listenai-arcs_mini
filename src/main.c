@@ -29,10 +29,11 @@
 #include "chip.h"
 #include "nvs.h"
 #include "power/power_manager.h"
+#include "lisa_display.h"
 #include "lisa_aiui.h"
 #include "bt_app_if.h"
 
-#if(CONFIG_FLEXIBLE_BUTTON)
+#if (CONFIG_FLEXIBLE_BUTTON)
 #include "lisa_btn.h"
 
 #endif
@@ -44,11 +45,10 @@
 #include "Driver_GPIO.h"
 
 #include "lsfs.h"
-void shunt_down(void);
-static bool kv_initialized = false;
 #include "listen_volume.h"
 #include "led.h"
 #include "assistant_controller.h"
+#include "video_camera.h"
 
 // 是否使用Litedac
 // 需要配合lisaplayer的arcs_track.c中的配置项同步修改
@@ -59,10 +59,6 @@ static bool kv_initialized = false;
  */
 static void factory_reset(void)
 {
-    if(!kv_initialized){
-        kv_initialized = true;
-        return;
-    }
     printf("\n=== Starting Factory Reset ===\n");
     // Delete user credentials
     printf("Deleting user credentials...\n");
@@ -74,19 +70,32 @@ static void factory_reset(void)
     printf("  - user_sid delete: %s\n", ret2 == 0 ? "Success" : "Failed");
     printf("  - user_token delete: %s\n", ret5 == 0 ? "Success" : "Failed");
     printf("  - user_mic_gain delete: %s\n", ret6 == 0 ? "Success" : "Failed");
-    
+
     // Clear WiFi configurations
     printf("Clearing WiFi configurations...\n");
     int ret3 = lisa_kv_del("wifi-info-count");
     int ret4 = lisa_kv_del("wifi-list");
     printf("  - wifi-info-count delete: %s\n", ret3 == 0 ? "Success" : "Failed");
     printf("  - wifi-list delete: %s\n", ret4 == 0 ? "Success" : "Failed");
-    
+
     // Add any additional reset operations here
     listen_set_volume(70);
     printf("=== Factory Reset Completed ===\n\n");
 }
 
+static void network_reset(void)
+{
+    printf("\n=== Starting Network Reset ===\n");
+
+    // Clear WiFi configurations
+    printf("Clearing WiFi configurations...\n");
+    int ret3 = lisa_kv_del("wifi-info-count");
+    int ret4 = lisa_kv_del("wifi-list");
+    printf("  - wifi-info-count delete: %s\n", ret3 == 0 ? "Success" : "Failed");
+    printf("  - wifi-list delete: %s\n", ret4 == 0 ? "Success" : "Failed");
+
+    printf("=== Network Reset Completed ===\n\n");
+}
 
 #define APP_TASK_STACK (4096 * 2)
 #define APP_TASK_PRIO  LISA_OS_PRIORITY_NORMAL
@@ -105,44 +114,44 @@ static int __handle_wifi_stack_init_done(void *arg)
     // easyflash_init();
     // LISA_LOGI(TAG, "easyflash init end");
 
-// #if !defined(ARCS_DAC_USE_LITE_DAC)
-//     // PA init
-//     pa_manager_pre_init();
-//     pa_manager_init(PA_MGR_NONE);
-//     LISA_LOGI(TAG, "PA init end");
+    // #if !defined(ARCS_DAC_USE_LITE_DAC)
+    //     // PA init
+    //     pa_manager_pre_init();
+    //     pa_manager_init(PA_MGR_NONE);
+    //     LISA_LOGI(TAG, "PA init end");
 
-//     // Speaker init
-//     listen_spk_init();
-//     LISA_LOGI(TAG, "speaker init end");
-// #endif
+    //     // Speaker init
+    //     listen_spk_init();
+    //     LISA_LOGI(TAG, "speaker init end");
+    // #endif
 
-//     // System init
-//     ls_sys_init(TIMEZONE_SHANGHAI);
-//     LISA_LOGI(TAG, "system init end");
+    //     // System init
+    //     ls_sys_init(TIMEZONE_SHANGHAI);
+    //     LISA_LOGI(TAG, "system init end");
 
-//     // Tone init
-//     app_tone_default_init();
-//     LISA_LOGI(TAG, "tone init end");
+    //     // Tone init
+    //     app_tone_default_init();
+    //     LISA_LOGI(TAG, "tone init end");
 
-//     // LisaPlayer init
-//     app_player_init();
-//     LISA_LOGI(TAG, "app_player init end");
+    //     // LisaPlayer init
+    //     app_player_init();
+    //     LISA_LOGI(TAG, "app_player init end");
 
-//     // Welcome
-//     extern void app_main(void);
-//     app_main();
+    //     // Welcome
+    //     extern void app_main(void);
+    //     app_main();
 
-//     extern int ui_start(void);
-//     ui_start();
+    //     extern int ui_start(void);
+    //     ui_start();
 
-//     LISA_LOGI(TAG, "Application Ready!!!");
+    //     LISA_LOGI(TAG, "Application Ready!!!");
 
     return 0;
 }
 
-void shunt_down(void)
+static void shutdown(void)
 {
-    LISA_LOGI(TAG, "shunt shutdown");
+    LISA_LOGI(TAG, "shutdown");
 
     pa_manager_onoff(0);
 
@@ -150,8 +159,11 @@ void shunt_down(void)
     lisa_kv_poweroff_save();
 #endif
 
+    app_led_off();
+    lisa_display_blanking_on(lisa_display_get());
+    lisa_display_set_brightness(lisa_display_get(), 0);
+
     vTaskDelay(100);
-    GPIO_PinWrite(GPIOB(), 0x01 << 3, 0);
 }
 
 static void _main_wifi_stack_init_done_cb(void)
@@ -159,76 +171,95 @@ static void _main_wifi_stack_init_done_cb(void)
     evs_handler_post_runnable(__handle_wifi_stack_init_done, NULL);
 }
 
-void enter_ble_config(void){
+void enter_ble_config(void)
+{
     assist_controller_trigger_event(CONTROLLER_EVENT_OPT_ENTER_BLE_CONFIG, NULL, 0);
     app_ble_adv_start(0, BLE_ADV_GEN);
 }
 
-#if(CONFIG_FLEXIBLE_BUTTON)
-static void button_callback_handle(lisa_btn_event_t event, void *user)
+#if (CONFIG_FLEXIBLE_BUTTON)
+static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t *info)
 {
-    int btn_id = (int)(intptr_t)user;
-    LISA_LOGI(TAG, "Power button event:%d btn_id: %d", event, btn_id);
+    LISA_LOGI(TAG, "Button %d event: %d", info->id, event);
 
     /* 只处理Power按键 */
-    if (btn_id != LISA_BTN_ID_POWER) {
+    if (info->id != LISA_BTN_ID_POWER) {
         return;
     }
 
     switch (event) {
-        case LISA_BTN_PRESS_CLICK:
-            /* 单击：唤醒功能 */
-            {
-                extern void app_btn_wakeup(void);
-                app_btn_wakeup();
-            }
-            break;
-            
-        case LISA_BTN_PRESS_DOUBLE_CLICK:
-            /* 双击：切换信息页面 */
-            printf("power button double click, toggle info page\n");
-            assist_controller_trigger_event(CONTROLLER_EVENT_OPT_TOGGLE_INFO_PAGE, NULL, 0);
-            break;
-            
-        case LISA_BTN_PRESS_LONG_UP:
-            /* 长按释放：关机功能（已注释） */
-            // printf("shunt down LISA_BTN_PRESS_LONG_UP \n");
-            // shunt_down();
-            break;
-            
-        case LISA_BTN_PRESS_TRIPLE_CLICK:
-            /* 重复点击：恢复出厂设置 */
-            {
-                printf("factory reset LISA_BTN_PRESS_TRIPLE_CLICK\n");
-                kv_initialized = true;
-                factory_reset();
-                extern int play_factory_reset_audio(void);
-                wifi_mgr_sta_disconnect(false);
-                play_factory_reset_audio();
-                extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
-                change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
-                enter_ble_config();
-            }
-            break;
+    case LISA_BTN_PRESS_CLICK:
+        /* 单击: 唤醒功能 */
+        if (get_audio_listen_status()) {
+            /* 设备处于仅聆听的时候，单击回到待唤醒状态 */
+            extern void app_btn_idle(void);
+            app_btn_idle();
+        } else {
+            extern void app_btn_wakeup(void);
+            app_btn_wakeup();
+        }
+        break;
 
+    case LISA_BTN_PRESS_DOUBLE_CLICK:
+        /* 双击: 拍照识图 */
+        LISA_LOGI(TAG, "power button double click, enter image recognition");
+        extern int photo_recognition_trigger(void);
+        photo_recognition_trigger();
+        break;
 
-        default:
-            break;
+    case LISA_BTN_PRESS_TRIPLE_CLICK:
+        /* 三击: 调出小程序配置页 */
+        LISA_LOGI(TAG, "power button triple click, toggle info page");
+        assist_controller_trigger_event(CONTROLLER_EVENT_OPT_TOGGLE_INFO_PAGE, NULL, 0);
+        break;
+
+    case LISA_BTN_PRESS_QUINTUPLE_CLICK:
+    case LISA_BTN_PRESS_REPEAT_CLICK:
+        LISA_LOGI(TAG, "power button repeat click count: %d", info->click_count);
+        if (info->click_count >= 8) { /* 连击超过8下: 恢复出厂设置 */
+            LISA_LOGI(TAG, "Do factory reset");
+            factory_reset();
+            wifi_mgr_sta_disconnect(false);
+            extern int play_factory_reset_audio(void);
+            play_factory_reset_audio();
+            extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
+            change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
+            enter_ble_config();
+        } else if (info->click_count >= 5) { /* 连击超过5下: 进入BLE配置模式 */
+            LISA_LOGI(TAG, "Do network reset");
+            network_reset();
+            wifi_mgr_sta_disconnect(false);
+            extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
+            change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
+            enter_ble_config();
+        }
+        break;
+
+    case LISA_BTN_PRESS_LONG_HOLD:
+        /* 长按: 关机 */
+        if (get_usb_status() == USB_STATUS_PLUG) {
+            LISA_LOGI(TAG, "USB connected, ignore long press shutdown");
+        } else {
+            LISA_LOGI(TAG, "power button long press hold, shutting down...");
+            power_shutdown();
+        }
+        break;
+
+    default:
+        break;
     }
 }
 #endif
 
 #if CFG_NVS
-#define NVDS_FLASH_ADDRESS_OFFSET   (0xFF8000) //The last 32KB of 16B flash
-#define NVDS_FLASH_SIZE      (0x8000) //32KB
+#define NVDS_FLASH_ADDRESS_OFFSET (0xFF8000) // The last 32KB of 16B flash
+#define NVDS_FLASH_SIZE           (0x8000)   // 32KB
 struct nvs_fs arcs_nvs_fs;
-FLASH_DEV arcs_flash_dev  = {
-    .base_addr = CMN_FLASHC_BASE,
-    .d_width = 4,
-    .sclk_div = 0xFF, //divider is 1
-    .run_mod = RUN_WITHOUT_INT,
-    .timeout = 0x180000
-};
+FLASH_DEV arcs_flash_dev = {.base_addr = CMN_FLASHC_BASE,
+                            .d_width = 4,
+                            .sclk_div = 0xFF, // divider is 1
+                            .run_mod = RUN_WITHOUT_INT,
+                            .timeout = 0x180000};
 int arcs_nvs_init(void)
 {
     struct flash_pages_info info;
@@ -237,11 +268,18 @@ int arcs_nvs_init(void)
     arcs_nvs_fs.flash_device = &arcs_flash_dev;
     flash_get_page_info_by_offs(&arcs_flash_dev, arcs_nvs_fs.offset, &info);
     arcs_nvs_fs.sector_size = info.size;
-    arcs_nvs_fs.sector_count = NVDS_FLASH_SIZE/info.size;
+    arcs_nvs_fs.sector_count = NVDS_FLASH_SIZE / info.size;
     nvds_init(&arcs_nvs_fs);
     return 0;
 }
 #endif
+
+static void log_shell_backend_output(const uint8_t *log, uint32_t len, void *data)
+{
+    extern void lisa_shell_output_raw(const char *data, int len);
+    lisa_shell_output_raw((const char *)log, len);
+}
+
 static void app_task(void *param)
 {
     ipc_mem_init(1);
@@ -252,50 +290,51 @@ static void app_task(void *param)
     LISA_LOGI(TAG, "system init end");
 
     extern int lisa_shell_init(void);
-    extern void lisa_shell_output_raw(const char *data, int len);
-	lisa_shell_init();
 
-    extern int lisa_log_init(void);
-    lisa_log_init();
-    lisa_log_output_handle_set(lisa_shell_output_raw);
+    lisa_shell_init();
+
+    /* shell的串口和系统默认的日志输出串口是同一个, 这里暂停系统默认的日志输出 */
+    lisa_log_backend_pause("sys.log");
+    lisa_log_backend_add("user.shell", log_shell_backend_output, NULL);
+
+    // extern int lisa_log_init(void);
+    // lisa_log_init();
+    // lisa_log_output_handle_set(lisa_shell_output_raw);
 
     /**
-	 * AP侧先核间通信建立后再进行wifi初始化
-	 * 此处先进行核间通信的建立
-	 */
+     * AP侧先核间通信建立后再进行wifi初始化
+     * 此处先进行核间通信的建立
+     */
 
-	ic_message_init();
-	LISA_LOGI(TAG, "IC message init end");
+    ic_message_init();
+    LISA_LOGI(TAG, "IC message init end");
 
-	// extern int sdmmc_hard_init(void);
-	// sdmmc_hard_init();
+    // extern int sdmmc_hard_init(void);
+    // sdmmc_hard_init();
 
 #ifdef CONFIG_LISA_KV_TYPE_LSFS
-	extern int user_fs_init(void);
-	user_fs_init();
+    extern int user_fs_init(void);
+    user_fs_init();
 #endif
 
     // Check if KV storage is already initialized (e.g., from factory reset)
     lisa_kv_init();
 
-    if(kv_initialized){
-        factory_reset();
-    }
     evs_utils_init();
 
     extern void update_device_id(void);
     update_device_id();
 
-	extern int user_usb_start(void);
-	user_usb_start();
+    extern int user_usb_start(void);
+    user_usb_start();
 
-	extern bool app_usb_msc_enabled(void);
-	/* USB-MSC模式下, 不运行应用程序, 只支持USB文件传输 */
-	if (app_usb_msc_enabled()) {
-		while(1) {
-			lisa_thread_delay(1000);
-		}
-	}
+    extern bool app_usb_msc_enabled(void);
+    /* USB-MSC模式下, 不运行应用程序, 只支持USB文件传输 */
+    if (app_usb_msc_enabled()) {
+        while (1) {
+            lisa_thread_delay(1000);
+        }
+    }
 
     int ret;
     // struct lsfs_file_t file;
@@ -305,8 +344,8 @@ static void app_task(void *param)
     // if (ret != 0) {
     //     LISA_LOGE(TAG, "lvgl font file not found, do not start ui");
     //     while(1) {
-	// 		lisa_thread_delay(1000);
-	// 	}
+    // 		lisa_thread_delay(1000);
+    // 	}
     // }
     // lsfs_close(&file);
     arcs_nvs_init();
@@ -321,19 +360,19 @@ static void app_task(void *param)
     LISA_LOGI(TAG, "BLE init end\n");
 
     extern void comm_service_init(void);
-	comm_service_init();
-	LISA_LOGI(TAG, "comm service init end");
+    comm_service_init();
+    LISA_LOGI(TAG, "comm service init end");
 
     /* LED service */
     app_led_init();
     app_led_off();
-	extern void audio_play_service_start();
-	audio_play_service_start();
-	LISA_LOGI(TAG, "audio play service start");
+    extern void audio_play_service_start();
+    audio_play_service_start();
+    LISA_LOGI(TAG, "audio play service start");
 
-	extern void audio_record_service_start();
-	audio_record_service_start();
-	LISA_LOGI(TAG, "audio record service start");
+    extern void audio_record_service_start();
+    audio_record_service_start();
+    LISA_LOGI(TAG, "audio record service start");
 
 #if !defined(ARCS_DAC_USE_LITE_DAC)
     // PA init
@@ -371,40 +410,40 @@ static void app_task(void *param)
 
     LISA_LOGI(TAG, "Application Ready!!!");
 
-#if(CONFIG_FLEXIBLE_BUTTON)
+#if (CONFIG_FLEXIBLE_BUTTON)
     lisa_btn_init(button_callback_handle, NULL);
 #endif
 
-#if(CONFIG_BATTERY_COLLECTION)
+#if (CONFIG_BATTERY_COLLECTION)
     battery_adc_sample_init();
 #endif
     listen_mic_gain_init();
     assistant_view_userdata_load();
-    // video_camera_init();
+
+    video_camera_init();
+    camera_senor_release();
 
     assist_controller_init();
 
     // Check if WiFi account is already configured
     bool has_wifi_config = false;
-    
+
     // Use the same API as wifi list command to get saved WiFi networks
     wifi_mgr_sta_config_t *matched_list = NULL;
     ret = wifi_mgr_storage_search_ap(&matched_list, SEARCH_ALL, NULL);
-    
+
     if (ret > 0 && matched_list != NULL) {
         printf("Found %d saved WiFi network(s)\n", ret);
-        
+
         // Print the found WiFi configurations for debugging
         for (int i = 0; i < ret; i++) {
-            printf("WiFi config [%d]: SSID=[%s], BSSID=[%02x:%02x:%02x:%02x:%02x:%02x]\n", 
-                   i + 1,
-                   matched_list[i].ssid,
+            printf("WiFi config [%d]: SSID=[%s], BSSID=[%02x:%02x:%02x:%02x:%02x:%02x]\n", i + 1, matched_list[i].ssid,
                    matched_list[i].bssid[0], matched_list[i].bssid[1], matched_list[i].bssid[2],
                    matched_list[i].bssid[3], matched_list[i].bssid[4], matched_list[i].bssid[5]);
         }
-        
+
         has_wifi_config = true;
-        
+
         // Free the matched list
         free(matched_list);
     } else if (ret == 0) {
@@ -412,7 +451,7 @@ static void app_task(void *param)
     } else {
         printf("Failed to get saved WiFi networks, error: %d\n", ret);
     }
-    
+
     if (!has_wifi_config) {
         printf("No valid WiFi configuration found\n");
         extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
@@ -425,15 +464,17 @@ static void app_task(void *param)
     // Add your logic here based on has_wifi_config
 }
 
-static void *cjson_malloc(size_t sz){
-    return exram_malloc(4,sz);
+static void *cjson_malloc(size_t sz)
+{
+    return exram_malloc(4, sz);
 }
 
-static void cjson_free(void *ptr){
+static void cjson_free(void *ptr)
+{
     exram_free(ptr);
 }
 
-cJSON_Hooks cjson_hooks= {
+cJSON_Hooks cjson_hooks = {
     .malloc_fn = cjson_malloc,
     .free_fn = cjson_free,
 };
@@ -450,7 +491,22 @@ int main(int argc, char **argv)
     printf("project version: %s\r\n", PROJECT_VERSION_STR);
     printf("\r\n");
 
-    /* lock power */
+    GPIO_Initialize(GPIOB(), NULL, NULL);
+    usb_plug_detect_gpio_init();
+
+    power_config_t power_cfg = {
+        .on_shutdown = shutdown,
+    };
+    power_init(&power_cfg);
+
+    /* 等待长按 3s */
+    if (!power_wait_settle()) {
+        power_shutdown();
+        return 0;
+    }
+
+    app_led_blink(50, 50);
+
     heap_caps_malloc_extmem_enable(16);
     cJSON_InitHooks(&cjson_hooks);
 
@@ -463,17 +519,6 @@ int main(int argc, char **argv)
         printf("config parse failed\n");
     }
     printf("config parse elapsed time: %d ms\n", time);
-
-    GPIO_Initialize(GPIOB(), NULL, NULL);
-
-    usb_plug_detect_gpio_init();
-
-    /* Check power button long press before continuing boot */
-    /* Power latch (PB3) is now configured inside power_check_boot_button() */
-    power_check_boot_button();
-
-    /* Start power shutdown monitoring thread */
-    power_start_shutdown_monitor();
 
     printk("Application start\n");
     lisa_thread_attr_t att = {.name = "APP_BOOT_TASK", .stack_size = APP_TASK_STACK, .priority = APP_TASK_PRIO};

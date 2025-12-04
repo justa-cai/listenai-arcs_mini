@@ -45,23 +45,14 @@ int spi_4line_trans_init(void *conf)
     dc_pin = config->spi_pins.dc.pin;
 
     void *gpio_dev = config->spi_pins.cs.pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
-    GPIO_Initialize(gpio_dev, NULL, NULL);
-    IOMuxManager_PinConfigure(config->spi_pins.cs.pad, 
-        config->spi_pins.cs.pin, config->spi_pins.cs.func);
     GPIO_SetDir(gpio_dev, (1UL << config->spi_pins.cs.pin), CSK_GPIO_DIR_OUTPUT);
     GPIO_PinWrite(gpio_dev, (1UL << config->spi_pins.cs.pin), 1);
 
     // cmd/data
     gpio_dev = config->spi_pins.dc.pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
-    IOMuxManager_PinConfigure(config->spi_pins.dc.pad, 
-        config->spi_pins.dc.pin, config->spi_pins.dc.func);
     GPIO_SetDir(gpio_dev, (1UL << config->spi_pins.dc.pin), CSK_GPIO_DIR_OUTPUT);
     GPIO_PinWrite(gpio_dev, (1UL << config->spi_pins.dc.pin), 1);
 
-    IOMuxManager_PinConfigure(config->spi_pins.clk.pad, 
-        config->spi_pins.clk.pin, config->spi_pins.clk.func);
-    IOMuxManager_PinConfigure(config->spi_pins.sda.pad, 
-        config->spi_pins.sda.pin, config->spi_pins.sda.func);
     HAL_CRM_SetSpi1ClkSrc(CRM_IpSrcPeriClk);
     SPI_Initialize(config->spi_dev, _display_spi_drvevent, 0);
     SPI_PowerControl(config->spi_dev, CSK_POWER_FULL);

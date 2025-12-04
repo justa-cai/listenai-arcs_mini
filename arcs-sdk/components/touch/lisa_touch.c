@@ -39,29 +39,9 @@ int axs15231b_touch_init_with_config(const touch_hw_config_t *config);
 
 static bool initialized = false;
 
-static void lisa_touch_hardware_init(const touch_hw_config_t *config)
-{
-	void *gpio_dev = NULL;
-
-	if (config) {
-		IOMuxManager_PinConfigure(config->i2c_pins.scl.scl_pad, config->i2c_pins.scl.scl_pin, config->i2c_pins.scl.scl_func);
-		IOMuxManager_PinConfigure(config->i2c_pins.sda.sda_pad, config->i2c_pins.sda.sda_pin, config->i2c_pins.sda.sda_func);
-		IOMuxManager_PinConfigure(config->gpio_pins.reset.reset_pad, config->gpio_pins.reset.reset_pin, config->gpio_pins.reset.reset_func);
-		IOMuxManager_PinConfigure(config->gpio_pins.intr.int_pad, config->gpio_pins.intr.int_pin, config->gpio_pins.intr.int_func);
-
-		gpio_dev = config->gpio_pins.reset.reset_pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
-		GPIO_Initialize(gpio_dev, NULL, NULL);
-	
-		gpio_dev = config->gpio_pins.intr.int_pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
-		GPIO_Initialize(gpio_dev, NULL, NULL);
-	}
-}
-
 void *lisa_touch_create(touch_hw_config_t *config)
 {
 	const struct touch_device *dev = NULL;
-	
-	lisa_touch_hardware_init(config);
 
 #ifdef CONFIG_LISA_TOUCH_AXS15231B
 	dev = &touch_axs15231b;

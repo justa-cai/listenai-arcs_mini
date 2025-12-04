@@ -133,14 +133,15 @@ typedef struct{
 	char name[16];
     uint8_t direction; /*0: m2r,1: r2m*/
     uint8_t index;
-
+    
+    uint32_t kick_policy;  /* Kick policy: 0:manual/ >0: buffer count to kick */
     /* vring memory*/
     void *phy_addr;
+    uint32_t mem_size;
     uint32_t align;
-    uint16_t num_descs;
+    uint32_t buffer_size;
 
 }__attribute__((packed,aligned(32)))acomp_ipc_stream_create_desc_t;
-
 typedef struct{
 	uint32_t index;
 
