@@ -26,6 +26,7 @@
 #include "app_client.h"
 #include "cloud/app_cloud.h"
 #include "tone.h"
+#include "utils/evs_event.h"
 
 #define TAG "controller"
 #include "lisa_log.h"
@@ -111,6 +112,7 @@ static int ctrl_event_opt_toggle_info_page_handler(ctr_event_message_t *msg);
 static int ctrl_event_opt_enter_ble_config_handler(ctr_event_message_t *msg);
 static int ctrl_event_opt_exit_ble_config_handler(ctr_event_message_t *msg);
 static int ctrl_event_opt_exit_info_page_handler(ctr_event_message_t *msg);
+static int ctrl_event_opt_auth_failed_handler(ctr_event_message_t *msg);
 
 
 static assistant_controller_event_handlers_t s_ctrl_event_handlers[] = {
@@ -155,6 +157,7 @@ static assistant_controller_event_handlers_t s_ctrl_event_handlers[] = {
     {NULL, ctrl_event_opt_toggle_info_page_handler, NULL}, // CONTROLLER_EVENT_OPT_TOGGLE_INFO_PAGE,
     {NULL, ctrl_event_opt_enter_ble_config_handler, NULL}, // CONTROLLER_EVENT_OPT_ENTER_BLE_CONFIG,
     {NULL, ctrl_event_opt_exit_ble_config_handler, NULL},  // CONTROLLER_EVENT_OPT_EXIT_BLE_CONFIG,
+    {NULL, ctrl_event_opt_auth_failed_handler, NULL},  // CONTROLLER_EVENT_OPT_EXIT_BLE_CONFIG,
 
 };
 
@@ -1167,6 +1170,17 @@ static int ctrl_event_opt_exit_ble_config_handler(ctr_event_message_t *msg)
     extern int play_config_net_success_audio(void);
     play_config_net_success_audio();
     app_led_on();
+    return 0;
+}
+
+static int ctrl_event_opt_auth_failed_handler(ctr_event_message_t *msg)
+{
+    LISA_LOGI(TAG, "auth_failed event received");
+    
+    app_cloud_token_error();
+    extern int play_auth_failed_audio(void);
+    play_auth_failed_audio();
+
     return 0;
 }
 

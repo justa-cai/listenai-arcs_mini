@@ -20,7 +20,7 @@
 #include "lisa_kv.h"
 #include "kv.h"
 #define NDEBUG
-#define TJE_IMPLEMENTATION
+// #define TJE_IMPLEMENTATION
 #include "tiny_jpeg.h"
 
 static void _ws_conn_cb();
@@ -28,6 +28,7 @@ static void _ws_disconnect_cb();
 static void _ws_ms_cb(const char *msg, int len);
 static int _wifi_conn_runnable(void *arg);
 static int _wifi_disconn_runnable(void *arg);
+static int _ws_reconnect(void *arg);
 
 static lisa_aiui_cb_t s_aiui_cb = {
 		.aiui_ws_connected_cb = _ws_conn_cb,
@@ -175,8 +176,11 @@ static int _wifi_conn_runnable(void *arg)
 	LISA_LOGI(TAG, "cloud connect, curr state: %d", s_cloud->ws_state);
 	listen_soundplayer_play(s_cloud->m_client->sound_player, TONE_ID_59, 0);
 	if (s_cloud->ws_state == LS_WS_DISCONNECT) {
-		lisa_aiui_connect(s_cloud->aiui, true);
-		s_cloud->ws_state = LS_WS_CONNECTING;
+		if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, true)) {
+			evs_handler_post_runnable_delay(_ws_reconnect, NULL, 2000);
+		} else {
+			s_cloud->ws_state = LS_WS_CONNECTING;
+		}
 	}
 
 	return 0;
@@ -209,10 +213,11 @@ static int _ws_reconnect(void *arg)
 	s_cloud->ws_state = LS_WS_DISCONNECT;
 	lisa_aiui_disconnect(s_cloud->aiui);
 	if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, true)) {
-		evs_handler_post_runnable_delay(_ws_reconnect, NULL, 1000);
+		evs_handler_post_runnable_delay(_ws_reconnect, NULL, 2000);
 	} else {
 		s_cloud->ws_state = LS_WS_CONNECTING;
 	}
+	
 	return 0;
 }
 

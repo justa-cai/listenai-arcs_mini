@@ -143,6 +143,12 @@ int play_factory_reset_audio(void)
     return 0;
 }
 
+int play_auth_failed_audio(void)
+{
+    listen_soundplayer_play(s_sound_player, TONE_ID_105, 0);
+	return 0;
+}
+
 static void _release_audio_list()
 {
 	if (s_audio_list) lisa_mem_free(s_audio_list);
@@ -291,6 +297,8 @@ int weather_aiui_intent_process(cJSON *intent_root)
 
 static int _parser_intent(cJSON *root)
 {
+	#define MUSIC_DELAY  2000//延时，防止tts被打断
+
 	if (!root) return -1;
 	cJSON *rc_item = cJSON_GetObjectItem(root, "rc");
 	if (!rc_item || !cJSON_IsNumber(rc_item)) return -1;
@@ -332,6 +340,9 @@ static int _parser_intent(cJSON *root)
 
 	if (strcmp(intent->valuestring, "PAUSE") == 0) {  // 暂停
 		listen_audioplayer_puse(s_audio_player);
+		recognizer_stop_record(s_rec);
+		recognizer_recognize_end(s_rec);
+		assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
 		return 1;
 	} else if (strcmp(intent->valuestring, "INSTRUCTION") == 0) {
 		cJSON *slots = cJSON_GetObjectItem(sema_item, "slots");
@@ -349,20 +360,27 @@ static int _parser_intent(cJSON *root)
 		}
 		if (strcmp(value->valuestring, "close") == 0) {
 			listen_audioplayer_puse(s_audio_player);
+			recognizer_stop_record(s_rec);
+			recognizer_recognize_end(s_rec);
+			assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
 		} else {
 			return -1;
 		}
 		return 1;
 	} else if (strcmp(intent->valuestring, "REPLAY") == 0) {  // 继续
+		lisa_thread_mdelay(MUSIC_DELAY);
 		s_audio_player->replay(s_audio_player);
 		return 1;
 	} else if (strcmp(intent->valuestring, "RESUME_PLAY") == 0) {  // 继续
+		lisa_thread_mdelay(MUSIC_DELAY);
 		s_audio_player->resumeByVoice(s_audio_player);
 		return 1;
 	} else if (strcmp(intent->valuestring, "CHOOSE_NEXT") == 0) {  // 下一首
+		lisa_thread_mdelay(MUSIC_DELAY);
 		s_audio_player->next(s_audio_player);
 		return 1;
 	} else if (strcmp(intent->valuestring, "CHOOSE_PREVIOUS") == 0) {  // 上一首
+		lisa_thread_mdelay(MUSIC_DELAY);
 		s_audio_player->prev(s_audio_player);
 		return 1;
 	} else if (strcmp(intent->valuestring, "VOLUME_MINUS") == 0) {  // 声音小
@@ -728,9 +746,10 @@ static int _proc_msg_continue(void *arg)
 
 			LISA_LOGW(TAG, "session finished, rid: %u, type: %d", rid, type);
 
-			if (type == LISA_AIUI_FRAME_TYPE_AUDIO) {
-				// recognizer_stop_record(s_rec);
-				// recognizer_recognize_end(s_rec);
+			if ((type == LISA_AIUI_FRAME_TYPE_AUDIO) || (type == LISA_AIUI_FRAME_TYPE_IMAGE)) {
+				recognizer_stop_record(s_rec);
+				recognizer_recognize_end(s_rec);
+				listen_audioplayer_puse(s_audio_player);
 				assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
 
 				if (lisa_aiui_get_interactive_mode() == INTER_CONTINUE) {

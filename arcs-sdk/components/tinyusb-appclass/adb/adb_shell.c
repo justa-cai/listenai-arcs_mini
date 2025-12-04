@@ -8,7 +8,7 @@
 #include "shell.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
-#include "queue.h"
+#include "stream_buffer.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -17,6 +17,8 @@
 
 #include "adb_utils.h"
 
+#include "lisa_log.h"
+
 #define ETX 0x03 /* ctrl+c */
 
 static struct adb_service *curr_service = NULL;
@@ -24,11 +26,22 @@ static struct adb_service *curr_service = NULL;
 struct adb_shell_context {
     Shell sh;
     uint8_t buf[CONFIG_ADB_SHELL_BUFFER_SIZE] __attribute__((aligned(8)));
-    QueueHandle_t rx_queue;
-    QueueHandle_t tx_queue;
+    StreamBufferHandle_t rx_stream;
+    StreamBufferHandle_t tx_stream;
     struct adb_service *s;
     TaskHandle_t task;
 };
+
+static void adb_shell_log_output(const uint8_t *log, uint32_t len, void *data)
+{
+    if (curr_service == NULL || curr_service->data == NULL) {
+        return;
+    }
+
+    struct adb_shell_context *ctx = curr_service->data;
+
+    shellWriteEndLine(&ctx->sh, (char *)log, len);
+}
 
 static signed short shell_write(char *data, unsigned short size)
 {
@@ -36,10 +49,7 @@ static signed short shell_write(char *data, unsigned short size)
         return 0;
     }
     struct adb_shell_context *ctx = curr_service->data;
-    int len = size;
-    while (len--) {
-        xQueueSend(ctx->tx_queue, data++, 0);
-    }
+    xStreamBufferSend(ctx->tx_stream, data, size, 0);
 
     return size;
 }
@@ -50,16 +60,18 @@ static void shell_task(void *arg)
 
     vTaskDelay(50 / portTICK_PERIOD_MS);
     ADB_LOGI("adb shell task start, arg:%p\n", arg);
-    
+
     ctx->sh.read = NULL;
     ctx->sh.write = shell_write;
-    
+
     shellInit(&ctx->sh, ctx->buf, CONFIG_ADB_SHELL_BUFFER_SIZE);
     ADB_LOGD("shell init done\n");
 
+    lisa_log_backend_add("adb_shell", adb_shell_log_output, NULL);
+
     uint8_t ch;
     while (1) {
-        if (xQueueReceive(ctx->rx_queue, &ch, 50) == pdTRUE) {
+        if (xStreamBufferReceive(ctx->rx_stream, &ch, 1, 50) == 1) {
             if (ch == ETX) {
                 adb_close(ctx->s->local_id, ctx->s->remote_id);
             } else {
@@ -67,17 +79,14 @@ static void shell_task(void *arg)
             }
         }
 
-        uint32_t len = uxQueueMessagesWaiting(ctx->tx_queue);
+        size_t len = xStreamBufferBytesAvailable(ctx->tx_stream);
         if (len > 0) {
             uint8_t *data = ADB_MALLOC(len);
             if (data != NULL) {
-                int i = len;
-                uint8_t *p = data;
-                while (i--) {
-                    xQueueReceive(ctx->tx_queue, p, 0);
-                    p++;
+                size_t received = xStreamBufferReceive(ctx->tx_stream, data, len, 0);
+                if (received > 0) {
+                    adb_service_write_remote(ctx->s, data, received);
                 }
-                adb_service_write_remote(ctx->s, data, len);
                 ADB_FREE(data);
             }
         }
@@ -110,27 +119,27 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
     s->data = ctx;
     curr_service = s;
 
-    ctx->rx_queue = xQueueCreate(CONFIG_ADB_SHELL_BUFFER_SIZE, sizeof(uint8_t));
-    if (ctx->rx_queue == NULL) {
+    ctx->rx_stream = xStreamBufferCreate(CONFIG_ADB_SHELL_BUFFER_SIZE, 1);
+    if (ctx->rx_stream == NULL) {
         ADB_FREE(ctx);
-        ADB_LOGE("shell rx queue create failed\n");
+        ADB_LOGE("shell rx stream create failed\n");
         curr_service = NULL;
         return -1;
     }
 
-    ctx->tx_queue = xQueueCreate(CONFIG_ADB_SHELL_BUFFER_SIZE, sizeof(uint8_t));
-    if (ctx->tx_queue == NULL) {
-        vQueueDelete(ctx->rx_queue);
+    ctx->tx_stream = xStreamBufferCreate(CONFIG_ADB_SHELL_BUFFER_SIZE, 1);
+    if (ctx->tx_stream == NULL) {
+        vStreamBufferDelete(ctx->rx_stream);
         ADB_FREE(ctx);
-        ADB_LOGE("shell tx queue create failed\n");
+        ADB_LOGE("shell tx stream create failed\n");
         curr_service = NULL;
         return -1;
     }
 
     BaseType_t xReturn = xTaskCreate(shell_task, "shell_task", 1024 * 1, ctx, CONFIG_ADB_TASK_PRIORITY - 1, &ctx->task);
     if (xReturn != pdPASS) {
-        vQueueDelete(ctx->rx_queue);
-        vQueueDelete(ctx->tx_queue);
+        vStreamBufferDelete(ctx->rx_stream);
+        vStreamBufferDelete(ctx->tx_stream);
         ADB_FREE(ctx);
         ADB_LOGE("shell task create failed\n");
         curr_service = NULL;
@@ -145,6 +154,12 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
             char *saveptr;
             char *cmd = ADB_MALLOC(len + 1);
             if (cmd == NULL) {
+                vTaskDelete(ctx->task);
+                vStreamBufferDelete(ctx->rx_stream);
+                vStreamBufferDelete(ctx->tx_stream);
+                ADB_FREE(ctx);
+                curr_service = NULL;
+                ADB_LOGE("shell cmd alloc failed\n");
                 return -1;
             }
             memcpy(cmd, args, len);
@@ -154,16 +169,15 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
             uint8_t c;
             while (token != NULL) {
                 ADB_LOGI("shell cmd: %s\n", token);
-                while (strlen(token)) {
-                    xQueueSend(ctx->rx_queue, token++, portMAX_DELAY);
-                }
+                size_t token_len = strlen(token);
+                xStreamBufferSend(ctx->rx_stream, token, token_len, portMAX_DELAY);
                 c = '\r';
-                xQueueSend(ctx->rx_queue, &c, portMAX_DELAY);
+                xStreamBufferSend(ctx->rx_stream, &c, 1, portMAX_DELAY);
                 token = strtok_r(NULL, ";", &saveptr);
             }
             ADB_FREE(cmd);
             c = ETX;
-            xQueueSend(ctx->rx_queue, &c, portMAX_DELAY);
+            xStreamBufferSend(ctx->rx_stream, &c, 1, portMAX_DELAY);
         }
     }
 
@@ -176,9 +190,11 @@ static int adb_shell_close(struct adb_service *s)
 
     if (s != NULL && s->data != NULL) {
         struct adb_shell_context *ctx = s->data;
+        lisa_log_backend_remove("adb_shell");
         vTaskSuspend(ctx->task);
         vTaskDelete(ctx->task);
-        vQueueDelete(ctx->rx_queue);
+        vStreamBufferDelete(ctx->rx_stream);
+        vStreamBufferDelete(ctx->tx_stream);
         shellRemove(&ctx->sh);
         ADB_FREE(ctx);
         curr_service = NULL;
@@ -193,46 +209,23 @@ static void adb_shell_write_remote(struct adb_service *s, uint8_t *data, int len
     adb_service_write_remote(s, data, len);
 }
 
-int adb_shell_write_datas(const char *data, int size)
+static int adb_shell_write_datas(const char *data, int size)
 {
-    struct adb_shell_context *ctx = curr_service->data;
-    int len = size;
-
     if (curr_service == NULL || data == NULL || size == 0) {
         return 0;
     }
 
-    while (len--) {
-        if (*data == '\n') {
-            uint8_t c = '\r';
-            xQueueSend(ctx->tx_queue, &c, 0);
-        }
+    struct adb_shell_context *ctx = curr_service->data;
 
-        xQueueSend(ctx->tx_queue, data++, 0);
+    for (int i = 0; i < size; i++) {
+        if (data[i] == '\n') {
+            uint8_t c = '\r';
+            xStreamBufferSend(ctx->tx_stream, &c, 1, 0);
+        }
+        xStreamBufferSend(ctx->tx_stream, &data[i], 1, 0);
     }
 
     return size;
-}
-
-#include <stdarg.h>
-
-int adb_printf(const char *format, ...)
-{
-    if (curr_service == NULL) {
-        return 0;
-    }
-    
-    char buffer[256];
-    va_list args;
-    va_start(args, format);
-    int len = vsnprintf(buffer, sizeof(buffer), format, args);
-    va_end(args);
-    
-    if (len > 0) {
-        return adb_shell_write_datas(buffer, len);
-    }
-    
-    return 0;
 }
 
 static int adb_shell_write(struct adb_service *s, adb_packet_t *p)
@@ -242,14 +235,12 @@ static int adb_shell_write(struct adb_service *s, adb_packet_t *p)
     uint32_t len = p->msg.data_length;
     uint8_t *data = p->data;
 
-    while (len--) {
-        if (*data == ETX) {
+    for (uint32_t i = 0; i < len; i++) {
+        if (data[i] == ETX) {
             adb_service_close(s->local_id, s->remote_id);
             break;
         }
-
-        xQueueSend(ctx->rx_queue, data, portMAX_DELAY);
-        data++;
+        xStreamBufferSend(ctx->rx_stream, &data[i], 1, portMAX_DELAY);
     }
 
     adb_packet_free(p);

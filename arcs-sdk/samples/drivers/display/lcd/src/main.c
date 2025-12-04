@@ -9,6 +9,7 @@
 #include "IOMuxManager.h"
 #include "Driver_SPI.h"
 #include "Driver_GPT_PWM.h"
+#include "board.h"
 
 enum color {
 	COLOR_RED,
@@ -61,48 +62,53 @@ int main(int argc, char **argv)
 	uint8_t cnt = 0;
 	uint8_t pwm = 0;
 
-	LOGD("display qspi axs15231b \r\n");
+	LOGI("display qspi axs15231b \r\n");
 
 	display_hw_config_t config = {
 		.reset = {
-			.pad = CSK_IOMUX_PAD_A,
-			.pin = 1,
-			.func = CSK_IOMUX_FUNC_ALTER1,
+			.pad = LISA_DISPLAY_RESET_PORT,
+			.pin = LISA_DISPLAY_RESET_PIN,
+			.func = LISA_DISPLAY_RESET_FUNC,
+		},
+		.te = {
+			.pad = LISA_DISPLAY_TE_PORT,
+			.pin = LISA_DISPLAY_TE_PIN,
+			.func = LISA_DISPLAY_TE_FUNC,
 		},
 		.blacklight = {
 			.pin = {
-				.pad = CSK_IOMUX_PAD_A,
-				.pin = 0,
-				.func = CSK_IOMUX_FUNC_ALTER12,
+				.pad = LISA_DISPLAY_BL_PWM_PORT,
+				.pin = LISA_DISPLAY_BL_PWM_PIN,
+				.func = LISA_DISPLAY_BL_PWM_FUNC,
 			},
 			.dev = GPT0_PWM(),
-			.channel = GPT_CHANNEL0,
+			.channel = LISA_DISPLAY_BL_CHANNEL,
 			.freq = 1000,
 		},
 		.trans_config = {
 			.spi_4line = {
-				.spi_dev = SPI1(),
+				.spi_dev = LISA_DISPLAY_SPI_DEV,
 				.spi_tx_dma_ch = 3,
 				.spi_pins = {
 					.cs = {
-						.pad = CSK_IOMUX_PAD_B,
-						.pin = 5,
-						.func = CSK_IOMUX_FUNC_ALTER6,
+						.pad = LISA_DISPLAY_SPI_CS_PORT,
+						.pin = LISA_DISPLAY_SPI_CS_PIN,
+						.func = LISA_DISPLAY_SPI_CS_FUNC,
 					},
 					.clk = {
-						.pad = CSK_IOMUX_PAD_B,
-						.pin = 3,
-						.func = CSK_IOMUX_FUNC_ALTER6,
+						.pad = LISA_DISPLAY_SPI_CLK_PORT,
+						.pin = LISA_DISPLAY_SPI_CLK_PIN,
+						.func = LISA_DISPLAY_SPI_CLK_FUNC,
 					},
 					.sda = {
-						.pad = CSK_IOMUX_PAD_B,
-						.pin = 1,
-						.func = CSK_IOMUX_FUNC_ALTER6,
+						.pad = LISA_DISPLAY_SPI_SDA_PORT,
+						.pin = LISA_DISPLAY_SPI_SDA_PIN,
+						.func = LISA_DISPLAY_SPI_SDA_FUNC,
 					},
 					.dc = {
-						.pad = CSK_IOMUX_PAD_B,
-						.pin = 0,
-						.func = CSK_IOMUX_FUNC_DEFAULT,
+						.pad = LISA_DISPLAY_SPI_DC_PORT,
+						.pin = LISA_DISPLAY_SPI_DC_PIN,
+						.func = LISA_DISPLAY_SPI_DC_FUNC,
 					},
 				}
 			}
@@ -120,7 +126,7 @@ int main(int argc, char **argv)
 		return -1;
 	}
 
-	LOGD("display capabilities:width = %d, height = %d format = 0x%x \r\n", caps.x_resolution, caps.y_resolution, caps.current_pixel_format);
+	LOGI("display capabilities:width = %d, height = %d format = 0x%x \r\n", caps.x_resolution, caps.y_resolution, caps.current_pixel_format);
 
 	desc.width = caps.x_resolution;
 	desc.height = caps.y_resolution;

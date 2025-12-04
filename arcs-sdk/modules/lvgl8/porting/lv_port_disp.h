@@ -37,6 +37,8 @@ extern "C" {
 /* Initialize low level display driver */
 void lv_port_disp_init(display_hw_config_t *config);
 
+struct display_device *lv_port_get_display_device(void);
+
 /* Enable updating the screen (the flushing process) when disp_flush() is called by LVGL
  */
 void disp_enable_update(void);

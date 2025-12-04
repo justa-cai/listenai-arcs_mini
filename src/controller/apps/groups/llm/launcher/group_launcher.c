@@ -17,6 +17,7 @@
 #include "group_launcher.h"
 #include "ebus/ebus.h"
 #include "lisaui_user_data.h"
+#include "lisa_ui_llm_primary.h"
 
 static const char *TAG = "group.launcher";
 
@@ -28,7 +29,8 @@ static ebus_chn_t *ebus_ch_base_event = NULL;
  */
 static int event_page_toggle_handler(ebus_chn_t *chn, uint32_t code, void *message, uint32_t msg_size, void *user_data)
 {
-    LISAUI_LOGI(TAG, "Received page toggle event via ebus, code: %d", code);
+    LISAUI_LOGI(TAG, "Received page toggle event via ebus, code: %d (CAMERA_SHOW=%d)", 
+               code, LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW);
     
     switch (code) {
         case LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE:
@@ -39,6 +41,53 @@ static int event_page_toggle_handler(ebus_chn_t *chn, uint32_t code, void *messa
         case LISAUI_EBUS_CH_EVENT_U2M_SETTING_HOME_UPDATE:
             lisaui_manager_group_enter(LISAUI_GROUP_INDEX_LAUNCHER, GROUP_ENTER_PAGE_METHOD_FIX_PAGE_INDEX,
                 LISAUI_GROUP_LAUNCHER_PAGE_INDEX_PRIMARY, LISAUI_PAGE_SAVE_TO_HISTORY);
+            break;
+        case LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW:
+            // 显示拍照图片
+            {
+                LISAUI_LOGI(TAG, "Camera image show event received, code=%d, msg_size=%d, message=%p", 
+                            code, msg_size, message);
+                lisaui_camera_image_params_t *params = (lisaui_camera_image_params_t *)message;
+                if (params && msg_size == sizeof(lisaui_camera_image_params_t)) {
+                    LISAUI_LOGI(TAG, "Showing camera image: params=%p, buffer=%p, %dx%d", 
+                                params, params->rgb565_data, params->width, params->height);
+                    
+                    // 获取主页面UI对象
+                    lv_obj_t *llm_ui = page_primary_get_ui_object();
+                    if (llm_ui) {
+                        if (params->rgb565_data) {
+                            // 停止emoji动画
+                            current_staged_emoji_animation_stop();
+                        }
+                        lisa_ui_llm_primary_show_camera_image(llm_ui, params->rgb565_data, 
+                                                                params->width, params->height);
+                    } else {
+                        LISAUI_LOGW(TAG, "Primary page UI not available");
+                    }
+                } else {
+                    LISAUI_LOGW(TAG, "Invalid params or msg_size: params=%p, msg_size=%d, expected=%zu",
+                                params, msg_size, sizeof(lisaui_camera_image_params_t));
+                }
+                
+                // 释放exram动态分配的内存
+                if (params) {
+                    exram_free(params);
+                }
+            }
+            break;
+        case LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE:
+            // 隐藏拍照图片
+            {
+                LISAUI_LOGI(TAG, "Hiding camera image");
+                
+                // 获取主页面UI对象
+                lv_obj_t *llm_ui = page_primary_get_ui_object();
+                if (llm_ui) {
+                    lisa_ui_llm_primary_hide_camera_image(llm_ui);
+                } else {
+                    LISAUI_LOGW(TAG, "Primary page UI not available");
+                }
+            }
             break;
         default:
             LISAUI_LOGW(TAG, "Unknown event code: %d", code);
@@ -60,7 +109,19 @@ static lisaui_err_t group_launcher_setup(lisaui_group_t *group)
                         LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE,
                         event_page_toggle_handler, 
                         NULL);
-        LISAUI_LOGI(TAG, "ebus channel subscribed successfully");
+        ebus_message_subscribe(ebus_ch_base_event, 
+                        EBUS_SUBSCRIBER_TYPE_SYNC, 
+                        LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW,
+                        event_page_toggle_handler, 
+                        NULL);
+        
+        ebus_message_subscribe(ebus_ch_base_event, 
+                        EBUS_SUBSCRIBER_TYPE_SYNC, 
+                        LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE,
+                        event_page_toggle_handler, 
+                        NULL);
+        
+        LISAUI_LOGI(TAG, "ebus channel subscribed successfully (info + alarm + home + camera events)");
     } else {
         LISAUI_LOGW(TAG, "failed to bind ebus channel");
     }

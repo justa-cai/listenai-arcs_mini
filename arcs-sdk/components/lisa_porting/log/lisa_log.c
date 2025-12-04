@@ -1,28 +1,48 @@
+#include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdbool.h>
+
 #include "lisa_log.h"
 #include "syslog.h"
+#include "sysheap.h"
 
-#if CONFIG_LOG_FRONTEND_EASYLOGGER
-#include "elog.h"
-#endif
+#include "string.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "semphr.h"
 
-extern int arcs_uart_put(const char *data, int len);
+struct lisa_log_backend {
+    struct lisa_log_backend *next;
+    char *name;
+    void (*output)(const uint8_t *log, uint32_t len, void *data);
+    void *data;
+    bool enabled;
+};
 
-static void (*lisa_log_output_handle)(const char *, int) = NULL;
+/* 只能有一个前端 */
+static const struct lisa_log_frontend *lisa_log_frontend = NULL;
 
-void lisa_log_output_handle_set(void (*handle)(const char *, int))
+/* 可以有多个后端 */
+static struct lisa_log_backend *lisa_log_backend_list = NULL;
+static SemaphoreHandle_t lisa_log_backend_list_mutex = NULL;
+
+static void lisa_log_output(const uint8_t *log, uint32_t len)
 {
-    lisa_log_output_handle = handle;
-}
+    xSemaphoreTake(lisa_log_backend_list_mutex, portMAX_DELAY);
 
-#if CONFIG_LOG_FRONTEND_EASYLOGGER
-uint32_t elog_time_ms_get(void)
-{
-    extern uint32_t SysTimeMsGet(void);
-    return SysTimeMsGet();
+    if (lisa_log_backend_list) {
+        struct lisa_log_backend *backend = lisa_log_backend_list;
+        while (backend) {
+            if (backend->enabled) {
+                backend->output(log, len, backend->data);
+            }
+            backend = backend->next;
+        }
+    }
+
+    xSemaphoreGive(lisa_log_backend_list_mutex);
 }
-#endif
 
 int lisa_log_init(void)
 {
@@ -32,50 +52,33 @@ int lisa_log_init(void)
     }
     init_done = 1;
 
-#if CONFIG_LOG_FRONTEND_EASYLOGGER
-    int ret = elog_init();
-    if (ret < 0) {
-        printf("[ERR]: elog_init error: %d\n", ret);
-        return ret;
-    }
-    /* set EasyLogger log format */
-    elog_set_fmt(ELOG_LVL_ASSERT, ELOG_FMT_ALL);
-    elog_set_fmt(ELOG_LVL_ERROR, ELOG_FMT_LVL | ELOG_FMT_TAG | ELOG_FMT_TIME | ELOG_FMT_P_INFO | ELOG_FMT_T_INFO);
-    elog_set_fmt(ELOG_LVL_WARN, ELOG_FMT_LVL | ELOG_FMT_TAG | ELOG_FMT_TIME | ELOG_FMT_P_INFO | ELOG_FMT_T_INFO);
-    elog_set_fmt(ELOG_LVL_INFO, ELOG_FMT_LVL | ELOG_FMT_TAG | ELOG_FMT_TIME | ELOG_FMT_P_INFO | ELOG_FMT_T_INFO);
-    elog_set_fmt(ELOG_LVL_DEBUG, ELOG_FMT_ALL);
-    elog_set_fmt(ELOG_LVL_VERBOSE, ELOG_FMT_ALL);
-    /* start EasyLogger */
-    elog_start();
-    syslog_hook_set(elog_raw_output_v);
+    lisa_log_backend_list_mutex = xSemaphoreCreateRecursiveMutex();
+    assert(lisa_log_backend_list_mutex != NULL);
+
+    extern int lisa_log_backend_sys_init(void);
+    lisa_log_backend_sys_init();
+
+#if CONFIG_SDK_MODULE_EASYLOGGER
+    extern const struct lisa_log_frontend lisa_log_frontend_easylog;
+    lisa_log_frontend = &lisa_log_frontend_easylog;
 #endif
+
+    if (lisa_log_frontend) {
+        if (lisa_log_frontend->init) {
+            lisa_log_frontend->init(lisa_log_frontend);
+        }
+        assert(lisa_log_frontend->output_hook_set != NULL);
+        lisa_log_frontend->output_hook_set(lisa_log_output);
+    }
 
     return 0;
 }
 
-#if CONFIG_LOG_FRONTEND_EASYLOGGER
-void elog_port_output_log(const char *log, size_t size)
-{
-    if (lisa_log_output_handle) {
-        lisa_log_output_handle(log, size);
-    } else {
-        syslog_write(log, size);
-    }
-}
-#endif
-
 void log_flush(void)
 {
-#if defined(CONFIG_LOG_FRONTEND_EASYLOGGER)
-    #if defined(CONFIG_EASYLOGGER_LOG_MODE_ASYNC)
-        extern size_t elog_port_read_log_then_output(void);
-        while (1) {
-            if (elog_port_read_log_then_output() == 0) {
-                break;
-            }
-        }
-    #endif
-#endif
+    if (lisa_log_frontend && lisa_log_frontend->flush) {
+        lisa_log_frontend->flush(lisa_log_frontend);
+    }
 }
 
 void logDump(uint8_t *data, int len)
@@ -95,17 +98,190 @@ void logHexDump(char *name, uint8_t width, uint8_t *data, int len)
 void log_write(void *unused, char c)
 {
 }
-#if CONFIG_LOG_FRONTEND_EASYLOGGER
-
-static inline uint8_t lisa_log_lvl_to_elog_lvl(uint8_t lvl)
-{
-    return lvl;
-}
-#endif
 
 void lisa_log_set_level(uint8_t lvl)
 {
-#if CONFIG_LOG_FRONTEND_EASYLOGGER
-    elog_set_filter_lvl(lisa_log_lvl_to_elog_lvl(lvl));
-#endif
+    if (lisa_log_frontend && lisa_log_frontend->level_set) {
+        lisa_log_frontend->level_set(lisa_log_frontend, lvl);
+    }
+}
+
+static struct lisa_log_backend *lisa_log_backend_create(const char *name, lisa_log_output_t output, void *data)
+{
+    if (!name || !output) {
+        return NULL;
+    }
+
+    struct lisa_log_backend *backend = (struct lisa_log_backend *)exram_malloc(4, sizeof(struct lisa_log_backend));
+    if (!backend) {
+        return NULL;
+    }
+
+    backend->name = exram_malloc(4, strlen(name) + 1);
+    if (!backend->name) {
+        exram_free(backend);
+        return NULL;
+    }
+
+    strcpy(backend->name, name);
+
+    backend->output = output;
+    backend->data = data;
+    backend->enabled = true;
+    backend->next = NULL;
+
+    return backend;
+}
+
+static int lisa_log_backend_destroy(struct lisa_log_backend *backend)
+{
+    if (!backend) {
+        return -1;
+    }
+
+    exram_free(backend->name);
+    exram_free(backend);
+
+    return 0;
+}
+
+int lisa_log_backend_remove(const char *name)
+{
+    if (!name) {
+        return -1;
+    }
+
+    xSemaphoreTake(lisa_log_backend_list_mutex, portMAX_DELAY);
+    struct lisa_log_backend *prev = NULL;
+    struct lisa_log_backend *curr = lisa_log_backend_list;
+    while (curr) {
+        if (strcmp(curr->name, name) == 0) {
+            if (prev) {
+                prev->next = curr->next;
+            } else {
+                lisa_log_backend_list = curr->next;
+            }
+            lisa_log_backend_destroy(curr);
+            xSemaphoreGive(lisa_log_backend_list_mutex);
+
+            return 0;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+
+    xSemaphoreGive(lisa_log_backend_list_mutex);
+
+    return -1;
+}
+
+static struct lisa_log_backend *lisa_log_backend_find(const char *name)
+{
+    if (!name) {
+        return NULL;
+    }
+
+    xSemaphoreTake(lisa_log_backend_list_mutex, portMAX_DELAY);
+    struct lisa_log_backend *curr = lisa_log_backend_list;
+    while (curr) {
+        if (strcmp(curr->name, name) == 0) {
+            xSemaphoreGive(lisa_log_backend_list_mutex);
+            return curr;
+        }
+        curr = curr->next;
+    }
+
+    xSemaphoreGive(lisa_log_backend_list_mutex);
+
+    return NULL;
+}
+
+int lisa_log_backend_add(const char *name, lisa_log_output_t output, void *data)
+{
+    struct lisa_log_backend *backend = lisa_log_backend_find(name);
+    if (backend) {
+        return -1;
+    }
+
+    backend = lisa_log_backend_create(name, output, data);
+    if (!backend) {
+        return -1;
+    }
+
+    xSemaphoreTake(lisa_log_backend_list_mutex, portMAX_DELAY);
+    backend->next = lisa_log_backend_list;
+    lisa_log_backend_list = backend;
+    xSemaphoreGive(lisa_log_backend_list_mutex);
+
+    return 0;
+}
+
+int lisa_log_backend_pause(const char *name)
+{
+    if (!name) {
+        return -1;
+    }
+
+    xSemaphoreTake(lisa_log_backend_list_mutex, portMAX_DELAY);
+    struct lisa_log_backend *curr = lisa_log_backend_list;
+    while (curr) {
+        if (strcmp(curr->name, name) == 0) {
+            curr->enabled = false;
+            xSemaphoreGive(lisa_log_backend_list_mutex);
+            return 0;
+        }
+        curr = curr->next;
+    }
+    xSemaphoreGive(lisa_log_backend_list_mutex);
+
+    return -1;
+}
+
+int lisa_log_backend_resume(const char *name)
+{
+    if (!name) {
+        return -1;
+    }
+
+    xSemaphoreTake(lisa_log_backend_list_mutex, portMAX_DELAY);
+    struct lisa_log_backend *curr = lisa_log_backend_list;
+    while (curr) {
+        if (strcmp(curr->name, name) == 0) {
+            curr->enabled = true;
+            xSemaphoreGive(lisa_log_backend_list_mutex);
+            return 0;
+        }
+        curr = curr->next;
+    }
+    xSemaphoreGive(lisa_log_backend_list_mutex);
+
+    return -1;
+}
+
+int lisa_log_backend_pause_all(void)
+{
+    xSemaphoreTake(lisa_log_backend_list_mutex, portMAX_DELAY);
+    struct lisa_log_backend *curr = lisa_log_backend_list;
+
+    while (curr) {
+        curr->enabled = false;
+        curr = curr->next;
+    }
+    xSemaphoreGive(lisa_log_backend_list_mutex);
+
+    return 0;
+}
+
+int lisa_log_backend_resume_all(void)
+{
+    xSemaphoreTake(lisa_log_backend_list_mutex, portMAX_DELAY);
+    struct lisa_log_backend *curr = lisa_log_backend_list;
+
+    while (curr) {
+        curr->enabled = true;
+        curr = curr->next;
+    }
+    xSemaphoreGive(lisa_log_backend_list_mutex);
+
+    return 0;
 }

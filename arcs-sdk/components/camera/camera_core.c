@@ -257,13 +257,6 @@ void camera_qreset(void)
      }
      void *gpio_dev = hw_config->pin_config.pwdn.pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
      
-     // 初始化GPIO
-     GPIO_Initialize(gpio_dev, NULL, NULL);
-     
-     // 配置Power Down引脚
-     IOMuxManager_PinConfigure(hw_config->pin_config.pwdn.pad, 
-                              hw_config->pin_config.pwdn.pin, 
-                              hw_config->pin_config.pwdn.func);
      GPIO_SetDir(gpio_dev, 1 << hw_config->pin_config.pwdn.pin, CSK_GPIO_DIR_OUTPUT);
      GPIO_PinWrite(gpio_dev, 1 << hw_config->pin_config.pwdn.pin, 0);
      SysTick_Delay_Us(hw_config->pwdn_delay_us);
@@ -271,9 +264,6 @@ void camera_qreset(void)
      // 配置外部时钟输出
      if (hw_config->xclk_freq_hz > 0) {
         LOGI("Enabling XCLK output: %d Hz\r\n", hw_config->xclk_freq_hz);
-        IOMuxManager_PinConfigure(hw_config->pin_config.xclk_out.pad,
-                                hw_config->pin_config.xclk_out.pin,
-                                hw_config->pin_config.xclk_out.func);
         IP_AP_CFG->REG_CLK_CFG0.bit.ENA_VIDEO_CLK = 0x1;  // bit15
         IP_AP_CFG->REG_CLK_CFG0.bit.ENA_VIC_CLK = 0x1;    // bit21
         // IP_AP_CFG->REG_SW_RESET.bit.VIC_RESET = 1;        // bit9
@@ -510,4 +500,10 @@ int camera_get_sensor_reg(int reg, int* value,  int mask)
     *value = s_state->sensor.get_reg(&s_state->sensor, reg, mask);
 
     return 0;
+}
+
+void camera_senor_release(void)
+{
+    sensor_twi_exit();
+    memset(&s_state->sensor, 0, sizeof(s_state->sensor));
 }

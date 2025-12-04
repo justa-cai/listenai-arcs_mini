@@ -5,6 +5,10 @@ config ACOMP
     bool "algo components"
     default n
 
+config ACOMP_MASTER
+    bool "algo components master"
+    default y
+
 if ACOMP
     config ACOMP_WSP
         bool "algo component word spell"

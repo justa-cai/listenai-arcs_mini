@@ -4,6 +4,14 @@ listenai_library_named(boot_app)
 
 listenai_compile_definitions(-DCHIP=4 -DIC_BOARD=1 -DPSRAM_LOG_CHECK=0)
 
+# 添加从父项目传递的额外编译定义
+if(DEFINED BOOT_EXTRA_DEFINES)
+    string(REPLACE "|" ";" BOOT_EXTRA_DEFINES_LIST "${BOOT_EXTRA_DEFINES}")
+    foreach(define IN LISTS BOOT_EXTRA_DEFINES_LIST)
+        listenai_compile_definitions(${define})
+    endforeach()
+endif()
+
 set(ENV{ARCS_SOC_BASE} $ENV{ARCS_BASE}/soc/arcs)
 
 listenai_include_directories(

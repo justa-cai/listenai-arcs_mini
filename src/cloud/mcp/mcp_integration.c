@@ -2,6 +2,7 @@
 
 #include "mcp_integration.h"
 #include "aiui_mcp.h"
+#include "vision_config.h"
 #include "lisa_log.h"
 #include "lisa_mem.h"
 #include "lisa_mutex.h"
@@ -55,6 +56,10 @@ mcp_result_t mcp_integration_init(const mcp_integration_config_t *config)
         return MCP_RESULT_INVALID_PARAM;
     }
 
+    
+    // 初始化 vision config
+    vision_config_init();
+    
     // 初始化 MCP 框架
     mcp_result_t result = mcp_init();
     if (result != MCP_RESULT_SUCCESS) {
@@ -289,6 +294,28 @@ cJSON *mcp_integration_handle_initialize(const cJSON *init_msg)
     const cJSON *id = cJSON_GetObjectItem(data, "id");
     if (!cJSON_IsString(id)) {
         return NULL;
+    }
+    
+    // Parse vision capabilities from cloud
+    const cJSON *params = cJSON_GetObjectItem(data, "params");
+    if (params) {
+        const cJSON *capabilities = cJSON_GetObjectItem(params, "capabilities");
+        if (capabilities) {
+            const cJSON *vision = cJSON_GetObjectItem(capabilities, "vision");
+            if (vision) {
+                const cJSON *url = cJSON_GetObjectItem(vision, "url");
+                const cJSON *token = cJSON_GetObjectItem(vision, "token");
+                
+                if (url && cJSON_IsString(url) && token && cJSON_IsString(token)) {
+                    // Save vision config
+                    if (vision_config_set(url->valuestring, token->valuestring) == 0) {
+                        LISA_LOGI(TAG, "Vision config saved from cloud: url=%s", url->valuestring);
+                    } else {
+                        LISA_LOGE(TAG, "Failed to save vision config");
+                    }
+                }
+            }
+        }
     }
 
     // 创建初始化响应
@@ -590,7 +617,8 @@ cJSON *mcp_integration_handle_tool_call(const cJSON *tool_msg)
 
     LISA_LOGI(TAG, "Calling tool: %s with %d parameters for ID: %s", tool_name, param_count, call_id);
 
-    // 同步调用工具
+    // 设置call_id并同步调用工具
+    mcp_set_next_call_id(call_id);
     mcp_response_t mcp_response = {0};
     mcp_result_t call_result = mcp_call_tool_sync(tool_name, params, param_count, &mcp_response);
 

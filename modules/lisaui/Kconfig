@@ -16,4 +16,16 @@ if LISAUI
         config LISAUI_ENV_SIMULATOR
             bool "Simulator"
     endchoice
+
+    config LISAUI_WIDGETS_ASSETS
+        bool "ASSETS"
+        default n          
+
+    config LISAUI_WIDGETS_LLM
+        bool "LLM"
+        default n          
+
+    config LISAUI_WIDGETS_VOICE
+        bool "VOICE"
+        default n
 endif

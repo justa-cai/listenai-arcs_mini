@@ -129,6 +129,24 @@ PlayerErr lisa_player_set_callback(PLAYER_HANDLE h, player_callback cb);
 PlayerErr lisa_player_seturl(PLAYER_HANDLE h, const char *url);
 
 /**
+ * @brief 获取音频格式
+ * @param h 句柄
+ * @return 音频格式
+ * @note 返回值为音频格式
+ *       0: PCM
+ *       1: WAV
+ *       2: MP3
+ *       3: M4A_AAC
+ *       4: AAC
+ *       5: HLS
+ *       6: TS
+ *       7: OGG
+ *       8: UNKNOW
+ *      -1: 错误
+ */
+ int lisa_player_get_format(PLAYER_HANDLE h);
+
+/**
  * @brief 写音频数据
  * 		  如果是PCM数据, seturl格式: stream://type=pcm&rate=%d&channel=%d&bits=%d
  * 						结束时, 直接传递data=NULL, size=0

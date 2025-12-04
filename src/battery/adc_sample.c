@@ -147,3 +147,47 @@ uint16_t adc_sample_get_channel_value(uint32_t channel)
 
     return adc_real_voltage;
 }
+
+int ls_read_temp_voltage(int count, float *vout)
+{
+    float vptat_sum = 0.0, vptat, vfs = 1.2;
+    uint32_t code = 0x00;
+    static uint8_t init = 0;
+    volatile int32_t delay_count = 10000;
+    int ret = 0;
+
+    if (!init)
+    {
+        HAL_GPADC_Initialize(GPADC());
+        init = 1;
+    }
+
+    if (gpadc_mutex) {
+        lisa_mutex_lock(gpadc_mutex, LISA_OS_WAIT_FOREVER);
+    }
+
+    HAL_GPADC_Control(GPADC(), (CSK_GPADC_CHANNEL_SEL_TEMP | CSK_GPADC_CHANNEL_SEL_VBAT) | \
+                                CSK_GPADC_DMA_ENABLE(0));
+
+    HAL_GPADC_SetTriggerNum(GPADC(), 1);
+    HAL_GPADC_SetVrefSel(GPADC(), 0); //VBG1/2
+
+    HAL_GPADC_Start(GPADC());
+    HAL_GPADC_PollForConversion(GPADC(), 0);
+    
+    if (gpadc_mutex) {
+        lisa_mutex_unlock(gpadc_mutex);
+    }
+
+    while(delay_count--) ;
+
+
+    for(int i = 0; i < count; i++)
+    {
+        code = HAL_GPADC_GetValue(GPADC(),CSK_GPADC_CHANNEL_SEL_TEMP);
+        vptat = code / 1024.0 * vfs;
+        vptat_sum += vptat;
+    }
+    *vout = (vptat_sum / count);
+    return ret;
+}

@@ -6,6 +6,7 @@
 #include "lisaui_type.h"
 #include "lisaui_log.h"
 #include "platform.h" /* 用于内存分配函数lisaui_malloc/lisaui_free */
+#include "lisaui_common.h"
 
 #define TAG "lisaui.manager"
 typedef struct{
@@ -228,7 +229,7 @@ static inline lisaui_err_t _manager_group_exit(lisaui_group_t *group){
     if(group->info.keep_in_stack){
         lisaui_group_stack_push(s_group_mgr.group_stack, group);
     }
-    
+    lisaui_common_load_base_scr();
     lisaui_err_t err = group->exit(group);
     if (err != LISAUI_ERR_OK) {
         LISAUI_LOGE(TAG, "Failed to exit group [%s] (ID:%d), error: %d", 
@@ -262,6 +263,7 @@ static inline lisaui_err_t _manager_group_enter(lisaui_group_t *group,lisaui_gro
         is_in_group = true;
     }
 
+    lisaui_common_load_base_scr();
      /* 调用组的enter函数 */
     err = group->enter(group, method, page_index, flags);
     if (err != LISAUI_ERR_OK) {

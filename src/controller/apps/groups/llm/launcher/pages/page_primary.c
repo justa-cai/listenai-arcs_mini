@@ -402,6 +402,9 @@ typedef struct {
 // 当前主页面视图指针
 static page_view_t *g_current_primary_view = NULL;
 
+// 主页面是否处于活动状态（show状态）
+static bool g_primary_page_is_active = false;
+
 // ===================== 函数声明 =====================
 static void stop_staged_emoji_animation(page_view_t *view);
 static void start_staged_emoji_animation(page_view_t *view, lisa_ui_emoji_type_e emoji_type);
@@ -512,13 +515,7 @@ static void emoji_stage_timer_cb(lv_timer_t *timer)
                 LISAUI_USERDATA_WITH_LOCK(_userdata) {
                     role_name = _userdata->roles.roles[_userdata->roles.role_idx].name;
                 }
-                char *processed_text = replace_role_name_with_wakeup_word(base_text, role_name);
-                if (processed_text) {
-                    set_content_text(view, processed_text);
-                    lisaui_free(processed_text);
-                } else {
-                    set_content_text(view, base_text);  // 如果替换失败，使用原文本
-                }
+                set_content_text(view, base_text);  //更新文本
                 LISAUI_LOGI(TAG, "Battery charging animation completed, showing wake-up prompt");
             }
 
@@ -630,6 +627,29 @@ static void stop_staged_emoji_animation(page_view_t *view)
     
     if (view->inter) {
         lisa_ui_llm_primary_stop_emoji_animation(view->inter);
+    }
+    
+    anim_state->current_stage = EMOJI_ANIM_STAGE_IDLE;
+    anim_state->is_running = false;
+    anim_state->force_exit = false;
+}
+
+int current_staged_emoji_animation_stop(void)
+{
+    if (!g_current_primary_view) {
+        return -1;
+    }
+    
+    emoji_anim_state_t *anim_state = &g_current_primary_view->anim_state;
+    
+    if (anim_state->stage_timer) {
+        lv_timer_del(anim_state->stage_timer);
+        anim_state->stage_timer = NULL;
+        LISAUI_LOGI(TAG, "Stopped staged current animation timer");
+    }
+    
+    if (g_current_primary_view->inter) {
+        lisa_ui_llm_primary_stop_emoji_animation(g_current_primary_view->inter);
     }
     
     anim_state->current_stage = EMOJI_ANIM_STAGE_IDLE;
@@ -773,15 +793,8 @@ static void text_rotate_timer_cb(lv_timer_t *timer)
     
     // 更新显示文本（应用角色名称替换）
     if (current_text) {
-        char *processed_text = replace_role_name_with_wakeup_word(current_text, role_name);
-        if (processed_text) {
-            set_content_text(view, processed_text);
-            LISAUI_LOGI(TAG, "Text rotated to index %d: %s (processed)", view->current_text_index, processed_text);
-            lisaui_free(processed_text);  // 释放处理后的文本内存
-        } else {
-            set_content_text(view, current_text);  // 如果替换失败，使用原文本
-            LISAUI_LOGI(TAG, "Text rotated to index %d: %s (original)", view->current_text_index, current_text);
-        }
+        set_content_text(view, current_text);  //更新文本
+        LISAUI_LOGI(TAG, "Text rotated to index %d: %s (original)", view->current_text_index, current_text);
     }
 }
 
@@ -834,13 +847,7 @@ static void start_text_rotation(page_view_t *view)
     
     // 立即显示第一个文本（应用角色名称替换）
     if (first_text) {
-        char *processed_text = replace_role_name_with_wakeup_word(first_text, role_name);
-        if (processed_text) {
-            set_content_text(view, processed_text);
-            lisaui_free(processed_text);  // 释放处理后的文本内存
-        } else {
-            set_content_text(view, first_text);  // 如果替换失败，使用原文本
-        }
+        set_content_text(view, first_text);  //更新文本
     }
     
     // 如果需要轮换且有多个文本，创建定时器
@@ -1100,6 +1107,8 @@ static char *get_role_prompt(void)
 
 static int update_inter_state(page_view_t *view)
 {
+    static bool last_local_state = LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE;
+
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
 
@@ -1110,6 +1119,10 @@ static int update_inter_state(page_view_t *view)
 
             switch (_userdata->inter.local_state) {
             case LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE: {
+                /* 防止未唤醒状态下，双击按键拍照，图片被隐藏 */
+                if (last_local_state != LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE)
+                    lisa_ui_llm_primary_hide_camera_image(view->inter);
+
                 set_page_status(view, "请唤醒我");
                 start_text_rotation(view);  // 启动文本轮换
                 break;
@@ -1127,6 +1140,8 @@ static int update_inter_state(page_view_t *view)
             default:
                 break;
             }
+
+            last_local_state = _userdata->inter.local_state;
 
             LISAUI_LOGI(TAG, "lisaui update inter state,remote:%d,local:%d,iat_text:%s", _userdata->inter.remote_state,
                         _userdata->inter.local_state, _userdata->inter.iat_text);
@@ -1652,7 +1667,7 @@ static lisaui_err_t destroy(lisaui_page_t *page)
         lisaui_free(page->page_data);
         page->page_data = NULL;
     }
-
+    g_primary_page_is_active = false;
     LISAUI_LOGI(TAG, "Destroy %s page successfully", page->cname);
     return LISAUI_ERR_OK;
 }
@@ -1680,6 +1695,9 @@ static lisaui_err_t show(lisaui_page_t *page)
 
     }
     
+    // 设置主页面为活动状态
+    g_primary_page_is_active = true;
+
     // 请求角色数据更新
     ebus_message_pub(view->ebus_ch_base_event, LISAUI_EBUS_CH_EVENT_U2M_INTER_ROLE_EXIT, NULL, 0);
     
@@ -1708,6 +1726,14 @@ static lisaui_err_t close(lisaui_page_t *page)
     
     // 停止文本轮换定时器
     stop_text_rotation(view);
+    
+    // 隐藏拍照图片（页面切换时）
+    if (view->inter) {
+        lisa_ui_llm_primary_hide_camera_image(view->inter);
+    }
+
+    // 清除主页面活动状态
+    g_primary_page_is_active = false;
 
     LISAUI_LOGI(TAG, "Close %s page", page->cname);
     return LISAUI_ERR_OK;
@@ -1789,6 +1815,27 @@ void trigger_primary_page_refresh(void)
         start_text_rotation(view);  // 重新启动文本轮换
         LISAUI_LOGI(TAG, "Restarted sleepy timer and text rotation after page refresh");
     }
+}
+
+/**
+ * @brief Check if primary page is currently active
+ * @return true if primary page is active (in show state), false otherwise
+ */
+bool is_primary_page_active(void)
+{
+    return g_primary_page_is_active;
+}
+
+/**
+ * @brief Get primary page UI object
+ * @return UI object pointer if page is active, NULL otherwise
+ */
+lv_obj_t *page_primary_get_ui_object(void)
+{
+    if (g_current_primary_view && g_primary_page_is_active) {
+        return g_current_primary_view->inter;
+    }
+    return NULL;
 }
 
 LISAUI_PAGE_EXPORT(luancher_main_page);

@@ -24,6 +24,8 @@ lisaui_err_t lisaui_common_set_style_container(lv_obj_t *obj, lv_color_t bg_colo
     return LISAUI_ERR_OK;
 }
 
+
+
 lisaui_err_t lisaui_common_load_base_scr(void){
 
     static lv_obj_t *display = NULL;
@@ -34,3 +36,4 @@ lisaui_err_t lisaui_common_load_base_scr(void){
     lv_disp_load_scr(display);
     return LISAUI_ERR_OK;
 }
+                                         

@@ -15,9 +15,7 @@ void disp_comm_rst_init(pin_info_t *rst_pin)
 {
     disp_rst_dev = rst_pin->pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
     disp_rst_pin = rst_pin->pin;
-    IOMuxManager_PinConfigure(rst_pin->pad, disp_rst_pin, rst_pin->func); // GPIO LCD_RESET
 
-    GPIO_Initialize(disp_rst_dev, NULL, NULL);
     GPIO_Control(disp_rst_dev, CSK_GPIO_DEBOUNCE_DISABLE, (1UL << disp_rst_pin));
     GPIO_PinWrite(disp_rst_dev, (1UL << disp_rst_pin), 1);
     GPIO_SetDir(disp_rst_dev, (1UL << disp_rst_pin), CSK_GPIO_DIR_OUTPUT);
@@ -50,9 +48,7 @@ void disp_comm_te_init(SemaphoreHandle_t sem_handle, pin_info_t *te_pin)
 {
     void *te_dev = te_pin->pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
     disp_te_pin = te_pin->pin;
-    IOMuxManager_PinConfigure(te_pin->pad, te_pin->pin, te_pin->func);
 
-    GPIO_Initialize(te_dev, NULL, NULL);
     GPIO_SetDir(te_dev, (1UL << te_pin->pin), CSK_GPIO_DIR_INPUT);
     GPIO_Control(te_dev, CSK_GPIO_DEBOUNCE_DISABLE | CSK_GPIO_SET_INTR_POSITIVE_EDGE |
                                     CSK_GPIO_INTR_ENABLE , (1UL << te_pin->pin));

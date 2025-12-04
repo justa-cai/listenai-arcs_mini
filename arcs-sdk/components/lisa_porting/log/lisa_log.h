@@ -12,6 +12,25 @@
 
 #include "assert.h"
 
+typedef void (*lisa_log_output_t)(const uint8_t *log, uint32_t len, void *data);
+
+int lisa_log_backend_add(const char *name, lisa_log_output_t output, void *data);
+int lisa_log_backend_remove(const char *name);
+int lisa_log_backend_resume_all(void);
+int lisa_log_backend_pause_all(void);
+int lisa_log_backend_resume(const char *name);
+int lisa_log_backend_pause(const char *name);
+
+struct lisa_log_frontend {
+    const char *name;
+    int (*init)(const struct lisa_log_frontend *frontend);
+    void (*flush)(const struct lisa_log_frontend *frontend);
+    void (*output_hook_set)(void (*output_hook)(const uint8_t *log, uint32_t len));
+    void (*level_set)(const struct lisa_log_frontend *frontend, int level);
+    int (*level_get)(const struct lisa_log_frontend *frontend);
+    void *data;
+};
+
 #if !defined(LOG_TAG) && defined(TAG)
 #define LOG_TAG TAG
 #endif
@@ -45,7 +64,6 @@
 
 int lisa_log_init(void);
 void lisa_log_set_level(uint8_t lvl);
-void lisa_log_output_handle_set(void (*handle)(const char *, int));
 
 #if CONFIG_LOG_FRONTEND_EASYLOGGER
 #include "elog.h"

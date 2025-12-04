@@ -5123,8 +5123,8 @@ BaseType_t xTaskIncrementTick( void )
             taskSELECT_HIGHEST_PRIORITY_TASK();
             traceTASK_SWITCHED_IN();
 #if CONFIG_FREERTOS_STACK_HW_CHECK
-            ulStackTop = pxCurrentTCB->pxEndOfStack;
-            ulStackBottom = pxCurrentTCB->pxStack;
+            ulStackTop = (uint32_t)pxCurrentTCB->pxEndOfStack;
+            ulStackBottom = (uint32_t)pxCurrentTCB->pxStack;
 #endif
             /* Macro to inject port specific behaviour immediately after
              * switching tasks, such as setting an end of stack watchpoint

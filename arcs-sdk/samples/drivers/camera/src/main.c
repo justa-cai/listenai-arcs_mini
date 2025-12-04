@@ -13,6 +13,7 @@
 #include "lisa_log.h"
 #include "camera_xfer.h"
 #include "camera_core.h"
+#include "board.h"
 
 volatile uint32_t uart_event = 0;
 uint8_t uart_buf[614400]  __attribute__((section(".psram.data"))) = {0};
@@ -74,17 +75,17 @@ int main(int argc, char **argv)
         .buf_count    = 3,
         .colorbar     = 0,
         .i2c_config = {
-            .i2c_dev = I2C0(),
+            .i2c_dev = LISA_CAMERA_I2C_DEV,
             .pins = {
                 .sda = {
-                    .pad = CSK_IOMUX_PAD_A,
-                    .pin = 22,
-                    .func = CSK_IOMUX_FUNC_ALTER8
+                    .pad = LISA_CAMERA_I2C_SDA_PORT,
+                    .pin = LISA_CAMERA_I2C_SDA_PIN,
+                    .func = LISA_CAMERA_I2C_SDA_FUNC
                 },
                 .scl = {
-                    .pad = CSK_IOMUX_PAD_A,
-                    .pin = 23,
-                    .func = CSK_IOMUX_FUNC_ALTER8
+                    .pad = LISA_CAMERA_I2C_SCL_PORT,
+                    .pin = LISA_CAMERA_I2C_SCL_PIN,
+                    .func = LISA_CAMERA_I2C_SCL_FUNC
                 }
             }
         },
@@ -99,60 +100,60 @@ int main(int argc, char **argv)
                 .dma_channel  = gp_dma_ch3,
                 .pins = {
                     .hsync = {
-                        .pad = CSK_IOMUX_PAD_A,
-                        .pin = 10,
-                        .func = CSK_IOMUX_FUNC_ALTER16
+                        .pad = LISA_CAMERA_DVP_HSYNC_PORT,
+                        .pin = LISA_CAMERA_DVP_HSYNC_PIN,
+                        .func = LISA_CAMERA_DVP_HSYNC_FUNC
                     },
                     .vsync = {
-                        .pad = CSK_IOMUX_PAD_A,
-                        .pin = 11,
-                        .func = CSK_IOMUX_FUNC_ALTER16
+                        .pad = LISA_CAMERA_DVP_VSYNC_PORT,
+                        .pin = LISA_CAMERA_DVP_VSYNC_PIN,
+                        .func = LISA_CAMERA_DVP_VSYNC_FUNC
                     },
                     .pclk = {
-                        .pad = CSK_IOMUX_PAD_A,
-                        .pin = 12,
-                        .func = CSK_IOMUX_FUNC_ALTER16
+                        .pad = LISA_CAMERA_DVP_PCLK_PORT,
+                        .pin = LISA_CAMERA_DVP_PCLK_PIN,
+                        .func = LISA_CAMERA_DVP_PCLK_FUNC
                     },
                     .data = {
                         {
-                            .pad = CSK_IOMUX_PAD_A,
-                            .pin = 13,
-                            .func = CSK_IOMUX_FUNC_ALTER16
+                            .pad = LISA_CAMERA_DVP_DATA0_PORT,
+                            .pin = LISA_CAMERA_DVP_DATA0_PIN,
+                            .func = LISA_CAMERA_DVP_DATA0_FUNC
                         },
                         {
-                            .pad = CSK_IOMUX_PAD_A,
-                            .pin = 14,
-                            .func = CSK_IOMUX_FUNC_ALTER16
+                            .pad = LISA_CAMERA_DVP_DATA1_PORT,
+                            .pin = LISA_CAMERA_DVP_DATA1_PIN,
+                            .func = LISA_CAMERA_DVP_DATA1_FUNC
                         },
                         {
-                            .pad = CSK_IOMUX_PAD_A,
-                            .pin = 15,
-                            .func = CSK_IOMUX_FUNC_ALTER16
+                            .pad = LISA_CAMERA_DVP_DATA2_PORT,
+                            .pin = LISA_CAMERA_DVP_DATA2_PIN,
+                            .func = LISA_CAMERA_DVP_DATA2_FUNC
                         },
                         {
-                            .pad = CSK_IOMUX_PAD_A,
-                            .pin = 16,
-                            .func = CSK_IOMUX_FUNC_ALTER16
+                            .pad = LISA_CAMERA_DVP_DATA3_PORT,
+                            .pin = LISA_CAMERA_DVP_DATA3_PIN,
+                            .func = LISA_CAMERA_DVP_DATA3_FUNC
                         },
                         {
-                            .pad = CSK_IOMUX_PAD_A,
-                            .pin = 17,
-                            .func = CSK_IOMUX_FUNC_ALTER16
+                            .pad = LISA_CAMERA_DVP_DATA4_PORT,
+                            .pin = LISA_CAMERA_DVP_DATA4_PIN,
+                            .func = LISA_CAMERA_DVP_DATA4_FUNC
                         },
                         {
-                            .pad = CSK_IOMUX_PAD_A,
-                            .pin = 18,
-                            .func = CSK_IOMUX_FUNC_ALTER16
+                            .pad = LISA_CAMERA_DVP_DATA5_PORT,
+                            .pin = LISA_CAMERA_DVP_DATA5_PIN,
+                            .func = LISA_CAMERA_DVP_DATA5_FUNC
                         },
                         {
-                            .pad = CSK_IOMUX_PAD_A,
-                            .pin = 19,
-                            .func = CSK_IOMUX_FUNC_ALTER16
+                            .pad = LISA_CAMERA_DVP_DATA6_PORT,
+                            .pin = LISA_CAMERA_DVP_DATA6_PIN,
+                            .func = LISA_CAMERA_DVP_DATA6_FUNC
                         },
                         {
-                            .pad = CSK_IOMUX_PAD_A,
-                            .pin = 20,
-                            .func = CSK_IOMUX_FUNC_ALTER16
+                            .pad = LISA_CAMERA_DVP_DATA7_PORT,
+                            .pin = LISA_CAMERA_DVP_DATA7_PIN,
+                            .func = LISA_CAMERA_DVP_DATA7_FUNC
                         }
                     }
                 }

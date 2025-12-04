@@ -69,6 +69,7 @@ int camera_get_window(uint16_t *w, uint16_t *h);
 int camera_set_handle_mode(bool hmirror, bool vflip);
 int camera_set_sensor_reg(int reg, int value, int mask);
 int camera_get_sensor_reg(int reg, int* value,  int mask);
+void camera_senor_release(void);
 #ifdef __cplusplus
 }
 #endif

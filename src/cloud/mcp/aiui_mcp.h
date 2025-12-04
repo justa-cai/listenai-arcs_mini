@@ -194,6 +194,12 @@ mcp_result_t mcp_list_tools(mcp_tool_def_t ***tools, uint32_t *count);
 /* ==================== 工具执行接口 ==================== */
 
 /**
+ * @brief 设置下次工具调用的call_id
+ * 
+ * @param call_id 工具调用ID
+ */
+void mcp_set_next_call_id(const char *call_id);
+/**
  * @brief 同步调用 MCP 工具
  * 
  * @param tool_name 工具名称

@@ -6,6 +6,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "lisa_log.h"
+#include "board.h"
 
 void *touch_device = NULL;
 static volatile bool touch_int_trigger = false;
@@ -24,80 +25,27 @@ int main(int argc, char **argv)
 
     LOGD("touch sample start.\r\n");
 
-    display_hw_config_t disp_config = {
-        .reset = {
-            .pad = CSK_IOMUX_PAD_A,
-            .pin = 1,
-            .func = CSK_IOMUX_FUNC_ALTER1,
-        },
-        .blacklight = {
-            .pin = {
-                .pad = CSK_IOMUX_PAD_A,
-                .pin = 0,
-                .func = CSK_IOMUX_FUNC_ALTER12,
-            },
-            .dev = GPT0_PWM(),
-            .channel = 0,
-            .freq = 1000,
-        },
-        .trans_config = {
-            .spi_4line = {
-                .spi_dev = SPI1(),
-                .spi_tx_dma_ch = 3,
-                .spi_pins = {
-                    .cs = {
-                        .pad = CSK_IOMUX_PAD_B,
-                        .pin = 5,
-                        .func = CSK_IOMUX_FUNC_ALTER6,
-                    },
-                    .clk = {
-                        .pad = CSK_IOMUX_PAD_B,
-                        .pin = 3,
-                        .func = CSK_IOMUX_FUNC_ALTER6,
-                    },
-                    .sda = {
-                        .pad = CSK_IOMUX_PAD_B,
-                        .pin = 1,
-                        .func = CSK_IOMUX_FUNC_ALTER6,
-                    },
-                    .dc = {
-                        .pad = CSK_IOMUX_PAD_B,
-                        .pin = 0,
-                        .func = CSK_IOMUX_FUNC_DEFAULT,
-                    },
-                }
-            }
-        }
-    };
-    if (lisa_display_create(&disp_config) == NULL) {
-        CLOGE("lisa_display_create fail.\r\n");
-        return -1;
-    }
-
-    /**
-     * AXS15231b模组，需要LCD初始化后，touch才能正常通信
-     */
-    // touch_device = lisa_touch_create();
+    /* 对于 ST7789P3 方案，触摸初始化无需先点亮 LCD，可直接初始化触摸 */
     touch_hw_config_t config = {
-        .i2c_dev = I2C0(),
+        .i2c_dev = LISA_TOUCH_I2C_DEV,
         .i2c_pins = {
             .sda = {
-                .sda_pad = CSK_IOMUX_PAD_A,
-                .sda_pin = 22,
-                .sda_func = CSK_IOMUX_FUNC_ALTER8,
+                .sda_pad = LISA_TOUCH_I2C_SDA_PORT,
+                .sda_pin = LISA_TOUCH_I2C_SDA_PIN,
+                .sda_func = LISA_TOUCH_I2C_SDA_FUNC,
             },
             .scl = {
-                .scl_pad = CSK_IOMUX_PAD_A,
-                .scl_pin = 23,
-                .scl_func = CSK_IOMUX_FUNC_ALTER8,
+                .scl_pad = LISA_TOUCH_I2C_SCL_PORT,
+                .scl_pin = LISA_TOUCH_I2C_SCL_PIN,
+                .scl_func = LISA_TOUCH_I2C_SCL_FUNC,
             },
         },
-        .gpio_pins.reset.reset_pad = CSK_IOMUX_PAD_A,
-        .gpio_pins.reset.reset_pin = 25,
-        .gpio_pins.reset.reset_func = CSK_IOMUX_FUNC_DEFAULT,
-        .gpio_pins.intr.int_pad = CSK_IOMUX_PAD_A,
-        .gpio_pins.intr.int_pin = 24,
-        .gpio_pins.intr.int_func = CSK_IOMUX_FUNC_DEFAULT,
+        .gpio_pins.reset.reset_pad = LISA_TOUCH_I2C_RST_PORT,
+        .gpio_pins.reset.reset_pin = LISA_TOUCH_I2C_RST_PIN,
+        .gpio_pins.reset.reset_func = LISA_TOUCH_I2C_RST_FUNC,
+        .gpio_pins.intr.int_pad = LISA_TOUCH_I2C_INT_PORT,
+        .gpio_pins.intr.int_pin = LISA_TOUCH_I2C_INT_PIN,
+        .gpio_pins.intr.int_func = LISA_TOUCH_I2C_INT_FUNC,
     };
     touch_device = lisa_touch_create(&config);
     if (touch_device == NULL) {

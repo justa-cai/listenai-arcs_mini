@@ -70,17 +70,26 @@ static int shell_test_cmd_handler(int argc, char **argv)
     return 0;
 }
 
+static void log_shell_backend_output(const uint8_t *log, uint32_t len, void *data)
+{
+    lisa_shell_output_raw((const char *)log, len);
+}
+
 int main(int argc, char **argv)
 {
     LOGI("UART shell sample\n");
 
     lisa_shell_init();
-    lisa_log_output_handle_set(lisa_shell_output_raw);
+
+    /* shell的串口和系统默认的日志输出串口是同一个, 这里暂停系统默认的日志输出 */
+    lisa_log_backend_pause("sys.log");
+    lisa_log_backend_add("user.shell", log_shell_backend_output, NULL);
 
     while (1) {
+        LOGI("shell test is running\n");
         vTaskDelay(1000);
     }
-    
+
     return 0;
 }
 

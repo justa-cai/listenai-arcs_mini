@@ -12,12 +12,14 @@ listenai_library_sources(
     # MCP components
     mcp/aiui_mcp.c
     mcp/mcp_integration.c
+    mcp/vision_config.c
     
     # MCP tools
     mcp/tools/brightness_control.c
     mcp/tools/emotion_control.c
     mcp/tools/led_control.c
     mcp/tools/model_config_control.c
+    mcp/tools/photo_recognition.c
     mcp/tools/version_info.c
     mcp/tools/volume_control.c
     
@@ -41,4 +43,5 @@ listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/proc
     ${CMAKE_CURRENT_SOURCE_DIR}/recognizer
     ${CMAKE_CURRENT_SOURCE_DIR}/stream_text
+    # ${CMAKE_CURRENT_SOURCE_DIR}/../arcs-sdk/modules/ijg
 )

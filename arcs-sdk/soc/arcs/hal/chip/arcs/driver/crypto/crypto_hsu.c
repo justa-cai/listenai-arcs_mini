@@ -11,6 +11,7 @@
 #include "dma.h"
 #include "log_print.h"
 #include <string.h>
+#include <FreeRTOS.h>
 
 
 int32_t crypto_hsu_set_key(CRYPTO_RESOURCES *crypto, uint32_t* key)

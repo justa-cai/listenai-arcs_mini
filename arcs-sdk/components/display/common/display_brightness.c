@@ -18,7 +18,7 @@ struct display_brightness_ctx {
 static struct display_brightness_ctx g_display_brightness_ctx;
 #else
 uint8_t disp_brightness_channel = 0;
-uint8_t brightness_freq = 0;
+uint32_t brightness_freq = 0;
 #endif
 void *backlight_dev = NULL;
 
@@ -28,7 +28,6 @@ void disp_comm_brightness_init(struct blacklight_config *config)
     backlight_dev = config->dev;
     brightness_freq = config->freq;
     disp_brightness_channel = config->channel;
-    IOMuxManager_PinConfigure(config->pin.pad, config->pin.pin, config->pin.func);
 
     HAL_GPT_PWMInitialize(config->dev, NULL);
     HAL_GPT_PWMPowerControl(config->dev, CSK_POWER_FULL);
@@ -36,7 +35,6 @@ void disp_comm_brightness_init(struct blacklight_config *config)
                             CSK_GPT_PWM_CLKDIV_16 | CSK_GPT_PWM_OPERATION_MODE_PWM, disp_brightness_channel);
 #elif CONFIG_LISA_DISPLAY_BRIGHTNESS_TYPE_WIRE_DIMMING
     backlight_dev = config->pin.pad == CSK_IOMUX_PAD_A ? GPIOA() : GPIOB();
-    IOMuxManager_PinConfigure(config->pin.pad, config->pin.pin, config->pin.func);
     GPIO_SetDir(backlight_dev, (1UL << config->pin.pin), CSK_GPIO_DIR_OUTPUT);
     GPIO_PinWrite(backlight_dev, (1UL << config->pin.pin), 0);
     g_display_brightness_ctx.steps = DISPLAY_BRIGHTNESS_STEPS;
