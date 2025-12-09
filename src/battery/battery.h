@@ -68,6 +68,21 @@ uint16_t get_battery_id(void);
  */
 bool is_voice_key_pressed(void);
 
+/**
+ * @brief 获取电池图标显示状态
+ *
+ * 此函数用于查询当前是否应该显示电池图标。
+ * 当ADC采样电压低于500mV时，认为电池未连接或电压异常，
+ * 不应显示电池图标，以避免误导用户。
+ *
+ * @return true  - 应该显示电池图标（ADC电压 >= 500mV）
+ * @return false - 不应显示电池图标（ADC电压 < 500mV，可能电池未连接）
+ *
+ * @note 此标志由 battery_voltage_sample_cb() 定时更新（每1秒）
+ * @note ADC电压阈值500mV对应实际电池电压约1.25V（考虑40%硬件分压）
+ */
+bool get_show_battery_status(void);
+
 #if defined(__cplusplus)
 }
 #endif

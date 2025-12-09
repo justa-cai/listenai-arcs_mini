@@ -222,6 +222,15 @@ void lisa_ui_llm_primary_set_wifi_img(lv_obj_t *obj, const void *img_path);
 void lisa_ui_llm_primary_set_battery_img(lv_obj_t *obj, const void *img_path);
 
 /**
+ * @brief 隐藏电池图标
+ *
+ * 此函数用于隐藏LLM主界面的电池图标。
+ *
+ * @param obj LLM UI主要组件对象指针
+ */
+void lisa_ui_llm_primary_battery_icon_hide(lv_obj_t *obj);
+
+/**
  * @brief 启动emoji动画
  * 
  * @param obj LLM UI主要组件对象

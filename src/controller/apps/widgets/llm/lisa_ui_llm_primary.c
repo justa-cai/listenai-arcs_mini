@@ -325,8 +325,27 @@ void lisa_ui_llm_primary_set_battery_img(lv_obj_t *obj, const void *img_path)
     if (!llm_primary->battery_icon || !img_path) {
         return;
     }
-        
+
+    // 显示图片（移除隐藏标志）
+    lv_obj_clear_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
     lv_img_set_src(llm_primary->battery_icon, img_path);
+    LOGI("battery image show");
+}
+
+void lisa_ui_llm_primary_battery_icon_hide(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    
+    if (!llm_primary->battery_icon) {
+        return;
+    }
+    
+    // 隐藏图片
+    lv_obj_add_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
+    LOGI("battery image hidden");
 }
 
 void lisa_ui_llm_primary_start_emoji_animation(lv_obj_t *obj)
