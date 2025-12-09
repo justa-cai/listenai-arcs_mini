@@ -1387,11 +1387,15 @@ static int update_battery_info(page_view_t *view)
             battery_level = _userdata->setting.battery.power_percent / 10;
         }
 
-        if (is_charging) {
-            lisa_ui_llm_primary_set_battery_img(view->inter, battery_charging_img[battery_level]);
+        if (!get_show_battery_status()) {
+            lisa_ui_llm_primary_battery_icon_hide(view->inter);
         } else {
-            lisa_ui_llm_primary_set_battery_img(view->inter, battery_level_img[battery_level]);
-        }
+            if (is_charging) {
+                lisa_ui_llm_primary_set_battery_img(view->inter, battery_charging_img[battery_level]);
+            } else {
+                lisa_ui_llm_primary_set_battery_img(view->inter, battery_level_img[battery_level]);
+            }
+        }      
 
         if (is_usb_plug) {
             // 检测充电状态变化

@@ -42,6 +42,7 @@ lisa_timer_t *battery_timer = NULL;
 static uint16_t voltage_history[VOLTAGE_FILTER_WINDOW_SIZE] = {0};
 static uint8_t voltage_index = 0;
 static bool voltage_buffer_full = false;
+static bool show_battery_status = false;
 
 // 电池电压百分比查找表 (按10%步进，从0%到100%)
 // 请根据实际电池特性填充对应的电压值 (单位: mV)
@@ -65,6 +66,11 @@ static const uint16_t battery_voltage_table[11] = {
     4179, // 90%
     4199  // 100%
 };
+
+bool get_show_battery_status(void)
+{
+    return show_battery_status;
+}
 
 /**
  * @brief 移动平均滤波器 - 对电压进行平滑滤波
@@ -157,12 +163,11 @@ static void battery_voltage_sample_cb(void *arg)
     // }
 
     last_percentage = raw_percentage;
-
     battery_info.is_charging = (status == BATTERY_STATUS_CHARGING);
     battery_info.power_percent = raw_percentage;
     battery_info.usb_status = get_usb_status();
 
-    LISA_LOGI(TAG, "Battery: raw=%d%%, status=%d", raw_percentage, status);
+    LISA_LOGI(TAG, "Battery: raw=%d%%, status=%d, show_battery_status=%d", raw_percentage, status, show_battery_status);
     assist_controller_trigger_event(CONTROLLER_EVENT_BATTERY_INFO_UPDATE, &battery_info, sizeof(battery_info));
 
     lisa_timer_start(battery_timer);
@@ -216,6 +221,13 @@ uint8_t get_battery_voltage_percentage(void)
 
     LISA_LOGI(TAG, "adc_raw: %d, vbat_raw: %d, vbat_filtered: %d", adc_real_voltage, vbat_real_voltage,
               filtered_voltage);
+    
+    // 当ADC采样电压低于500mV时，不显示电池图标
+    if (filtered_voltage < 500) {
+        show_battery_status = 0;
+    } else {
+        show_battery_status = 1;
+    }
 
     // 电压范围限制
     if (filtered_voltage < VBAT_MIN_VOLTAGE) {
