@@ -48,6 +48,9 @@ static bool audio_listen_status = 0;
     }
 #define EBUS_MESSAGE_PUB_BY_WORK_DECLARE(event) update_##event##_work
 
+// 前向声明
+static char* add_oss_image_params(const char* original_url, int width, int quality, const char* format);
+
 typedef struct {
     char weather_json[WEATHER_JSON_MAX_LEN];
     // lisaui_app_audio_player_state_t music_state;
@@ -346,9 +349,96 @@ int assistant_view_hide_camera_image(void)
 {
     // 使用工作队列提交任务，无需参数
     workqueue_submit(view_handler->view->workq,
-        EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE), 
+        EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE),
         NULL, 0);
-    
+
+    return 0;
+}
+
+// 更新并显示二维码
+int assistant_view_update_qrcode(const char *url, const char *message, const char *err_code)
+{
+    if (!url) {
+        LISA_LOGE(TAG, "assistant_view_update_qrcode: url is NULL");
+        return -EINVAL;
+    }
+
+    LISA_LOGI(TAG, "assistant_view_update_qrcode: url=%s, message=%s, err_code=%s",
+              url, message ? message : "(none)", err_code ? err_code : "(none)");
+
+    // 根据err_code或默认使用DEVICE模式
+    lisaui_userdata_qrcode_inter_mode_e mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE;
+
+    if (err_code) {
+        // 根据错误码决定显示模式
+        if (strcmp(err_code, "quota") == 0 || strcmp(err_code, "OutOfLimit") == 0) {
+            mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA;
+        } else if (strcmp(err_code, "network") == 0) {
+            mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK;
+        }
+    }
+
+    LISAUI_USERDATA_WITH_LOCK(_userdata) {
+        // 根据模式设置不同的字段
+        char **target_url = NULL;
+        char **target_message = NULL;
+
+        switch (mode) {
+            case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK:
+                target_url = &_userdata->qrcode_inter.network_url;
+                target_message = &_userdata->qrcode_inter.network_label_text;
+                break;
+            case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
+                target_url = &_userdata->qrcode_inter.device_url;
+                target_message = &_userdata->qrcode_inter.device_label_text;
+                break;
+            case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA:
+                target_url = &_userdata->qrcode_inter.quota_url;
+                target_message = &_userdata->qrcode_inter.quota_label_text;
+                break;
+            default:
+                LISA_LOGE(TAG, "Unknown qrcode mode: %d", mode);
+                return -EINVAL;
+        }
+
+        // 清理旧的URL
+        if (*target_url) {
+            exram_free(*target_url);
+            *target_url = NULL;
+        }
+
+        // 设置新的URL（添加OSS处理参数和N:前缀）
+        char *url_with_params = add_oss_image_params(url, 168, 100, "jpg");
+        if (url_with_params) {
+            size_t url_len = strlen(url_with_params);
+            *target_url = exram_malloc(4, url_len + 3);  // +2 for "N:" +1 for '\0'
+            if (*target_url) {
+                snprintf(*target_url, url_len + 3, "N:%s", url_with_params);
+            }
+            exram_free(url_with_params);
+        }
+
+        // 清理旧的消息文本
+        if (*target_message) {
+            exram_free(*target_message);
+            *target_message = NULL;
+        }
+
+        // 设置新的消息文本
+        if (message && strlen(message) > 0) {
+            size_t msg_len = strlen(message);
+            *target_message = exram_malloc(4, msg_len + 1);
+            if (*target_message) {
+                strncpy(*target_message, message, msg_len);
+                (*target_message)[msg_len] = '\0';
+            }
+        }
+    }
+
+    // 切换到二维码页面
+    change_info_page(mode);
+
+    LISA_LOGI(TAG, "QR code updated successfully, mode=%d", mode);
     return 0;
 }
 

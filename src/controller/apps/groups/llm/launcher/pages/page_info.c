@@ -21,6 +21,8 @@
 #include "lv_img_net_loader.h"
 
 #include "../group_launcher.h"
+#include "lisa_kv.h"
+#include "../../../kv/kv_user.h"
 
 #define TAG "launcher.page.info"
 LV_IMG_DECLARE(ble_qr);
@@ -31,6 +33,7 @@ static bool g_info_page_active = false;
 static void auto_return_timer_cb(lv_timer_t *timer);
 bool is_info_page_active(void);
 void set_info_page_active(bool active);
+static int get_device_id(char *device_id, int max_len);
 
 // 网络图片加载辅助函数
 static bool is_network_url(const char* url) {
@@ -56,11 +59,61 @@ static lv_res_t set_qr_image_src(lv_obj_t* img, const char* url) {
     }
 }
 
+/**
+ * @brief Get device ID from KV storage or chip hardware ID
+ *
+ * @param device_id Buffer to store device ID
+ * @param max_len Maximum buffer length
+ * @return int 0 on success, -1 on failure
+ */
+static int get_device_id(char *device_id, int max_len)
+{
+    if (!device_id || max_len <= 0) {
+        return -1;
+    }
+    char *kv_device_id = NULL;
+    int ret = lisa_kv_get_string(KV_KEY_USER_DEVICE_ID, &kv_device_id);
+
+    if (ret == 0 && kv_device_id != NULL && strlen(kv_device_id) > 0) {
+        if (strlen(kv_device_id) >= max_len) {
+            lisa_kv_free(kv_device_id);
+            return -1;
+        }
+        strcpy(device_id, kv_device_id);
+        lisa_kv_free(kv_device_id);
+        return 0;
+    } else {
+        // KV中没有设备ID，从芯片读取硬件ID
+        uint32_t *id_1 = (uint32_t *)0x48600208;
+        uint32_t *id_2 = (uint32_t *)0x4860020c;
+        uint8_t id_buffer[8];
+
+        if (*id_1 == 0 && *id_2 == 0) {
+            // 芯片ID也是全零，返回错误
+            return -1;
+        }
+
+        if (max_len < 17) { // 16个字符 + 结束符
+            return -1;
+        }
+
+        memcpy(id_buffer, id_1, sizeof(uint32_t));
+        memcpy(id_buffer + 4, id_2, sizeof(uint32_t));
+
+        snprintf(device_id, max_len, "%02x%02x%02x%02x%02x%02x%02x%02x",
+                id_buffer[0], id_buffer[1], id_buffer[2], id_buffer[3],
+                id_buffer[4], id_buffer[5], id_buffer[6], id_buffer[7]);
+
+        return 0;
+    }
+}
+
 typedef struct {
     lv_obj_t *screen;
     lv_obj_t *label;
     lv_obj_t *g_ble_qr_img;
     lv_obj_t *bottom_label;                                             // 添加底部文本标签
+    lv_obj_t *device_id_label;                                          // 设备ID标签
     lv_timer_t *auto_return_timer;
     ebus_chn_t *ebus_ch_base_event;
     lisaui_userdata_qrcode_inter_mode_e mode;
@@ -242,7 +295,7 @@ static lisaui_page_t *create(lisaui_page_t *page)
         lisaui_free(view);
         return NULL;
     }
-    
+
     // 设置底部标签属性
     lv_obj_set_style_text_color(view->bottom_label, lv_color_white(), 0);
     lv_obj_set_style_text_font(view->bottom_label, &lv_font_chinese_18, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -253,10 +306,41 @@ static lisaui_page_t *create(lisaui_page_t *page)
     lv_obj_set_style_pad_top(view->bottom_label, 0, 0);
     lv_obj_add_flag(view->bottom_label, LV_OBJ_FLAG_HIDDEN);
 
+    // 创建设备ID标签
+    view->device_id_label = lv_label_create(view->screen);
+    if (!view->device_id_label) {
+        LISAUI_LOGE(TAG, "failed to create device ID label object");
+        lv_obj_del(view->screen);
+        lisaui_free(view);
+        return NULL;
+    }
+
+    // 设置设备ID标签属性
+    lv_obj_set_style_text_color(view->device_id_label, lv_color_white(), 0);
+    lv_obj_set_style_text_font(view->device_id_label, &lv_font_chinese_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_align(view->device_id_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(view->device_id_label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(view->device_id_label, LV_PCT(90));
+    lv_obj_set_height(view->device_id_label, 30);
+    lv_obj_set_style_pad_top(view->device_id_label, -7, 0);  // 负值向上移动
+    lv_obj_add_flag(view->device_id_label, LV_OBJ_FLAG_HIDDEN);
+
     switch (view->mode) {
     case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK:
         lv_label_set_text(view->label, "当前网络未连接\n请使用微信扫码进行配网");
         lv_img_set_src(view->g_ble_qr_img, &ble_qr);
+
+        // 获取并显示设备ID
+        char device_id[32] = {0};
+        if (get_device_id(device_id, sizeof(device_id)) == 0) {
+            char device_id_text[64];
+            snprintf(device_id_text, sizeof(device_id_text), "ID:%s", device_id);//设备ID:
+            lv_label_set_text(view->device_id_label, device_id_text);
+            lv_obj_clear_flag(view->device_id_label, LV_OBJ_FLAG_HIDDEN);
+            LISAUI_LOGI(TAG, "Display device ID: %s", device_id);
+        } else {
+            LISAUI_LOGW(TAG, "Failed to get device ID");
+        }
         break;
     case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
         lv_obj_set_height(view->label, 20);

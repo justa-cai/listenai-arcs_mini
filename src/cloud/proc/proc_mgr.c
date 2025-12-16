@@ -28,6 +28,8 @@
 #include "alarm_aiui.h"
 #include "lisa_aiui_rid_man.h"
 #include "mcp_integration.h"
+#include "proc_mgr.h"
+#include "app_player.h"
 
 typedef enum {
 	NLP_RESULT_INIT,
@@ -100,6 +102,23 @@ void app_proc_init(app_client_t *app_client, app_cloud_t *cloud)
 	started_sema = lisa_semaphore_create(1);
 }
 
+audioplayer_t *get_audio_player(void)
+{
+	return s_audio_player;
+}
+
+void enter_audio_idle(void)
+{
+	recognizer_stop_record(s_rec);
+	recognizer_recognize_end(s_rec);
+	listen_audioplayer_puse(s_audio_player);
+	assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
+
+	if (lisa_aiui_get_interactive_mode() == INTER_CONTINUE) {
+		lisa_timer_stop(tts_timer);
+	}
+}
+
 void app_proc_msg(const char *msg, int len)
 {
 	LISA_LOGD(TAG, "app_proc_msg len %d\n", len);
@@ -111,6 +130,61 @@ void app_proc_msg(const char *msg, int len)
 	memcpy(data, msg, len);
 	data[len] = '\0';
 	evs_handler_post_runnable(_proc_msg_continue, (void *)data);
+}
+
+static int music_control_func(void *arg)
+{
+	LISA_LOGI(TAG, "music_control_func evt : %d, m_play_state: %d\n", *((int*)arg), s_tts_player->m_play_state);
+
+	// 检查TTS是否正在播放
+	if (s_tts_player && ((s_tts_player->m_play_state == APP_PLAYER_PREPARING) || \
+		(s_tts_player->m_play_state == PLAYER_EVT_PLAYING) || (s_tts_player->m_play_state == PLAYER_EVT_PREPARED))) {
+		LISA_LOGI(TAG, "TTS is playing, wait for TTS to finish before executing music control");
+		// TTS正在播放，延迟500ms后重新尝试
+		evs_handler_post_runnable_delay(music_control_func, arg, 200);
+
+		return 0;
+	}
+
+	switch (*((int*)arg))
+	{
+	case MUSIC_REPLAY:
+		s_audio_player->replay(s_audio_player);
+		break;
+	case MUSIC_RESUME_PLAY:
+		s_audio_player->resumeByVoice(s_audio_player);
+		break;
+	case MUSIC_PLAY_NEXT:
+		s_audio_player->next(s_audio_player);
+		break;
+	case MUSIC_PLAY_PREV:
+		s_audio_player->prev(s_audio_player);
+		break;
+			
+	default:
+		break;
+	}
+
+	// 释放 music_control_msg 中分配的内存
+	if (arg) {
+		lisa_mem_free(arg);
+	}
+
+	return 0;
+}
+
+//会打断TTS提示音播放，播控延时
+void music_control_msg(MUSIC_CONTRL_EVENT evt)
+{
+	LISA_LOGI(TAG, "music_control_msg ---: %d", evt);
+	int *data = lisa_mem_calloc(1, sizeof(int));
+	if (data == NULL) {
+		LISA_LOGE(TAG, "alloc mem failed, drop data");
+		return;
+	}
+	*data = evt;
+	
+	evs_handler_post_runnable_delay(music_control_func, (void *)data, 1500);
 }
 
 static int play_timeout_audio(void)
@@ -297,8 +371,6 @@ int weather_aiui_intent_process(cJSON *intent_root)
 
 static int _parser_intent(cJSON *root)
 {
-	#define MUSIC_DELAY  2000//延时，防止tts被打断
-
 	if (!root) return -1;
 	cJSON *rc_item = cJSON_GetObjectItem(root, "rc");
 	if (!rc_item || !cJSON_IsNumber(rc_item)) return -1;
@@ -368,20 +440,20 @@ static int _parser_intent(cJSON *root)
 		}
 		return 1;
 	} else if (strcmp(intent->valuestring, "REPLAY") == 0) {  // 继续
-		lisa_thread_mdelay(MUSIC_DELAY);
-		s_audio_player->replay(s_audio_player);
+		listen_audioplayer_puse(s_audio_player);
+		music_control_msg(MUSIC_REPLAY);
 		return 1;
 	} else if (strcmp(intent->valuestring, "RESUME_PLAY") == 0) {  // 继续
-		lisa_thread_mdelay(MUSIC_DELAY);
-		s_audio_player->resumeByVoice(s_audio_player);
+		listen_audioplayer_puse(s_audio_player);
+		music_control_msg(MUSIC_RESUME_PLAY);
 		return 1;
 	} else if (strcmp(intent->valuestring, "CHOOSE_NEXT") == 0) {  // 下一首
-		lisa_thread_mdelay(MUSIC_DELAY);
-		s_audio_player->next(s_audio_player);
+		listen_audioplayer_puse(s_audio_player);//先暂停，防止TTS播完，下一首还没开始，当前播放歌曲又短暂播放一会儿
+		music_control_msg(MUSIC_PLAY_NEXT);
 		return 1;
 	} else if (strcmp(intent->valuestring, "CHOOSE_PREVIOUS") == 0) {  // 上一首
-		lisa_thread_mdelay(MUSIC_DELAY);
-		s_audio_player->prev(s_audio_player);
+		listen_audioplayer_puse(s_audio_player);
+		music_control_msg(MUSIC_PLAY_PREV);
 		return 1;
 	} else if (strcmp(intent->valuestring, "VOLUME_MINUS") == 0) {  // 声音小
 		listen_vol_adjust(-10);
@@ -749,9 +821,7 @@ static int _proc_msg_continue(void *arg)
 			if ((type == LISA_AIUI_FRAME_TYPE_AUDIO) || (type == LISA_AIUI_FRAME_TYPE_IMAGE)) {
 				recognizer_stop_record(s_rec);
 				recognizer_recognize_end(s_rec);
-				listen_audioplayer_puse(s_audio_player);
 				assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
-
 				if (lisa_aiui_get_interactive_mode() == INTER_CONTINUE) {
 					lisa_timer_stop(tts_timer);
 				}

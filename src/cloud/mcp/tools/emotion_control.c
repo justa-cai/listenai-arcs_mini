@@ -36,6 +36,8 @@ static int current_emotion = EMOTION_NEUTRAL;
 // 表情设置处理函数
 static mcp_result_t emotion_set_handler(const mcp_context_t *ctx, mcp_response_t *response)
 {
+    LISA_LOGI(TAG, "%s---", __func__);
+
     if (!ctx || !response) {
         return MCP_RESULT_INVALID_PARAM;
     }
@@ -52,7 +54,26 @@ static mcp_result_t emotion_set_handler(const mcp_context_t *ctx, mcp_response_t
     }
 
     if (!emotion) {
-        response->content = cJSON_CreateString("错误：缺少必需的 emotion 参数");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "错误：缺少必需的 emotion 参数");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_INVALID_PARAM;
         return MCP_RESULT_INVALID_PARAM;
     }
@@ -69,7 +90,26 @@ static mcp_result_t emotion_set_handler(const mcp_context_t *ctx, mcp_response_t
     } else if (strcmp(emotion, "无表情") == 0 || strcmp(emotion, "neutral") == 0 || strcmp(emotion, "blink") == 0) {
         new_emotion = EMOTION_NEUTRAL;
     } else {
-        response->content = cJSON_CreateString("错误：表情只能是 '生气'/'angry'、'开心'/'happy'、'撒娇'/'cute' 或 '无表情'/'neutral'");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "错误：表情只能是 '生气'/'angry'、'开心'/'happy'、'撒娇'/'cute' 或 '无表情'/'neutral'");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_INVALID_PARAM;
         return MCP_RESULT_INVALID_PARAM;
     }
@@ -91,39 +131,108 @@ static mcp_result_t emotion_set_handler(const mcp_context_t *ctx, mcp_response_t
             "表情已从 %s 设置为 %s", 
             emotion_map[old_emotion].chinese,
             emotion_map[current_emotion].chinese);
-    response->content = cJSON_CreateString(result_msg);
+    // 创建content数组
+    cJSON *content_array = cJSON_CreateArray();
+    if (!content_array) {
+        response->result = MCP_RESULT_ERROR;
+        return MCP_RESULT_ERROR;
+    }
+
+    // 创建text item
+    cJSON *text_item = cJSON_CreateObject();
+    if (!text_item) {
+        cJSON_Delete(content_array);
+        response->result = MCP_RESULT_ERROR;
+        return MCP_RESULT_ERROR;
+    }
+
+    cJSON_AddStringToObject(text_item, "type", "text");
+    cJSON_AddStringToObject(text_item, "text", "已完成操作");
+    cJSON_AddItemToArray(content_array, text_item);
+
+    response->content = content_array;
     response->result = MCP_RESULT_SUCCESS;
     
     return MCP_RESULT_SUCCESS;
 }
 
-// 表情设置工具参数定义
-static mcp_param_def_t emotion_set_params[] = {
-    MCP_PARAM_DEF("emotion", MCP_PARAM_STRING, true, 
-                  "表情类型，可以是 '生气'/'angry'、'开心'/'happy'、'撒娇'/'cute' 或 '无表情'/'neutral'", 
-                  NULL),
-    MCP_PARAM_DEF_END
-};
+/**
+ * @brief 生成表情设置工具的参数 Schema
+ *
+ * @return cJSON对象指针，失败返回NULL
+ */
+cJSON* generate_emotion_set_schema(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        LISA_LOGE(TAG, "Failed to create root object for emotion_set schema");
+        return NULL;
+    }
 
-// 表情获取工具参数定义（无参数）
-static mcp_param_def_t emotion_get_params[] = {
-    MCP_PARAM_DEF_END
-};
+    if (!cJSON_AddStringToObject(root, "type", "object")) {
+        LISA_LOGE(TAG, "Failed to add type to emotion_set schema");
+        cJSON_Delete(root);
+        return NULL;
+    }
 
-// 表情清除工具参数定义（无参数）
-static mcp_param_def_t emotion_clear_params[] = {
-    MCP_PARAM_DEF_END
-};
+    cJSON *properties = cJSON_CreateObject();
+    if (!properties) {
+        LISA_LOGE(TAG, "Failed to create properties object");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    // emotion 参数
+    cJSON *emotion_prop = cJSON_CreateObject();
+    if (!emotion_prop) {
+        LISA_LOGE(TAG, "Failed to create emotion property");
+        cJSON_Delete(properties);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    if (!cJSON_AddStringToObject(emotion_prop, "type", "string") ||
+        !cJSON_AddStringToObject(emotion_prop, "description", "表情类型，可以是 '生气'/'angry'、'开心'/'happy'、'撒娇'/'cute' 或 '无表情'/'neutral'")) {
+        LISA_LOGE(TAG, "Failed to add emotion property fields");
+        cJSON_Delete(emotion_prop);
+        cJSON_Delete(properties);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    cJSON_AddItemToObject(properties, "emotion", emotion_prop);
+
+    cJSON_AddItemToObject(root, "properties", properties);
+
+    // required 数组
+    cJSON *required = cJSON_CreateArray();
+    if (!required) {
+        LISA_LOGE(TAG, "Failed to create required array");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON *emotion_str = cJSON_CreateString("emotion");
+    if (!emotion_str) {
+        LISA_LOGE(TAG, "Failed to create emotion string for required array");
+        cJSON_Delete(required);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    cJSON_AddItemToArray(required, emotion_str);
+    cJSON_AddItemToObject(root, "required", required);
+
+    return root;
+}
 
 // 注册表情设置工具
-MCP_REGISTER_TOOL_STATIC(emotion_set, 
-                         "设置设备表情表达。支持表情：生气、开心、撒娇、无表情。可以通过类似你生气是什么表情/给我撒个娇/开心一下等方式触发。", 
-                         "1.0", 
-                         emotion_set_params, 
-                         1, 
-                         emotion_set_handler, 
-                         false, 
-                         NULL);
+MCP_REGISTER_TOOL_STATIC(emotion_set,
+                          "ls.built_in.set_emotion",
+                          "设置设备表情表达。支持表情：生气、开心、撒娇、无表情。可以通过类似你生气是什么表情/给我撒个娇/开心一下等方式触发。",
+                          "1.0",
+                          generate_emotion_set_schema,
+                          1,
+                          emotion_set_handler,
+                          false,
+                          NULL);
 
 const char* get_current_emotion(void)
 {

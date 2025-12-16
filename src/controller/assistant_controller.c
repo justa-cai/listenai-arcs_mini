@@ -112,8 +112,6 @@ static int ctrl_event_opt_toggle_info_page_handler(ctr_event_message_t *msg);
 static int ctrl_event_opt_enter_ble_config_handler(ctr_event_message_t *msg);
 static int ctrl_event_opt_exit_ble_config_handler(ctr_event_message_t *msg);
 static int ctrl_event_opt_exit_info_page_handler(ctr_event_message_t *msg);
-static int ctrl_event_opt_auth_failed_handler(ctr_event_message_t *msg);
-
 
 static assistant_controller_event_handlers_t s_ctrl_event_handlers[] = {
     {ctrl_event_audio_idle_handler, NULL, NULL},                 // CONTROLLER_EVENT_STATE_AUDIO_IDLE
@@ -157,7 +155,6 @@ static assistant_controller_event_handlers_t s_ctrl_event_handlers[] = {
     {NULL, ctrl_event_opt_toggle_info_page_handler, NULL}, // CONTROLLER_EVENT_OPT_TOGGLE_INFO_PAGE,
     {NULL, ctrl_event_opt_enter_ble_config_handler, NULL}, // CONTROLLER_EVENT_OPT_ENTER_BLE_CONFIG,
     {NULL, ctrl_event_opt_exit_ble_config_handler, NULL},  // CONTROLLER_EVENT_OPT_EXIT_BLE_CONFIG,
-    {NULL, ctrl_event_opt_auth_failed_handler, NULL},  // CONTROLLER_EVENT_OPT_EXIT_BLE_CONFIG,
 
 };
 
@@ -632,6 +629,8 @@ static int ctrl_event_wifi_scanning_handler(void *arg, uint32_t len)
 
 static int ctrl_event_wifi_scanned_handler(void *arg, uint32_t len)
 {
+    static char ble_config_cnt = 0;
+
     view_wifi_info_t *info = (view_wifi_info_t *)arg;
 
     if (assist_controller && assist_controller->view && assist_controller->view->ops.update_wifi_state) {
@@ -650,7 +649,10 @@ static int ctrl_event_wifi_scanned_handler(void *arg, uint32_t len)
             if (assist_controller && assist_controller->view) {
                 // 发布页面切换事件
                 change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
-                enter_ble_config();
+                if (ble_config_cnt < 2) {
+                    ble_config_cnt++;
+                    enter_ble_config();
+                }     
         }
     }
 
@@ -1170,17 +1172,6 @@ static int ctrl_event_opt_exit_ble_config_handler(ctr_event_message_t *msg)
     extern int play_config_net_success_audio(void);
     play_config_net_success_audio();
     app_led_on();
-    return 0;
-}
-
-static int ctrl_event_opt_auth_failed_handler(ctr_event_message_t *msg)
-{
-    LISA_LOGI(TAG, "auth_failed event received");
-    
-    app_cloud_token_error();
-    extern int play_auth_failed_audio(void);
-    play_auth_failed_audio();
-
     return 0;
 }
 

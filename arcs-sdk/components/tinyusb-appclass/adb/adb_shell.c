@@ -94,6 +94,26 @@ static void shell_task(void *arg)
     }
 }
 
+static int adb_shell_close(struct adb_service *s)
+{
+    ADB_LOGI("adb shell close, %p\n", s);
+
+    if (s != NULL && s->data != NULL) {
+        struct adb_shell_context *ctx = s->data;
+        lisa_log_backend_remove("adb_shell");
+        vTaskSuspend(ctx->task);
+        vTaskDelete(ctx->task);
+        vStreamBufferDelete(ctx->rx_stream);
+        vStreamBufferDelete(ctx->tx_stream);
+        shellRemove(&ctx->sh);
+        ADB_FREE(ctx);
+        curr_service = NULL;
+        s->data = NULL;
+    }
+
+    return 0;
+}
+
 static int adb_shell_open(struct adb_service *s, const uint8_t *args)
 {
     if (s == NULL) {
@@ -101,8 +121,8 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
     }
 
     if (curr_service != NULL) {
-        ADB_LOGE("adb shell already open\n");
-        return -1;
+        ADB_LOGE("adb shell already open, close and reopen\n");
+        adb_shell_close(curr_service);
     }
 
     struct adb_shell_context *ctx = ADB_MALLOC(sizeof(struct adb_shell_context));
@@ -179,26 +199,6 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
             c = ETX;
             xStreamBufferSend(ctx->rx_stream, &c, 1, portMAX_DELAY);
         }
-    }
-
-    return 0;
-}
-
-static int adb_shell_close(struct adb_service *s)
-{
-    ADB_LOGI("adb shell close, %p\n", s);
-
-    if (s != NULL && s->data != NULL) {
-        struct adb_shell_context *ctx = s->data;
-        lisa_log_backend_remove("adb_shell");
-        vTaskSuspend(ctx->task);
-        vTaskDelete(ctx->task);
-        vStreamBufferDelete(ctx->rx_stream);
-        vStreamBufferDelete(ctx->tx_stream);
-        shellRemove(&ctx->sh);
-        ADB_FREE(ctx);
-        curr_service = NULL;
-        s->data = NULL;
     }
 
     return 0;

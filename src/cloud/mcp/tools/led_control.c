@@ -21,34 +21,46 @@ __attribute__((constructor)) static void led_control_init(void)
 // LED开关控制处理函数
 static mcp_result_t led_switch_handler(const mcp_context_t *ctx, mcp_response_t *response)
 {
+    LISA_LOGI(TAG, "%s---", __func__);
+
     if (!ctx || !response) {
         return MCP_RESULT_INVALID_PARAM;
     }
 
-    const char *action = NULL;
-    
+    int value_found = 0;
+    int new_state = 0;
+
     // 解析参数
     for (uint32_t i = 0; i < ctx->param_count; i++) {
-        if (strcmp(ctx->params[i].name, "action") == 0) {
-            if (cJSON_IsString(ctx->params[i].value)) {
-                action = ctx->params[i].value->valuestring;
+        if (strcmp(ctx->params[i].name, "value") == 0) {
+            if (cJSON_IsBool(ctx->params[i].value)) {
+                value_found = 1;
+                new_state = cJSON_IsTrue(ctx->params[i].value) ? 1 : 0;
             }
         }
     }
 
-    if (!action) {
-        response->content = cJSON_CreateString("错误：缺少必需的 action 参数");
-        response->result = MCP_RESULT_INVALID_PARAM;
-        return MCP_RESULT_INVALID_PARAM;
-    }
+    if (!value_found) {
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
 
-    int new_state = -1;
-    if (strcmp(action, "on") == 0 || strcmp(action, "turn_on") == 0) {
-        new_state = 1;
-    } else if (strcmp(action, "off") == 0 || strcmp(action, "turn_off") == 0) {
-        new_state = 0;
-    } else {
-        response->content = cJSON_CreateString("错误：action 只能是 'on'、'turn_on'、'off' 或 'turn_off'");
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "错误：缺少必需的 value 参数");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_INVALID_PARAM;
         return MCP_RESULT_INVALID_PARAM;
     }
@@ -67,23 +79,41 @@ static mcp_result_t led_switch_handler(const mcp_context_t *ctx, mcp_response_t 
     } else {
         app_led_off();
     }
-    
-    LISA_LOGI(TAG, "LED state changed from %s to %s", 
-              old_state ? "ON" : "OFF", 
+
+    LISA_LOGI(TAG, "LED state changed from %s to %s",
+              old_state ? "ON" : "OFF",
               led_state ? "ON" : "OFF");
-    
-    char result_msg[256];
-    snprintf(result_msg, sizeof(result_msg), 
-            "LED已%s", led_state ? "开启" : "关闭");
-    response->content = cJSON_CreateString(result_msg);
+
+    // 创建content数组
+    cJSON *content_array = cJSON_CreateArray();
+    if (!content_array) {
+        response->result = MCP_RESULT_SUCCESS;
+        return MCP_RESULT_SUCCESS;
+    }
+
+    // 创建text item
+    cJSON *text_item = cJSON_CreateObject();
+    if (!text_item) {
+        cJSON_Delete(content_array);
+        response->result = MCP_RESULT_SUCCESS;
+        return MCP_RESULT_SUCCESS;
+    }
+
+    cJSON_AddStringToObject(text_item, "type", "text");
+    cJSON_AddStringToObject(text_item, "text", "已完成操作");
+    cJSON_AddItemToArray(content_array, text_item);
+
+    response->content = content_array;
     response->result = MCP_RESULT_SUCCESS;
-    
+
     return MCP_RESULT_SUCCESS;
 }
 
 // LED闪烁控制处理函数
 static mcp_result_t led_blink_handler(const mcp_context_t *ctx, mcp_response_t *response)
 {
+    LISA_LOGI(TAG, "%s---", __func__);
+
     if (!ctx || !response) {
         return MCP_RESULT_INVALID_PARAM;
     }
@@ -100,17 +130,55 @@ static mcp_result_t led_blink_handler(const mcp_context_t *ctx, mcp_response_t *
     }
 
     if (!mode) {
-        response->content = cJSON_CreateString("错误：缺少必需的 mode 参数");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "错误：缺少必需的 mode 参数");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_INVALID_PARAM;
         return MCP_RESULT_INVALID_PARAM;
     }
 
     // 验证闪烁模式
-    if (strcmp(mode, "off") != 0 && 
-        strcmp(mode, "normal") != 0 && 
-        strcmp(mode, "fast") != 0 && 
+    if (strcmp(mode, "off") != 0 &&
+        strcmp(mode, "normal") != 0 &&
+        strcmp(mode, "fast") != 0 &&
         strcmp(mode, "slow") != 0) {
-        response->content = cJSON_CreateString("错误：mode 只能是 'off'、'normal'、'fast' 或 'slow'");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "错误：mode 只能是 'off'、'normal'、'fast' 或 'slow'");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_INVALID_PARAM;
         return MCP_RESULT_INVALID_PARAM;
     }
@@ -139,66 +207,211 @@ static mcp_result_t led_blink_handler(const mcp_context_t *ctx, mcp_response_t *
         } else {
             app_led_off();
         }
-        response->content = cJSON_CreateString("LED闪烁已停止");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "LED闪烁已停止");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_SUCCESS;
         return MCP_RESULT_SUCCESS;
     }
 
     LISA_LOGI(TAG, "LED blink mode changed from %s to %s", old_mode, led_blink_mode);
-    
-    char result_msg[256];
-    if (strcmp(mode, "off") == 0) {
-        snprintf(result_msg, sizeof(result_msg), "LED闪烁已关闭");
-    } else {
-        const char *mode_desc = "普通";
-        if (strcmp(mode, "fast") == 0) {
-            mode_desc = "快速";
-        } else if (strcmp(mode, "slow") == 0) {
-            mode_desc = "慢速";
-        }
-        snprintf(result_msg, sizeof(result_msg), "LED已设置为%s闪烁", mode_desc);
+
+    // 创建content数组
+    cJSON *content_array = cJSON_CreateArray();
+    if (!content_array) {
+        response->result = MCP_RESULT_ERROR;
+        return MCP_RESULT_ERROR;
     }
-    
-    response->content = cJSON_CreateString(result_msg);
+
+    // 创建text item
+    cJSON *text_item = cJSON_CreateObject();
+    if (!text_item) {
+        cJSON_Delete(content_array);
+        response->result = MCP_RESULT_ERROR;
+        return MCP_RESULT_ERROR;
+    }
+
+    cJSON_AddStringToObject(text_item, "type", "text");
+    cJSON_AddStringToObject(text_item, "text", "已完成操作");
+    cJSON_AddItemToArray(content_array, text_item);
+
+    response->content = content_array;
     response->result = MCP_RESULT_SUCCESS;
-    
+
     return MCP_RESULT_SUCCESS;
 }
 
-// LED开关工具参数定义
-static mcp_param_def_t led_switch_params[] = {
-    MCP_PARAM_DEF("action", MCP_PARAM_STRING, true, 
-                  "LED开关操作，可以是 'on'、'turn_on'、'off' 或 'turn_off'", 
-                  NULL),
-    MCP_PARAM_DEF_END
-};
+/**
+ * @brief 生成LED开关工具的参数 Schema
+ *
+ * @return cJSON对象指针，失败返回NULL
+ */
+cJSON* generate_led_switch_schema(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        LISA_LOGE(TAG, "Failed to create root object for led_switch schema");
+        return NULL;
+    }
 
-// LED闪烁工具参数定义
-static mcp_param_def_t led_blink_params[] = {
-    MCP_PARAM_DEF("mode", MCP_PARAM_STRING, true, 
-                  "LED闪烁模式，可以是 'off'、'normal'、'fast' 或 'slow'", 
-                  NULL),
-    MCP_PARAM_DEF_END
-};
+    if (!cJSON_AddStringToObject(root, "type", "object")) {
+        LISA_LOGE(TAG, "Failed to add type to led_switch schema");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON *properties = cJSON_CreateObject();
+    if (!properties) {
+        LISA_LOGE(TAG, "Failed to create properties object");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    // value 参数
+    cJSON *value_prop = cJSON_CreateObject();
+    if (!value_prop) {
+        LISA_LOGE(TAG, "Failed to create value property");
+        cJSON_Delete(properties);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    if (!cJSON_AddStringToObject(value_prop, "type", "boolean") ||
+        !cJSON_AddStringToObject(value_prop, "description", "LED开关状态，打开为true，关闭为false")) {
+        LISA_LOGE(TAG, "Failed to add value property fields");
+        cJSON_Delete(value_prop);
+        cJSON_Delete(properties);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    cJSON_AddItemToObject(properties, "value", value_prop);
+
+    cJSON_AddItemToObject(root, "properties", properties);
+
+    // required 数组
+    cJSON *required = cJSON_CreateArray();
+    if (!required) {
+        LISA_LOGE(TAG, "Failed to create required array");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON *value_str = cJSON_CreateString("value");
+    if (!value_str) {
+        LISA_LOGE(TAG, "Failed to create value string for required array");
+        cJSON_Delete(required);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    cJSON_AddItemToArray(required, value_str);
+    cJSON_AddItemToObject(root, "required", required);
+
+    return root;
+}
+
+/**
+ * @brief 生成LED闪烁工具的参数 Schema
+ *
+ * @return cJSON对象指针，失败返回NULL
+ */
+cJSON* generate_led_blink_schema(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        LISA_LOGE(TAG, "Failed to create root object for led_blink schema");
+        return NULL;
+    }
+
+    if (!cJSON_AddStringToObject(root, "type", "object")) {
+        LISA_LOGE(TAG, "Failed to add type to led_blink schema");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON *properties = cJSON_CreateObject();
+    if (!properties) {
+        LISA_LOGE(TAG, "Failed to create properties object");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    // mode 参数
+    cJSON *mode_prop = cJSON_CreateObject();
+    if (!mode_prop) {
+        LISA_LOGE(TAG, "Failed to create mode property");
+        cJSON_Delete(properties);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    if (!cJSON_AddStringToObject(mode_prop, "type", "string") ||
+        !cJSON_AddStringToObject(mode_prop, "description", "LED闪烁模式，可以是 'off'、'normal'、'fast' 或 'slow'")) {
+        LISA_LOGE(TAG, "Failed to add mode property fields");
+        cJSON_Delete(mode_prop);
+        cJSON_Delete(properties);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    cJSON_AddItemToObject(properties, "mode", mode_prop);
+
+    cJSON_AddItemToObject(root, "properties", properties);
+
+    // required 数组
+    cJSON *required = cJSON_CreateArray();
+    if (!required) {
+        LISA_LOGE(TAG, "Failed to create required array");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON *mode_str = cJSON_CreateString("mode");
+    if (!mode_str) {
+        LISA_LOGE(TAG, "Failed to create mode string for required array");
+        cJSON_Delete(required);
+        cJSON_Delete(root);
+        return NULL;
+    }
+    cJSON_AddItemToArray(required, mode_str);
+    cJSON_AddItemToObject(root, "required", required);
+
+    return root;
+}
 
 // 注册LED开关控制工具
-MCP_REGISTER_TOOL_STATIC(led_switch, 
-                         "控制LED开关状态，可以是开启或关闭", 
-                         "1.0", 
-                         led_switch_params, 
-                         1, 
-                         led_switch_handler, 
-                         false, 
+MCP_REGISTER_TOOL_STATIC(led_switch,
+                         "ls.led_switch",
+                         "控制LED开关状态，可以是开启或关闭",
+                         "1.0",
+                         generate_led_switch_schema,
+                         1,
+                         led_switch_handler,
+                         false,
                          NULL);
 
 // 注册LED闪烁控制工具
-MCP_REGISTER_TOOL_STATIC(led_blink, 
-                         "控制LED闪烁模式，可以是关闭、普通、快速或慢速", 
-                         "1.0", 
-                         led_blink_params, 
-                         1, 
-                         led_blink_handler, 
-                         false, 
+MCP_REGISTER_TOOL_STATIC(led_blink,
+                         "ls.led_blink",
+                         "控制LED闪烁模式，可以是关闭、普通、快速或慢速",
+                         "1.0",
+                         generate_led_blink_schema,
+                         1,
+                         led_blink_handler,
+                         false,
                          NULL);
 
 int get_led_state(void)

@@ -429,6 +429,7 @@ int camera_start(void)
 
 int camera_stop(void)
 {
+    if(s_state == NULL) return -1;
     s_state->cam_xfer->ops->cam_xfer_stop();
     if (s_state->sensor.stop) {
         s_state->sensor.stop(&s_state->sensor);
@@ -505,5 +506,6 @@ int camera_get_sensor_reg(int reg, int* value,  int mask)
 void camera_senor_release(void)
 {
     sensor_twi_exit();
-    memset(&s_state->sensor, 0, sizeof(s_state->sensor));
+    if (s_state)
+        memset(&s_state->sensor, 0, sizeof(s_state->sensor));
 }

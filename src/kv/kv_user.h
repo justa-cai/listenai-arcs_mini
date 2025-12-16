@@ -6,7 +6,7 @@
 #define KV_KEY_APPID            "user.appid"
 #define KV_KEY_APPKEY           "user.appkey"
 #define KV_KEY_TOKEN            "user.token"
-#define KV_KEY_STAGING          "user.staging"
+#define KV_KEY_STAGING          "user.device_mode"
 #define KV_KEY_INTERACTIVE_MODE "user.intmode"
 #define KV_KEY_USER_VOLUME      "user.volume"
 #define KV_KEY_USER_BRIGHTNESS  "user.brightness"

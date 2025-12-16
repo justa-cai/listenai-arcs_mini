@@ -35,12 +35,17 @@
 #define AIUI_PORT "80"
 #define AIUI_SCHEME "ws"
 
-#define AIUI_HOST                   "api.listenai.com"
-#define AIUI_TOKEN_URL              "http://api.listenai.com/v1/auth/tokens"
+#define AIUI_HOST                       "api.listenai.com"
+#define AIUI_HOST_STAGING_PREFIX        "staging-"
+#define AIUI_HOST_INTEGRATION_PREFIX    "integration-"
 
-#define AIUI_HOST_STAGING           "staging-api.listenai.com"
-#define AIUI_TOKEN_URL_STAGING      "http://staging-api.listenai.com/v1/auth/tokens"
+// API路径定义
+#define AIUI_PATH_TOKEN             "/v1/auth/tokens"
+#define AIUI_PATH_KUWO_ACTIVE       "/v1/kuwo/active"
+#define AIUI_PATH_KUWO_TRANKLINK    "/v1/kuwo/tranklink"
+#define AIUI_PATH_INTERACTION       "/v1/interaction"
 
+#define CONFIG_MCP_V2       1
 
 lisa_aiui_t *s_lisa_aiui = NULL;
 #define DEFAULT_INTERACTIVE_MODE    INTER_ONESHOT
@@ -90,22 +95,31 @@ int lisa_aiui_set_interactive_mode(lisa_aiui_interactive_mode_e mode)
     return 0;
 }
 
-bool lisa_aiui_is_staging_mode_enable(void)
+//0:生产环境，1：测试环境，2：研发环境
+int lisa_aiui_get_device_mode(void)
 {
 	int r;
-	int staging_mode = 0;
+	int device_mode = 0;
 
-	r = lisa_kv_get_int(KV_KEY_STAGING, &staging_mode);
+	r = lisa_kv_get_int(KV_KEY_STAGING, &device_mode);
 	if (r != 0) {
-		staging_mode = 0;
+		device_mode = 0;
 	}
+	LISA_LOGI(TAG, "device mode: %d", device_mode);
 
-	LISA_LOGI(TAG, "staging mode: %d", staging_mode);
+	return device_mode;
+}
 
-	if(staging_mode == 1) {
-		return true;
-	}
-	return false;
+// Helper function to build API URL based on staging mode
+static void build_api_url(char *url_buffer, size_t buffer_size, const char *path)
+{
+    if (!lisa_aiui_get_device_mode()) {
+        snprintf(url_buffer, buffer_size, "http://%s%s", AIUI_HOST, path);
+    }else if (1 == lisa_aiui_get_device_mode()) {
+        snprintf(url_buffer, buffer_size, "http://%s%s%s", AIUI_HOST_STAGING_PREFIX, AIUI_HOST, path);
+    } else if (2 == lisa_aiui_get_device_mode()) {
+        snprintf(url_buffer, buffer_size, "http://%s%s%s", AIUI_HOST_INTEGRATION_PREFIX, AIUI_HOST, path);
+    }
 }
 
 void update_device_id(void)
@@ -283,17 +297,16 @@ static char * aiui_generate_token(const char *product_id, const char *secret_id,
     sprintf(req_body, "{\"productId\": \"%s\",\"deviceId\": \"%s\",\"curtime\": %s, \"checksum\": \"%s\"}",
             product_id, device_id, current_time, md5_hex_string);
 
+    static char token_url[128];
+    build_api_url(token_url, sizeof(token_url), AIUI_PATH_TOKEN);
+
     lisa_http_request_t req = {0};
     req.method = LISA_HTTP_POST;
-    if (lisa_aiui_is_staging_mode_enable()) {
-        req.url = AIUI_TOKEN_URL_STAGING;
-    } else {
-        req.url = AIUI_TOKEN_URL;
-    }
+    req.url = (uint8_t *)token_url;
     req.timeout = 10;
     req.on_data = http_aiui_token_on_data;
     req.body = req_body;
-    req.body_len = strlen(req.body);
+    req.body_len = strlen(req_body);
     req.headers = (uint8_t *)http_client_get_headers;
 
     lisa_http_t *http = lisa_http_init(&req);
@@ -323,8 +336,13 @@ static char * aiui_generate_token(const char *product_id, const char *secret_id,
 
 static char *aiui_generate_url(void)
 {
-#define ONESHOT_PARAMS      "{\"scene\":\"main\", \"mcp\": \"true\"}"
-#define CONTINUE_PARAMS     "{\"scene\":\"main\", \"type\": \"fullduplex\", \"mcp\": \"true\"}"
+    #define ONESHOT_PARAMS      "{\"scene\":\"main\", \"mcp\": \"true\"}"
+    #if CONFIG_MCP_V2
+        #define CONTINUE_PARAMS     "{\"scene\":\"main\", \"type\": \"fullduplex\", \"mcp\": \"true\", \"tool_protocol_version\": \"v2\"}"
+    #else
+        #define CONTINUE_PARAMS     "{\"scene\":\"main\", \"type\": \"fullduplex\", \"mcp\": \"true\"}"
+    #endif
+
     char *params = (lisa_aiui_get_interactive_mode() == INTER_ONESHOT) ?
                                                         ONESHOT_PARAMS : CONTINUE_PARAMS;
 	LISA_LOGI(TAG, "[%s]params: %s", __func__, params);
@@ -333,7 +351,7 @@ static char *aiui_generate_url(void)
         LISA_LOGE(TAG, "encode base64 error %s", params_base64);
     }
 
-    const char *ws_base_path = "/v1/interaction?param=";
+    const char *ws_base_path = AIUI_PATH_INTERACTION "?param=";
 
     char *ws_path = lisa_mem_calloc(1, strlen(ws_base_path) + strlen(params_base64) + 1);
     sprintf(ws_path, "%s%s", ws_base_path, params_base64);
@@ -455,13 +473,30 @@ void lisa_aiui_clear_token(void)
 {
 }
 
+static int token_fail_func(void *arg)
+{
+    app_cloud_token_error();
+    extern int play_auth_failed_audio(void);
+    play_auth_failed_audio();
+}
+
+static void token_fail_msg(void)
+{
+	LISA_LOGI(TAG, "token_fail_msg ---");
+
+	evs_handler_post_runnable(token_fail_func, NULL);
+}
+
 lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
 {
-    if (lisa_aiui_is_staging_mode_enable()) {
-        LISA_LOGI(TAG, "Using staging path mode");
-    } else {
+    if (!lisa_aiui_get_device_mode()) {
         LISA_LOGI(TAG, "Using production path mode");
+    }else if (1 == lisa_aiui_get_device_mode()) {
+        LISA_LOGI(TAG, "Using staging path mode");
+    } else if (2 == lisa_aiui_get_device_mode()) {
+        LISA_LOGI(TAG, "Using integration path mode");
     }
+
 	// 生成url
     if (update_token) {
         lisa_aiui_clear_token();
@@ -470,7 +505,7 @@ lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
 	LISA_LOGI(TAG, "is need refresh token: %d", update_token);
     int ret = aiui_update_auto_header(handle, update_token);
     if (ret) {
-        assist_controller_trigger_event(CONTROLLER_EVENT_OPT_AUTH_FAILED, NULL, 0);
+        token_fail_msg();
         return LISA_FAIL;
     }
 
@@ -482,11 +517,17 @@ lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
 	ws_req.on_data = get_ws_data_cb;
 	ws_req.on_event = get_ws_event_cb;
 	ws_req.user = NULL;
-    if (lisa_aiui_is_staging_mode_enable()) {
-        ws_req.host = AIUI_HOST_STAGING;
-    } else {
-        ws_req.host = AIUI_HOST;
+    static char ws_host[64];
+
+    if (!lisa_aiui_get_device_mode()) {
+        snprintf(ws_host, sizeof(ws_host), "%s", AIUI_HOST);
+    }else if (1 == lisa_aiui_get_device_mode()) {
+        snprintf(ws_host, sizeof(ws_host), "%s%s", AIUI_HOST_STAGING_PREFIX, AIUI_HOST);
+    } else if (2 == lisa_aiui_get_device_mode()) {
+        snprintf(ws_host, sizeof(ws_host), "%s%s", AIUI_HOST_INTEGRATION_PREFIX, AIUI_HOST);
     }
+
+    ws_req.host = (uint8_t *)ws_host;
 	ws_req.scheme = AIUI_SCHEME;
 	ws_req.port = AIUI_PORT;
 	ws_req.path = url;
@@ -983,9 +1024,12 @@ lisa_err_t lisa_aiui_active(void)
     LISA_LOGI(TAG, "auth_token: %s", s_lisa_aiui->auth_token);
     LISA_LOGI(TAG, "auth_header: %s", s_lisa_aiui->auth_header ? s_lisa_aiui->auth_header : "NULL");
 
+    static char kuwo_active_url[128];
+    build_api_url(kuwo_active_url, sizeof(kuwo_active_url), AIUI_PATH_KUWO_ACTIVE);
+
     lisa_http_request_t req = {0};
     req.method = LISA_HTTP_POST;
-    req.url = "http://api.listenai.com/v1/kuwo/active";
+    req.url = (uint8_t *)kuwo_active_url;
     req.timeout = 3;
     req.on_data = _http_on_data;
     req.body = NULL;
@@ -1103,9 +1147,12 @@ void ls_req_url(const char *item_id, char *url)
 
     char *req_body = cJSON_Print(jsonItem);
 
+    static char tranklink_url[128];
+    build_api_url(tranklink_url, sizeof(tranklink_url), AIUI_PATH_KUWO_TRANKLINK);
+
     lisa_http_request_t req = {0};
     req.method = LISA_HTTP_POST;
-    req.url = "http://api.listenai.com/v1/kuwo/tranklink";
+    req.url = (uint8_t *)tranklink_url;
     req.timeout = 3;
     req.on_data = _http_music_req_url_data;
     req.body = req_body;

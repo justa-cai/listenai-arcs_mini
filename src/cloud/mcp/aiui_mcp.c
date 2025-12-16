@@ -532,19 +532,8 @@ static mcp_result_t _validate_tool_def(const mcp_tool_def_t *tool_def)
         return MCP_RESULT_INVALID_PARAM;
     }
 
-    if (tool_def->input_count > 0 && !tool_def->input_schema) {
-        LISA_LOGE(TAG, "Input schema required when input_count > 0");
-        return MCP_RESULT_INVALID_PARAM;
-    }
-
-    // 验证参数定义
-    for (uint32_t i = 0; i < tool_def->input_count; i++) {
-        const mcp_param_def_t *param_def = &tool_def->input_schema[i];
-        if (!param_def->name || strlen(param_def->name) == 0) {
-            LISA_LOGE(TAG, "Parameter name cannot be empty");
-            return MCP_RESULT_INVALID_PARAM;
-        }
-    }
+    // Schema generator function is optional (tools with no parameters don't need it)
+    // Parameter validation is now handled by schema generation and cloud-side validation
 
     return MCP_RESULT_SUCCESS;
 }
@@ -555,75 +544,10 @@ static mcp_result_t _validate_params(const mcp_tool_def_t *tool_def, const mcp_p
         return MCP_RESULT_INVALID_PARAM;
     }
 
-    // 检查必需参数
-    for (uint32_t i = 0; i < tool_def->input_count; i++) {
-        const mcp_param_def_t *param_def = &tool_def->input_schema[i];
-        if (param_def->required) {
-            bool found = false;
-            for (uint32_t j = 0; j < param_count; j++) {
-                if (params[j].name && strcmp(params[j].name, param_def->name) == 0) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                LISA_LOGE(TAG, "Required parameter '%s' not provided", param_def->name);
-                return MCP_RESULT_INVALID_PARAM;
-            }
-        }
-    }
-
-    // 检查参数类型匹配
-    for (uint32_t i = 0; i < param_count; i++) {
-        const mcp_param_t *param = &params[i];
-        if (!param->name) {
-            continue;
-        }
-
-        // 查找参数定义
-        const mcp_param_def_t *param_def = NULL;
-        for (uint32_t j = 0; j < tool_def->input_count; j++) {
-            if (strcmp(tool_def->input_schema[j].name, param->name) == 0) {
-                param_def = &tool_def->input_schema[j];
-                break;
-            }
-        }
-
-        if (!param_def) {
-            LISA_LOGW(TAG, "Unknown parameter '%s' provided", param->name);
-            continue;
-        }
-
-        // 验证参数类型
-        if (param->value) {
-            bool type_valid = false;
-            switch (param_def->type) {
-                case MCP_PARAM_STRING:
-                    type_valid = cJSON_IsString(param->value);
-                    break;
-                case MCP_PARAM_INTEGER:
-                    type_valid = cJSON_IsNumber(param->value);
-                    break;
-                case MCP_PARAM_BOOLEAN:
-                    type_valid = cJSON_IsBool(param->value);
-                    break;
-                case MCP_PARAM_OBJECT:
-                    type_valid = cJSON_IsObject(param->value);
-                    break;
-                case MCP_PARAM_ARRAY:
-                    type_valid = cJSON_IsArray(param->value);
-                    break;
-                default:
-                    type_valid = false;
-                    break;
-            }
-
-            if (!type_valid) {
-                LISA_LOGE(TAG, "Parameter '%s' type mismatch", param->name);
-                return MCP_RESULT_INVALID_PARAM;
-            }
-        }
-    }
+    // Parameter validation is now handled by:
+    // 1. JSON Schema validation on the cloud side
+    // 2. Individual tool handler parameter validation
+    // This function is kept for interface compatibility but no longer performs detailed validation
 
     return MCP_RESULT_SUCCESS;
 }

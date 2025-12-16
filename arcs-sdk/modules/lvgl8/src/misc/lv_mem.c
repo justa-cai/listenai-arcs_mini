@@ -98,8 +98,12 @@ void lv_mem_init(void)
 #else
     tlsf = lv_tlsf_create_with_pool((void *)LV_MEM_ADR, LV_MEM_SIZE);
 #endif
+#else
+    int r = lvgl_port_mem_init();
+    if(r != 0) {
+        LV_LOG_ERROR("failed to init custom memory");
+    }
 #endif
-
 #if LV_MEM_ADD_JUNK
     LV_LOG_WARN("LV_MEM_ADD_JUNK is enabled which makes LVGL much slower");
 #endif

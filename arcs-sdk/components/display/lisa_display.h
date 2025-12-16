@@ -250,6 +250,7 @@ int lisa_display_sleep(const struct display_device *dev, const uint8_t onoff);
  */
 const struct display_device *lisa_display_get(void);
 
+int get_display_brightness(void);
 #ifdef __cplusplus
 }
 #endif

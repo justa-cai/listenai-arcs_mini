@@ -164,6 +164,19 @@ int assistant_view_hide_camera_image(void);
  * @return false - 不应显示电池图标（ADC电压 < 500mV，可能电池未连接）
  */
 bool get_show_battery_status(void);
+// 更新并显示二维码
+int assistant_view_update_qrcode(const char *url, const char *message, const char *err_code);
+/**
+ * @brief 获取电池图标显示状态
+ *
+ * 此函数用于查询当前是否应该显示电池图标。
+ * 当ADC采样电压低于500mV时，认为电池未连接或电压异常，
+ * 不应显示电池图标，以避免误导用户。
+ *
+ * @return true  - 应该显示电池图标（ADC电压 >= 500mV）
+ * @return false - 不应显示电池图标（ADC电压 < 500mV，可能电池未连接）
+ */
+bool get_show_battery_status(void);
 
 #ifdef __cplusplus
 }
