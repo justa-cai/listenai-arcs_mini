@@ -461,87 +461,12 @@ cJSON *mcp_integration_handle_tools_list(const cJSON *list_msg)
                         cJSON_AddStringToObject(tool_obj, "description", "No description available");
                     }
                     
+                    if (tool_defs[i]->input_schema) {
                     // 添加标准的 JSON Schema 输入参数模式
-                    cJSON *input_schema = cJSON_CreateObject();
-                    if (input_schema) {
-                        cJSON_AddStringToObject(input_schema, "type", "object");
-                        
-                        // 添加属性定义
-                        cJSON *properties = cJSON_CreateObject();
-                        cJSON *required_array = cJSON_CreateArray();
-                        
-                        if (properties && required_array) {
-                            // 遍历工具参数定义生成 Schema
-                            for (uint32_t j = 0; j < tool_defs[i]->input_count; j++) {
-                                const mcp_param_def_t *param = &tool_defs[i]->input_schema[j];
-                                if (param->name && strlen(param->name) > 0) {
-                                    cJSON *param_schema = cJSON_CreateObject();
-                                    if (param_schema) {
-                                        // 添加参数类型
-                                        switch (param->type) {
-                                            case MCP_PARAM_STRING:
-                                                cJSON_AddStringToObject(param_schema, "type", "string");
-                                                break;
-                                            case MCP_PARAM_INTEGER:
-                                                cJSON_AddStringToObject(param_schema, "type", "integer");
-                                                // 添加最小/最大值约束
-                                                if (param->has_min_max) {
-                                                    cJSON_AddNumberToObject(param_schema, "minimum", param->minimum);
-                                                    cJSON_AddNumberToObject(param_schema, "maximum", param->maximum);
-                                                }
-                                                break;
-                                            case MCP_PARAM_BOOLEAN:
-                                                cJSON_AddStringToObject(param_schema, "type", "boolean");
-                                                break;
-                                            case MCP_PARAM_OBJECT:
-                                                cJSON_AddStringToObject(param_schema, "type", "object");
-                                                break;
-                                            case MCP_PARAM_ARRAY:
-                                                cJSON_AddStringToObject(param_schema, "type", "array");
-                                                break;
-                                            default:
-                                                cJSON_AddStringToObject(param_schema, "type", "string");
-                                                break;
-                                        }
-                                        
-                                        // 添加描述
-                                        if (param->description) {
-                                            cJSON_AddStringToObject(param_schema, "description", param->description);
-                                        }
-                                        
-                                        // 添加默认值
-                                        if (param->default_value) {
-                                            cJSON_AddStringToObject(param_schema, "default", param->default_value);
-                                        }
-                                        
-                                        // 添加到属性对象
-                                        cJSON_AddItemToObject(properties, param->name, param_schema);
-                                        
-                                        // 如果是必需参数，添加到 required 数组
-                                        if (param->required) {
-                                            cJSON_AddItemToArray(required_array, cJSON_CreateString(param->name));
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            cJSON_AddItemToObject(input_schema, "properties", properties);
-                            
-                            // 只有当有必需参数时才添加 required 数组
-                            if (cJSON_GetArraySize(required_array) > 0) {
-                                cJSON_AddItemToObject(input_schema, "required", required_array);
-                            } else {
-                                cJSON_Delete(required_array);
-                            }
-                            
-                            // 不允许额外属性
-                            cJSON_AddBoolToObject(input_schema, "additionalProperties", false);
-                        } else {
-                            if (properties) cJSON_Delete(properties);
-                            if (required_array) cJSON_Delete(required_array);
-                        }
-                        
+                    cJSON *input_schema = tool_defs[i]->input_schema();
+                    if (input_schema) { 
                         cJSON_AddItemToObject(tool_obj, "inputSchema", input_schema);
+                    }
                     }
                     
                     cJSON_AddItemToArray(tools_array, tool_obj);
@@ -642,47 +567,55 @@ cJSON *mcp_integration_handle_tool_call(const cJSON *tool_msg)
     cJSON_AddStringToObject(response, "action", "mcp");
     cJSON_AddStringToObject(response, "method", "tools/call");
 
-    if (call_result == MCP_RESULT_SUCCESS) {
-        // 成功响应
-        cJSON *result = cJSON_CreateObject();
-        if (result) {
-            // 添加工具执行结果
+    // 成功响应
+    cJSON *result = cJSON_CreateObject();
+    if (result) {
+        // 创建 content 数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (content_array) {
+            // 如果 mcp_response.content 存在，将其内容提取到 content 数组中
             if (mcp_response.content) {
-                cJSON *content_copy = cJSON_Duplicate(mcp_response.content, true);
-                if (content_copy) {
-                    cJSON_AddItemToObject(result, "content", content_copy);
+                // 检查 content 是否已经是数组格式
+                if (cJSON_IsArray(mcp_response.content)) {
+                    // 直接复制数组内容
+                    cJSON *content_copy = cJSON_Duplicate(mcp_response.content, true);
+                    if (content_copy) {
+                        // 将复制的数组替换到 content_array
+                        cJSON_Delete(content_array);
+                        content_array = content_copy;
+                    }
+                } else {
+                    // 如果不是数组，包装为数组项
+                    cJSON *content_copy = cJSON_Duplicate(mcp_response.content, true);
+                    if (content_copy) {
+                        cJSON_AddItemToArray(content_array, content_copy);
+                    }
                 }
             } else {
-                cJSON_AddStringToObject(result, "content", "Tool executed successfully");
+                // 默认成功消息
+                cJSON *text_item = cJSON_CreateObject();
+                if (text_item) {
+                    cJSON_AddStringToObject(text_item, "type", "text");
+                    if (call_result == MCP_RESULT_SUCCESS) {
+                        cJSON_AddStringToObject(text_item, "text", "Tool executed successfully");
+                    } else {
+                        cJSON_AddStringToObject(text_item, "text", "Tool execution failed");
+                    }
+                    cJSON_AddItemToArray(content_array, text_item);
+                }
             }
 
-            // 添加执行时间
-            cJSON_AddNumberToObject(result, "executionTime", exec_time);
-            
-            // 添加工具名称
-            cJSON_AddStringToObject(result, "tool", tool_name);
-
-            cJSON_AddItemToObject(response, "result", result);
+            cJSON_AddItemToObject(result, "content", content_array);
         }
 
-        LISA_LOGI(TAG, "Tool call completed successfully: %s (ID: %s, time: %dms)", tool_name, call_id, exec_time);
-    } else {
-        // 错误响应
-        cJSON *error_result = cJSON_CreateObject();
-        if (error_result) {
-            cJSON_AddNumberToObject(error_result, "code", call_result);
-            
-            // 使用 MCP 响应中的错误信息，或提供默认错误信息
-            const char *error_msg = mcp_response.error_msg ? mcp_response.error_msg : "Tool execution failed";
-            cJSON_AddStringToObject(error_result, "message", error_msg);
-            
-            cJSON_AddStringToObject(error_result, "tool", tool_name);
-            cJSON_AddNumberToObject(error_result, "executionTime", exec_time);
-            
-            cJSON_AddItemToObject(response, "error", error_result);
+        if (call_result == MCP_RESULT_SUCCESS) {
+            // 添加 isError 标志
+            cJSON_AddBoolToObject(result, "isError", false);
+        } else {
+            cJSON_AddBoolToObject(result, "isError", true);
         }
 
-        LISA_LOGE(TAG, "Tool call failed: %s (ID: %s, result: %d, time: %dms)", tool_name, call_id, call_result, exec_time);
+        cJSON_AddItemToObject(response, "result", result);
     }
 
     // 清理资源

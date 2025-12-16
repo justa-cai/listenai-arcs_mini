@@ -167,6 +167,7 @@ void lv_port_disp_init(display_hw_config_t *config)
 {
     struct display_capabilities caps = {0};
 
+    lvgl_port_mem_init();
     /*-------------------------
      * Initialize your display
      * -----------------------*/

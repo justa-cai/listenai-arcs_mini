@@ -62,6 +62,7 @@
     #define LV_MEM_CUSTOM_ALLOC   lvgl_port_malloc
     #define LV_MEM_CUSTOM_FREE    lvgl_port_free
     #define LV_MEM_CUSTOM_REALLOC lvgl_port_realloc
+    #define LV_MEM_CUSTOM_INIT    lvgl_port_mem_init
 #endif     /*LV_MEM_CUSTOM*/
 
 /*Number of the intermediate memory buffer used during rendering and other internal processing mechanisms.

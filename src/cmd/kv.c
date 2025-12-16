@@ -15,12 +15,12 @@ static int kv_cmd_del(int argc, char **argv)
         char *key = argv[0];
 
         if (lisa_kv_del(key) == 0) {
-            printf("flash delete config: %s, success\n", key);
+            shellPrint(shellGetCurrent(),"flash delete config: %s, success\n", key);
         } else {
-            printf("flash has no config: %s\n", key);
+            shellPrint(shellGetCurrent(),"flash has no config: %s\n", key);
         }
     } else {
-        printf("flash clear no arg\n");
+        shellPrint(shellGetCurrent(),"flash clear no arg\n");
     }
     return 0;
 }
@@ -35,7 +35,7 @@ static int kv_cmd_show(int argc, char **argv)
 static int kv_cmd_set(int argc, char **argv)
 {
     if (argc < 3) {
-        printf("invalid index %d\n", argc);
+        shellPrint(shellGetCurrent(),"invalid index %d\n", argc);
         return -1;
     } else {
         char *type = argv[0];
@@ -43,26 +43,26 @@ static int kv_cmd_set(int argc, char **argv)
         char *value = argv[2];
         if (!strcmp(type, "string")) {
             if (lisa_kv_set_string(key, value) != 0) {
-                printf("flash set %s:%s failed\n", key, value);
+                shellPrint(shellGetCurrent(),"flash set %s:%s failed\n", key, value);
             } else {
-                printf("flash set %s:%s success\n", key, value);
+                shellPrint(shellGetCurrent(),"flash set %s:%s success\n", key, value);
             }
         } else if (!strcmp(type, "int")) {
             int int_temp = atoi(value);
             if (lisa_kv_set_int(key, int_temp) != 0) {
-                printf("flash set %s:%d failed\n", key, int_temp);
+                shellPrint(shellGetCurrent(),"flash set %s:%d failed\n", key, int_temp);
             } else {
-                printf("flash set %s:%d success\n", key, int_temp);
+                shellPrint(shellGetCurrent(),"flash set %s:%d success\n", key, int_temp);
             }
         } else if (!strcmp(type, "bool")) {
             int bool_temp = atoi(value);
             if (lisa_kv_set_bool(key, bool_temp) != 0) {
-                printf("flash set %s:%d failed\n", key, bool_temp);
+                shellPrint(shellGetCurrent(),"flash set %s:%d failed\n", key, bool_temp);
             } else {
-                printf("flash set %s:%d success\n", key, bool_temp);
+                shellPrint(shellGetCurrent(),"flash set %s:%d success\n", key, bool_temp);
             }
         } else {
-            printf("invalid type %s\n", type);
+            shellPrint(shellGetCurrent(),"invalid type %s\n", type);
             return -1;
         }
     }
@@ -72,7 +72,7 @@ static int kv_cmd_set(int argc, char **argv)
 static int kv_cmd_get(int argc, char **argv)
 {
     if (argc < 1) {
-        printf("invalid index %d\n", argc);
+        shellPrint(shellGetCurrent(),"invalid index %d\n", argc);
         return -1;
     } else {
         char *type = argv[0];
@@ -80,9 +80,16 @@ static int kv_cmd_get(int argc, char **argv)
         if (!strcmp(type, "string")) {
             char *str_value = NULL;
             if (lisa_kv_get_string(key, &str_value) != 0) {
-                printf("flash get %s failed\n", key);
+                shellPrint(shellGetCurrent(),"flash get %s failed\n", key);
             } else {
-                printf("flash get %s:%s success\n", key, str_value);
+                shellPrint(shellGetCurrent(), "flash get %s:", key);
+                int value_len = strlen(str_value);
+                for (int i = 0; i < value_len; i += SHELL_PRINT_BUFFER) {
+                    int chunk_len = (value_len - i >= SHELL_PRINT_BUFFER) ? 
+                                    SHELL_PRINT_BUFFER : (value_len - i);
+                    shellPrint(shellGetCurrent(), "%.*s", chunk_len, str_value + i);
+                }
+                shellPrint(shellGetCurrent(), " success\n");
             }
             if (NULL != str_value) {
                 lisa_mem_free(str_value);
@@ -90,19 +97,19 @@ static int kv_cmd_get(int argc, char **argv)
         } else if (!strcmp(type, "int")) {
             int int_value = 0;
             if (lisa_kv_get_int(key, &int_value) != 0) {
-                printf("flash get %s failed\n", key);
+                shellPrint(shellGetCurrent(),"flash get %s failed\n", key);
             } else {
-                printf("flash get %s:%d success\n", key, int_value);
+                shellPrint(shellGetCurrent(),"flash get %s:%d success\n", key, int_value);
             }
         } else if (!strcmp(type, "bool")) {
             bool bool_value = 0;
             if (lisa_kv_get_bool(key, &bool_value) != 0) {
-                printf("flash get %s failed\n", key);
+                shellPrint(shellGetCurrent(),"flash get %s failed\n", key);
             } else {
-                printf("flash get %s:%d success\n", key, bool_value);
+                shellPrint(shellGetCurrent(),"flash get %s:%d success\n", key, bool_value);
             }
         } else {
-            printf("invalid type\n");
+            shellPrint(shellGetCurrent(),"invalid type\n");
             return -1;
         }
     }
@@ -132,7 +139,7 @@ static int kv_cmd_help(int argc, char **argv)
     int cmd_len = sizeof(g_kv_cmds) / sizeof(g_kv_cmds[0]);
     for (int i = 0; i < cmd_len; i++) {
         if (g_kv_cmds[i].help != NULL) {
-            printf("%-17s\t:\t%s\n", g_kv_cmds[i].name, g_kv_cmds[i].help);
+            shellPrint(shellGetCurrent(),"%-17s\t:\t%s\n", g_kv_cmds[i].name, g_kv_cmds[i].help);
         }
     }
 

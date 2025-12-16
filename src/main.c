@@ -218,6 +218,7 @@ static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t
         LISA_LOGI(TAG, "power button repeat click count: %d", info->click_count);
         if (info->click_count >= 8) { /* 连击超过8下: 恢复出厂设置 */
             LISA_LOGI(TAG, "Do factory reset");
+            enter_audio_idle();
             factory_reset();
             wifi_mgr_sta_disconnect(false);
             extern int play_factory_reset_audio(void);
@@ -227,6 +228,7 @@ static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t
             enter_ble_config();
         } else if (info->click_count >= 5) { /* 连击超过5下: 进入BLE配置模式 */
             LISA_LOGI(TAG, "Do network reset");
+            enter_audio_idle();
             network_reset();
             wifi_mgr_sta_disconnect(false);
             extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);

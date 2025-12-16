@@ -33,6 +33,12 @@
 #include "display_ssd1683.h"
 #endif
 const struct display_device *dev = NULL;
+static int cur_brightness = 0;
+
+int get_display_brightness(void)
+{
+	return cur_brightness;
+}
 
 const struct display_device *lisa_display_get(void)
 {
@@ -169,6 +175,7 @@ int lisa_display_set_brightness(const struct display_device *dev, const uint8_t 
 	}
 
 	if (dev->api->display_set_brightness) {
+		cur_brightness = brightness;
 		return dev->api->display_set_brightness(brightness);
 	}
 

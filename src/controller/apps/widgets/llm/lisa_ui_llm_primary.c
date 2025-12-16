@@ -3,6 +3,7 @@
 #include "lisa_ui_llm_primary.h"
 #include "lisa_log.h"
 #include <string.h>
+#include "video/video_camera.h"
 
 static void emoji_timer_cb(lv_timer_t *timer);
 static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
@@ -160,7 +161,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     llm_primary->camera_img = lv_img_create(obj);
     lv_obj_add_flag(llm_primary->camera_img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(llm_primary->camera_img, LV_OBJ_FLAG_IGNORE_LAYOUT);
-    lv_obj_set_size(llm_primary->camera_img, 160, 120);
+    lv_obj_set_size(llm_primary->camera_img, DISPLAY_IMAGE_WIDTH, DISPLAY_IMAGE_HEIGHT);
     lv_obj_center(llm_primary->camera_img);
     lv_obj_move_foreground(llm_primary->camera_img);
     
@@ -474,11 +475,12 @@ void lisa_ui_llm_primary_show_camera_image(lv_obj_t *obj, const uint16_t *rgb565
     // lv_img_set_zoom(llm_primary->camera_img, 100);//比例*256
 
     // 设置图片位置：水平居中，垂直居中并向上偏移 15 像素
-    lv_obj_align(llm_primary->camera_img, LV_ALIGN_CENTER, 0, -15);
+    lv_obj_align(llm_primary->camera_img, LV_ALIGN_CENTER, 0, 15);
     lv_obj_move_foreground(llm_primary->camera_img);
     
     // 显示图片（移除隐藏标志）
     lv_obj_clear_flag(llm_primary->camera_img, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->content_label, LV_OBJ_FLAG_HIDDEN);
     
     // 强制刷新显示
     lv_obj_invalidate(llm_primary->camera_img);
@@ -501,6 +503,7 @@ void lisa_ui_llm_primary_hide_camera_image(lv_obj_t *obj)
     
     // 隐藏图片
     lv_obj_add_flag(llm_primary->camera_img, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(llm_primary->content_label, LV_OBJ_FLAG_HIDDEN);
     
     LOGI("Camera image hidden");
 }

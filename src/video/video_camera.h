@@ -10,6 +10,10 @@ extern "C" {
 #define CAMERA_IMAGE_HEIGHT 320
 #define CAMERA_IMAGE_SIZE   (IMAGE_WIDTH * IMAGE_HEIGHT * 2)  // RGB565格式
 
+//UI display图片尺寸
+#define DISPLAY_IMAGE_WIDTH  160
+#define DISPLAY_IMAGE_HEIGHT 180
+
 /**
  * @brief Initialize the camera video system
  * 

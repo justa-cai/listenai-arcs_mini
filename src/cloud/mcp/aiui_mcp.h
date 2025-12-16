@@ -109,13 +109,20 @@ typedef void (*mcp_completion_callback_t)(const char *call_id, const mcp_respons
 /* ==================== 工具定义结构 ==================== */
 
 /**
+ * @brief Schema generation function prototype
+ *
+ * @return cJSON* JSON Schema object (caller must free if needed)
+ */
+typedef cJSON* (*mcp_schema_generator_t)(void);
+
+/**
  * @brief MCP 工具定义
  */
 typedef struct {
     const char *name;                   /**< 工具名称 */
     const char *description;            /**< 工具描述 */
     const char *version;                /**< 工具版本 */
-    mcp_param_def_t *input_schema;      /**< 输入参数定义 */
+    mcp_schema_generator_t input_schema;/**< Schema生成函数 */
     uint32_t input_count;               /**< 输入参数数量 */
     mcp_tool_handler_t handler;         /**< 执行函数 */
     bool is_async;                      /**< 是否异步执行 */
@@ -294,19 +301,29 @@ void mcp_response_free(mcp_response_t *response);
 /* ==================== 静态注册宏定义 ==================== */
 
 /**
- * @brief 静态注册 MCP 工具的宏定义
- * 
- * 将工具定义直接放入 mcp_tool 段中，在系统初始化时统一注册
- * 
+ * @brief 注册MCP工具的宏（支持带点号的工具名)
+ *
+ * 该宏用于注册一个MCP工具到静态工具表中，支持工具名包含点号（如 ls.built_in.exit）。
+ *
+ * @param tool_variable 工具变量名（用作C标识符，不能包含点号）
+ * @param tool_name_str 工具名称（字符串字面量，如 "ls.built_in.exit"）
+ * @param desc 工具描述
+ * @param ver 工具版本
+ * @param input_func Schema生成函数
+ * @param input_cnt 输入参数数量
+ * @param handler_func 工具处理函数
+ * @param async 是否异步执行
+ * @param data 附加数据指针
+ *
  * 使用示例:
- * MCP_REGISTER_TOOL_STATIC(my_tool, "计算工具", "1.0", my_tool_params, 2, my_tool_handler, false, NULL);
+ * MCP_REGISTER_TOOL_STATIC(exit_skill, "ls.built_in.exit", "工具描述", "1.0", schema_func, 0, handler, false, NULL);
  */
-#define MCP_REGISTER_TOOL_STATIC(tool_name, desc, ver, input_params, input_cnt, handler_func, async, data) \
-    static const mcp_tool_def_t _mcp_tool_##tool_name __attribute__((used, section(".mcp_tool"))) = { \
-        .name = #tool_name, \
+#define MCP_REGISTER_TOOL_STATIC(tool_variable, tool_name_str, desc, ver, input_func, input_cnt, handler_func, async, data) \
+    static const mcp_tool_def_t _mcp_tool_##tool_variable __attribute__((used, section(".mcp_tool"))) = { \
+        .name = tool_name_str, \
         .description = desc, \
         .version = ver, \
-        .input_schema = input_params, \
+        .input_schema = input_func, \
         .input_count = input_cnt, \
         .handler = handler_func, \
         .is_async = async, \

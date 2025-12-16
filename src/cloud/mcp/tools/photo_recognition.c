@@ -29,6 +29,12 @@ extern const char *lisa_aiui_get_auth_token(void);
 
 #define TAG "photo_recognition"
 
+// Vision API路径定义
+#define VISION_API_HOST                 "api.listenai.com"
+#define VISION_API_STAGING_PREFIX       "staging-"
+#define AIUI_HOST_INTEGRATION_PREFIX    "integration-"
+#define VISION_API_PATH                 "/v1/device/assets"
+
 /**
  * @brief Convert HTTPS URL to HTTP URL (in-place)
  * @param url URL buffer (will be modified if starts with "https://")
@@ -66,17 +72,15 @@ static int convert_https_to_http(char *url, size_t max_len)
 #define API_UPLOAD_PATH "/v1/device/assets"
 #define API_UPLOAD_URL API_HOST API_UPLOAD_PATH
 
-// 图片尺寸使用video_camera.h中的定义
-
-//UI display图片尺寸
-#define DISPLAY_IMAGE_WIDTH  160
-#define DISPLAY_IMAGE_HEIGHT 120
 
 // 全局PSRAM缓冲区（用于UI显示，避免参数传递）
 __psram_bss__ static uint16_t g_camera_image_buffer[CAMERA_IMAGE_WIDTH * CAMERA_IMAGE_HEIGHT];  // RGB565格式
 static uint32_t g_camera_image_width = 0;
 static uint32_t g_camera_image_height = 0;
 static bool g_camera_image_ready = false;
+
+// 全局PSRAM缓冲区（用于旋转后的图片）
+__psram_bss__ static uint16_t g_rotated_buffer[CAMERA_IMAGE_WIDTH * CAMERA_IMAGE_HEIGHT];
 
 // 全局PSRAM缓冲区（用于存放UI display的图片）
 __psram_bss__ static uint16_t display_buffer[DISPLAY_IMAGE_WIDTH * DISPLAY_IMAGE_HEIGHT];
@@ -90,6 +94,31 @@ static char g_last_recognition_result[512] = {0};
 // HTTP headers全局变量（用于底层HTTP API回调）
 static char *g_auth_header = NULL;
 static volatile char *g_upload_headers = NULL;
+
+/**
+ * @brief Rotate RGB565 image 90 degrees counter-clockwise (left)
+ * @param src Source image buffer
+ * @param dst Destination image buffer
+ * @param width Source image width
+ * @param height Source image height
+ *
+ * After rotation: new_width = height, new_height = width
+ * Coordinate transformation: src(x, y) -> dst(y, width - 1 - x)
+ */
+static void rotate_rgb565_90_counter_clockwise(const uint16_t *src, uint16_t *dst, int width, int height)
+{
+    // 向左旋转90度（逆时针）：
+    // 原图坐标 (x, y) -> 新图坐标 (y, width - 1 - x)
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int src_index = y * width + x;
+            int dst_x = y;
+            int dst_y = width - 1 - x;
+            int dst_index = dst_y * height + dst_x;
+            dst[dst_index] = src[src_index];
+        }
+    }
+}
 
 /**
  * @brief Convert RGB565 to RGB24
@@ -229,20 +258,28 @@ static int photo_recognition_core(void)
     }
     LISA_LOGI(TAG, "Photo captured: %zu bytes RGB565", rgb565_size);
 
-    // 2. 拷贝RGB565数据到全局PSRAM缓冲区
+    // 2. 图片向左旋转90度 (原地旋转到 g_rotated_buffer)
+    rotate_rgb565_90_counter_clockwise(g_camera_image_buffer, g_rotated_buffer,
+                                       CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT);
+
+    // 将旋转后的图片拷贝回原缓冲区
     uint32_t expected_size = CAMERA_IMAGE_WIDTH * CAMERA_IMAGE_HEIGHT * 2;
     if (rgb565_size != expected_size) {
         LISA_LOGW(TAG, "RGB565 size mismatch: expected %u, got %zu", expected_size, rgb565_size);
     }
-    
-    // 更新全局状态
-    g_camera_image_width = CAMERA_IMAGE_WIDTH;
-    g_camera_image_height = CAMERA_IMAGE_HEIGHT;
-    g_camera_image_ready = true;
-    
-    LISA_LOGI(TAG, "RGB565 data copied to global buffer: %u bytes", expected_size);
+    memcpy(g_camera_image_buffer, g_rotated_buffer, expected_size);
 
-    image_compression(g_camera_image_buffer, CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT, display_buffer, DISPLAY_IMAGE_WIDTH, DISPLAY_IMAGE_HEIGHT);
+    // 更新全局状态（注意：旋转后宽高互换）
+    g_camera_image_width = CAMERA_IMAGE_HEIGHT;
+    g_camera_image_height = CAMERA_IMAGE_WIDTH;
+    g_camera_image_ready = true;
+
+    LISA_LOGI(TAG, "Image rotated 90° counter-clockwise: %ux%u",
+              g_camera_image_width, g_camera_image_height);
+
+    // 3. 缩放旋转后的图片用于UI显示（注意使用旋转后的宽高）
+    image_compression(g_camera_image_buffer, g_camera_image_width, g_camera_image_height,
+                     display_buffer, DISPLAY_IMAGE_WIDTH, DISPLAY_IMAGE_HEIGHT);
     // 3. 通过ebus事件通知UI显示图片
     assistant_view_show_camera_image(display_buffer, DISPLAY_IMAGE_WIDTH, DISPLAY_IMAGE_HEIGHT);
 
@@ -373,7 +410,7 @@ static int build_multipart_body(const uint8_t *jpg_data, uint32_t jpg_len, const
  * @param jpeg_size JPEG image size
  * @return 0 on success, -1 on failure
  */
-static int upload_jpeg_to_vision_api(const char *call_id, const uint8_t *jpeg_data, size_t jpeg_size)
+static int upload_jpeg_to_vision_api(const char *call_id, const uint8_t *jpeg_data, size_t jpeg_size, char *url)
 {
     int ret = -1;
     char *boundary = NULL;
@@ -383,22 +420,34 @@ static int upload_jpeg_to_vision_api(const char *call_id, const uint8_t *jpeg_da
     HTTPParameters *http_param = NULL;
     
     // Get vision config
-    vision_config_t vision_config;
-    if (vision_config_get(&vision_config) != 0) {
-        LISA_LOGE(TAG, "Vision config not available");
-        return -1;
+    // vision_config_t vision_config;
+    // if (vision_config_get(&vision_config) != 0) {
+    //     LISA_LOGE(TAG, "Vision config not available");
+    //     return -1;
+    // }
+
+    // // Convert HTTPS to HTTP if needed
+    // if (vision_config.url[0] != '\0') {
+    //     convert_https_to_http(vision_config.url, sizeof(vision_config.url));
+    // }
+
+    // Build fallback URL based on staging mode
+    char fallback_url[128] = {0};
+
+    if (!lisa_aiui_get_device_mode()) {
+        snprintf(fallback_url, sizeof(fallback_url), "http://%s%s", 
+                 VISION_API_HOST, VISION_API_PATH);
+    }else if (1 == lisa_aiui_get_device_mode()) {
+        snprintf(fallback_url, sizeof(fallback_url), "http://%s%s%s", 
+                 VISION_API_STAGING_PREFIX, VISION_API_HOST, VISION_API_PATH);
+    } else if (2 == lisa_aiui_get_device_mode()) {
+        snprintf(fallback_url, sizeof(fallback_url), "http://%s%s%s", 
+                 AIUI_HOST_INTEGRATION_PREFIX, VISION_API_HOST, VISION_API_PATH);
     }
+    // char *target_url = (vision_config.url[0] != '\0') ? vision_config.url : fallback_url;
+    // strcpy(url, fallback_url);
 
-    // Convert HTTPS to HTTP if needed
-    if (vision_config.url[0] != '\0') {
-        convert_https_to_http(vision_config.url, sizeof(vision_config.url));
-    }
-
-    // Fallback to staging URL
-    const char *fallback_url = "http://staging-api.listenai.com/v1/xiaoling/vision/explain?t=xiaoling";
-    const char *target_url = (vision_config.url[0] != '\0') ? vision_config.url : fallback_url;
-
-    LISA_LOGI(TAG, "Uploading JPEG (%zu bytes) to: %s", jpeg_size, target_url);
+    LISA_LOGI(TAG, "Uploading JPEG (%zu bytes) to: %s", jpeg_size, fallback_url);
     
     // 构造multipart/form-data body
     if (build_multipart_body(jpeg_data, (uint32_t)jpeg_size, call_id, &multipart_body, &multipart_len, &boundary) != 0) {
@@ -423,7 +472,7 @@ static int upload_jpeg_to_vision_api(const char *call_id, const uint8_t *jpeg_da
     }
     
     // Configure HTTP request (following reference code pattern)
-    strncpy(http_param->Uri, target_url, sizeof(http_param->Uri) - 1);
+    strncpy(http_param->Uri, fallback_url, sizeof(http_param->Uri) - 1);
     http_param->HttpVerb = VerbPost;
     http_param->nTimeout = 15;  // 
     http_param->pData = multipart_body;  // Direct pointer, no size limit
@@ -514,14 +563,26 @@ static int upload_jpeg_to_vision_api(const char *call_id, const uint8_t *jpeg_da
             if (json) {
                 cJSON *message = cJSON_GetObjectItem(json, "message");
                 if (cJSON_IsString(message) && message->valuestring) {
-                    if (strcmp(message->valuestring, "ok") == 0) {
-                        LISA_LOGI(TAG, "Upload successful (message=ok)");
+                    if (strcmp(message->valuestring, "上传成功") == 0) {
+                        LISA_LOGI(TAG, "Upload successful (message=上传成功)");
                         ret = 0;
                     } else {
                         LISA_LOGE(TAG, "Upload failed: message=%s", message->valuestring);
                     }
                 } else {
                     LISA_LOGE(TAG, "Upload failed: no valid message field in response");
+                }
+                cJSON *data = cJSON_GetObjectItem(json, "data");
+                if (data) {
+                    cJSON *photo_url = cJSON_GetObjectItem(data, "url");  // 从 data 对象中获取 url
+                    if (cJSON_IsString(photo_url) && photo_url->valuestring) {
+                        strcpy(url, photo_url->valuestring);
+                        LISA_LOGI(TAG, "Photo URL: %s", url);
+                    } else {
+                        LISA_LOGE(TAG, "No valid URL in data object");
+                    }
+                } else {
+                    LISA_LOGE(TAG, "No data object in response");
                 }
                 cJSON_Delete(json);
             } else {
@@ -561,6 +622,10 @@ exit:
  */
 static mcp_result_t photo_recognition_handler(const mcp_context_t *ctx, mcp_response_t *response)
 {
+    LISA_LOGI(TAG, "%s---", __func__);
+
+    char upload_url[128] = {0};
+
     if (!ctx || !response) {
         return MCP_RESULT_INVALID_PARAM;
     }
@@ -573,7 +638,26 @@ static mcp_result_t photo_recognition_handler(const mcp_context_t *ctx, mcp_resp
     // Check if vision config is available
     if (!vision_config_is_valid()) {
         LISA_LOGE(TAG, "Vision config not available, cannot perform recognition");
-        response->content = cJSON_CreateString("视觉识别功能未就绪，请稍后重试");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "视觉识别功能未就绪，请稍后重试");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_ERROR;
         return MCP_RESULT_ERROR;
     }
@@ -581,22 +665,60 @@ static mcp_result_t photo_recognition_handler(const mcp_context_t *ctx, mcp_resp
     // 调用核心逻辑（拍照）
     int ret = photo_recognition_core();
     if (ret != 0) {
-        response->content = cJSON_CreateString("拍照失败，请重试");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "拍照失败，请重试");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_ERROR;
         return MCP_RESULT_ERROR;
     }
 
     LISA_LOGI(TAG, "Photo captured: %dx%d", g_camera_image_width, g_camera_image_height);
 
-    // Convert RGB565 to RGB24
-    rgb565_to_rgb24(g_camera_image_buffer, g_rgb24_buffer, CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT);
-    
-    // Encode to JPEG (降低质量以减小文件大小，避免发送失败)
+    // Convert RGB565 to RGB24 (使用旋转后的宽高)
+    rgb565_to_rgb24(g_camera_image_buffer, g_rgb24_buffer, g_camera_image_width, g_camera_image_height);
+
+    // Encode to JPEG (降低质量以减小文件大小，避免发送失败，使用旋转后的宽高)
     uint8_t *jpeg_data = NULL;
     size_t jpeg_size = 0;
-    ret = encode_jpeg(g_rgb24_buffer, CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT, 50, &jpeg_data, &jpeg_size);
+    ret = encode_jpeg(g_rgb24_buffer, g_camera_image_width, g_camera_image_height, 50, &jpeg_data, &jpeg_size);
     if (ret != 0 || jpeg_data == NULL) {
-        response->content = cJSON_CreateString("图片编码失败");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "图片编码失败");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_ERROR;
         return MCP_RESULT_ERROR;
     }
@@ -611,21 +733,60 @@ static mcp_result_t photo_recognition_handler(const mcp_context_t *ctx, mcp_resp
     // Upload image to vision API (使用真实的tool_call_id)
     const char *call_id = ctx->call_id ? ctx->call_id : "unknown_call_id";
     LISA_LOGI(TAG, "Using tool_call_id: %s", call_id);
-    ret = upload_jpeg_to_vision_api(call_id, jpeg_data, jpeg_size);
+    ret = upload_jpeg_to_vision_api(call_id, jpeg_data, jpeg_size, upload_url);
 
     // 释放JPEG数据
     if (jpeg_data) {
         free(jpeg_data);
     }
-    
+
     if (ret != 0) {
-        response->content = cJSON_CreateString("图片上传失败");
+        // 创建content数组
+        cJSON *content_array = cJSON_CreateArray();
+        if (!content_array) {
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        // 创建text item
+        cJSON *text_item = cJSON_CreateObject();
+        if (!text_item) {
+            cJSON_Delete(content_array);
+            response->result = MCP_RESULT_ERROR;
+            return MCP_RESULT_ERROR;
+        }
+
+        cJSON_AddStringToObject(text_item, "type", "text");
+        cJSON_AddStringToObject(text_item, "text", "图片上传失败");
+        cJSON_AddItemToArray(content_array, text_item);
+
+        response->content = content_array;
         response->result = MCP_RESULT_ERROR;
         return MCP_RESULT_ERROR;
     }
 
     // 返回成功信息
-    response->content = cJSON_CreateString("拍照成功，正在识别中...");
+    // 创建content数组
+    cJSON *content_array = cJSON_CreateArray();
+    if (!content_array) {
+        response->result = MCP_RESULT_ERROR;
+        return MCP_RESULT_ERROR;
+    }
+
+    // 创建text item
+    cJSON *text_item = cJSON_CreateObject();
+    if (!text_item) {
+        cJSON_Delete(content_array);
+        response->result = MCP_RESULT_ERROR;
+        return MCP_RESULT_ERROR;
+    }
+    
+    cJSON_AddStringToObject(text_item, "type", "image");
+    cJSON_AddStringToObject(text_item, "data", upload_url);
+    cJSON_AddStringToObject(text_item, "mimeType", "url");
+    cJSON_AddItemToArray(content_array, text_item);
+
+    response->content = content_array;
     response->result = MCP_RESULT_SUCCESS;
 
     return MCP_RESULT_SUCCESS;
@@ -636,6 +797,8 @@ static mcp_result_t photo_recognition_handler(const mcp_context_t *ctx, mcp_resp
  */
 static mcp_result_t get_last_result_handler(const mcp_context_t *ctx, mcp_response_t *response)
 {
+    LISA_LOGI(TAG, "%s---", __func__);
+
     if (!ctx || !response) {
         return MCP_RESULT_INVALID_PARAM;
     }
@@ -643,42 +806,89 @@ static mcp_result_t get_last_result_handler(const mcp_context_t *ctx, mcp_respon
     LISA_LOGI(TAG, "Get last recognition result (not implemented yet)");
 
     // 返回未实现提示
-    response->content = cJSON_CreateString("暂无识图结果");
+    // 创建content数组
+    cJSON *content_array = cJSON_CreateArray();
+    if (!content_array) {
+        response->result = MCP_RESULT_ERROR;
+        return MCP_RESULT_ERROR;
+    }
+
+    // 创建text item
+    cJSON *text_item = cJSON_CreateObject();
+    if (!text_item) {
+        cJSON_Delete(content_array);
+        response->result = MCP_RESULT_ERROR;
+        return MCP_RESULT_ERROR;
+    }
+
+    cJSON_AddStringToObject(text_item, "type", "text");
+    cJSON_AddStringToObject(text_item, "text", "暂无识图结果");
+    cJSON_AddItemToArray(content_array, text_item);
+
+    response->content = content_array;
     response->result = MCP_RESULT_SUCCESS;
 
     return MCP_RESULT_SUCCESS;
 }
 
-// 拍照识图工具参数定义（无参数）
-static mcp_param_def_t photo_recognition_params[] = {
-    MCP_PARAM_DEF_END
-};
+/**
+ * @brief 生成拍照识图工具的参数 Schema
+ */
+cJSON* generate_photo_recognition_schema(void)
+{
+    cJSON *root = cJSON_CreateObject();
+    if (!root) {
+        LISA_LOGE(TAG, "Failed to create root object for photo_recognition schema");
+        return NULL;
+    }
 
-// 获取上次结果工具参数定义（无参数）
-static mcp_param_def_t get_last_result_params[] = {
-    MCP_PARAM_DEF_END
-};
+    if (!cJSON_AddStringToObject(root, "type", "object")) {
+        LISA_LOGE(TAG, "Failed to add type to photo_recognition schema");
+        cJSON_Delete(root);
+        return NULL;
+    }
+
+    cJSON *properties = cJSON_CreateObject();
+    if (!properties) {
+        LISA_LOGE(TAG, "Failed to create properties object");
+        cJSON_Delete(root);
+        return NULL;
+    }
+    cJSON_AddItemToObject(root, "properties", properties);
+
+    // 无 required 参数
+    cJSON *required = cJSON_CreateArray();
+    if (!required) {
+        LISA_LOGE(TAG, "Failed to create required array");
+        cJSON_Delete(root);
+        return NULL;
+    }
+    cJSON_AddItemToObject(root, "required", required);
+
+    return root;
+}
 
 // 注册拍照识图工具
-MCP_REGISTER_TOOL_STATIC(ls_take_photo,
-                         "照相工具，支持通过摄像头查看用户的外貌、衣着和展示的物品。例如：用户想让你看看发型是否合适、衣服搭配效果，或展示一件物品供你识别与评价；遇到这类场景可以使用此工具。"
-                         "该工具会调用摄像头拍照，然后使用AI模型识别图像中的物体、场景或文字内容。",
-                         "1.0",
-                         photo_recognition_params,
-                         0,  // 无参数
-                         photo_recognition_handler,
-                         false,
-                         NULL);
+MCP_REGISTER_TOOL_STATIC(take_photo,
+                          "ls.built_in.take_photo",
+                          "照相工具，支持通过摄像头查看用户的外貌、衣着和展示的物品。例如：用户想让你看看发型是否合适、衣服搭配效果，或展示一件物品供你识别与评价；遇到这类场景可以使用此工具。"
+                          "该工具会调用摄像头拍照，然后使用AI模型识别图像中的物体、场景或文字内容。",
+                          "1.0",
+                          generate_photo_recognition_schema,
+                          0,  // 无参数
+                          photo_recognition_handler,
+                          false,
+                          NULL);
 
-// 注册获取上次识图结果工具
-MCP_REGISTER_TOOL_STATIC(get_last_recognition,
-                         "获取上次拍照识图的结果。可以通过类似'刚才识别的是什么'、'上次拍照的结果'等方式触发。",
-                         "1.0",
-                         get_last_result_params,
-                         0,  // 无参数
-                         get_last_result_handler,
-                         false,
-                         NULL);
+// // 注册获取上次识图结果工具
+// MCP_REGISTER_TOOL_STATIC(get_last_recognition,
+//                          "获取上次拍照识图的结果。可以通过类似'刚才识别的是什么'、'上次拍照的结果'等方式触发。",
+//                          "1.0",
+//                          get_last_result_params,
+//                          0,  // 无参数
+//                          get_last_result_handler,
+//                          false,
+//                          NULL);
 
 const char* get_photo_recognition_result(void)
 {
@@ -704,15 +914,16 @@ int photo_recognition_trigger(void)
         return ret;
     }
     LISA_LOGI(TAG, "Photo capture completed successfully");
-    
-    LISA_LOGI(TAG, "Converting RGB565 to RGB24...");
-    rgb565_to_rgb24(g_camera_image_buffer, g_rgb24_buffer, CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT);
+
+    LISA_LOGI(TAG, "Converting RGB565 to RGB24 (using rotated dimensions: %ux%u)...",
+              g_camera_image_width, g_camera_image_height);
+    rgb565_to_rgb24(g_camera_image_buffer, g_rgb24_buffer, g_camera_image_width, g_camera_image_height);
     LISA_LOGI(TAG, "RGB565 to RGB24 conversion completed");
-    
+
     LISA_LOGI(TAG, "Encoding JPEG...");
     uint8_t *jpeg_data = NULL;
     size_t jpeg_size = 0;
-    ret = encode_jpeg(g_rgb24_buffer, CAMERA_IMAGE_WIDTH, CAMERA_IMAGE_HEIGHT, 85, &jpeg_data, &jpeg_size);
+    ret = encode_jpeg(g_rgb24_buffer, g_camera_image_width, g_camera_image_height, 85, &jpeg_data, &jpeg_size);
     if (ret != 0 || jpeg_data == NULL) {
         LISA_LOGE(TAG, "JPEG encoding failed");
         return -1;

@@ -168,4 +168,10 @@ lisa_err_t lisa_aiui_destroy(lisa_aiui_t *handle);
 
 int lisa_aiui_img_recognition(lisa_aiui_t *hd, const void *img_data, int img_len);
 
+/**
+ * @brief Check if staging mode is enabled
+ * 
+ * @return true if staging mode enabled, false otherwise
+ */
+int lisa_aiui_get_device_mode(void);
 #endif  //__LISA_AIUI_H__

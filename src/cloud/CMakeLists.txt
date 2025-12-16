@@ -15,11 +15,18 @@ listenai_library_sources(
     mcp/vision_config.c
     
     # MCP tools
+    mcp/tools/audio_url.c
     mcp/tools/brightness_control.c
     mcp/tools/emotion_control.c
+    mcp/tools/exit_skill.c
+    mcp/tools/kuwo_music.c
     mcp/tools/led_control.c
     mcp/tools/model_config_control.c
     mcp/tools/photo_recognition.c
+    mcp/tools/play_control.c
+    mcp/tools/show_image.c
+    mcp/tools/show_qrcode.c
+    mcp/tools/switch_full_duplex.c
     mcp/tools/version_info.c
     mcp/tools/volume_control.c
     
