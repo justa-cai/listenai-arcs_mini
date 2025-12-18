@@ -102,7 +102,7 @@ static mcp_result_t playback_control_handler(const mcp_context_t *ctx, mcp_respo
         LISA_LOGI(TAG, "Playback control: RESUME_PLAY");
         if (player->resumeByVoice) {
             listen_audioplayer_puse(player);
-		    music_control_msg(MUSIC_REPLAY);
+		    music_control_msg(MUSIC_RESUME_PLAY);
         } else {
             LISA_LOGW(TAG, "resumeByVoice function not available");
         }
@@ -142,7 +142,7 @@ static mcp_result_t playback_control_handler(const mcp_context_t *ctx, mcp_respo
         LISA_LOGI(TAG, "Playback control: REPLAY");
         if (player->replay) {
             listen_audioplayer_puse(player);
-		    music_control_msg(MUSIC_RESUME_PLAY);
+		    music_control_msg(MUSIC_REPLAY);
         } else {
             LISA_LOGW(TAG, "replay function not available");
         }
