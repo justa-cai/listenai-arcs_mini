@@ -145,6 +145,7 @@ static int update_wifi_state(page_view_t *view)
             break;
 
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
+        case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA:
             LISAUI_LOGD(TAG, "Mode %d: WiFi state change ignored", mode);
             break;
@@ -182,6 +183,7 @@ static int update_wakeup_state(page_view_t *view)
             break;
 
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
+        case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK:
             LISAUI_LOGD(TAG, "Mode %d: Wakeup event handled by staying in current page", mode);
             break;
@@ -340,6 +342,26 @@ static lisaui_page_t *create(lisaui_page_t *page)
             LISAUI_LOGI(TAG, "Display device ID: %s", device_id);
         } else {
             LISAUI_LOGW(TAG, "Failed to get device ID");
+        }
+        break;
+    case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
+        lv_obj_set_height(view->label, 20);
+        lv_obj_set_style_max_height(view->g_ble_qr_img, 180, 0);
+
+        LISAUI_USERDATA_WITH_LOCK(_userdata) {
+            if (_userdata->qrcode_inter.vip_label_text && strlen(_userdata->qrcode_inter.vip_label_text) > 0) {
+                lv_label_set_text(view->label, _userdata->qrcode_inter.vip_label_text);
+            } else {
+                lv_label_set_text(view->label, "扫码开通音乐年度VIP");
+            }
+
+            if (_userdata->qrcode_inter.vip_url && strlen(_userdata->qrcode_inter.vip_url) > 0) {
+                if (set_qr_image_src(view->g_ble_qr_img, _userdata->qrcode_inter.vip_url) != LV_RES_OK) {
+                    LISAUI_LOGE(TAG, "Failed to set VIP QR code image: %s", _userdata->qrcode_inter.vip_url);
+                }
+            } else {
+                LISAUI_LOGE(TAG, "VIP QR code resource does not exist");
+            }
         }
         break;
     case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
@@ -507,8 +529,10 @@ static lisaui_err_t show(lisaui_page_t *page)
     // 使用延时加载避免竞态条件
     lv_scr_load_anim(view->screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
     
-    // 启动10秒自动返回定时器
-    if ((!view->auto_return_timer) && (view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE)) {
+    // 启动10秒自动返回定时器（设备配置和年度VIP模式）
+    if ((!view->auto_return_timer) &&
+        (view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE ||
+         view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP)) {
         view->auto_return_timer = lv_timer_create(auto_return_timer_cb, 10000, NULL);
         lv_timer_set_repeat_count(view->auto_return_timer, 1); // 一次性定时器
         LISAUI_LOGI(TAG, "Auto return timer started (10s)");
@@ -558,8 +582,27 @@ static lisaui_err_t update_data(lisaui_page_t *page, void *data)
     
     page_view_t *view = (page_view_t *)page->view;
     
-    // 根据不同模式更新对应的动态内容
+    // 读取最新模式，必要时切换模式并刷新UI
     LISAUI_USERDATA_WITH_LOCK(_userdata) {
+        lisaui_userdata_qrcode_inter_mode_e new_mode = _userdata->qrcode_inter.mode;
+        if (new_mode != view->mode) {
+            LISAUI_LOGI(TAG, "Switching info page mode: %d -> %d", view->mode, new_mode);
+            view->mode = new_mode;
+
+            // 切换模式时重置/创建自动返回定时器
+            if (view->auto_return_timer) {
+                lv_timer_del(view->auto_return_timer);
+                view->auto_return_timer = NULL;
+            }
+            if (view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE ||
+                view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP) {
+                view->auto_return_timer = lv_timer_create(auto_return_timer_cb, 10000, NULL);
+                lv_timer_set_repeat_count(view->auto_return_timer, 1);
+                LISAUI_LOGI(TAG, "Auto return timer restarted (10s) after mode switch");
+            }
+        }
+
+        // 根据不同模式更新对应的动态内容
         switch (view->mode) {
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK:
             // 更新网络配置页面内容
@@ -576,6 +619,23 @@ static lisaui_err_t update_data(lisaui_page_t *page, void *data)
             }
             break;
             
+        case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
+            // 更新年度VIP页面内容
+            if (_userdata->qrcode_inter.vip_label_text && strlen(_userdata->qrcode_inter.vip_label_text) > 0) {
+                lv_label_set_text(view->label, _userdata->qrcode_inter.vip_label_text);
+                LISAUI_LOGI(TAG, "Updated VIP message: %s", _userdata->qrcode_inter.vip_label_text);
+            } else {
+                lv_label_set_text(view->label, "扫码开通音乐年度VIP");
+            }
+            if (_userdata->qrcode_inter.vip_url && strlen(_userdata->qrcode_inter.vip_url) > 0) {
+                if (set_qr_image_src(view->g_ble_qr_img, _userdata->qrcode_inter.vip_url) == LV_RES_OK) {
+                    LISAUI_LOGI(TAG, "Updated VIP QR code URL: %s", _userdata->qrcode_inter.vip_url);
+                } else {
+                    LISAUI_LOGE(TAG, "Failed to update VIP QR code URL: %s", _userdata->qrcode_inter.vip_url);
+                }
+            }
+            break;
+
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
             // 更新设备配置页面内容
             if (_userdata->qrcode_inter.device_label_text && strlen(_userdata->qrcode_inter.device_label_text) > 0) {

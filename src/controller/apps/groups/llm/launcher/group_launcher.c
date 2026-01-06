@@ -34,9 +34,24 @@ static int event_page_toggle_handler(ebus_chn_t *chn, uint32_t code, void *messa
     
     switch (code) {
         case LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE:
-            // 调用页面切换逻辑
-            lisaui_manager_group_enter(LISAUI_GROUP_INDEX_LAUNCHER, GROUP_ENTER_PAGE_METHOD_FIX_PAGE_INDEX,
-                LISAUI_GROUP_LAUNCHER_PAGE_INDEX_INFO, LISAUI_PAGE_SAVE_TO_HISTORY);
+            // 如果Info页面已激活，则刷新当前页面数据，避免重复入栈导致卡死
+            if (is_info_page_active() && lisaui_manager_get_current_group() &&
+                lisaui_manager_get_current_group()->current_page &&
+                lisaui_manager_get_current_group()->current_page->page_index == LISAUI_GROUP_LAUNCHER_PAGE_INDEX_INFO) {
+                lisaui_page_t *cur = lisaui_manager_get_current_group()->current_page;
+                if (cur && cur->update_data) {
+                    LISAUI_LOGI(TAG, "Info page active; refreshing data instead of re-entering");
+                    cur->update_data(cur, NULL);
+                } else {
+                    // 回退到正常切换逻辑
+                    lisaui_manager_group_enter(LISAUI_GROUP_INDEX_LAUNCHER, GROUP_ENTER_PAGE_METHOD_FIX_PAGE_INDEX,
+                        LISAUI_GROUP_LAUNCHER_PAGE_INDEX_INFO, LISAUI_PAGE_SAVE_TO_HISTORY);
+                }
+            } else {
+                // 调用页面切换逻辑
+                lisaui_manager_group_enter(LISAUI_GROUP_INDEX_LAUNCHER, GROUP_ENTER_PAGE_METHOD_FIX_PAGE_INDEX,
+                    LISAUI_GROUP_LAUNCHER_PAGE_INDEX_INFO, LISAUI_PAGE_SAVE_TO_HISTORY);
+            }
             break;
         case LISAUI_EBUS_CH_EVENT_U2M_SETTING_HOME_UPDATE:
             lisaui_manager_group_enter(LISAUI_GROUP_INDEX_LAUNCHER, GROUP_ENTER_PAGE_METHOD_FIX_PAGE_INDEX,
