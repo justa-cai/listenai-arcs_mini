@@ -107,6 +107,11 @@ audioplayer_t *get_audio_player(void)
 	return s_audio_player;
 }
 
+tts_player_t *get_tts_player(void)
+{
+	return s_tts_player;
+}
+
 void enter_audio_idle(void)
 {
 	recognizer_stop_record(s_rec);

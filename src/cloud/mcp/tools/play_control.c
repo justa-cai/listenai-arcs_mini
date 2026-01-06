@@ -112,7 +112,6 @@ static mcp_result_t playback_control_handler(const mcp_context_t *ctx, mcp_respo
         LISA_LOGI(TAG, "Playback control: PAUSE");
         if (player->pause) {
             listen_audioplayer_puse(player);
-            assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
         } else {
             LISA_LOGW(TAG, "pause function not available");
         }

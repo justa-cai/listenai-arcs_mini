@@ -221,6 +221,7 @@ typedef struct{
 typedef enum {
     LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK,
     LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE,
+    LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP,
     LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA,
     LISAUI_USERDATA_QRCODE_INTER_UNKNOW_MODE,
 } lisaui_userdata_qrcode_inter_mode_e;
@@ -236,6 +237,10 @@ typedef struct {
     char *device_label_text;
     char *device_url;
     
+    // 开通年度 VIP 的文本和URL（音乐点播权限）
+    char *vip_label_text;
+    char *vip_url;
+
     // 配额页面模式的文本和URL
     char *quota_label_text;
     char *quota_url;

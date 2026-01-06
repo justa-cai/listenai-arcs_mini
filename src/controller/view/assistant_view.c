@@ -280,19 +280,21 @@ int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode)
 {
     // 检查是否已经在info页面
     LISA_LOGI(TAG, "change_info_page, mode: %d", mode);
-    extern bool is_info_page_active(void);
-    if (is_info_page_active()) {
-        printf("Info page is already active, ignoring toggle request\n");
-        return 0;
-    }
+    // extern bool is_info_page_active(void);
+    // if (is_info_page_active()) {
+    //     printf("Info page is already active, ignoring toggle request\n");
+    //     return 0;
+    // }
 
     if (mode >= LISAUI_USERDATA_QRCODE_INTER_UNKNOW_MODE) {
         LISA_LOGE(TAG, "Unknow mode, mode: %d", mode);
         return -1;
     }
 
+// 使用带锁的用户数据宏定义，确保线程安全地访问用户数据
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
+    // 设置二维码交互模式
         _userdata->qrcode_inter.mode = mode;
     }
 
@@ -366,8 +368,8 @@ int assistant_view_update_qrcode(const char *url, const char *message, const cha
     LISA_LOGI(TAG, "assistant_view_update_qrcode: url=%s, message=%s, err_code=%s",
               url, message ? message : "(none)", err_code ? err_code : "(none)");
 
-    // 根据err_code或默认使用DEVICE模式
-    lisaui_userdata_qrcode_inter_mode_e mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE;
+    // 根据err_code或默认使用ANNUAL_VIP模式
+    lisaui_userdata_qrcode_inter_mode_e mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP;
 
     if (err_code) {
         // 根据错误码决定显示模式
@@ -391,6 +393,10 @@ int assistant_view_update_qrcode(const char *url, const char *message, const cha
             case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
                 target_url = &_userdata->qrcode_inter.device_url;
                 target_message = &_userdata->qrcode_inter.device_label_text;
+                break;
+            case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
+                target_url = &_userdata->qrcode_inter.vip_url;
+                target_message = &_userdata->qrcode_inter.vip_label_text;
                 break;
             case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA:
                 target_url = &_userdata->qrcode_inter.quota_url;

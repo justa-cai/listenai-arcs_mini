@@ -7,13 +7,27 @@
 #include <stdio.h>
 #include "player/audio_player.h"
 #include "player/audio_out.h"
+#include "player/tts_player.h"
 #include "assistant_controller.h"
 #include "proc_mgr.h"
+#include "evs_utils.h"
+#include "app_player.h"
 
 #define TAG "kuwo_music"
 
 // Function to get audio player instance - implemented in proc_mgr.c
 extern audioplayer_t *get_audio_player(void);
+extern tts_player_t *get_tts_player(void);
+
+// 延迟播放音乐的参数结构体
+typedef struct {
+    audio_out_t *audios;
+    int valid_count;
+    int retry_count;  // 重试计数器，防止无限等待
+} kuwo_play_context_t;
+
+// 前向声明
+static int kuwo_music_play_with_delay(void *user_data);
 
 /**
  * @brief 播放酷我音乐处理函数
@@ -234,34 +248,59 @@ static mcp_result_t kuwo_music_handler(const mcp_context_t *ctx, mcp_response_t 
         return MCP_RESULT_SUCCESS;
     }
 
-    // 调用播放器播放音乐列表
-    if (player->on_directive) {
-        player->on_directive(player, AUDIO_PLAY, audios, valid_count);
+    // 检查TTS是否正在播放，如果是则延迟播放音乐
+    tts_player_t *tts_player = get_tts_player();
+    if (tts_player && ((tts_player->m_play_state == APP_PLAYER_PREPARING) ||
+                       (tts_player->m_play_state == PLAYER_EVT_PLAYING) ||
+                       (tts_player->m_play_state == PLAYER_EVT_PREPARED))) {
+        LISA_LOGI(TAG, "TTS is playing (state=%d), delaying music playback to avoid interruption",
+                  tts_player->m_play_state);
+        
+        // 创建延迟播放的上下文
+        kuwo_play_context_t *ctx = (kuwo_play_context_t *)lisa_mem_calloc(1, sizeof(kuwo_play_context_t));
+        if (ctx) {
+            ctx->audios = audios;
+            ctx->valid_count = valid_count;
+            ctx->retry_count = 0;
+            // 延迟200ms后重新尝试播放
+            evs_handler_post_runnable_delay(kuwo_music_play_with_delay, ctx, 200);
+        } else {
+            LISA_LOGE(TAG, "Failed to allocate context for delayed playback");
+            // 内存分配失败，直接播放
+            if (player->on_directive) {
+                player->on_directive(player, AUDIO_PLAY, audios, valid_count);
+            }
+        }
     } else {
-        LISA_LOGW(TAG, "on_directive function not available");
-        lisa_mem_free(audios);
-        // 创建content数组
-        cJSON *content_array = cJSON_CreateArray();
-        if (!content_array) {
-            response->result = MCP_RESULT_ERROR;
-            return MCP_RESULT_ERROR;
+        // TTS未播放，直接播放音乐
+        if (player->on_directive) {
+            player->on_directive(player, AUDIO_PLAY, audios, valid_count);
+        } else {
+            LISA_LOGW(TAG, "on_directive function not available");
+            lisa_mem_free(audios);
+            // 创建content数组
+            cJSON *content_array = cJSON_CreateArray();
+            if (!content_array) {
+                response->result = MCP_RESULT_ERROR;
+                return MCP_RESULT_ERROR;
+            }
+
+            // 创建text item
+            cJSON *text_item = cJSON_CreateObject();
+            if (!text_item) {
+                cJSON_Delete(content_array);
+                response->result = MCP_RESULT_ERROR;
+                return MCP_RESULT_ERROR;
+            }
+
+            cJSON_AddStringToObject(text_item, "type", "text");
+            cJSON_AddStringToObject(text_item, "text", "已完成操作");
+            cJSON_AddItemToArray(content_array, text_item);
+
+            response->content = content_array;
+            response->result = MCP_RESULT_SUCCESS;
+            return MCP_RESULT_SUCCESS;
         }
-
-        // 创建text item
-        cJSON *text_item = cJSON_CreateObject();
-        if (!text_item) {
-            cJSON_Delete(content_array);
-            response->result = MCP_RESULT_ERROR;
-            return MCP_RESULT_ERROR;
-        }
-
-        cJSON_AddStringToObject(text_item, "type", "text");
-        cJSON_AddStringToObject(text_item, "text", "已完成操作");
-        cJSON_AddItemToArray(content_array, text_item);
-
-        response->content = content_array;
-        response->result = MCP_RESULT_SUCCESS;
-        return MCP_RESULT_SUCCESS;
     }
 
     // 注意：不要在这里释放 audios，播放器会管理这个内存
@@ -435,6 +474,71 @@ error_with_properties:
 error:
     if (root) cJSON_Delete(root);
     return NULL;
+}
+
+/**
+ * @brief 延迟播放音乐的回调函数
+ * 
+ * 该函数在TTS播放时被延迟调用，会检查TTS状态：
+ * - 如果TTS播放完成，则立即播放音乐
+ * - 如果TTS仍在播放且未超过重试限制，则继续延迟等待
+ * - 如果重试次数过多（>25次，约5秒），则强制播放以防止用户长时间等待
+ */
+static int kuwo_music_play_with_delay(void *user_data)
+{
+    kuwo_play_context_t *ctx = (kuwo_play_context_t *)user_data;
+    if (!ctx) {
+        LISA_LOGE(TAG, "Invalid context for delayed playback");
+        return -1;
+    }
+
+    // 获取播放器和TTS状态
+    audioplayer_t *player = get_audio_player();
+    tts_player_t *tts_player = get_tts_player();
+
+    if (!player) {
+        LISA_LOGE(TAG, "Audio player not available for delayed playback");
+        lisa_mem_free(ctx->audios);
+        lisa_mem_free(ctx);
+        return -1;
+    }
+
+    // 检查TTS状态
+    if (tts_player && ((tts_player->m_play_state == APP_PLAYER_PREPARING) ||
+                       (tts_player->m_play_state == PLAYER_EVT_PLAYING) ||
+                       (tts_player->m_play_state == PLAYER_EVT_PREPARED))) {
+        // TTS仍在播放
+        ctx->retry_count++;
+        
+        // 防止无限等待，最多重试20次（约10秒）
+        if (ctx->retry_count < 20) {
+            LISA_LOGI(TAG, "TTS still playing (state=%d, retry=%d), continue waiting",
+                      tts_player->m_play_state, ctx->retry_count);
+            // 继续延迟500ms
+            evs_handler_post_runnable_delay(kuwo_music_play_with_delay, ctx, 500);
+            return 0;
+        } else {
+            LISA_LOGW(TAG, "TTS playing timeout after %d retries, forcing music playback",
+                      ctx->retry_count);
+            // 超时，强制播放
+        }
+    } else {
+        LISA_LOGI(TAG, "TTS playback finished, starting music (retry_count=%d)",
+                  ctx->retry_count);
+    }
+
+    // TTS播放完成或超时，播放音乐
+    if (player->on_directive) {
+        player->on_directive(player, AUDIO_PLAY, ctx->audios, ctx->valid_count);
+        LISA_LOGI(TAG, "Music playback started with %d items", ctx->valid_count);
+    } else {
+        LISA_LOGW(TAG, "on_directive not available, music not played");
+        lisa_mem_free(ctx->audios);
+    }
+
+    // 释放上下文内存
+    lisa_mem_free(ctx);
+    return 0;
 }
 
 // 使用静态段注册宏注册酷我音乐工具
