@@ -20,6 +20,7 @@
 #include "cJSON.h"
 
 #include "lisa_log.h"
+#include "lvgl.h"
 // #include "ui.h"
 
 static const char *TAG = "assistant_view";
@@ -124,6 +125,9 @@ EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_U2M_SETTING_HOME_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_OTA_STATE_UPDATE)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_WAKE_WORD_UPDATE)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_SHOW)
 
 /* 0: other status 1: listening */
 bool get_audio_listen_status(void)
@@ -291,7 +295,7 @@ int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode)
         return -1;
     }
 
-// 使用带锁的用户数据宏定义，确保线程安全地访问用户数据
+    // 使用带锁的用户数据宏定义，确保线程安全地访问用户数据
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
     // 设置二维码交互模式
@@ -311,6 +315,14 @@ static void camera_image_show_work(void *param)
                      LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW,
                      param,
                      sizeof(lisaui_camera_image_params_t));
+}
+
+static void net_image_show_work(void *param)
+{
+    ebus_message_pub(view_handler->view->ebus_info.base_event_chn,
+                     LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_SHOW,
+                     param,
+                     sizeof(lisaui_net_image_params_t));
 }
 
 // 显示拍照图片到页面
@@ -346,6 +358,36 @@ int assistant_view_show_camera_image(const uint16_t *rgb565_data, uint32_t width
     return 0;
 }
 
+// 显示网络下载的图片
+int assistant_view_show_net_image(const void *img_dsc)
+{
+    const lv_img_dsc_t *dsc = (const lv_img_dsc_t *)img_dsc;
+    if (!dsc) {
+        printf("Invalid img_dsc\n");
+        return -1;
+    }
+
+    lisaui_net_image_params_t *params = exram_malloc(32, sizeof(lisaui_net_image_params_t));
+    if (!params) {
+        printf("ERROR: Failed to allocate memory for net image params\n");
+        return -1;
+    }
+
+    params->img_dsc = dsc;
+
+    printf("DEBUG: Sending net image event: params=%p, img_dsc=%p, data_size=%u\n",
+           params, dsc, dsc->data_size);
+
+    int result = workqueue_submit(view_handler->view->workq,
+                                  net_image_show_work,
+                                  params,
+                                  0);
+
+    printf("DEBUG: workqueue_submit (net image) result: %d\n", result);
+
+    return 0;
+}
+
 // 隐藏拍照图片
 int assistant_view_hide_camera_image(void)
 {
@@ -368,8 +410,8 @@ int assistant_view_update_qrcode(const char *url, const char *message, const cha
     LISA_LOGI(TAG, "assistant_view_update_qrcode: url=%s, message=%s, err_code=%s",
               url, message ? message : "(none)", err_code ? err_code : "(none)");
 
-    // 根据err_code或默认使用ANNUAL_VIP模式
-    lisaui_userdata_qrcode_inter_mode_e mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP;
+    // 根据err_code或默认使用CONFIGURE_DEVICE模式
+    lisaui_userdata_qrcode_inter_mode_e mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE;
 
     if (err_code) {
         // 根据错误码决定显示模式
@@ -378,6 +420,10 @@ int assistant_view_update_qrcode(const char *url, const char *message, const cha
         } else if (strcmp(err_code, "network") == 0) {
             mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK;
         }
+    }else if (strstr(message, "VIP") != NULL) {
+        mode = LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP;
+    }else if (strstr(message, "图片绘制中") != NULL) {
+        mode = LISAUI_USERDATA_QRCODE_INTER_VIEW_IMAGE;
     }
 
     LISAUI_USERDATA_WITH_LOCK(_userdata) {
@@ -397,6 +443,10 @@ int assistant_view_update_qrcode(const char *url, const char *message, const cha
             case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
                 target_url = &_userdata->qrcode_inter.vip_url;
                 target_message = &_userdata->qrcode_inter.vip_label_text;
+                break;
+            case LISAUI_USERDATA_QRCODE_INTER_VIEW_IMAGE:
+                target_url = &_userdata->qrcode_inter.view_image_url;
+                target_message = &_userdata->qrcode_inter.view_image_label_text;
                 break;
             case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA:
                 target_url = &_userdata->qrcode_inter.quota_url;
@@ -1175,6 +1225,32 @@ static int update_reply_text(const char *text, lisaui_userdata_text_mode_e mode)
     return ret;
 }
 
+static int update_ota_state(ota_state_t *state)
+{
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        memcpy(&_userdata->setting.ota, state, sizeof(ota_state_t));
+    }
+
+    workqueue_submit(view_handler->view->workq,
+                     EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_OTA_STATE_UPDATE), NULL, 0);
+
+    return 0;
+}
+
+static int update_wake_word(const char *wake_word)
+{
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        snprintf(_userdata->setting.wake_word, sizeof(_userdata->setting.wake_word), "%s", wake_word);
+    }
+
+    workqueue_submit(view_handler->view->workq,
+                     EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_WAKE_WORD_UPDATE), NULL, 0);
+
+    return 0;
+}
+
 static int _bus_init(assistant_view_t *view)
 {
     ebus_handle_t *bus_handle;
@@ -1239,6 +1315,8 @@ assistant_view_t *assistant_view_init(assistant_view_cbs_t *cbs)
     view->ops.update_device_config = update_device_config;
     view->ops.update_outof_limit_error = update_outof_limit_error;
     view->ops.update_battery_status = update_battery_info_work;
+    view->ops.update_ota_state = update_ota_state;
+    view->ops.update_wake_word = update_wake_word;
 
     view_setting_init(view);
 

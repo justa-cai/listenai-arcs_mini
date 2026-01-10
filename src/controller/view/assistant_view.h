@@ -8,6 +8,7 @@
 #include "workqueue.h"
 #include "ebus/ebus.h"
 #include "lisaui_user_data.h"
+#include "ota_manager.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -108,6 +109,8 @@ typedef struct {
     int (*update_standby_texts)(const char *json_data);
     int (*update_device_config)(const char *json_data);
     int (*update_outof_limit_error)(const char *error_json);
+    int (*update_ota_state)(ota_state_t *state);
+    int (*update_wake_word)(const char *wake_word);
 
 } assistant_view_ops_t;
 
@@ -149,6 +152,9 @@ assistant_view_t *assistant_view_init(assistant_view_cbs_t *cbs);
 
 // 显示拍照图片到页面
 int assistant_view_show_camera_image(const uint16_t *rgb565_data, uint32_t width, uint32_t height);
+
+// 显示网络下载的图片（img_dsc 指向 lv_img_dsc_t）
+int assistant_view_show_net_image(const void *img_dsc);
 
 // 隐藏拍照图片
 int assistant_view_hide_camera_image(void);

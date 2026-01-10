@@ -184,6 +184,7 @@ static int update_wakeup_state(page_view_t *view)
 
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
+        case LISAUI_USERDATA_QRCODE_INTER_VIEW_IMAGE:
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK:
             LISAUI_LOGD(TAG, "Mode %d: Wakeup event handled by staying in current page", mode);
             break;
@@ -344,26 +345,6 @@ static lisaui_page_t *create(lisaui_page_t *page)
             LISAUI_LOGW(TAG, "Failed to get device ID");
         }
         break;
-    case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
-        lv_obj_set_height(view->label, 20);
-        lv_obj_set_style_max_height(view->g_ble_qr_img, 180, 0);
-
-        LISAUI_USERDATA_WITH_LOCK(_userdata) {
-            if (_userdata->qrcode_inter.vip_label_text && strlen(_userdata->qrcode_inter.vip_label_text) > 0) {
-                lv_label_set_text(view->label, _userdata->qrcode_inter.vip_label_text);
-            } else {
-                lv_label_set_text(view->label, "扫码开通音乐年度VIP");
-            }
-
-            if (_userdata->qrcode_inter.vip_url && strlen(_userdata->qrcode_inter.vip_url) > 0) {
-                if (set_qr_image_src(view->g_ble_qr_img, _userdata->qrcode_inter.vip_url) != LV_RES_OK) {
-                    LISAUI_LOGE(TAG, "Failed to set VIP QR code image: %s", _userdata->qrcode_inter.vip_url);
-                }
-            } else {
-                LISAUI_LOGE(TAG, "VIP QR code resource does not exist");
-            }
-        }
-        break;
     case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
         lv_obj_set_height(view->label, 20);
         // 使用设备配置专用的文本和URL
@@ -379,9 +360,54 @@ static lisaui_page_t *create(lisaui_page_t *page)
                     LISAUI_LOGE(TAG, "Failed to set QR code image: %s", _userdata->qrcode_inter.device_url);
                 }
             } else {
-                LISAUI_LOGE(TAG, "QR code resource does not exist");
+                lv_img_set_src(view->g_ble_qr_img, &ble_qr);
+                LISAUI_LOGE(TAG, "CONFIGURE_DEVICE QR code resource does not exist");
             }
         }
+        break;
+    case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP:
+        lv_obj_set_height(view->label, 20);
+        // 使用开通 VIP 专用的文本和URL
+        LISAUI_USERDATA_WITH_LOCK(_userdata) {
+            if (_userdata->qrcode_inter.vip_label_text && strlen(_userdata->qrcode_inter.vip_label_text) > 0) {
+                lv_label_set_text(view->label, _userdata->qrcode_inter.vip_label_text);
+            } else {
+                lv_label_set_text(view->label, "扫码开通音乐年度VIP");
+            }
+
+            if (_userdata->qrcode_inter.vip_url && strlen(_userdata->qrcode_inter.vip_url) > 0) {
+                if (set_qr_image_src(view->g_ble_qr_img, _userdata->qrcode_inter.vip_url) != LV_RES_OK) {
+                    LISAUI_LOGE(TAG, "Failed to set VIP QR code image: %s", _userdata->qrcode_inter.vip_url);
+                }
+            } else {
+                lv_img_set_src(view->g_ble_qr_img, &ble_qr);
+                LISAUI_LOGE(TAG, "VIP QR code resource does not exist");
+            }
+        }
+        break;
+    case LISAUI_USERDATA_QRCODE_INTER_VIEW_IMAGE:
+        lv_obj_set_height(view->label, 20);
+        // 使用查看图片专用的文本和URL
+        LISAUI_USERDATA_WITH_LOCK(_userdata) {
+            if (_userdata->qrcode_inter.view_image_label_text && strlen(_userdata->qrcode_inter.view_image_label_text) > 0) {
+                lv_label_set_text(view->label, _userdata->qrcode_inter.view_image_label_text);
+            } else {
+                lv_label_set_text(view->label, "图片绘制中");
+            }
+
+            if (_userdata->qrcode_inter.view_image_url && strlen(_userdata->qrcode_inter.view_image_url) > 0) {
+                if (set_qr_image_src(view->g_ble_qr_img, _userdata->qrcode_inter.view_image_url) != LV_RES_OK) {
+                    LISAUI_LOGE(TAG, "Failed to set VIP QR code image: %s", _userdata->qrcode_inter.view_image_url);
+                }
+            } else {
+                lv_img_set_src(view->g_ble_qr_img, &ble_qr);
+                LISAUI_LOGE(TAG, "VIEW_IMAGE QR code resource does not exist");
+            }
+        }
+
+        lv_label_set_text(view->bottom_label, "稍后可在小聆AI小程序查看");
+        lv_obj_clear_flag(view->bottom_label, LV_OBJ_FLAG_HIDDEN);
+
         break;
     case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA:
         lv_obj_set_height(view->label, 15);
@@ -406,7 +432,8 @@ static lisaui_page_t *create(lisaui_page_t *page)
                     LISAUI_LOGE(TAG, "Failed to load QR code from URL: %s", _userdata->qrcode_inter.quota_url);
                 }
             } else {
-                LISAUI_LOGE(TAG, "QR code resource does not exist");
+                lv_img_set_src(view->g_ble_qr_img, &ble_qr);
+                LISAUI_LOGE(TAG, "CONFIGURE_QUOTA QR code resource does not exist");
             }
         }
         
@@ -482,6 +509,13 @@ static void auto_return_timer_cb(lv_timer_t *timer)
 {
     LISAUI_LOGI(TAG, "Auto return timer expired, returning to home page");
     
+    // 安全检查：如果已经在主页，则不重复导航，避免竞态条件
+    if (is_primary_page_active()) {
+        LISAUI_LOGI(TAG, "Already on home page, skipping duplicate navigation");
+        g_info_page_active = false;
+        return;
+    }
+    
     // 重置状态
     g_info_page_active = false;
     
@@ -529,10 +563,11 @@ static lisaui_err_t show(lisaui_page_t *page)
     // 使用延时加载避免竞态条件
     lv_scr_load_anim(view->screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
     
-    // 启动10秒自动返回定时器（设备配置和年度VIP模式）
+    // 启动10秒自动返回定时器（设备配置、年度VIP、查看图片模式）
     if ((!view->auto_return_timer) &&
         (view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE ||
-         view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP)) {
+         view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP ||
+         view->mode == LISAUI_USERDATA_QRCODE_INTER_VIEW_IMAGE)) {
         view->auto_return_timer = lv_timer_create(auto_return_timer_cb, 10000, NULL);
         lv_timer_set_repeat_count(view->auto_return_timer, 1); // 一次性定时器
         LISAUI_LOGI(TAG, "Auto return timer started (10s)");
@@ -589,13 +624,14 @@ static lisaui_err_t update_data(lisaui_page_t *page, void *data)
             LISAUI_LOGI(TAG, "Switching info page mode: %d -> %d", view->mode, new_mode);
             view->mode = new_mode;
 
-            // 切换模式时重置/创建自动返回定时器
+            // 若模式未变更但当前处于需要超时退出的模式且未建定时器，则补建一次
             if (view->auto_return_timer) {
                 lv_timer_del(view->auto_return_timer);
                 view->auto_return_timer = NULL;
             }
             if (view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE ||
-                view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP) {
+                view->mode == LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP ||
+                view->mode == LISAUI_USERDATA_QRCODE_INTER_VIEW_IMAGE) {
                 view->auto_return_timer = lv_timer_create(auto_return_timer_cb, 10000, NULL);
                 lv_timer_set_repeat_count(view->auto_return_timer, 1);
                 LISAUI_LOGI(TAG, "Auto return timer restarted (10s) after mode switch");
@@ -634,6 +670,7 @@ static lisaui_err_t update_data(lisaui_page_t *page, void *data)
                     LISAUI_LOGE(TAG, "Failed to update VIP QR code URL: %s", _userdata->qrcode_inter.vip_url);
                 }
             }
+            lv_obj_add_flag(view->bottom_label, LV_OBJ_FLAG_HIDDEN);
             break;
 
         case LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE:
@@ -647,6 +684,22 @@ static lisaui_err_t update_data(lisaui_page_t *page, void *data)
                     LISAUI_LOGI(TAG, "Updated device QR code URL: %s", _userdata->qrcode_inter.device_url);
                 } else {
                     LISAUI_LOGE(TAG, "Failed to update device QR code URL: %s", _userdata->qrcode_inter.device_url);
+                }
+            }
+            lv_obj_add_flag(view->bottom_label, LV_OBJ_FLAG_HIDDEN);
+            break;  
+
+        case LISAUI_USERDATA_QRCODE_INTER_VIEW_IMAGE:
+            // 更新查看图片页面内容
+            if (_userdata->qrcode_inter.view_image_label_text && strlen(_userdata->qrcode_inter.view_image_label_text) > 0) {
+                lv_label_set_text(view->label, _userdata->qrcode_inter.view_image_label_text);
+                LISAUI_LOGI(TAG, "Updated view image message: %s", _userdata->qrcode_inter.view_image_label_text);
+            }
+            if (_userdata->qrcode_inter.view_image_url && strlen(_userdata->qrcode_inter.view_image_url) > 0) {
+                if (set_qr_image_src(view->g_ble_qr_img, _userdata->qrcode_inter.view_image_url) == LV_RES_OK) {
+                    LISAUI_LOGI(TAG, "Updated view image URL: %s", _userdata->qrcode_inter.view_image_url);
+                } else {
+                    LISAUI_LOGE(TAG, "Failed to update view image URL: %s", _userdata->qrcode_inter.view_image_url);
                 }
             }
             break;
@@ -664,6 +717,7 @@ static lisaui_err_t update_data(lisaui_page_t *page, void *data)
                     LISAUI_LOGE(TAG, "Failed to update quota QR code URL: %s", _userdata->qrcode_inter.quota_url);
                 }
             }
+            lv_obj_add_flag(view->bottom_label, LV_OBJ_FLAG_HIDDEN);
             break;
             
         default:

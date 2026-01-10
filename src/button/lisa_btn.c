@@ -11,6 +11,7 @@
 #include "lisa_btn.h"
 #include "Driver_GPIO.h"
 #include "IOMuxManager.h"
+#include "show_image.h"
 
 #define TAG "btn"
 
@@ -69,6 +70,9 @@ static void common_btn_evt_cb(void *arg)
 {
     flex_button_t *btn = (flex_button_t *)arg;
     LISA_LOGI(TAG, "btn id:%d, event:%s", btn->id, lisa_btn_evt_desc_get(btn->event));
+
+    // 取消文生图等待（按键事件表示用户有新的交互）
+    show_image_cancel_waiting();
 
     if (btn_ctx.cb) {
         lisa_btn_info_t info = {

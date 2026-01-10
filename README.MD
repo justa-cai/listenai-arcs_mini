@@ -60,8 +60,7 @@
 | `ap` | `0x40000` | AP 固件 |
 | `app-config.json` | `0xF0000` | App 配置文件 |
 | `tone` | `0x100000` | 提示音资源 |
-| `wrap.json` | `0x200000` | 算法资源 |
-| `esr.bin` | `0x210000` | 算法资源 |
+| `wake_word.bin` | `0x200000` | 算法资源 |
 | `aiui.bin` | `0x600000` | CP 固件 |
 
 ## 固件及资源烧录
@@ -97,8 +96,7 @@ adb shell recovery
 adb push res/ap.bin /RAW/NAND/40000
 adb push res/app-config.json /RAW/NAND/F0000
 adb push res/tone.bin /RAW/NAND/100000
-adb push res/wrap.json /RAW/NAND/200000
-adb push res/esr.bin /RAW/NAND/210000
+adb push res/wake_word.bin /RAW/NAND/200000
 adb push build/aiui.bin /RAW/NAND/600000
 ```
 

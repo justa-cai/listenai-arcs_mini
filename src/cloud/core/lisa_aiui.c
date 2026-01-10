@@ -15,6 +15,7 @@
 #include "mbedtls/md5.h"
 #include "lwip/sockets.h"
 // #include "datetime.h"
+#include "project_version.h"
 
 #include <FreeRTOS.h>
 #include "queue.h"
@@ -336,17 +337,26 @@ static char * aiui_generate_token(const char *product_id, const char *secret_id,
 
 static char *aiui_generate_url(void)
 {
-    #define ONESHOT_PARAMS      "{\"scene\":\"main\", \"mcp\": \"true\"}"
-    #if CONFIG_MCP_V2
-        #define CONTINUE_PARAMS     "{\"scene\":\"main\", \"type\": \"fullduplex\", \"mcp\": \"true\", \"tool_protocol_version\": \"v2\"}"
-    #else
-        #define CONTINUE_PARAMS     "{\"scene\":\"main\", \"type\": \"fullduplex\", \"mcp\": \"true\"}"
-    #endif
+    cJSON *params = cJSON_CreateObject();
+    cJSON_AddStringToObject(params, "scene", "main");
+    cJSON_AddBoolToObject(params, "mcp", true);
+    if (lisa_aiui_get_interactive_mode() != INTER_ONESHOT) {
+        cJSON_AddStringToObject(params, "type", "fullduplex");
+        #if CONFIG_MCP_V2
+            cJSON_AddStringToObject(params, "tool_protocol_version", "v2");
+        #endif
+    }
 
-    char *params = (lisa_aiui_get_interactive_mode() == INTER_ONESHOT) ?
-                                                        ONESHOT_PARAMS : CONTINUE_PARAMS;
-	LISA_LOGI(TAG, "[%s]params: %s", __func__, params);
-    char *params_base64 = aiui_base64_encode(params);
+    cJSON *firmware_info = cJSON_CreateObject();
+    cJSON_AddStringToObject(firmware_info, "type", "arcs-mini");
+    cJSON_AddStringToObject(firmware_info, "version", PROJECT_VERSION_STR);
+    cJSON_AddItemToObject(params, "firmware_info", firmware_info);
+
+    char *params_json = cJSON_PrintUnformatted(params);
+    cJSON_Delete(params);
+
+    LISA_LOGI(TAG, "[%s]params: %s", __func__, params_json);
+    char *params_base64 = aiui_base64_encode(params_json);
     if (strlen(params_base64) <= 0) {
         LISA_LOGE(TAG, "encode base64 error %s", params_base64);
     }
@@ -783,7 +793,6 @@ int lisa_aiui_img_recognition(lisa_aiui_t *hd, const void *img_data, int img_len
 
 	return LISA_OK;
 }
-#include "cJSON.h"
 
 int lisa_aiui_start_frame_send_txt(lisa_aiui_t *handle, const char *txt)
 {

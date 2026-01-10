@@ -224,3 +224,27 @@ void app_tone_skip_count(int skip_count)
 {
 	s_skip_count = skip_count;
 }
+
+int app_tone_override(uint16_t tone_id, const void *addr, uint32_t size)
+{
+	tone_dsc_t *item = __get_tone_by_id(tone_id);
+	if (!item) {
+		return -1;
+	}
+
+	if (item->url) {
+		lisa_mem_free(item->url);
+		item->url = NULL;
+	}
+
+	char tmp_buf[MAX_URL_LEN];
+	uint32_t tmp_size = 0;
+	memset(tmp_buf, 0, MAX_URL_LEN);
+	sprintf(tmp_buf, "mem://addr=%usize=%u", (uint32_t)addr, size);
+	tmp_size = strlen(tmp_buf) + 1;
+	item->url = lisa_mem_alloc(tmp_size);
+	LISA_ASSERT(item->url, "alloc tone url fail");
+	strcpy(item->url, tmp_buf);
+
+	return 0;
+}

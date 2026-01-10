@@ -104,6 +104,40 @@ static int event_page_toggle_handler(ebus_chn_t *chn, uint32_t code, void *messa
                 }
             }
             break;
+        case LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_SHOW:
+            // 显示网络图片
+            {
+                LISAUI_LOGI(TAG, "Net image show event received, code=%d, msg_size=%d, message=%p",
+                            code, msg_size, message);
+
+                lisaui_net_image_params_t *params = (lisaui_net_image_params_t *)message;
+                if (params && msg_size == sizeof(lisaui_net_image_params_t)) {
+                    const lv_img_dsc_t *img_dsc = (const lv_img_dsc_t *)params->img_dsc;
+                    if (img_dsc) {
+                        LISAUI_LOGI(TAG, "Showing net image: params=%p, img_dsc=%p, size=%u", params, img_dsc,
+                                    img_dsc->data_size);
+
+                        lv_obj_t *llm_ui = page_primary_get_ui_object();
+                        if (llm_ui) {
+                            current_staged_emoji_animation_stop();
+                            lisa_ui_llm_primary_show_net_image(llm_ui, img_dsc);
+                        } else {
+                            LISAUI_LOGW(TAG, "Primary page UI not available");
+                        }
+                    } else {
+                        LISAUI_LOGW(TAG, "img_dsc is NULL");
+                    }
+                } else {
+                    LISAUI_LOGW(TAG, "Invalid params or msg_size: params=%p, msg_size=%d, expected=%zu",
+                                params, msg_size, sizeof(lisaui_net_image_params_t));
+                }
+
+                if (params) {
+                    exram_free(params);
+                }
+            }
+        break;
+        
         default:
             LISAUI_LOGW(TAG, "Unknown event code: %d", code);
             break;
@@ -129,6 +163,12 @@ static lisaui_err_t group_launcher_setup(lisaui_group_t *group)
                         LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW,
                         event_page_toggle_handler, 
                         NULL);
+
+        ebus_message_subscribe(ebus_ch_base_event,
+                EBUS_SUBSCRIBER_TYPE_SYNC,
+                LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_SHOW,
+                event_page_toggle_handler,
+                NULL);
         
         ebus_message_subscribe(ebus_ch_base_event, 
                         EBUS_SUBSCRIBER_TYPE_SYNC, 

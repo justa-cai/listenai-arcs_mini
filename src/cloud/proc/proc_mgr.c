@@ -30,6 +30,7 @@
 #include "mcp_integration.h"
 #include "proc_mgr.h"
 #include "app_player.h"
+#include "show_image.h"
 
 typedef enum {
 	NLP_RESULT_INIT,
@@ -600,7 +601,7 @@ static int _proc_msg_continue(void *arg)
 				if (result_array && cJSON_IsArray(result_array)) {
 					int result_count = cJSON_GetArraySize(result_array);
 					
-					// 快速检查是否有错误
+					// 快速检查是否有错误,无错误则打印图片
 					for (int i = 0; i < result_count; i++) {
 						cJSON *result_item = cJSON_GetArrayItem(result_array, i);
 						if (result_item) {
@@ -619,8 +620,47 @@ static int _proc_msg_continue(void *arg)
 									}
 									break;
 								}
-								
-
+							}else {
+								cJSON *draw_url = cJSON_GetObjectItem(result_item, "url");
+								if (draw_url && cJSON_IsString(draw_url)) {
+									const char *url = draw_url->valuestring;
+									LISA_LOGI(TAG, "LLMDrawing image URL received: %s", url);
+									
+									// 检测是否为QR二维码（高质量生图模式）
+									if(strstr(url,"QR") != NULL || strstr(url,"qr") != NULL){
+										LISA_LOGI(TAG, "Detected text2img QR code, setting waiting state");
+										show_image_set_waiting_state(true);
+										// 加载并显示图片
+										if (show_image_load_and_display(url) != 0) {
+											LISA_LOGE(TAG, "Failed to load and display image");
+										}
+										break;
+									}
+									
+									// 处理图片URL（可能是高质量生图的最终图片，也可能是快速生图）
+									// 先检查等待是否已取消
+									if (show_image_is_cancelled()) {
+										// 等待已取消（用户有了新交互），丢弃图片
+										LISA_LOGW(TAG, "Text2img cancelled by user interaction, discarding image");
+										show_image_set_waiting_state(false); // 重置状态，避免影响下次生图
+										break;
+									}
+									
+									// 检查是否为高质量生图模式
+									if (show_image_is_waiting()) {
+										// 高质量生图：QR之后的图片URL
+										LISA_LOGI(TAG, "High-quality text2img: Image URL arrived after QR");
+										show_image_set_waiting_state(false); // 重置状态
+									} else {
+										// 快速生图：直接下发的图片URL，无QR
+										LISA_LOGI(TAG, "Fast text2img: Direct image URL without QR");
+									}
+									
+									// 加载并显示图片
+									if (show_image_load_and_display(url) != 0) {
+										LISA_LOGE(TAG, "Failed to load and display image");
+									}
+								}
 							}
 						}
 					}
@@ -801,6 +841,8 @@ static int _proc_msg_continue(void *arg)
 					cJSON *result_id = cJSON_GetObjectItem(data, "result_id");
 					if (result_id && cJSON_IsNumber(result_id) && result_id->valueint == 1 && text && cJSON_IsString(text) && strlen(text->valuestring) > 0) {
 						LISA_LOGI(TAG, "iat result_id:%d", result_id->valueint);
+						// 取消文生图等待（新的ASR结果表示用户有新的交互）
+						show_image_cancel_waiting();
 						// stop tts_player
 						s_tts_player->stop(s_tts_player);
 					}

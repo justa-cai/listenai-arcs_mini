@@ -88,6 +88,8 @@ struct lisa_ui_llm_primary {
     lv_obj_t *emoji_container;                             /*!< emoji 动画容器 */
     lv_obj_t *emoji_img;                                   /*!< emoji 动画图片 */
     lv_obj_t *camera_img;                                  /*!< 拍照图片显示（覆盖在emoji上层） */
+    lv_obj_t *net_img;                                     /*!< 网络图片显示（与拍照图片分离，避免属性互相影响） */
+    lv_obj_t *image_hint_label;                            /*!< 图片提示文本标签 */
     lv_obj_t *content_container;                           /*!< 内容文本容器 */
     lv_obj_t *content_label;                               /*!< 内容文本标签 */
     
@@ -272,6 +274,14 @@ void lisa_ui_llm_primary_set_loop_count(lv_obj_t *obj, uint32_t loop_count);
  * @param height 图片高度
  */
 void lisa_ui_llm_primary_show_camera_image(lv_obj_t *obj, const uint16_t *rgb565_data, uint32_t width, uint32_t height);
+
+/**
+ * @brief 显示网络图片到表情容器
+ *
+ * @param obj LLM UI主要组件对象
+ * @param img_dsc 指向 lv_img_dsc_t 的图片描述符
+ */
+void lisa_ui_llm_primary_show_net_image(lv_obj_t *obj, const lv_img_dsc_t *img_dsc);
 
 /**
  * @brief 隐藏拍照图片

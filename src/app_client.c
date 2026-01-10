@@ -33,6 +33,8 @@
 #include "lisa_aiui.h"
 #include "config_parser.h"
 #include "recognizer.h"
+#include "led.h"
+#include "ota_manager.h"
 
 static app_client_t *s_app_client = NULL;
 
@@ -290,6 +292,10 @@ static void _ls_sntp_synced_callback(void)
 #ifdef LISTEN_CLOUD
 	app_cloud_ntp_ok(NULL);
 #endif
+	app_led_on();
+
+	ota_manager_check_all();
+
 	extern lisa_err_t lisa_aiui_active(void);
 	lisa_aiui_active();
 	alarm_aiui_init(alarm_aiui_user_callback);
@@ -318,6 +324,8 @@ app_client_t *app_client_create()
 	s_app_client = handle;
 
 	if (handle) {
+		ota_manager_init();
+
 		// Wifi init
 		ls_wifi_init(_ls_wifi_status_cb);
 

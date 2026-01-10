@@ -412,7 +412,8 @@ static void request_exit_staged_animation(page_view_t *view);
 static void set_content_text(page_view_t *view, const char *text);
 static void start_text_rotation(page_view_t *view);
 static void stop_text_rotation(page_view_t *view);
-static char *replace_role_name_with_wakeup_word(const char *text, const char *role_name);
+// static char *replace_role_name_with_wakeup_word(const char *text, const char *role_name);
+static const char *make_wake_hint_text(const char *base_text, const char *wake_word);
 void trigger_primary_page_refresh(void);
 
 // 定义映射数组
@@ -509,13 +510,16 @@ static void emoji_stage_timer_cb(lv_timer_t *timer)
             // 检查是否为充电表情动画完成
             if (anim_state->current_emoji == LISA_UI_EMOJI_START_BATTERY_CHANGE) {
                 // 充电表情动画完成后，显示唤醒提示
-                const char *base_text = "请用\"小聆小聆\"唤醒我";
+                const char *base_text = "请用\"#唤醒词#\"唤醒我";
                 // 获取当前角色名称进行动态替换
-                const char *role_name = NULL;
+                // const char *role_name = NULL;
+                const char *wake_word = NULL;
                 LISAUI_USERDATA_WITH_LOCK(_userdata) {
-                    role_name = _userdata->roles.roles[_userdata->roles.role_idx].name;
+                    // role_name = _userdata->roles.roles[_userdata->roles.role_idx].name;
+                    wake_word = _userdata->setting.wake_word;
                 }
-                set_content_text(view, base_text);  //更新文本
+                const char *wake_hint = make_wake_hint_text(base_text, wake_word);
+                set_content_text(view, wake_hint); // 更新文本
                 LISAUI_LOGI(TAG, "Battery charging animation completed, showing wake-up prompt");
             }
 
@@ -755,6 +759,45 @@ static void stop_sleepy_timer(page_view_t *view)
     view->is_sleepy_mode = false;
 }
 
+static const char *make_wake_hint_text(const char *base_text, const char *wake_word)
+{
+    static char wake_hint[CONTENT_TEXT_MAX_LEN];
+
+    if (!base_text) {
+        return "";
+    }
+
+    if (!wake_word || strlen(wake_word) == 0) {
+        wake_word = "小聆小聆";
+    }
+
+    const char *placeholder = "#唤醒词#";
+    char *pos = strstr(base_text, placeholder);
+    if (pos) {
+        size_t prefix_len = pos - base_text;
+        size_t wake_word_len = strlen(wake_word);
+        size_t suffix_len = strlen(pos + strlen(placeholder));
+
+        if (prefix_len + wake_word_len + suffix_len > CONTENT_TEXT_MAX_LEN - 1) {
+            return base_text; // 超出长度限制，返回原文本
+        }
+
+        char *p = wake_hint;
+        strncpy(p, base_text, prefix_len);
+        p += prefix_len;
+        strncpy(p, wake_word, wake_word_len);
+        p += wake_word_len;
+        strncpy(p, pos + strlen(placeholder), suffix_len);
+        p += suffix_len;
+        *p = '\0';
+    } else {
+        strncpy(wake_hint, base_text, CONTENT_TEXT_MAX_LEN - 1);
+        wake_hint[CONTENT_TEXT_MAX_LEN - 1] = '\0';
+    }
+
+    return wake_hint;
+}
+
 // ===================== 文本轮换定时器函数 =====================
 
 /**
@@ -770,12 +813,14 @@ static void text_rotate_timer_cb(lv_timer_t *timer)
     
     uint32_t text_count = 0;
     const char *current_text = NULL;
-    const char *role_name = NULL;
+    // const char *role_name = NULL;
+    const char *wake_word = NULL;
     
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
         // 获取当前角色名称用于替换
-        role_name = _userdata->roles.roles[_userdata->roles.role_idx].name;
+        // role_name = _userdata->roles.roles[_userdata->roles.role_idx].name;
+        wake_word = _userdata->setting.wake_word;
         
         // 优先使用云端下发的待机文本
         if (_userdata->standby_texts.is_enabled && _userdata->standby_texts.text_count > 0) {
@@ -793,7 +838,8 @@ static void text_rotate_timer_cb(lv_timer_t *timer)
     
     // 更新显示文本（应用角色名称替换）
     if (current_text) {
-        set_content_text(view, current_text);  //更新文本
+        const char *wake_hint = make_wake_hint_text(current_text, wake_word);
+        set_content_text(view, wake_hint);  //更新文本
         LISAUI_LOGI(TAG, "Text rotated to index %d: %s (original)", view->current_text_index, current_text);
     }
 }
@@ -815,13 +861,15 @@ static void start_text_rotation(page_view_t *view)
     
     uint32_t interval_ms = STANDBY_TEXT_ROTATE_INTERVAL_MS;  // 默认间隔
     const char *first_text = NULL;
-    const char *role_name = NULL;
+    // const char *role_name = NULL;
+    const char *wake_word = NULL;
     bool should_start = false;
     
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
         // 获取当前角色名称用于替换
-        role_name = _userdata->roles.roles[_userdata->roles.role_idx].name;
+        // role_name = _userdata->roles.roles[_userdata->roles.role_idx].name;
+        wake_word = _userdata->setting.wake_word;
         
         // 检查云端文本配置
         if (_userdata->standby_texts.is_enabled && _userdata->standby_texts.text_count > 0) {
@@ -847,7 +895,8 @@ static void start_text_rotation(page_view_t *view)
     
     // 立即显示第一个文本（应用角色名称替换）
     if (first_text) {
-        set_content_text(view, first_text);  //更新文本
+        const char *wake_hint = make_wake_hint_text(first_text, wake_word);
+        set_content_text(view, wake_hint); // 更新文本
     }
     
     // 如果需要轮换且有多个文本，创建定时器
@@ -1015,7 +1064,7 @@ static void commu_page_enter(page_view_t *view, const char *img_name,bool is_pus
  * @param role_name 当前配置的角色名称
  * @return 替换后的文本（需要调用者释放内存）
  */
-static char *replace_role_name_with_wakeup_word(const char *text, const char *role_name)
+/*static char *replace_role_name_with_wakeup_word(const char *text, const char *role_name)
 {
     if (!text) {
         return NULL;
@@ -1075,7 +1124,7 @@ static char *replace_role_name_with_wakeup_word(const char *text, const char *ro
     LISAUI_LOGI(TAG, "Role name replacement: '小聆小聆' -> '%s' in text", replacement);
     
     return result;
-}
+}*/
 
 static char *get_role_prompt(void)
 {
@@ -1123,7 +1172,12 @@ static int update_inter_state(page_view_t *view)
                 if (last_local_state != LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE)
                     lisa_ui_llm_primary_hide_camera_image(view->inter);
 
-                set_page_status(view, "请唤醒我");
+                // 仅当 remote_state 也是 IDLE 时才设置"请唤醒我"，否则保持 remote_state 的状态（如"思考中"、"说话中"）
+                // 这样可以避免从其他页面（如二维码页面）返回主页时丢失云端的实时交互状态
+                if (_userdata->inter.local_state == LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE &&
+                    _userdata->inter.remote_state == LISAUI_USERDATA_INTER_REMOTE_STATE_IDLE) {
+                    set_page_status(view, "请唤醒我");
+                }  
                 start_text_rotation(view);  // 启动文本轮换
                 break;
             }
@@ -1351,10 +1405,6 @@ static int update_wifi_state(page_view_t *view)
         if (connect_state == LISAUI_USERDATA_WIFI_CONNECT_STATE_CONNECTED) {
             view->wifi_connected = true;
             lisa_ui_llm_primary_set_wifi_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_wifi4));
-            set_page_status(view, "请唤醒我");
-            start_text_rotation(view);  // 启动文本轮换
-            start_staged_emoji_animation(view, LISA_UI_EMOJI_BLINK);
-            start_sleepy_timer(view);
         }
         else {
             view->wifi_connected = false;
@@ -1389,6 +1439,7 @@ static int update_battery_info(page_view_t *view)
 
         if (!get_show_battery_status()) {
             lisa_ui_llm_primary_battery_icon_hide(view->inter);
+            continue;
         } else {
             if (is_charging) {
                 lisa_ui_llm_primary_set_battery_img(view->inter, battery_charging_img[battery_level]);
@@ -1396,6 +1447,11 @@ static int update_battery_info(page_view_t *view)
                 lisa_ui_llm_primary_set_battery_img(view->inter, battery_level_img[battery_level]);
             }
         }      
+
+        if (_userdata->setting.ota.state != OTA_STATE_UP_TO_DATE) {
+            // 正在更新时不处理充电表情
+            continue;
+        }
 
         if (is_usb_plug) {
             // 检测充电状态变化
@@ -1432,6 +1488,53 @@ static int update_battery_info(page_view_t *view)
             }
         }
     }
+    return 0;
+}
+
+static int update_ota_state(page_view_t *view)
+{
+    static char progress_text[32] = {0};
+
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        ota_state_t *ota = &_userdata->setting.ota;
+
+        if (ota->state == OTA_STATE_UP_TO_DATE) {
+            // 仅当交互状态都是 IDLE 时才设置"请唤醒我"，否则保持云端的实时交互状态
+            // 这样可以避免从其他页面返回主页时丢失云端的实时交互状态
+            if (_userdata->inter.local_state == LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE &&
+                _userdata->inter.remote_state == LISAUI_USERDATA_INTER_REMOTE_STATE_IDLE) {
+                set_page_status(view, "请唤醒我");
+            }
+            start_text_rotation(view);  // 启动文本轮换
+            start_staged_emoji_animation(view, LISA_UI_EMOJI_BLINK);
+            start_sleepy_timer(view);
+        } else {
+            if (ota->state == OTA_STATE_CHECKING) {
+                set_page_status(view, "正在检查更新…");
+                set_content_text(view, "");
+            } else if (ota->state == OTA_STATE_UPDATING) {
+                set_page_status(view, "正在更新…");
+                if (ota->bytes_total == 0) {
+                    set_content_text(view, "");
+                } else {
+                    snprintf(progress_text, sizeof(progress_text), "%.1f%%",
+                             (float)ota->bytes_processed / (float)ota->bytes_total * 100.0f);
+                    set_content_text(view, progress_text);
+                }
+            } else if (ota->state == OTA_STATE_SUCCESSED) {
+                set_page_status(view, "更新完毕，即将重启");
+                set_content_text(view, "");
+            } else if (ota->state == OTA_STATE_FAILED) {
+                set_page_status(view, "更新失败，即将重启");
+                set_content_text(view, "");
+            }
+
+            stop_text_rotation(view);   // 停止文本轮换
+            start_staged_emoji_animation(view, LISA_UI_EMOJI_LOVE);
+        }
+    }
+
     return 0;
 }
 
@@ -1486,6 +1589,10 @@ static int event_inter_state_handler(ebus_chn_t *chn, uint32_t code, void *messa
 
     case LISAUI_EBUS_CH_EVENT_M2U_SETTING_BATTERY_UPDATE:
         update_battery_info(view);
+        break;
+
+    case LISAUI_EBUS_CH_EVENT_M2U_OTA_STATE_UPDATE:
+        update_ota_state(view);
         break;
 
     case LISAUI_EBUS_CH_EVENT_M2U_STANDBY_TEXTS_UPDATE:
@@ -1596,6 +1703,12 @@ static lisaui_page_t *create(lisaui_page_t *page)
         ebus_message_subscribe( view->ebus_ch_base_event, 
                 EBUS_SUBSCRIBER_TYPE_SYNC, 
                 LISAUI_EBUS_CH_EVENT_M2U_SETTING_BATTERY_UPDATE,
+                event_inter_state_handler, 
+                view);
+
+        ebus_message_subscribe( view->ebus_ch_base_event, 
+                EBUS_SUBSCRIBER_TYPE_SYNC, 
+                LISAUI_EBUS_CH_EVENT_M2U_OTA_STATE_UPDATE,
                 event_inter_state_handler, 
                 view);
 
@@ -1812,6 +1925,9 @@ void trigger_primary_page_refresh(void)
     
     // 重新更新电池状态
     update_battery_info(view);
+
+    // 重新更新OTA状态
+    update_ota_state(view);
     
     // 如果WiFi已连接，重新启动犯困定时器和文本轮换
     if (view->wifi_connected) {
