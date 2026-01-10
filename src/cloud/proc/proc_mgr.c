@@ -799,7 +799,7 @@ static int _proc_msg_continue(void *arg)
 					}
 
 					cJSON *result_id = cJSON_GetObjectItem(data, "result_id");
-					if (result_id && cJSON_IsNumber(result_id) == 1) {
+					if (result_id && cJSON_IsNumber(result_id) && result_id->valueint == 1 && text && cJSON_IsString(text) && strlen(text->valuestring) > 0) {
 						LISA_LOGI(TAG, "iat result_id:%d", result_id->valueint);
 						// stop tts_player
 						s_tts_player->stop(s_tts_player);
