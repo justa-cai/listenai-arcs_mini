@@ -1,5 +1,0 @@
-.clangd
-build/
-.vscode/
-.cache/
-listenai-dev-tools/
