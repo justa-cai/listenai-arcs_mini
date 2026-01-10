@@ -14,6 +14,10 @@ extern "C" {
 #define DISPLAY_IMAGE_WIDTH  160
 #define DISPLAY_IMAGE_HEIGHT 180
 
+// 网络图片尺寸
+#define DISPLAY_NET_IMAGE_WIDTH  148
+#define DISPLAY_NET_IMAGE_HEIGHT 148
+
 /**
  * @brief Initialize the camera video system
  * 

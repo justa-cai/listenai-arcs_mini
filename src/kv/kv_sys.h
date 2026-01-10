@@ -1,0 +1,7 @@
+#ifndef __KV_SYS_H__
+#define __KV_SYS_H__
+
+#define KV_KEY_SYS_WAKEWORD           "sys.wakeword"
+#define KV_KEY_SYS_GREETING_TONE_SIZE "sys.greeting_tone_size"
+
+#endif

@@ -40,7 +40,7 @@
             },
             "role": {
                 "name": "小聆",
-                "prompt": "请用\"小聆小聆\"唤醒我",
+                "prompt": "请用\"#唤醒词#\"唤醒我",
                 "keywords": [
                     "xiao ling xiao ling"
                 ],
@@ -73,14 +73,9 @@
             },
             "resources": [
                 {
-                    "name": "wrap",
+                    "name": "wake_word",
                     "address": 807403520,
-                    "size": 761
-                },
-                {
-                    "name": "esr",
-                    "address": 807469056,
-                    "size": 2621440
+                    "size": 2097152
                 },
                 {
                     "name": "tone",

@@ -284,27 +284,31 @@ lv_img_dsc_t* lv_img_net_load(const char* url)
     
     // Setup image descriptor
     img_cache[cache_slot].img_dsc.header.always_zero = 0;
-    img_cache[cache_slot].img_dsc.header.w = 0;  // Will be determined by LVGL
-    img_cache[cache_slot].img_dsc.header.h = 0;  // Will be determined by LVGL
     img_cache[cache_slot].img_dsc.data_size = img_size;
     img_cache[cache_slot].img_dsc.data = img_data;
     
-    // Try to determine image format from data
-    if (img_size >= 8) {
-        // PNG signature
-        if (memcmp(img_data, "\x89PNG\r\n\x1a\n", 8) == 0) {
-            img_cache[cache_slot].img_dsc.header.cf = LV_IMG_CF_RAW;
-        }
-        // JPEG signature
-        else if (img_size >= 2 && img_data[0] == 0xFF && img_data[1] == 0xD8) {
-            img_cache[cache_slot].img_dsc.header.cf = LV_IMG_CF_RAW;
-        }
-        // Default
-        else {
-            img_cache[cache_slot].img_dsc.header.cf = LV_IMG_CF_RAW;
-        }
-    } else {
+    // Determine image format from file signature
+    // 注意：设置正确的 cf 类型后，LVGL 会自动解析图片头获取 w/h
+    if (img_size >= 8 && memcmp(img_data, "\x89PNG\r\n\x1a\n", 8) == 0) {
+        // PNG 格式 - LVGL 会自动解析 PNG 头
+        img_cache[cache_slot].img_dsc.header.cf = LV_IMG_CF_TRUE_COLOR_ALPHA;
+        img_cache[cache_slot].img_dsc.header.w = 0;  // LVGL 会自动从 PNG 头读取
+        img_cache[cache_slot].img_dsc.header.h = 0;
+        LOGI("Detected PNG format");
+    }
+    else if (img_size >= 2 && img_data[0] == 0xFF && img_data[1] == 0xD8) {
+        // JPEG 格式 - LVGL 会自动解析 JPEG 头
+        img_cache[cache_slot].img_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+        img_cache[cache_slot].img_dsc.header.w = 0;  // LVGL 会自动从 JPEG 头读取
+        img_cache[cache_slot].img_dsc.header.h = 0;
+        LOGI("Detected JPEG format");
+    }
+    else {
+        // 未知格式，作为 RAW 处理（但需要手动设置宽高，否则显示会有问题）
         img_cache[cache_slot].img_dsc.header.cf = LV_IMG_CF_RAW;
+        img_cache[cache_slot].img_dsc.header.w = 0;
+        img_cache[cache_slot].img_dsc.header.h = 0;
+        LOGW("Unknown image format, treated as RAW");
     }
     
     LOGI("Cached image: %s (%u bytes, slot %d)", url, img_size, cache_slot);

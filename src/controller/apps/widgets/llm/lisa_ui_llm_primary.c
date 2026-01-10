@@ -164,6 +164,25 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_set_size(llm_primary->camera_img, DISPLAY_IMAGE_WIDTH, DISPLAY_IMAGE_HEIGHT);
     lv_obj_center(llm_primary->camera_img);
     lv_obj_move_foreground(llm_primary->camera_img);
+
+    // 创建网络图片（与拍照图片分离，避免属性互相影响，默认隐藏）
+    llm_primary->net_img = lv_img_create(obj);
+    lv_obj_add_flag(llm_primary->net_img, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->net_img, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(llm_primary->net_img, DISPLAY_NET_IMAGE_WIDTH, DISPLAY_NET_IMAGE_WIDTH);
+    lv_obj_center(llm_primary->net_img);
+    lv_obj_move_foreground(llm_primary->net_img);
+    
+    // 创建图片提示文本标签（覆盖在图片下方，默认隐藏）
+    llm_primary->image_hint_label = lv_label_create(obj);
+    lv_label_set_text(llm_primary->image_hint_label, "图片可在小聆AI小程序中查看");
+    lv_obj_set_style_text_color(llm_primary->image_hint_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(llm_primary->image_hint_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_align(llm_primary->image_hint_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_add_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_align(llm_primary->image_hint_label, LV_ALIGN_BOTTOM_MID, 0, -5);
+    lv_obj_move_foreground(llm_primary->image_hint_label);
     
     // 设置内容文本容器
     lv_obj_set_style_bg_opa(llm_primary->content_container, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -480,7 +499,15 @@ void lisa_ui_llm_primary_show_camera_image(lv_obj_t *obj, const uint16_t *rgb565
     
     // 显示图片（移除隐藏标志）
     lv_obj_clear_flag(llm_primary->camera_img, LV_OBJ_FLAG_HIDDEN);
+    // 确保网络图片被隐藏，避免重叠
+    if (llm_primary->net_img) {
+        lv_obj_add_flag(llm_primary->net_img, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_add_flag(llm_primary->content_label, LV_OBJ_FLAG_HIDDEN);
+    // 摄像头图不需要提示文案
+    if (llm_primary->image_hint_label) {
+        lv_obj_add_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_HIDDEN);
+    }
     
     // 强制刷新显示
     lv_obj_invalidate(llm_primary->camera_img);
@@ -490,6 +517,46 @@ void lisa_ui_llm_primary_show_camera_image(lv_obj_t *obj, const uint16_t *rgb565
 
 }
 
+void lisa_ui_llm_primary_show_net_image(lv_obj_t *obj, const lv_img_dsc_t *img_dsc)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj) || !img_dsc) {
+        LOGE("Invalid parameters for show_net_image");
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (!llm_primary->net_img) {
+        LOGE("net_img is NULL");
+        return;
+    }
+
+    lv_img_set_src(llm_primary->net_img, img_dsc);
+    lv_obj_set_style_bg_img_tiled(llm_primary->net_img, false, 0);
+    lv_obj_align(llm_primary->net_img, LV_ALIGN_CENTER, 0, 15);
+    lv_obj_move_foreground(llm_primary->net_img);
+
+    // 确保拍照图片被隐藏，避免属性互相影响
+    if (llm_primary->camera_img) {
+        lv_obj_add_flag(llm_primary->camera_img, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_clear_flag(llm_primary->net_img, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->content_label, LV_OBJ_FLAG_HIDDEN);
+    
+    // 显示图片提示文本
+    if (llm_primary->image_hint_label) {
+        lv_obj_clear_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(llm_primary->image_hint_label);
+    }
+
+        lv_obj_invalidate(llm_primary->net_img);
+
+    LOGI("Net image displayed: data_size=%u, w=%d, h=%d, obj=%p",
+         img_dsc->data_size,
+         img_dsc->header.w,
+         img_dsc->header.h,
+         llm_primary->net_img);
+}
+
 void lisa_ui_llm_primary_hide_camera_image(lv_obj_t *obj)
 {
     if (!lisa_ui_llm_primary_is_valid(obj)) {
@@ -497,13 +564,19 @@ void lisa_ui_llm_primary_hide_camera_image(lv_obj_t *obj)
     }
     
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
-    if (!llm_primary->camera_img) {
-        return;
+    // 隐藏两类图片
+    if (llm_primary->camera_img) {
+        lv_obj_add_flag(llm_primary->camera_img, LV_OBJ_FLAG_HIDDEN);
     }
-    
-    // 隐藏图片
-    lv_obj_add_flag(llm_primary->camera_img, LV_OBJ_FLAG_HIDDEN);
+    if (llm_primary->net_img) {
+        lv_obj_add_flag(llm_primary->net_img, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_clear_flag(llm_primary->content_label, LV_OBJ_FLAG_HIDDEN);
+    
+    // 隐藏图片提示文本
+    if (llm_primary->image_hint_label) {
+        lv_obj_add_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_HIDDEN);
+    }
     
     LOGI("Camera image hidden");
 }

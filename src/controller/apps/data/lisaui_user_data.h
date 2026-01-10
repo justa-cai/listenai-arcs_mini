@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include "lisaui_videoqueue.h"
 #include "ebus/ebus.h"
+#include "ota_manager.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -55,6 +56,9 @@ typedef enum {
     LISAUI_EBUS_CH_EVENT_U2M_SETTING_HOME_UPDATE,
     LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_SHOW,
     LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE,
+    LISAUI_EBUS_CH_EVENT_M2U_OTA_STATE_UPDATE,
+    LISAUI_EBUS_CH_EVENT_M2U_WAKE_WORD_UPDATE,
+    LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_SHOW,
 
 } lisaui_ebus_ch_event_e;
 
@@ -68,6 +72,11 @@ typedef struct {
     uint32_t width;                // 图片宽度
     uint32_t height;               // 图片高度
 } lisaui_camera_image_params_t;
+
+// 网络图片参数结构（img_dsc 指向 lv_img_dsc_t）
+typedef struct {
+    const void *img_dsc;
+} lisaui_net_image_params_t;
 
 typedef enum {
 
@@ -204,6 +213,8 @@ typedef struct {
     lisaui_userdata_setting_wifi_t wifi;
     lisaui_userdata_setting_inter_mode_e inter_mode;
     lisaui_userdata_battery_info_t battery;
+    ota_state_t ota;
+    char wake_word[20];
     int dis_light_percent;
     int volume_percent;
     bool mic_is_mute;
@@ -222,6 +233,7 @@ typedef enum {
     LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK,
     LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_DEVICE,
     LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_ANNUAL_VIP,
+    LISAUI_USERDATA_QRCODE_INTER_VIEW_IMAGE,
     LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_QUOTA,
     LISAUI_USERDATA_QRCODE_INTER_UNKNOW_MODE,
 } lisaui_userdata_qrcode_inter_mode_e;
@@ -236,6 +248,10 @@ typedef struct {
     // 设备配置模式的文本和URL
     char *device_label_text;
     char *device_url;
+
+    // 查看图片模式的文本和URL（用于文生图小程序等场景）
+    char *view_image_label_text;
+    char *view_image_url;
     
     // 开通年度 VIP 的文本和URL（音乐点播权限）
     char *vip_label_text;

@@ -59,4 +59,6 @@ int app_tone_reload(uint32_t custom_addr);
  */
 void app_tone_skip_count(int skip_count);
 
+int app_tone_override(uint16_t tone_id, const void *addr, uint32_t size);
+
 #endif

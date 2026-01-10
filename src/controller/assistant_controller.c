@@ -27,6 +27,8 @@
 #include "cloud/app_cloud.h"
 #include "tone.h"
 #include "utils/evs_event.h"
+#include "ota_manager.h"
+#include "show_image.h"
 
 #define TAG "controller"
 #include "lisa_log.h"
@@ -113,6 +115,10 @@ static int ctrl_event_opt_enter_ble_config_handler(ctr_event_message_t *msg);
 static int ctrl_event_opt_exit_ble_config_handler(ctr_event_message_t *msg);
 static int ctrl_event_opt_exit_info_page_handler(ctr_event_message_t *msg);
 
+static int ctrl_event_ota_state_update_handler(void *arg, uint32_t len);
+
+static int ctrl_event_wake_word_update_handler(void *arg, uint32_t len);
+
 static assistant_controller_event_handlers_t s_ctrl_event_handlers[] = {
     {ctrl_event_audio_idle_handler, NULL, NULL},                 // CONTROLLER_EVENT_STATE_AUDIO_IDLE
     {ctrl_event_audio_pre_idle_handler, NULL, NULL},             // CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE
@@ -155,6 +161,10 @@ static assistant_controller_event_handlers_t s_ctrl_event_handlers[] = {
     {NULL, ctrl_event_opt_toggle_info_page_handler, NULL}, // CONTROLLER_EVENT_OPT_TOGGLE_INFO_PAGE,
     {NULL, ctrl_event_opt_enter_ble_config_handler, NULL}, // CONTROLLER_EVENT_OPT_ENTER_BLE_CONFIG,
     {NULL, ctrl_event_opt_exit_ble_config_handler, NULL},  // CONTROLLER_EVENT_OPT_EXIT_BLE_CONFIG,
+
+    {ctrl_event_ota_state_update_handler, NULL, NULL},  // CONTROLLER_EVENT_OTA_STATE_UPDATE,
+
+    {ctrl_event_wake_word_update_handler, NULL, NULL}, // CONTROLLER_EVENT_WAKE_WORD_UPDATE,
 
 };
 
@@ -364,6 +374,10 @@ static int ctrl_event_audio_wake_handler(void *arg, uint32_t len)
 {
 
     LISA_LOGI(TAG, "%s", __FUNCTION__);
+    
+    // 取消文生图等待（重新唤醒表示用户有新的交互）
+    show_image_cancel_waiting();
+    
     if (assist_controller->view->ops.update_event != NULL) {
         assist_controller->view->ops.update_event(VIEW_EVENT_AUDIO_WAKEUP);
     }
@@ -590,7 +604,7 @@ static int ctrl_event_wifi_connected_handler(void *arg, uint32_t len)
     if (assist_controller) {
         assist_controller->status.wifi_scan_retry_count = 0;
     }
-    app_led_on();
+
     return 0;
 }
 
@@ -1172,6 +1186,26 @@ static int ctrl_event_opt_exit_ble_config_handler(ctr_event_message_t *msg)
     extern int play_config_net_success_audio(void);
     play_config_net_success_audio();
     app_led_on();
+    return 0;
+}
+
+static int ctrl_event_ota_state_update_handler(void *arg, uint32_t len)
+{
+    ota_state_t *state = (ota_state_t *)arg;
+
+    if (assist_controller && assist_controller->view && assist_controller->view->ops.update_ota_state) {
+        assist_controller->view->ops.update_ota_state(state);
+    }
+
+    return 0;
+}
+
+static int ctrl_event_wake_word_update_handler(void *arg, uint32_t len)
+{
+    if (assist_controller && assist_controller->view && assist_controller->view->ops.update_wake_word) {
+        assist_controller->view->ops.update_wake_word((const char *)arg);
+    }
+
     return 0;
 }
 

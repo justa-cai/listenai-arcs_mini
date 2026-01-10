@@ -17,8 +17,7 @@ IMAGES = [
     {"name": "ap", "addr": "0x40000", "file": "./res/ap.bin"},
     {"name": "app-config", "addr": "0xF0000", "file": "./res/app-config.json"},
     {"name": "tone", "addr": "0x100000", "file": "./res/tone.bin"},
-    {"name": "wrap", "addr": "0x200000", "file": "./res/wrap.json"},
-    {"name": "esr", "addr": "0x210000", "file": "./res/esr.bin"},
+    {"name": "wake_word", "addr": "0x200000", "file": "./res/wake_word.bin"},
     {"name": "aiui", "addr": "0x600000", "file": "./build/aiui.bin"},
 ]
 

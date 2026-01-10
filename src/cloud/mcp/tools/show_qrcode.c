@@ -141,6 +141,12 @@ static mcp_result_t show_qrcode_handler(const mcp_context_t *ctx, mcp_response_t
     LISA_LOGI(TAG, "Show QR code: url=%s, message=%s, err_code=%s", 
               url, message ? message : "(none)", err_code ? err_code : "(none)");
 
+    // 检查是否是文生图场景的二维码   
+    if (strstr(message, "图片绘制中") != NULL) {
+        LISA_LOGI(TAG, "Detected text2img QR code, setting waiting state");
+        show_image_set_waiting_state(true);
+    }
+
     // 调用assistant_view函数更新二维码显示
     int ret = assistant_view_update_qrcode(url, message, err_code);
     if (ret != 0) {
