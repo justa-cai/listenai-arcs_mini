@@ -167,7 +167,7 @@ static void battery_voltage_sample_cb(void *arg)
     battery_info.power_percent = raw_percentage;
     battery_info.usb_status = get_usb_status();
 
-    LISA_LOGI(TAG, "Battery: raw=%d%%, status=%d, show_battery_status=%d", raw_percentage, status, show_battery_status);
+    LISA_LOGD(TAG, "Battery: raw=%d%%, status=%d, show_battery_status=%d", raw_percentage, status, show_battery_status);
     assist_controller_trigger_event(CONTROLLER_EVENT_BATTERY_INFO_UPDATE, &battery_info, sizeof(battery_info));
 
     lisa_timer_start(battery_timer);
@@ -219,7 +219,7 @@ uint8_t get_battery_voltage_percentage(void)
     // 应用移动平均滤波
     filtered_voltage = voltage_moving_average_filter(vbat_real_voltage);
 
-    LISA_LOGI(TAG, "adc_raw: %d, vbat_raw: %d, vbat_filtered: %d", adc_real_voltage, vbat_real_voltage,
+    LISA_LOGD(TAG, "adc_raw: %d, vbat_raw: %d, vbat_filtered: %d", adc_real_voltage, vbat_real_voltage,
               filtered_voltage);
     
     // 当ADC采样电压低于500mV时，不显示电池图标

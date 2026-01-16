@@ -11,6 +11,7 @@
 #include "lisa_semaphore.h"
 #include "lisa_log.h"
 #include "lisa_kv.h"
+#include "battery/battery.h"
 
 #include "ota_manager.h"
 #include "ota_api.h"
@@ -58,6 +59,11 @@ static void ota_manager_notify_progress(uint32_t bytes_processed, uint32_t bytes
     assist_controller_trigger_event(CONTROLLER_EVENT_OTA_STATE_UPDATE, &s_ota_state, sizeof(ota_state_t));
 }
 
+static void ota_manager_update_reboot_strategy(void)
+{
+    s_ota_state.reboot = get_usb_status() == USB_STATUS_PLUG ? OTA_REBOOT_STRATEGY_AUTO : OTA_REBOOT_STRATEGY_MANUAL;
+}
+
 static int _ota_manager_check_all(void)
 {
     int ret;
@@ -100,6 +106,7 @@ static int _ota_manager_check_all(void)
             ret = ota_manager_wake_word_check();
             if (ret < 0) {
                 LISA_LOGE(TAG, "Wake word check failed (%d)", ret);
+                ota_manager_update_reboot_strategy();
                 ota_manager_notify_state(OTA_STATE_FAILED);
                 goto reboot;
             } else if (ret == 0) {
@@ -127,6 +134,7 @@ static int _ota_manager_check_all(void)
             ret = ota_manager_greeting_check();
             if (ret < 0) {
                 LISA_LOGE(TAG, "Greeting check failed (%d)", ret);
+                ota_manager_update_reboot_strategy();
                 ota_manager_notify_state(OTA_STATE_FAILED);
                 goto reboot;
             } else if (ret == 0) {
@@ -140,6 +148,7 @@ static int _ota_manager_check_all(void)
 
     if (need_reboot) {
         LISA_LOGI(TAG, "Rebooting to apply updates...");
+        ota_manager_update_reboot_strategy();
         ota_manager_notify_state(OTA_STATE_SUCCESSED);
         goto reboot;
     }
@@ -186,9 +195,15 @@ up_to_date:
     return 0;
 
 reboot:
-    vTaskDelay(pdMS_TO_TICKS(3000));
-    extern void sys_platform_sw_full_reset(void);
-    sys_platform_sw_full_reset();
+    if (s_ota_state.reboot == OTA_REBOOT_STRATEGY_AUTO) {
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        extern void sys_platform_sw_full_reset(void);
+        sys_platform_sw_full_reset();
+    } else if (s_ota_state.reboot == OTA_REBOOT_STRATEGY_MANUAL) {
+       while (1) {
+           vTaskDelay(pdMS_TO_TICKS(1000));
+       }
+    }
 
     return ret;
 }

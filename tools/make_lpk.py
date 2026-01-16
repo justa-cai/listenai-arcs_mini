@@ -30,13 +30,16 @@ def compute_md5(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_manifest(base_dir: Path) -> dict:
+def build_manifest(base_dir: Path, no_boot: bool = False) -> dict:
     manifest = {"manifest": MANIFEST_VERSION, "chip": CHIP, "images": []}
 
     for image in IMAGES:
         source_path = (base_dir / image["file"]).resolve()
         if not source_path.is_file():
             raise FileNotFoundError(f"missing image file: {source_path}")
+
+        if no_boot and image["name"] == "boot":
+            continue
 
         manifest["images"].append({**image, "md5": compute_md5(source_path)})
 
@@ -72,6 +75,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Base directory for image files; defaults to the script directory.",
     )
+    parser.add_argument(
+        "--no-boot",
+        action="store_true",
+        help="Exclude the boot image from the package.",
+    )
     return parser.parse_args()
 
 
@@ -79,7 +87,7 @@ def main() -> None:
     args = parse_args()
     base_dir = args.base_dir or Path.cwd()
 
-    manifest = build_manifest(base_dir)
+    manifest = build_manifest(base_dir, no_boot=args.no_boot)
     package_lpk(manifest, base_dir, args.output)
 
     print(f"wrote lpk to {args.output}")

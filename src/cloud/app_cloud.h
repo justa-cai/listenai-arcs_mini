@@ -18,6 +18,7 @@ typedef struct app_cloud_s {
 	bool m_wifi_conn;
 	bool m_fast_reconnect;
 	bool m_ntp_conn;
+	bool has_notified_network_error;
 } app_cloud_t;
 
 app_cloud_t *app_cloud_create(struct app_client_s *app_client);

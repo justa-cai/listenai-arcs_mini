@@ -199,7 +199,7 @@ static int play_timeout_audio(void)
     return 0;
 }
 
-static int play_net_error_audio(void)
+int play_net_error_audio(void)
 {
     listen_soundplayer_play(s_sound_player, TONE_ID_65, 0);
 	return 0;

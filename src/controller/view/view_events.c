@@ -78,7 +78,7 @@ static void inter_role_exit_work_handler(void *param){
 int view_event_handler(ebus_chn_t *chn, uint32_t code, void *message, uint32_t msg_size, void *user_data){
     assistant_view_t *view = (assistant_view_t *)user_data;
 
-    LISA_LOGI(TAG, "View trigger event:%d", code);
+    LISA_LOGD(TAG, "View trigger event:%d", code);
     switch(code ){
         case LISAUI_EBUS_CH_EVENT_U2M_INTER_ROLE_UPDATE:
             workqueue_submit(view_event_workq, inter_role_update_work_handler, NULL, 0);

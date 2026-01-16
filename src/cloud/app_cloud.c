@@ -56,6 +56,7 @@ app_cloud_t *app_cloud_create(app_client_t *client)
 	handle->m_client = client;
 	handle->m_rec = recognizer_create(
 			client->short_player, client->tts_player, client->audio_mgr, handle->aiui);
+	handle->has_notified_network_error = false;
 	app_proc_init(client, handle);
 	s_cloud = handle;
 
@@ -71,6 +72,7 @@ void app_cloud_process_wifi_connected(app_cloud_t *cloud)
 		return;
 	}
 	cloud->m_wifi_conn = true;
+	cloud->has_notified_network_error = false;
 	LISA_LOGI(TAG, "wifi connected, try to connect to cloud");
 	evs_handler_post_runnable(_wifi_conn_runnable, NULL);
 }
@@ -81,6 +83,7 @@ void app_cloud_process_wifi_disconnected(app_cloud_t *cloud)
 		return;
 	}
 	cloud->m_wifi_conn = false;
+	cloud->has_notified_network_error = false;
 	evs_handler_post_runnable(_wifi_disconn_runnable, NULL);
 }
 
@@ -212,7 +215,7 @@ static int _ws_reconnect(void *arg)
 	// 重连前需要主动调用断开链接
 	s_cloud->ws_state = LS_WS_DISCONNECT;
 	lisa_aiui_disconnect(s_cloud->aiui);
-	if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, true)) {
+	if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, false)) {
 		evs_handler_post_runnable_delay(_ws_reconnect, NULL, 2000);
 	} else {
 		s_cloud->ws_state = LS_WS_CONNECTING;
@@ -224,6 +227,7 @@ static int _ws_reconnect(void *arg)
 static void _ws_conn_cb()
 {
 	s_cloud->ws_state = LS_WS_CONNECT;
+	s_cloud->has_notified_network_error = false; // 连接成功后允许下次错误提醒
 }
 
 static void _ws_disconnect_cb()
@@ -231,6 +235,11 @@ static void _ws_disconnect_cb()
 	s_cloud->ws_state = LS_WS_DISCONNECT;
 	LISA_LOGI(TAG, "websocket disconnect, reconnect after 1000ms");
 	assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
+	if (s_cloud->m_wifi_conn && !s_cloud->has_notified_network_error) {
+		s_cloud->has_notified_network_error = true;
+		extern int play_net_error_audio(void);
+		play_net_error_audio();
+	}
 	if (s_cloud->m_wifi_conn) {
 		evs_handler_post_runnable_delay(_ws_reconnect, NULL, 1000);
 	}

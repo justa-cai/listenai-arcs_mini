@@ -128,6 +128,7 @@ EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_OTA_STATE_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_WAKE_WORD_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_SHOW)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_SHOW_LOADING)
 
 /* 0: other status 1: listening */
 bool get_audio_listen_status(void)
@@ -394,6 +395,33 @@ int assistant_view_hide_camera_image(void)
     // 使用工作队列提交任务，无需参数
     workqueue_submit(view_handler->view->workq,
         EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_CAMERA_IMAGE_HIDE),
+        NULL, 0);
+
+    return 0;
+}
+
+int assistant_view_show_loading(const char *text)
+{
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        if (_userdata->setting.loading_text) {
+            exram_free((void *)_userdata->setting.loading_text);
+            _userdata->setting.loading_text = NULL;
+        }
+
+        if (text) {
+            size_t text_len = strlen(text);
+            char *new_text = exram_malloc(4, text_len + 1);
+            if (new_text) {
+                strncpy(new_text, text, text_len);
+                new_text[text_len] = '\0';
+                _userdata->setting.loading_text = new_text;
+            }
+        }
+    }
+
+    workqueue_submit(view_handler->view->workq,
+        EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_SHOW_LOADING),
         NULL, 0);
 
     return 0;

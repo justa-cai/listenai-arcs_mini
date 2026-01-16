@@ -59,6 +59,7 @@ typedef enum {
     LISAUI_EBUS_CH_EVENT_M2U_OTA_STATE_UPDATE,
     LISAUI_EBUS_CH_EVENT_M2U_WAKE_WORD_UPDATE,
     LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_SHOW,
+    LISAUI_EBUS_CH_EVENT_M2U_SHOW_LOADING,
 
 } lisaui_ebus_ch_event_e;
 
@@ -219,7 +220,7 @@ typedef struct {
     int volume_percent;
     bool mic_is_mute;
     int mic_gain;/*0-100*/
-
+    const char *loading_text;
 } lisaui_userdata_setting_t;
 
 typedef struct{
