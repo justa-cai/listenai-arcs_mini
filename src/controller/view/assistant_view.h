@@ -159,6 +159,8 @@ int assistant_view_show_net_image(const void *img_dsc);
 // 隐藏拍照图片
 int assistant_view_hide_camera_image(void);
 
+int assistant_view_show_loading(const char *text);
+
 /**
  * @brief 获取电池图标显示状态
  *

@@ -347,9 +347,12 @@ void lisa_ui_llm_primary_set_battery_img(lv_obj_t *obj, const void *img_path)
     }
 
     // 显示图片（移除隐藏标志）
+    bool is_hidden = lv_obj_has_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
     lv_img_set_src(llm_primary->battery_icon, img_path);
-    LOGI("battery image show");
+    if (is_hidden) {
+        LOGI("battery image show");
+    }
 }
 
 void lisa_ui_llm_primary_battery_icon_hide(lv_obj_t *obj)
@@ -364,8 +367,11 @@ void lisa_ui_llm_primary_battery_icon_hide(lv_obj_t *obj)
     }
     
     // 隐藏图片
+    bool is_hidden = lv_obj_has_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
-    LOGI("battery image hidden");
+    if (!is_hidden) {
+        LOGI("battery image hidden");
+    }
 }
 
 void lisa_ui_llm_primary_start_emoji_animation(lv_obj_t *obj)

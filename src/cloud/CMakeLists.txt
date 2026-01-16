@@ -25,6 +25,7 @@ listenai_library_sources(
     mcp/tools/photo_recognition.c
     mcp/tools/play_control.c
     mcp/tools/show_image.c
+    mcp/tools/show_loading.c
     mcp/tools/show_qrcode.c
     mcp/tools/switch_full_duplex.c
     mcp/tools/version_info.c

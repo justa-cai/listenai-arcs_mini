@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include "assistant_controller.h"
+#include "player/audio_player.h"
 
 #define TAG "show_qrcode"
 
@@ -16,6 +17,8 @@
 
 // 外部函数声明：更新二维码显示
 extern int assistant_view_update_qrcode(const char *url, const char *message, const char *err_code);
+
+extern audioplayer_t *get_audio_player(void);
 
 /**
  * @brief 显示二维码处理函数
@@ -173,6 +176,14 @@ static mcp_result_t show_qrcode_handler(const mcp_context_t *ctx, mcp_response_t
         response->content = content_array;
         response->result = MCP_RESULT_ERROR;
         return MCP_RESULT_ERROR;
+    }
+
+    if (err_code && strstr(err_code, "OutOfChatLimit") == err_code) {
+        audioplayer_t *player = get_audio_player();
+        if (player && player->pause) {
+            listen_audioplayer_puse(player);
+            LISA_LOGI(TAG, "Paused audio player due to %s error", err_code);
+        }
     }
 
     LISA_LOGI(TAG, "QR code updated successfully");

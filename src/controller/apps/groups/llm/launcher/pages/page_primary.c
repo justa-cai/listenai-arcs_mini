@@ -29,6 +29,11 @@
 
 #define TAG "launcher.page.main"
 
+#ifdef LOG_TAG
+#undef LOG_TAG
+#endif
+#define LOG_TAG TAG
+
 #define STATUS_TEXT_MAX_LEN 32
 #define CONTENT_TEXT_MAX_LEN 512
 #define CYCLE_INDEX_MIN 1
@@ -1160,6 +1165,9 @@ static int update_inter_state(page_view_t *view)
 
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
+        if (_userdata->setting.loading_text != NULL) {
+            continue;
+        }
 
         if (_userdata->setting.mic_is_mute) {
             set_page_status(view, "请打开麦克风跟我说话");
@@ -1222,6 +1230,11 @@ static int update_mcp_emoji(page_view_t *view)
         uint8_t emoji = _userdata->roles.roles[role_idx].emoji;
         
         LISAUI_LOGI(TAG, "[%s] MCP data - role_idx: %d, raw_emoji: %d", __FUNCTION__, role_idx, emoji);
+        
+        if (_userdata->setting.loading_text != NULL) {
+            LISAUI_LOGI(TAG, "[%s] Loading in progress, skipping MCP emoji update", __FUNCTION__);
+            continue;
+        }
         
         // 映射表情值
         lisa_ui_emoji_type_e emoji_type;
@@ -1315,6 +1328,11 @@ static int update_role_emoji(page_view_t *view)
 
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
+        if (_userdata->setting.loading_text != NULL) {
+            LISAUI_LOGI(TAG, "[%s] Loading in progress, skipping cloud emoji update", __FUNCTION__);
+            continue;
+        }
+
         uint8_t role_idx = _userdata->roles.role_idx;
         uint8_t emoji = _userdata->roles.roles[role_idx].emoji;
         
@@ -1400,6 +1418,10 @@ static int update_wifi_state(page_view_t *view)
 {
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
+        if (_userdata->setting.loading_text != NULL) {
+            continue;
+        }
+
         uint8_t connect_state = _userdata->setting.wifi.connect_info.state;
 
         if (connect_state == LISAUI_USERDATA_WIFI_CONNECT_STATE_CONNECTED) {
@@ -1429,6 +1451,10 @@ static int update_battery_info(page_view_t *view)
     
     LISAUI_USERDATA_WITH_LOCK(_userdata)
     {
+        if (_userdata->setting.loading_text != NULL) {
+            continue;
+        }
+
         uint8_t is_usb_plug = _userdata->setting.battery.usb_status;
         uint8_t is_charging = _userdata->setting.battery.is_charging;
         if (_userdata->setting.battery.power_percent >= 100) {
@@ -1523,17 +1549,62 @@ static int update_ota_state(page_view_t *view)
                     set_content_text(view, progress_text);
                 }
             } else if (ota->state == OTA_STATE_SUCCESSED) {
-                set_page_status(view, "更新完毕，即将重启");
+                set_page_status(view, "更新完毕");
                 set_content_text(view, "");
             } else if (ota->state == OTA_STATE_FAILED) {
-                set_page_status(view, "更新失败，即将重启");
+                set_page_status(view, "更新失败");
                 set_content_text(view, "");
+            }
+
+            if (ota->state == OTA_STATE_SUCCESSED || ota->state == OTA_STATE_FAILED) {
+                if (ota->reboot == OTA_REBOOT_STRATEGY_AUTO) {
+                    set_content_text(view, "正在重启...");
+                } else {
+                    set_content_text(view, "请手动重启设备");
+                }
             }
 
             stop_text_rotation(view);   // 停止文本轮换
             start_staged_emoji_animation(view, LISA_UI_EMOJI_LOVE);
         }
     }
+
+    return 0;
+}
+
+static int update_loading_state(page_view_t *view)
+{
+    bool has_loading = false;
+    bool ota_up_to_date = true;
+    char loading_text_buf[CONTENT_TEXT_MAX_LEN];
+
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        has_loading = (_userdata->setting.loading_text != NULL);
+        ota_up_to_date = (_userdata->setting.ota.state == OTA_STATE_UP_TO_DATE);
+        if (_userdata->setting.loading_text) {
+            strncpy(loading_text_buf, _userdata->setting.loading_text, sizeof(loading_text_buf) - 1);
+            loading_text_buf[sizeof(loading_text_buf) - 1] = '\0';
+        }
+    }
+
+    if (has_loading) {
+        if (!ota_up_to_date) {
+            return 0;
+        }
+
+        set_content_text(view, loading_text_buf);
+        start_staged_emoji_animation(view, LISA_UI_EMOJI_WAIT);
+        stop_text_rotation(view);
+        stop_sleepy_timer(view);
+        return 0;
+    }
+
+    update_inter_state(view);
+    update_wifi_state(view);
+    update_battery_info(view);
+    update_ota_state(view);
+    update_role_emoji(view);
 
     return 0;
 }
@@ -1546,7 +1617,7 @@ static int event_inter_state_handler(ebus_chn_t *chn, uint32_t code, void *messa
         return -1;
     }
     
-    LISAUI_LOGI(TAG, "page_primary event_inter_state_handler, code:%d", code);
+    LISAUI_LOGD(TAG, "page_primary event_inter_state_handler, code:%d", code);
     
     switch (code) {
     case LISAUI_EBUS_CH_EVENT_M2U_INTER_WAKEUP: {
@@ -1602,6 +1673,10 @@ static int event_inter_state_handler(ebus_chn_t *chn, uint32_t code, void *messa
             start_text_rotation(view);  // 使用新配置重新启动
             LISAUI_LOGI(TAG, "Standby texts updated, restarted text rotation");
         }
+        break;
+
+    case LISAUI_EBUS_CH_EVENT_M2U_SHOW_LOADING:
+        update_loading_state(view);
         break;
 
     default:
@@ -1715,6 +1790,12 @@ static lisaui_page_t *create(lisaui_page_t *page)
         ebus_message_subscribe( view->ebus_ch_base_event, 
                 EBUS_SUBSCRIBER_TYPE_SYNC, 
                 LISAUI_EBUS_CH_EVENT_M2U_STANDBY_TEXTS_UPDATE,
+                event_inter_state_handler, 
+                view);
+
+        ebus_message_subscribe( view->ebus_ch_base_event, 
+                EBUS_SUBSCRIBER_TYPE_SYNC, 
+                LISAUI_EBUS_CH_EVENT_M2U_SHOW_LOADING,
                 event_inter_state_handler, 
                 view);
     }
@@ -1916,6 +1997,14 @@ void trigger_primary_page_refresh(void)
     LISAUI_LOGI(TAG, "Triggering primary page refresh after page toggle");
     // 更新交互状态
     update_inter_state(view);
+    
+    update_loading_state(view);
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        if (_userdata->setting.loading_text) {
+            return;
+        }
+    }
     
     // 更新角色表情
     update_role_emoji(view);

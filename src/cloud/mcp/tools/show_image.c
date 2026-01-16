@@ -68,6 +68,7 @@ void show_image_cancel_waiting(void)
 {
     if (text2img_waiting_state == TEXT2IMG_STATE_WAITING) {
         LISA_LOGI(TAG, "Cancelling text2img waiting due to user interaction");
+        assistant_view_show_loading(NULL);
         text2img_waiting_state = TEXT2IMG_STATE_CANCELLED;
     }
 }
@@ -315,6 +316,7 @@ static mcp_result_t show_image_handler(const mcp_context_t *ctx, mcp_response_t 
         LISA_LOGE(TAG, "Failed to dispatch image to UI, ret=%d", ui_ret);
     } else {
         LISA_LOGI(TAG, "Image cached and dispatched to UI for display");
+        assistant_view_show_loading(NULL);
     }
 
     // 创建content数组
@@ -480,6 +482,7 @@ int show_image_load_and_display(const char *url)
     }
     
     LISA_LOGI(TAG, "Image dispatched to UI for display");
+    assistant_view_show_loading(NULL);
     return 0;
 }
 

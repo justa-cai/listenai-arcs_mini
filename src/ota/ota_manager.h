@@ -16,9 +16,15 @@ typedef enum {
     OTA_TARGET_GREETING,
 } ota_target_e;
 
+typedef enum {
+    OTA_REBOOT_STRATEGY_AUTO = 0,
+    OTA_REBOOT_STRATEGY_MANUAL,
+} ota_reboot_strategy_e;
+
 typedef struct {
     ota_state_e state;
     ota_target_e target;
+    ota_reboot_strategy_e reboot;
     uint32_t bytes_processed;
     uint32_t bytes_total;
 } ota_state_t;

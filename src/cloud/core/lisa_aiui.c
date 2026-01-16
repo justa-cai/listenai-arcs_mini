@@ -423,6 +423,8 @@ static int aiui_update_auto_header(lisa_aiui_t *aiui_handle, bool fresh_token)
 				r = lisa_kv_set_string(KV_KEY_TOKEN, token);
 				if (r) {
 					LISA_LOGE(TAG, "save token to kv failed");
+				} else {
+					LISA_LOGI(TAG, "save token to kv success");
 				}
 			}
 		}
@@ -481,6 +483,8 @@ void lisa_aiui_update_secret_id(const char *sid)
 
 void lisa_aiui_clear_token(void)
 {
+    lisa_kv_del(KV_KEY_TOKEN);
+    LISA_LOGI(TAG, "clear token from kv");
 }
 
 static int token_fail_func(void *arg)
