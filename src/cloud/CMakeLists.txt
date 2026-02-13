@@ -15,6 +15,7 @@ listenai_library_sources(
     mcp/vision_config.c
     
     # MCP tools
+    mcp/tools/alarm_control.c
     mcp/tools/audio_url.c
     mcp/tools/brightness_control.c
     mcp/tools/emotion_control.c

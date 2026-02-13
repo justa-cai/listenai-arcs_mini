@@ -26,6 +26,7 @@
 #include "stdlib.h"
 #include "assistant_controller.h"
 #include "alarm_aiui.h"
+#include "alarm_ring.h"
 #include "lisa_aiui_rid_man.h"
 #include "mcp_integration.h"
 #include "proc_mgr.h"
@@ -52,6 +53,8 @@ static recognizer_t *s_rec = NULL;
 static app_client_t *s_app_client = NULL;
 static audioplayer_t *s_audio_player = NULL;
 static tts_player_t *s_tts_player = NULL;
+static tts_url_callback_t s_tts_url_cb = NULL;
+static bool s_expect_tts_url = false;
 static sound_player_t *s_sound_player = NULL;
 static lisa_aiui_t *s_aiui = NULL;
 static lisa_semaphore_t *started_sema = NULL;
@@ -101,6 +104,16 @@ void app_proc_init(app_client_t *app_client, app_cloud_t *cloud)
 	listen_ttsplayer_add_focus_callback(s_tts_player, &s_focus_state_cb);
 	tts_timer = lisa_timer_create(LS_CLOUD_TTS_TIMEOUT, __tts_timeout, NULL);
 	started_sema = lisa_semaphore_create(1);
+}
+
+void register_tts_url_callback(tts_url_callback_t cb)
+{
+	s_tts_url_cb = cb;
+}
+
+void proc_mgr_expect_tts_url(bool expect)
+{
+	s_expect_tts_url = expect;
 }
 
 audioplayer_t *get_audio_player(void)
@@ -220,6 +233,12 @@ int play_config_net_success_audio(void)
 int play_factory_reset_audio(void)
 {
     listen_soundplayer_play(s_sound_player, TONE_ID_103, 0);
+    return 0;
+}
+
+int play_net_fail_audio(void)
+{
+    listen_soundplayer_play(s_sound_player, TONE_ID_60, 0);
     return 0;
 }
 
@@ -396,7 +415,7 @@ static int _parser_intent(cJSON *root)
 		if (strcmp(service->valuestring, "scheduleX") == 0) {
 			/* alarm msg */
 			LISA_LOGI(TAG, "aiui alarm intent match");
-			// alarm_aiui_intent_process(root);
+			alarm_aiui_intent_process(root);
 			return 0;
 		}
 	}
@@ -553,15 +572,13 @@ static int _proc_msg_continue(void *arg)
 		goto PARSER_END;
 	}
 
+	// 有 MCP 响应，发送并结束处理
     cJSON *mcp_response = mcp_integration_process_message(root);
     if (mcp_response) {
-        // 有 MCP 响应，发送并结束处理
         char *response_str = cJSON_Print(mcp_response);
         if (response_str) {
-            // aiui_send_response(response_str);
 			LISA_LOGI(TAG, "mcp response: %s\n", response_str);
 			app_cloud_txt(response_str);
-			// printf("mcp response: %s\n", response_str);
             cJSON_free(response_str);
         }
         cJSON_Delete(mcp_response);
@@ -580,6 +597,7 @@ static int _proc_msg_continue(void *arg)
 		cJSON *data = cJSON_GetObjectItem(root, "data");
 		if (!data) goto PARSER_END;
 
+		// 角色表情
 		cJSON *nlp_origin = cJSON_GetObjectItem(data, "nlp_origin");
 		if (nlp_origin && cJSON_IsString(nlp_origin) && strcmp(nlp_origin->valuestring, "emoji") == 0) {
 			cJSON *_data = cJSON_GetObjectItem(data, "data");
@@ -591,9 +609,10 @@ static int _proc_msg_continue(void *arg)
 			}
 		}
 
+		// 小聆AI 1.2.3 文生图
 		if (nlp_origin && cJSON_IsString(nlp_origin) && strcmp(nlp_origin->valuestring, "image_generation") == 0) {
 			LISA_LOGI(TAG, "Processing image_generation skill");
-			
+
 			// 检查是否有错误，如有错误则提前处理
 			cJSON *_data = cJSON_GetObjectItem(data, "data");
 			if (_data) {
@@ -681,9 +700,9 @@ static int _proc_msg_continue(void *arg)
 		// 	}
 		// }
 
+		// 待机引导语
 		cJSON *theme = cJSON_GetObjectItem(data, "theme");
 		if (theme) {
-			// 解析主题配置，提取待机文本
 			cJSON *frontend = cJSON_GetObjectItem(theme, "frontend");
 			if (frontend) {
 				cJSON *banner = cJSON_GetObjectItem(frontend, "banner");
@@ -719,10 +738,13 @@ static int _proc_msg_continue(void *arg)
 			}
 		}
 
+
 		cJSON *vad_sub = cJSON_GetObjectItem(data, "sub");
+
+		// VAD
 		if (vad_sub && cJSON_IsString(vad_sub) && (strcmp(vad_sub->valuestring, "vad") == 0)) {
 			if (lisa_aiui_get_interactive_mode() == INTER_ONESHOT) {
-				// assist_controller_trigger_event(CONTROLLER_EVENT_STATE_VAD_END, NULL, 0);
+				assist_controller_trigger_event(CONTROLLER_EVENT_STATE_VAD_END, NULL, 0);
 				recognizer_stop_record(s_rec);
 			}
 			// assist_controller_trigger_event(CONTROLLER_EVENT_STATE_VAD_END, NULL, 0);
@@ -763,6 +785,10 @@ static int _proc_msg_continue(void *arg)
 							memcpy(audio.m_url, url_tone, out_len);
 						}
 						audio.m_url[out_len] = '\0';
+						if (s_tts_url_cb && s_expect_tts_url && audio.m_url[0] != '\0') {
+							s_expect_tts_url = false;
+							s_tts_url_cb(audio.m_url);
+						}
 						audio.throw_time = 300;
 						if (lisa_aiui_get_interactive_mode() == INTER_CONTINUE) {
 							lisa_timer_stop(tts_timer);
@@ -836,6 +862,11 @@ static int _proc_msg_continue(void *arg)
 					if (text && cJSON_IsString(text)) {
 						LISA_LOGI(TAG, "iat text:%s", text->valuestring);
 						assist_controller_trigger_event(CONTROLLER_EVENT_STATE_CLOUD_UPDATE_IAT_TEXT, text->valuestring, strlen(text->valuestring)+1);
+						if (lisa_aiui_get_interactive_mode() == INTER_CONTINUE &&
+							alarm_ring_is_active() &&
+							strlen(text->valuestring) > 0) {
+							alarm_ring_stop();
+						}
 					}
 
 					cJSON *result_id = cJSON_GetObjectItem(data, "result_id");

@@ -73,14 +73,19 @@
             },
             "resources": [
                 {
+                    "name": "tone",
+                    "address": 806354944, 
+                    "size": 1048576
+                },
+                {
                     "name": "wake_word",
                     "address": 807403520,
                     "size": 2097152
                 },
                 {
-                    "name": "tone",
-                    "address": 806354944,
-                    "size": 4389
+                    "name": "respak",
+                    "address": 809500672,
+                    "size": 2097152
                 }
             ]
         }

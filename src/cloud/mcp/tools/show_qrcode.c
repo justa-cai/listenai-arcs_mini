@@ -179,11 +179,8 @@ static mcp_result_t show_qrcode_handler(const mcp_context_t *ctx, mcp_response_t
     }
 
     if (err_code && strstr(err_code, "OutOfChatLimit") == err_code) {
-        audioplayer_t *player = get_audio_player();
-        if (player && player->pause) {
-            listen_audioplayer_puse(player);
-            LISA_LOGI(TAG, "Paused audio player due to %s error", err_code);
-        }
+        enter_audio_idle();
+        LISA_LOGI(TAG, "Stop audio player due to %s error", err_code);
     }
 
     LISA_LOGI(TAG, "QR code updated successfully");

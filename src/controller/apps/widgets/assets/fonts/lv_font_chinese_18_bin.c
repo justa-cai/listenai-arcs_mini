@@ -7,6 +7,8 @@
 #include "sysheap.h"
 
 #include "lisaui_asset_manager.h"
+#include "romfs/romfs.h"
+#include "config/config_parser.h"
 
 typedef struct{
     uint16_t min;
@@ -112,6 +114,7 @@ void flash_copy_font_res(void)
 
 static lisaui_resource_item_t g_font_res_item;
 
+#if 0
 static uint8_t *__user_font_getdata(int offset, int size)
 {
     // uint32_t font_address = CONFIG_FLASH_BASE_ADDRESS + CONFIG_FLASH_RES_LV_FONT_CHINESE_ADDRESS + offset;
@@ -134,9 +137,70 @@ static uint8_t *__user_font_getdata(int offset, int size)
     }
     return (uint8_t *)Font_buff + offset;
 
-    // uint8_t *pFont = (uint8_t *)0x30C00000;
-    // return pFont + offset;
 }
+
+#else
+
+static uint32_t s_font_romfs_addr = 0;
+static uint32_t s_font_romfs_size = 0;
+static struct romfs *s_font_romfs = NULL;
+
+static int lv_font_load_resource_config(void)
+{
+    const Config *config = config_get();
+    if (!config) {
+        return -1;
+    }
+
+    const ResourceConfig *res = config_get_resource_by_name("respak");
+    if (!res || res->address == 0 || res->size == 0) {
+        return -1;
+    }
+
+    s_font_romfs_addr = res->address;
+    s_font_romfs_size = res->size;
+    return 0;
+}
+
+static uint8_t *s_pFont = NULL;
+
+static uint8_t *__user_font_getdata(int offset, int size)
+{
+    if (!s_pFont)
+    {
+        if (lv_font_load_resource_config() != 0) {
+            return NULL;
+        }
+
+        if (s_font_romfs_addr == 0 || s_font_romfs_size == 0) {
+            return NULL;
+        }
+
+        if (romfs_init(&s_font_romfs, (const void *)(uintptr_t)s_font_romfs_addr, s_font_romfs_size) != 0) {
+            return NULL;
+        }
+        if (!s_font_romfs) {
+            return NULL;
+        }
+        uint8_t *pFont = NULL;
+        uint32_t fontSize = 0;
+        (void)romfs_info_get(s_font_romfs, "/font/lv_font_chinese_18.bin", (uint8_t **)&pFont, &fontSize);
+
+        if (pFont && fontSize > 0) {
+            s_pFont = pFont;
+        }
+        romfs_deinit(&s_font_romfs);
+
+        if (!s_pFont) {
+            return NULL;
+        }
+    }
+    
+    return s_pFont + offset;
+}
+
+#endif
+
 
 static const uint8_t * __user_font_get_bitmap(const lv_font_t * font, uint32_t unicode_letter) {
     if( unicode_letter>__g_xbf_hd.max || unicode_letter<__g_xbf_hd.min ) {

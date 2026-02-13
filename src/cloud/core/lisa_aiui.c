@@ -29,6 +29,7 @@
 #include "lisa_aiui_rid_man.h"
 #include "app_cloud.h"
 #include "assistant_controller.h"
+#include "assistant_view.h"
 
 
 #define AIUI_TIMEOUT (10)
@@ -49,7 +50,7 @@
 #define CONFIG_MCP_V2       1
 
 lisa_aiui_t *s_lisa_aiui = NULL;
-#define DEFAULT_INTERACTIVE_MODE    INTER_ONESHOT
+#define DEFAULT_INTERACTIVE_MODE    INTER_CONTINUE
 static lisa_aiui_interactive_mode_e current_intera_mode = DEFAULT_INTERACTIVE_MODE;  //default mode
 static bool is_cur_inter_mode_valid = false;
 
@@ -92,6 +93,8 @@ int lisa_aiui_set_interactive_mode(lisa_aiui_interactive_mode_e mode)
 	}
 
 	current_intera_mode = mode;
+
+    assistant_view_notify_interactive_mode_update(current_intera_mode);
 
     return 0;
 }
@@ -342,10 +345,11 @@ static char *aiui_generate_url(void)
     cJSON_AddBoolToObject(params, "mcp", true);
     if (lisa_aiui_get_interactive_mode() != INTER_ONESHOT) {
         cJSON_AddStringToObject(params, "type", "fullduplex");
-        #if CONFIG_MCP_V2
-            cJSON_AddStringToObject(params, "tool_protocol_version", "v2");
-        #endif
     }
+
+    #if CONFIG_MCP_V2
+    cJSON_AddStringToObject(params, "tool_protocol_version", "v2");
+    #endif
 
     cJSON *firmware_info = cJSON_CreateObject();
     cJSON_AddStringToObject(firmware_info, "type", "arcs-mini");
@@ -357,6 +361,7 @@ static char *aiui_generate_url(void)
 
     LISA_LOGI(TAG, "[%s]params: %s", __func__, params_json);
     char *params_base64 = aiui_base64_encode(params_json);
+    cJSON_free(params_json);
     if (strlen(params_base64) <= 0) {
         LISA_LOGE(TAG, "encode base64 error %s", params_base64);
     }
@@ -492,6 +497,7 @@ static int token_fail_func(void *arg)
     app_cloud_token_error();
     extern int play_auth_failed_audio(void);
     play_auth_failed_audio();
+    return 0;
 }
 
 static void token_fail_msg(void)
@@ -500,7 +506,7 @@ static void token_fail_msg(void)
 
 	evs_handler_post_runnable(token_fail_func, NULL);
 }
-
+char *url;
 lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
 {
     if (!lisa_aiui_get_device_mode()) {
@@ -523,7 +529,7 @@ lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
         return LISA_FAIL;
     }
 
-	char *url = aiui_generate_url();
+	url = aiui_generate_url();
 
 	LISA_LOGI(TAG, "websocket connect url %s", url);
 	lisa_ws_request_t ws_req;
@@ -548,7 +554,7 @@ lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
     ws_req.extra_header = handle->auth_header;
 	lisa_ws_t *lisa_ws_ins = lisa_ws_init(&ws_req);
 	s_lisa_aiui->aiui_ws->ws_client = lisa_ws_ins;
-	lisa_mem_free(url);
+	// lisa_mem_free(url);
 
 	if (lisa_ws_connect(lisa_ws_ins)) {
 		LISA_LOGE(TAG, "lisa evs websocket connect error");
@@ -877,8 +883,11 @@ int lisa_aiui_start_frame_send_audio(lisa_aiui_t *handle)
 
     cJSON *params = cJSON_CreateObject();
     cJSON_AddItemToObject(root, "params", params);
-    cJSON_AddStringToObject(params, "fullduplex_timeout", "60");
-    cJSON_AddStringToObject(params, "fullduplex", "1");
+
+    if (INTER_CONTINUE == lisa_aiui_get_interactive_mode()) {
+        cJSON_AddStringToObject(params, "fullduplex_timeout", "60");
+        cJSON_AddStringToObject(params, "fullduplex", "1");
+    }
 
     cJSON *features = cJSON_CreateArray();
     cJSON_AddItemToArray(features, cJSON_CreateString("nlu"));
@@ -887,6 +896,10 @@ int lisa_aiui_start_frame_send_audio(lisa_aiui_t *handle)
 
     cJSON_AddStringToObject(params, "data_type", "audio");
     cJSON_AddStringToObject(params, "aue", "ico");
+
+    cJSON *asr_properties = cJSON_CreateObject();
+    cJSON_AddStringToObject(asr_properties, "audio_gain", "6.0");
+    cJSON_AddItemToObject(params, "asr_properties", asr_properties);
 
     cJSON *nlu_properties = cJSON_CreateObject();
     cJSON_AddItemToObject(params, "nlu_properties", nlu_properties);

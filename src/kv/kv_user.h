@@ -11,6 +11,7 @@
 #define KV_KEY_USER_VOLUME      "user.volume"
 #define KV_KEY_USER_BRIGHTNESS  "user.brightness"
 #define KV_KEY_USER_MIC_GAIN    "user.mic_gain"
+#define KV_KEY_USER_AEC_GAIN    "user.aec_gain"
 #define KV_KEY_USER_DISABLE_WAKEWORD_UPDATE "user.disable_wakeword_update"
 #define KV_KEY_USER_USE_LOCAL_ACK_TONE      "user.use_default_ack_tone"
 

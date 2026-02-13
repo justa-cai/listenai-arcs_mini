@@ -1,7 +1,9 @@
 #define TAG "alarm"
 
 #include <stdint.h>
+#include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
 #include "stdint.h"
 #include "stddef.h"
 #include "stdbool.h"
@@ -17,246 +19,38 @@
 #include "lisa_log.h"
 #include "lisa_mutex.h"
 #include "lisa_kv.h"
+#include "alarm_next.h"
 #include "alarm.h"
+#include "alarm_ring.h"
+#include "listen_system.h"
 #include "sys/time.h"
+#include "alarm_store.h"
 
 static struct ls_alarm *g_alarm_head = NULL;
 static lisa_timer_t *g_alarm_timer = NULL;
 static lisa_mutex_t *g_alarm_mutex = NULL;
 static ls_alarm_user_callback_t g_alarm_user_callback = NULL;
-int ls_alarm_count_get(void);
+
+#define ALARM_TIMER_MAX_MS (24U * 60U * 60U * 1000U)
 
 static void ls_alarm_timer_callback_handle(void *arg);
+static int ls_alarm_delete(struct ls_alarm *alarm);
 
-static void ls_alarm_timer_start(uint32_t timeout_s)
-{
-	LISA_LOGI(TAG, "ls_alarm_timer_start, timeout_s:%d s\r\n", timeout_s);
+/* ==================== 工具函数  ==================== */
 
-	timeout_s = timeout_s < 1 ? 1 : timeout_s;
-
-	uint32_t timeout_ms = timeout_s * 1000;
-	if (g_alarm_timer == NULL) {
-		g_alarm_timer = lisa_timer_create(1000, ls_alarm_timer_callback_handle, NULL);
-	}
-
-	if (!lisa_timer_isactive(g_alarm_timer)) {
-		timeout_ms = timeout_ms < 1000 ? 1000 : timeout_ms;
-		lisa_timer_change_period(g_alarm_timer, timeout_ms);
-		lisa_timer_start(g_alarm_timer);
-		LISA_LOGI(TAG, "start new alarm timer, timeout:%dms\r\n", timeout_ms);
-	} else {
-		uint32_t remain = lisa_timer_remain_time(g_alarm_timer);
-		if (remain > timeout_ms) {
-			lisa_timer_change_period(g_alarm_timer, timeout_ms);
-			lisa_timer_start(g_alarm_timer);
-			LISA_LOGI(TAG, "alarm timer remain:%dms, new period:%dms\r\n", remain, timeout_ms);
-		}
-	}
-}
-
-static int ls_alarm_delete_key_from_nvs_keys_by_timestamp(uint64_t timestamp)
-{
-	int err;
-	uint8_t *alarm_keys;
-	int alarm_keys_len;
-	uint8_t *new_alarm_keys;
-	int new_alarm_keys_len;
-	int alarm_key_cnt;
-
-	err = lisa_kv_get_blob(NVS_ALARM_KEY, (uint8_t **)&alarm_keys, &alarm_keys_len);
-	if (err) {
-		return err;
-	}
-	LISA_LOGI(TAG, "alarm_keys_len:%d", alarm_keys_len);
-
-	new_alarm_keys_len = alarm_keys_len;
-	new_alarm_keys = lisa_mem_alloc(new_alarm_keys_len);
-	if (new_alarm_keys == NULL) {
-		lisa_mem_free(alarm_keys);
-		return -1;
-	}
-
-	uint64_t *k1 = (uint64_t *)alarm_keys;
-	uint64_t *k2 = (uint64_t *)new_alarm_keys;
-
-	while (alarm_keys_len) {
-		if (*k1 != timestamp) {
-			*k2++ = *k1++;
-		} else {
-			k1++;
-			new_alarm_keys_len -= sizeof(uint64_t);
-		}
-		alarm_keys_len -= sizeof(uint64_t);
-	}
-
-	LISA_LOGI(TAG, "new_alarm_keys_len:%d", new_alarm_keys_len);
-	if (new_alarm_keys_len <= 0) {
-		lisa_kv_del(NVS_ALARM_KEY);
-	} else {
-		err = lisa_kv_set_blob(NVS_ALARM_KEY, new_alarm_keys, new_alarm_keys_len);
-	}
-
-	lisa_mem_free(alarm_keys);
-	lisa_mem_free(new_alarm_keys);
-
-	return err;
-}
-
-static int ls_alarm_delete_from_nvs_by_key(const char *key)
-{
-	int err;
-
-	err = lisa_kv_del(key);
-
-	return err;
-}
-
-static int ls_alarm_delete_from_nvs_by_timestamp(uint64_t timestamp)
-{
-	int err;
-	uint8_t timestamp_string[32] = {0};
-
-	sprintf(timestamp_string, "%lld", timestamp);
-
-	/* delete alarm blob first */
-	err = ls_alarm_delete_from_nvs_by_key(timestamp_string);
-
-	/* then delete the alarm key in alarm keys from nvs */
-	err |= ls_alarm_delete_key_from_nvs_keys_by_timestamp(timestamp);
-
-	return err;
-}
-
-static int ls_alarm_add_to_nvs_keys_by_timestamp(uint64_t timestamp)
-{
-	uint8_t *alarm_keys = NULL;
-	int keys_size;
-	int new_key_size;
-	int cnt;
-	int err;
-	uint64_t key;
-	uint8_t *new_alarm_keys = NULL;
-
-	err = lisa_kv_get_blob(NVS_ALARM_KEY, (uint8_t **)&alarm_keys, &keys_size);
-	if (err) {
-		keys_size = 0;
-	}
-
-	new_key_size = keys_size + sizeof(uint64_t);
-	new_alarm_keys = lisa_mem_alloc(new_key_size);
-	if (new_alarm_keys == NULL) {
-		lisa_mem_free(alarm_keys);
-		return -1;
-	}
-
-	/* cpy old keys first */
-	memcpy(new_alarm_keys, alarm_keys, keys_size);
-	/* add new key */
-	memcpy(new_alarm_keys + keys_size, &timestamp, sizeof(uint64_t));
-
-	err = lisa_kv_set_blob(NVS_ALARM_KEY, (char *)new_alarm_keys, new_key_size);
-
-	lisa_mem_free(new_alarm_keys);
-	lisa_mem_free(alarm_keys);
-
-	return err;
-}
-
-static int ls_alarm_add_to_nvs(uint64_t timestamp, const char *text)
-{
-	int err;
-
-	struct ls_alarm_nvs *alarm_nvs = lisa_mem_alloc(sizeof(struct ls_alarm_nvs));
-	if (alarm_nvs == NULL) {
-		return -1;
-	}
-
-	uint8_t timestamp_string[32] = {0};
-	sprintf(timestamp_string, "%lld", timestamp);
-
-	memset(alarm_nvs, 0, sizeof(sizeof(struct ls_alarm_nvs)));
-
-	alarm_nvs->timestamp = timestamp;
-	alarm_nvs->text_len = text != NULL ? strlen(text) : 0;
-	alarm_nvs->text_len = (alarm_nvs->text_len >= sizeof(alarm_nvs->text))
-								  ? sizeof(alarm_nvs->text) - 1
-								  : alarm_nvs->text_len;
-
-	memcpy(alarm_nvs->text, text, alarm_nvs->text_len);
-
-	LISA_LOGI(TAG, "ls alarm save to nvs, timestamp:%lld, text:%s", timestamp, text);
-
-	/* save ls_alarm blob to nvs first */
-	err = lisa_kv_set_blob(timestamp_string, (uint8_t *)alarm_nvs, sizeof(struct ls_alarm_nvs));
-
-	/* then save the ls_alarm key to nvs keys */
-	err |= ls_alarm_add_to_nvs_keys_by_timestamp(timestamp);
-
-	lisa_mem_free(alarm_nvs);
-
-	return err;
-}
-
-static int ls_alarm_update_in_nvs_by_key(const char *key, struct ls_alarm_nvs *alarm_nvs)
-{
-	int err;
-	int out_len;
-	struct ls_alarm_nvs *temp;
-
-	if (key == NULL || alarm_nvs == NULL) {
-		return -1;
-	}
-
-	err = lisa_kv_get_blob(key, (uint8_t **)&temp, &out_len);
-	if (err) {
-		/* the alarm not exist */
-		return -1;
-	}
-
-	lisa_mem_free(temp);
-	err = lisa_kv_set_blob(key, (char *)alarm_nvs, sizeof(struct ls_alarm_nvs));
-
-	return err;
-}
-
-static int ls_alarm_update_in_nvs(struct ls_alarm_nvs *alarm_nvs)
-{
-	uint8_t timestamp_string[32] = {0};
-	sprintf(timestamp_string, "%lld", alarm_nvs->timestamp);
-
-	return ls_alarm_update_in_nvs_by_key(timestamp_string, alarm_nvs);
-}
-
-static int ls_alarm_update(struct ls_alarm *alarm, struct ls_alarm *new)
-{
-	int err;
-
-	if (alarm == NULL) {
-		return -1;
-	}
-
-	memset(alarm->text, 0, sizeof(alarm->text));
-	strcat(alarm->text, new->text);
-
-	struct ls_alarm_nvs *alarm_nvs = lisa_mem_alloc(sizeof(struct ls_alarm_nvs));
-	if (alarm_nvs == NULL) {
-		return -1;
-	}
-
-	memset(alarm_nvs, 0, sizeof(struct ls_alarm_nvs));
-	alarm_nvs->timestamp = new->timestamp;
-	strcat(alarm_nvs->text, new->text);
-
-	err = ls_alarm_update_in_nvs(alarm_nvs);
-
-	lisa_mem_free(alarm_nvs);
-
-	return err;
-}
-
-static struct ls_alarm *ls_alarm_get_next_alarm(void)
+struct ls_alarm *ls_alarm_get(void)
 {
 	return g_alarm_head;
+}
+
+int ls_alarm_count_get(void)
+{
+	int cnt = 0;
+	struct ls_alarm *node;
+
+	DL_COUNT(g_alarm_head, node, cnt);
+
+	return cnt;
 }
 
 static int ls_alarm_cmp(struct ls_alarm *a1, struct ls_alarm *a2)
@@ -272,65 +66,49 @@ static void ls_alarm_print_timestamp(uint64_t timestamp)
 	ret_tm = localtime_r(&timestamp, &_tm);
 
 	LISA_LOGI(TAG, "timestamp:%lld, local time:%04d年%02d月%02d日%02d时%02d分%02d秒", timestamp,
-			ret_tm->tm_year + 1970, ret_tm->tm_mon + 1, ret_tm->tm_mday, ret_tm->tm_hour, ret_tm->tm_min, ret_tm->tm_sec);
+			ret_tm->tm_year + 1900, ret_tm->tm_mon + 1, ret_tm->tm_mday, ret_tm->tm_hour, ret_tm->tm_min, ret_tm->tm_sec);
 }
 
-static int ls_alarm_insert(struct ls_alarm *alarm)
+static int get_network_time(struct tm *network_time, time_t *network_timestamp)
 {
-	struct ls_alarm *node;
-	struct ls_alarm *temp;
-	struct timeval tm;
+	struct timeval tv;
 
-	if (alarm == NULL) {
-		return -1;
+	/* Prefer SNTP-synced calendar; fallback to gettimeofday */
+	if (ls_sys_get_time(&tv) != 0) {
+		if (gettimeofday(&tv, NULL) < 0) {
+			return -1;
+		}
 	}
 
-	temp = lisa_mem_alloc(sizeof(struct ls_alarm));
-	if (temp == NULL) {
-		return -1;
+	/* Use the same conversion helpers as listen_system to avoid platform mismatches */
+	long int ts = (long int)tv.tv_sec;
+	if (network_timestamp) {
+		*network_timestamp = (time_t)ts;
 	}
-	temp->timestamp = alarm->timestamp;
-
-	lisa_mutex_lock(g_alarm_mutex, LISA_OS_WAIT_FOREVER);
-
-	/* the new alarm node is exist or not */
-	DL_SEARCH(g_alarm_head, node, temp, ls_alarm_cmp);
-	if (node) {
-		LISA_LOGI(TAG, "alarm is already exist, timestamp:%lld, old text:%s new text:%s\r\n",
-				node->timestamp, node->text, alarm->text);
-		/* the new alarm node is exist, update the text */
-		int err = ls_alarm_update(node, alarm);
-		lisa_mutex_unlock(g_alarm_mutex);
-		lisa_mem_free(temp);
-		return err;
+	if (network_time) {
+		ls_sys_get_tmtime(&ts, network_time);
 	}
-	lisa_mem_free(temp);
-
-	int alarm_cnt = ls_alarm_count_get();
-	LISA_LOGI(TAG, "current alarm cnt:%d", alarm_cnt);
-
-	/* node is not exist, insert it to alarm list */
-	LISA_LOGI(TAG, "insert new alarm, timestamp:%lld, text:%s\r\n", alarm->timestamp, alarm->text);
-	ls_alarm_print_timestamp(alarm->timestamp);
-	DL_INSERT_INORDER(g_alarm_head, alarm, ls_alarm_cmp);
-
-	/* get current utc time */
-	gettimeofday(&tm, NULL);
-	uint64_t current_timestamp = tm.tv_sec;
-
-	/* start the timer use first alarm node timestamp */
-	node = ls_alarm_get_next_alarm();
-	LISA_LOGI(TAG, "ls alarm insert, node->timestamp:%lld, current_timestamp:%lld", node->timestamp, current_timestamp);
-	LISA_LOGI(TAG, "ls alarm insert, alarm->timestamp:%lld", alarm->timestamp);
-	ls_alarm_timer_start(node->timestamp - current_timestamp);
-
-	/* add alarm to nvs */
-	ls_alarm_add_to_nvs(alarm->timestamp, alarm->text);
-
-	lisa_mutex_unlock(g_alarm_mutex);
 
 	return 0;
 }
+
+static bool ls_alarm_timestamp_is_valid(uint64_t timestamp)
+{
+	struct timeval tm;
+	gettimeofday(&tm, NULL);
+	bool valid = timestamp > tm.tv_sec;
+	if (!valid) {
+		LISA_LOGI(TAG,
+				"ls alarm timestamp is invalid, current timestamp:%lld, alarm timestamp:%lld",
+				timestamp, tm.tv_sec);
+	}
+
+	return valid;
+}
+
+
+/* ==================== 删除闹钟 ==================== */
+
 
 static int ls_alarm_delete(struct ls_alarm *alarm)
 {
@@ -340,12 +118,11 @@ static int ls_alarm_delete(struct ls_alarm *alarm)
 		return -1;
 	}
 
-	/* remove tht alarm from nvs system first */
-	err = ls_alarm_delete_from_nvs_by_timestamp(alarm->timestamp);
-
 	DL_DELETE(g_alarm_head, alarm);
-
 	lisa_mem_free(alarm);
+
+	bool has_alarm = (ls_alarm_count_get() > 0);
+	err = assistant_view_notify_alarm_update(has_alarm);
 
 	return err;
 }
@@ -364,6 +141,7 @@ int ls_alarm_delete_by_timestamp(uint64_t timestamp)
 
 	lisa_mutex_lock(g_alarm_mutex, LISA_OS_WAIT_FOREVER);
 
+
 	DL_SEARCH(g_alarm_head, node, temp, ls_alarm_cmp);
 	if (node) {
 		LISA_LOGI(TAG, "ls alarm delete, timestamp:%lld", timestamp);
@@ -378,37 +156,252 @@ int ls_alarm_delete_by_timestamp(uint64_t timestamp)
 	return err;
 }
 
-static uint64_t ls_alarm_convert_timestamp_from_string(const uint8_t *str)
+int ls_alarm_clear_all(void)
 {
+	lisa_mutex_lock(g_alarm_mutex, LISA_OS_WAIT_FOREVER);
+
+	struct ls_alarm *node, *tmp;
+	DL_FOREACH_SAFE(g_alarm_head, node, tmp) {
+		LISA_LOGI(TAG, "Clearing alarm with timestamp:%lld", node->timestamp);
+		alarm_store_delete_obj_by_timestamp(node->timestamp);
+		DL_DELETE(g_alarm_head, node);
+		lisa_mem_free(node);
+	}
+
+	g_alarm_head = NULL;
+
+	if (g_alarm_timer != NULL) {
+		lisa_timer_stop(g_alarm_timer);
+	}
+
+	lisa_mutex_unlock(g_alarm_mutex);
+
+	assistant_view_notify_alarm_update(false);
+	LISA_LOGI(TAG, "All alarms cleared");
 	return 0;
 }
 
-static bool ls_alarm_timestamp_is_valid(uint64_t timestamp)
+
+/* ==================== 闹钟触发回调 ==================== */
+
+static void ls_alarm_timer_start(uint64_t timeout_s)
 {
-	struct timeval tm;
-	gettimeofday(&tm, NULL);
-	bool valid = timestamp > tm.tv_sec;
-	if (!valid) {
-		LISA_LOGI(TAG,
-				"ls alarm timestamp is invalid, current timestamp:%lld, alarm timestamp:%lld",
-				timestamp, tm.tv_sec);
+	LISA_LOGI(TAG, "ls_alarm_timer_start, timeout_s:%llu s\r\n", (unsigned long long)timeout_s);
+
+	timeout_s = timeout_s < 1 ? 1 : timeout_s;
+
+	uint64_t timeout_ms64 = (uint64_t)timeout_s * 1000U;
+	uint32_t timeout_ms = timeout_ms64 > ALARM_TIMER_MAX_MS ? ALARM_TIMER_MAX_MS : (uint32_t)timeout_ms64;
+	if (timeout_ms64 > ALARM_TIMER_MAX_MS) {
+		LISA_LOGI(TAG, "alarm timer capped: requested=%llus capped=%ums",
+			  (unsigned long long)timeout_s, timeout_ms);
+	}
+	if (g_alarm_timer == NULL) {
+		g_alarm_timer = lisa_timer_create(timeout_ms, ls_alarm_timer_callback_handle, NULL);
 	}
 
-	return valid;
+	// 如果有更短时长的闹钟则更新更短时长
+	if (!lisa_timer_isactive(g_alarm_timer)) {
+		timeout_ms = timeout_ms < 2000 ? 2000 : timeout_ms;
+		lisa_timer_change_period(g_alarm_timer, timeout_ms);
+		lisa_timer_start(g_alarm_timer);
+		assistant_view_notify_alarm_update(ls_alarm_count_get() > 0);
+		LISA_LOGI(TAG, "start new alarm timer, timeout:%dms\r\n", timeout_ms);
+	} else {
+		uint32_t remain = lisa_timer_remain_time(g_alarm_timer);
+		if (remain > timeout_ms) {
+			lisa_timer_change_period(g_alarm_timer, timeout_ms);
+			lisa_timer_start(g_alarm_timer);
+			assistant_view_notify_alarm_update(ls_alarm_count_get() > 0);
+			LISA_LOGI(TAG, "alarm timer remain:%dms, new period:%dms\r\n", remain, timeout_ms);
+		}
+	}
 }
 
-static int ls_alarm_insert_inner_by_timestamp(uint64_t timestamp, const uint8_t *text, ls_alarm_callbacks_t cb)
+static void ls_alarm_timer_callback_handle(void *arg)
 {
-	if (!ls_alarm_timestamp_is_valid(timestamp)) {
+	struct ls_alarm *node, *temp;
+	struct tm now;
+	time_t now_ts;
+
+	get_network_time(&now, &now_ts);
+
+	LISA_LOGI(TAG, "ls_alarm_timer_callback_handle, current time: %lld", now_ts);
+	node = ls_alarm_get();
+	// 基于闹钟类型（单次/循环）处理闹钟对象
+	while (node != NULL) {
+		if (now_ts >= node->timestamp) {
+			if (node->cb) {
+				node->cb(node, NULL);
+			}
+			// 1. 通过 alarm_store_find_by_id 查询闹钟对象
+			const alarm_object_t *alarm_obj = alarm_store_find_by_id(node->timestamp);
+			if (alarm_obj) {
+				LISA_LOGI(TAG, "a=larm fired, id%llu type=%u cal=%u",
+						(unsigned long long)alarm_obj->alarm_id,
+						(unsigned)alarm_obj->trigger.type,
+						(unsigned)alarm_obj->calendar);
+				if (alarm_obj->trigger.type == ALARM_TRIG_ONCE) {
+					// 单次闹钟，直接删除
+					alarm_store_delete_obj_by_timestamp(node->timestamp);
+					ls_alarm_delete(node);
+				} else {
+					// 循环闹钟，计算下次触发时间
+					alarm_object_t next_alarm = *alarm_obj;
+					uint64_t next_ts = alarm_calc_next_trigger(&next_alarm, now_ts);
+					LISA_LOGI(TAG, "alarm next_ts=%llu (now=%llu)",
+							(unsigned long long)next_ts, (unsigned long long)now_ts);
+
+					if (next_ts > now_ts) {
+						next_alarm.alarm_id = next_ts;
+						int create_ret = alarm_store_create_obj(&next_alarm, NULL, 0);
+						ls_alarm_insert_by_timestamp(next_alarm.alarm_id, next_alarm.text);
+						LISA_LOGI(TAG, "alarm create_ret=%d next_id=%llu",
+								create_ret, (unsigned long long)next_alarm.alarm_id);
+						if (create_ret != 0) {
+							LISA_LOGE(TAG, "failed to create next alarm, next_ts=%llu",
+									(unsigned long long)next_ts);
+						}
+						// 3. 删除旧实例
+						alarm_store_delete_obj_by_timestamp(node->timestamp);
+						ls_alarm_delete(node);
+					} else {
+						// 没有下次触发，直接删除
+						alarm_store_delete_obj_by_timestamp(node->timestamp);
+						ls_alarm_delete(node);
+					}
+				}
+			} else {
+				// 查不到对象，直接删
+				ls_alarm_delete(node);
+			}
+		} else {
+			break;
+		}
+		node = ls_alarm_get();
+	}
+
+	node = ls_alarm_get();
+	if (node) {
+		LISA_LOGI(TAG, "ls_alarm_timer_callback_handle, node->timestamp:%lld", node->timestamp);
+		if (node->timestamp > now_ts) {
+			uint64_t next_timer_period = (uint64_t)node->timestamp - (uint64_t)now_ts;
+			ls_alarm_timer_start(next_timer_period);
+		} else {
+			LISA_LOGW(TAG, "ls_alarm_timer_callback_handle, node->timestamp invalid");
+		}
+	} else {
+		LISA_LOGI(TAG, "ls_alarm_timer_callback_handle, node is null");
+	}
+}
+
+/* ==================== 新增闹钟 ==================== */
+
+
+static int ls_alarm_update(struct ls_alarm *alarm, struct ls_alarm *new)
+{
+	if (alarm == NULL || new == NULL) {
 		return -1;
 	}
 
-	struct ls_alarm *alarm = lisa_mem_alloc(sizeof(struct ls_alarm));
+	memset(alarm->text, 0, sizeof(alarm->text));
+	strcat(alarm->text, new->text);
+
+	int ret = alarm_store_update_obj_by_timestamp(new->timestamp, new->text);
+
+	return ret;
+}
+
+
+static int ls_alarm_insert(struct ls_alarm *alarm)
+{
+	struct ls_alarm *node;
+	struct ls_alarm *temp;
 
 	if (alarm == NULL) {
 		return -1;
 	}
 
+	temp = lisa_mem_alloc(sizeof(struct ls_alarm));
+	if (temp == NULL) {
+		return -1;
+	}
+	temp->timestamp = alarm->timestamp;
+
+	lisa_mutex_lock(g_alarm_mutex, LISA_OS_WAIT_FOREVER);
+
+	// 检查新增闹钟是否已存在
+	DL_SEARCH(g_alarm_head, node, temp, ls_alarm_cmp);
+	if (node) {
+		LISA_LOGI(TAG, "alarm is already exist, timestamp:%lld, old text:%s new text:%s\r\n",
+				node->timestamp, node->text, alarm->text);
+
+		// 新增闹钟有提示文本时，再更新闹钟文本
+		int err = 0;
+		if(alarm->text[0] != 0){
+			err = ls_alarm_update(node, alarm);
+		}
+		
+		lisa_mutex_unlock(g_alarm_mutex);
+		lisa_mem_free(temp);
+		return err;
+	}
+	lisa_mem_free(temp);
+
+	LISA_LOGI(TAG, "insert new alarm, timestamp:%lld, text:%s\r\n", alarm->timestamp, alarm->text);
+	ls_alarm_print_timestamp(alarm->timestamp);
+
+	// 插入新闹钟
+	DL_INSERT_INORDER(g_alarm_head, alarm, ls_alarm_cmp);
+
+	// 创建定时器（基于当前时间）并打印剩余触发时间
+	struct tm network_time = {0};
+	time_t network_time_ts = NULL;
+	get_network_time(&network_time, &network_time_ts);
+	time_t current_timestamp = network_time_ts;
+	
+	/* 使用最早的闹钟（链表头）启动定时器 */
+	node = ls_alarm_get();
+	if (node) {
+		uint64_t remain_s = (node->timestamp > current_timestamp) ? (node->timestamp - current_timestamp) : 0;
+		ls_alarm_timer_start(remain_s);
+
+		long long hh = (long long)(remain_s / 3600);
+		long long mm = (long long)((remain_s % 3600) / 60);
+		long long ss = (long long)(remain_s % 60);
+
+		LISA_LOGI(TAG, "ls alarm insert, next:%lld, now:%lld, remain:%llds (%02lld:%02lld:%02lld)",
+			  node->timestamp, (long long)current_timestamp, (long long)remain_s, hh, mm, ss);
+	} else {
+		LISA_LOGW(TAG, "ls alarm insert, node is null after insert");
+	}
+
+	LISA_LOGI(TAG, "ls alarm insert, alarm->timestamp:%lld", alarm->timestamp);
+
+	lisa_mutex_unlock(g_alarm_mutex);
+
+	int alarm_cnt = ls_alarm_count_get();
+	LISA_LOGI(TAG, "current alarm cnt:%d", alarm_cnt);
+
+
+	bool has_alarm = (alarm_cnt > 0);
+	assistant_view_notify_alarm_update(alarm_cnt);
+	
+	return 0;
+}
+
+static int ls_alarm_insert_inner_by_timestamp(uint64_t timestamp, const uint8_t *text, ls_alarm_callbacks_t cb)
+{
+	// 检查时间戳是否过期
+	if (!ls_alarm_timestamp_is_valid(timestamp)) {
+		return -1;
+	}
+
+	// 构造 ls_alarm 对象
+	struct ls_alarm *alarm = lisa_mem_alloc(sizeof(struct ls_alarm));
+	if (alarm == NULL) {
+		return -1;
+	}
 	memset(alarm, 0, sizeof(struct ls_alarm));
 	alarm->cb = cb;
 	alarm->timestamp = timestamp;
@@ -417,10 +410,10 @@ static int ls_alarm_insert_inner_by_timestamp(uint64_t timestamp, const uint8_t 
 		if (cpy_len > (sizeof(alarm->text) - 1)) {
 			cpy_len = sizeof(alarm->text) - 1;
 		}
-
 		memcpy(alarm->text, text, cpy_len);
 	}
 
+	// 插入闹钟链表
 	if (ls_alarm_insert(alarm) != 0) {
 		lisa_mem_free(alarm);
 		return -1;
@@ -441,126 +434,9 @@ int ls_alarm_insert_by_timestamp(uint64_t timestamp, const uint8_t *text)
 	return ls_alarm_insert_inner_by_timestamp(timestamp, text, ls_alarm_test_callback);
 }
 
-int ls_alarm_insert_by_timestamp_string(
-		uint8_t *ts_string, const uint8_t *text)
-{
-	if (ts_string == NULL) {
-		return -1;
-	}
 
-	uint64_t timestamp = ls_alarm_convert_timestamp_from_string(ts_string);
-	return ls_alarm_insert_by_timestamp(timestamp, text);
-}
+/* ==================== 初始化 ==================== */
 
-static void ls_alarm_timer_callback_handle(void *arg)
-{
-	struct ls_alarm *node, *temp;
-	struct timeval tm;
-
-	gettimeofday(&tm, NULL);
-
-	LISA_LOGI(TAG, "ls_alarm_timer_callback_handle, current time: %lld", tm.tv_sec);
-	node = ls_alarm_get_next_alarm();
-	while (node != NULL) {
-		if (tm.tv_sec >= node->timestamp) {
-			if (node->cb) {
-				node->cb(node, NULL);
-			}
-			ls_alarm_delete(node);
-		} else {
-			/* no new node timeout, break loop */
-			break;
-		}
-		node = ls_alarm_get_next_alarm();
-	}
-
-	node = ls_alarm_get_next_alarm();
-	if (node) {
-		LISA_LOGI(TAG, "ls_alarm_timer_callback_handle, node->timestamp:%lld", node->timestamp);
-		if (node->timestamp > tm.tv_sec) {
-			uint32_t next_timer_period = node->timestamp - tm.tv_sec;
-			ls_alarm_timer_start(next_timer_period);
-		} else {
-			LISA_LOGW(TAG, "ls_alarm_timer_callback_handle, node->timestamp invalid");
-		}
-	} else {
-		LISA_LOGI(TAG, "ls_alarm_timer_callback_handle, node is null");
-	}
-}
-
-static int ls_alarm_insert_by_alarm_nvs(struct ls_alarm_nvs *alarm_nvs)
-{
-	return ls_alarm_insert_by_timestamp(
-			alarm_nvs->timestamp, alarm_nvs->text);
-}
-
-static void ls_alarm_init_from_nvs_key(const char *key)
-{
-	
-}
-
-static void ls_alarm_init_from_nvs_by_timestamp(uint64_t timestamp)
-{
-	int err;
-	struct ls_alarm_nvs *alarm_nvs = NULL;
-	int out_len = 0;
-	uint8_t timestamp_string[32] = {0};
-
-	sprintf(timestamp_string, "%lld", timestamp);
-
-	err = lisa_kv_get_blob(timestamp_string, (uint8_t **)&alarm_nvs, &out_len);
-	if (err) {
-		LISA_LOGI(TAG, "the blob of key %s not found, delete the key", timestamp_string);
-		/* the key`s blob is not exist, delete the key */
-		ls_alarm_delete_key_from_nvs_keys_by_timestamp(timestamp);
-		return;
-	}
-
-	alarm_nvs->text[alarm_nvs->text_len] = 0;
-
-	LISA_LOGI(TAG, "ls alarm from nvs, timestamp: %lld, text:%s", timestamp, alarm_nvs);
-
-	if (!ls_alarm_timestamp_is_valid(alarm_nvs->timestamp)) {
-		/* the alarm timestamp is not valid, delete it from nvs */
-		LISA_LOGI(TAG, "the blob of key %s is not valid, delete the blob and key", timestamp_string);
-		/* delete alarm blob first */
-		err = ls_alarm_delete_from_nvs_by_key(timestamp_string);
-		/* then delete the alarm key in alarm keys from nvs */
-		err |= ls_alarm_delete_key_from_nvs_keys_by_timestamp(timestamp);
-	} else {
-		err = ls_alarm_insert_by_alarm_nvs(alarm_nvs);
-	}
-
-	lisa_mem_free(alarm_nvs);
-}
-
-static void ls_alarm_init_from_nvs(void)
-{
-	uint8_t *alarm_keys = NULL;
-	int keys_size;
-	int cnt;
-	int err;
-	uint64_t *key;
-
-	err = lisa_kv_get_blob(NVS_ALARM_KEY, (uint8_t **)&alarm_keys, &keys_size);
-	if (err) {
-		LISA_LOGI(TAG, "ls alarm keys is not exist");
-		return;
-	}
-
-	cnt = keys_size / sizeof(uint64_t);
-	LISA_LOGI(TAG, "ls alarm nvs count: %d", cnt);
-
-	key = (uint64_t *)alarm_keys;
-	while (cnt) {
-		LISA_LOGI(TAG, "ls alarm nvs key: %lld", *key);
-		ls_alarm_init_from_nvs_by_timestamp(*key);
-		cnt--;
-		key++;
-	}
-
-	lisa_mem_free(alarm_keys);
-}
 
 void ls_alarm_init(ls_alarm_user_callback_t cb)
 {
@@ -570,19 +446,8 @@ void ls_alarm_init(ls_alarm_user_callback_t cb)
 
 	g_alarm_user_callback = cb;
 
-	ls_alarm_init_from_nvs();
-}
+	alarm_store_init();
 
-int ls_alarm_count_get(void)
-{
-	int cnt = 0;
-	struct ls_alarm *node;
-
-	DL_COUNT(g_alarm_head, node, cnt);
-
-	return cnt;
-}
-
-struct ls_alarm *ls_alarm_get(void){
-	return g_alarm_head;
+	int alarm_cnt = ls_alarm_count_get();
+	LISA_LOGI(TAG, "alarm init complete, count:%d", alarm_cnt);
 }

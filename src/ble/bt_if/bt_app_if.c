@@ -90,6 +90,12 @@ uint8_t app_ble_adv_start(uint8_t adv_id, uint8_t adv_type)
 {
     uint8_t status = 0;
 
+    if (bt_stack_ble_adv_is_active(adv_id) || bt_stack_ble_adv_is_pending(adv_id)) {
+        CLOGW("adv start ignored, active=%d pending=%d", (int)bt_stack_ble_adv_is_active(adv_id),
+              (int)bt_stack_ble_adv_is_pending(adv_id));
+        return pdTRUE;
+    }
+
     btos_event_t ev;
     ble_adv_info_t *adv_info;
     uint16_t ev_len = sizeof(btos_msg_t) + sizeof(ble_adv_info_t);
@@ -104,7 +110,11 @@ uint8_t app_ble_adv_start(uint8_t adv_id, uint8_t adv_type)
 
     //CLOGD("adv start:%d", voice_cnt_s++);
 
+    bt_stack_ble_adv_mark_pending(adv_id, true);
     status = btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+    if (status != pdTRUE) {
+        bt_stack_ble_adv_mark_pending(adv_id, false);
+    }
     return status;
 }
 
@@ -385,5 +395,4 @@ uint8_t app_ble_connected_state(uint8_t conidx)
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
     return stack_env->bt_ble_connected;
 }
-
 

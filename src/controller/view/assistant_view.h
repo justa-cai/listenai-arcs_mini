@@ -9,6 +9,7 @@
 #include "ebus/ebus.h"
 #include "lisaui_user_data.h"
 #include "ota_manager.h"
+#include "lisa_aiui.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -160,6 +161,12 @@ int assistant_view_show_net_image(const void *img_dsc);
 int assistant_view_hide_camera_image(void);
 
 int assistant_view_show_loading(const char *text);
+
+// 通知交互模式变更
+int assistant_view_notify_interactive_mode_update(lisa_aiui_interactive_mode_e mode);
+
+// 通知闹钟状态变更
+int assistant_view_notify_alarm_update(bool has_alarm);
 
 /**
  * @brief 获取电池图标显示状态

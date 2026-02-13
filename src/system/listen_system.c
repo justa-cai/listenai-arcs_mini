@@ -207,7 +207,7 @@ void ls_sys_set_time(uint32_t sec, uint32_t usec)
 void ls_sys_set_timeval(struct timeval *val)
 {
     if (s_calendar) {
-        LISA_LOGD(TAG, "sntp timeval callback, sec: %u, usec: %u", val->tv_sec, val->tv_usec);
+        LISA_LOGI(TAG, "sntp timeval callback, sec: %u, usec: %u", val->tv_sec, val->tv_usec);
         _system_time_set(val, s_tz);
     }
 }
@@ -236,7 +236,7 @@ struct tm *ls_sys_get_tmtime(const long int *tv_sec, struct tm *__tm)
 
 	SHDateTime shdt;
 	timestampToDateObj(*tv_sec + CST_OFFSET_BY_UTC, 0, &shdt);
-	__tm->tm_year = shdt.year - BASE_YEAR;
+    __tm->tm_year = shdt.year - 1900;
 	__tm->tm_mon = shdt.month - 1;
 	__tm->tm_mday = shdt.day;
 	__tm->tm_hour = shdt.hour;

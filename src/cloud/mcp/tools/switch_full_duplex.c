@@ -105,11 +105,13 @@ static mcp_result_t switch_full_duplex_handler(const mcp_context_t *ctx, mcp_res
         response->result = MCP_RESULT_ERROR;
         return MCP_RESULT_ERROR;
     }
+    // 切换成功退出交互
+    enter_audio_idle();
 
     LISA_LOGI(TAG, "Successfully set interactive mode to: %s", mode_desc);
 
     char result_msg[128];
-    snprintf(result_msg, sizeof(result_msg), "已切换到%s", mode_desc);
+    snprintf(result_msg, sizeof(result_msg), "已切换到%s啦，请重新唤醒我进行交互吧！", mode_desc);
 
     // 创建content数组
     cJSON *content_array = cJSON_CreateArray();
@@ -169,7 +171,7 @@ cJSON* generate_switch_full_duplex_schema(void)
         return NULL;
     }
     if (!cJSON_AddStringToObject(value_prop, "type", "boolean") ||
-        !cJSON_AddStringToObject(value_prop, "description", "开关，true为进入全双工模式，false为退出全双工模式")) {
+        !cJSON_AddStringToObject(value_prop, "description", "开关，true为进入[全双工模式/连续对话/多轮对话]，false为[单工模式/半双工模式/单轮对话]")) {
         LISA_LOGE(TAG, "Failed to add value property fields");
         cJSON_Delete(value_prop);
         cJSON_Delete(properties);
@@ -204,7 +206,7 @@ cJSON* generate_switch_full_duplex_schema(void)
 // 使用静态段注册宏注册全双工开关工具
 MCP_REGISTER_TOOL_STATIC(switch_full_duplex,
                           "ls.built_in.switch_full_duplex",
-                          "全双工开关",
+                          "该工具用于切换交互模式，在[单工模式/半双工模式/单轮对话] 与 [全双工模式/连续对话/多轮对话] 这两种对话模式之间切换",
                           "1.0",
                           generate_switch_full_duplex_schema,
                           1,

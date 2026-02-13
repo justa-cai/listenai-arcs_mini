@@ -108,5 +108,6 @@ TONE_ID_102 = 102,// 102_xiaoxian.mp3
 TONE_ID_103 = 103,// 103_reset_factory.mp3
 TONE_ID_104 = 104,// 104_device_config.mp3
 TONE_ID_105 = 105,// 105_auth_failed.mp3
+TONE_ID_MAX,
 };
 #endif

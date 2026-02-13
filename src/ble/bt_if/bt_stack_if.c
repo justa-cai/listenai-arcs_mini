@@ -81,6 +81,9 @@ btos_msg_t notify_msg =
     .param_len = 0,
 };
 
+static volatile uint8_t s_ble_adv_active[BLE_ACTIVITY_ADV_MAX] = {0};
+static volatile uint8_t s_ble_adv_pending[BLE_ACTIVITY_ADV_MAX] = {0};
+
 static struct plf_sys_config bt_stack_plf_cfg =
 {
     .hcit_feat = PLF_BUILD_FEAT_HCIT,
@@ -293,6 +296,10 @@ static void bt_stack_actv_start_ind(uint8_t type, uint8_t actv_id, int16_t statu
             break;
         default : break;
     }
+    if (type == GAPM_ACTV_TYPE_ADV && actv_id < BLE_ACTIVITY_ADV_MAX) {
+        s_ble_adv_pending[actv_id] = 0;
+        s_ble_adv_active[actv_id] = (status == 0) ? 1 : 0;
+    }
 }
 
 static void bt_stack_actv_stop_ind(uint8_t type, uint8_t actv_id, int16_t status)
@@ -308,6 +315,10 @@ static void bt_stack_actv_stop_ind(uint8_t type, uint8_t actv_id, int16_t status
             }
             break;
         default : break;
+    }
+    if (type == GAPM_ACTV_TYPE_ADV && actv_id < BLE_ACTIVITY_ADV_MAX) {
+        s_ble_adv_active[actv_id] = 0;
+        s_ble_adv_pending[actv_id] = 0;
     }
 }
 
@@ -392,6 +403,31 @@ bt_stack_if_env_tag_t *bt_stack_if_get_env(void)
 {
     return &bt_stack_env;
 }
+
+bool bt_stack_ble_adv_is_active(uint8_t adv_id)
+{
+    if (adv_id >= BLE_ACTIVITY_ADV_MAX) {
+        return false;
+    }
+    return s_ble_adv_active[adv_id] != 0;
+}
+
+bool bt_stack_ble_adv_is_pending(uint8_t adv_id)
+{
+    if (adv_id >= BLE_ACTIVITY_ADV_MAX) {
+        return false;
+    }
+    return s_ble_adv_pending[adv_id] != 0;
+}
+
+void bt_stack_ble_adv_mark_pending(uint8_t adv_id, bool pending)
+{
+    if (adv_id >= BLE_ACTIVITY_ADV_MAX) {
+        return;
+    }
+    s_ble_adv_pending[adv_id] = pending ? 1 : 0;
+}
+
 os_task_cb_t *bt_stack_if_get_cb(void)
 {
     return (os_task_cb_t *)&bt_stack_os_cb;

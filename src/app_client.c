@@ -30,6 +30,7 @@
 #include "assistant_controller.h"
 #include "test.h"
 #include "alarm_aiui.h"
+#include "alarm_ring.h"
 #include "lisa_aiui.h"
 #include "config_parser.h"
 #include "recognizer.h"
@@ -104,7 +105,8 @@ bool app_client_is_voice_keywords(const char *keyword)
 
 static void do_wakeup()
 {
-    if (!app_cloud_is_connected()) {
+    alarm_ring_stop();
+    if (!app_cloud_is_wifi_connected()) {
         /* server is not connected, play tone */
         LISA_LOGW(TAG, "server is not connected");
         listen_soundplayer_play(s_app_client->sound_player, TONE_ID_64, 0);
@@ -248,43 +250,6 @@ void app_client_stop()
 	}
 }
 
-static int alarm_aiui_runnable(void *arg)
-{
-	const char fmt[] = "你有一个 %s 的提醒请不要忘记哦!";
-
-	if (arg) {
-		char *s = lisa_mem_alloc(sizeof(fmt) + strlen((const char *)arg) + 1);
-		if (s) {
-			sprintf(s, fmt, (const char *)arg);
-			app_cloud_tts(s);
-			lisa_mem_free(s);
-		} else {
-			listen_soundplayer_play(s_app_client->sound_player, TONE_ID_94, 0);
-		}
-		lisa_mem_free(arg);
-	} else {
-		listen_soundplayer_play(s_app_client->sound_player, TONE_ID_94, 0);
-	}
-
-	return 0;
-}
-
-static void alarm_aiui_user_callback(uint64_t timestamp, const uint8_t *text)
-{
-	char *s = NULL;
-
-    LISA_LOGI(TAG, "alarm_aiui_user_callback, timestamp:%lld, text:%s, %p", timestamp, text, text);
-
-	if (text && strlen((const char *)text) > 0) {
-		s = lisa_mem_alloc(strlen((const char *)text) + 1);
-		if (s) {
-			strcpy(s, (const char *)text);
-		}
-	}
-
-	evs_handler_post_runnable(alarm_aiui_runnable, s);
-}
-
 /** SNTP Synced */
 static void _ls_sntp_synced_callback(void)
 {
@@ -296,9 +261,10 @@ static void _ls_sntp_synced_callback(void)
 
 	ota_manager_check_all();
 
-	extern lisa_err_t lisa_aiui_active(void);
-	lisa_aiui_active();
-	alarm_aiui_init(alarm_aiui_user_callback);
+	// extern lisa_err_t lisa_aiui_active(void);
+	// lisa_aiui_active();
+	alarm_ring_init(s_app_client->sound_player);
+	alarm_aiui_init(alarm_ring_on_alarm);
 #ifdef LISTEN_CLOUD
 	app_cloud_process_wifi_connected(s_app_client->cloud);
 #endif

@@ -18,6 +18,7 @@
 #include "lisaui_log.h"
 #include "lisaui_user_data.h"
 #include "lisa_display.h"
+#include "lisa_aiui.h"
 
 // 添加新的组件头文件
 #include "lisa_ui_llm_primary.h"
@@ -50,7 +51,7 @@ typedef struct {
     uint32_t first_frame_delay;
     uint32_t duration;
     uint32_t images_count;
-    const void **images;
+    const lv_img_dsc_t *images;
     
     // 新增分阶段动画参数
     uint32_t enter_end_frame;       // 进入到循环的端点帧
@@ -85,30 +86,30 @@ static const emoji_anim_config_t emoji_anim_configs[LISA_UI_EMOJI_MAX] = {
     [LISA_UI_EMOJI_UNKNOW] = {
         .first_frame_delay = 0,
         .duration = 1200,
-        .images_count = sizeof(emoji_blink) / sizeof(emoji_blink[0]),
-        .images = emoji_blink,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_blink),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_blink),
         .enter_end_frame = 1,
-        .loop_end_frame = sizeof(emoji_blink) / sizeof(emoji_blink[0]) - 1,
+        .loop_end_frame =  LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_blink) - 1,
         .loop_duration_ms = 3000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_LOVE] = {
         .first_frame_delay = 0,
         .duration = 1000,
-        .images_count = sizeof(emoji_love) / sizeof(emoji_love[0]),
-        .images = emoji_love,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_love),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_love),
         .enter_end_frame = 5,
-        .loop_end_frame = sizeof(emoji_love) / sizeof(emoji_love[0]) - 5,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_love) - 5,
         .loop_duration_ms = 5000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_SAD] = {
         .first_frame_delay = 0,
         .duration = 900,
-        .images_count = sizeof(emoji_sad) / sizeof(emoji_sad[0]),
-        .images = emoji_sad,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_sad),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_sad),
         .enter_end_frame = 5,
-        .loop_end_frame = sizeof(emoji_sad) / sizeof(emoji_sad[0]) - 5,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_sad) - 5,
         .loop_duration_ms = 1500,
         .enable_staged_animation = true,
     },
@@ -133,114 +134,113 @@ static const emoji_anim_config_t emoji_anim_configs[LISA_UI_EMOJI_MAX] = {
     [LISA_UI_EMOJI_ANGRY] = {
         .first_frame_delay = 0,
         .duration = 400,
-        .images_count = sizeof(emoji_angry) / sizeof(emoji_angry[0]),
-        .images = emoji_angry,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_angry),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_angry),
         .enter_end_frame = 6,
-        .loop_end_frame = sizeof(emoji_angry) / sizeof(emoji_angry[0]) - 6,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_angry) - 6,
         .loop_duration_ms = 5000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_EYE] = {
         .first_frame_delay = 0,
         .duration = 500,
-        .images_count = sizeof(emoji_eye) / sizeof(emoji_eye[0]),
-        .images = emoji_eye,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_eye),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_eye),
         .enter_end_frame = 3,
-        .loop_end_frame = sizeof(emoji_eye) / sizeof(emoji_eye[0]) - 3,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_eye) - 3,
         .loop_duration_ms = 2000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_BLINK] = {
         .first_frame_delay = 1500,
         .duration = 200,
-        .images_count = sizeof(emoji_blink) / sizeof(emoji_blink[0]),
-        .images = emoji_blink,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_blink),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_blink),
         .enter_end_frame = 2,
-        .loop_end_frame = sizeof(emoji_blink) / sizeof(emoji_blink[0]) - 2,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_blink) - 2,
         .loop_duration_ms = 2000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_HUG] = {
         .first_frame_delay = 0,
         .duration = 1000,
-        .images_count = sizeof(emoji_hug) / sizeof(emoji_hug[0]),
-        .images = emoji_hug,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_hug),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_hug),
         .enter_end_frame = 3,
-        .loop_end_frame = sizeof(emoji_hug) / sizeof(emoji_hug[0]) - 3,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_hug) - 3,
         .loop_duration_ms = 2500,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_PUZZLED] = {
         .first_frame_delay = 0,
         .duration = 900,
-        .images_count = sizeof(emoji_puzzled) / sizeof(emoji_puzzled[0]),
-        .images = emoji_puzzled,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_puzzled),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_puzzled),
         .enter_end_frame = 2,
-        .loop_end_frame = sizeof(emoji_puzzled) / sizeof(emoji_puzzled[0]) - 2,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_puzzled) - 2,
         .loop_duration_ms = 1800,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_WAKEUP] = {
         .first_frame_delay = 0,
         .duration = 1200,
-        .images_count = sizeof(emoji_wakeup) / sizeof(emoji_wakeup[0]),
-        .images = emoji_wakeup,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_wakeup),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_wakeup),
         .enter_end_frame = 3,
-        .loop_end_frame = sizeof(emoji_wakeup) / sizeof(emoji_wakeup[0]) - 3,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_wakeup) - 3,
         .loop_duration_ms = 2000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_SLEEPY] = {
         .first_frame_delay = 0,
         .duration = 1600,
-        .images_count = sizeof(emoji_sleepy) / sizeof(emoji_sleepy[0]),
-        .images = emoji_sleepy,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_sleepy),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_sleepy),
         .enter_end_frame = 2,
-        .loop_end_frame = sizeof(emoji_sleepy) / sizeof(emoji_sleepy[0]) - 2,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_sleepy) - 2,
         .loop_duration_ms = 3000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_WAIT] = {
         .first_frame_delay = 0,
         .duration = 300,
-        .images_count = sizeof(emoji_wait) / sizeof(emoji_wait[0]),
-        .images = emoji_wait,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_wait),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_wait),
         .enter_end_frame = 1,
-        .loop_end_frame = sizeof(emoji_wait) / sizeof(emoji_wait[0]) - 1,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_wait) - 1,
         .loop_duration_ms = 1200,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_START_BATTERY_CHANGE] = {
         .first_frame_delay = 0,
         .duration = 400,
-        .images_count = sizeof(emoji_battery_frames) / sizeof(emoji_battery_frames[0]),
-        .images = emoji_battery_frames,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_battery),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_battery),
         .enter_end_frame = 5,
-        .loop_end_frame = sizeof(emoji_battery_frames) / sizeof(emoji_battery_frames[0]) - 9,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_battery) - 9,
         .loop_duration_ms = 3000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_HAPPY] = {
         .first_frame_delay = 0,
         .duration = 800,
-        .images_count = sizeof(emoji_happy) / sizeof(emoji_happy[0]),
-        .images = emoji_happy,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_happy),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_happy),
         .enter_end_frame = 5,
-        .loop_end_frame = sizeof(emoji_happy) / sizeof(emoji_happy[0]) - 7,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_happy) - 7,
         .loop_duration_ms = 5000,
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_CUTE] = {
         .first_frame_delay = 0,
         .duration = 600,
-        .images_count = sizeof(emoji_cute) / sizeof(emoji_cute[0]),
-        .images = emoji_cute,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_cute),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_cute),
         .enter_end_frame = 5,
-        .loop_end_frame = sizeof(emoji_cute) / sizeof(emoji_cute[0]) - 7,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_cute) - 7,
         .loop_duration_ms = 5000,
         .enable_staged_animation = true,
     },
-
 };
 
 /**
@@ -337,7 +337,7 @@ static void set_staged_emoji_animation(lv_obj_t *obj, lisa_ui_emoji_type_e emoji
     }
     
     // 创建该阶段的图片数组指针
-    const void **stage_images = &config->images[start_frame];
+    const lv_img_dsc_t *stage_images = &config->images[start_frame];
     
     // 设置该阶段的动画
     lisa_ui_llm_primary_set_custom_emoji_animation(obj, stage_images, 
@@ -845,7 +845,7 @@ static void text_rotate_timer_cb(lv_timer_t *timer)
     if (current_text) {
         const char *wake_hint = make_wake_hint_text(current_text, wake_word);
         set_content_text(view, wake_hint);  //更新文本
-        LISAUI_LOGI(TAG, "Text rotated to index %d: %s (original)", view->current_text_index, current_text);
+        // LISAUI_LOGI(TAG, "Text rotated to index %d: %s (original)", view->current_text_index, current_text);
     }
 }
 
@@ -946,12 +946,17 @@ static void update_taskbar_status(page_view_t *view)
     }
     
     // 更新WiFi状态
-    // lisa_ui_llm_primary_set_wifi_img(view->inter, "A:/SD:/image/wifi/ic_status_wifi0.png");
-    lisa_ui_llm_primary_set_wifi_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_wifi0));
+    lisa_ui_llm_primary_set_wifi_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_wifi)[0]);
     
-    // // 更新电量状态
-    lisa_ui_llm_primary_set_battery_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_power9));
+    // 更新电量状态
+    lisa_ui_llm_primary_set_battery_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_power)[9]);
     
+    // 更新交互模式图标
+    lisa_ui_llm_primary_set_interactive_mode_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_interactive)[0]);
+
+    // 更新闹钟图标
+    lisa_ui_llm_primary_set_alarm_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_alarm)[0]);
+
     // 更新状态文本
     lisa_ui_llm_primary_set_status_text(view->inter, view->current_status);
 }
@@ -1426,11 +1431,11 @@ static int update_wifi_state(page_view_t *view)
 
         if (connect_state == LISAUI_USERDATA_WIFI_CONNECT_STATE_CONNECTED) {
             view->wifi_connected = true;
-            lisa_ui_llm_primary_set_wifi_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_wifi4));
+            lisa_ui_llm_primary_set_wifi_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_wifi)[4]);
         }
         else {
             view->wifi_connected = false;
-            lisa_ui_llm_primary_set_wifi_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_wifi0));
+            lisa_ui_llm_primary_set_wifi_img(view->inter, &LISA_UI_ASSETS_IMG_DSC(img_png_wifi)[0]);
             set_page_status(view, "网络未连接");
             stop_text_rotation(view);   // 停止文本轮换
             set_content_text(view, "请连接网络");
@@ -1468,11 +1473,11 @@ static int update_battery_info(page_view_t *view)
             continue;
         } else {
             if (is_charging) {
-                lisa_ui_llm_primary_set_battery_img(view->inter, battery_charging_img[battery_level]);
+                lisa_ui_llm_primary_set_battery_img(view->inter, &LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_charging)[battery_level]);
             } else {
-                lisa_ui_llm_primary_set_battery_img(view->inter, battery_level_img[battery_level]);
+                lisa_ui_llm_primary_set_battery_img(view->inter, &LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_power)[battery_level]);
             }
-        }      
+        }
 
         if (_userdata->setting.ota.state != OTA_STATE_UP_TO_DATE) {
             // 正在更新时不处理充电表情
@@ -1537,7 +1542,7 @@ static int update_ota_state(page_view_t *view)
             start_sleepy_timer(view);
         } else {
             if (ota->state == OTA_STATE_CHECKING) {
-                set_page_status(view, "正在检查更新…");
+                set_page_status(view, "检查更新中…");
                 set_content_text(view, "");
             } else if (ota->state == OTA_STATE_UPDATING) {
                 set_page_status(view, "正在更新…");
@@ -1609,6 +1614,62 @@ static int update_loading_state(page_view_t *view)
     return 0;
 }
 
+static int update_interactive_mode_state(page_view_t *view)
+{
+    if (!view || !view->inter) {
+        return 0;
+    }
+
+    bool should_show = false;
+
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        switch (_userdata->setting.inter_mode) {
+        case LISAUI_USERDATA_SETTING_INTER_MODE_DUAL:
+            should_show = true;
+            break;
+        case LISAUI_USERDATA_SETTING_INTER_MODE_HALF:
+        case LISAUI_USERDATA_SETTING_INTER_MODE_KEY:
+        default:
+            should_show = false;
+            break;
+        }
+    }
+
+    if (should_show) {
+        lisa_ui_llm_primary_interactive_mode_icon_show(view->inter);
+    } else {
+        lisa_ui_llm_primary_interactive_mode_icon_hide(view->inter);
+    }
+
+    return 0;
+}
+
+
+static int update_alarm_state(page_view_t *view)
+{
+    if (!view || !view->inter) {
+        return 0;
+    }
+
+    bool should_show = false;
+
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        if (_userdata->setting.has_alarm){
+            should_show = true;
+        }
+    }
+
+    if (should_show) {
+        lisa_ui_llm_primary_alarm_icon_show(view->inter);
+    } else {
+        lisa_ui_llm_primary_alarm_icon_hide(view->inter);
+    }
+
+    return 0;
+}
+
 static int event_inter_state_handler(ebus_chn_t *chn, uint32_t code, void *message, uint32_t msg_size, void *user_data)
 {
     page_view_t *view = (page_view_t *)user_data;
@@ -1652,6 +1713,14 @@ static int event_inter_state_handler(ebus_chn_t *chn, uint32_t code, void *messa
         // 启动犯困表情定时器和文本轮换
         start_sleepy_timer(view);
         start_text_rotation(view);  // 重新启动文本轮换
+        break;
+
+    case LISAUI_EBUS_CH_EVENT_M2U_INTER_MODE_UPDATE:
+        update_interactive_mode_state(view);
+        break;
+
+    case LISAUI_EBUS_CH_EVENT_M2U_ALARM_UPDATE:
+        update_alarm_state(view);
         break;
 
     case LISAUI_EBUS_CH_EVENT_M2U_SETTING_WIFI_UPDATE:
@@ -1733,7 +1802,9 @@ static lisaui_page_t *create(lisaui_page_t *page)
     set_page_status(view, "网络未连接");
     set_content_text(view, "请连接网络");
     start_staged_emoji_animation(view, LISA_UI_EMOJI_BLINK);
-    
+    update_interactive_mode_state(view);
+    update_alarm_state(view);
+
     // 保存当前页面视图到全局变量
     g_current_primary_view = view;
     
@@ -1766,6 +1837,18 @@ static lisaui_page_t *create(lisaui_page_t *page)
         ebus_message_subscribe( view->ebus_ch_base_event, 
                         EBUS_SUBSCRIBER_TYPE_SYNC, 
                         LISAUI_EBUS_CH_EVENT_M2U_INTER_END,
+                        event_inter_state_handler, 
+                        view);
+
+        ebus_message_subscribe( view->ebus_ch_base_event, 
+                        EBUS_SUBSCRIBER_TYPE_SYNC, 
+                        LISAUI_EBUS_CH_EVENT_M2U_INTER_MODE_UPDATE,
+                        event_inter_state_handler, 
+                        view);
+                    
+        ebus_message_subscribe( view->ebus_ch_base_event, 
+                        EBUS_SUBSCRIBER_TYPE_SYNC, 
+                        LISAUI_EBUS_CH_EVENT_M2U_ALARM_UPDATE,
                         event_inter_state_handler, 
                         view);
 

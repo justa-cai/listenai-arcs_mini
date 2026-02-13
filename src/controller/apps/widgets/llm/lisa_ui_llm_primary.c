@@ -37,7 +37,7 @@ static void emoji_timer_cb(lv_timer_t *timer)
     llm_primary->current_emoji_frame = (llm_primary->current_emoji_frame + 1) % llm_primary->emoji_images_count;
     
     // 设置当前帧图片
-    lv_img_set_src(llm_primary->emoji_img, llm_primary->emoji_images[llm_primary->current_emoji_frame]);
+    lv_img_set_src(llm_primary->emoji_img, &llm_primary->emoji_images[llm_primary->current_emoji_frame]);
     
     // 检查是否完成了一个完整的循环
     if (llm_primary->current_emoji_frame == 0) {
@@ -91,8 +91,14 @@ static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p,
     // 创建WiFi图标（左边）
     llm_primary->wifi_icon = lv_img_create(bar);
 
+    // 创建交互模式图标（紧邻 WiFi 右侧）
+    llm_primary->interactive_mode_icon = lv_img_create(bar);
+
     // 创建状态文本标签（中间）
     llm_primary->status_label = lv_label_create(bar);
+
+    // 创建闹钟图标（紧邻 电量 左侧）
+    llm_primary->alarm_icon = lv_img_create(bar);
 
     // 创建电量图标（右边）
     llm_primary->battery_icon = lv_img_create(bar);
@@ -128,6 +134,9 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     // 设置WiFi图标
     lv_obj_align(llm_primary->wifi_icon, LV_ALIGN_LEFT_MID, 0, 0);
 
+    // 交互模式图标
+    lv_obj_align(llm_primary->interactive_mode_icon, LV_ALIGN_LEFT_MID, 20, 0);
+
     // 设置状态文本标签
     lv_label_set_text(llm_primary->status_label, "Ready");
     lv_obj_set_style_text_letter_space(llm_primary->status_label, 1, LV_PART_MAIN);
@@ -136,6 +145,9 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_set_style_text_align(llm_primary->status_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_line_space(llm_primary->status_label, 0, LV_PART_MAIN);
     lv_obj_align(llm_primary->status_label, LV_ALIGN_CENTER, 0, 0);
+
+    // 设置闹钟图标
+    lv_obj_align(llm_primary->alarm_icon, LV_ALIGN_RIGHT_MID, -30, 0);
 
     // 设置电量图标
     lv_obj_align(llm_primary->battery_icon, LV_ALIGN_RIGHT_MID, 0, 0);
@@ -374,6 +386,118 @@ void lisa_ui_llm_primary_battery_icon_hide(lv_obj_t *obj)
     }
 }
 
+void lisa_ui_llm_primary_set_alarm_img(lv_obj_t *obj, const void *img_path)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    
+    if (!llm_primary->alarm_icon|| !img_path) {
+        return;
+    }
+
+    // 显示图片（默认隐藏标志）
+    bool is_hidden = lv_obj_has_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_img_set_src(llm_primary->alarm_icon, img_path);
+    if (is_hidden) {
+        LOGI("interactive mode image hidden");
+    }
+}
+
+void lisa_ui_llm_primary_alarm_icon_show(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+
+    if (!llm_primary->alarm_icon) {
+        return;
+    }
+
+    bool is_hidden = lv_obj_has_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN);
+    if (is_hidden) {
+        LOGI("alarm icon show");
+    }
+}
+
+void lisa_ui_llm_primary_alarm_icon_hide(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+
+    if (!llm_primary->alarm_icon) {
+        return;
+    }
+
+    bool is_hidden = lv_obj_has_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN);
+    if (!is_hidden) {
+        LOGI("alarm icon hidden");
+    }
+}
+
+void lisa_ui_llm_primary_set_interactive_mode_img(lv_obj_t *obj, const void *img_path)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    
+    if (!llm_primary->interactive_mode_icon || !img_path) {
+        return;
+    }
+
+    // 显示图片（默认隐藏标志）
+    bool is_hidden = lv_obj_has_flag(llm_primary->interactive_mode_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->interactive_mode_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_img_set_src(llm_primary->interactive_mode_icon, img_path);
+    if (is_hidden) {
+        LOGI("interactive mode image hidden");
+    }
+}
+
+void lisa_ui_llm_primary_interactive_mode_icon_show(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+
+    if (!llm_primary->interactive_mode_icon) {
+        return;
+    }
+
+    bool is_hidden = lv_obj_has_flag(llm_primary->interactive_mode_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(llm_primary->interactive_mode_icon, LV_OBJ_FLAG_HIDDEN);
+    if (is_hidden) {
+        LOGI("interactive mode icon show");
+    }
+}
+
+void lisa_ui_llm_primary_interactive_mode_icon_hide(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+
+    if (!llm_primary->interactive_mode_icon) {
+        return;
+    }
+
+    bool is_hidden = lv_obj_has_flag(llm_primary->interactive_mode_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->interactive_mode_icon, LV_OBJ_FLAG_HIDDEN);
+    if (!is_hidden) {
+        LOGI("interactive mode icon hidden");
+    }
+}
+
 void lisa_ui_llm_primary_start_emoji_animation(lv_obj_t *obj)
 {
     if (!lisa_ui_llm_primary_is_valid(obj)) {
@@ -391,7 +515,7 @@ void lisa_ui_llm_primary_start_emoji_animation(lv_obj_t *obj)
         
         // 设置第一帧图片
         if (llm_primary->emoji_img) {
-            lv_img_set_src(llm_primary->emoji_img, llm_primary->emoji_images[0]);
+            lv_img_set_src(llm_primary->emoji_img, &llm_primary->emoji_images[0]);
         }
         
         // 创建定时器，根据是否有第一帧延迟决定初始周期
@@ -421,7 +545,7 @@ void lisa_ui_llm_primary_stop_emoji_animation(lv_obj_t *obj)
     llm_primary->is_first_frame_delayed = false;
 }
 
-void lisa_ui_llm_primary_set_custom_emoji_animation(lv_obj_t *obj, const void **images, uint32_t images_count, uint32_t duration, uint32_t first_frame_delay)
+void lisa_ui_llm_primary_set_custom_emoji_animation(lv_obj_t *obj, const lv_img_dsc_t *images, uint32_t images_count, uint32_t duration, uint32_t first_frame_delay)
 {
     if (!lisa_ui_llm_primary_is_valid(obj) || !images || images_count == 0) {
         return;
@@ -447,7 +571,7 @@ void lisa_ui_llm_primary_set_custom_emoji_animation(lv_obj_t *obj, const void **
     
     // 设置第一帧图片
     if (llm_primary->emoji_img) {
-        lv_img_set_src(llm_primary->emoji_img, images[0]);
+        lv_img_set_src(llm_primary->emoji_img, &images[0]);
     }
     
     // 自动启动动画

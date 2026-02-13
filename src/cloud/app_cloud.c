@@ -13,6 +13,7 @@
 #include "lisa_mem.h"
 #include "proc_mgr.h"
 #include "sound_player.h"
+#include "app_player.h"
 #include "assistant_controller.h"
 #include "haoxueduo.h"
 #include "mcp_integration.h"
@@ -29,6 +30,7 @@ static void _ws_ms_cb(const char *msg, int len);
 static int _wifi_conn_runnable(void *arg);
 static int _wifi_disconn_runnable(void *arg);
 static int _ws_reconnect(void *arg);
+static int _ws_disconnect_play_net_error_runnable(void *arg);
 
 static lisa_aiui_cb_t s_aiui_cb = {
 		.aiui_ws_connected_cb = _ws_conn_cb,
@@ -133,6 +135,14 @@ bool app_cloud_is_connected()
 	return (s_cloud->ws_state == LS_WS_CONNECT);
 }
 
+bool app_cloud_is_wifi_connected()
+{
+	if (s_cloud == NULL) {
+		return false;
+	}
+	return s_cloud->m_wifi_conn;
+}
+
 void app_cloud_audio(app_cloud_t *cloud, const char *audio, uint32_t len)
 {
 	if (cloud == NULL || cloud->ws_state != LS_WS_CONNECT) {
@@ -178,7 +188,7 @@ static int _wifi_conn_runnable(void *arg)
 {
 	LISA_LOGI(TAG, "cloud connect, curr state: %d", s_cloud->ws_state);
 	listen_soundplayer_play(s_cloud->m_client->sound_player, TONE_ID_59, 0);
-	if (s_cloud->ws_state == LS_WS_DISCONNECT) {
+	if (s_cloud->ws_state != LS_WS_CONNECT) {
 		if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, true)) {
 			evs_handler_post_runnable_delay(_ws_reconnect, NULL, 2000);
 		} else {
@@ -191,7 +201,8 @@ static int _wifi_conn_runnable(void *arg)
 
 static int _wifi_disconn_runnable(void *arg)
 {
-	listen_soundplayer_play(s_cloud->m_client->sound_player, TONE_ID_60, 0);
+	extern int play_net_fail_audio(void);
+	int play_net_fail_audio(void);
 	if (s_cloud->ws_state != LS_WS_DISCONNECT) {
 		lisa_aiui_disconnect(s_cloud->aiui);
 		s_cloud->ws_state = LS_WS_DISCONNECT;
@@ -206,16 +217,28 @@ void app_token_fresh(bool re_fresh)
 
 static int _ws_reconnect(void *arg)
 {
-	LISA_LOGI(TAG, "_ws_reconnect, ws_state: %d, ntp: %d", s_cloud->ws_state, s_cloud->m_ntp_conn);
+	LISA_LOGI(TAG, "_ws_reconnect, ws_state: %d, wifi: %d, ntp: %d", 
+	          s_cloud->ws_state, s_cloud->m_wifi_conn, s_cloud->m_ntp_conn);
 
 	if (s_cloud->ws_state != LS_WS_DISCONNECT) {
 		return 0;
 	}
 
+
 	// 重连前需要主动调用断开链接
 	s_cloud->ws_state = LS_WS_DISCONNECT;
 	lisa_aiui_disconnect(s_cloud->aiui);
-	if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, false)) {
+
+	// 检查 WiFi 和 NTP 状态：两个都必须满足才能尝试重连
+	// WiFi 在线但 NTP 未同步，表示网络不稳定或无互联网，不应重连
+	if (!s_cloud->m_wifi_conn || !s_cloud->m_ntp_conn) {
+		LISA_LOGI(TAG, "Network not ready (wifi: %d, ntp: %d), wait for network recovery", 
+		          s_cloud->m_wifi_conn, s_cloud->m_ntp_conn);
+		evs_handler_post_runnable_delay(_ws_reconnect, NULL, 2000);
+		return 0;
+	}
+
+	if (LISA_OK != lisa_aiui_connect(s_cloud->aiui, true)) {
 		evs_handler_post_runnable_delay(_ws_reconnect, NULL, 2000);
 	} else {
 		s_cloud->ws_state = LS_WS_CONNECTING;
@@ -233,16 +256,37 @@ static void _ws_conn_cb()
 static void _ws_disconnect_cb()
 {
 	s_cloud->ws_state = LS_WS_DISCONNECT;
-	LISA_LOGI(TAG, "websocket disconnect, reconnect after 1000ms");
+	s_cloud->m_ntp_conn = false; // 时间同步标志重置，表示wifi连接成功，但不一定能访问互联网
+	extern void ls_sys_sntp_start(void (*cb)(void *arg));
+	ls_sys_sntp_start(app_cloud_ntp_ok);
+
 	assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
 	if (s_cloud->m_wifi_conn && !s_cloud->has_notified_network_error) {
-		s_cloud->has_notified_network_error = true;
-		extern int play_net_error_audio(void);
-		play_net_error_audio();
+		evs_handler_post_runnable(_ws_disconnect_play_net_error_runnable, NULL);
 	}
 	if (s_cloud->m_wifi_conn) {
 		evs_handler_post_runnable_delay(_ws_reconnect, NULL, 1000);
 	}
+}
+
+static int _ws_disconnect_play_net_error_runnable(void *arg)
+{
+	(void)arg;
+	if (!s_cloud || !s_cloud->m_wifi_conn || s_cloud->has_notified_network_error) {
+		return 0;
+	}
+
+	if (s_cloud->m_client && s_cloud->m_client->sound_player &&
+	    s_cloud->m_client->sound_player->m_play_state == PLAYER_EVT_PLAYING) {
+		evs_handler_post_runnable_delay(_ws_disconnect_play_net_error_runnable, NULL, 1000);
+		return 0;
+	}
+
+	s_cloud->has_notified_network_error = true;
+	extern int play_net_error_audio(void);
+	play_net_error_audio();
+
+	return 0;
 }
 
 static void _ws_ms_cb(const char *msg, int len)
@@ -435,8 +479,6 @@ void app_chat_start(void)
     }
 
 	app_client_t *client = app_client_get_instance();
-    /* 打开全双工链路 */
-    lisa_aiui_set_interactive_mode(INTER_CONTINUE);
     assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_RECORD_START, NULL, 0);
     pa_manager_refresh(PA_MGR_ON, LS_PA_BASE_TIME, "wakeup");
     app_cloud_wakeup(client->cloud);

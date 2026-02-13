@@ -13,6 +13,8 @@ typedef enum {
 // Forward declarations
 typedef struct audioplayer_s audioplayer_t;
 
+typedef void (*tts_url_callback_t)(const char *url);
+
 void app_proc_init(struct app_client_s *app_client, struct app_cloud_s *cloud);
 
 void app_proc_msg(const char* msg, int len);
@@ -36,5 +38,8 @@ void enter_audio_idle(void);
  * @param evt Music control event
  */
 void music_control_msg(MUSIC_CONTRL_EVENT evt);
+
+void register_tts_url_callback(tts_url_callback_t cb);
+void proc_mgr_expect_tts_url(bool expect);
 
 #endif // __PROC_MGR_H__

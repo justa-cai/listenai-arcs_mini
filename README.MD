@@ -55,13 +55,14 @@
 ## FLASH 分区说明
 
 | 分区名称 | 分区起始地址 | 备注 |
-|----------|-------------|------|
-| `boot` | `0x0` | Boot 程序，用于引导/烧录 |
-| `ap` | `0x40000` | AP 固件 |
-| `app-config.json` | `0xF0000` | App 配置文件 |
-| `tone` | `0x100000` | 提示音资源 |
-| `wake_word.bin` | `0x200000` | 算法资源 |
-| `aiui.bin` | `0x600000` | CP 固件 |
+|--------------------|------------|--|
+| `boot.bin`         | `0x0`      | Boot 程序，用于引导/烧录 |
+| `ap.bin`           | `0x40000`  | AP 固件 |
+| `app-config.json`  | `0xF0000`  | App 配置文件 |
+| `tone.bin`         | `0x100000` | 提示音资源 |
+| `wake_word.bin`    | `0x200000` | 算法资源 |
+| `respak.bin`       | `0x400000` | 图片与字体资源 |
+| `aiui.bin`         | `0x600000` | CP 固件 |
 
 ## 固件及资源烧录
 
@@ -97,6 +98,7 @@ adb push res/ap.bin /RAW/NAND/40000
 adb push res/app-config.json /RAW/NAND/F0000
 adb push res/tone.bin /RAW/NAND/100000
 adb push res/wake_word.bin /RAW/NAND/200000
+adb push res/respak.bin /RAW/NAND/400000
 adb push build/aiui.bin /RAW/NAND/600000
 ```
 

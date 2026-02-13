@@ -32,6 +32,8 @@
 #include "lisa_display.h"
 #include "lisa_aiui.h"
 #include "bt_app_if.h"
+#include "alarm_next.h"
+#include "alarm_ring.h"
 
 #if (CONFIG_FLEXIBLE_BUTTON)
 #include "lisa_btn.h"
@@ -58,32 +60,40 @@
 // 需要配合lisaplayer的arcs_track.c中的配置项同步修改
 #define ARCS_DAC_USE_LITE_DAC (1)
 
+// BLE广播启动重试配置
+#define BLE_ADV_START_MAX_RETRIES (5)
+#define BLE_ADV_START_RETRY_DELAY_MS (100)
+
 /**
  * @brief Factory reset function - to be implemented by user
  */
 static void factory_reset(void)
 {
     printf("\n=== Starting Factory Reset ===\n");
-    // Delete user credentials
-    printf("Deleting user credentials...\n");
-    int ret1 = lisa_kv_del("user.pid");
-    int ret2 = lisa_kv_del("user.sid");
-    int ret5 = lisa_kv_del("user.token");
-    int ret6 = lisa_kv_del("user.mic_gain");
-    printf("  - user_pid delete: %s\n", ret1 == 0 ? "Success" : "Failed");
-    printf("  - user_sid delete: %s\n", ret2 == 0 ? "Success" : "Failed");
-    printf("  - user_token delete: %s\n", ret5 == 0 ? "Success" : "Failed");
-    printf("  - user_mic_gain delete: %s\n", ret6 == 0 ? "Success" : "Failed");
 
     // Clear WiFi configurations
     printf("Clearing WiFi configurations...\n");
-    int ret3 = lisa_kv_del("wifi-info-count");
-    int ret4 = lisa_kv_del("wifi-list");
-    printf("  - wifi-info-count delete: %s\n", ret3 == 0 ? "Success" : "Failed");
-    printf("  - wifi-list delete: %s\n", ret4 == 0 ? "Success" : "Failed");
+    int ret1 = lisa_kv_del("wifi-info-count");
+    int ret2 = lisa_kv_del("wifi-list");
+    printf("  - wifi-info-count delete: %s\n", ret1 == 0 ? "Success" : "Failed");
+    printf("  - wifi-list delete: %s\n", ret2 == 0 ? "Success" : "Failed");
+
+    // Delete user credentials
+    printf("Deleting user credentials...\n");
+    int ret3 = lisa_kv_del("user.pid");
+    int ret4 = lisa_kv_del("user.sid");
+    int ret5 = lisa_kv_del("user.volume");
+    int ret6 = lisa_kv_del("user.mic_gain");
+    int ret7 = lisa_kv_del("user.aec_gain");
+
+    printf("  - user_pid delete: %s\n", ret3 == 0 ? "Success" : "Failed");
+    printf("  - user_sid delete: %s\n", ret4 == 0 ? "Success" : "Failed");
+    printf("  - user_token delete: %s\n", ret5 == 0 ? "Success" : "Failed");
+    printf("  - user_mic_gain delete: %s\n", ret6 == 0 ? "Success" : "Failed");
+    printf("  - user_aec_gain delete: %s\n", ret7 == 0 ? "Success" : "Failed");
 
     // Add any additional reset operations here
-    listen_set_volume(70);
+    
     printf("=== Factory Reset Completed ===\n\n");
 }
 
@@ -93,10 +103,10 @@ static void network_reset(void)
 
     // Clear WiFi configurations
     printf("Clearing WiFi configurations...\n");
-    int ret3 = lisa_kv_del("wifi-info-count");
-    int ret4 = lisa_kv_del("wifi-list");
-    printf("  - wifi-info-count delete: %s\n", ret3 == 0 ? "Success" : "Failed");
-    printf("  - wifi-list delete: %s\n", ret4 == 0 ? "Success" : "Failed");
+    int ret1 = lisa_kv_del("wifi-info-count");
+    int ret2 = lisa_kv_del("wifi-list");
+    printf("  - wifi-info-count delete: %s\n", ret1 == 0 ? "Success" : "Failed");
+    printf("  - wifi-list delete: %s\n", ret1 == 0 ? "Success" : "Failed");
 
     printf("=== Network Reset Completed ===\n\n");
 }
@@ -175,10 +185,47 @@ static void _main_wifi_stack_init_done_cb(void)
     evs_handler_post_runnable(__handle_wifi_stack_init_done, NULL);
 }
 
-void enter_ble_config(void)
+void enter_ble_config(bool play_audio)
 {
-    assist_controller_trigger_event(CONTROLLER_EVENT_OPT_ENTER_BLE_CONFIG, NULL, 0);
-    app_ble_adv_start(0, BLE_ADV_GEN);
+    LISA_LOGI(TAG, "=== Entering BLE Config Mode ===");
+    
+    if (play_audio) {
+        LISA_LOGI(TAG, "Triggering CONTROLLER_EVENT_OPT_ENTER_BLE_CONFIG");
+        assist_controller_trigger_event(CONTROLLER_EVENT_OPT_ENTER_BLE_CONFIG, NULL, 0);
+    } else {
+        LISA_LOGI(TAG, "Skipping audio playback for BLE config");
+    }
+    
+    LISA_LOGI(TAG, "Starting BLE advertising with max %d retries", BLE_ADV_START_MAX_RETRIES);
+    
+    int ble_ret = -1;
+    for (int retry = 0; retry < BLE_ADV_START_MAX_RETRIES; retry++) {
+        LISA_LOGI(TAG, "BLE advertising attempt %d/%d (address 0, mode BLE_ADV_GEN)", 
+                  retry + 1, BLE_ADV_START_MAX_RETRIES);
+        
+        ble_ret = app_ble_adv_start(0, BLE_ADV_GEN);
+        
+        if (ble_ret == pdTRUE) {
+            LISA_LOGI(TAG, "BLE advertising started successfully on attempt %d/%d", 
+                      retry + 1, BLE_ADV_START_MAX_RETRIES);
+            break;
+        } else {
+            if (retry < BLE_ADV_START_MAX_RETRIES - 1) {
+                LISA_LOGW(TAG, "BLE advertising start failed on attempt %d/%d (ret: %d), retrying...", 
+                          retry + 1, BLE_ADV_START_MAX_RETRIES, ble_ret);
+                lisa_thread_delay(BLE_ADV_START_RETRY_DELAY_MS);
+            } else {
+                LISA_LOGE(TAG, "BLE advertising start failed on all %d attempts (final ret: %d)", 
+                          BLE_ADV_START_MAX_RETRIES, ble_ret);
+            }
+        }
+    }
+    
+    if (ble_ret == 0) {
+        LISA_LOGI(TAG, "=== BLE Config Mode Ready ===");
+    } else {
+        LISA_LOGE(TAG, "=== BLE Config Mode Failed to Start ===");
+    }
 }
 
 #if (CONFIG_FLEXIBLE_BUTTON)
@@ -214,6 +261,7 @@ static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t
                 app_btn_wakeup();
             }
         }
+        alarm_ring_stop();
         break;
 
     case LISA_BTN_PRESS_DOUBLE_CLICK:
@@ -237,21 +285,23 @@ static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t
         if (info->click_count >= 8) { /* 连击超过8下: 恢复出厂设置 */
             LISA_LOGI(TAG, "Do factory reset");
             enter_audio_idle();
-            factory_reset();
-            wifi_mgr_sta_disconnect(false);
             extern int play_factory_reset_audio(void);
             play_factory_reset_audio();
+            enter_ble_config(false);
+            factory_reset();
+            app_cloud_disconnect();
+            wifi_mgr_sta_disconnect(false);
             extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
             change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
-            enter_ble_config();
         } else if (info->click_count >= 5) { /* 连击超过5下: 进入BLE配置模式 */
             LISA_LOGI(TAG, "Do network reset");
             enter_audio_idle();
+            enter_ble_config(true);
             network_reset();
+            app_cloud_disconnect();
             wifi_mgr_sta_disconnect(false);
             extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
             change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
-            enter_ble_config();
         }
         break;
 
@@ -419,7 +469,6 @@ static void app_task(void *param)
     app_player_init();
     LISA_LOGI(TAG, "app_player init end");
 
-    lisa_aiui_set_interactive_mode(INTER_CONTINUE);
 
     // Welcome
     extern void app_main(void);
@@ -476,7 +525,7 @@ static void app_task(void *param)
         printf("No valid WiFi configuration found\n");
         extern int change_info_page(lisaui_userdata_qrcode_inter_mode_e mode);
         change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
-        enter_ble_config();
+        enter_ble_config(true);
     } else {
         ;
     }

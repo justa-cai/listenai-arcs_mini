@@ -259,7 +259,7 @@ static const char *model_config_triggers[] = {
 MCP_REGISTER_TOOL_STATIC(
     model_persona_update,
     "ls.built_in.model_persona_update",
-    "更新助手人设配置",
+    "用户如果希望更新助手人设，或修改大模型相关配置，请使用此工具。",
     "1.0",
     generate_model_persona_schema,
     0,
