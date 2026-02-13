@@ -115,6 +115,7 @@ static void network_reset(void)
 #define APP_TASK_PRIO  LISA_OS_PRIORITY_NORMAL
 
 extern void listen_vol_adjust(int vol);
+extern void ls_builtin_play_random_music(void);  // from player/music_random.c
 
 static int __handle_wifi_stack_init_done(void *arg)
 {
@@ -240,27 +241,9 @@ static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t
 
     switch (event) {
     case LISA_BTN_PRESS_CLICK:
-        /* 单击: 非主页则先回到主页，否则执行唤醒/关闭唤醒 */
-        if (!is_primary_page_active()) {
-            /* 检查当前页面激活状态，避免与定时器回调竞争 */
-            LISA_LOGI(TAG, "Single click: not on home page, navigating home");
-            
-            lisaui_manager_group_enter(LISAUI_GROUP_INDEX_LAUNCHER,
-                                       GROUP_ENTER_PAGE_METHOD_FIX_PAGE_INDEX,
-                                       LISAUI_GROUP_LAUNCHER_PAGE_INDEX_PRIMARY,
-                                       0);
-        } else {
-            /* 已在主页，执行唤醒/关闭唤醒功能 */
-            LISA_LOGI(TAG, "Single click: on home page, triggering wakeup/idle");
-            if (get_audio_listen_status()) {
-                /* 设备处于仅聆听的时候，单击回到待唤醒状态 */
-                extern void app_btn_idle(void);
-                app_btn_idle();
-            } else {
-                extern void app_btn_wakeup(void);
-                app_btn_wakeup();
-            }
-        }
+        /* 单击: 播放音乐 */
+        LISA_LOGI(TAG, "Single click: play music");
+        ls_builtin_play_random_music();
         alarm_ring_stop();
         break;
 
