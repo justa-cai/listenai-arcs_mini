@@ -6,6 +6,7 @@
 typedef enum {
     OTA_PART_WAKE_WORD_BIN,
     OTA_PART_GREETING_MP3,
+    OTA_PART_TONE_BIN,
 } ota_partition_id_e;
 
 int ota_flash_init(void);

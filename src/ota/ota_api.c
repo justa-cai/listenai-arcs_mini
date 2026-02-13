@@ -10,16 +10,56 @@
 #include "lisa_http.h"
 #include "lisa_kv.h"
 #include "lisa_log.h"
+#include "lisa_mem.h"
 #include "cJSON.h"
+#include "aiui_base64.h"
+#include "project_version.h"
 
 #include "ota_api.h"
 #include "kv_user.h"
 #include "aiui_cfg.h"
 
 #define DEV_CONF_API "api.listenai.com/external/device/configurations"
+#define CONF_REQ_TIMEOUT_SEC 6
 
 #define PRODUCT_ID_LEN 64
 #define DEVICE_ID_LEN  32
+#define CONF_URL_LEN   512
+
+static char *conf_build_param_base64(void)
+{
+    cJSON *params = cJSON_CreateObject();
+    if (!params) {
+        return NULL;
+    }
+
+    cJSON *firmware_info = cJSON_CreateObject();
+    if (!firmware_info) {
+        cJSON_Delete(params);
+        return NULL;
+    }
+
+    cJSON_AddStringToObject(firmware_info, "type", "arcs-mini");
+    cJSON_AddStringToObject(firmware_info, "version", PROJECT_VERSION_STR);
+    cJSON_AddItemToObject(params, "firmware_info", firmware_info);
+
+    char *params_json = cJSON_PrintUnformatted(params);
+    cJSON_Delete(params);
+    if (!params_json) {
+        return NULL;
+    }
+
+    char *params_base64 = (char *)aiui_base64_encode((unsigned char *)params_json);
+    cJSON_free(params_json);
+    if (!params_base64 || params_base64[0] == '\0') {
+        if (params_base64) {
+            lisa_mem_free(params_base64);
+        }
+        return NULL;
+    }
+
+    return params_base64;
+}
 
 static int get_product_id(char product_id[PRODUCT_ID_LEN])
 {
@@ -83,7 +123,7 @@ static cJSON *conf_get(void)
 {
     char product_id[PRODUCT_ID_LEN];
     char device_id[DEVICE_ID_LEN];
-    char url[256];
+    char url[CONF_URL_LEN];
     int ret;
 
     ret = get_product_id(product_id);
@@ -111,8 +151,26 @@ static cJSON *conf_get(void)
         host_suffix = "integration-";
     }
 
-    snprintf(url, sizeof(url), "http://%s%s?product_id=%s&device_id=%s", host_suffix, DEV_CONF_API, product_id,
-             device_id);
+    char *param_base64 = conf_build_param_base64();
+    int url_len = 0;
+    if (param_base64) {
+        url_len = snprintf(url, sizeof(url), "http://%s%s?product_id=%s&device_id=%s&param=%s", host_suffix,
+                           DEV_CONF_API, product_id, device_id, param_base64);
+    } else {
+        LISA_LOGW(TAG, "param base64 build failed, request without param");
+        url_len = snprintf(url, sizeof(url), "http://%s%s?product_id=%s&device_id=%s", host_suffix, DEV_CONF_API,
+                           product_id, device_id);
+    }
+
+    if (param_base64) {
+        lisa_mem_free(param_base64);
+        param_base64 = NULL;
+    }
+
+    if (url_len < 0 || url_len >= (int)sizeof(url)) {
+        LISA_LOGE(TAG, "Config URL too long");
+        return NULL;
+    }
 
     cJSON *json = NULL;
 
@@ -133,9 +191,11 @@ static cJSON *conf_get(void)
         return NULL;
     }
 
+    LISA_LOGI(TAG, "Request device config (timeout=%us)", (unsigned)CONF_REQ_TIMEOUT_SEC);
+
     lisa_http_err_e err = lisa_http_perform(http);
     if (err != LISA_HTTP_OK) {
-        LISA_LOGE(TAG, "HTTP perform failed: %d", err);
+        LISA_LOGW(TAG, "Config request failed: %d (timeout=%us), skip OTA", err, (unsigned)CONF_REQ_TIMEOUT_SEC);
         lisa_http_cleanup(http);
         return NULL;
     }
@@ -245,6 +305,14 @@ int ota_api_get_dev_conf(ota_dev_conf_t *conf)
     } else {
         LISA_LOGI(TAG, "Found greeting resource, size: %d, md5: " MD5_PRI ", url: %s", conf->greeting.size,
                   MD5_ARG(conf->greeting.md5), conf->greeting.url);
+    }
+
+    cJSON *prompt_tone = cJSON_GetObjectItem(data, "prompt_tone");
+    if (ota_api_parse_res_info(prompt_tone, &conf->prompt_tone) != 0) {
+        LISA_LOGE(TAG, "Failed to parse prompt_tone resource info");
+    } else {
+        LISA_LOGI(TAG, "Found prompt_tone resource, size: %d, md5: " MD5_PRI ", url: %s", conf->prompt_tone.size,
+                  MD5_ARG(conf->prompt_tone.md5), conf->prompt_tone.url);
     }
 
     cJSON_Delete(json);

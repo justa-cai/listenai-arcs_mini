@@ -296,8 +296,15 @@ static bool __player_prepare_check(app_player_item_t *player_item, const char *t
 			player_item->wait_prepare_intercepted = false;
 		}
 		LISA_LOGD(TAG, "pre %s prepare complete", tips);
-		lisa_player_stop_sync(player_item->hld);
-		lisa_player_reset(player_item->hld);
+		PlayerState st = lisa_player_get_state(player_item->hld);
+		if (st == PLAYER_ST_READY_TO_PLAY || st == PLAYER_ST_PREPARED ||
+			st == PLAYER_ST_PLAYING || st == PLAYER_ST_PAUSED) {
+			lisa_player_stop_sync(player_item->hld);
+			lisa_player_reset(player_item->hld);
+		} else {
+			LISA_LOGW(TAG, "skip sync stop/reset, state=%d", st);
+			lisa_player_stop(player_item->hld);
+		}
 		LISA_LOGD(TAG, "pre %s status check end", tips);
 		return false;
 	}
@@ -486,7 +493,15 @@ void app_player_stop_sync(player_t type)
 	pa_manager_refresh(PA_MGR_OFF, LS_PA_BASE_TIME, tips);
 
 	if (__player_prepare_check(player, tips)) {
-		int ret = lisa_player_stop_sync(player->hld);
+		PlayerState st = lisa_player_get_state(player->hld);
+		int ret = PLAYER_OK;
+		if (st == PLAYER_ST_READY_TO_PLAY || st == PLAYER_ST_PREPARED ||
+			st == PLAYER_ST_PLAYING || st == PLAYER_ST_PAUSED) {
+			ret = lisa_player_stop_sync(player->hld);
+		} else {
+			LISA_LOGW(TAG, "skip sync stop, state=%d", st);
+			ret = lisa_player_stop(player->hld);
+		}
 		if (ret != PLAYER_OK)
 		{
 			__player_broadcast_status(player, PLAYER_EVT_STOPED);

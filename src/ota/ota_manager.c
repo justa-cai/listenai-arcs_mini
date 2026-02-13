@@ -25,6 +25,7 @@
 
 static int ota_manager_wake_word_check(void);
 static int ota_manager_greeting_check(void);
+static int ota_manager_prompt_tone_check(void);
 
 static ota_state_t s_ota_state = {
     .state = OTA_STATE_IDLE,
@@ -144,6 +145,19 @@ static int _ota_manager_check_all(void)
                 // no reboot needed
             }
         }
+
+        ret = ota_manager_prompt_tone_check();
+        if (ret < 0) {
+            LISA_LOGE(TAG, "Prompt tone check failed (%d)", ret);
+            ota_manager_update_reboot_strategy();
+            ota_manager_notify_state(OTA_STATE_FAILED);
+            goto reboot;
+        } else if (ret == 0) {
+            LISA_LOGI(TAG, "Prompt tone up-to-date");
+        } else {
+            LISA_LOGI(TAG, "Prompt tone updated (%d)", ret);
+            // no reboot needed
+        }
     }
 
     if (need_reboot) {
@@ -169,8 +183,9 @@ up_to_date:
         lisa_kv_free(wake_word);
     }
 
-    // Apply greeting tone
+    // Apply greeting mp3 and prompt tone from OTA partition
     if (!skip_greeting_update) {
+        // greeting mp3
         const void *data = NULL;
         uint32_t limit = 0;
         uint32_t size = 0;
@@ -188,6 +203,29 @@ up_to_date:
             LISA_LOGI(TAG, "Apply greeting tone from flash, size %u", size);
             app_tone_override(TONE_ID_0, data, size);
         }
+    
+        // prompt tone 
+        const void *tone_data = NULL;
+        uint32_t tone_limit = 0;
+        uint32_t tone_size = 0;
+
+        if (ota_flash_get(OTA_PART_TONE_BIN, &tone_data, &tone_limit) < 0) {
+            LISA_LOGW(TAG, "Get prompt tone from flash failed");
+        } else if (lisa_kv_get_int(KV_KEY_SYS_PROMPT_TONE_SIZE, (int *)&tone_size) != 0) {
+            tone_size = dev_conf.prompt_tone.size;
+        }
+
+        if (tone_data && tone_size > 0 && tone_size <= tone_limit) {
+            LISA_LOGI(TAG, "Apply prompt tone from flash, size %u", tone_size);
+            struct romfs *tone_fs = NULL;
+            if (romfs_init(&tone_fs, tone_data, tone_size) == 0) {
+                int loaded = app_tone_load_from_romfs(tone_fs, "/");
+                LISA_LOGI(TAG, "Loaded %d prompt tones from OTA partition", loaded);
+            } else {
+                LISA_LOGW(TAG, "Failed to init romfs for prompt tone");
+            }
+        }
+
     }
 
     ota_manager_notify_state(OTA_STATE_UP_TO_DATE);
@@ -394,6 +432,77 @@ static int ota_manager_greeting_check(void)
     lisa_kv_set_int(KV_KEY_SYS_GREETING_TONE_SIZE, dev_conf.greeting.size);
 
     LISA_LOGI(TAG, "Update greeting.mp3 finished");
+    updated++;
+
+    return updated;
+}
+
+static int ota_manager_prompt_tone_download_cb(const ota_res_info_t *res_info, uint32_t offset, const uint8_t *data,
+                                               uint32_t size)
+{
+    int ret;
+
+    ret = ota_flash_update_step(OTA_PART_TONE_BIN, offset, data, size);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Write prompt_tone.bin failed at offset %u, size %u (%d)", offset, size, ret);
+    }
+
+    ota_manager_notify_progress(offset + size, res_info->size);
+
+    return ret;
+}
+
+static int ota_manager_prompt_tone_check(void)
+{
+    int ret;
+    bool prompt_tone_need_update = false;
+    int updated = 0;
+
+    if (dev_conf.prompt_tone.size > 0) {
+        ret = ota_flash_verify(OTA_PART_TONE_BIN, dev_conf.prompt_tone.md5, dev_conf.prompt_tone.size);
+        if (ret < 0) {
+            return 0;
+        }
+
+        prompt_tone_need_update = ret > 0;
+        LISA_LOGI(TAG, "prompt_tone.bin need update: %d", prompt_tone_need_update);
+    } else {
+        LISA_LOGI(TAG, "prompt_tone.bin not found, skip checking");
+    }
+
+    if (!prompt_tone_need_update) {
+        return 0;
+    }
+
+    s_ota_state.bytes_processed = 0;
+    s_ota_state.bytes_total = dev_conf.prompt_tone.size;
+    ota_manager_notify_state(OTA_STATE_UPDATING);
+
+    LISA_LOGI(TAG, "Begin update prompt_tone.bin...");
+
+    ret = ota_flash_update_begin(OTA_PART_TONE_BIN, dev_conf.prompt_tone.size);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Begin update of prompt_tone.bin partition failed (%d)", ret);
+        return ret;
+    }
+
+    LISA_LOGI(TAG, "Downloading prompt_tone.bin from %s, size %u", dev_conf.prompt_tone.url, dev_conf.prompt_tone.size);
+
+    ret = ota_api_download(&dev_conf.prompt_tone, ota_manager_prompt_tone_download_cb);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Download prompt_tone.bin failed (%d)", ret);
+        return ret;
+    }
+
+    ret = ota_flash_update_finish(OTA_PART_TONE_BIN);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Finish update of prompt_tone.bin partition failed (%d)", ret);
+        return ret;
+    }
+
+    lisa_kv_set_int(KV_KEY_SYS_PROMPT_TONE_SIZE, dev_conf.prompt_tone.size);
+
+    LISA_LOGI(TAG, "Update prompt_tone.bin finished");
     updated++;
 
     return updated;

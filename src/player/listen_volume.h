@@ -22,7 +22,7 @@ typedef enum {
 /**
  * @brief 音量设置初始化
  */
-void listen_volume_init();
+void listen_volume_init(void);
 
 /**
  * @brief  设置音量
@@ -30,16 +30,16 @@ void listen_volume_init();
  */
 void listen_set_volume(int vol);
 
+int listen_get_volume(void);
+
 /**
  * @brief  音量调整, 正负值
- * @param  vol			音量调整值
+ * @param  adj			音量调整值
  */
-void listen_vol_adjust(int vol);
+void listen_vol_adjust(int adj);
 
-void listen_vol_mute();
+void listen_vol_mute(void);
 
 void listen_vol_cancel_mute();
-
-int listen_get_volume();
 
 #endif

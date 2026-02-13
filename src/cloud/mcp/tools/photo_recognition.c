@@ -932,7 +932,7 @@ int photo_recognition_trigger(void)
     
     extern const app_cloud_t *app_cloud_get(void);
     const app_cloud_t *cloud = app_cloud_get();
-    if (cloud == NULL || cloud->aiui == NULL) {
+    if (cloud == NULL || cloud->aiui == NULL || cloud->m_ntp_conn == false || cloud->ws_state != LS_WS_CONNECT)  {
         LISA_LOGE(TAG, "Cloud or AIUI handle is NULL, cannot send image");
         free(jpeg_data);
         return -1;

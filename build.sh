@@ -10,7 +10,10 @@ usage() {
     echo "  -C, --Clean            清理构建目录"
     echo "  -B, --build            构建输出目录"
     echo "  -h, --help             显示此帮助信息"
+    echo "  -r, --release          以 Release 模式构建 (移除 DEBUG_PATH 信息)"
     echo "  -w, --warnings-as-errors 将警告视为错误"
+    echo "  -c, --config <file>     指定配置文件 (默认为 prj.conf)"
+    echo "      --overlay-config <file>  指定附加配置文件 (可选，可多次使用)"
     echo ""
     echo "示例:"
     echo "  $0                                   默认构建"
@@ -27,10 +30,13 @@ TARGET=""
 CLEAN=false
 OUTPUT="build"
 WARNINGS_AS_ERRORS=false
+RELEASE=false
 ARCS_BASE_DIR_NAME="arcs-sdk"
 ARCS_DEV_TOOLS_DIR_NAME="listenai-dev-tools"
 ARCS_DEV_TOOL_TOOLCHAIN_DIR_NAME="gcc"
 ARCS_DEV_TOOL_LISTENAI_TOOLS_DIR_NAME="listenai-tools"
+CONFIG_FILE="prj.conf"
+OVERLAY_CONFIG_FILES=""
 
 find_arcs_base() {
     local current_dir=$(cd "$(dirname "$0")" && pwd)
@@ -98,6 +104,32 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       usage
       ;;
+    -r|--release)
+      RELEASE=true
+      shift 1
+      ;;
+    -c|--config)
+        if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
+            CONFIG_FILE="$2"
+            shift 2
+        else
+            echo "错误: --config 需要一个配置文件参数"
+            exit 1
+        fi
+        ;;
+    --overlay-config)
+        if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
+            if [ -z "$OVERLAY_CONFIG_FILES" ]; then
+                OVERLAY_CONFIG_FILES="$2"
+            else
+                OVERLAY_CONFIG_FILES="$OVERLAY_CONFIG_FILES;$2"
+            fi
+            shift 2
+        else
+            echo "错误: --overlay-config 需要一个配置文件参数"
+            exit 1
+        fi
+        ;;
     *)
       echo "未知参数: $1"
       usage
@@ -105,9 +137,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# 检查配置文件是否存在
+if [ ! -f "$PROJECT_PATH/$CONFIG_FILE" ]; then
+    echo "错误: 配置文件 $CONFIG_FILE 不存在"
+    exit 1
+fi
+
 echo "Source: $PROJECT_PATH"
 echo "Target: $TARGET"
 echo "Clean : $CLEAN"
+echo "Config: $CONFIG_FILE"
+if [ -n "$OVERLAY_CONFIG_FILES" ]; then
+    echo "Overlay Configs: $OVERLAY_CONFIG_FILES"
+fi
 
 if [ -z "$LISTENAI_TOOLS_PATH" ] || [ -z "$NUCLEI_TOOLCHAIN_PATH" ]; then
     find_dev_tools
@@ -137,7 +179,7 @@ fi
 
 if [ "$CLEAN" = true ]; then
     rm -rf $OUTPUT
-fi 
+fi
 
 # Initialize CMAKE_VARS array if it doesn't exist
 declare -a CMAKE_VARS
@@ -149,12 +191,21 @@ if [ "$WARNINGS_AS_ERRORS" = true ]; then
     echo "Treating warnings as errors"
 fi
 
+# Add release flags if enabled
+if [ "$RELEASE" = true ]; then
+    CMAKE_VARS+=("-DENABLE_DEBUG_PATH=OFF")
+    echo "Release mode enabled (-DENABLE_DEBUG_PATH=OFF)"
+fi
+
+CMAKE_VARS+=("-DCONFIG_DEFAULT=$PROJECT_PATH/$CONFIG_FILE")
+CMAKE_VARS+=("-DCONFIG_FILES=$OVERLAY_CONFIG_FILES")
+
 $CMAKE_PROGRAM -B "$OUTPUT" -G Ninja -S "$PROJECT_PATH" \
     -DCMAKE_MAKE_PROGRAM="$NINJA_PROGRAM" \
     "${CMAKE_VARS[@]}"
 
 if [ -z "$TARGET" ]; then
-    $CMAKE_PROGRAM --build "$OUTPUT" -j4
+    $CMAKE_PROGRAM --build "$OUTPUT" -j$(nproc)
 else
     $CMAKE_PROGRAM --build "$OUTPUT" --target "$TARGET"
 fi

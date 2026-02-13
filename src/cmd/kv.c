@@ -8,6 +8,7 @@
 
 #include "stdint.h"
 #include "stdio.h"
+#include "alarm_store.h"
 
 static int kv_cmd_del(int argc, char **argv)
 {
@@ -49,10 +50,30 @@ static int kv_cmd_set(int argc, char **argv)
             }
         } else if (!strcmp(type, "int")) {
             int int_temp = atoi(value);
+
+            // Validate range for mic_gain and aec_gain (0-100)
+            if (!strcmp(key, "user.mic_gain") || !strcmp(key, "user.aec_gain") || !strcmp(key, "user.volume") ) {
+                if (int_temp < 0 || int_temp > 100) {
+                    shellPrint(shellGetCurrent(),"[ERROR] Invalid value for %s: %d (valid range: 0-100), not modified\n", key, int_temp);
+                    return -1;
+                }
+            }
+            
             if (lisa_kv_set_int(key, int_temp) != 0) {
                 shellPrint(shellGetCurrent(),"flash set %s:%d failed\n", key, int_temp);
             } else {
                 shellPrint(shellGetCurrent(),"flash set %s:%d success\n", key, int_temp);
+                // DEBUG: 调试麦克风/AEC增益时自动调用debug函数
+                if (!strcmp(key, "user.mic_gain") || !strcmp(key, "user.aec_gain") || !strcmp(key, "user.volume")) {
+                    extern void listen_mic_gain_set_debug(void);
+                    listen_mic_gain_set_debug();
+                }
+                // Update interactive mode when user.intmode is set
+                if (!strcmp(key, "user.intmode")) {
+                    extern int lisa_aiui_set_interactive_mode(int mode);
+                    lisa_aiui_set_interactive_mode(int_temp);
+                    enter_audio_idle();
+                }
             }
         } else if (!strcmp(type, "bool")) {
             int bool_temp = atoi(value);
@@ -107,6 +128,51 @@ static int kv_cmd_get(int argc, char **argv)
                 shellPrint(shellGetCurrent(),"flash get %s failed\n", key);
             } else {
                 shellPrint(shellGetCurrent(),"flash get %s:%d success\n", key, bool_value);
+            }
+        } else if (!strcmp(type, "blob")) {
+            uint8_t *blob = NULL;
+            int blob_len = 0;
+            if (lisa_kv_get_blob(key, &blob, &blob_len) != 0 || blob == NULL || blob_len <= 0) {
+                shellPrint(shellGetCurrent(),"flash get %s failed\n", key);
+            } else {
+                shellPrint(shellGetCurrent(), "flash get %s len:%d\n", key, blob_len);
+
+                /* Special handling: user.alarm.list is a uint64 list of alarm timestamps */
+                if (!strcmp(key, "user.alarm_list") || !strcmp(key, "user.alarm.keys")) {
+                    int cnt = blob_len / (int)sizeof(uint64_t);
+                    uint64_t *ts = (uint64_t *)blob;
+                    for (int i = 0; i < cnt; i++) {
+                        shellPrint(shellGetCurrent(), "  alarm[%d]: %llu\n", i, (unsigned long long)ts[i]);
+                    }
+                } else {
+                    // Try to print as alarm_obj_nvs_t if size matches
+                    if (blob_len >= sizeof(alarm_obj_nvs_t)) {
+                        alarm_obj_nvs_t *hdr = (alarm_obj_nvs_t *)blob;
+                        size_t text_len = hdr->text_len;
+                        if (blob_len >= sizeof(alarm_obj_nvs_t) + text_len) {
+                            alarm_object_t obj;
+                            extern void alarm_object_from_nvs(const alarm_obj_nvs_t *hdr, const uint8_t *text, size_t text_len, uint64_t alarm_id, alarm_object_t *out_alarm);
+                            alarm_object_from_nvs(hdr, blob + sizeof(alarm_obj_nvs_t), text_len, 0, &obj);
+                            alarm_obj_print(&obj);
+                        } else {
+                            shellPrint(shellGetCurrent(), "[alarm_obj_nvs_t blob too short for text] \n");
+                        }
+                    } else {
+                        /* Generic hex dump in chunks to avoid oversized prints */
+                        for (int i = 0; i < blob_len; i++) {
+                            shellPrint(shellGetCurrent(), "%hhd", blob[i]);
+                            if ((i + 1) % 32 == 0) {
+                                shellPrint(shellGetCurrent(), "\n");
+                            } else if ((i + 1) % 2 == 0) {
+                                shellPrint(shellGetCurrent(), " ");
+                            }
+                        }
+                        shellPrint(shellGetCurrent(), "\n");
+                    }
+                }
+            }
+            if (blob) {
+                lisa_mem_free(blob);
             }
         } else {
             shellPrint(shellGetCurrent(),"invalid type\n");

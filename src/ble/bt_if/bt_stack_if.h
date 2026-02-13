@@ -173,6 +173,9 @@ os_task_cb_t *bt_stack_if_get_cb(void);
 uint8_t bt_stack_nvs_get(uint8_t param_id, uint8_t * lengthPtr, uint8_t *buf);
 uint8_t bt_stack_nvs_set(uint8_t param_id, uint8_t length, uint8_t *buf);
 uint8_t bt_stack_nvs_del(uint8_t param_id);
+bool bt_stack_ble_adv_is_active(uint8_t adv_id);
+bool bt_stack_ble_adv_is_pending(uint8_t adv_id);
+void bt_stack_ble_adv_mark_pending(uint8_t adv_id, bool pending);
 
 /// @} APP OS TASK
 #endif // APP_OS_TASK_H_

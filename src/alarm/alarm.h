@@ -24,11 +24,11 @@ struct ls_alarm_nvs {
     uint8_t text[LS_ALARM_TEXT_MAX_LEN];
 };
 
-#define NVS_ALARM_KEY "user.alarm.keys"
 
 void ls_alarm_init(ls_alarm_user_callback_t cb);
 int ls_alarm_insert_by_timestamp(uint64_t timestamp, const uint8_t *text);
 int ls_alarm_delete_by_timestamp(uint64_t timestamp);
 struct ls_alarm *ls_alarm_get(void);
+int ls_alarm_count_get(void);
 
 #endif

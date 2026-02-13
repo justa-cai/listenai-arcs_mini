@@ -40,6 +40,7 @@
 static bool s_wifi_statck_init_done = false;
 static ls_wifi_stack_init_done_cb s_pre_init_done_cb = NULL;
 static ls_wifi_t *s_handle = NULL;
+static bool s_got_ip_notified = false;
 
 static int _handle_wifi_got_ip(void *arg)
 {
@@ -83,6 +84,14 @@ static int _handle_wifi_disconnect(void *arg)
     return 0;
 }
 
+static void _notify_got_ip(void)
+{
+    if (!s_got_ip_notified) {
+        s_got_ip_notified = true;
+        evs_handler_post_runnable(_handle_wifi_got_ip, NULL);
+    }
+}
+
 static int _app_wifi_event_cb(void *arg, event_module_t event_module, int event_id, void *event_data)
 {
     ls_wifi_t *handle = s_handle;
@@ -107,6 +116,12 @@ static int _app_wifi_event_cb(void *arg, event_module_t event_module, int event_
             // start dhcp
             net_if_up(net_if);
             ls_dhcpc_start(WIFI_VIF_STA_IDX);
+        } else {
+            uint32_t ip = 0, mask = 0, gw = 0;
+            net_if_get_ip(net_if, &ip, &mask, &gw);
+            if (ip != 0) {
+                _notify_got_ip();
+            }
         }
     } break;
     case EVENT_WIFI_GOT_IP: {
@@ -114,7 +129,7 @@ static int _app_wifi_event_cb(void *arg, event_module_t event_module, int event_
         if (handle) {
             handle->m_st = LS_WIFI_STA_CONNECTED;
         }
-        evs_handler_post_runnable(_handle_wifi_got_ip, NULL);
+        _notify_got_ip();
     } break;
     case EVENT_WIFI_STA_DHCP_FAIL: {
         LISA_LOGE(TAG, "wifi dhcp fail");
@@ -128,6 +143,7 @@ static int _app_wifi_event_cb(void *arg, event_module_t event_module, int event_
 
         ls_dhcpc_stop(WIFI_VIF_STA_IDX);
         net_if_down(net_if_get(WIFI_VIF_STA_IDX));
+        s_got_ip_notified = false;
     } break;
     case EVENT_WIFI_STA_CONNECT_FAIL: {
         LISA_LOGE(TAG, "wifi connect fail");

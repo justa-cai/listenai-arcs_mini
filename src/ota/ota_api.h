@@ -23,6 +23,7 @@ typedef struct {
         char text[20];
     } wakeup_word;
     ota_res_info_t greeting;
+    ota_res_info_t prompt_tone;
 } ota_dev_conf_t;
 
 int ota_api_get_dev_conf(ota_dev_conf_t *conf);

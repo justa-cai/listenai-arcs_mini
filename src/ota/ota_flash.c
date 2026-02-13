@@ -30,6 +30,11 @@ static const ota_partition_t partition_map[] = {
             .addr = 0x00F80000,
             .size = SIZE_K(32),
         },
+    [OTA_PART_TONE_BIN] =
+        {
+            .addr = 0x00F88000,
+            .size = SIZE_K(448),
+        },
 };
 
 int ota_flash_init(void)

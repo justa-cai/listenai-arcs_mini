@@ -18,6 +18,7 @@
 #include "lisaui_user_data.h"
 #include "assistant_view.h"
 #include "cJSON.h"
+#include "lisa_aiui.h"
 
 #include "lisa_log.h"
 #include "lvgl.h"
@@ -109,6 +110,12 @@ static const lisaui_userdata_setting_wifi_scan_state_e wifi_scan_state_map[] = {
     [VIEW_WIFI_STATE_SCANNED] = LISAUI_USERDATA_WIFI_SCAN_STATE_SCANNED,
     // 其他状态可以根据需要映射
 };
+// 交互模式映射数组
+static const lisaui_userdata_setting_inter_mode_e inter_mode_map[] = {
+    [INTER_CONTINUE] = LISAUI_USERDATA_SETTING_INTER_MODE_DUAL,
+    [INTER_ONESHOT] = LISAUI_USERDATA_SETTING_INTER_MODE_HALF,
+    [INTER_BUTTON] = LISAUI_USERDATA_SETTING_INTER_MODE_KEY,
+};
 
 static view_handler_t *view_handler = NULL;
 
@@ -119,6 +126,8 @@ EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_ROLE_EMOJI_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_MCP_EMOJI_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_STANDBY_TEXTS_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_INTER_END)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_INTER_MODE_UPDATE)
+EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_ALARM_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_SETTING_WIFI_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_M2U_SETTING_BATTERY_UPDATE)
 EBUS_MESSAGE_PUB_BY_WORK_DEFINE(LISAUI_EBUS_CH_EVENT_U2M_PAGE_INFO_TOGGLE)
@@ -425,6 +434,43 @@ int assistant_view_show_loading(const char *text)
         NULL, 0);
 
     return 0;
+}
+
+int assistant_view_notify_interactive_mode_update(lisa_aiui_interactive_mode_e mode)
+{
+
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        switch (mode) {
+        case INTER_ONESHOT:
+            _userdata->setting.inter_mode = LISAUI_USERDATA_SETTING_INTER_MODE_HALF;
+            break;
+        case INTER_CONTINUE:
+            _userdata->setting.inter_mode = LISAUI_USERDATA_SETTING_INTER_MODE_DUAL;
+            break;
+        case INTER_BUTTON:
+            _userdata->setting.inter_mode = LISAUI_USERDATA_SETTING_INTER_MODE_KEY;
+            break;
+        default:
+            break;
+        }
+    }
+
+    return workqueue_submit(view_handler->view->workq,
+        EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_INTER_MODE_UPDATE),
+        NULL, 0);
+}
+
+int assistant_view_notify_alarm_update(bool has_alarm)
+{
+    LISAUI_USERDATA_WITH_LOCK(_userdata)
+    {
+        _userdata->setting.has_alarm = has_alarm;
+    }
+
+    return workqueue_submit(view_handler->view->workq,
+        EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_ALARM_UPDATE),
+        NULL, 0);
 }
 
 // 更新并显示二维码
@@ -1298,11 +1344,16 @@ static int _bus_init(assistant_view_t *view)
 
 void assistant_view_userdata_load(void){
     lisaui_data_init();
+    
+    // 从 lisa_aiui 获取当前交互模式并同步到 _userdata
+    lisa_aiui_interactive_mode_e current_inter_mode = lisa_aiui_get_interactive_mode();
+    
     LISAUI_USERDATA_WITH_LOCK(_userdata){
         _userdata->setting.volume_percent = listen_get_volume();
         // _userdata->setting.mic_is_mute = listen_mic_mute_get(); 
         _userdata->setting.mic_is_mute = false; 
         _userdata->setting.mic_gain = listen_mic_gain_get();
+        _userdata->setting.inter_mode = inter_mode_map[current_inter_mode];
     }
 }
 

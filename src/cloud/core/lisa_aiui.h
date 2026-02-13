@@ -60,8 +60,8 @@ typedef struct {
 } aiui_ota_t;
 
 typedef enum {
-    INTER_ONESHOT,
-    INTER_CONTINUE,
+	INTER_ONESHOT,
+	INTER_CONTINUE,
 	INTER_BUTTON,
 } lisa_aiui_interactive_mode_e;
 

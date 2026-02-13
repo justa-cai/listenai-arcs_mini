@@ -69,6 +69,7 @@ static QueueHandle_t frontend_ctrl_queue;
 static QueueHandle_t backend_ctrl_queue;
 
 static assist_controller_t *assist_controller = NULL;
+static char s_ble_config_cnt = 0;
 
 static void frontend_task(void *pvParameters);
 static void backend_task(void *pvParameters);
@@ -604,6 +605,7 @@ static int ctrl_event_wifi_connected_handler(void *arg, uint32_t len)
     if (assist_controller) {
         assist_controller->status.wifi_scan_retry_count = 0;
     }
+    s_ble_config_cnt = 0;
 
     return 0;
 }
@@ -643,8 +645,6 @@ static int ctrl_event_wifi_scanning_handler(void *arg, uint32_t len)
 
 static int ctrl_event_wifi_scanned_handler(void *arg, uint32_t len)
 {
-    static char ble_config_cnt = 0;
-
     view_wifi_info_t *info = (view_wifi_info_t *)arg;
 
     if (assist_controller && assist_controller->view && assist_controller->view->ops.update_wifi_state) {
@@ -663,9 +663,9 @@ static int ctrl_event_wifi_scanned_handler(void *arg, uint32_t len)
             if (assist_controller && assist_controller->view) {
                 // 发布页面切换事件
                 change_info_page(LISAUI_USERDATA_QRCODE_INTER_CONFIGURE_NETWORK);
-                if (ble_config_cnt < 2) {
-                    ble_config_cnt++;
-                    enter_ble_config();
+                if (s_ble_config_cnt < 2) {
+                    s_ble_config_cnt++;
+                    enter_ble_config(true);
                 }     
         }
     }

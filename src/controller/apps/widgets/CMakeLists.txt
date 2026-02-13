@@ -13,7 +13,7 @@ set(WIDGETS_SOURCES
 # 字体资源文件
 if (CONFIG_LISAUI_ENV_ARCS_SDK)
     set(WIDGETS_FONTS_SOURCES
-        assets/fonts/lv_font_chinese_18.c
+        assets/fonts/lv_font_chinese_18_bin.c
         assets/png/qr/ble_qr.c
     )
 else()

@@ -13,12 +13,13 @@ CHIP = "arcs"
 
 # Update file paths or addresses here if the layout changes.
 IMAGES = [
-    {"name": "boot", "addr": "0x0", "file": "./res/boot.bin"},
-    {"name": "ap", "addr": "0x40000", "file": "./res/ap.bin"},
-    {"name": "app-config", "addr": "0xF0000", "file": "./res/app-config.json"},
-    {"name": "tone", "addr": "0x100000", "file": "./res/tone.bin"},
-    {"name": "wake_word", "addr": "0x200000", "file": "./res/wake_word.bin"},
-    {"name": "aiui", "addr": "0x600000", "file": "./build/aiui.bin"},
+    {"name": "boot",        "addr": "0x000000", "file": "./res/boot.bin"},
+    {"name": "ap",          "addr": "0x040000", "file": "./res/ap.bin"},
+    {"name": "app-config",  "addr": "0x0F0000", "file": "./res/app-config.json"},
+    {"name": "tone",        "addr": "0x100000", "file": "./res/tone.bin"},
+    {"name": "wake_word",   "addr": "0x200000", "file": "./res/wake_word.bin"},
+    {"name": "respak",      "addr": "0x400000", "file": "./res/respak.bin"},
+    {"name": "aiui",        "addr": "0x600000", "file": "./build/aiui.bin"},
 ]
 
 

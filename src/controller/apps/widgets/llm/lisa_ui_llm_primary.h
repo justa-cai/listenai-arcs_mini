@@ -81,7 +81,9 @@ struct lisa_ui_llm_primary {
     
     /* 任务栏元素 */
     lv_obj_t *wifi_icon;                                   /*!< WiFi图标 */
+    lv_obj_t *interactive_mode_icon;                       /*!< 交互模式图标 */
     lv_obj_t *status_label;                                /*!< 状态文本标签 */
+    lv_obj_t *alarm_icon;                                  /*!< 闹钟图标 */
     lv_obj_t *battery_icon;                                /*!< 电量图标 */
     
     /* 容器内容元素 */
@@ -94,7 +96,7 @@ struct lisa_ui_llm_primary {
     lv_obj_t *content_label;                               /*!< 内容文本标签 */
     
     /* 动画相关 */
-    const void **emoji_images;                             /*!< emoji 图片数组 */
+    const lv_img_dsc_t *emoji_images;                      /*!< emoji 图片数组 */
     uint32_t emoji_images_count;                           /*!< emoji 图片数量 */
     uint32_t current_emoji_frame;                          /*!< 当前动画帧 */
     uint32_t first_frame_delay;                            /*!< 第一帧延迟时间(毫秒) */
@@ -232,6 +234,63 @@ void lisa_ui_llm_primary_set_battery_img(lv_obj_t *obj, const void *img_path);
  */
 void lisa_ui_llm_primary_battery_icon_hide(lv_obj_t *obj);
 
+
+/**
+ * @brief 设置闹钟图标图片
+ *
+ * 为任务栏闹钟图标绑定要显示的图片资源。
+ *
+ * @param obj LLM UI主要组件对象指针
+ * @param img_path 指向图片资源的指针（可为打包的 PNG 资源）
+ */
+void lisa_ui_llm_primary_set_alarm_img(lv_obj_t *obj, const void *img_path);
+
+/**
+ * @brief 显示闹钟图标
+ *
+ * 将任务栏中的闹钟图标设为可见。
+ *
+ * @param obj LLM UI主要组件对象指针
+ */
+void lisa_ui_llm_primary_alarm_icon_show(lv_obj_t *obj);
+
+/**
+ * @brief 隐藏闹钟图标
+ *
+ * 将任务栏中的闹钟图标隐藏。
+ *
+ * @param obj LLM UI主要组件对象指针
+ */
+void lisa_ui_llm_primary_alarm_icon_hide(lv_obj_t *obj);
+
+/**
+ * @brief 设置交互模式图标图片
+ *
+ * 为任务栏交互模式图标绑定要显示的图片资源。
+ *
+ * @param obj LLM UI主要组件对象指针
+ * @param img_path 指向图片资源的指针（可为打包的 PNG 资源）
+ */
+void lisa_ui_llm_primary_set_interactive_mode_img(lv_obj_t *obj, const void *img_path);
+
+/**
+ * @brief 显示交互模式图标
+ *
+ * 将任务栏中的交互模式图标设为可见。
+ *
+ * @param obj LLM UI主要组件对象指针
+ */
+void lisa_ui_llm_primary_interactive_mode_icon_show(lv_obj_t *obj);
+
+/**
+ * @brief 隐藏交互模式图标
+ *
+ * 将任务栏中的交互模式图标隐藏。
+ *
+ * @param obj LLM UI主要组件对象指针
+ */
+void lisa_ui_llm_primary_interactive_mode_icon_hide(lv_obj_t *obj);
+
 /**
  * @brief 启动emoji动画
  * 
@@ -255,7 +314,7 @@ void lisa_ui_llm_primary_stop_emoji_animation(lv_obj_t *obj);
  * @param duration 动画时长(毫秒)
  * @param first_frame_delay 第一帧停留时间(毫秒)，0表示无延迟
  */
-void lisa_ui_llm_primary_set_custom_emoji_animation(lv_obj_t *obj, const void **images, uint32_t images_count, uint32_t duration, uint32_t first_frame_delay);
+void lisa_ui_llm_primary_set_custom_emoji_animation(lv_obj_t *obj, const lv_img_dsc_t *images, uint32_t images_count, uint32_t duration, uint32_t first_frame_delay);
 
 /**
  * @brief 设置emoji动画循环参数
