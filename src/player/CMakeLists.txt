@@ -5,6 +5,7 @@ listenai_library_sources(
     listen_audiomgr.c
     listen_volume.c
     music_random.c
+    music_manager.c
     play_mode.c
     short_player.c
     sound_player.c

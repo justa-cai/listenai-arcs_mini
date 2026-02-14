@@ -87,4 +87,16 @@ void recognizer_recognize_once_end(recognizer_t *handle);
 void recognizer_record_suspend(void);
 void recognizer_record_resume(void);
 
+/**
+ * @brief 	设置 TTS 结束后是否自动停止录音
+ * @param  	enable		true: 自动停止(默认), false: 保持录音
+ */
+void recognizer_set_auto_stop_record(bool enable);
+
+/**
+ * @brief 	获取 TTS 结束后是否自动停止录音的设置
+ * @return 	true: 自动停止, false: 保持录音
+ */
+bool recognizer_get_auto_stop_record(void);
+
 #endif

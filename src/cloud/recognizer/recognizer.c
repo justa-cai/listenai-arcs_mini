@@ -18,6 +18,19 @@
 
 static recognizer_t *s_recognizer = NULL;
 
+static bool g_auto_stop_record_on_tts_end = false;
+
+void recognizer_set_auto_stop_record(bool enable)
+{
+	g_auto_stop_record_on_tts_end = enable;
+	LISA_LOGI(TAG, "auto_stop_record_on_tts_end set to: %d", enable);
+}
+
+bool recognizer_get_auto_stop_record(void)
+{
+	return g_auto_stop_record_on_tts_end;
+}
+
 // AP 每次过来 16ms 数据, 过滤 52 帧
 #define LS_DROP_AUDIO_FRAME_MAX (52)
 
@@ -292,6 +305,16 @@ void recognizer_recognize_once_end(recognizer_t *handle)
 	// 终止交互, 释放焦点
 	if (handle->m_has_audio_focus) {
 		listen_audiomgr_release_channel(handle->m_audio_mgr, AIP);
+	}
+
+	if (g_auto_stop_record_on_tts_end) {
+		// 停止发送音频
+		if (handle->m_state == RECORD) {
+			handle->m_enable_audio = false;
+			lisa_aiui_stop_send(handle->m_aiui);
+		}
+		// 状态调整为 IDLE
+		handle->m_state = IDLE;
 	}
 }
 

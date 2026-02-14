@@ -13,10 +13,14 @@
 // Function to get audio player instance - implemented in proc_mgr.c
 extern audioplayer_t *get_audio_player(void);
 
+// Local music function
+extern void ls_builtin_play_random_music(void);
+
 /**
  * @brief 播放控制处理函数
  *
  * 支持的intent:
+ * - PLAY_MUSIC: 播放音乐/听歌/来首歌
  * - RESUME_PLAY: 继续播放/播放/取消暂停
  * - PAUSE: 暂停播放
  * - CHOOSE_PREVIOUS: 上一首/前一个
@@ -97,7 +101,12 @@ static mcp_result_t playback_control_handler(const mcp_context_t *ctx, mcp_respo
     }
 
     // 根据intent执行相应操作
-    if (strcmp(intent, "RESUME_PLAY") == 0) {
+    if (strcmp(intent, "PLAY_MUSIC") == 0) {
+        // 播放本地音乐
+        LISA_LOGI(TAG, "Playback control: PLAY_MUSIC");
+        ls_builtin_play_random_music();
+    }
+    else if (strcmp(intent, "RESUME_PLAY") == 0) {
         // 继续播放
         LISA_LOGI(TAG, "Playback control: RESUME_PLAY");
         if (player->resumeByVoice) {
@@ -235,7 +244,8 @@ cJSON* generate_playback_control_schema(void)
     }
     if (!cJSON_AddStringToObject(intent_prop, "type", "string") ||
         !cJSON_AddStringToObject(intent_prop, "description",
-                           "具体的指令：RESUME_PLAY（播放、继续、取消暂停等继续播放意图）、"
+                           "具体的指令：PLAY_MUSIC（播放音乐、听歌、来首歌、放首歌、随机播放等播放音乐意图）、"
+                           "RESUME_PLAY（播放、继续、取消暂停等继续播放意图）、"
                            "PAUSE（暂停、不想听了等暂停播放意图）、"
                            "CHOOSE_PREVIOUS（上一个、前一首等向上意图）、"
                            "CHOOSE_NEXT（下一个、切歌等向下意图）、"
@@ -272,12 +282,12 @@ cJSON* generate_playback_control_schema(void)
 }
 
 // 使用静态段注册宏注册播放控制工具
-MCP_REGISTER_TOOL_STATIC(playback_control,
-                          "ls.playback_control",
-                          "播放控制工具：用于控制播放器的相关功能，如\"继续播放\"、\"暂停\"、\"上一个\"、\"下一个\"、\"重播\"",
-                          "1.0",
-                          generate_playback_control_schema,
-                          1,
-                          playback_control_handler,
-                          false,
-                          NULL);
+// MCP_REGISTER_TOOL_STATIC(playback_control,
+//                           "ls.playback_control",
+//                           "播放控制工具：用于控制播放器的相关功能，如\"继续播放\"、\"暂停\"、\"上一个\"、\"下一个\"、\"重播\"",
+//                           "1.0",
+//                           generate_playback_control_schema,
+//                           1,
+//                           playback_control_handler,
+//                           false,
+//                           NULL);

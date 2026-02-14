@@ -82,6 +82,7 @@ struct lisa_ui_llm_primary {
     /* 任务栏元素 */
     lv_obj_t *wifi_icon;                                   /*!< WiFi图标 */
     lv_obj_t *interactive_mode_icon;                       /*!< 交互模式图标 */
+    lv_obj_t *music_icon;                                  /*!< 音乐播放图标 */
     lv_obj_t *status_label;                                /*!< 状态文本标签 */
     lv_obj_t *alarm_icon;                                  /*!< 闹钟图标 */
     lv_obj_t *battery_icon;                                /*!< 电量图标 */
@@ -103,6 +104,7 @@ struct lisa_ui_llm_primary {
     uint32_t frame_duration;                               /*!< 每帧时长(毫秒) */
     lv_timer_t *emoji_timer;                               /*!< emoji动画定时器 */
     bool is_first_frame_delayed;                           /*!< 是否正在第一帧延迟中 */
+    lv_timer_t *net_img_timer;                             /*!< 网络图片自动隐藏定时器 */
     
     /* 循环播放控制 */
     uint32_t loop_count;                                   /*!< 当前循环次数 */
@@ -292,6 +294,24 @@ void lisa_ui_llm_primary_interactive_mode_icon_show(lv_obj_t *obj);
 void lisa_ui_llm_primary_interactive_mode_icon_hide(lv_obj_t *obj);
 
 /**
+ * @brief 显示音乐播放图标
+ *
+ * 将任务栏中的音乐播放图标设为可见并开始动画。
+ *
+ * @param obj LLM UI主要组件对象指针
+ */
+void lisa_ui_llm_primary_music_icon_show(lv_obj_t *obj);
+
+/**
+ * @brief 隐藏音乐播放图标
+ *
+ * 将任务栏中的音乐播放图标隐藏。
+ *
+ * @param obj LLM UI主要组件对象指针
+ */
+void lisa_ui_llm_primary_music_icon_hide(lv_obj_t *obj);
+
+/**
  * @brief 启动emoji动画
  * 
  * @param obj LLM UI主要组件对象
@@ -348,6 +368,13 @@ void lisa_ui_llm_primary_show_net_image(lv_obj_t *obj, const lv_img_dsc_t *img_d
  * @param obj LLM UI主要组件对象
  */
 void lisa_ui_llm_primary_hide_camera_image(lv_obj_t *obj);
+
+/**
+ * @brief 隐藏网络图片
+ * 
+ * @param obj LLM UI主要组件对象
+ */
+void lisa_ui_llm_primary_hide_net_image(lv_obj_t *obj);
 
 /*===========================================
  * 内联函数

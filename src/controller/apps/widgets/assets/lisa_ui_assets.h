@@ -31,6 +31,7 @@ LISA_UI_ASSETS_IMG_DSC_LIST_DECLARE(img_png_happy, 21);
 LISA_UI_ASSETS_IMG_DSC_LIST_DECLARE(img_png_cute, 24);
 LISA_UI_ASSETS_IMG_DSC_LIST_DECLARE(img_png_interactive, 1);
 LISA_UI_ASSETS_IMG_DSC_LIST_DECLARE(img_png_alarm, 1);
+LISA_UI_ASSETS_IMG_DSC_LIST_DECLARE(img_png_music, 1);
 
 void lisa_ui_assets_init(void);
 

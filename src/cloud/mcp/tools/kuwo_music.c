@@ -542,12 +542,12 @@ static int kuwo_music_play_with_delay(void *user_data)
 }
 
 // 使用静态段注册宏注册酷我音乐工具
-MCP_REGISTER_TOOL_STATIC(ls_built_in_play_kuwo_music,
-                         "ls.built_in.play_kuwo_music",
-                         "播放酷我音乐",
-                         "1.0",
-                         generate_kuwo_music_schema,
-                         1,
-                         kuwo_music_handler,
-                         false,
-                         NULL);
+// MCP_REGISTER_TOOL_STATIC(ls_built_in_play_kuwo_music,
+//                          "ls.built_in.play_kuwo_music",
+//                          "播放酷我音乐",
+//                          "1.0",
+//                          generate_kuwo_music_schema,
+//                          1,
+//                          kuwo_music_handler,
+//                          false,
+//                          NULL);

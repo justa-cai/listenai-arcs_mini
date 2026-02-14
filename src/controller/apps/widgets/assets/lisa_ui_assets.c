@@ -48,6 +48,7 @@ LISA_UI_ASSETS_IMG_DSC_LIST_DEFINE(img_png_happy);
 LISA_UI_ASSETS_IMG_DSC_LIST_DEFINE(img_png_cute);
 LISA_UI_ASSETS_IMG_DSC_LIST_DEFINE(img_png_interactive);
 LISA_UI_ASSETS_IMG_DSC_LIST_DEFINE(img_png_alarm);
+LISA_UI_ASSETS_IMG_DSC_LIST_DEFINE(img_png_music);
 
 static lisa_ui_asset_item_t lisa_ui_asset_items[] = {
     LISA_UI_ASSET_ITEM(img_png_wifi, LISA_UI_ASSETS_PNG_PATH("wifi/ic_status_wifi%d.png")),
@@ -68,6 +69,7 @@ static lisa_ui_asset_item_t lisa_ui_asset_items[] = {
     LISA_UI_ASSET_ITEM(img_png_cute, LISA_UI_ASSETS_PNG_PATH("emoji/cute/frame-%06d.png")),
     LISA_UI_ASSET_ITEM(img_png_interactive, LISA_UI_ASSETS_PNG_PATH("interactive/interactive_mode_flag%d.png")),
     LISA_UI_ASSET_ITEM(img_png_alarm, LISA_UI_ASSETS_PNG_PATH("alarm/ic_status_alarm%d.png")),
+    LISA_UI_ASSET_ITEM(img_png_music, LISA_UI_ASSETS_PNG_PATH("music/ic_status_music%d.png")),
 };
 
 void lisa_ui_assets_init(void)

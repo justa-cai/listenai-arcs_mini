@@ -1,14 +1,18 @@
 #include "lisa_ui_res.h"
 #include "lisa_ui_llm_base.h"
 #include "lisa_ui_llm_primary.h"
+#include "lisa_ui_assets.h"
 #include "lisa_log.h"
 #include <string.h>
 #include "video/video_camera.h"
 
 static void emoji_timer_cb(lv_timer_t *timer);
+static void net_img_timer_cb(lv_timer_t *timer);
 static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
 // static void lisa_ui_llm_primary_class_destructor(lv_obj_t *obj);
 static void emoji_timer_cb(lv_timer_t *timer);
+
+#define NET_IMAGE_DISPLAY_TIME_MS 10000  // 网络图片显示10秒后自动隐藏
 
 // 定义继承的类结构
 const lv_obj_class_t lisa_ui_llm_primary_class = {
@@ -61,6 +65,36 @@ static void emoji_timer_cb(lv_timer_t *timer)
     }
 }
 
+static void net_img_timer_cb(lv_timer_t *timer)
+{
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)timer->user_data;
+    
+    if (!llm_primary) {
+        return;
+    }
+    
+    // 隐藏网络图片
+    if (llm_primary->net_img) {
+        lv_obj_add_flag(llm_primary->net_img, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // 显示内容标签
+    if (llm_primary->content_label) {
+        lv_obj_clear_flag(llm_primary->content_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // 隐藏图片提示文本
+    if (llm_primary->image_hint_label) {
+        lv_obj_add_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // 删除定时器
+    lv_timer_del(timer);
+    llm_primary->net_img_timer = NULL;
+    
+    LOGI("Net image auto-hidden after %d seconds", NET_IMAGE_DISPLAY_TIME_MS / 1000);
+}
+
 // 构造函数实现
 static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj)
 {
@@ -93,6 +127,9 @@ static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p,
 
     // 创建交互模式图标（紧邻 WiFi 右侧）
     llm_primary->interactive_mode_icon = lv_img_create(bar);
+
+    // 创建音乐播放图标（最右边）
+    llm_primary->music_icon = lv_img_create(bar);
 
     // 创建状态文本标签（中间）
     llm_primary->status_label = lv_label_create(bar);
@@ -137,6 +174,10 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     // 交互模式图标
     lv_obj_align(llm_primary->interactive_mode_icon, LV_ALIGN_LEFT_MID, 20, 0);
 
+    // 音乐播放图标（最右边）
+    lv_obj_align(llm_primary->music_icon, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_add_flag(llm_primary->music_icon, LV_OBJ_FLAG_HIDDEN);
+
     // 设置状态文本标签
     lv_label_set_text(llm_primary->status_label, "Ready");
     lv_obj_set_style_text_letter_space(llm_primary->status_label, 1, LV_PART_MAIN);
@@ -147,10 +188,10 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_align(llm_primary->status_label, LV_ALIGN_CENTER, 0, 0);
 
     // 设置闹钟图标
-    lv_obj_align(llm_primary->alarm_icon, LV_ALIGN_RIGHT_MID, -30, 0);
+    lv_obj_align(llm_primary->alarm_icon, LV_ALIGN_RIGHT_MID, -50, 0);
 
     // 设置电量图标
-    lv_obj_align(llm_primary->battery_icon, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(llm_primary->battery_icon, LV_ALIGN_RIGHT_MID, -25, 0);
 
     // 设置emoji动画容器
     lv_obj_set_style_bg_opa(llm_primary->emoji_container, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -245,6 +286,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     llm_primary->frame_duration = 100;  // 默认每帧100ms
     llm_primary->emoji_timer = NULL;
     llm_primary->is_first_frame_delayed = false;
+    llm_primary->net_img_timer = NULL;  // 网络图片定时器初始化
     
     // 初始化循环控制变量
     llm_primary->loop_count = 0;
@@ -498,6 +540,40 @@ void lisa_ui_llm_primary_interactive_mode_icon_hide(lv_obj_t *obj)
     }
 }
 
+void lisa_ui_llm_primary_music_icon_show(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+
+    if (!llm_primary->music_icon) {
+        return;
+    }
+
+    lv_img_set_src(llm_primary->music_icon, &LISA_UI_ASSETS_IMG_DSC(img_png_music)[0]);
+    lv_obj_clear_flag(llm_primary->music_icon, LV_OBJ_FLAG_HIDDEN);
+    LOGI("music icon show");
+}
+
+void lisa_ui_llm_primary_music_icon_hide(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+
+    if (!llm_primary->music_icon) {
+        return;
+    }
+
+    bool is_hidden = lv_obj_has_flag(llm_primary->music_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->music_icon, LV_OBJ_FLAG_HIDDEN);
+    if (!is_hidden) {
+        LOGI("music icon hidden");
+    }
+}
+
 void lisa_ui_llm_primary_start_emoji_animation(lv_obj_t *obj)
 {
     if (!lisa_ui_llm_primary_is_valid(obj)) {
@@ -660,9 +736,18 @@ void lisa_ui_llm_primary_show_net_image(lv_obj_t *obj, const lv_img_dsc_t *img_d
         return;
     }
 
+    // 停止之前的定时器（如果存在）
+    if (llm_primary->net_img_timer) {
+        lv_timer_del(llm_primary->net_img_timer);
+        llm_primary->net_img_timer = NULL;
+    }
+
     lv_img_set_src(llm_primary->net_img, img_dsc);
     lv_obj_set_style_bg_img_tiled(llm_primary->net_img, false, 0);
-    lv_obj_align(llm_primary->net_img, LV_ALIGN_CENTER, 0, 15);
+    
+    // 全屏显示图片
+    lv_obj_set_size(llm_primary->net_img, LV_PCT(100), LV_PCT(100));
+    lv_obj_center(llm_primary->net_img);
     lv_obj_move_foreground(llm_primary->net_img);
 
     // 确保拍照图片被隐藏，避免属性互相影响
@@ -672,13 +757,20 @@ void lisa_ui_llm_primary_show_net_image(lv_obj_t *obj, const lv_img_dsc_t *img_d
     lv_obj_clear_flag(llm_primary->net_img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(llm_primary->content_label, LV_OBJ_FLAG_HIDDEN);
     
-    // 显示图片提示文本
+    // 隐藏图片提示文本
     if (llm_primary->image_hint_label) {
-        lv_obj_clear_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(llm_primary->image_hint_label);
+        lv_obj_add_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_HIDDEN);
     }
 
-        lv_obj_invalidate(llm_primary->net_img);
+    lv_obj_invalidate(llm_primary->net_img);
+
+    // 启动10秒后自动隐藏的定时器
+    llm_primary->net_img_timer = lv_timer_create(net_img_timer_cb, NET_IMAGE_DISPLAY_TIME_MS, llm_primary);
+    if (!llm_primary->net_img_timer) {
+        LOGE("Failed to create net_img_timer");
+    } else {
+        LOGI("Net image auto-hide timer started: %d seconds", NET_IMAGE_DISPLAY_TIME_MS / 1000);
+    }
 
     LOGI("Net image displayed: data_size=%u, w=%d, h=%d, obj=%p",
          img_dsc->data_size,
@@ -694,6 +786,13 @@ void lisa_ui_llm_primary_hide_camera_image(lv_obj_t *obj)
     }
     
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    
+    // 停止网络图片定时器
+    if (llm_primary->net_img_timer) {
+        lv_timer_del(llm_primary->net_img_timer);
+        llm_primary->net_img_timer = NULL;
+    }
+    
     // 隐藏两类图片
     if (llm_primary->camera_img) {
         lv_obj_add_flag(llm_primary->camera_img, LV_OBJ_FLAG_HIDDEN);
@@ -709,4 +808,34 @@ void lisa_ui_llm_primary_hide_camera_image(lv_obj_t *obj)
     }
     
     LOGI("Camera image hidden");
+}
+
+void lisa_ui_llm_primary_hide_net_image(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+    
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    
+    // 停止网络图片定时器
+    if (llm_primary->net_img_timer) {
+        lv_timer_del(llm_primary->net_img_timer);
+        llm_primary->net_img_timer = NULL;
+    }
+    
+    // 隐藏网络图片
+    if (llm_primary->net_img) {
+        lv_obj_add_flag(llm_primary->net_img, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    // 显示内容标签
+    lv_obj_clear_flag(llm_primary->content_label, LV_OBJ_FLAG_HIDDEN);
+    
+    // 隐藏图片提示文本
+    if (llm_primary->image_hint_label) {
+        lv_obj_add_flag(llm_primary->image_hint_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    
+    LOGI("Net image hidden");
 }

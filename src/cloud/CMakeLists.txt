@@ -12,6 +12,7 @@ listenai_library_sources(
     # MCP components
     mcp/aiui_mcp.c
     mcp/mcp_integration.c
+    mcp/text2img_config.c
     mcp/vision_config.c
     
     # MCP tools
@@ -22,6 +23,7 @@ listenai_library_sources(
     mcp/tools/exit_skill.c
     mcp/tools/kuwo_music.c
     mcp/tools/led_control.c
+    mcp/tools/local_music.c
     mcp/tools/model_config_control.c
     mcp/tools/photo_recognition.c
     mcp/tools/play_control.c
@@ -29,6 +31,7 @@ listenai_library_sources(
     mcp/tools/show_loading.c
     mcp/tools/show_qrcode.c
     mcp/tools/switch_full_duplex.c
+    mcp/tools/text2img_kolors.c
     mcp/tools/version_info.c
     mcp/tools/volume_control.c
     

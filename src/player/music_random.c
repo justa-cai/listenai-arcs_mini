@@ -2,7 +2,7 @@
  * @brief 随机播放音乐功能
  *
  * 功能：从在线音乐服务器随机选择一首歌进行播放
- * API: http://192.168.1.169:9100/api/list
+ * API: http://192.168.31.205:9101/api/list
  *
  * 触发方式：单击电源键调用 ls_builtin_play_random_music()
  */
@@ -21,6 +21,7 @@
 #include "lisa_http.h"
 #include "lisa_time.h"
 #include "evs_utils.h"
+#include "music_manager.h"
 
 #define TAG "music_random"
 
@@ -210,7 +211,7 @@ static int get_random_music_from_server(audio_out_t *audio_out)
 
     LISA_LOGI(TAG, ">> Song ID extracted: %d", song_id);
 
-    // 构造下载URL: http://192.168.1.169:9100/api/download/{id}
+    // 构造下载URL: http://192.168.31.205:9101/api/download/{id}
     snprintf(audio_out->m_url, AUIDO_OUT_URL_LEN, MUSIC_API_DOWNLOAD_PATTERN,
              MUSIC_SERVER_BASE_URL, song_id);
     audio_out->m_url[AUIDO_OUT_URL_LEN - 1] = '\0';
@@ -337,67 +338,8 @@ static int play_random_music_with_delay(void *user_data)
  */
 __attribute__((used)) int play_random_music(void)
 {
-    // 获取音频播放器实例
-    audioplayer_t *player = get_audio_player();
-    if (!player) {
-        LISA_LOGE(TAG, "Failed to get audio player instance");
-        return -1;
-    }
-
-    // 从服务器获取随机音乐 - 分配2个元素数组，确保内存对齐
-    audio_out_t *audios = (audio_out_t *)lisa_mem_calloc(2, sizeof(audio_out_t));
-    if (!audios) {
-        LISA_LOGE(TAG, "Failed to allocate audio_out_t array");
-        return -1;
-    }
-
-    if (get_random_music_from_server(&audios[0]) != 0) {
-        LISA_LOGE(TAG, "Failed to get random music from server");
-        lisa_mem_free(audios);
-        return -1;
-    }
-
-    int valid_count = 1;
-
-    // 检查TTS是否正在播放，如果是则延迟播放音乐
-    tts_player_t *tts_player = get_tts_player();
-    if (tts_player && ((tts_player->m_play_state == APP_PLAYER_PREPARING) ||
-                       (tts_player->m_play_state == PLAYER_EVT_PLAYING) ||
-                       (tts_player->m_play_state == PLAYER_EVT_PREPARED))) {
-        LISA_LOGI(TAG, "TTS is playing (state=%d), delaying music playback to avoid interruption",
-                  tts_player->m_play_state);
-
-        // 创建延迟播放的上下文
-        random_play_context_t *ctx = (random_play_context_t *)lisa_mem_calloc(1, sizeof(random_play_context_t));
-        if (ctx) {
-            ctx->audios = audios;
-            ctx->valid_count = valid_count;
-            ctx->retry_count = 0;
-            // 延迟200ms后重新尝试播放
-            evs_handler_post_runnable_delay(play_random_music_with_delay, ctx, 200);
-            return 0;
-        } else {
-            LISA_LOGE(TAG, "Failed to allocate context for delayed playback");
-            // 内存分配失败，直接播放
-            if (player->on_directive) {
-                player->on_directive(player, AUDIO_PLAY, audios, valid_count);
-                return 0;
-            }
-        }
-    } else {
-        // TTS未播放，直接播放音乐
-        if (player->on_directive) {
-            player->on_directive(player, AUDIO_PLAY, audios, valid_count);
-            LISA_LOGI(TAG, "Random music playback started: %s", audios[0].m_name);
-            return 0;
-        } else {
-            LISA_LOGE(TAG, "on_directive function not available");
-            lisa_mem_free(audios);
-            return -1;
-        }
-    }
-
-    return -1;
+    LISA_LOGI(TAG, "Random music playback triggered via music manager");
+    return music_manager_fetch_and_play_random(NULL, 0);
 }
 
 /**
@@ -410,6 +352,30 @@ static int play_random_music_callback(void *user_data)
 {
     (void)user_data;  // 未使用
     return play_random_music();
+}
+
+/**
+ * @brief 随机播放音乐并返回歌曲信息 - 同步版本
+ *
+ * @param song_name 输出参数，存储歌曲名称
+ * @param name_len song_name 缓冲区大小
+ * @return 0=成功, <0=失败
+ */
+__attribute__((used)) int ls_builtin_play_random_music_sync(char *song_name, int name_len)
+{
+    if (!song_name || name_len <= 0) {
+        return -1;
+    }
+
+    LISA_LOGI(TAG, "Random music playback (sync version with music manager)");
+
+    int ret = music_manager_fetch_and_play_random(song_name, name_len);
+    
+    if (ret == 0) {
+        LISA_LOGI(TAG, "Random music playback started via music manager: %s", song_name);
+    }
+
+    return ret;
 }
 
 /**

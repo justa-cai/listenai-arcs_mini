@@ -862,7 +862,7 @@ int lisa_aiui_start_frame_send(lisa_aiui_t *handle, cJSON *root, uint32_t type)
 	}
 
     err = lisa_aiui_start_frame_send_txt(handle, txt);
-	LISA_LOGI(TAG, "img start: %s", txt);
+    LISA_LOGI(TAG, ">>> Send to cloud: %s", txt);
     cJSON_free(txt);
 
     if (err) {

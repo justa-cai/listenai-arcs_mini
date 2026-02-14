@@ -44,7 +44,7 @@ static bool is_valid_image_url(const char* url)
     }
     
     size_t url_len = strlen(url);
-    if (url_len < 10 || url_len > 1024) {
+    if (url_len < 10 || url_len > 2048) {
         LOGE("URL length invalid: %zu", url_len);
         return false;
     }

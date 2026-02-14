@@ -3,6 +3,7 @@
 #include "mcp_integration.h"
 #include "aiui_mcp.h"
 #include "vision_config.h"
+#include "text2img_config.h"
 #include "lisa_log.h"
 #include "lisa_mem.h"
 #include "lisa_mutex.h"
@@ -59,7 +60,10 @@ mcp_result_t mcp_integration_init(const mcp_integration_config_t *config)
     
     // 初始化 vision config
     vision_config_init();
-    
+
+    // 初始化 text2img config (SiliconFlow API key)
+    text2img_config_init();
+
     // 初始化 MCP 框架
     mcp_result_t result = mcp_init();
     if (result != MCP_RESULT_SUCCESS) {

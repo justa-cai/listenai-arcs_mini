@@ -22,6 +22,7 @@
 #include "play_mode.h"
 #include "listen_volume.h"
 #include "tone.h"
+#include "music_manager.h"
 #ifdef LISTEN_CLOUD
 #include "app_cloud.h"
 #endif
@@ -298,6 +299,7 @@ app_client_t *app_client_create()
 		// 播放器模块初始化
 		app_player_init();
 		listen_volume_init();
+		music_manager_init();
 		
 		handle->audio_mgr = listen_audiomgr_create();
 		handle->play_mode = listen_play_mode_create();

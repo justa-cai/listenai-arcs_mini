@@ -773,7 +773,7 @@ static const char *make_wake_hint_text(const char *base_text, const char *wake_w
     }
 
     if (!wake_word || strlen(wake_word) == 0) {
-        wake_word = "小聆小聆";
+        wake_word = "你好星宝";
     }
 
     const char *placeholder = "#唤醒词#";
@@ -1748,6 +1748,14 @@ static int event_inter_state_handler(ebus_chn_t *chn, uint32_t code, void *messa
         update_loading_state(view);
         break;
 
+    case LISAUI_EBUS_CH_EVENT_M2U_MUSIC_PLAY_START:
+        lisa_ui_llm_primary_music_icon_show(view->inter);
+        break;
+
+    case LISAUI_EBUS_CH_EVENT_M2U_MUSIC_PLAY_STOP:
+        lisa_ui_llm_primary_music_icon_hide(view->inter);
+        break;
+
     default:
         LISAUI_LOGW(TAG, "Unknown event code: %d", code);
         break;
@@ -1879,6 +1887,18 @@ static lisaui_page_t *create(lisaui_page_t *page)
         ebus_message_subscribe( view->ebus_ch_base_event, 
                 EBUS_SUBSCRIBER_TYPE_SYNC, 
                 LISAUI_EBUS_CH_EVENT_M2U_SHOW_LOADING,
+                event_inter_state_handler, 
+                view);
+
+        ebus_message_subscribe( view->ebus_ch_base_event, 
+                EBUS_SUBSCRIBER_TYPE_SYNC, 
+                LISAUI_EBUS_CH_EVENT_M2U_MUSIC_PLAY_START,
+                event_inter_state_handler, 
+                view);
+
+        ebus_message_subscribe( view->ebus_ch_base_event, 
+                EBUS_SUBSCRIBER_TYPE_SYNC, 
+                LISAUI_EBUS_CH_EVENT_M2U_MUSIC_PLAY_STOP,
                 event_inter_state_handler, 
                 view);
     }
