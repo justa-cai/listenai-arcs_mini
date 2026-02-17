@@ -196,10 +196,16 @@ lwip_tcp_conn_report(lwiperf_state_tcp_t *conn, enum lwiperf_report_type report_
     } else {
       bandwidth_kbitpsec = (conn->bytes_transferred / duration_ms) * 8U;
     }
-    conn->report_fn(conn->report_arg, report_type,
-                    &conn->conn_pcb->local_ip, conn->conn_pcb->local_port,
-                    &conn->conn_pcb->remote_ip, conn->conn_pcb->remote_port,
-                    conn->bytes_transferred, duration_ms, bandwidth_kbitpsec);
+    if (conn->conn_pcb != NULL) {
+      conn->report_fn(conn->report_arg, report_type,
+                      &conn->conn_pcb->local_ip, conn->conn_pcb->local_port,
+                      &conn->conn_pcb->remote_ip, conn->conn_pcb->remote_port,
+                      conn->bytes_transferred, duration_ms, bandwidth_kbitpsec);
+    } else {
+      conn->report_fn(conn->report_arg, report_type,
+                      NULL, 0, NULL, 0,
+                      conn->bytes_transferred, duration_ms, bandwidth_kbitpsec);
+    }
   }
 }
 

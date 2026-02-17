@@ -9,4 +9,6 @@ listenai_library_sources(
     heap.c
     id_cmd.c
     fs.c
+    ping.c
+    iperf.c
 )
