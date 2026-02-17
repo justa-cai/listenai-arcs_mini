@@ -229,6 +229,21 @@ void enter_ble_config(bool play_audio)
     }
 }
 
+static void play_random_music_task(void *arg)
+{
+    LISA_LOGI(TAG, "play_random_music_task started");
+    
+    char song_name[128] = {0};
+    int ret = music_manager_fetch_and_play_random(song_name, sizeof(song_name));
+    if (ret != 0) {
+        LISA_LOGE(TAG, "Failed to play random music");
+    } else {
+        LISA_LOGI(TAG, "Playing random music: %s", song_name);
+    }
+    
+    vTaskDelete(NULL);
+}
+
 #if (CONFIG_FLEXIBLE_BUTTON)
 static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t *info)
 {
@@ -241,35 +256,23 @@ static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t
 
     switch (event) {
     case LISA_BTN_PRESS_CLICK:
-        /* 单击: 非主页则先回到主页，否则执行唤醒/关闭唤醒 */
-        if (!is_primary_page_active()) {
-            /* 检查当前页面激活状态，避免与定时器回调竞争 */
-            LISA_LOGI(TAG, "Single click: not on home page, navigating home");
-            
-            lisaui_manager_group_enter(LISAUI_GROUP_INDEX_LAUNCHER,
-                                       GROUP_ENTER_PAGE_METHOD_FIX_PAGE_INDEX,
-                                       LISAUI_GROUP_LAUNCHER_PAGE_INDEX_PRIMARY,
-                                       0);
-        } else {
-            /* 已在主页，执行唤醒/关闭唤醒功能 */
-            LISA_LOGI(TAG, "Single click: on home page, triggering wakeup/idle");
-            if (get_audio_listen_status()) {
-                /* 设备处于仅聆听的时候，单击回到待唤醒状态 */
-                extern void app_btn_idle(void);
-                app_btn_idle();
-            } else {
-                extern void app_btn_wakeup(void);
-                app_btn_wakeup();
-            }
-        }
+        /* 单击: 播放随机音乐 */
+        LISA_LOGI(TAG, "Single click: playing random music");
+        
+        lisa_thread_attr_t attr = {
+            .name = "rand_music",
+            .stack_size = 4096,
+            .priority = LISA_OS_PRIORITY_NORMAL
+        };
+        lisa_thread_create(&attr, play_random_music_task, NULL);
+        
         alarm_ring_stop();
         break;
 
     case LISA_BTN_PRESS_DOUBLE_CLICK:
-        /* 双击: 拍照识图 */
-        LISA_LOGI(TAG, "power button double click, enter image recognition");
-        extern int photo_recognition_trigger(void);
-        photo_recognition_trigger();
+        /* 双击: 停止音乐播放 */
+        LISA_LOGI(TAG, "power button double click, stop music playback");
+        audio_player_stop_by_user();
         break;
 
     case LISA_BTN_PRESS_TRIPLE_CLICK:

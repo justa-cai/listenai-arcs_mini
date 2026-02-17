@@ -2,7 +2,7 @@
  * @brief 随机播放音乐功能
  *
  * 功能：从在线音乐服务器随机选择一首歌进行播放
- * API: http://192.168.31.205:9101/api/list
+ * API: http://192.168.1.169:9100/api/list
  *
  * 触发方式：单击电源键调用 ls_builtin_play_random_music()
  */
@@ -30,7 +30,7 @@ extern audioplayer_t *get_audio_player(void);
 extern tts_player_t *get_tts_player(void);
 
 // 音乐服务器地址
-#define MUSIC_SERVER_BASE_URL "http://192.168.31.205:9101"
+#define MUSIC_SERVER_BASE_URL "http://192.168.1.169:9100"
 #define MUSIC_API_RANDOM "/api/random"  // 获取随机歌曲（返回ID）
 #define MUSIC_API_DOWNLOAD_PATTERN "%s/api/download/%d"  // 下载URL模板
 #define MUSIC_API_TIMEOUT_MS (10000)  // 10秒超时
@@ -211,7 +211,7 @@ static int get_random_music_from_server(audio_out_t *audio_out)
 
     LISA_LOGI(TAG, ">> Song ID extracted: %d", song_id);
 
-    // 构造下载URL: http://192.168.31.205:9101/api/download/{id}
+    // 构造下载URL: http://192.168.1.169:9100/api/download/{id}
     snprintf(audio_out->m_url, AUIDO_OUT_URL_LEN, MUSIC_API_DOWNLOAD_PATTERN,
              MUSIC_SERVER_BASE_URL, song_id);
     audio_out->m_url[AUIDO_OUT_URL_LEN - 1] = '\0';

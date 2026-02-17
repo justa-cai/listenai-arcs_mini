@@ -4,7 +4,7 @@
 
 | 项目 | 说明 |
 |------|------|
-| 服务地址 | `http://192.168.31.205:9101` | 音乐服务 + 图片生成服务 |
+| 服务地址 | `http://192.168.1.169:9100` | 音乐服务 + 图片生成服务 |
 | 协议 | HTTP |
 | 编码 | UTF-8 |
 | 数据格式 | JSON |
@@ -27,7 +27,7 @@
 
 ```bash
 # 获取所有 MP3 列表（包括子目录）
-curl "http://192.168.31.205:9101/api/list"
+curl "http://192.168.1.169:9100/api/list"
 ```
 
 **响应示例：**
@@ -68,13 +68,13 @@ curl "http://192.168.31.205:9101/api/list"
 
 ```bash
 # 搜索包含 "DJ" 的歌曲
-curl "http://192.168.31.205:9101/api/search?q=DJ"
+curl "http://192.168.1.169:9100/api/search?q=DJ"
 
 # 搜索 "爱情" 相关歌曲
-curl "http://192.168.31.205:9101/api/search?q=爱情"
+curl "http://192.168.1.169:9100/api/search?q=爱情"
 
 # 搜索 "周深" 的歌曲
-curl "http://192.168.31.205:9101/api/search?q=周深"
+curl "http://192.168.1.169:9100/api/search?q=周深"
 ```
 
 **响应示例：**
@@ -119,10 +119,10 @@ curl "http://192.168.31.205:9101/api/search?q=周深"
 
 ```bash
 # 下载 ID 为 1 的歌曲
-curl "http://192.168.31.205:9101/api/download/1" -o song.mp3
+curl "http://192.168.1.169:9100/api/download/1" -o song.mp3
 
 # 下载 ID 为 5 的歌曲
-curl "http://192.168.31.205:9101/api/download/5" -o song05.mp3
+curl "http://192.168.1.169:9100/api/download/5" -o song05.mp3
 ```
 
 **响应：** 返回 MP3 文件流（Content-Type: audio/mpeg）
@@ -148,10 +148,10 @@ HTTP/1.0 404 Not Found
 
 ```bash
 # 下载 ID 为 1 的歌曲
-curl "http://192.168.31.205:9101/api/download/1" -o song.mp3
+curl "http://192.168.1.169:9100/api/download/1" -o song.mp3
 
 # 下载 ID 为 5 的歌曲
-curl "http://192.168.31.205:9101/api/download/5" -o song05.mp3"
+curl "http://192.168.1.169:9100/api/download/5" -o song05.mp3"
 ```
 
 **响应：** 返回 MP3 文件流（Content-Type: audio/mpeg）
@@ -174,13 +174,13 @@ curl "http://192.168.31.205:9101/api/download/5" -o song05.mp3"
 
 ```bash
 # 获取随机歌曲（全局随机）
-curl "http://192.168.31.205:9101/api/random"
+curl "http://192.168.1.169:9100/api/random"
 
 # 从包含 "DJ" 的歌曲中随机选择一首
-curl "http://192.168.31.205:9101/api/random?q=DJ"
+curl "http://192.168.1.169:9100/api/random?q=DJ"
 
 # 从包含 "爱情" 的歌曲中随机选择一首
-curl "http://192.168.31.205:9101/api/random?q=爱情"
+curl "http://192.168.1.169:9100/api/random?q=爱情"
 ```
 
 **响应示例：**
@@ -250,7 +250,7 @@ curl "http://192.168.31.205:9101/api/random?q=爱情"
 ```python
 import requests
 
-BASE_URL = "http://192.168.31.205:9101"
+BASE_URL = "http://192.168.1.169:9100"
 
 # 获取所有音乐列表
 response = requests.get(f"{BASE_URL}/api/list")
@@ -279,7 +279,7 @@ if songs:
 ### JavaScript/Fetch 示例
 
 ```javascript
-const BASE_URL = "http://192.168.31.205:9101";
+const BASE_URL = "http://192.168.1.169:9100";
 
 // 获取所有音乐列表
 async function getSongs() {
@@ -327,7 +327,7 @@ void download_song(int song_id) {
     char url[256];
     char filename[] = "song.mp3";
 
-    snprintf(url, sizeof(url), "http://192.168.31.205:9101/api/download/%d", song_id);
+    snprintf(url, sizeof(url), "http://192.168.1.169:9100/api/download/%d", song_id);
 
     curl = curl_easy_init();
     curl_easy_setopt(curl, CURLOPT_URL, url);
@@ -449,7 +449,7 @@ Content-Length: 28
 **请求示例：**
 
 ```bash
-curl -X POST "http://192.168.31.205:9101/api/image/generate" \
+curl -X POST "http://192.168.1.169:9100/api/image/generate" \
   -H "Content-Type: application/json" \
   -d '{
     "prompt": "a beautiful sunset over the ocean, with seagulls flying",
@@ -466,7 +466,7 @@ curl -X POST "http://192.168.31.205:9101/api/image/generate" \
   "success": true,
   "images": [
     {
-      "url": "http://192.168.31.205:9101/api/image/get/img_12345_0_1739500000.png",
+      "url": "http://192.168.1.169:9100/api/image/get/img_12345_0_1739500000.png",
       "filename": "img_12345_0_1739500000.png",
       "index": 0,
       "size": 1024576
@@ -500,7 +500,7 @@ curl -X POST "http://192.168.31.205:9101/api/image/generate" \
 
 **图片缓存机制：**
 - 生成的图片自动下载并缓存到服务器本地
-- 返回的 URL 为内部地址，格式：`http://192.168.31.205:9101/api/image/get/{filename}`
+- 返回的 URL 为内部地址，格式：`http://192.168.1.169:9100/api/image/get/{filename}`
 - 图片缓存有效期：7 天
 - 适合内网环境，无需访问外网
 
@@ -515,7 +515,7 @@ curl -X POST "http://192.168.31.205:9101/api/image/generate" \
 **请求示例：**
 
 ```bash
-curl "http://192.168.31.205:9101/api/image/get/img_12345_0_1739500000.png"
+curl "http://192.168.1.169:9100/api/image/get/img_12345_0_1739500000.png"
 ```
 
 **响应：** 返回图片文件流（Content-Type: image/png）
@@ -548,7 +548,7 @@ HTTP/1.0 404 Not Found
 import requests
 import urllib.request
 
-BASE_URL = "http://192.168.31.205:9101"
+BASE_URL = "http://192.168.1.169:9100"
 
 # 生成图片
 response = requests.post(
@@ -585,7 +585,7 @@ else:
 ### JavaScript/Fetch 示例
 
 ```javascript
-const BASE_URL = "http://192.168.31.205:9101";
+const BASE_URL = "http://192.168.1.169:9100";
 
 // 生成图片
 async function generateImage() {
@@ -658,7 +658,7 @@ generateImage();
 
 1. **图片缓存机制**：
    - 生成的图片自动下载并缓存到服务器本地（`/cache/images/` 目录）
-   - 返回内部地址，格式：`http://192.168.31.205:9101/api/image/get/{filename}`
+   - 返回内部地址，格式：`http://192.168.1.169:9100/api/image/get/{filename}`
    - 图片缓存有效期：7 天
    - 适合内网环境，无需访问外网
 2. **并发限制**：建议控制并发请求数量，避免触发限流

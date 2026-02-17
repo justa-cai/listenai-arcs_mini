@@ -3,7 +3,7 @@
 
 #define TAG "text2img_config"
 
-#define TEXT2IMG_DEFAULT_BASE_URL "http://192.168.31.205:9101"
+#define TEXT2IMG_DEFAULT_BASE_URL "http://192.168.1.169:9100"
 
 void text2img_config_init(void)
 {

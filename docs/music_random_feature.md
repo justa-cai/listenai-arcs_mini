@@ -2,7 +2,7 @@
 
 ## 功能概述
 
-从在线音乐服务器 (http://192.168.31.205:9101) 随机选择一首歌曲进行播放。
+从在线音乐服务器 (http://192.168.1.169:9100) 随机选择一首歌曲进行播放。
 
 ## 实现文件
 
@@ -30,7 +30,7 @@
 │  get_random_music_from_server()                               │
 │  ┌─────────────────────────────────────────────────────────┐    │
 │  │  1. 构造请求URL:                                │    │
-│  │     http://192.168.31.205:9101/api/list        │    │
+│  │     http://192.168.1.169:9100/api/list        │    │
 │  │                                                         │    │
 │  │  2. 初始化HTTP请求:                             │    │
 │  │     lisa_http_init(LISA_HTTP_GET, url)             │    │
@@ -71,7 +71,7 @@
 ### 请求获取音乐列表
 
 ```http
-GET http://192.168.31.205:9101/api/list
+GET http://192.168.1.169:9100/api/list
 ```
 
 ### 响应
@@ -83,7 +83,7 @@ GET http://192.168.31.205:9101/api/list
     {
       "name": "001.马健涛-搀扶_DJ伟然版.mp3",
       "size": 1112213,
-      "url": "http://192.168.31.205:9101/001.马健涛-搀扶_DJ伟然版.mp3"
+      "url": "http://192.168.1.169:9100/001.马健涛-搀扶_DJ伟然版.mp3"
     },
     ...
   ]
@@ -104,7 +104,7 @@ GET http://192.168.31.205:9101/api/list
 ### 关键配置
 
 ```c
-#define MUSIC_SERVER_BASE_URL "http://192.168.31.205:9101"
+#define MUSIC_SERVER_BASE_URL "http://192.168.1.169:9100"
 #define MUSIC_API_LIST "/api/list"
 #define MUSIC_API_TIMEOUT_MS (10000)  // 10秒
 #define HTTP_RESPONSE_BUFFER_SIZE (4096)

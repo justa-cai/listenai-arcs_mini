@@ -17,7 +17,7 @@
 #include "assistant_controller.h"
 #include "audio/app_player.h"
 
-#define MUSIC_SERVER_BASE_URL "http://192.168.31.205:9101"
+#define MUSIC_SERVER_BASE_URL "http://192.168.1.169:9100"
 #define MUSIC_API_SEARCH "/api/search"
 #define MUSIC_API_RANDOM "/api/random"
 #define MUSIC_API_RANDOM "/api/random"
