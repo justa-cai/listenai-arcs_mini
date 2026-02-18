@@ -16,6 +16,7 @@
 #include "listen_audiomgr.h"
 #include "assistant_controller.h"
 #include "audio/app_player.h"
+#include "display/lv_img_net_loader.h"
 
 #define MUSIC_SERVER_BASE_URL "http://192.168.1.169:9100"
 #define MUSIC_API_SEARCH "/api/search"
@@ -191,6 +192,29 @@ static int get_random_music_from_server(audio_out_t *audio_out)
     } else {
         strncpy(audio_out->m_name, "Random Music", AUIDO_OUT_NAME_LEN - 1);
         audio_out->m_name[AUIDO_OUT_NAME_LEN - 1] = '\0';
+    }
+
+    cJSON *image_item = cJSON_GetObjectItem(root, "image");
+    if (image_item && cJSON_IsString(image_item)) {
+        const char *image_str = cJSON_GetStringValue(image_item);
+        if (image_str) {
+            strncpy(audio_out->m_image_url, image_str, AUIDO_OUT_IMAGE_URL_LEN - 1);
+            audio_out->m_image_url[AUIDO_OUT_IMAGE_URL_LEN - 1] = '\0';
+
+            LISA_LOGI(TAG, "Loading music cover image synchronously: %s", image_str);
+            audio_out->m_image_dsc = lv_img_net_load(image_str);
+            if (audio_out->m_image_dsc) {
+                LISA_LOGI(TAG, "Music cover image loaded successfully");
+            } else {
+                LISA_LOGE(TAG, "Failed to load music cover image: %s", image_str);
+            }
+        } else {
+            audio_out->m_image_url[0] = '\0';
+            audio_out->m_image_dsc = NULL;
+        }
+    } else {
+        audio_out->m_image_url[0] = '\0';
+        audio_out->m_image_dsc = NULL;
     }
 
     audio_out->mid[0] = '\0';
@@ -375,6 +399,29 @@ static int _search_by_keyword(const char *keyword, audio_out_t *audio_out)
     } else {
         strncpy(audio_out->m_name, "Random Music", AUIDO_OUT_NAME_LEN - 1);
         audio_out->m_name[AUIDO_OUT_NAME_LEN - 1] = '\0';
+    }
+
+    cJSON *image_item = cJSON_GetObjectItem(file, "image");
+    if (image_item && cJSON_IsString(image_item)) {
+        const char *image_str = cJSON_GetStringValue(image_item);
+        if (image_str) {
+            strncpy(audio_out->m_image_url, image_str, AUIDO_OUT_IMAGE_URL_LEN - 1);
+            audio_out->m_image_url[AUIDO_OUT_IMAGE_URL_LEN - 1] = '\0';
+
+            LISA_LOGI(TAG, "Loading music cover image synchronously: %s", image_str);
+            audio_out->m_image_dsc = lv_img_net_load(image_str);
+            if (audio_out->m_image_dsc) {
+                LISA_LOGI(TAG, "Music cover image loaded successfully");
+            } else {
+                LISA_LOGE(TAG, "Failed to load music cover image: %s", image_str);
+            }
+        } else {
+            audio_out->m_image_url[0] = '\0';
+            audio_out->m_image_dsc = NULL;
+        }
+    } else {
+        audio_out->m_image_url[0] = '\0';
+        audio_out->m_image_dsc = NULL;
     }
 
     audio_out->mid[0] = '\0';

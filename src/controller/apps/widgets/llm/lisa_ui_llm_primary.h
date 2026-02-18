@@ -93,6 +93,7 @@ struct lisa_ui_llm_primary {
     lv_obj_t *camera_img;                                  /*!< 拍照图片显示（覆盖在emoji上层） */
     lv_obj_t *net_img;                                     /*!< 网络图片显示（与拍照图片分离，避免属性互相影响） */
     lv_obj_t *image_hint_label;                            /*!< 图片提示文本标签 */
+    lv_obj_t *music_title_label;                           /*!< 音乐标题标签（显示在图片上方） */
     lv_obj_t *content_container;                           /*!< 内容文本容器 */
     lv_obj_t *content_label;                               /*!< 内容文本标签 */
     
@@ -359,8 +360,18 @@ void lisa_ui_llm_primary_show_camera_image(lv_obj_t *obj, const uint16_t *rgb565
  *
  * @param obj LLM UI主要组件对象
  * @param img_dsc 指向 lv_img_dsc_t 的图片描述符
+ * @param auto_hide 是否自动隐藏图片（音乐模式为false）
  */
-void lisa_ui_llm_primary_show_net_image(lv_obj_t *obj, const lv_img_dsc_t *img_dsc);
+void lisa_ui_llm_primary_show_net_image(lv_obj_t *obj, const lv_img_dsc_t *img_dsc, bool auto_hide);
+
+/**
+ * @brief 显示网络图片到表情容器并显示音乐标题
+ *
+ * @param obj LLM UI主要组件对象
+ * @param img_dsc 指向 lv_img_dsc_t 的图片描述符
+ * @param title 歌曲标题
+ */
+void lisa_ui_llm_primary_show_music_cover(lv_obj_t *obj, const lv_img_dsc_t *img_dsc, const char *title);
 
 /**
  * @brief 隐藏拍照图片

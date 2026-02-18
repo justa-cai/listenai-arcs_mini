@@ -22,6 +22,7 @@
 #include "lisa_time.h"
 #include "evs_utils.h"
 #include "music_manager.h"
+#include "display/lv_img_net_loader.h"
 
 #define TAG "music_random"
 
@@ -241,6 +242,34 @@ static int get_random_music_from_server(audio_out_t *audio_out)
         strncpy(audio_out->m_name, "Random Music", AUIDO_OUT_NAME_LEN - 1);
         audio_out->m_name[AUIDO_OUT_NAME_LEN - 1] = '\0';
         LISA_LOGI(TAG, ">> Using default name");
+    }
+
+    // 提取图片URL (可选)
+    cJSON *image_item = cJSON_GetObjectItem(root, "image");
+    if (image_item && cJSON_IsString(image_item)) {
+        const char *image_str = cJSON_GetStringValue(image_item);
+        if (image_str) {
+            strncpy(audio_out->m_image_url, image_str, AUIDO_OUT_IMAGE_URL_LEN - 1);
+            audio_out->m_image_url[AUIDO_OUT_IMAGE_URL_LEN - 1] = '\0';
+            LISA_LOGI(TAG, ">> Image URL extracted: '%s'", image_str);
+
+            // 同步加载图片
+            LISA_LOGI(TAG, "Loading music cover image synchronously: %s", image_str);
+            audio_out->m_image_dsc = lv_img_net_load(image_str);
+            if (audio_out->m_image_dsc) {
+                LISA_LOGI(TAG, "Music cover image loaded successfully");
+            } else {
+                LISA_LOGE(TAG, "Failed to load music cover image: %s", image_str);
+            }
+        } else {
+            audio_out->m_image_url[0] = '\0';
+            audio_out->m_image_dsc = NULL;
+            LISA_LOGI(TAG, ">> Image URL is null");
+        }
+    } else {
+        audio_out->m_image_url[0] = '\0';
+        audio_out->m_image_dsc = NULL;
+        LISA_LOGI(TAG, ">> No image field in response");
     }
 
     // 清空其他字段

@@ -5,6 +5,8 @@
 extern "C" {
 #endif
 
+#include "lvgl.h"
+
 typedef enum {
 
     CONTROLLER_EVENT_STATE_AUDIO_IDLE = 0,
@@ -56,6 +58,8 @@ typedef enum {
 typedef struct{
     const char* name;
     const char* artist;
+    const char* image_url;
+    const lv_img_dsc_t* image_dsc;
 }assistant_controller_event_update_music_payload_t;
 
 int assist_controller_init(void);

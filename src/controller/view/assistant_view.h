@@ -10,6 +10,7 @@
 #include "lisaui_user_data.h"
 #include "ota_manager.h"
 #include "lisa_aiui.h"
+#include "lvgl.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -100,7 +101,7 @@ typedef struct {
     int (*update_event)(view_event_e event);
     int (*update_iat_append_text)(bool is_refresh, const char *text);
     int (*update_weather)(const char *json);
-    int (*update_music)(const char *title, const char *artist);
+    int (*update_music)(const char *title, const char *artist, const char *image_url, const lv_img_dsc_t* image_dsc);
     int (*update_alarm)(alarm_clock_t *alarm, view_alarm_opt_e opt);
     int (*update_wifi_state)(view_wifi_info_t *info);
     int (*update_role_emoji)(const char * emoji);

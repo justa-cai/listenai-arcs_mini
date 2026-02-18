@@ -22,6 +22,7 @@
 
 #include "lisa_log.h"
 #include "lvgl.h"
+#include "display/lv_img_net_loader.h"
 // #include "ui.h"
 
 static const char *TAG = "assistant_view";
@@ -347,6 +348,14 @@ static void net_image_show_work(void *param)
                      sizeof(lisaui_net_image_params_t));
 }
 
+static void music_cover_show_work(void *param)
+{
+    ebus_message_pub(view_handler->view->ebus_info.base_event_chn,
+                     LISAUI_EBUS_CH_EVENT_M2U_MUSIC_COVER_SHOW,
+                     param,
+                     sizeof(lisaui_net_image_params_t));
+}
+
 // 显示拍照图片到页面
 int assistant_view_show_camera_image(const uint16_t *rgb565_data, uint32_t width, uint32_t height)
 {
@@ -625,10 +634,47 @@ static int update_weather(const char *json)
     return 0;
 }
 
-static int update_music(const char *title, const char *artist)
+static int update_music(const char *title, const char *artist, const char *image_url, const lv_img_dsc_t* image_dsc)
 {
+    if (!title || !artist) {
+        LISA_LOGE(TAG, "%s: invalid parameters", __FUNCTION__);
+        return -EINVAL;
+    }
 
-    /*TODO*/
+    LISA_LOGI(TAG, "%s: title=%s, artist=%s, image_url=%s, image_dsc=%p", __FUNCTION__, title, artist, image_url ? image_url : "NULL", image_dsc);
+
+    // 如果有图片描述符，直接显示音乐封面和标题
+    if (image_dsc) {
+        LISA_LOGI(TAG, "Displaying music cover with title: %s", title);
+
+        lisaui_net_image_params_t *params = exram_malloc(32, sizeof(lisaui_net_image_params_t));
+        if (!params) {
+            LISA_LOGE(TAG, "Failed to allocate memory for music cover params");
+            return -ENOMEM;
+        }
+
+        params->img_dsc = image_dsc;
+        params->music_title = title;
+
+        // 使用工作队列提交任务
+        int result = workqueue_submit(view_handler->view->workq,
+                                      music_cover_show_work,
+                                      params,
+                                      0);
+
+        if (result != 0) {
+            LISA_LOGE(TAG, "Failed to submit music cover show work: %d", result);
+            exram_free(params);
+            return -EIO;
+        }
+
+        LISA_LOGI(TAG, "Music cover display submitted successfully");
+    } else {
+        // 没有图片，隐藏之前显示的图片
+        LISA_LOGI(TAG, "No image provided, hiding music cover");
+        assistant_view_hide_camera_image();
+    }
+
     return 0;
 }
 

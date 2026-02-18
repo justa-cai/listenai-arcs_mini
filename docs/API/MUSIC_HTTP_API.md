@@ -39,12 +39,14 @@ curl "http://192.168.1.169:9100/api/list"
     {
       "id": 1,
       "name": "马健涛-搀扶_DJ伟然版",
-      "size": 1112213
+      "size": 1112213,
+      "image": "http://192.168.1.169:9100/api/image/123"
     },
     {
       "id": 2,
       "name": "LBI利比（时柏尘）-跳楼机_DJHZ版",
-      "size": 1326455
+      "size": 1326455,
+      "image": null
     }
   ]
 }
@@ -86,12 +88,14 @@ curl "http://192.168.1.169:9100/api/search?q=周深"
     {
       "id": 12,
       "name": "马健涛-搀扶_DJ伟然版",
-      "size": 1112213
+      "size": 1112213,
+      "image": "http://192.168.1.169:9100/api/image/456"
     },
     {
       "id": 23,
       "name": "LBI利比-跳楼机_DJHZ版",
-      "size": 1326455
+      "size": 1326455,
+      "image": null
     }
   ]
 }
@@ -106,6 +110,7 @@ curl "http://192.168.1.169:9100/api/search?q=周深"
 | files[].id | number | 歌曲短 ID（用于下载） |
 | files[].name | string | 文件名（中文） |
 | files[].size | number | 文件大小（字节） |
+| files[].image | string/null | 歌曲封面图片短链接（如果存在）|
 
 ---
 
@@ -189,7 +194,8 @@ curl "http://192.168.1.169:9100/api/random?q=爱情"
 {
   "id": 56,
   "name": "我记得（珍藏版）",
-  "size": 1320081
+  "size": 1320081,
+  "image": "http://192.168.1.169:9100/api/image/789"
 }
 ```
 
@@ -218,6 +224,7 @@ curl "http://192.168.1.169:9100/api/random?q=爱情"
 | id | number | 随机歌曲 ID |
 | name | string | 随机文件名 |
 | size | number | 文件大小（字节） |
+| image | string/null | 歌曲封面图片地址（如果存在）|
 
 ---
 
@@ -229,6 +236,7 @@ curl "http://192.168.1.169:9100/api/random?q=爱情"
 | `/api/search?q=关键词` | GET | 搜索 MP3 歌曲（递归搜索子目录） |
 | `/api/random` | GET | 获取随机歌曲（支持?q=关键词过滤） |
 | `/api/download/{id}` | GET | 根据 ID 下载歌曲 |
+| `/api/image/get/{相对路径}` | GET | 获取歌曲封面图片（PNG，240x240） |
 
 ---
 
@@ -265,6 +273,8 @@ songs = response.json()['files']
 
 for song in songs:
     print(f"[{song['id']}] {song['name']} ({song['size']} bytes)")
+    if song.get('image'):
+        print(f"    封面: {song['image']}")
 
 # 下载歌曲（使用短 ID）
 if songs:
@@ -274,6 +284,14 @@ if songs:
     with open(songs[0]['name'] + ".mp3", 'wb') as f:
         f.write(song_data)
     print(f"已下载: {songs[0]['name']}.mp3")
+
+# 下载封面图片
+    if songs[0].get('image'):
+        image_url = songs[0]['image']
+        image_data = requests.get(image_url).content
+        with open(f"{songs[0]['name']}_cover.png", 'wb') as f:
+            f.write(image_data)
+        print(f"已下载封面: {songs[0]['name']}_cover.png")
 ```
 
 ### JavaScript/Fetch 示例
@@ -305,6 +323,9 @@ async function searchSongs(keyword) {
 searchSongs('DJ').then(songs => {
   songs.forEach(song => {
     console.log(`[${song.id}] ${song.name}`);
+    if (song.image) {
+      console.log(`  封面: ${song.image}`);
+    }
   });
 });
 
@@ -312,6 +333,17 @@ searchSongs('DJ').then(songs => {
 function playSong(songId) {
   const audio = new Audio(`${BASE_URL}/api/download/${songId}`);
   audio.play();
+}
+
+// 显示歌曲封面
+function showCover(imageUrl) {
+  if (!imageUrl) return;
+  
+  const img = document.createElement('img');
+  img.src = imageUrl;
+  img.style.maxWidth = '240px';
+  img.style.maxHeight = '240px';
+  document.body.appendChild(img);
 }
 ```
 
@@ -380,6 +412,12 @@ Content-Length: 28
 4. **Content-Length**：所有响应均包含 `Content-Length` 头，方便 IoT 设备处理
 5. **递归搜索**：支持递归搜索所有子目录中的 MP3 文件
 6. **歌名清理**：返回的歌名已自动去掉数字前缀和 `.mp3` 后缀，下载时需自行添加 `.mp3`
+7. **歌曲封面**：
+   - MP3 文件同目录下的 PNG 图片会自动作为封面返回
+   - 封面图片尺寸统一为 240x240 像素
+   - 图片路径格式：`/api/image/{短ID}`
+   - 如果没有对应的 PNG 图片，image 字段返回 null
+8. **图片缓存**：图片访问支持 7 天缓存
 
 ---
 
@@ -392,10 +430,13 @@ Content-Length: 28
 | 1.2.0 | 2025-02-14 | 支持递归搜索子目录，新增搜索接口，歌名自动清理 |
 | 1.3.0 | 2025-02-14 | 新增混合智能搜索（传统+AI） |
 | 1.4.0 | 2025-02-14 | 新增图片生成服务（/api/image/generate） |
+| 1.5.0 | 2025-02-14 | 图片自动缩放到 240x240 像素 |
+| 1.6.0 | 2025-02-18 | 新增歌曲封面图片返回（image字段），图片改为短链接格式（/api/image/{短ID}) |
+| 1.7.0 | 2025-02-18 | 图片接口更新，支持直接访问 MP3 目录下的 PNG 图片 |
 
 ---
 
-# 图片生成服务 API
+# 图片服务
 
 ## 服务信息
 
@@ -404,59 +445,113 @@ Content-Length: 28
 | 服务地址 | `http://192.168.1.169:9100` |
 | 协议 | HTTP |
 | 编码 | UTF-8 |
-| 数据格式 | JSON |
-| AI Provider | SiliconFlow |
+| 图片格式 | PNG |
+| 图片尺寸 | 240x240 像素 |
 
 ---
 
 ## API 接口说明
 
-### 1. 生成图片
+### 1. 获取歌曲封面图片
 
-根据文本提示词生成图片。
+根据文件路径获取歌曲封面图片（PNG格式，240x240像素）。
 
-**接口地址：** `POST /api/image/generate`
-
-**请求参数：**
-
-| 参数名 | 类型 | 必填 | 说明 |
-|--------|------|------|------|
-| prompt | string | 是 | 图片描述文本（提示词） |
-| model | string | 否 | 模型名称，默认 `Qwen/Qwen-Image-Edit-2509` |
-| negative_prompt | string | 否 | 负向提示词 |
-| image_size | string | 否 | 图片尺寸，格式 `宽x高`，默认 `1024x1024` |
-| batch_size | integer | 否 | 生成图片数量，1-4，默认 1 |
-| seed | integer | 否 | 随机种子，0-9999999999 |
-| num_inference_steps | integer | 否 | 推理步数，1-100，默认 20 |
-| guidance_scale | number | 否 | 提示词引导强度，0-20，默认 7.5 |
-
-**推荐图片尺寸：**
-
-**Qwen 模型：**
-- `1328x1328` (1:1)
-- `1664x928` (16:9)
-- `928x1664` (9:16)
-- `1472x1140` (4:3)
-- `1140x1472` (3:4)
-
-**Kolors 模型：**
-- `1024x1024` (1:1)
-- `960x1280` (3:4)
-- `768x1024` (3:4)
-- `720x1440` (1:2)
-- `720x1280` (9:16)
+**接口地址：** `GET /api/image/get/{相对路径}`
 
 **请求示例：**
 
 ```bash
-curl -X POST "http://192.168.1.169:9100/api/image/generate" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "prompt": "a beautiful sunset over the ocean, with seagulls flying",
-    "model": "Qwen/Qwen-Image-Edit-2509",
-    "image_size": "1024x1024",
-    "batch_size": 1
-  }'
+# 获取 DJ 目录下的歌曲封面
+curl "http://192.168.1.169:9100/api/image/get/dj/151.留什么给你小葡萄_DJ版.png"
+
+# 获取其他目录的歌曲封面
+curl "http://192.168.1.169:9100/api/image/get/周杰伦/稻香.png"
+```
+
+**响应：** 返回图片文件流（Content-Type: image/png）
+
+**错误响应：**
+
+```json
+HTTP/1.0 404 Not Found
+{
+  "error": "Image not found"
+}
+```
+
+---
+
+## 图片服务总览
+
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/api/image/{短ID}` | GET | 获取歌曲封面图片（PNG，240x240） |
+
+---
+
+## 图片服务使用示例
+
+### Python 示例
+
+```python
+import requests
+
+BASE_URL = "http://192.168.1.169:9100"
+
+# 从歌曲列表获取封面 URL
+response = requests.get(f"{BASE_URL}/api/search", params={"q": "爱情"})
+songs = response.json()['files']
+
+if songs and songs[0].get('image'):
+    # 获取封面图片
+    image_url = songs[0]['image']
+    image_data = requests.get(image_url).content
+    
+    # 保存图片
+    with open(f"{songs[0]['name']}_cover.png", 'wb') as f:
+        f.write(image_data)
+    
+    print(f"已下载封面: {songs[0]['name']}_cover.png")
+else:
+    print("该歌曲没有封面图片")
+```
+
+### JavaScript/Fetch 示例
+
+```javascript
+const BASE_URL = "http://192.168.1.169:9100";
+
+// 获取歌曲封面
+async function getCoverImage(song) {
+  if (!song.image) {
+    console.log('该歌曲没有封面图片');
+    return;
+  }
+
+   const response = await fetch(song.image);
+   const blob = await response.blob();
+   
+   // 创建图片元素显示
+   const img = document.createElement('img');
+   img.src = URL.createObjectURL(blob);
+   img.style.maxWidth = '240px';
+   img.style.maxHeight = '240px';
+   document.body.appendChild(img);
+  
+   console.log('封面图片加载成功 (短链接)');
+}
+
+// 使用示例
+async function main() {
+  const response = await fetch(`${BASE_URL}/api/search?q=爱情`);
+  const data = await response.json();
+  
+  if (data.files.length > 0) {
+    await getCoverImage(data.files[0]);
+  }
+}
+
+main();
 ```
 
 **响应示例：**
@@ -500,22 +595,28 @@ curl -X POST "http://192.168.1.169:9100/api/image/generate" \
 
 **图片缓存机制：**
 - 生成的图片自动下载并缓存到服务器本地
+- **图片自动缩放到 240x240 像素**
 - 返回的 URL 为内部地址，格式：`http://192.168.1.169:9100/api/image/get/{filename}`
 - 图片缓存有效期：7 天
 - 适合内网环境，无需访问外网
+- 缩放算法：LANCZOS（高质量缩放）
 
 ---
 
-### 2. 获取缓存的图片
+### 2. 获取歌曲封面图片
 
-根据文件名获取缓存的图片。
+根据图片短ID获取歌曲封面图片（PNG格式，240x240像素）。
 
-**接口地址：** `GET /api/image/get/{filename}`
+**接口地址：** `GET /api/image/{短ID}`
 
 **请求示例：**
 
 ```bash
-curl "http://192.168.1.169:9100/api/image/get/img_12345_0_1739500000.png"
+# 获取 ID 为 123 的图片
+curl "http://192.168.1.169:9100/api/image/123"
+
+# 获取 ID 为 456 的图片
+curl "http://192.168.1.169:9100/api/image/456"
 ```
 
 **响应：** 返回图片文件流（Content-Type: image/png）
@@ -525,7 +626,7 @@ curl "http://192.168.1.169:9100/api/image/get/img_12345_0_1739500000.png"
 ```json
 HTTP/1.0 404 Not Found
 {
-  "error": "Image not found in cache"
+  "error": "Image not found"
 }
 ```
 
@@ -652,17 +753,3 @@ generateImage();
 - **Qwen/Qwen-Image-Edit-2509**: 适合通用场景，支持多种尺寸
 - **Kolors/Kolors**: 适合艺术创作，色彩表现力强
 
----
-
-## 注意事项
-
-1. **图片缓存机制**：
-   - 生成的图片自动下载并缓存到服务器本地（`/cache/images/` 目录）
-   - 返回内部地址，格式：`http://192.168.1.169:9100/api/image/get/{filename}`
-   - 图片缓存有效期：7 天
-   - 适合内网环境，无需访问外网
-2. **并发限制**：建议控制并发请求数量，避免触发限流
-3. **模型选择**：不同模型支持的尺寸和参数可能不同
-4. **跨域支持**：接口已添加 CORS 头，支持跨域请求
-5. **超时设置**：图片生成可能需要 3-10 秒，客户端应设置合理的超时时间
-6. **缓存清理**：可定期清理 `/cache/images/` 目录以释放磁盘空间

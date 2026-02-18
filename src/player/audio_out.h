@@ -2,6 +2,7 @@
 #define __LISA_AUDIO_OUT_H__
 
 #include "stdbool.h"
+#include "lvgl.h"
 
 #define AUIDO_OUT_TYPE_LEN (16)
 #define AUIDO_OUT_SKILLTYPE_LEN (16)
@@ -12,6 +13,7 @@
 #define AUIDO_OUT_NAME_LEN (32)
 #define AUIDO_OUT_ARTIST_LEN (32)
 #define AUIDO_OUT_RATE_LEN (64)
+#define AUIDO_OUT_IMAGE_URL_LEN (512)
 
 #define TTS_ONLINE_THROW_TIME_MS (100)
 
@@ -21,6 +23,8 @@ typedef struct audio_out_s {
 	char m_name[AUIDO_OUT_NAME_LEN];
 	char m_artist[AUIDO_OUT_ARTIST_LEN];
 	char m_all_rate[AUIDO_OUT_RATE_LEN];
+	char m_image_url[AUIDO_OUT_IMAGE_URL_LEN];
+	lv_img_dsc_t *m_image_dsc;
 	int throw_time;
 } audio_out_t;
 

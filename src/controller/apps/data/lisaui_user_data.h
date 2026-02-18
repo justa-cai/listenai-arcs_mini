@@ -59,6 +59,7 @@ typedef enum {
     LISAUI_EBUS_CH_EVENT_M2U_OTA_STATE_UPDATE,
     LISAUI_EBUS_CH_EVENT_M2U_WAKE_WORD_UPDATE,
     LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_SHOW,
+    LISAUI_EBUS_CH_EVENT_M2U_MUSIC_COVER_SHOW,
     LISAUI_EBUS_CH_EVENT_M2U_SHOW_LOADING,
     LISAUI_EBUS_CH_EVENT_M2U_INTER_MODE_UPDATE,
     LISAUI_EBUS_CH_EVENT_M2U_ALARM_UPDATE,
@@ -81,6 +82,7 @@ typedef struct {
 // 网络图片参数结构（img_dsc 指向 lv_img_dsc_t）
 typedef struct {
     const void *img_dsc;
+    const char *music_title;
 } lisaui_net_image_params_t;
 
 typedef enum {

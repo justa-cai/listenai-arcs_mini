@@ -461,9 +461,9 @@ static int ctrl_event_audio_update_music_handler(void *arg, uint32_t len)
     assistant_controller_event_update_music_payload_t *payload =
         (assistant_controller_event_update_music_payload_t *)arg;
 
-    LISA_LOGI(TAG, "%s, name:%s, artist:%s", __FUNCTION__, payload->name, payload->artist);
+    LISA_LOGI(TAG, "%s, name:%s, artist:%s, image_url:%s, image_dsc:%p", __FUNCTION__, payload->name, payload->artist, payload->image_url ? payload->image_url : "NULL", payload->image_dsc);
     if (assist_controller->view->ops.update_music != NULL) {
-        assist_controller->view->ops.update_music(payload->name, payload->artist);
+        assist_controller->view->ops.update_music(payload->name, payload->artist, payload->image_url, payload->image_dsc);
     }
     return 0;
 }

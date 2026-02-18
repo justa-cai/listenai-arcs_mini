@@ -74,7 +74,9 @@ static void _audio_play_next(audioplayer_t *handle, bool force)
 		app_player_play(PLAYER_T_CLOUD, item->m_url, _play_callback);
 		assistant_controller_event_update_music_payload_t payload = {
 			.name = item->m_name,
-			.artist = item->m_artist
+			.artist = item->m_artist,
+			.image_url = item->m_image_url,
+			.image_dsc = item->m_image_dsc
 		};
 		assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_UPDATE_MUSIC, &payload, sizeof(assistant_controller_event_update_music_payload_t));
 	}
