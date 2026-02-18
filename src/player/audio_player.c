@@ -11,6 +11,7 @@
 #include "lisa_thread.h"
 #include "app_player.h"
 #include "assistant_controller.h"
+#include "player/music_manager.h"
 
 
 static audioplayer_t *s_audio_player = NULL;
@@ -202,7 +203,15 @@ static bool _audio_on_directive(audioplayer_t *handle, audio_play_cmd cmd, audio
 
 static int _audio_on_play_end(void *arg)
 {
-	_audio_play_next(s_audio_player, false);
+	// Check if music manager is active for auto-next
+	if (music_manager_is_active()) {
+		LISA_LOGI(TAG, "Auto-playing next song via music manager");
+		music_manager_play_next_random(NULL, 0);
+	} else {
+		// Fall back to playlist-based playback
+		LISA_LOGI(TAG, "Playing next from playlist");
+		_audio_play_next(s_audio_player, false);
+	}
 	return 0;
 }
 
