@@ -28,6 +28,7 @@
 #include "lisa_time.h"
 #include "lisa_aiui_rid_man.h"
 #include "app_cloud.h"
+#include "config_parser.h"
 #include "assistant_controller.h"
 #include "assistant_view.h"
 
@@ -117,12 +118,20 @@ int lisa_aiui_get_device_mode(void)
 // Helper function to build API URL based on staging mode
 static void build_api_url(char *url_buffer, size_t buffer_size, const char *path)
 {
-    if (!lisa_aiui_get_device_mode()) {
-        snprintf(url_buffer, buffer_size, "http://%s%s", AIUI_HOST, path);
-    }else if (1 == lisa_aiui_get_device_mode()) {
-        snprintf(url_buffer, buffer_size, "http://%s%s%s", AIUI_HOST_STAGING_PREFIX, AIUI_HOST, path);
-    } else if (2 == lisa_aiui_get_device_mode()) {
-        snprintf(url_buffer, buffer_size, "http://%s%s%s", AIUI_HOST_INTEGRATION_PREFIX, AIUI_HOST, path);
+    // 从配置读取 Auth URL
+    const Config *cfg = config_get();
+    if (cfg && cfg->abilities.chat.cloud.auth.url) {
+        LISA_LOGI(TAG, "Using Auth URL from config: %s", cfg->abilities.chat.cloud.auth.url);
+        snprintf(url_buffer, buffer_size, "%s", cfg->abilities.chat.cloud.auth.url);
+    } else {
+        LISA_LOGW(TAG, "No Auth URL config found, using default host");
+        if (!lisa_aiui_get_device_mode()) {
+            snprintf(url_buffer, buffer_size, "http://%s%s", AIUI_HOST, path);
+        } else if (1 == lisa_aiui_get_device_mode()) {
+            snprintf(url_buffer, buffer_size, "http://%s%s%s", AIUI_HOST_STAGING_PREFIX, AIUI_HOST, path);
+        } else if (2 == lisa_aiui_get_device_mode()) {
+            snprintf(url_buffer, buffer_size, "http://%s%s%s", AIUI_HOST_INTEGRATION_PREFIX, AIUI_HOST, path);
+        }
     }
 }
 
@@ -538,18 +547,38 @@ lisa_err_t lisa_aiui_connect(lisa_aiui_t *const handle, bool update_token)
 	ws_req.on_event = get_ws_event_cb;
 	ws_req.user = NULL;
     static char ws_host[64];
+    static char ws_port[8];
+    static char ws_scheme[8];
 
-    if (!lisa_aiui_get_device_mode()) {
-        snprintf(ws_host, sizeof(ws_host), "%s", AIUI_HOST);
-    }else if (1 == lisa_aiui_get_device_mode()) {
-        snprintf(ws_host, sizeof(ws_host), "%s%s", AIUI_HOST_STAGING_PREFIX, AIUI_HOST);
-    } else if (2 == lisa_aiui_get_device_mode()) {
-        snprintf(ws_host, sizeof(ws_host), "%s%s", AIUI_HOST_INTEGRATION_PREFIX, AIUI_HOST);
+    // 从配置读取 WebSocket 设置
+    const Config *cfg = config_get();
+    if (cfg && cfg->abilities.chat.cloud.websocket.host) {
+        // 使用配置文件中的 WebSocket 设置
+        LISA_LOGI(TAG, "Using WebSocket from config: host=%s, port=%s, scheme=%s",
+                  cfg->abilities.chat.cloud.websocket.host,
+                  cfg->abilities.chat.cloud.websocket.port,
+                  cfg->abilities.chat.cloud.websocket.scheme);
+        snprintf(ws_host, sizeof(ws_host), "%s", cfg->abilities.chat.cloud.websocket.host);
+        snprintf(ws_port, sizeof(ws_port), "%s", cfg->abilities.chat.cloud.websocket.port);
+        snprintf(ws_scheme, sizeof(ws_scheme), "%s", cfg->abilities.chat.cloud.websocket.scheme);
+    } else {
+        // 回退到硬编码的默认值
+        LISA_LOGW(TAG, "No WebSocket config found, using default: host=%s, port=%s, scheme=%s",
+                  AIUI_HOST, AIUI_PORT, AIUI_SCHEME);
+        if (!lisa_aiui_get_device_mode()) {
+            snprintf(ws_host, sizeof(ws_host), "%s", AIUI_HOST);
+        } else if (1 == lisa_aiui_get_device_mode()) {
+            snprintf(ws_host, sizeof(ws_host), "%s%s", AIUI_HOST_STAGING_PREFIX, AIUI_HOST);
+        } else if (2 == lisa_aiui_get_device_mode()) {
+            snprintf(ws_host, sizeof(ws_host), "%s%s", AIUI_HOST_INTEGRATION_PREFIX, AIUI_HOST);
+        }
+        snprintf(ws_port, sizeof(ws_port), "%s", AIUI_PORT);
+        snprintf(ws_scheme, sizeof(ws_scheme), "%s", AIUI_SCHEME);
     }
 
     ws_req.host = (uint8_t *)ws_host;
-	ws_req.scheme = AIUI_SCHEME;
-	ws_req.port = AIUI_PORT;
+	ws_req.scheme = ws_scheme;
+	ws_req.port = ws_port;
 	ws_req.path = url;
     ws_req.extra_header = handle->auth_header;
 	lisa_ws_t *lisa_ws_ins = lisa_ws_init(&ws_req);

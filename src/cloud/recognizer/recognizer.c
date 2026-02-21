@@ -15,6 +15,9 @@
 #include "evs_uuid.h"
 #include "app_cloud.h"
 #include "assistant_controller.h"
+#ifdef MY_CLOUD
+#include "jk_cloud.h"
+#endif
 
 static recognizer_t *s_recognizer = NULL;
 
@@ -118,14 +121,35 @@ recognizer_t *recognizer_create(short_player_t *short_player,
 void recognizer_write_audio(recognizer_t *handle, const char *audio, int len)
 {
 	if (!handle->m_enable_audio) {
+		static int log_count = 0;
+		if (log_count++ < 3) {
+			LISA_LOGD(TAG, "recognizer_write_audio: m_enable_audio=false");
+		}
 		return;
 	}
 	s_drop_frame_count++;
 	if(s_drop_frame_count < LS_DROP_AUDIO_FRAME_MAX) {
+		// Log first frame and when approaching threshold
+		if (s_drop_frame_count == 1) {
+			LISA_LOGI(TAG, "Dropping first %d audio frames (dropping frame %d/%d)",
+			          LS_DROP_AUDIO_FRAME_MAX, s_drop_frame_count, LS_DROP_AUDIO_FRAME_MAX);
+		} else if (s_drop_frame_count == LS_DROP_AUDIO_FRAME_MAX - 1) {
+			LISA_LOGI(TAG, "About to send first audio frame (drop count: %d/%d)",
+			          s_drop_frame_count, LS_DROP_AUDIO_FRAME_MAX);
+		}
 		return;
 	}
-	// TODO 过滤音频
+	if (s_drop_frame_count == LS_DROP_AUDIO_FRAME_MAX) {
+		LISA_LOGI(TAG, "First audio frame sending (drop threshold reached: %d/%d), len: %d",
+		          s_drop_frame_count, LS_DROP_AUDIO_FRAME_MAX, len);
+	} else {
+		LISA_LOGI(TAG, "send audio len: %d", len);
+	}
+#ifdef MY_CLOUD
+	jk_cloud_audio(jk_cloud_get_instance(), audio, len);
+#else
 	lisa_aiui_send_audio(handle->m_aiui, audio, len);
+#endif
 }
 
 void recognizer_stop_audio()
@@ -150,7 +174,8 @@ void recognizer_start_audio()
 
 void recognizer_recognize(recognizer_t *handle)
 {
-	LISA_LOGD(TAG, "cloud recognizer start");
+	LISA_LOGI(TAG, "recognizer_recognize: current_state=%d (IDLE=%d,RECORD=%d)",
+	          handle->m_state, IDLE, RECORD);
 
     // if (lisa_aiui_get_interactive_mode() == INTER_CONTINUE) {
     //     ap2cp_algo_set_esr_timeout(LS_CLOUD_TTS_TIMEOUT);
@@ -161,6 +186,7 @@ void recognizer_recognize(recognizer_t *handle)
 		// 前面正在录音
 		if (handle->m_state == RECORD) {
 			// 取消上次的录音
+			LISA_LOGI(TAG, "recognizer_recognize: stopping previous RECORD session");
 			handle->m_enable_audio = false;
 			lisa_aiui_stop_send(handle->m_aiui);
 		}
@@ -182,38 +208,46 @@ void recognizer_recognize(recognizer_t *handle)
 
 	}
 	// 获取焦点
+	LISA_LOGI(TAG, "recognizer_recognize: acquiring AIP channel focus");
 	listen_audiomgr_acquire_channel(handle->m_audio_mgr, AIP);
 }
 
 void recongizer_play_audio_id(uint8_t id)
 {
-	listen_shortplayer_play(s_recognizer->m_short_player, id);
+	if (s_recognizer && s_recognizer->m_short_player) {
+		listen_shortplayer_play(s_recognizer->m_short_player, id);
+	}
 }
 
 static void _focus_state(focus_state_e focus_state, channel_type_e by_which)
 {
-	LISA_LOGD(TAG, "AIP focus state %d, by_which %d", focus_state, by_which);
+	LISA_LOGI(TAG, "AIP focus state %d (FOREGROUND=%d,BACKGROUND=%d,NONE=%d), by_which %d",
+	          focus_state, FOREGROUND, BACKGROUND, NONE, by_which);
 	if (focus_state == FOREGROUND) {
 		// Start Cloud Interactive
 
 		s_recognizer->m_has_audio_focus = true;
 		s_recognizer->m_state = RECORD;
 
+		LISA_LOGI(TAG, "FOREGROUND: checking cloud connection...");
 		if (app_cloud_is_connected()) {
-			int mode = lisa_aiui_get_interactive_mode();
-			if (mode == INTER_ONESHOT || mode == INTER_CONTINUE) {
-				listen_shortplayer_play(s_recognizer->m_short_player, 0);
-			}
+			LISA_LOGI(TAG, "FOREGROUND: cloud connected, enabling audio, drop_frame_count=%u",
+			          s_drop_frame_count);
 			s_drop_frame_count = 0;
 			s_recognizer->m_enable_audio = true;
+			int mode = lisa_aiui_get_interactive_mode();
+			LISA_LOGI(TAG, "FOREGROUND: interactive_mode=%d, m_enable_audio=%d",
+			          mode, s_recognizer->m_enable_audio);
+			// if (mode == INTER_ONESHOT || mode == INTER_CONTINUE) {
+			// 	listen_shortplayer_play(s_recognizer->m_short_player, 0);
+			// }
 			// evs_uuid_generate_string(s_recognizer->m_sid);
 			// extern void haoxueduo_role_start_text_play();
 			// haoxueduo_role_start_text_play();
 			// extern const char *haoxueduo_speaker_name_get();
 			// const char *speaker_name = haoxueduo_speaker_name_get();
-			// extern uint32_t haoxueduo_speaker_id_get();
-			// uint32_t speaker_id = haoxueduo_speaker_id_get();
 			extern int lisa_aiui_start_frame_send_audio(lisa_aiui_t *handle);
+#ifndef MY_CLOUD
 			if (LISA_OK != lisa_aiui_start_frame_send_audio(s_recognizer->m_aiui)) {
 				// s_recognizer->m_aiui->aiui_ws_disconnect();
 				LISA_LOGE(TAG, "audio session start failed.");
@@ -222,13 +256,19 @@ static void _focus_state(focus_state_e focus_state, channel_type_e by_which)
 				// 启动 ASR 定时器
 				lisa_timer_start(s_recognizer->m_asr_timer);
 			}
+#else
+			lisa_timer_start(s_recognizer->m_asr_timer);
+#endif
 		} else {
-			LISA_LOGW(TAG, "listen client is not connected");
+			LISA_LOGW(TAG, "FOREGROUND: listen client is not connected, m_enable_audio=%d",
+			          s_recognizer->m_enable_audio);
 			// listen_shortplayer_play(s_recognizer->m_short_player, 0);
 		}
 	} else if (focus_state == BACKGROUND) {
+		LISA_LOGI(TAG, "BACKGROUND: stopping shortplayer");
 		listen_shortplayer_stop(s_recognizer->m_short_player);
 	} else if (focus_state == NONE) {
+		LISA_LOGI(TAG, "NONE: losing focus, m_enable_audio=%d", s_recognizer->m_enable_audio);
 		listen_shortplayer_stop(s_recognizer->m_short_player);
 		// 无焦点
 		s_recognizer->m_has_audio_focus = false;
@@ -239,6 +279,7 @@ static void _focus_state(focus_state_e focus_state, channel_type_e by_which)
             }
             s_recognizer->m_enable_audio = false;
             s_recognizer->m_state = IDLE;
+            LISA_LOGI(TAG, "NONE: INTER_ONESHOT mode, stopped recording");
         }
 		// 停止 ASR 定时器
 		lisa_timer_stop(s_recognizer->m_asr_timer);
@@ -299,22 +340,31 @@ void recognizer_recognize_end(recognizer_t *handle)
 
 void recognizer_recognize_once_end(recognizer_t *handle)
 {
+	LISA_LOGI(TAG, "recognizer_recognize_once_end: auto_stop_record=%d, state=%d, has_focus=%d",
+	          g_auto_stop_record_on_tts_end, handle->m_state, handle->m_has_audio_focus);
+
 	lisa_timer_stop(handle->m_asr_timer);
 	// // 收到NLP结果, 停止 NLP 定时器
 	// lisa_timer_stop(handle->m_nlp_timer);
 	// 终止交互, 释放焦点
 	if (handle->m_has_audio_focus) {
+		LISA_LOGI(TAG, "Releasing AIP channel");
 		listen_audiomgr_release_channel(handle->m_audio_mgr, AIP);
 	}
 
 	if (g_auto_stop_record_on_tts_end) {
 		// 停止发送音频
 		if (handle->m_state == RECORD) {
+			LISA_LOGI(TAG, "Auto stop: stopping audio send, state RECORD->IDLE");
 			handle->m_enable_audio = false;
 			lisa_aiui_stop_send(handle->m_aiui);
+		} else {
+			LISA_LOGI(TAG, "Auto stop: state=%d, only set to IDLE", handle->m_state);
 		}
 		// 状态调整为 IDLE
 		handle->m_state = IDLE;
+	} else {
+		LISA_LOGI(TAG, "Auto stop disabled, keeping current state");
 	}
 }
 

@@ -3,6 +3,9 @@
 #include <stdint.h>
 #include <string.h>
 #include "app_cloud.h"
+#ifdef MY_CLOUD
+#include "jk_cloud.h"
+#endif
 #include "recognizer.h"
 #include "lisa_aiui.h"
 #include "app_client.h"
@@ -129,10 +132,20 @@ void app_cloud_tts(const char *text)
 
 bool app_cloud_is_connected()
 {
+#ifdef MY_CLOUD
+	extern bool jk_cloud_is_connected(void);
+	bool connected = jk_cloud_is_connected();
+	if (!connected) {
+		LISA_LOGW(TAG, "jk_cloud_is_connected returned false");
+	}
+	return connected;
+#else
 	if (s_cloud == NULL) {
+		LISA_LOGW(TAG, "s_cloud is NULL");
 		return false;
 	}
 	return (s_cloud->ws_state == LS_WS_CONNECT);
+#endif
 }
 
 bool app_cloud_is_wifi_connected()
@@ -471,7 +484,11 @@ int app_cloud_img_recognition(uint16_t *rgb565_datas, uint32_t width, uint32_t h
 #include "pa_manager.h"
 void app_chat_start(void)
 {
+#ifdef MY_CLOUD
+    if (!jk_cloud_is_connected()) {
+#else
     if (!app_cloud_is_connected()) {
+#endif
         extern void recongizer_play_audio_id(uint8_t id);
         recongizer_play_audio_id(TONE_ID_85);
         LISA_LOGI(TAG, "cloud is not connected");
@@ -481,7 +498,11 @@ void app_chat_start(void)
 	app_client_t *client = app_client_get_instance();
     assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_RECORD_START, NULL, 0);
     pa_manager_refresh(PA_MGR_ON, LS_PA_BASE_TIME, "wakeup");
+#ifdef MY_CLOUD
+    jk_cloud_wakeup(client->cloud);
+#else
     app_cloud_wakeup(client->cloud);
+#endif
 }
 
 void app_chat_stop(void)

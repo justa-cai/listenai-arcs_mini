@@ -4,10 +4,12 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifdef MY_CLOUD
+struct jk_cloud;
+#endif
+
 typedef struct app_client_s {
-	/** 录音提取缓存 */
 	short *buffer;
-	/** 录音提取缓存大小 */
 	uint32_t buffer_size;
 	struct listen_audiomgr_s *audio_mgr;
 	struct short_player_s *short_player;
@@ -15,7 +17,11 @@ typedef struct app_client_s {
 	struct tts_player_s *tts_player;
 	struct sound_player_s *sound_player;
 	struct play_mode_s *play_mode;
+#ifdef MY_CLOUD
+	struct jk_cloud *cloud;
+#else
 	struct app_cloud_s *cloud;
+#endif
 } app_client_t;
 
 app_client_t *app_client_create();

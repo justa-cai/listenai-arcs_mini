@@ -4,6 +4,15 @@ listenai_library_sources(
     # Main cloud files
     app_cloud.c
     haoxueduo.c
+
+    # My cloud (self-hosted server)
+    jk_cloud/jk_cloud.c
+    jk_cloud/jk_asr.c
+    jk_cloud/jk_llm.c
+    jk_cloud/jk_tts.c
+    jk_cloud/jk_tts_parser.c
+    jk_cloud/jk_pcm_player.c
+    jk_cloud/jk_websocket.c
     
     # Core components
     core/lisa_aiui.c
@@ -52,6 +61,7 @@ listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/core
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp
     ${CMAKE_CURRENT_SOURCE_DIR}/mcp/tools
+    ${CMAKE_CURRENT_SOURCE_DIR}/jk_cloud
     ${CMAKE_CURRENT_SOURCE_DIR}/proc
     ${CMAKE_CURRENT_SOURCE_DIR}/recognizer
     ${CMAKE_CURRENT_SOURCE_DIR}/stream_text

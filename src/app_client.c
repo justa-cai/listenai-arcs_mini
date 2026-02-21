@@ -26,6 +26,9 @@
 #ifdef LISTEN_CLOUD
 #include "app_cloud.h"
 #endif
+#ifdef MY_CLOUD
+#include "jk_cloud.h"
+#endif
 #include "listen_wifi.h"
 #include "listen_system.h"
 #include "assistant_controller.h"
@@ -37,6 +40,8 @@
 #include "recognizer.h"
 #include "led.h"
 #include "ota_manager.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 static app_client_t *s_app_client = NULL;
 
@@ -107,7 +112,13 @@ bool app_client_is_voice_keywords(const char *keyword)
 static void do_wakeup()
 {
     alarm_ring_stop();
+#if defined(LISTEN_CLOUD)
     if (!app_cloud_is_wifi_connected()) {
+#elif defined(MY_CLOUD)
+    if (!jk_cloud_is_wifi_connected()) {
+#else
+    if (false) {
+#endif
         /* server is not connected, play tone */
         LISA_LOGW(TAG, "server is not connected");
         listen_soundplayer_play(s_app_client->sound_player, TONE_ID_64, 0);
@@ -258,6 +269,9 @@ static void _ls_sntp_synced_callback(void)
 #ifdef LISTEN_CLOUD
 	app_cloud_ntp_ok(NULL);
 #endif
+#ifdef MY_CLOUD
+	jk_cloud_ntp_ok(NULL);
+#endif
 	app_led_on();
 
 	ota_manager_check_all();
@@ -267,7 +281,12 @@ static void _ls_sntp_synced_callback(void)
 	alarm_ring_init(s_app_client->sound_player);
 	alarm_aiui_init(alarm_ring_on_alarm);
 #ifdef LISTEN_CLOUD
+	app_cloud_ntp_ok(NULL);
 	app_cloud_process_wifi_connected(s_app_client->cloud);
+#endif
+#ifdef MY_CLOUD
+	jk_cloud_ntp_ok(NULL);
+	jk_cloud_process_wifi_connected(s_app_client->cloud);
 #endif
 }
 
@@ -281,6 +300,9 @@ static void _ls_wifi_status_cb(ls_wifi_status_t status)
 	} else if (status == LS_WIFI_STA_DISCONNECTED) {
 	#ifdef LISTEN_CLOUD
 		app_cloud_process_wifi_disconnected(s_app_client->cloud);
+	#endif
+	#ifdef MY_CLOUD
+		jk_cloud_process_wifi_disconnected(s_app_client->cloud);
 	#endif
 	}
 }
@@ -310,6 +332,9 @@ app_client_t *app_client_create()
 
 #ifdef LISTEN_CLOUD
 		handle->cloud = app_cloud_create(handle);
+#endif
+#ifdef MY_CLOUD
+		handle->cloud = jk_cloud_create(handle);
 #endif
 
 	}
@@ -352,6 +377,15 @@ void app_client_record(const char *audio, int len)
 	}
 #ifdef LISTEN_CLOUD
 	app_cloud_audio(s_app_client->cloud, (const char*)s_record_rec_buf, LS_RECORD_ONE_CHNNEL_SIZE);
+#endif
+#ifdef MY_CLOUD
+	static TickType_t last_log_time = 0;
+	TickType_t current_time = xTaskGetTickCount();
+	if (last_log_time == 0 || (current_time - last_log_time) >= pdMS_TO_TICKS(5000)) {
+		LISA_LOGI(TAG, "app_client_record: len=%d, tick=%lu", len, current_time);
+		last_log_time = current_time;
+	}
+	jk_cloud_audio(s_app_client->cloud, (const char*)s_record_rec_buf, LS_RECORD_ONE_CHNNEL_SIZE);
 #endif
 }
 
