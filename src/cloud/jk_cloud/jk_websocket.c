@@ -636,14 +636,14 @@ jk_websocket_t *jk_ws_create(jk_ws_config_t *config) {
     ws->thread = lisa_thread_create(&attr, ws_thread, ws);
     if (!ws->thread) {
         LISA_LOGE(TAG, "Failed to create thread");
-        lisa_mem_free(ws->host);
-        lisa_mem_free(ws->port);
-        lisa_mem_free(ws);
+        /* Reset running flag before freeing memory */
         ws->running = false;
+        lisa_mem_free(ws);
         return NULL;
     }
-    
+
     LISA_LOGI(TAG, "Created: ws://%s:%s%s", ws->host, ws->port, ws->path);
+
     return ws;
 }
 
@@ -661,8 +661,12 @@ void jk_ws_destroy(jk_websocket_t *ws) {
 }
 
 int jk_ws_connect(jk_websocket_t *ws) {
-    if (!ws) return -1;
-    
+    LISA_LOGI(TAG, "jk_ws_connect: called, ws=%p", ws);
+    if (!ws) {
+        LISA_LOGE(TAG, "jk_ws_connect: ws is NULL!");
+        return -1;
+    }
+
     if (ws->connected) {
         LISA_LOGI(TAG, "Already connected, disconnecting first");
         if (ws->socket >= 0) {
@@ -671,38 +675,51 @@ int jk_ws_connect(jk_websocket_t *ws) {
         }
         ws->connected = false;
     }
-    
-    LISA_LOGI(TAG, "Connecting to %s:%s%s", ws->host, ws->port, ws->path);
-    
+
+    LISA_LOGI(TAG, "Connecting to %s:%s%s (on_event=%p, user=%p)",
+              ws->host, ws->port, ws->path, ws->on_event, ws->user);
+
     ws->socket = connect_socket(ws->host, ws->port, ws->timeout_ms);
     if (ws->socket < 0) {
+        LISA_LOGE(TAG, "TCP connection failed to %s:%s", ws->host, ws->port);
         if (ws->on_event) {
+            LISA_LOGI(TAG, "jk_ws_connect: calling ERROR event callback");
             ws->on_event(ws, JK_WS_EVENT_ERROR, ws->user);
+        } else {
+            LISA_LOGW(TAG, "jk_ws_connect: on_event callback is NULL!");
         }
         return -1;
     }
-    
+
+    LISA_LOGI(TAG, "TCP connected, socket=%d, starting WebSocket handshake", ws->socket);
+
     int ret = perform_handshake(ws);
     if (ret != 0) {
-        LISA_LOGE(TAG, "Handshake failed");
+        LISA_LOGE(TAG, "Handshake failed (ret=%d)", ret);
         lwip_close(ws->socket);
         ws->socket = -1;
         ws->connected = false;
-        ws->running = false;
+        /* 不要设置 ws->running = false，让线程继续运行以便重连 */
         if (ws->on_event) {
+            LISA_LOGI(TAG, "jk_ws_connect: calling ERROR event callback after handshake failure");
             ws->on_event(ws, JK_WS_EVENT_ERROR, ws->user);
         }
         return -1;
     }
-    
+
+    LISA_LOGI(TAG, "WebSocket handshake successful!");
+
     if (!ws->running) {
         ws->running = true;
     }
-    
+
     if (ws->on_event) {
+        LISA_LOGI(TAG, "jk_ws_connect: calling CONNECTED event callback");
         ws->on_event(ws, JK_WS_EVENT_CONNECTED, ws->user);
+    } else {
+        LISA_LOGW(TAG, "jk_ws_connect: on_event callback is NULL!");
     }
-    
+
     return 0;
 }
 

@@ -20,7 +20,7 @@
 /** Event Queue Max Count */
 #define EVENT_QUEUE_COUNT_MAX (20)
 /** Event Thread Stack Size */
-#define EVENT_THREAD_STACK_SIZE (10 * 1024)
+#define EVENT_THREAD_STACK_SIZE (16 * 1024)  /* Increased from 10KB to 16KB for MCP initialization */
 /** Event Thread Name */
 #define EVENT_THREAD_NAME ("evs_event")
 /** Event Queue Wait Time */

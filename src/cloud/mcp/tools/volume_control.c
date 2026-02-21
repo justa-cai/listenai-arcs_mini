@@ -316,7 +316,6 @@ cJSON* generate_volume_control_schema(void)
         return NULL;
     }
     cJSON_AddItemToArray(required, text_str);
-    cJSON_AddItemToObject(root, "required", required);
 
     cJSON *intent_str = cJSON_CreateString("intent");
     if (!intent_str) {

@@ -165,10 +165,75 @@ static void on_asr_error(jk_asr_t *asr, const char *error_msg) {
 }
 
 static void on_llm_connected(jk_llm_t *llm) {
-    LISA_LOGI(TAG, "LLM connected");
+    LISA_LOGI(TAG, "on_llm_connected: called, llm=%p, s_cloud=%p", llm, s_cloud);
     if (s_cloud) {
+        LISA_LOGI(TAG, "LLM connected");
         s_cloud->llm_connected = true;
         jk_cloud_check_all_connected();
+
+        /* v1.2.0 连接建立后注册本地 MCP 工具到云端 */
+        LISA_LOGI(TAG, "Starting client tools registration...");
+
+        mcp_tool_def_t **tools = NULL;
+        uint32_t tool_count = 0;
+
+        mcp_result_t list_result = mcp_list_tools(&tools, &tool_count);
+        LISA_LOGI(TAG, "mcp_list_tools result: %d, tool_count=%d, tools=%p",
+                  list_result, tool_count, tools);
+
+        if (list_result == MCP_RESULT_SUCCESS && tools && tool_count > 0) {
+            /* 转换为 jk_llm_tool_def_t 格式 */
+            jk_llm_tool_def_t *llm_tools = lisa_mem_calloc(tool_count, sizeof(jk_llm_tool_def_t));
+            if (llm_tools) {
+                int valid_count = 0;
+                LISA_LOGI(TAG, "Starting tool processing loop, tool_count=%d", tool_count);
+                for (uint32_t i = 0; i < tool_count; i++) {
+                    LISA_LOGI(TAG, "Tool[%d]: name=%s, desc=%s",
+                              i, tools[i]->name, tools[i]->description ? tools[i]->description : "null");
+
+                    llm_tools[i].name = tools[i]->name;
+                    llm_tools[i].description = tools[i]->description;
+
+                    /* 生成 JSON Schema */
+                    LISA_LOGI(TAG, "Tool[%d]: getting input_schema...", i);
+                    if (tools[i]->input_schema) {
+                        cJSON *schema = tools[i]->input_schema();
+                        LISA_LOGI(TAG, "Tool[%d]: input_schema returned=%p", i, schema);
+                        if (schema) {
+                            LISA_LOGI(TAG, "Tool[%d]: calling cJSON_PrintUnformatted...", i);
+                            llm_tools[i].parameters = cJSON_PrintUnformatted(schema);
+                            LISA_LOGI(TAG, "Tool[%d]: schema generated, len=%zu",
+                                      i, llm_tools[i].parameters ? strlen(llm_tools[i].parameters) : 0);
+                            cJSON_Delete(schema);
+                        } else {
+                            LISA_LOGW(TAG, "Tool[%d]: schema is NULL", i);
+                        }
+                    } else {
+                        LISA_LOGW(TAG, "Tool[%d]: input_schema function is NULL", i);
+                    }
+                    valid_count++;
+                    LISA_LOGI(TAG, "Tool[%d]: completed, valid_count=%d", i, valid_count);
+                }
+
+                LISA_LOGI(TAG, "Tool processing completed, calling jk_llm_register_tools...");
+                /* 发送注册请求 */
+                int ret = jk_llm_register_tools(llm, llm_tools, valid_count);
+                LISA_LOGI(TAG, "Registering %d tools to cloud: ret=%d", valid_count, ret);
+
+                /* 清理 */
+                for (uint32_t i = 0; i < tool_count; i++) {
+                    if (llm_tools[i].parameters) {
+                        lisa_mem_free((void *)llm_tools[i].parameters);
+                    }
+                }
+                lisa_mem_free(llm_tools);
+            }
+
+            lisa_mem_free(tools);
+        } else {
+            LISA_LOGE(TAG, "Failed to get tools list: result=%d, count=%d, tools=%p",
+                      list_result, tool_count, tools);
+        }
     }
 }
 
@@ -183,8 +248,90 @@ static void on_llm_disconnected(jk_llm_t *llm) {
     }
 }
 
+/* v1.2.0 工具回调处理 */
+static void on_llm_tool_callback(jk_llm_t *llm, const char *call_id,
+                                  const char *tool_name, const char *arguments) {
+    if (!s_cloud || !call_id || !tool_name) return;
+
+    LISA_LOGI(TAG, "Tool callback: %s (call_id=%s)", tool_name, call_id);
+
+    /* 解析参数并执行工具 */
+    cJSON *args = NULL;
+    if (arguments) {
+        args = cJSON_Parse(arguments);
+    }
+
+    /* 执行工具并获取结果 */
+    mcp_param_t *params = NULL;
+    uint32_t param_count = 0;
+
+    if (args && cJSON_IsObject(args)) {
+        /* 从 JSON 对象转换为参数数组 */
+        cJSON *item;
+        int count = 0;
+        cJSON_ArrayForEach(item, args) {
+            count++;
+        }
+
+        if (count > 0) {
+            params = lisa_mem_calloc(count, sizeof(mcp_param_t));
+            if (params) {
+                int i = 0;
+                cJSON_ArrayForEach(item, args) {
+                    params[i].name = item->string;
+                    params[i].value = cJSON_Duplicate(item, 1);
+                    i++;
+                }
+                param_count = count;
+            }
+        }
+    }
+
+    /* 调用工具 */
+    mcp_response_t response = {0};
+    mcp_result_t result = MCP_RESULT_ERROR;
+
+    const mcp_tool_def_t *tool = mcp_find_tool_from_section(tool_name);
+    if (tool) {
+        mcp_set_next_call_id(call_id);
+        result = mcp_call_tool_sync(tool_name, params, param_count, &response);
+    }
+
+    /* 发送结果回服务端 */
+    if (result == MCP_RESULT_SUCCESS && response.content) {
+        char *result_str = cJSON_PrintUnformatted(response.content);
+        jk_llm_send_tool_result(llm, call_id, result_str, true, NULL);
+        lisa_mem_free(result_str);
+    } else {
+        jk_llm_send_tool_result(llm, call_id, NULL, false, "Tool execution failed");
+    }
+
+    /* 清理 */
+    if (params) {
+        for (uint32_t i = 0; i < param_count; i++) {
+            if (params[i].value) {
+                cJSON_Delete(params[i].value);
+            }
+        }
+        lisa_mem_free(params);
+    }
+
+    if (response.content) {
+        cJSON_Delete(response.content);
+    }
+
+    if (args) {
+        cJSON_Delete(args);
+    }
+}
+
+/* v1.2.0 工具注册确认 */
+static void on_llm_tools_registered(jk_llm_t *llm, int count) {
+    LISA_LOGI(TAG, "Tools registered: %d tools confirmed by server", count);
+}
+
 static void on_llm_message(jk_llm_t *llm, jk_llm_message_t *msg) {
-    if (!s_cloud || !msg) return; 
+    if (!s_cloud || !msg) return;
 
     switch (msg->type) {
     case JK_LLM_MSG_TYPE_STATUS:
@@ -262,6 +409,8 @@ static void on_llm_message(jk_llm_t *llm, jk_llm_message_t *msg) {
     case JK_LLM_MSG_TYPE_PONG:
         LISA_LOGD(TAG, "LLM pong received");
         break;
+
+    /* TOOL_CALLBACK 和 TOOLS_REGISTERED 由专用回调处理，无需在此处理 */
     }
 }
 
@@ -429,6 +578,8 @@ jk_cloud_t *jk_cloud_create(app_client_t *client) {
     cloud->drop_frame_count = 0;
     s_cloud = cloud;
 
+    /* 初始化 MCP 框架并注册静态工具 */
+    mcp_init();
     mcp_init_static_tools();
     LISA_LOGI(TAG, "MCP tools initialized");
 
@@ -451,6 +602,8 @@ jk_cloud_t *jk_cloud_create(app_client_t *client) {
         .on_disconnected = on_llm_disconnected,
         .on_message = on_llm_message,
         .on_error = on_llm_error,
+        .on_tool_callback = on_llm_tool_callback,
+        .on_tools_registered = on_llm_tools_registered,
     };
     cloud->llm = jk_llm_create(cloud->host, "9400", &llm_cbs);
     if (!cloud->llm) {
@@ -509,34 +662,50 @@ void jk_cloud_destroy(jk_cloud_t *cloud) {
 }
 
 static int _connect_all_runnable(void *arg) {
-    if (!s_cloud) return -1;
+    LISA_LOGI(TAG, "_connect_all_runnable: called, s_cloud=%p", s_cloud);
+    if (!s_cloud) {
+        LISA_LOGE(TAG, "_connect_all_runnable: s_cloud is NULL!");
+        return -1;
+    }
 
     LISA_LOGI(TAG, "Connecting to all services [host=%s]...", s_cloud->host);
-    
+
     s_cloud->asr_connected = false;
     s_cloud->llm_connected = false;
     s_cloud->tts_connected = false;
     s_cloud->state = JK_CLOUD_STATE_CONNECTING;
 
     int ret = 0;
-    
+
+    LISA_LOGI(TAG, "_connect_all_runnable: calling jk_asr_connect, asr=%p", s_cloud->asr);
     if (jk_asr_connect(s_cloud->asr) != 0) {
         LISA_LOGE(TAG, "Failed to start ASR connection");
         ret = -1;
+    } else {
+        LISA_LOGI(TAG, "_connect_all_runnable: jk_asr_connect returned successfully");
     }
 
+    LISA_LOGI(TAG, "_connect_all_runnable: calling jk_llm_connect, llm=%p", s_cloud->llm);
     if (jk_llm_connect(s_cloud->llm) != 0) {
         LISA_LOGE(TAG, "Failed to start LLM connection");
         ret = -1;
+    } else {
+        LISA_LOGI(TAG, "_connect_all_runnable: jk_llm_connect returned successfully");
     }
 
+    LISA_LOGI(TAG, "_connect_all_runnable: calling jk_tts_connect, tts=%p", s_cloud->tts);
     if (jk_tts_connect(s_cloud->tts) != 0) {
         LISA_LOGE(TAG, "Failed to start TTS connection");
         ret = -1;
+    } else {
+        LISA_LOGI(TAG, "_connect_all_runnable: jk_tts_connect returned successfully");
     }
 
     if (ret != 0) {
+        LISA_LOGW(TAG, "_connect_all_runnable: some connections failed, scheduling reconnect in 500ms");
         evs_handler_post_runnable_delay(_reconnect_runnable, NULL, 500);
+    } else {
+        LISA_LOGI(TAG, "_connect_all_runnable: all connect calls completed");
     }
 
     return ret;
@@ -601,12 +770,19 @@ static int _reconnect_runnable(void *arg) {
 }
 
 void jk_cloud_process_wifi_connected(jk_cloud_t *cloud) {
-    if (!cloud) return;
+    LISA_LOGI(TAG, "jk_cloud_process_wifi_connected: called, cloud=%p", cloud);
+    if (!cloud) {
+        LISA_LOGE(TAG, "jk_cloud_process_wifi_connected: cloud is NULL!");
+        return;
+    }
 
+    LISA_LOGI(TAG, "jk_cloud_process_wifi_connected: setting m_wifi_conn=true");
     cloud->m_wifi_conn = true;
     LISA_LOGI(TAG, "WiFi connected, attempting to connect cloud");
 
+    LISA_LOGI(TAG, "jk_cloud_process_wifi_connected: posting _connect_all_runnable to event handler");
     evs_handler_post_runnable(_connect_all_runnable, NULL);
+    LISA_LOGI(TAG, "jk_cloud_process_wifi_connected: _connect_all_runnable posted");
 }
 
 void jk_cloud_process_wifi_disconnected(jk_cloud_t *cloud) {

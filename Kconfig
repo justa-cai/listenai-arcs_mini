@@ -33,5 +33,28 @@ config DEFAULT_VOLUME
     range 0 100
     default 70
 
+choice CLOUD_PROVIDER
+    prompt "Cloud Provider Selection"
+    default MY_CLOUD
+
+config LISTEN_CLOUD
+    bool "ListenAI Cloud (AIUI)"
+    help
+      Use ListenAI AIUI cloud service.
+
+config MY_CLOUD
+    bool "Self-hosted Cloud Server"
+    help
+      Use self-hosted cloud server with separate ASR/LLM/TTS services.
+
+endchoice
+
+config MY_CLOUD_HOST
+    string "Self-hosted Cloud Server Host"
+    default "192.168.1.169"
+    depends on MY_CLOUD
+    help
+      The host address of the self-hosted cloud server.
+
 rsource "$LISTENAI_MODULES"
 rsource "modules/Kconfig"
