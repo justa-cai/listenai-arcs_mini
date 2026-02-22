@@ -158,6 +158,12 @@ int assistant_view_show_camera_image(const uint16_t *rgb565_data, uint32_t width
 // 显示网络下载的图片（img_dsc 指向 lv_img_dsc_t）
 int assistant_view_show_net_image(const void *img_dsc);
 
+// 隐藏网络图片（音乐封面等）
+int assistant_view_hide_net_image(void);
+
+// 隐藏音乐图标
+int assistant_view_hide_music_icon(void);
+
 // 隐藏拍照图片
 int assistant_view_hide_camera_image(void);
 

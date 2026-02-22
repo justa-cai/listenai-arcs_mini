@@ -5,6 +5,8 @@
 #include "jk_websocket.h"
 #include "lisa_log.h"
 #include "lisa_mem.h"
+#include "lisa_kv.h"
+#include "kv/kv_user.h"
 #include "cJSON.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -243,7 +245,18 @@ jk_tts_t *jk_tts_create(const char *host, const char *port, jk_tts_callbacks_t *
 
     tts->host = host ? strdup(host) : strdup(JK_TTS_DEFAULT_HOST);
     tts->port = port ? strdup(port) : strdup(JK_TTS_DEFAULT_PORT);
-    tts->voice_id = strdup(JK_TTS_VOICE_ID);
+
+    // Try to load voice_id from KV storage first
+    char *saved_voice_id = NULL;
+    if (lisa_kv_get_string(KV_KEY_USER_VOICE_ID, &saved_voice_id) == 0 && saved_voice_id != NULL) {
+        tts->voice_id = strdup(saved_voice_id);
+        LISA_LOGI(TAG, "Loaded voice_id from KV: %s", saved_voice_id);
+    } else {
+        // Use default voice_id if not found in KV
+        tts->voice_id = strdup(JK_TTS_VOICE_ID);
+        LISA_LOGI(TAG, "Using default voice_id: %s", JK_TTS_VOICE_ID);
+    }
+
     tts->state = JK_TTS_STATE_DISCONNECTED;
     tts->data_complete = false;
     tts->has_pending = false;

@@ -29,6 +29,8 @@
 #include "utils/evs_event.h"
 #include "ota_manager.h"
 #include "show_image.h"
+#include "player/audio_player.h"
+#include "lisa_player.h"
 
 #define TAG "controller"
 #include "lisa_log.h"
@@ -336,10 +338,26 @@ static void backend_task(void *pvParameters)
 
 static int ctrl_event_audio_idle_handler(void *arg, uint32_t len)
 {
-
     LISA_LOGI(TAG, "%s", __FUNCTION__);
-    if (assist_controller->view->ops.update_event != NULL) {
-        assist_controller->view->ops.update_event(VIEW_EVENT_AUDIO_IDLE);
+
+    // Check if music is playing - if so, don't hide music cover
+    extern audioplayer_t *get_audio_player(void);
+    audioplayer_t *audio_player = get_audio_player();
+    bool is_music_playing = false;
+
+    if (audio_player) {
+        PlayerEvt music_state = listen_audioplayer_get_state(audio_player);
+        is_music_playing = (music_state == PLAYER_EVT_PLAYING);
+        LISA_LOGI(TAG, "%s: music_state=%d, is_music_playing=%d", __FUNCTION__, music_state, is_music_playing);
+    }
+
+    // Only trigger IDLE event if music is not playing
+    if (!is_music_playing) {
+        if (assist_controller->view->ops.update_event != NULL) {
+            assist_controller->view->ops.update_event(VIEW_EVENT_AUDIO_IDLE);
+        }
+    } else {
+        LISA_LOGI(TAG, "%s: Music is playing, keeping music interface visible", __FUNCTION__);
     }
 
     return 0;
@@ -375,10 +393,14 @@ static int ctrl_event_audio_wake_handler(void *arg, uint32_t len)
 {
 
     LISA_LOGI(TAG, "%s", __FUNCTION__);
-    
+
     // 取消文生图等待（重新唤醒表示用户有新的交互）
     show_image_cancel_waiting();
-    
+
+    // 隐藏音乐封面和音乐图标，返回主界面
+    assistant_view_hide_net_image();
+    assistant_view_hide_music_icon();
+
     if (assist_controller->view->ops.update_event != NULL) {
         assist_controller->view->ops.update_event(VIEW_EVENT_AUDIO_WAKEUP);
     }

@@ -566,7 +566,7 @@ static void ws_thread(void *arg) {
                 if (to_read > 1024) to_read = 1024;
                 int r = lwip_recv(ws->socket, ws->buffer + total, to_read, 0);
                 if (r <= 0) {
-                    LISA_LOGE(TAG, "Failed to read payload: r=%d, total=%llu, len=%llu", 
+                    LISA_LOGE(TAG, "Failed to read payload: r=%d, total=%llu, len=%llu",
                               r, (unsigned long long)total, (unsigned long long)payload_len);
                     ws->connected = false;
                     if (ws->on_event) {
@@ -576,19 +576,102 @@ static void ws_thread(void *arg) {
                 }
                 total += r;
             }
-            
+
             if (masked) {
                 for (uint64_t i = 0; i < payload_len; i++) {
                     ws->buffer[i] ^= mask[i % 4];
                 }
             }
-            
+
             if (ws->on_data && (opcode == 1 || opcode == 2)) {
                 jk_ws_data_type_e type = (opcode == 1) ? JK_WS_DATA_TEXT : JK_WS_DATA_BINARY;
                 ws->on_data(ws, type, ws->buffer, payload_len, ws->user);
             }
         } else {
-            LISA_LOGW(TAG, "Payload too large: %llu bytes, skipping", (unsigned long long)payload_len);
+            // 大帧分段读取处理
+            LISA_LOGI(TAG, "Large payload: %llu bytes, processing in chunks (opcode=%d)",
+                      (unsigned long long)payload_len, opcode);
+
+            // 对于 TEXT 帧 (opcode=1)，跳过不处理
+            if (opcode == 1) {
+                LISA_LOGW(TAG, "Skipping large TEXT frame");
+                uint64_t total = 0;
+                while (total < payload_len) {
+                    int to_read = payload_len - total;
+                    if (to_read > 1024) to_read = 1024;
+                    uint8_t dummy[1024];
+                    int r = lwip_recv(ws->socket, dummy, to_read, 0);
+                    if (r <= 0) {
+                        LISA_LOGE(TAG, "Failed to skip large TEXT frame: r=%d", r);
+                        ws->connected = false;
+                        if (ws->on_event) {
+                            ws->on_event(ws, JK_WS_EVENT_ERROR, ws->user);
+                        }
+                        break;
+                    }
+                    total += r;
+                }
+                continue;
+            }
+
+            // 对于 BINARY 帧 (opcode=2)，分段读取并传递给回调
+            if (opcode == 2 && ws->on_data) {
+                uint64_t total_read = 0;
+                uint64_t chunk_size = 4096;  // 每次读取 4KB
+                uint8_t *chunk_buffer = ws->buffer;
+
+                while (total_read < payload_len) {
+                    uint64_t to_read = payload_len - total_read;
+                    if (to_read > chunk_size) to_read = chunk_size;
+
+                    int r = lwip_recv(ws->socket, chunk_buffer, to_read, 0);
+                    if (r <= 0) {
+                        LISA_LOGE(TAG, "Failed to read chunk: r=%d", r);
+                        ws->connected = false;
+                        if (ws->on_event) {
+                            ws->on_event(ws, JK_WS_EVENT_ERROR, ws->user);
+                        }
+                        break;
+                    }
+
+                    // Unmask the chunk
+                    if (masked) {
+                        for (int i = 0; i < r; i++) {
+                            // 注意：mask 的偏移需要根据全局位置计算
+                            uint64_t global_offset = total_read + i;
+                            chunk_buffer[i] ^= mask[global_offset % 4];
+                        }
+                    }
+
+                    // 传递每个数据块给回调
+                    ws->on_data(ws, JK_WS_DATA_BINARY, chunk_buffer, r, ws->user);
+                    total_read += r;
+                }
+
+                LISA_LOGD(TAG, "Large binary frame processed: %llu bytes", (unsigned long long)total_read);
+                continue;
+            }
+
+            // 其他类型的大帧直接跳过
+            LISA_LOGW(TAG, "Skipping large frame (opcode=%d, len=%llu)", opcode,
+                      (unsigned long long)payload_len);
+            uint64_t total = 0;
+            while (total < payload_len) {
+                int to_read = payload_len - total;
+                if (to_read > 1024) to_read = 1024;
+                uint8_t dummy[1024];
+                int r = lwip_recv(ws->socket, dummy, to_read, 0);
+                if (r <= 0) {
+                    LISA_LOGE(TAG, "Failed to skip large frame: r=%d", r);
+                    ws->connected = false;
+                    if (ws->on_event) {
+                        ws->on_event(ws, JK_WS_EVENT_ERROR, ws->user);
+                    }
+                    break;
+                }
+                total += r;
+            }
+            continue;
         }
     }
     

@@ -1748,6 +1748,14 @@ static int event_inter_state_handler(ebus_chn_t *chn, uint32_t code, void *messa
         update_loading_state(view);
         break;
 
+    case LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_HIDE:
+        lisa_ui_llm_primary_hide_net_image(view->inter);
+        break;
+
+    case LISAUI_EBUS_CH_EVENT_M2U_MUSIC_ICON_HIDE:
+        lisa_ui_llm_primary_music_icon_hide(view->inter);
+        break;
+
     case LISAUI_EBUS_CH_EVENT_M2U_MUSIC_PLAY_START:
         lisa_ui_llm_primary_music_icon_show(view->inter);
         break;
@@ -1898,10 +1906,22 @@ static lisaui_page_t *create(lisaui_page_t *page)
                 event_inter_state_handler, 
                 view);
 
-        ebus_message_subscribe( view->ebus_ch_base_event, 
-                EBUS_SUBSCRIBER_TYPE_SYNC, 
+        ebus_message_subscribe( view->ebus_ch_base_event,
+                EBUS_SUBSCRIBER_TYPE_SYNC,
                 LISAUI_EBUS_CH_EVENT_M2U_MUSIC_PLAY_STOP,
-                event_inter_state_handler, 
+                event_inter_state_handler,
+                view);
+
+        ebus_message_subscribe( view->ebus_ch_base_event,
+                EBUS_SUBSCRIBER_TYPE_SYNC,
+                LISAUI_EBUS_CH_EVENT_M2U_NET_IMAGE_HIDE,
+                event_inter_state_handler,
+                view);
+
+        ebus_message_subscribe( view->ebus_ch_base_event,
+                EBUS_SUBSCRIBER_TYPE_SYNC,
+                LISAUI_EBUS_CH_EVENT_M2U_MUSIC_ICON_HIDE,
+                event_inter_state_handler,
                 view);
     }
 

@@ -42,6 +42,7 @@ listenai_library_sources(
     mcp/tools/switch_full_duplex.c
     mcp/tools/text2img_kolors.c
     mcp/tools/version_info.c
+    mcp/tools/voice_control.c
     mcp/tools/volume_control.c
     
     # Process manager
