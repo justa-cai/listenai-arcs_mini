@@ -619,7 +619,12 @@ static int update_iat_append_text(bool is_refresh, const char *text)
         }
     }
 
-    assistant_view_hide_camera_image();
+    // Note: Removed assistant_view_hide_camera_image() call here.
+    // Image hiding should be handled by the specific image display functions:
+    // - lisa_ui_llm_primary_show_camera_image() hides previous images when showing camera
+    // - lisa_ui_llm_primary_show_music_cover() hides camera image when showing music cover
+    // Hiding images here would incorrectly hide music covers that should persist.
+
     if (ret == 0) {
         workqueue_submit(view_handler->view->workq,
                          EBUS_MESSAGE_PUB_BY_WORK_DECLARE(LISAUI_EBUS_CH_EVENT_M2U_INTER_STATE_UPDATE), NULL, 0);

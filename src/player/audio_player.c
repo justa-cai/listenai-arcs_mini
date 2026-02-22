@@ -146,7 +146,7 @@ static void _audio_clear_queue(audioplayer_t *handle)
 static void _audio_on_focus_state(focus_state_e focus_state, channel_type_e by_which)
 {
 	PlayerEvt state = s_audio_player->m_player_state;
-	LISA_LOGD(TAG, "focus %d, by_which %d", focus_state, by_which);
+	LISA_LOGD(TAG, "focus %d, by_which %d, player_state=%d", focus_state, by_which, state);
 	if (s_audio_player->m_focus_state != focus_state) {
 		s_audio_player->m_focus_state = focus_state;
 		if (s_audio_player->m_is_pause_called) {
@@ -165,7 +165,10 @@ static void _audio_on_focus_state(focus_state_e focus_state, channel_type_e by_w
 		} else if (focus_state == FOREGROUND) {
 			if (by_which == AIP) {
 			} else if (s_audio_player->m_is_need_play_after_op) {
+				/* TTS completed, resume music playback */
+				LISA_LOGI(TAG, "Resuming music playback after TTS (state=%d)", state);
 				s_audio_player->m_is_need_play_after_op = false;
+				_audio_play_foreground(s_audio_player);
 			} else {
 				_audio_play_foreground(s_audio_player);
 			}

@@ -17,6 +17,8 @@
 #include "task.h"
 #include "aiui_mcp.h"
 #include "recognizer.h"
+#include "proc_mgr.h"
+#include "audio_player.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -362,33 +364,56 @@ static void on_llm_message(jk_llm_t *llm, jk_llm_message_t *msg) {
                 LISA_LOGI(TAG, "Old TTS stopped and state reset to CONNECTED");
             }
 
-            // Release CONTENT channel to allow TTS to get focus
-            LISA_LOGI(TAG, "Releasing CONTENT channel before TTS request");
-            listen_audiomgr_release_channel(s_cloud->m_client->audio_mgr, CONTENT);
-
-            // Acquire TTS channel focus before sending TTS request
-            LISA_LOGI(TAG, "Acquiring TTS channel focus before TTS request");
-            listen_audiomgr_acquire_channel(s_cloud->m_client->audio_mgr, TTS);
-
-            // Check if TTS is connected, if not, trigger reconnect
-            if (!s_cloud->tts_connected || s_cloud->tts->state == JK_TTS_STATE_DISCONNECTED) {
-                LISA_LOGW(TAG, "TTS disconnected (tts_connected=%d, state=%d), triggering reconnect",
-                          s_cloud->tts_connected, s_cloud->tts->state);
-                evs_handler_post_runnable_delay(_reconnect_runnable, NULL, 100);
-                // Don't send TTS request - wait for reconnect to complete
-                // The text will be lost, but user can ask again after reconnect
-                break;
+            // Check if music player is active (preparing, prepared, playing, or paused)
+            // If so, skip TTS to avoid interrupting music playback
+            audioplayer_t *audio_player = get_audio_player();
+            bool music_active = false;
+            if (audio_player) {
+                PlayerEvt music_state = listen_audioplayer_get_state(audio_player);
+                // APP_PLAYER_PREPARING = 101, check for active/preparing states
+                if (music_state == PLAYER_EVT_PREPARED ||
+                    music_state == PLAYER_EVT_PLAYING ||
+                    music_state == PLAYER_EVT_PAUSED ||
+                    music_state == 101) {  // APP_PLAYER_PREPARING
+                    music_active = true;
+                    LISA_LOGI(TAG, "Music player is active (state=%d), skipping TTS to avoid interrupting playback", music_state);
+                }
             }
 
-            s_cloud->drop_frame_count = 0;
-            jk_tts_request(s_cloud->tts, msg->content, NULL);
-            assist_controller_trigger_event(CONTROLLER_EVENT_STATE_TTS_PLAY_START, NULL, 0);
+            if (!music_active) {
+                // Release CONTENT channel to allow TTS to get focus
+                LISA_LOGI(TAG, "Releasing CONTENT channel before TTS request");
+                listen_audiomgr_release_channel(s_cloud->m_client->audio_mgr, CONTENT);
+
+                // Acquire TTS channel focus before sending TTS request
+                LISA_LOGI(TAG, "Acquiring TTS channel focus before TTS request");
+                listen_audiomgr_acquire_channel(s_cloud->m_client->audio_mgr, TTS);
+
+                // Check if TTS is connected, if not, trigger reconnect
+                if (!s_cloud->tts_connected || s_cloud->tts->state == JK_TTS_STATE_DISCONNECTED) {
+                    LISA_LOGW(TAG, "TTS disconnected (tts_connected=%d, state=%d), triggering reconnect",
+                              s_cloud->tts_connected, s_cloud->tts->state);
+                    evs_handler_post_runnable_delay(_reconnect_runnable, NULL, 100);
+                    // Don't send TTS request - wait for reconnect to complete
+                    // The text will be lost, but user can ask again after reconnect
+                    break;
+                }
+
+                s_cloud->drop_frame_count = 0;
+                jk_tts_request(s_cloud->tts, msg->content, NULL);
+                assist_controller_trigger_event(CONTROLLER_EVENT_STATE_TTS_PLAY_START, NULL, 0);
+            } else {
+                LISA_LOGI(TAG, "Skipping TTS request due to active music playback");
+            }
         }
         break;
 
     case JK_LLM_MSG_TYPE_TOOL_CALL:
-        LISA_LOGI(TAG, "Tool call: %s", msg->tool_name ? msg->tool_name : "null");
-        {
+        /* tool_call 带有 result 字段表示服务端已执行过工具，无需再执行 */
+        if (msg->result) {
+            LISA_LOGI(TAG, "Tool call: %s (server executed, skipping)", msg->tool_name ? msg->tool_name : "null");
+        } else {
+            LISA_LOGI(TAG, "Tool call: %s", msg->tool_name ? msg->tool_name : "null");
             cJSON *args = NULL;
             if (msg->arguments) {
                 args = cJSON_Parse(msg->arguments);

@@ -33,6 +33,10 @@
 #include "app_player.h"
 #include "show_image.h"
 
+#ifdef MY_CLOUD
+#include "jk_cloud.h"
+#endif
+
 typedef enum {
 	NLP_RESULT_INIT,
 	NLP_RESULT_MEDIA,
@@ -118,12 +122,38 @@ void proc_mgr_expect_tts_url(bool expect)
 
 audioplayer_t *get_audio_player(void)
 {
-	return s_audio_player;
+	/* 优先返回旧模式的 audio player */
+	if (s_audio_player) {
+		return s_audio_player;
+	}
+
+#ifdef MY_CLOUD
+	/* JK_CLOUD 模式：从 jk_cloud 实例获取 audio player */
+	jk_cloud_t *cloud = jk_cloud_get_instance();
+	if (cloud && cloud->m_client) {
+		return cloud->m_client->audio_player;
+	}
+#endif
+
+	return NULL;
 }
 
 tts_player_t *get_tts_player(void)
 {
-	return s_tts_player;
+	/* 优先返回旧模式的 tts player */
+	if (s_tts_player) {
+		return s_tts_player;
+	}
+
+#ifdef MY_CLOUD
+	/* JK_CLOUD 模式：从 jk_cloud 实例获取 tts player */
+	jk_cloud_t *cloud = jk_cloud_get_instance();
+	if (cloud && cloud->m_client) {
+		return cloud->m_client->tts_player;
+	}
+#endif
+
+	return NULL;
 }
 
 void enter_audio_idle(void)
