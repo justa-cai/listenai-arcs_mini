@@ -21,6 +21,7 @@ typedef struct {
     void (*on_connected)(jk_asr_t *asr);
     void (*on_disconnected)(jk_asr_t *asr);
     void (*on_text_result)(jk_asr_t *asr, const char *text, bool is_final);
+    void (*on_vad_event)(jk_asr_t *asr, const char *event, float duration);
     void (*on_error)(jk_asr_t *asr, const char *error_msg);
 } jk_asr_callbacks_t;
 

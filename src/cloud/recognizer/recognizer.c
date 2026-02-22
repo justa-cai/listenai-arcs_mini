@@ -55,7 +55,9 @@ static int _handle_stop_interactive(void *arg)
 
 	if (s_recognizer->m_state == RECORD) {
 		// 停止交互
-		lisa_aiui_stop_send(s_recognizer->m_aiui);
+		if (s_recognizer->m_aiui != NULL) {
+			lisa_aiui_stop_send(s_recognizer->m_aiui);
+		}
 	}
 	s_recognizer->m_enable_audio = false;
 	s_recognizer->m_state = IDLE;
@@ -70,10 +72,13 @@ static int _handle_stop_interactive(void *arg)
 		listen_audiomgr_release_channel(s_recognizer->m_audio_mgr, AIP);
 	}
 
-    lisa_err_t err = lisa_aiui_cancel_send(s_recognizer->m_aiui);
-    if (err != LISA_OK) {
-        LISA_LOGE(TAG, "aiui send cancel failed");
-    }
+	// Only call lisa_aiui_cancel_send if m_aiui is valid
+	if (s_recognizer->m_aiui != NULL) {
+		lisa_err_t err = lisa_aiui_cancel_send(s_recognizer->m_aiui);
+		if (err != LISA_OK) {
+			LISA_LOGE(TAG, "aiui send cancel failed");
+		}
+	}
 
 	// play timeout tip
 	char *url = app_tone_get_url(62);
@@ -188,7 +193,10 @@ void recognizer_recognize(recognizer_t *handle)
 			// 取消上次的录音
 			LISA_LOGI(TAG, "recognizer_recognize: stopping previous RECORD session");
 			handle->m_enable_audio = false;
-			lisa_aiui_stop_send(handle->m_aiui);
+			// Only call lisa_aiui_stop_send if m_aiui is valid
+			if (handle->m_aiui != NULL) {
+				lisa_aiui_stop_send(handle->m_aiui);
+			}
 		}
 		// 停止 ASR 定时器
 		lisa_timer_stop(handle->m_asr_timer);
@@ -204,7 +212,10 @@ void recognizer_recognize(recognizer_t *handle)
 			strcpy(old_fid, new_fid);
         }
 
-		lisa_aiui_cancel_send(handle->m_aiui);
+		// Only call lisa_aiui_cancel_send if m_aiui is valid
+		if (handle->m_aiui != NULL) {
+			lisa_aiui_cancel_send(handle->m_aiui);
+		}
 
 	}
 	// 获取焦点
@@ -238,9 +249,9 @@ static void _focus_state(focus_state_e focus_state, channel_type_e by_which)
 			int mode = lisa_aiui_get_interactive_mode();
 			LISA_LOGI(TAG, "FOREGROUND: interactive_mode=%d, m_enable_audio=%d",
 			          mode, s_recognizer->m_enable_audio);
-			// if (mode == INTER_ONESHOT || mode == INTER_CONTINUE) {
-			// 	listen_shortplayer_play(s_recognizer->m_short_player, 0);
-			// }
+			if (mode == INTER_ONESHOT || mode == INTER_CONTINUE) {
+				listen_shortplayer_play(s_recognizer->m_short_player, 0);
+			}
 			// evs_uuid_generate_string(s_recognizer->m_sid);
 			// extern void haoxueduo_role_start_text_play();
 			// haoxueduo_role_start_text_play();
@@ -275,7 +286,10 @@ static void _focus_state(focus_state_e focus_state, channel_type_e by_which)
 		// 停止发送音频
         if (lisa_aiui_get_interactive_mode() == INTER_ONESHOT) {
             if (s_recognizer->m_state == RECORD) {
-                lisa_aiui_stop_send(s_recognizer->m_aiui);
+				// Only call lisa_aiui_stop_send if m_aiui is valid
+				if (s_recognizer->m_aiui != NULL) {
+					lisa_aiui_stop_send(s_recognizer->m_aiui);
+				}
             }
             s_recognizer->m_enable_audio = false;
             s_recognizer->m_state = IDLE;
@@ -305,7 +319,10 @@ void recognizer_stop_record(recognizer_t *handle)
 	} else if (handle->m_state == RECORD) {  // 收到ASR结果后就停止录音
 		LISA_LOGD(TAG, "Stop cloud record");
 		handle->m_enable_audio = false;
-		lisa_aiui_stop_send(s_recognizer->m_aiui);
+		// Only call lisa_aiui_stop_send if m_aiui is valid
+		if (s_recognizer->m_aiui != NULL) {
+			lisa_aiui_stop_send(s_recognizer->m_aiui);
+		}
 	}
 	// 状态调整为Thinking
 	handle->m_state = THINKING;
@@ -321,7 +338,10 @@ void recognizer_recognize_restart(recognizer_t *handle)
 	handle->m_state = RECORD;
 
 	handle->m_enable_audio = true;
-	lisa_aiui_start_send_record(s_recognizer->m_aiui);
+	// Only call lisa_aiui_start_send_record if m_aiui is valid
+	if (s_recognizer->m_aiui != NULL) {
+		lisa_aiui_start_send_record(s_recognizer->m_aiui);
+	}
 }
 
 void recognizer_recognize_end(recognizer_t *handle)
@@ -357,7 +377,10 @@ void recognizer_recognize_once_end(recognizer_t *handle)
 		if (handle->m_state == RECORD) {
 			LISA_LOGI(TAG, "Auto stop: stopping audio send, state RECORD->IDLE");
 			handle->m_enable_audio = false;
-			lisa_aiui_stop_send(handle->m_aiui);
+			// Only call lisa_aiui_stop_send if m_aiui is valid
+			if (handle->m_aiui != NULL) {
+				lisa_aiui_stop_send(handle->m_aiui);
+			}
 		} else {
 			LISA_LOGI(TAG, "Auto stop: state=%d, only set to IDLE", handle->m_state);
 		}
@@ -376,7 +399,10 @@ void recognizer_manual_stop(void)
 	}
 
 	LISA_LOGW(TAG, "recognizer manual stop");
-	lisa_aiui_end_frame_send(s_recognizer->m_aiui);
+	// Only call lisa_aiui_end_frame_send if m_aiui is valid
+	if (s_recognizer->m_aiui != NULL) {
+		lisa_aiui_end_frame_send(s_recognizer->m_aiui);
+	}
 	recognizer_stop_record(s_recognizer);
 	recognizer_recognize_end(s_recognizer);
 }
@@ -389,7 +415,10 @@ void recognizer_stop(void)
     }
 
     LISA_LOGW(TAG, "recognizer stop");
-    lisa_aiui_cancel_send(s_recognizer->m_aiui);
+	// Only call lisa_aiui_cancel_send if m_aiui is valid
+	if (s_recognizer->m_aiui != NULL) {
+		lisa_aiui_cancel_send(s_recognizer->m_aiui);
+	}
     recognizer_stop_record(s_recognizer);
     recognizer_recognize_end(s_recognizer);
 }
@@ -406,7 +435,10 @@ void recognizer_stop_haoxueduo(void)
     LISA_LOGW(TAG, "recognizer stop");
 
 	if (app_cloud_is_connected()) {
-		lisa_aiui_cancel_send(s_recognizer->m_aiui);
+		// Only call lisa_aiui_cancel_send if m_aiui is valid
+		if (s_recognizer->m_aiui != NULL) {
+			lisa_aiui_cancel_send(s_recognizer->m_aiui);
+		}
 	}
     recognizer_stop_record(s_recognizer);
     recognizer_recognize_end(s_recognizer);

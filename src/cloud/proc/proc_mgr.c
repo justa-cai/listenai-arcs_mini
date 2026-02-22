@@ -160,6 +160,16 @@ void enter_audio_idle(void)
 {
 	recognizer_stop_record(s_rec);
 	recognizer_recognize_end(s_rec);
+
+#ifdef MY_CLOUD
+	/* Reset jk_cloud recording state to allow next wakeup to work properly */
+	jk_cloud_t *cloud = jk_cloud_get_instance();
+	if (cloud) {
+		cloud->is_recording = false;
+		LISA_LOGI(TAG, "Reset jk_cloud->is_recording to false");
+	}
+#endif
+
 	listen_audioplayer_puse(s_audio_player);
 	assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_PRE_IDLE, NULL, 0);
 

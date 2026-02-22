@@ -41,43 +41,95 @@ static void asr_on_data(jk_websocket_t *ws, jk_ws_data_type_e type,
                         const void *data, uint32_t len, void *user) {
     jk_asr_t *asr = (jk_asr_t *)user;
     if (!asr || !data) return;
-    
+
     LISA_LOGD(TAG, "ASR data received: type=%d, len=%u", type, len);
-    
+
     if (type != JK_WS_DATA_TEXT) {
         LISA_LOGW(TAG, "ASR: non-text data received, type=%d", type);
         return;
     }
-    
-    LISA_LOGI(TAG, "ASR JSON received (%u bytes): %.*s", len, len < 256 ? (int)len : 256, (const char *)data);
-    
+
     cJSON *json = cJSON_ParseWithLength((const char *)data, len);
     if (!json) {
         LISA_LOGE(TAG, "Failed to parse ASR JSON: %.*s", len < 128 ? (int)len : 128, (const char *)data);
         return;
     }
-    
-    cJSON *text_item = cJSON_GetObjectItem(json, "text");
-    cJSON *is_final_item = cJSON_GetObjectItem(json, "is_final");
-    
-    if (text_item && cJSON_IsString(text_item)) {
-        const char *text = text_item->valuestring;
-        bool is_final = is_final_item && cJSON_IsTrue(is_final_item);
-        
-        LISA_LOGI(TAG, "ASR: [%s] (final=%d)", text, is_final);
-        
-        if (asr->cbs.on_text_result && strlen(text) > 0) {
-            asr->cbs.on_text_result(asr, text, is_final);
-        }
-    } else {
-        LISA_LOGW(TAG, "ASR JSON missing 'text' field");
-        char *json_str = cJSON_PrintUnformatted(json);
-        if (json_str) {
-            LISA_LOGW(TAG, "JSON content: %s", json_str);
-            free(json_str);
-        }
+
+    cJSON *type_item = cJSON_GetObjectItem(json, "type");
+    if (!type_item || !cJSON_IsString(type_item)) {
+        LISA_LOGW(TAG, "ASR JSON missing 'type' field");
+        goto cleanup;
     }
-    
+
+    const char *msg_type = type_item->valuestring;
+
+    // Handle VAD events
+    if (strcmp(msg_type, "vad") == 0) {
+        cJSON *event_item = cJSON_GetObjectItem(json, "event");
+        if (event_item && cJSON_IsString(event_item)) {
+            const char *event = event_item->valuestring;
+            float duration = 0.0f;
+
+            // Get duration for speech_end events
+            if (strcmp(event, "speech_end") == 0) {
+                cJSON *duration_item = cJSON_GetObjectItem(json, "duration");
+                if (duration_item && cJSON_IsNumber(duration_item)) {
+                    duration = (float)duration_item->valuedouble;
+                }
+            }
+
+            LISA_LOGI(TAG, "ASR VAD: event=%s, duration=%.3f", event, duration);
+
+            if (asr->cbs.on_vad_event) {
+                asr->cbs.on_vad_event(asr, event, duration);
+            }
+        }
+        goto cleanup;
+    }
+
+    // Handle recognition results
+    if (strcmp(msg_type, "result") == 0) {
+        LISA_LOGI(TAG, "ASR JSON received (%u bytes): %.*s", len, len < 256 ? (int)len : 256, (const char *)data);
+
+        cJSON *text_item = cJSON_GetObjectItem(json, "text");
+        cJSON *is_final_item = cJSON_GetObjectItem(json, "is_final");
+
+        if (text_item && cJSON_IsString(text_item)) {
+            const char *text = text_item->valuestring;
+            bool is_final = is_final_item && cJSON_IsTrue(is_final_item);
+
+            LISA_LOG(TAG, "ASR: [%s] (final=%d)", text, is_final);
+
+            if (asr->cbs.on_text_result && strlen(text) > 0) {
+                asr->cbs.on_text_result(asr, text, is_final);
+            }
+        } else {
+            LISA_LOGW(TAG, "ASR JSON missing 'text' field");
+        }
+        goto cleanup;
+    }
+
+    // Handle error messages
+    if (strcmp(msg_type, "error") == 0) {
+        cJSON *msg_item = cJSON_GetObjectItem(json, "message");
+        const char *error_msg = msg_item && cJSON_IsString(msg_item) ? msg_item->valuestring : "Unknown error";
+        LISA_LOGE(TAG, "ASR error: %s", error_msg);
+
+        if (asr->cbs.on_error) {
+            asr->cbs.on_error(asr, error_msg);
+        }
+        goto cleanup;
+    }
+
+    // Handle pong response
+    if (strcmp(msg_type, "pong") == 0) {
+        LISA_LOGD(TAG, "ASR pong received");
+        goto cleanup;
+    }
+
+    LISA_LOGW(TAG, "ASR unknown message type: %s", msg_type);
+
+cleanup:
     cJSON_Delete(json);
 }
 
@@ -137,7 +189,7 @@ int jk_asr_connect(jk_asr_t *asr) {
         return 0;
     }
 
-    LISA_LOGI(TAG, "Connecting to ws://%s:%s/", asr->host, asr->port);
+    LISA_LOG(TAG, "Connecting to ws://%s:%s/", asr->host, asr->port);
     asr->state = JK_ASR_STATE_CONNECTING;
 
     int ret = jk_ws_connect(asr->ws);

@@ -1754,6 +1754,8 @@ static int event_inter_state_handler(ebus_chn_t *chn, uint32_t code, void *messa
 
     case LISAUI_EBUS_CH_EVENT_M2U_MUSIC_PLAY_STOP:
         lisa_ui_llm_primary_music_icon_hide(view->inter);
+        /* Hide music cover and title when music playback stops */
+        lisa_ui_llm_primary_hide_net_image(view->inter);
         break;
 
     default:

@@ -29,6 +29,18 @@
 // AP 每次过来 16ms 数据, 过滤 52 帧 (与 recognizer.c 保持一致)
 #define JK_CLOUD_DROP_AUDIO_FRAME_MAX (52)
 
+// Countdown update interval (1 second)
+#define JK_CLOUD_COUNTDOWN_UPDATE_MS 1000
+
+// Forward declarations for VAD silence timer functions
+static void _vad_silence_timeout_cb(void *arg);
+static void _start_vad_silence_timer(void);
+static void _stop_vad_silence_timer_with_countdown(bool stop_countdown);
+static void _stop_vad_silence_timer(void);
+static void _countdown_update_cb(void *arg);
+static void _start_countdown_timer(void);
+static void _stop_countdown_timer(void);
+
 static jk_cloud_t *s_cloud = NULL;
 
 static int _reconnect_runnable(void *arg);
@@ -123,12 +135,15 @@ static void on_asr_text_result(jk_asr_t *asr, const char *text, bool is_final) {
         LISA_LOGW(TAG, "ASR result callback: s_cloud=%p, text=%p", s_cloud, text);
         return;
     }
-    
+
     LISA_LOGI(TAG, "ASR result: [%s] (is_final: %d, len=%zu)", text, is_final, strlen(text));
-    
+
+    // Stop silence timer since user is speaking
+    _stop_vad_silence_timer();
+
     if (is_final && strlen(text) > 0) {
         LISA_LOGI(TAG, "Sending text to LLM: %s", text);
-        assist_controller_trigger_event(CONTROLLER_EVENT_STATE_CLOUD_UPDATE_IAT_TEXT, 
+        assist_controller_trigger_event(CONTROLLER_EVENT_STATE_CLOUD_UPDATE_IAT_TEXT,
                                          (void *)text, strlen(text) + 1);
         jk_llm_send_text(s_cloud->llm, text);
     } else {
@@ -163,6 +178,240 @@ static void on_asr_error(jk_asr_t *asr, const char *error_msg) {
             LISA_LOGI(TAG, "Scheduling ASR reconnect in 500ms");
             evs_handler_post_runnable_delay(_reconnect_runnable, NULL, 500);
         }
+    }
+}
+
+/**
+ * VAD silence timeout callback - triggered when user is silent for too long
+ */
+static void _vad_silence_timeout_cb(void *arg) {
+    LISA_LOGI(TAG, "VAD silence timeout: no speech detected for %d ms, returning to IDLE",
+              JK_CLOUD_VAD_SILENCE_TIMEOUT_MS);
+
+    if (!s_cloud) {
+        return;
+    }
+
+    s_cloud->is_vad_silence_timer_running = false;
+
+    // Stop recording
+    if (s_cloud->is_recording) {
+        s_cloud->is_recording = false;
+        LISA_LOGI(TAG, "Stopped recording due to VAD silence timeout");
+    }
+
+    // Trigger UI update to return to IDLE state
+    assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_IDLE, NULL, 0);
+}
+
+/**
+ * Start VAD silence timer
+ */
+static void _start_vad_silence_timer(void) {
+    if (!s_cloud) {
+        return;
+    }
+
+    // Stop existing timer if running
+    if (s_cloud->vad_silence_timer) {
+        lisa_timer_stop(s_cloud->vad_silence_timer);
+        s_cloud->vad_silence_timer = NULL;
+    }
+
+    // Create and start new timer
+    s_cloud->vad_silence_timer = lisa_timer_create(JK_CLOUD_VAD_SILENCE_TIMEOUT_MS,
+                                                    _vad_silence_timeout_cb, NULL);
+    if (s_cloud->vad_silence_timer) {
+        lisa_timer_start(s_cloud->vad_silence_timer);
+        s_cloud->is_vad_silence_timer_running = true;
+        LISA_LOG(TAG, "VAD silence timer started: %d ms", JK_CLOUD_VAD_SILENCE_TIMEOUT_MS);
+
+        // Start countdown timer to update status bar
+        _start_countdown_timer();
+    }
+}
+
+/**
+ * Stop VAD silence timer (optionally stop countdown too)
+ */
+static void _stop_vad_silence_timer_with_countdown(bool stop_countdown) {
+    if (!s_cloud || !s_cloud->vad_silence_timer) {
+        return;
+    }
+
+    lisa_timer_stop(s_cloud->vad_silence_timer);
+    s_cloud->vad_silence_timer = NULL;
+    s_cloud->is_vad_silence_timer_running = false;
+    LISA_LOGD(TAG, "VAD silence timer stopped (stop_countdown=%d)", stop_countdown);
+
+    // Only stop countdown timer if requested
+    if (stop_countdown) {
+        _stop_countdown_timer();
+    }
+}
+
+/**
+ * Stop VAD silence timer (with countdown)
+ */
+static void _stop_vad_silence_timer(void) {
+    _stop_vad_silence_timer_with_countdown(true);
+}
+
+/**
+ * Countdown update callback - updates status bar with remaining time
+ */
+static void _countdown_update_cb(void *arg) {
+    if (!s_cloud) {
+        LISA_LOGW(TAG, "Countdown update: s_cloud is NULL");
+        return;
+    }
+
+    if (!s_cloud->is_countdown_timer_running) {
+        LISA_LOGW(TAG, "Countdown update: timer not running, is_running=%d", s_cloud->is_countdown_timer_running);
+        return;
+    }
+
+    s_cloud->countdown_seconds--;
+    LISA_LOGI(TAG, "Countdown update: %d seconds remaining", s_cloud->countdown_seconds);
+
+    if (s_cloud->countdown_seconds <= 0) {
+        // Countdown finished, stop timer
+        _stop_countdown_timer();
+        return;
+    }
+
+    // Update status bar with countdown
+    char status_text[32];
+    snprintf(status_text, sizeof(status_text), "监听中 %d秒", s_cloud->countdown_seconds);
+
+    // Trigger event to update status text
+    assist_controller_trigger_event(CONTROLLER_EVENT_STATE_CLOUD_UPDATE_IAT_TEXT,
+                                     status_text, strlen(status_text) + 1);
+
+    // Stop old timer before creating new one
+    if (s_cloud->countdown_timer) {
+        lisa_timer_stop(s_cloud->countdown_timer);
+        s_cloud->countdown_timer = NULL;
+    }
+
+    // Recreate timer for next update (lisa_timer is one-shot, need to recreate)
+    s_cloud->countdown_timer = lisa_timer_create(JK_CLOUD_COUNTDOWN_UPDATE_MS,
+                                                   _countdown_update_cb, NULL);
+    if (s_cloud->countdown_timer) {
+        lisa_timer_start(s_cloud->countdown_timer);
+    } else {
+        LISA_LOGE(TAG, "Failed to recreate countdown timer");
+        s_cloud->is_countdown_timer_running = false;
+    }
+}
+
+/**
+ * Start countdown timer
+ */
+static void _start_countdown_timer(void) {
+    if (!s_cloud) {
+        return;
+    }
+
+    // Stop existing timer if running
+    if (s_cloud->countdown_timer) {
+        lisa_timer_stop(s_cloud->countdown_timer);
+        s_cloud->countdown_timer = NULL;
+    }
+
+    // Initialize countdown
+    s_cloud->countdown_seconds = JK_CLOUD_VAD_SILENCE_TIMEOUT_MS / 1000;
+
+    // Create and start timer
+    s_cloud->countdown_timer = lisa_timer_create(JK_CLOUD_COUNTDOWN_UPDATE_MS,
+                                                   _countdown_update_cb, NULL);
+    if (s_cloud->countdown_timer) {
+        lisa_timer_start(s_cloud->countdown_timer);
+        s_cloud->is_countdown_timer_running = true;
+        LISA_LOGI(TAG, "Countdown timer started: %d seconds", s_cloud->countdown_seconds);
+
+        // Initial update
+        _countdown_update_cb(NULL);
+    }
+}
+
+/**
+ * Stop countdown timer
+ */
+static void _stop_countdown_timer(void) {
+    if (!s_cloud || !s_cloud->countdown_timer) {
+        return;
+    }
+
+    LISA_LOGI(TAG, "Stopping countdown timer: %d seconds remaining", s_cloud->countdown_seconds);
+    lisa_timer_stop(s_cloud->countdown_timer);
+    s_cloud->countdown_timer = NULL;
+    s_cloud->is_countdown_timer_running = false;
+    s_cloud->countdown_seconds = 0;
+}
+
+static int _vad_speech_end_handler(void *arg) {
+    LISA_LOGI(TAG, "Processing speech_end event");
+
+    if (!s_cloud) {
+        LISA_LOGW(TAG, "s_cloud is NULL in speech_end handler");
+        return -1;
+    }
+
+    // Check if auto-stop is enabled (single-shot mode)
+    bool auto_stop = recognizer_get_auto_stop_record();
+    int mode = lisa_aiui_get_interactive_mode();
+
+    LISA_LOGI(TAG, "VAD speech_end: auto_stop=%d, mode=%d (ONESHOT=%d, CONTINUE=%d)",
+              auto_stop, mode, INTER_ONESHOT, INTER_CONTINUE);
+
+    // Only stop recording in single-shot mode or when auto-stop is enabled
+    if (auto_stop || mode == INTER_ONESHOT) {
+        _stop_vad_silence_timer();  // Stop silence timer
+
+        if (s_cloud->is_recording) {
+            s_cloud->is_recording = false;
+            LISA_LOGI(TAG, "Stopped recording due to speech_end (single-shot mode)");
+        }
+
+        // Trigger UI update to return to IDLE state
+        assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_IDLE, NULL, 0);
+    } else {
+        LISA_LOGI(TAG, "Continue mode: starting silence timer, waiting for next interaction");
+        // Start silence timer - will return to IDLE if no new speech within timeout
+        _start_vad_silence_timer();
+        // Update UI to show listening state (but not stop recording)
+        assist_controller_trigger_event(CONTROLLER_EVENT_STATE_VAD_END, NULL, 0);
+    }
+
+    return 0;
+}
+
+static void on_asr_vad_event(jk_asr_t *asr, const char *event, float duration) {
+    if (!event) {
+        LISA_LOGW(TAG, "ASR VAD callback: event=%p", event);
+        return;
+    }
+
+    LISA_LOGI(TAG, "ASR VAD: event=%s, duration=%.3f, countdown_running=%d, silence_running=%d",
+              event, duration,
+              s_cloud ? s_cloud->is_countdown_timer_running : -1,
+              s_cloud ? s_cloud->is_vad_silence_timer_running : -1);
+
+    if (strcmp(event, "speech_start") == 0) {
+        // Speech detected - stop silence timer but keep countdown running
+        // Don't stop countdown timer to prevent spurious speech_start events from interrupting timeout
+        _stop_vad_silence_timer_with_countdown(false);
+
+        // Update status to show listening state
+        assist_controller_trigger_event(CONTROLLER_EVENT_STATE_CLOUD_UPDATE_IAT_TEXT,
+                                         (void *)"我在听", 9);
+
+        LISA_LOGI(TAG, "Speech started - silence timer stopped, countdown preserved");
+    } else if (strcmp(event, "speech_end") == 0) {
+        // Speech ended - post to event queue to stop recording
+        LISA_LOGI(TAG, "Speech ended after %.3f seconds, scheduling stop recording", duration);
+        evs_handler_post_runnable(_vad_speech_end_handler, NULL);
     }
 }
 
@@ -614,6 +863,7 @@ jk_cloud_t *jk_cloud_create(app_client_t *client) {
         .on_connected = on_asr_connected,
         .on_disconnected = on_asr_disconnected,
         .on_text_result = on_asr_text_result,
+        .on_vad_event = on_asr_vad_event,
         .on_error = on_asr_error,
     };
     cloud->asr = jk_asr_create(cloud->host, "9200", &asr_cbs);
@@ -676,6 +926,18 @@ cleanup:
 
 void jk_cloud_destroy(jk_cloud_t *cloud) {
     if (!cloud) return;
+
+    // Clean up VAD silence timer
+    if (cloud->vad_silence_timer) {
+        lisa_timer_stop(cloud->vad_silence_timer);
+        cloud->vad_silence_timer = NULL;
+    }
+
+    // Clean up countdown timer
+    if (cloud->countdown_timer) {
+        lisa_timer_stop(cloud->countdown_timer);
+        cloud->countdown_timer = NULL;
+    }
 
     if (cloud->pcm_player) jk_pcm_player_destroy(cloud->pcm_player);
     jk_asr_destroy(cloud->asr);

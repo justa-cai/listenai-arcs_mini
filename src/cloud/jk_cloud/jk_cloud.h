@@ -7,6 +7,9 @@
 #include "jk_llm.h"
 #include "jk_tts.h"
 
+// VAD silence timeout before returning to IDLE (in milliseconds)
+#define JK_CLOUD_VAD_SILENCE_TIMEOUT_MS 10000  // 10 seconds
+
 typedef enum {
     JK_CLOUD_STATE_DISCONNECTED = 0,
     JK_CLOUD_STATE_CONNECTING,
@@ -35,6 +38,11 @@ typedef struct jk_cloud {
     bool is_recording;
     uint32_t drop_frame_count;
     char accumulated_text[1024];
+    void *vad_silence_timer;  // Timer for VAD silence detection
+    bool is_vad_silence_timer_running;
+    void *countdown_timer;    // Timer for countdown update
+    int countdown_seconds;    // Remaining seconds before timeout
+    bool is_countdown_timer_running;
 } jk_cloud_t;
 
 struct app_client_s;
