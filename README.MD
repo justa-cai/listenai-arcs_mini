@@ -135,3 +135,15 @@ adb shell kv set int user.volume 30
     SHA_SENG = "沙僧"
     拜年模式
 ```
+
+
+
+---
+
+<div align="center">
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=justa-cai/listenai-arcs_mini&type=Date)](https://star-history.com/#justa-cai/listenai-arcs_mini&Date)
+
+</div>
