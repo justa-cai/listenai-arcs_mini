@@ -1,109 +1,137 @@
-# 快速上手
+# arcs_mini 春节魔改版本
 
-## 环境搭建
+配合 [listenai-server)](https://github.com/justa-cai/listenai-server) 使用
 
-**系统要求：** Ubuntu 18.04 以上
+## 社群
+欢迎进群交流
+![社群二维码](pic/飞书20260224-143827.png)
 
-### 自动搭建
+## V1.0 功能
+- [x] 支持，ping工具测延迟
+- [x] 支持，iperf工具测速
+- [x] 支持，本地音乐播放/封面
+- [x] 支持，LLM MCP/Funcation Call功能，包含端侧和服务侧端
+- [x] 支持，本地 ASR/TTS/LLM
+- [x] 支持，流式ASR
+- [x] 支持，流式TTS
+- [x] 支持，声音clone
+- [x] 支持，角色扮演模式(拜年模式/大话西游角色(至尊宝/紫霞仙子等))
+- [] 优化，稳定性
 
-1. 运行脚本 `prepare_listenai_tools.sh` 下载开发工具包：
+## V1.1 功能
+- [] 支持，音频解压缩算法
+- [] linux端侧仿真功能
+- [] 重构，减少arcs_mini相关文件修改，方便合并主干修改
 
-   ```bash
-   ./arcs-sdk/prepare_listenai_tools.sh
-   ```
+## 基础使用
+参考官方文档，用小程序激活绑定网络 [官方文档配网流程](https://docs2.listenai.com/x/IPiXdnAJg)
 
-2. 运行脚本 `prepare_toolchain.sh` 下载工具链：
+## 烧写
+第一次烧写，构建后统一使用`recovery.sh`烧写，避免1.6基础固件升级到1.7升级失败。
+> 平常调试使用 `./build.sh && ./download.sh `
 
-   ```bash
-   ./arcs-sdk/prepare_toolchain.sh
-   ```
+## 使用
 
-### 手动搭建
+### 首轮配置
+服务器默认配置，需要根据实际修改。
 
-1. 下载对应平台的工具链后进行解压，如果已经存在工具链，此步骤可跳过：
-   - [Linux 下载地址](https://iflyos-external.oss-cn-shanghai.aliyuncs.com/chip_arcs/listenai-linux-amd64-tools.tar.gz)
+**修改服务器地址：**
 
-2. 下载对应平台的 ListenAI 开发工具包：
-   - [Linux 下载地址](http://listenai-firmware-delivery.oss-cn-beijing.aliyuncs.com/ARCS/tools/dev-tools/linux-amd64/v0.0.1/listenai-tools.tar.gz)
+编辑 `prj.conf` 文件，修改 `CONFIG_MY_CLOUD_HOST` 配置项：
 
-3. 设置环境变量：
-   - 将 `NUCLEI_TOOLCHAIN_PATH` 指向解压后的**工具链**（步骤1下载的工具）的路径
-   - 将 `LISTENAI_TOOLS_PATH` 指向解压后的**ListenAI工具包**（步骤2下载的工具）路径
+```conf
+# 自托管云服务器地址配置
+CONFIG_MY_CLOUD_HOST="192.168.1.169"
+```
 
-> **注意：** 目前仅支持 `Linux` 平台，推荐使用 `Ubuntu 18.04` 以上版本
+将 `192.168.1.169` 改为你的实际服务器地址，例如：
+- `CONFIG_MY_CLOUD_HOST="192.168.1.100"` - 局域网地址
+- `CONFIG_MY_CLOUD_HOST="your-domain.com"` - 域名地址
 
-## 编译工程
 
+修改后重新编译：
 ```bash
 ./build.sh
 ```
 
-# 目录说明
-
+### AEC参数调整
+在长时间的playback模式下，AEC并不稳定，暂时先降低音量进行规避
 ```
-.
-├── arcs-sdk        # ARCS SDK 工程
-├── modules         # 存放第三方模块
-├── res             # 存放资源文件
-├── src             # 存放语音交互代码
-├── tools           # 存放工具或者脚本
-└── build.sh        # 工程构建脚本
+adb shell kv set int user.mic_gain 70
+adb shell kv set int user.aec_gain 40
+adb shell kv set int user.volume 30
 ```
 
-# 使用说明
+## 功能尝试
 
-## FLASH 分区说明
+### 本地音乐
+请先部署listenai-server，放置本地音乐在data目录下，并启动music服务
 
-| 分区名称 | 分区起始地址 | 备注 |
-|--------------------|------------|--|
-| `boot.bin`         | `0x0`      | Boot 程序，用于引导/烧录 |
-| `ap.bin`           | `0x40000`  | AP 固件 |
-| `app-config.json`  | `0xF0000`  | App 配置文件 |
-| `tone.bin`         | `0x100000` | 提示音资源 |
-| `wake_word.bin`    | `0x200000` | 算法资源 |
-| `respak.bin`       | `0x400000` | 图片与字体资源 |
-| `aiui.bin`         | `0x600000` | CP 固件 |
-
-## 固件及资源烧录
-
-### 进入 ROM 升级模式
-
-在该模式下，可以通过指定工具通过串口烧录固件。
-
-- **进入方式：** 将 `boot` 引脚接地后，复位开发板，此时开发板会进入 ROM 升级模式
-- **烧录方式：** 先将 `boot` 引脚悬空（该引脚和烧录串口引脚复用），然后使用 `cskburn` 工具通过串口烧录固件
-
-### 空板烧录
-
-无 `boot` 程序表示空板，空板烧录需要使用 ROM 升级模式进行烧录，将串口板连接开发板的 TX0 RX0，烧录 boot 程序。
-
-```bash
-cskburn -C arcs -s /dev/ttyACM0 -b 3000000 0x0 ./res/boot.bin
+- 通过语音指令控制
+```
+播放一首歌
+播放周杰伦的七里香
+播放五月天的你不是真正的快乐
+下一首
 ```
 
-### 非空板烧录
+- 通过按键触发
+按键原进入语音识别模式功能，被屏蔽掉，改成了触发播放下一首
 
-如果已烧录 boot 程序，则可以使用 ADB 命令进行烧录。
+![音乐播放效果](pic/music.jpg)
 
-在应用开发过程中，可输入命令进入到恢复模式中，在该模式下可进行固件烧录：
 
-```bash
-adb shell recovery
+### 控制功能
+设备有个灯，可以配合listenai-server实现调用本地注册的tools继而实现关灯功能
+
+- 打开灯
+- 关闭灯
+- 灯调成闪缩模式
+- 音量调整到100
+- 亮度调整到100
+
+### 查询功能
+查询下设备固件号(本地设备端能力)/查询天气(服务器端能力)等等
+
+- 查下当前音量
+- 查下当前固件号
+- 查下明天的天气
+
+### 声音音色切换
+请确保服务器已经有这些可以clone的音色，目前支持以下示例音色切换
+```
+"通用场景-阳光青年", "通用场景-温暖阿虎", "通用场景-开朗姐姐",
+"趣味口音-湾湾小何", "趣味口音-京腔侃爷", "趣味口音-呆萌川妹",
+"角色扮演-高冷御姐", "角色扮演-傲娇霸总", "角色扮演-柔美女友",
+"通用场景-渊博小叔", "通用场景-知性女声", "有声阅读-悬疑解说"
 ```
 
-进入恢复模式后，可通过 `adb push` 命令烧录固件和资源：
+示例：
+- 把当前音色切换成傲娇霸总
+- 把当前音色切换成湾湾小何
 
-```bash
-adb push res/ap.bin /RAW/NAND/40000
-adb push res/app-config.json /RAW/NAND/F0000
-adb push res/tone.bin /RAW/NAND/100000
-adb push res/wake_word.bin /RAW/NAND/200000
-adb push res/respak.bin /RAW/NAND/400000
-adb push build/aiui.bin /RAW/NAND/600000
+### 角色模式
+支持通过指令进入角色模式，例如：切换角色模式到至尊宝，LLM的system prompt的设定就是至尊宝，你可以这样子问她
+
+> 当你遇到了紫霞仙子，你什么话想对她说的？
+
+你就会听到
+```
+曾经有一份真诚的爱情放在我面前，我却不知道珍惜，直到失去了才后悔莫及。现在想来，如果时间能够倒流，我一定会对你说：“我爱你，一万年！” 
+不过说真的，跟你在一起的那些日子，虽然有时候你总是拿剑指着我，但我心里其实暖暖的。你知道吗？我这辈子都不想做孙悟空，我只想做个普通人，陪在你身边，保护你，疼爱你。可惜啊，命运弄人，我们终究还是分开了...
+（轻叹一声）现在想起来，那段时光真是美好得让人想哭。神仙姐姐，如果你能听到我的话，一定要记得，我至尊宝的心里，永远都有你的一席之地。哪怕你现在变成了紫霞仙子，我还是会毫不犹豫地告诉你——我爱你！
+（突然想到什么，咧嘴一笑）不过嘛，要是你再这么凶巴巴地对我，我可就要考虑要不要重新当回那个不靠谱的山贼了！哈哈~
 ```
 
-烧录成功后，运行如下命令重启开发板：
+> 在角色扮演模式，是无法控制任何设备的，你可以通过指令 "退出角色模式"来回到正常模式下
 
-```bash
-adb shell reboot hard
+后台内置角色模式，如下
+```
+    ZHIINZUBAO = "至尊宝"
+    ZIXIA = "紫霞仙子"
+    BULLYING = "牛魔王"
+    TANG_SENG = "唐僧"
+    PIGGY = "猪八戒"
+    SHA_SENG = "沙僧"
+    拜年模式
 ```
