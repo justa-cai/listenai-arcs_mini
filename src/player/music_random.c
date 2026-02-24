@@ -30,8 +30,11 @@
 extern audioplayer_t *get_audio_player(void);
 extern tts_player_t *get_tts_player(void);
 
-// 音乐服务器地址
-#define MUSIC_SERVER_BASE_URL "http://192.168.1.169:9100"
+// 音乐服务器地址 - 从 Kconfig 配置获取
+#ifndef CONFIG_MY_CLOUD_HOST
+#define CONFIG_MY_CLOUD_HOST "192.168.1.169"
+#endif
+#define MUSIC_SERVER_BASE_URL "http://" CONFIG_MY_CLOUD_HOST ":9100"
 #define MUSIC_API_RANDOM "/api/random"  // 获取随机歌曲（返回ID）
 #define MUSIC_API_DOWNLOAD_PATTERN "%s/api/download/%d"  // 下载URL模板
 #define MUSIC_API_TIMEOUT_MS (10000)  // 10秒超时

@@ -18,7 +18,11 @@
 #include "audio/app_player.h"
 #include "display/lv_img_net_loader.h"
 
-#define MUSIC_SERVER_BASE_URL "http://192.168.1.169:9100"
+// 从 Kconfig 配置获取服务器地址
+#ifndef CONFIG_MY_CLOUD_HOST
+#define CONFIG_MY_CLOUD_HOST "192.168.1.169"
+#endif
+#define MUSIC_SERVER_BASE_URL "http://" CONFIG_MY_CLOUD_HOST ":9100"
 #define MUSIC_API_SEARCH "/api/search"
 #define MUSIC_API_RANDOM "/api/random"
 #define MUSIC_API_RANDOM "/api/random"
