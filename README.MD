@@ -144,6 +144,6 @@ adb shell kv set int user.volume 30
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=justa-cai/listenai-arcs_mini&type=Date)](https://star-history.com/#justa-cai/listenai-arcs_mini&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=justa-cai/listenai-arcs_mini&type=date&legend=top-left)](https://www.star-history.com/#justa-cai/listenai-arcs_mini&type=date&legend=top-left)
 
 </div>
