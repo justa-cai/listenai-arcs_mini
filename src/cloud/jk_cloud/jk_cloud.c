@@ -19,11 +19,12 @@
 #include "recognizer.h"
 #include "proc_mgr.h"
 #include "audio_player.h"
+#include "lisa_kv.h"
 #include <stdio.h>
 #include <string.h>
 
 #ifndef CONFIG_MY_CLOUD_HOST
-#define CONFIG_MY_CLOUD_HOST "192.168.1.169"
+#define CONFIG_MY_CLOUD_HOST "192.168.1.100"
 #endif
 
 // AP 每次过来 16ms 数据, 过滤 52 帧 (与 recognizer.c 保持一致)
@@ -42,6 +43,24 @@ static void _start_countdown_timer(void);
 static void _stop_countdown_timer(void);
 
 static jk_cloud_t *s_cloud = NULL;
+
+/**
+ * Get cloud host address from KV storage or use default
+ * @return Host address string (must be freed by caller)
+ */
+static char *jk_cloud_get_host(void) {
+    char *host = NULL;
+
+    // Try to get from KV storage first
+    if (lisa_kv_get_string("user.kcloud_host", &host) == 0 && host != NULL) {
+        LISA_LOGI(TAG, "Using cloud host from KV: %s", host);
+        return host;
+    }
+
+    // Fall back to default configuration
+    LISA_LOGI(TAG, "Using default cloud host: %s", CONFIG_MY_CLOUD_HOST);
+    return strdup(CONFIG_MY_CLOUD_HOST);
+}
 
 static int _reconnect_runnable(void *arg);
 static void jk_cloud_check_all_connected(void);
@@ -843,7 +862,7 @@ jk_cloud_t *jk_cloud_create(app_client_t *client) {
     }
 
     cloud->m_client = client;
-    cloud->host = strdup(CONFIG_MY_CLOUD_HOST);
+    cloud->host = jk_cloud_get_host();
     cloud->state = JK_CLOUD_STATE_DISCONNECTED;
     cloud->asr_connected = false;
     cloud->llm_connected = false;

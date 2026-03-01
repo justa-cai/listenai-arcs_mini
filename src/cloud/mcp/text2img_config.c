@@ -5,7 +5,7 @@
 
 // 从 Kconfig 配置获取服务器地址，格式化为完整的 URL
 #ifndef CONFIG_MY_CLOUD_HOST
-#define CONFIG_MY_CLOUD_HOST "192.168.1.169"
+#define CONFIG_MY_CLOUD_HOST "192.168.1.100"
 #endif
 #define TEXT2IMG_DEFAULT_BASE_URL "http://" CONFIG_MY_CLOUD_HOST ":9100"
 
