@@ -27,6 +27,14 @@
 #define CONFIG_MY_CLOUD_HOST "192.168.1.100"
 #endif
 
+/* Check Opus support availability at compile time */
+#ifdef CONFIG_SDK_MODULE_OPUS_DECODER
+#define CLOUD_HAS_OPUS 1
+#else
+#define CLOUD_HAS_OPUS 0
+#warning "Opus module not enabled - Opus encoding will be unavailable"
+#endif
+
 // AP 每次过来 16ms 数据, 过滤 52 帧 (与 recognizer.c 保持一致)
 #define JK_CLOUD_DROP_AUDIO_FRAME_MAX (52)
 
@@ -171,10 +179,25 @@ static void on_asr_text_result(jk_asr_t *asr, const char *text, bool is_final) {
 }
 
 static void on_asr_connected(jk_asr_t *asr) {
-    LISA_LOGI(TAG, "ASR connected");
+    LISA_LOGI(TAG, "=== ASR connected callback === asr=%p, CLOUD_HAS_OPUS=%d", asr, CLOUD_HAS_OPUS);
     if (s_cloud) {
         s_cloud->asr_connected = true;
         jk_cloud_check_all_connected();
+
+        /* Enable Opus encoding for bandwidth optimization */
+#if CLOUD_HAS_OPUS
+        LISA_LOGI(TAG, "Attempting to enable Opus encoding...");
+        int ret = jk_asr_opus_enable(asr);
+        if (ret == 0) {
+            LISA_LOGI(TAG, "Opus encoding enabled successfully");
+        } else {
+            LISA_LOGW(TAG, "Opus encoding not available, using PCM mode (ret=%d)", ret);
+        }
+#else
+        LISA_LOGW(TAG, "Opus encoding NOT available at compile time, using PCM mode");
+#endif
+    } else {
+        LISA_LOGE(TAG, "on_asr_connected: s_cloud is NULL!");
     }
 }
 
@@ -1126,20 +1149,26 @@ bool jk_cloud_is_wifi_connected(void) {
 }
 
 void jk_cloud_audio(jk_cloud_t *cloud, const char *audio, uint32_t len) {
+    static uint32_t call_count = 0;
+    call_count++;
+
     if (!cloud || !audio || len == 0) {
-        LISA_LOGE(TAG, "jk_cloud_audio: invalid params cloud=%p audio=%p len=%u", cloud, audio, len);
+        LISA_LOGE(TAG, "jk_cloud_audio[%lu]: invalid params cloud=%p audio=%p len=%u",
+                  call_count, cloud, audio, len);
         return;
     }
     if (!cloud->is_recording) {
-        LISA_LOGD(TAG, "jk_cloud_audio: not recording");
+        LISA_LOGD(TAG, "jk_cloud_audio[%lu]: not recording, is_recording=%d",
+                  call_count, cloud->is_recording);
         return;
     }
     if (cloud->state != JK_CLOUD_STATE_CONNECTED) {
-        LISA_LOGD(TAG, "jk_cloud_audio: not connected, state=%d", cloud->state);
+        LISA_LOGI(TAG, "jk_cloud_audio[%lu]: not connected, state=%d",
+                  call_count, cloud->state);
         return;
     }
     if (!cloud->asr_connected) {
-        LISA_LOGE(TAG, "jk_cloud_audio: ASR not connected");
+        LISA_LOGE(TAG, "jk_cloud_audio[%lu]: ASR not connected", call_count);
         return;
     }
 

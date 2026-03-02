@@ -131,7 +131,7 @@ int lisa_shell_init(void)
     g_shell = sh;
     shellInit(sh, shell_buf, 2048);
 
-    xTaskCreate(shell_task, "shell", 2048, sh, configMAX_PRIORITIES - 1, NULL);
+    xTaskCreate(shell_task, "shell", 16384, sh, configMAX_PRIORITIES - 1, NULL);
 }
 
 void lisa_shell_output_raw(const char *data, int len)

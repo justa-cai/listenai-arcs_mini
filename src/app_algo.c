@@ -216,5 +216,9 @@ void handle_algo_esr_timeout()
 */
 void handle_algo_record(const char *audio, int len)
 {
+	static uint32_t algo_frame_count = 0;
+	if (++algo_frame_count % 100 == 1) {
+		LISA_LOGI("algo", "handle_algo_record: frame=%lu", algo_frame_count);
+	}
 	app_client_record(audio, len);
 }

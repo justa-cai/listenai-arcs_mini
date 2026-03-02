@@ -1,0 +1,7 @@
+# OPUS decoder configuration
+
+config SDK_MODULE_OPUS_DECODER
+    bool "Enable OPUS decoder module"
+    default y
+    help
+        Enable OPUS audio decoder support for decoding OPUS encoded audio streams.
