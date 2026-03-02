@@ -77,9 +77,16 @@ __attribute__((weak)) void handle_algo_record(const char *audio, int len)
 
 static void audio_recorder_thread(void *arg)
 {
+    uint32_t frame_count = 0;
+    LISA_LOGI(TAG, "Recorder thread started");
+
     while(1) {
 		AadcStream_Consumer_acquireInterCoreFrame();
-		// LISA_LOGD(TAG, "stream frame: %p", p_stream_frame_0);
+
+        /* Log every 100 frames to confirm thread is running */
+        if (++frame_count % 100 == 1) {
+            LISA_LOGI(TAG, "Recorder frame: %lu", frame_count);
+        }
 
         handle_algo_record(p_stream_frame_0, UAS_REC_FRM_SIZE);
         extern int app_usb_audio_write(void *data, uint32_t sample, uint32_t channel, uint8_t bit);
@@ -95,7 +102,7 @@ void audio_record_service_start()
 
     // Read Record with Thread
     lisa_thread_attr_t attr = {
-        .stack_size = 8 * 1024,
+        .stack_size = 64 * 1024,
         .priority = LISA_OS_PRIORITY_ABOVE_NORMAL,
         .name = (uint8_t *)"recorder",
     };

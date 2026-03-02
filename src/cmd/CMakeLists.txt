@@ -12,4 +12,5 @@ listenai_library_sources(
     ping.c
     iperf.c
     tts.c
+    opus.c
 )

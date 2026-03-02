@@ -11,7 +11,11 @@
 
 #define MEM_BASE_CAPS (MALLOC_CAP_32BIT | MALLOC_CAP_8BIT | MALLOC_CAP_DMA | MALLOC_CAP_EXEC)
 
-static uint8_t lvgl_port_mem[2 * 1024 * 1024] __attribute__((section(".psram.bss")));
+#ifndef CONFIG_LVGL_HEAP_SIZE
+#define CONFIG_LVGL_HEAP_SIZE (1 * 1024 * 1024)  // Default 1MB if not defined
+#endif
+
+static uint8_t lvgl_port_mem[CONFIG_LVGL_HEAP_SIZE] __attribute__((section(".psram.bss")));
 
 int lvgl_port_mem_init(void)
 {
