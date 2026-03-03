@@ -710,7 +710,7 @@ jk_websocket_t *jk_ws_create(jk_ws_config_t *config) {
     
     lisa_thread_attr_t attr = {
         .name = "jk_ws",
-        .stack_size = 8 * 1024,
+        .stack_size = 16 * 1024,
         .priority = LISA_OS_PRIORITY_NORMAL,
     };
     
