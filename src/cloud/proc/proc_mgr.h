@@ -15,7 +15,11 @@ typedef struct audioplayer_s audioplayer_t;
 
 typedef void (*tts_url_callback_t)(const char *url);
 
+/* Forward declaration for jk_cloud_t */
+typedef struct jk_cloud jk_cloud_t;
+
 void app_proc_init(struct app_client_s *app_client, struct app_cloud_s *cloud);
+void app_proc_init_jk_cloud(struct app_client_s *app_client, jk_cloud_t *cloud);
 
 void app_proc_msg(const char* msg, int len);
 
