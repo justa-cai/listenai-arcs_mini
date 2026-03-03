@@ -110,6 +110,30 @@ void app_proc_init(app_client_t *app_client, app_cloud_t *cloud)
 	started_sema = lisa_semaphore_create(1);
 }
 
+#ifdef MY_CLOUD
+/**
+ * @brief Initialize proc_mgr module for JK Cloud mode
+ *
+ * This function initializes the proc_mgr global variables for use with jk_cloud.
+ * In JK Cloud mode, s_aiui is not used (NULL) as WebSocket communication is handled
+ * by the jk_cloud module directly.
+ */
+void app_proc_init_jk_cloud(app_client_t *app_client, jk_cloud_t *cloud)
+{
+	s_rec = cloud->m_rec;
+	s_aiui = NULL;  /* Not used in JK Cloud mode */
+	s_app_client = app_client;
+	s_audio_player = app_client->audio_player;
+	s_tts_player = app_client->tts_player;
+	s_sound_player = app_client->sound_player;
+	listen_ttsplayer_add_focus_callback(s_tts_player, &s_focus_state_cb);
+	tts_timer = lisa_timer_create(LS_CLOUD_TTS_TIMEOUT, __tts_timeout, NULL);
+	started_sema = lisa_semaphore_create(1);
+
+	LISA_LOGI(TAG, "proc_mgr initialized for JK Cloud mode");
+}
+#endif
+
 void register_tts_url_callback(tts_url_callback_t cb)
 {
 	s_tts_url_cb = cb;
@@ -158,15 +182,24 @@ tts_player_t *get_tts_player(void)
 
 void enter_audio_idle(void)
 {
-	recognizer_stop_record(s_rec);
-	recognizer_recognize_end(s_rec);
-
 #ifdef MY_CLOUD
-	/* Reset jk_cloud recording state to allow next wakeup to work properly */
+	/* In JK Cloud mode, just update recording state, don't send end command to ASR */
 	jk_cloud_t *cloud = jk_cloud_get_instance();
 	if (cloud) {
+		/* Reset jk_cloud recording state to allow next wakeup to work properly */
 		cloud->is_recording = false;
 		LISA_LOGI(TAG, "Reset jk_cloud->is_recording to false");
+	}
+#else
+	/* In non-JK Cloud mode, use recognizer module */
+	if (s_rec) {
+		recognizer_stop_record(s_rec);
+		recognizer_recognize_end(s_rec);
+	}
+	/* Send cancel message to cloud to end the session */
+	lisa_err_t err = lisa_aiui_cancel_send(s_aiui);
+	if (err != LISA_OK) {
+		LISA_LOGE(TAG, "aiui send cancel failed in enter_audio_idle");
 	}
 #endif
 

@@ -17,7 +17,7 @@
 static mcp_result_t exit_skill_handler(const mcp_context_t *ctx, mcp_response_t *response)
 {
     LISA_LOGI(TAG, "%s---", __func__);
-    
+
     response->result = MCP_RESULT_SUCCESS;
 
     if (!ctx || !response) {
@@ -29,27 +29,9 @@ static mcp_result_t exit_skill_handler(const mcp_context_t *ctx, mcp_response_t 
     // 触发会话结束事件
     enter_audio_idle();
 
-    // 创建content数组
-    cJSON *content_array = cJSON_CreateArray();
-    if (!content_array) {
-        LISA_LOGE(TAG, "Exit skill: content_array create fail");
-        return MCP_RESULT_SUCCESS;
-    }
+    // 不返回任何内容，防止云端生成额外的 LLM 响应
+    response->content = NULL;
 
-    // 创建text item
-    cJSON *text_item = cJSON_CreateObject();
-    if (!text_item) {
-        LISA_LOGE(TAG, "Exit skill: text_item create fail");
-        cJSON_Delete(content_array);
-        return MCP_RESULT_SUCCESS;
-    }
-
-    cJSON_AddStringToObject(text_item, "type", "text");
-    cJSON_AddStringToObject(text_item, "text", "已完成操作");
-    cJSON_AddItemToArray(content_array, text_item);
-
-    response->content = content_array;
-    
     return response->result;
 }
 

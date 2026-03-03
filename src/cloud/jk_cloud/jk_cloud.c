@@ -590,13 +590,22 @@ static void on_llm_tool_callback(jk_llm_t *llm, const char *call_id,
         result = mcp_call_tool_sync(tool_name, params, param_count, &response);
     }
 
-    /* 发送结果回服务端 */
-    if (result == MCP_RESULT_SUCCESS && response.content) {
-        char *result_str = cJSON_PrintUnformatted(response.content);
-        jk_llm_send_tool_result(llm, call_id, result_str, true, NULL);
-        lisa_mem_free(result_str);
+    /* Check if this is the exit_skill tool */
+    bool is_exit_skill = (strcmp(tool_name, "ls.built_in.exit") == 0);
+
+    /* For exit_skill, send empty result to prevent cloud from generating additional LLM response */
+    if (is_exit_skill) {
+        LISA_LOGI(TAG, "Exit skill executed, sending empty result to prevent cloud response");
+        jk_llm_send_tool_result(llm, call_id, NULL, true, NULL);
     } else {
-        jk_llm_send_tool_result(llm, call_id, NULL, false, "Tool execution failed");
+        /* 发送结果回服务端 */
+        if (result == MCP_RESULT_SUCCESS && response.content) {
+            char *result_str = cJSON_PrintUnformatted(response.content);
+            jk_llm_send_tool_result(llm, call_id, result_str, true, NULL);
+            lisa_mem_free(result_str);
+        } else {
+            jk_llm_send_tool_result(llm, call_id, NULL, false, "Tool execution failed");
+        }
     }
 
     /* 清理 */
@@ -900,6 +909,10 @@ jk_cloud_t *jk_cloud_create(app_client_t *client) {
     LISA_LOGI(TAG, "MCP tools initialized");
 
     cloud->m_rec = recognizer_create(client->short_player, client->tts_player, client->audio_mgr, NULL);
+
+    /* 初始化 proc_mgr 模块所需的全局变量 */
+    extern void app_proc_init_jk_cloud(struct app_client_s *app_client, struct jk_cloud *cloud);
+    app_proc_init_jk_cloud(client, cloud);
 
     jk_asr_callbacks_t asr_cbs = {
         .on_connected = on_asr_connected,
