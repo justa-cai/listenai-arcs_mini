@@ -43,6 +43,10 @@ __attribute__((weak)) void ls_req_url(const char *item_id, char *url)
 
 static void _audio_play_next(audioplayer_t *handle, bool force)
 {
+	if (!handle) {
+		LISA_LOGW(TAG, "_audio_play_next: handle is NULL");
+		return;
+	}
 	int code = -1;
 	audio_out_t *item = listen_next_audio(handle->m_play_mode, &code);
 	LISA_LOGD(TAG, "_audio_play_next code %d, force %d", code, force);
@@ -220,6 +224,10 @@ static int _audio_on_play_end(void *arg)
 
 static void _audio_pause(audioplayer_t *handle)
 {
+	if (!handle) {
+		LISA_LOGW(TAG, "_audio_pause: handle is NULL");
+		return;
+	}
 	if (handle->m_player_state == PLAYER_EVT_PLAYING) {
 		handle->m_is_pause_called = true;
 		app_player_pause(PLAYER_T_CLOUD);
@@ -235,6 +243,10 @@ static void _audio_pause(audioplayer_t *handle)
 
 static void _audio_stop(audioplayer_t *handle, bool play_after_stop)
 {
+	if (!handle) {
+		LISA_LOGW(TAG, "_audio_stop: handle is NULL");
+		return;
+	}
 	if (handle->m_player_state == PLAYER_EVT_PLAYING || handle->m_player_state == PLAYER_EVT_PAUSED) {
 		app_player_stop_sync(PLAYER_T_CLOUD);
 	}
@@ -250,12 +262,20 @@ void audio_player_stop_by_user(void)
 
 static void _audio_next(audioplayer_t *handle)
 {
+	if (!handle) {
+		LISA_LOGW(TAG, "_audio_next: handle is NULL");
+		return;
+	}
 	app_player_stop_sync(PLAYER_T_CLOUD);
 	_audio_play_next(handle, true);
 }
 
 static void _audio_prev(audioplayer_t *handle)
 {
+	if (!handle) {
+		LISA_LOGW(TAG, "_audio_prev: handle is NULL");
+		return;
+	}
 	app_player_stop_sync(PLAYER_T_CLOUD);
 	_audio_play_pre(handle, true);
 }

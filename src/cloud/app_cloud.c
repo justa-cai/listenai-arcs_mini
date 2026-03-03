@@ -95,10 +95,16 @@ void app_cloud_process_wifi_disconnected(app_cloud_t *cloud)
 void app_cloud_txt(const char *txt)
 {
 	if (txt == NULL) {
-		LISA_LOGE(TAG, "listen_client_tts text is null");
+		LISA_LOGE(TAG, "app_cloud_txt text is null");
 		return;
 	}
 
+#ifdef MY_CLOUD
+	// JK_CLOUD 模式: 使用 jk_cloud_txt
+	extern void jk_cloud_txt(const char *txt);
+	jk_cloud_txt(txt);
+#else
+	// LISTEN_CLOUD 模式: 使用 lisa_aiui_send_txt
 	if (s_cloud->ws_state != LS_WS_CONNECT) {
 		LISA_LOGE(
 				TAG, "listen_client_tts web socket is not connected, state:%d", s_cloud->ws_state);
@@ -109,15 +115,22 @@ void app_cloud_txt(const char *txt)
 	if (err) {
 		LISA_LOGE(TAG, "listen_client_tts, err:%d", err);
 	}
+#endif
 }
 
 void app_cloud_tts(const char *text)
 {
 	if (text == NULL) {
-		LISA_LOGE(TAG, "listen_client_tts text is null");
+		LISA_LOGE(TAG, "app_cloud_tts text is null");
 		return;
 	}
 
+#ifdef MY_CLOUD
+	// JK_CLOUD 模式: 使用 jk_cloud_tts
+	extern void jk_cloud_tts(const char *text);
+	jk_cloud_tts(text);
+#else
+	// LISTEN_CLOUD 模式: 使用 lisa_aiui_tts
 	if (s_cloud->ws_state != LS_WS_CONNECT) {
 		LISA_LOGE(
 				TAG, "listen_client_tts web socket is not connected, state:%d", s_cloud->ws_state);
@@ -128,6 +141,7 @@ void app_cloud_tts(const char *text)
 	if (err) {
 		LISA_LOGE(TAG, "listen_client_tts, err:%d", err);
 	}
+#endif
 }
 
 bool app_cloud_is_connected()

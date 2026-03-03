@@ -314,6 +314,10 @@ void recognizer_record_resume(void)
 
 void recognizer_stop_record(recognizer_t *handle)
 {
+	if (!handle) {
+		LISA_LOGW(TAG, "recognizer_stop_record: handle is NULL");
+		return;
+	}
 	if (handle->m_state == IDLE) {  // 已经释放了焦点
 		return;
 	} else if (handle->m_state == RECORD) {  // 收到ASR结果后就停止录音
@@ -334,6 +338,10 @@ void recognizer_stop_record(recognizer_t *handle)
 
 void recognizer_recognize_restart(recognizer_t *handle)
 {
+	if (!handle) {
+		LISA_LOGW(TAG, "recognizer_recognize_restart: handle is NULL");
+		return;
+	}
 	// 状态调整为空
 	handle->m_state = RECORD;
 
@@ -346,6 +354,10 @@ void recognizer_recognize_restart(recognizer_t *handle)
 
 void recognizer_recognize_end(recognizer_t *handle)
 {
+	if (!handle) {
+		LISA_LOGW(TAG, "recognizer_recognize_end: handle is NULL");
+		return;
+	}
 	lisa_timer_stop(handle->m_asr_timer);
 	// // 收到NLP结果, 停止 NLP 定时器
 	// lisa_timer_stop(handle->m_nlp_timer);
