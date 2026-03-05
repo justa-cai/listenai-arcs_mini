@@ -17,8 +17,8 @@
 #ifndef _ROM_UART_H_
 #define  _ROM_UART_H_
 
-#define BAUD_RATE_UART0 1000000
-#define BAUD_RATE_UART1 1000000
+#define BAUD_RATE_UART0 115200
+#define BAUD_RATE_UART1 115200
 
 /// Enumeration of External Interface status codes
 enum

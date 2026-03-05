@@ -1,0 +1,18 @@
+# Board Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+
+config BOARD_NAME
+    string
+    default "arcs_evb"
+    prompt "Board Name"
+    help
+        Board Name
+
+config BOARD_ARCS_EVB
+    bool
+    default y
+    help
+        Board is arcs_evb

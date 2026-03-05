@@ -12,13 +12,14 @@ usage() {
     echo "  -h, --help             显示此帮助信息"
     echo "  -r, --release          以 Release 模式构建 (移除 DEBUG_PATH 信息)"
     echo "  -w, --warnings-as-errors 将警告视为错误"
+    echo "  -D<var>=<value>        传递 CMake 变量 (可多次使用)"
     echo ""
     echo "示例:"
-    echo "  $0                                   默认构建"
-    echo "  $0 -S samples/hello-world                指定源码目录构建"
-    echo "  $0 -t menuconfig                     运行menuconfig"
-    echo "  $0 -C                                清理并重新构建"
-    echo "  $0 -S samples/hello-world -t menuconfig  指定源码目录并运行menuconfig"
+    echo "  $0 -S samples/helloworld -DBOARD=arcs_mini                      指定板型构建"
+    echo "  $0 -S samples/helloworld -DBOARD=arcs_evb                       使用 EVB 板型"
+    echo "  $0 -S samples/helloworld -t menuconfig -DBOARD=arcs_mini        运行 menuconfig"
+    echo "  $0 -C -S samples/helloworld -DBOARD=arcs_mini                   清理并重新构建"
+    echo "  $0 -S samples/helloworld -DBOARD=my_board -DBOARD_SEARCH_PATH=/path/to/boards  使用自定义板型"
     exit 1
 }
 
@@ -29,7 +30,7 @@ CLEAN=false
 OUTPUT="build"
 WARNINGS_AS_ERRORS=false
 RELEASE=false
-ARCS_BASE_DIR_NAME="arcs-base"
+ARCS_BASE_DIR_NAME="arcs-sdk"
 ARCS_DEV_TOOLS_DIR_NAME="listenai-dev-tools"
 ARCS_DEV_TOOL_TOOLCHAIN_DIR_NAME="gcc"
 ARCS_DEV_TOOL_LISTENAI_TOOLS_DIR_NAME="listenai-tools"
@@ -102,6 +103,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -r|--release)
       RELEASE=true
+      shift 1
+      ;;
+    -D*)
+      CMAKE_VARS+=("$1")
       shift 1
       ;;
     *)

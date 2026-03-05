@@ -10,6 +10,10 @@ target_sources(wifi_manager PRIVATE
     src/wifi_manager.c
     src/wifi_manager_ops.c
     src/wifi_manager_storage.c
+    src/wifi_manager_storage_cache.c
+    src/wifi_manager_storage_kv.c
+    src/wifi_manager_storage_blob_legacy.c
+    src/wifi_manager_storage_migrate.c
 )
   
 if(CONFIG_WIFI_MANAGER_WIFI_DEV_ARCS)

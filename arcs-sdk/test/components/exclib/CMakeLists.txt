@@ -14,4 +14,4 @@ target_sources(${PROJECT_NAME} PRIVATE
     test_main.c
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE unity exclib)
+target_link_libraries(${PROJECT_NAME} PRIVATE unity)

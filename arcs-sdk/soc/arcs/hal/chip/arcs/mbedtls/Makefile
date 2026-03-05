@@ -11,7 +11,7 @@ LIBS	=
 exclude_dirs=
 
 #files want to build: eg. CSRCS=a.c  CPPSRCS=b.cpp  SSRCS=c.S
-MBEDTLSDIR := mbedtls-2.28.9
+MBEDTLSDIR := $(MBEDTLS_VER)
 PORT := rtos
 CSRCS_CORE := $(MBEDTLSDIR)/library/platform_util.c \
               $(MBEDTLSDIR)/library/constant_time.c \
@@ -27,6 +27,13 @@ CSRCS_CORE := $(MBEDTLSDIR)/library/platform_util.c \
               $(MBEDTLSDIR)/library/asn1parse.c \
               $(MBEDTLSDIR)/library/asn1write.c \
               $(MBEDTLSDIR)/library/oid.c
+ifeq ($(strip $(MBEDTLS_MAJOR_VER)), 3)
+CSRCS_CORE += $(MBEDTLSDIR)/library/bignum_core.c
+endif
+
+CSRCS_CORE += port/mbedtls_crypto.c
+
+$(info mbedtls major ver $(MBEDTLS_MAJOR_VER))
 
 CPPSRCS	=
 SSRCS	=
@@ -34,13 +41,18 @@ CSRCS  := $(CSRCS_CORE)
 
 #includings and flags
 CFLAGS := -I$(MBEDTLSDIR)/include \
+          -I$(MBEDTLSDIR) \
           -I$(TOPDIR)/include/rtos \
           -I$(TOPDIR)/chip/$(CHIP)/rtos/rtos_al \
           -I$(TOPDIR)/include/CMSIS \
           -I$(TOPDIR)/include/CMSIS/core \
-          -I$(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure
+          -I$(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure \
+          -I$(TOPDIR)/chip/${CHIP}/mbedtls/port
 
 CFLAGS += -DCFG_HSU
+ifneq ($(strip $(MBEDTLS_MAJOR_VER)), "")
+CFLAGS += -DMBEDTLS_MAJOR_VER=$(MBEDTLS_MAJOR_VER)
+endif
 
 #ext:
 #	@touch version.c

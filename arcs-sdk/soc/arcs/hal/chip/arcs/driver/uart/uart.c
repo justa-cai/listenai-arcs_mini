@@ -22,6 +22,9 @@
 #include "uart.h"
 #include "PowerManager.h"
 #include "ClockManager.h"
+#if CONFIG_PM && PM_UART_WAKEUP
+#include "pm_impl.h"
+#endif
 
 #define CSK_UART_DRV_VERSION    CSK_DRIVER_VERSION_MAJOR_MINOR(1, 0)  /* driver version */
 
@@ -37,7 +40,28 @@ static const CSK_DRIVER_VERSION DriverVersion = {
         }\
 }while(0)
 
+#if CONFIG_PM && PM_UART_WAKEUP
+#define UART_PM_STATE_IDLE         0
+#define UART_PM_STATE_BUSY         1
 
+extern void vPortEnterCritical(void);
+extern void vPortExitCritical(void);
+
+static int32_t UART_check_idle(pm_mode_t mode);
+
+static pm_peripheral_dev_t uart_pm_dev =
+{
+    .name = "uart",
+    .pm_suspend = NULL,
+    .pm_resume  = NULL,
+    .pm_check_idle = UART_check_idle
+};
+struct uart_pm_info_t
+{
+    int32_t state;
+    uint64_t active_time;
+} uart_pm_info;
+#endif
 /*
  * UART0 DEVICE
  * */
@@ -320,6 +344,9 @@ int32_t UART_Initialize(void *res, CSK_UART_SignalEvent_t cb_event, void* worksp
     uart->info->inter_en = 0U;
 
     uart->info->flags = UART_FLAG_INITIALIZED;
+#if CONFIG_PM && PM_UART_WAKEUP
+    pm_peripheral_register(&uart_pm_dev);
+#endif
 
     return CSK_DRIVER_OK;
 }
@@ -381,7 +408,7 @@ int32_t UART_PowerControl(void *res, CSK_POWER_STATE state)
     switch (state)
     {
     case CSK_POWER_OFF:
-    	uart->reg->REG_CTRL.all= 0;
+        uart->reg->REG_CTRL.all = 0;
         // Disable UART IRQ
         disable_IRQ(uart->irq_num);
         // Clear driver variables
@@ -435,7 +462,7 @@ int32_t UART_PowerControl(void *res, CSK_POWER_STATE state)
         }
 
         // Disable interrupts
-        uart->reg->REG_CTRL.all= 0;
+        uart->reg->REG_CTRL.all = 0;
         uart->reg->REG_IRQ_MASK.all = 0;
         uart->info->flags = UART_FLAG_POWERED | UART_FLAG_INITIALIZED;
 
@@ -1001,6 +1028,54 @@ int32_t UART_GetStatus(void *res, CSK_UART_STATUS* stat)
     return CSK_DRIVER_OK;
 }
 
+int32_t UART_SetDMATxChannel(void *res, uint8_t channel)
+{
+    CHECK_RESOURCES(res);
+
+    UART_RESOURCES *uart = (UART_RESOURCES *)res;
+
+    if (uart->dma_tx == NULL) {
+        return CSK_DRIVER_ERROR_UNSUPPORTED;
+    }
+
+    if (uart->info->xfer.send_active != 0U) {
+        return CSK_DRIVER_ERROR_BUSY;
+    }
+
+    if ((channel != DMA_CHANNEL_ANY) &&
+        (channel >= DMA_MAX_NR_CHANNELS)) {
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    uart->dma_tx->channel = channel;
+
+    return CSK_DRIVER_OK;
+}
+
+int32_t UART_SetDMARxChannel(void *res, uint8_t channel)
+{
+    CHECK_RESOURCES(res);
+
+    UART_RESOURCES *uart = (UART_RESOURCES *)res;
+
+    if (uart->dma_rx == NULL) {
+        return CSK_DRIVER_ERROR_UNSUPPORTED;
+    }
+
+    if (uart->info->rx_status.rx_busy == 1U) {
+        return CSK_DRIVER_ERROR_BUSY;
+    }
+
+    if ((channel != DMA_CHANNEL_ANY) &&
+        (channel >= DMA_MAX_NR_CHANNELS)) {
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    uart->dma_rx->channel = channel;
+
+    return CSK_DRIVER_OK;
+}
+
 static uint32_t uart_rxline_irq_handler(UART_RESOURCES *uart)
 {
     uint32_t lsr, event;
@@ -1119,6 +1194,10 @@ static void UART_IRQ_Handler(UART_RESOURCES *uart)
 	if ((uart->info->cb_event) && (event != 0U)) {
 		uart->info->cb_event(event, uart->info->workspace);
 	}
+#if CONFIG_PM && PM_UART_WAKEUP
+	uart_pm_info.state = UART_PM_STATE_BUSY;
+	uart_pm_info.active_time = SysTimer_GetLoadValue();
+#endif
 }
 
 static void UART_DMA_TX_Handler(uint32_t event, UART_RESOURCES *uart)
@@ -1197,3 +1276,22 @@ static void UART2_IRQ_Handler(void)
 {
     UART_IRQ_Handler(&uart2_resources);
 }
+
+#if CONFIG_PM && PM_UART_WAKEUP
+_PM_RAM_TEXT static int32_t UART_check_idle(pm_mode_t mode)
+{
+    int32_t idle = 1;
+
+    vPortEnterCritical();
+    if (uart_pm_info.state == UART_PM_STATE_BUSY)
+    {
+        if ((SysTimer_GetLoadValue() - uart_pm_info.active_time) > PM_UART_IDLE_TIME)
+            uart_pm_info.state = UART_PM_STATE_IDLE;
+        else
+            idle = 0;
+    }
+    vPortExitCritical();
+
+    return idle;
+}
+#endif

@@ -23,13 +23,10 @@
 #include "dbg_assert.h"
 #include "arcs_ap.h"
 #include "timers.h"
-//TODO：AP/CP两个工程依赖的heap头文件不一致
-#if (CONFIG_HARTID == 1)
+//AP/CP两个工程依赖的heap头文件不一致
 #include "sysheap.h"
 #include "esp_heap_caps.h"
-#else
-#include "xutils.h"
-#endif
+
 
 #include "assert.h"
 
@@ -174,7 +171,7 @@ void rtos_aligned_free(void *ptr)
 
 void rtos_heap_info(int *total_size, int *free_size, int *min_free_size)
 {
-#if (CONFIG_HARTID == 1)
+
     multi_heap_info_t heap_info;
 
     heap_caps_get_info(&heap_info, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM);
@@ -182,11 +179,7 @@ void rtos_heap_info(int *total_size, int *free_size, int *min_free_size)
     *total_size = heap_info.total_free_bytes + heap_info.total_allocated_bytes;
     *free_size = heap_info.total_free_bytes;
     *min_free_size = heap_info.minimum_free_bytes;
-#else
-    *total_size = configTOTAL_HEAP_SIZE;
-    *free_size = xPortGetFreeHeapSize();
-    *min_free_size = xPortGetMinimumEverFreeHeapSize();
-#endif // (CONFIG_HARTID == 1)
+
 }
 
 int rtos_task_create(rtos_task_fct func,
@@ -747,9 +740,9 @@ int32_t rtos_timer_reload(rtos_timer timer)
     return xTimerReset(timer, 0);
 }
 
-void rtos_timer_schedule(rtos_timer timer)
+void rtos_timer_schedule(rtos_timer timer, uint32_t period_ms)
 {
-    xTimerChangePeriod(timer, 0, 0);
+    xTimerChangePeriod(timer, period_ms, 0);
 }
 
 void rtos_timer_id_set(rtos_timer timer, void *id)
@@ -760,6 +753,21 @@ void rtos_timer_id_set(rtos_timer timer, void *id)
 void *rtos_timer_id_get(rtos_timer timer)
 {
     return pvTimerGetTimerID(timer);
+}
+
+uint32_t rtos_timer_get_period(rtos_timer timer)
+{
+    return xTimerGetPeriod(timer);
+}
+
+void rtos_timer_set_reload_mode(rtos_timer timer, bool reload)
+{
+    vTimerSetReloadMode(timer, reload);
+}
+
+int32_t rtos_timer_is_active(rtos_timer timer)
+{
+    return xTimerIsTimerActive(timer);
 }
 
 #if ( ( configGENERATE_RUN_TIME_STATS == 1 ) && ( configUSE_STATS_FORMATTING_FUNCTIONS > 0 ) && ( configUSE_TRACE_FACILITY == 1 ) )

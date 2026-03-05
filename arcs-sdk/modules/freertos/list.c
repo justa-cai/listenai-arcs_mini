@@ -144,6 +144,12 @@ portFAST_FUNC void vListInsert( List_t * const pxList,
 
     traceENTER_vListInsert( pxList, pxNewListItem );
 
+    /* 检查链表是否已损坏 */
+    if (pxList->xListEnd.pxNext == pxList->xListEnd.pxPrevious &&
+        pxList->uxNumberOfItems > 1) {
+        configASSERT(0);  /* 链表损坏 */
+    }
+
     /* Only effective when configASSERT() is also defined, these tests may catch
      * the list data structures being overwritten in memory.  They will not catch
      * data errors caused by incorrect configuration or use of FreeRTOS. */

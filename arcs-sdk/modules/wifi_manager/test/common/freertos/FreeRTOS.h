@@ -10,7 +10,8 @@
 extern "C" {
 #endif
 
+#define pdMS_TO_TICKS(ms) (ms)
+
 #ifdef __cplusplus
 }
 #endif
-

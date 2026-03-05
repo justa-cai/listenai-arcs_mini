@@ -21,7 +21,7 @@
 #define abs(x)   ((x)>=0?(x):-(x))
 #endif
 
- int8_t rf_cali_check_dc_result(int8_t dc_i, int8_t dc_q, int8_t dc_i_thd, int8_t dc_q_thd)
+ int8_t rf_cali_check_dc_result(int16_t dc_i, int16_t dc_q, int16_t dc_i_thd, int16_t dc_q_thd)
  {
      if (abs(dc_i) > dc_i_thd || abs(dc_q) > dc_q_thd) {
          return -1;  // invalid DC offset

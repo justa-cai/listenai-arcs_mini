@@ -183,6 +183,8 @@ int32_t AON_TIMER_SetTimerPeriodByCount(void* res, uint32_t count){
 
     aon_timer->reg->REG_OSTIMER_CTRL.bit.LOADVAL = count & AON_TIMER_LOAD_VALUE_MASK;
     aon_timer->reg->REG_OSTIMER_CTRL.bit.LOADER = 0x1;
+    while(!aon_timer->reg->REG_OSTIMER_CTRL.bit.LOADED);
+    aon_timer->reg->REG_OSTIMER_CTRL.bit.LOADED = 0x1;
 
     return CSK_DRIVER_OK;
 }
@@ -197,7 +199,7 @@ int32_t AON_TIMER_StartTimer(void* res){
 
     aon_timer->reg->REG_OSTIMER_CTRL.bit.ENABLE = 0x1;
     while(!aon_timer->reg->REG_OSTIMER_CTRL.bit.ENABLED);
-
+    aon_timer->reg->REG_OSTIMER_CTRL.bit.LOADER = 0x1;
     return CSK_DRIVER_OK;
 }
 

@@ -33,7 +33,7 @@ void set_ssid_config(bool enabled);
 
 uint32_t get_restored_ip_addr(void);
 void set_restored_ip_addr(const uint8_t *ip_bytes);
-
+void dhcp_ip_addr_clear(void);
 
 #ifdef __cplusplus
 }

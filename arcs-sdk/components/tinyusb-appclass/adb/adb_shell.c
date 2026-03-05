@@ -236,7 +236,7 @@ static int adb_shell_write(struct adb_service *s, adb_packet_t *p)
     uint8_t *data = p->data;
 
     for (uint32_t i = 0; i < len; i++) {
-        if (ctx == NULL || data[i] == ETX) {
+        if (data[i] == ETX) {
             adb_service_close(s->local_id, s->remote_id);
             break;
         }

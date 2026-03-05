@@ -1,9 +1,8 @@
-listenai_library_named(system)
 
 listenai_library_sources(
-    c_datetime.c
-    listen_system.c
-    user_sntp.c
+    platform.c
+    remote_logger.c
+    sys_network_probe.c
 )
 
 listenai_include_directories(

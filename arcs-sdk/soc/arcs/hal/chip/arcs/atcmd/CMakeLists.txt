@@ -34,7 +34,8 @@ if (DEFINED CONFIG_ARCS_HAL_AT_CMD)
     listenai_library_compile_options_ifdef(
         CONFIG_ARCS_HAL_WARNING_DISABLE
         PRIVATE
-        -w
+        -Wno-error=incompatible-pointer-types
+        -Wno-incompatible-pointer-types
     )
 
 endif()

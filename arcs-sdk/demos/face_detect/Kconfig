@@ -1,0 +1,34 @@
+osource "$ARCS_BASE/Kconfig"
+
+config IMAGE_WIDTH
+    int "iamge width"
+    default 320
+
+config IMAGE_HEIGHT
+    int "image height"
+    default 240
+
+config IMAGE_FORMAT
+    int "image format, 2:yuyv422 0:rgb565"
+    default 2
+
+config FACE_LIVE_DETECT_ENABLE
+    bool "face live detect enable"
+    default y
+
+config FACE_LIVE_DETECT_THRESHOLD
+    int "face live detect threshold"
+    depends on FACE_LIVE_DETECT_ENABLE
+    range 0 100
+    default 50
+
+config FACE_COMPARE_SCORE_THRESHOLD
+    int "face compare score threshold"
+    range 0 100
+    default 90
+
+config ONLY_FACE_REGISTER
+    bool "only face register"
+    default y
+
+osource "src/button/Kconfig"

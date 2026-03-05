@@ -24,9 +24,11 @@
 #include "lwip/api.h"
 #include "lwip/dns.h"
 #include "netif/ethernet.h"
+#include "lwip/prot/iana.h"
 #include "net_al.h"
 #include "utils_math.h"
 #include "llc.h"
+#include "log_print.h"
 #include "rtos_al.h"
 #include "dma.h"
 #include "PSRAMManager.h"
@@ -102,6 +104,12 @@ void net_tx_release_mac_buf(void *tx_buf, bool acknowledged)
     int ret;
 
     head = (struct net_tx_buf_head *)tx_buf;
+
+    if (head->p_buf)
+    {
+        net_buf_tx_free(head->p_buf);
+    }
+
     while (head)
     {
         head_tmp = head->next;
@@ -287,6 +295,8 @@ void *net_tx_alloc_mac_buf(net_buf_tx_t *buf, uint16_t rsv_head_len)
         }
     }
 
+    tx_buf_first->head.p_buf = NULL;
+
 end:
     return tx_buf_first;
 }
@@ -332,6 +342,11 @@ retry:
         if (tx_buf)
         {
             status = ERR_OK;
+            if (p_buf->flags & PBUF_FLAG_IS_CUSTOM)
+            {
+                //record custom buf
+                ((struct net_tx_buf_tag *)tx_buf)->head.p_buf = p_buf;
+            }
             net_if_fun.tx_start_fn(net_if, tx_buf, NULL, NULL);
         }
         else
@@ -349,7 +364,12 @@ retry:
     {
         status = ERR_WOULDBLOCK;
     }
-    net_buf_tx_free(p_buf);
+
+    // custom buf will be freed after tx complete
+    if (!(p_buf->flags & PBUF_FLAG_IS_CUSTOM) || (status != ERR_OK))
+    {
+        net_buf_tx_free(p_buf);
+    }
 #else
     // Push the buffer and verify the status
     if (netif_is_up(net_if) && net_if_fun.tx_start_fn)
@@ -782,7 +802,7 @@ static void net_l2_send_cfm(uint32_t frame_id, bool acknowledged, void *arg)
     if (arg)
         *((bool *)arg) = acknowledged;
     l2_send_ack = acknowledged;
-    CLOG("%s:%d\n", __func__, l2_send_ack);
+    CLOGV("%s:%d\n", __func__, l2_send_ack);
     rtos_semaphore_signal(l2_semaphore, false);
 }
 
@@ -1145,4 +1165,51 @@ ls_err_t lwip_pbuf_free(struct pbuf *p, uint8_t *count)
 char* net_get_monitor_name(void)
 {
     return "wl1";
+}
+
+static int32_t net_etharp_send(struct netif *netif, const struct eth_addr *ethsrc_addr,
+           const struct eth_addr *ethdst_addr,
+           const struct eth_addr *hwsrc_addr, const ip4_addr_t *ipsrc_addr,
+           const struct eth_addr *hwdst_addr, const ip4_addr_t *ipdst_addr,
+           const u16_t opcode)
+{
+    struct pbuf *p;
+    err_t result = ERR_OK;
+    struct etharp_hdr *hdr;
+
+    p = pbuf_alloc(PBUF_LINK, SIZEOF_ETHARP_HDR, PBUF_RAM);
+    if (p == NULL) {
+        return ERR_MEM;
+    }
+
+    hdr = (struct etharp_hdr *)p->payload;
+    hdr->opcode = lwip_htons(opcode);
+    SMEMCPY(&hdr->shwaddr, hwsrc_addr, ETH_HWADDR_LEN);
+    SMEMCPY(&hdr->dhwaddr, hwdst_addr, ETH_HWADDR_LEN);
+    IPADDR_WORDALIGNED_COPY_FROM_IP4_ADDR_T(&hdr->sipaddr, ipsrc_addr);
+    IPADDR_WORDALIGNED_COPY_FROM_IP4_ADDR_T(&hdr->dipaddr, ipdst_addr);
+
+    hdr->hwtype = PP_HTONS(LWIP_IANA_HWTYPE_ETHERNET);
+    hdr->proto = PP_HTONS(ETHTYPE_IP);
+    hdr->hwlen = ETH_HWADDR_LEN;
+    hdr->protolen = sizeof(ip4_addr_t);
+    ethernet_output(netif, p, ethsrc_addr, ethdst_addr, ETHTYPE_ARP);
+    ETHARP_STATS_INC(etharp.xmit);
+    pbuf_free(p);
+
+    return result;
+}
+
+void net_arp_announce(void)
+{
+    struct netif *netif;
+    const ip4_addr_t *ipaddr;
+
+    netif  = net_if_get(WIFI_VIF_STA_IDX);
+    if (netif_is_up(netif) && netif_is_link_up(netif))
+    {
+        ipaddr = netif_ip4_addr(netif);
+        net_etharp_send(netif, (struct eth_addr *)netif->hwaddr, &ethbroadcast,
+                    (struct eth_addr *)netif->hwaddr, ipaddr, &ethzero, ipaddr, ARP_REQUEST);
+    }
 }

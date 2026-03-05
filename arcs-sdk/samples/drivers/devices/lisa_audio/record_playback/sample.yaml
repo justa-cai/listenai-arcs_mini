@@ -1,0 +1,8 @@
+tests:
+  samples.lisa_audio.record_playback:
+    programmer: arcs
+    runner: uart
+    build_only: true
+    log_analyzer:
+      type: "regex"
+      pattern: "示例完成! 录音和播放都成功"

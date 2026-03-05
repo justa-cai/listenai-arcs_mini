@@ -248,17 +248,10 @@ void rv_backtrace_fault(uint32_t sp, struct exec_frame *frame, uint32_t mstatus,
 
     rvb_println("Fault on mode: %d(%s)", trap_before, sub_mode_str[trap_before]);
 
-    if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
-        show_heap_info();
-        show_all_tasks_info();
-    } else {
-        rvb_println("Rtos is not started");
-    }
-
     if (trap_before == NORMAL_MODE) {
         if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
             task_backtrace(xTaskGetCurrentTaskHandle(), frame->epc, frame->sp, frame->fp);
-            return;
+            goto task_info_show;
         }
     }
 
@@ -270,5 +263,14 @@ void rv_backtrace_fault(uint32_t sp, struct exec_frame *frame, uint32_t mstatus,
     }
 
     backtrace(frame->epc, frame->fp, (uint32_t)_sstack, (uint32_t)_estack);
+
+task_info_show:
+    rvb_println("\n\n");
+    if (xTaskGetSchedulerState() != taskSCHEDULER_NOT_STARTED) {
+        show_heap_info();
+        show_all_tasks_info();
+    } else {
+        rvb_println("Rtos is not started");
+    }
 }
 #endif

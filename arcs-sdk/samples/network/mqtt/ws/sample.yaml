@@ -1,0 +1,3 @@
+tests:
+  samples.mqtt.ws:
+    build_only: true

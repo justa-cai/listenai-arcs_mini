@@ -1,0 +1,7 @@
+tests:
+  samples.lisa_display:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Display capabilities: \\d+ x \\d+"

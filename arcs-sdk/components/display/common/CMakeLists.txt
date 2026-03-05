@@ -1,2 +1,0 @@
-listenai_library_sources(display_common.c display_brightness.c)
-listenai_include_directories(.)

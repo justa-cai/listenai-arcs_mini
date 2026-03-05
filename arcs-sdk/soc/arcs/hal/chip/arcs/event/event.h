@@ -98,8 +98,6 @@ typedef struct {
 	} msg;
 } event_msg_t;
 
-ls_err_t ls_event_clear(event_module_t event_module_id, int event_id);
-
 #ifdef __cplusplus
 }
 #endif

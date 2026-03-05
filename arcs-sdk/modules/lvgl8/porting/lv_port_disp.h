@@ -4,6 +4,7 @@
  */
 
 /*Copy this file as "lv_port_disp.h" and set this value to "1" to enable content*/
+#include "lisa_device.h"
 #if 1
 
 #ifndef LV_PORT_DISP_TEMPL_H
@@ -35,9 +36,9 @@ extern "C" {
  * GLOBAL PROTOTYPES
  **********************/
 /* Initialize low level display driver */
-void lv_port_disp_init(display_hw_config_t *config);
+void lv_port_disp_init(lisa_device_t *display_dev);
 
-struct display_device *lv_port_get_display_device(void);
+lisa_device_t *lv_port_get_display_device(void);
 
 /* Enable updating the screen (the flushing process) when disp_flush() is called by LVGL
  */

@@ -1,0 +1,9 @@
+osource "$ARCS_BASE/Kconfig"
+
+menu "Voice Application"
+
+rsource "../../modules/Kconfig"
+rsource "../../src/Kconfig"
+orsource "../../apps-ui/Kconfig"
+
+endmenu

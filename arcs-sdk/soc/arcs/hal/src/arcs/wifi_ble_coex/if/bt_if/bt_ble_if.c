@@ -255,7 +255,9 @@ void bt_stack_ble_enable_cmp(uint16_t status)
 #if 0
     //enable diss.
     ble_diss_init((diss_cb_t *)&bt_stack_ble_diss_msg_cb);
+#endif
 
+#if BLE_VOICE_SIMULATOR
     // enable hid service
     uint8_t svc_features = HOGPD_CFG_KEYBOARD | HOGPD_CFG_MOUSE | HOGPD_CFG_PROTO_MODE | HOGPD_CFG_REPORT_NTF_EN;
     uint8_t report_char_cfg = HOGPD_CFG_REPORT_IN;
@@ -290,6 +292,10 @@ void bt_stack_ble_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *peer_a
 
     /// get remote feature
     ble_gap_get_con_info(conidx, GAP_INFO_FETURES);
+
+#if BLE_VOICE_SIMULATOR
+    bt_stack_ble_parameter_update_by_timer(6000);
+#endif
 }
 
 void bt_stack_ble_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
@@ -311,6 +317,8 @@ void bt_stack_ble_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
     hogpd_init_report_map(1, &report_map);
     /// clear all exit latency
     ble_gap_entry_latency(GAP_EXIT_LATENCY_ALL);
+    ///clear hid count
+    stack_env->bt_hid_send_cnt = 0;
 }
 
 void bt_stack_ble_key_req(uint8_t conidx, uint8_t key_type, uint32_t key)
@@ -429,30 +437,38 @@ uint8_t bt_stack_ble_hid_send(uint8_t conidx, uint8_t report_idx, uint8_t length
     uint16_t max_send_cnt = BT_STACK_BLE_HOGPD_HID_MAX_COUNT;
 
     //CLOGD("hid idx:%d, len:%d", report_idx, length);
-
-    /// remain 5 pkt for ctrl & cmd.
-    if(report_idx == HIDS_VOICE_DATA_INDEX)
+    if(stack_env->bt_ble_connected == 1)
     {
-        max_send_cnt = BT_STACK_BLE_HOGPD_HID_MAX_COUNT - 5;
+        /// remain 5 pkt for ctrl & cmd.
+        if(report_idx == HIDS_VOICE_DATA_INDEX)
+        {
+            max_send_cnt = BT_STACK_BLE_HOGPD_HID_MAX_COUNT - 5;
+        }
+        else
+        {
+            max_send_cnt = BT_STACK_BLE_HOGPD_HID_MAX_COUNT;
+        }
+
+        if (stack_env->bt_hid_send_cnt < max_send_cnt) 
+        {
+            status = ble_hogpd_report_upd(conidx, report_idx, length, value);
+            if(status)
+            {
+                CLOGW("hid err status:%d", status);
+            } 
+            stack_env->bt_hid_send_cnt++;
+        } 
+        else 
+        {
+            status = 0x01;
+            CLOGW("OverFlow");
+        }
+        return status;
     }
     else
     {
-        max_send_cnt = BT_STACK_BLE_HOGPD_HID_MAX_COUNT;
-    }
-
-    if (stack_env->bt_hid_send_cnt < max_send_cnt) 
-    {
-        status = ble_hogpd_report_upd(conidx, report_idx, length, value);
-        if(status)
-        {
-            CLOGW("hid err status:%d", status);
-        } 
-        stack_env->bt_hid_send_cnt++;
-    } 
-    else 
-    {
-        status = 0x01;
-        CLOGW("OverFlow");
+        status = 0x02;
+        CLOGW("bt dis");
     }
     return status;
 }
@@ -477,6 +493,22 @@ static void  bt_stack_ble_hid_read_cmp(uint32_t token, uint8_t val_id)
     ///to do;
 }
 
+///max length is not more than HOGPD_REPORT_MAX_LEN
+uint8_t app_ble_user_data_send(uint8_t conidx, uint8_t length, uint8_t* value)
+{
+    uint8_t status = 0xff;
+
+    status = app_ble_hogpd_hid_send(conidx, HIDS_GDE_ACK_INDEX, length, value);
+    return status;
+}
+
+uint8_t app_ble_user_data_rcv(uint8_t length, uint8_t* value)
+{
+    uint8_t status = 0xff;
+
+    CLOGD("app_ble_user_date_rcv,len:%d, data:0x%x%x%x%x", length, value[3], value[2], value[1], value[0]);
+    return status;
+}
 
 void bt_stack_ble_adv_start(ble_adv_cfg_t *adv_cfg)
 {
@@ -543,7 +575,7 @@ void bt_stack_ble_parameter_update_cb(TimerHandle_t time_id)
     ble_gap_entry_latency(GAP_EXIT_LATENCY_CONNECT);
     btos_timer_cancel(time_id);
 #if BLE_VOICE_SIMULATOR
-    bt_stack_ble_start_voice_dummy(100);
+    bt_voice_send_by_timer_start(100);
 #endif
 }
 
@@ -602,4 +634,8 @@ void bt_stack_ble_hid_rcv(uint8_t conidx, uint16_t index, uint16_t length, uint1
 {
     /// send hid data to application to handle.
     //app_hid_rcv_data(conidx, index, length, offset, data);
+    if(index == HIDS_GDE_DATA_INDEX)
+    {
+        app_ble_user_data_rcv(length, data);
+    }
 }

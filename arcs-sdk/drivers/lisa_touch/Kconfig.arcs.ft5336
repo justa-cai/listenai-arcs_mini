@@ -1,0 +1,40 @@
+# LISA Touch Driver Configuration - FT5336
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_TOUCH_ARCS_FT5336
+    bool "Enable LISA Touch ARCS FT5336 support"
+    default n
+    help
+        Enable LISA Touch ARCS FT5336 touch chip support.
+        
+        FT5336 Features:
+        - I2C Address: 0x38 (7-bit)
+        - Register: 0x02 (8-bit)
+        - Resolution: 480x272
+        - Single touch point
+        - Interrupt trigger: Falling edge
+        - Reset sequence: High->Low->High (10ms-10ms-300ms)
+
+if LISA_TOUCH_ARCS_FT5336
+
+    config LISA_TOUCH_ARCS_FT5336_READ_TASK_PRIORITY
+        int "FT5336 interrupt mode read task priority"
+        default 2
+        range 1 10
+        help
+            Set the priority of the FT5336 touch driver's internal read task.
+            
+            This task is created when interrupt mode is enabled and is responsible
+            for reading I2C data from the touch chip after receiving a GPIO interrupt.
+            
+            Priority range: 1-10 (higher number = higher priority)
+            Default: 2 (tskIDLE_PRIORITY + 2)
+            
+            Note:
+            - Higher priority ensures faster response to touch events
+            - Should be higher than idle task (1) but lower than critical system tasks
+            - Recommended range: 2-5 for most applications
+
+endif # LISA_TOUCH_ARCS_FT5336

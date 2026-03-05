@@ -1,0 +1,2 @@
+# WebSocket 测试服务器依赖
+websocket-server>=0.6.4

@@ -25,6 +25,9 @@ CSRCS	= $(wildcard *.c)
 CPPSRCS	=
 SSRCS	= $(wildcard *.S)
 
+CONFIG_PM := 0
+export CONFIG_PM
+
 #includings and flags
 ifeq ($(PSRAM_SEC), 1)
 CFLAGS += -DPSRAM_SEC=1

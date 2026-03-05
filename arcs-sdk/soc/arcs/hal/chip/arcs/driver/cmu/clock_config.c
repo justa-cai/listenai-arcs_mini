@@ -26,8 +26,10 @@
 void BootClock_Init(){
 
 #if defined(IC_BOARD) && (IC_BOARD == 1)
-
     __HAL_CRM_USB_CLK_DISABLE();
+
+    HAL_CRM_SetRc32kCaliLength(5);
+    HAL_CRM_SetRc32kCaliAutoTrigger(1);
 
 #if BOARD_BOOTCLOCKRUN_VCO_CLK_DEF
     VCO_Init(BOARD_BOOTCLOCKRUN_VCO_CLK_N, BOARD_BOOTCLOCKRUN_VCO_CLK_FRAC_N);
@@ -195,3 +197,70 @@ void BootClock_Init(){
 #else
 #endif
 }
+#if CONFIG_PM
+struct clock_cfg_reg
+{
+    volatile uint32_t ip_sysnodef_syspll_cfg0;
+    volatile uint32_t ip_sysnodef_syspll_cfg1;
+    volatile uint32_t ip_sysnodef_syspll_cfg2;
+    volatile uint32_t ip_sysnodef_syspll_cfg3;
+    volatile uint32_t ip_sysnodef_syspll_cfg4;
+    volatile uint32_t ip_sysnodef_bbpll_cfg0;
+    volatile uint32_t ip_sysnodef_bus_clk_cfg0;
+    volatile uint32_t ip_sysnodef_bus_clk_cfg1;
+    volatile uint32_t ip_sysctrl_peri_clk_cfg0;
+    volatile uint32_t ip_ap_cfg_clk_cfg0;
+};
+
+static struct clock_cfg_reg clock_cfg_reg_info;
+
+void BootClock_save(void)
+{
+    clock_cfg_reg_info.ip_sysnodef_syspll_cfg0  =  IP_SYSNODEF->REG_SYSPLL_CFG0.all;
+    clock_cfg_reg_info.ip_sysnodef_syspll_cfg1  =  IP_SYSNODEF->REG_SYSPLL_CFG1.all;
+    clock_cfg_reg_info.ip_sysnodef_syspll_cfg2  =  IP_SYSNODEF->REG_SYSPLL_CFG2.all;
+    clock_cfg_reg_info.ip_sysnodef_syspll_cfg3  =  IP_SYSNODEF->REG_SYSPLL_CFG3.all;
+    clock_cfg_reg_info.ip_sysnodef_syspll_cfg4  =  IP_SYSNODEF->REG_SYSPLL_CFG4.all;
+    clock_cfg_reg_info.ip_sysnodef_bbpll_cfg0   =  IP_SYSNODEF->REG_BBPLL_CFG0.all;
+    clock_cfg_reg_info.ip_sysnodef_bus_clk_cfg0 =  IP_SYSNODEF->REG_BUS_CLK_CFG0.all;
+    clock_cfg_reg_info.ip_sysnodef_bus_clk_cfg1 =  IP_SYSNODEF->REG_BUS_CLK_CFG1.all;
+    clock_cfg_reg_info.ip_sysctrl_peri_clk_cfg0 =  IP_SYSCTRL->REG_PERI_CLK_CFG0.all;
+    clock_cfg_reg_info.ip_ap_cfg_clk_cfg0       =  IP_AP_CFG->REG_CLK_CFG0.all;
+}
+
+void BootClock_restore(void)
+{
+    volatile uint32_t value;
+    volatile uint32_t flash_stash_fifo[6];
+
+    IP_CMN_SYS->REG_USB_CTRL1.bit.USBPHY_OUTCLKSEL = 0x0;
+    IP_SYSNODEF->REG_SYSPLL_CFG4.all = clock_cfg_reg_info.ip_sysnodef_syspll_cfg4;
+    IP_SYSNODEF->REG_SYSPLL_CFG1.all = clock_cfg_reg_info.ip_sysnodef_syspll_cfg1;
+    IP_SYSNODEF->REG_SYSPLL_CFG0.bit.SYSPLL_ENABLE = 0x1;
+    IP_SYSNODEF->REG_BBPLL_CFG0.bit.BBPLL_ENABLE   = 0x1;
+    while (!IP_SYSNODEF->REG_SYSPLL_CFG0.bit.SYSPLL_LOCK);
+    IP_SYSNODEF->REG_BUS_CLK_CFG1.all = clock_cfg_reg_info.ip_sysnodef_bus_clk_cfg1 | (1<<CMN_BUSCFG_BUS_CLK_CFG1_DIV_AON_CFG_PCLK_LD_Pos) | (1<<CMN_BUSCFG_BUS_CLK_CFG1_DIV_CMN_PERI_PCLK_LD_Pos);
+    value  = IP_AP_CFG->REG_CLK_CFG0.all;
+    value &= ~(AP_CFG_CLK_CFG0_DIV_AP_PERI_PCLK_LD_Msk | AP_CFG_CLK_CFG0_DIV_AP_PERI_PCLK_N_Msk | AP_CFG_CLK_CFG0_DIV_AP_PERI_PCLK_M_Msk);
+    value |= (clock_cfg_reg_info.ip_ap_cfg_clk_cfg0 & (AP_CFG_CLK_CFG0_DIV_AP_PERI_PCLK_N_Msk | AP_CFG_CLK_CFG0_DIV_AP_PERI_PCLK_M_Msk))
+             | (1<<AP_CFG_CLK_CFG0_DIV_AP_PERI_PCLK_LD_Pos);
+    IP_AP_CFG->REG_CLK_CFG0.all = value;
+
+    /*hclk*/
+    IP_SYSNODEF->REG_BUS_CLK_CFG0.all = (clock_cfg_reg_info.ip_sysnodef_bus_clk_cfg0 & (CMN_BUSCFG_BUS_CLK_CFG0_DIV_HCLK_N_Msk | CMN_BUSCFG_BUS_CLK_CFG0_DIV_HCLK_M_Msk))
+                                        | (1<<CMN_BUSCFG_BUS_CLK_CFG0_DIV_HCLK_LD_Pos);
+    IP_SYSNODEF->REG_BUS_CLK_CFG0.bit.SEL_HCLK = 1;
+
+    /*flash*/
+    value  = clock_cfg_reg_info.ip_sysctrl_peri_clk_cfg0;
+    value |= (1<<CMN_SYSCFG_PERI_CLK_CFG0_MTIME_TOGGLE_LD_Pos) | (1<<CMN_SYSCFG_PERI_CLK_CFG0_DIV_FLASH_CLK_LD_Pos);
+    IP_SYSCTRL->REG_PERI_CLK_CFG0.all = value;
+
+    for (uint8_t i = 0; i < 6; i++)
+        flash_stash_fifo[i] = *(uint32_t*)(0x30000000 + i*4);
+
+    MInvalICache();
+    MInvalDCache();
+    while(!IP_SYSNODEF->REG_BBPLL_CFG0.bit.BBPLL_LOCK);
+}
+#endif

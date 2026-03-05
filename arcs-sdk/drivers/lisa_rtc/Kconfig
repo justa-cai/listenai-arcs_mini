@@ -1,0 +1,16 @@
+# LISA RTC Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_RTC
+	bool "Enable LISA RTC Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA RTC (Real-Time Clock) device driver based on lisa_device framework.
+	  Provides unified interface for RTC with alarm and periodic interrupt support.
+
+if LISA_RTC
+
+endif # LISA_RTC

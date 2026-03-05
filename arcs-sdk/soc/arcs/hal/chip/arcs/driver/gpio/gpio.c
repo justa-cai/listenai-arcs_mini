@@ -144,7 +144,9 @@ GPIO_Initialize(void *res, CSK_GPIO_SignalEvent_t cb_event, void* workspace){
     gpio->info->workspace = workspace;
 
     register_ISR(gpio->irq_num, gpio->irq_handler, NULL);
-    enable_IRQ(gpio->irq_num);
+    // enable relavant IRQ only if callback is provided
+    if(cb_event)
+        enable_IRQ(gpio->irq_num);
 
     uint32_t i = 0;
     for(i = 0; i < gpio->max_num; i++){

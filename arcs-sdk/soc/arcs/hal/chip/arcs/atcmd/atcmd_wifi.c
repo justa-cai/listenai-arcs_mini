@@ -546,11 +546,11 @@ void cwlap_rsp_scan_results(wifi_scan_result_t *results, uint32_t num)
 
     for (i = 0; i < num; i++)
     {
-        ///????rssi��???څ???AP???
+        ///????rssi§³???Ú…???AP???
         if(results[i].rssi < g_scan_filter.rssi_filter) {
             continue;
         }
-        ///????????????��???
+        ///????????????§Û???
         if(results[i].auth == WIFI_SEC_OPEN && !(g_scan_filter.authmode_mask & SCAN_AUTH_MODE_OPEN_MASK))
             continue;
         else if(results[i].auth == WIFI_SEC_WEP && !(g_scan_filter.authmode_mask & SCAN_AUTH_MODE_WEP_MASK))
@@ -567,7 +567,7 @@ void cwlap_rsp_scan_results(wifi_scan_result_t *results, uint32_t num)
             continue;
         else if(results[i].auth == WIFI_SEC_WPA2_PSK_WPA3_SAE && !(g_scan_filter.authmode_mask & SCAN_AUTH_MODE_WPA2_WPA3_PSK_MASK))
             continue;
-        ///???????mask???��???????mask?0?????????????+CWLAP?????
+        ///???????mask???§Ý???????mask?0?????????????+CWLAP?????
         offset = 0;
         memset(scan_resp, 0, sizeof(scan_resp));
         strcat(scan_resp, "CWLAP:");
@@ -1179,11 +1179,11 @@ int atcmd_cwpw(int type, char *params)
         {
             if (strncmp(token, "on", 2) == 0)
             {
-                wifi_sta_ps_enter();
+                wifi_ps_mode_set(WIFI_PS_DEFAULT_TYPE);
             }
             else if (strncmp(token, "off", 3) == 0)
             {
-                wifi_sta_ps_exit();
+                wifi_ps_mode_set(WIFI_PS_MODE_OFF);
             }
             else
             {
@@ -1382,10 +1382,10 @@ const atcmd_item_t atcmd_wifi_table[] =
     ///????station??????????AP
     {atcmd_cwautoconn, "AT+CWAUTOCONN", "set dev to auto connect AP after dev power on:\r\n"
                        "AT+CWAUTOCONN=<enable>\r\n"},
-    ///????��?? Wi-Fi ??
+    ///????õô?? Wi-Fi ??
     {atcmd_cwmode, "AT+CWMODE", "AT+CWMODE?: get WIFI mode\r\n"
                    "<mode> refers to wifi_mode_e\r\n"},
-    ///??? Wi-Fi ???????��?interval_second:?????????repeat_count??????????
+    ///??? Wi-Fi ???????¨¢?interval_second:?????????repeat_count??????????
     {atcmd_cwreconncfg, "AT+CWRECONNCFG", "set the Wi-Fi reconnection configuration\r\n"
                         "AT+CWRECONNCFG=<interval_second>,<repeat_count>\r\n"},
     ///???????station????IP???,AT+CIPSTA=<"ip">[,<"gateway">,<"netmask">]

@@ -8,7 +8,6 @@
 #include "log_print.h"
 #include "shell_def.h"
 #include "ipc_master.h"
-#include "ipc_master_utils.h"
 #include "ls_wifi_type.h"
 #include "wifi_api.h"
 #include "ls_event.h"
@@ -150,26 +149,26 @@ int arcs_nvs_init(void)
 int main(void)
 {
     struct ipc_master_cb_tag ipc_cb = {
-            .wifi_tx_data_cfm = wlif_tx_cfm,
-            .wifi_rx_data_ind = wlif_rx_buf_forward,
-            .indication_handler = ipc_indication_handler
+            .wifi_tx_data_cfm   = wlif_tx_cfm,
+            .wifi_rx_data       = wlif_rx_buf_forward,
+            .indication_handler = ipc_master_indication_handler
     };
 
-    logInit(SHELL_UART, SHELL_UART_BAUDRATE);
+    logInit(SHELL_UART0, SHELL_UART0_BAUDRATE);
 
 #ifdef PSRAM_HEAP
     PSRAM_Initialize(NULL, NULL, 1);
 #endif
     start_cp(AMP_CP_START_ADDRESS);
 
-    ipc_mem_init();
+    ipc_mem_init(1);
     ipc_master_init(&ipc_cb);
 
 #if CFG_NVS
     arcs_nvs_init();
 #endif
 
-    ipc_wifi_init();
+    ipc_master_wifi_init();
 
     // register event
     ls_event_init();

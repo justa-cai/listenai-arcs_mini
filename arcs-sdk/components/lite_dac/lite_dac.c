@@ -2,6 +2,7 @@
 #include "log_print.h"
 #include "systick.h"
 #include "Driver_DAC.h"
+#include "Driver_ADC_PDM.h"
 #include "Driver_GPIO.h"
 #include "Driver_Common.h"
 #include "Driver_GPDMA.h"
@@ -18,15 +19,26 @@
 #include "esp_heap_caps_init.h"
 #include "cache.h"
 #include "lite_dac.h"
+
+#define TAG "DAC"
+#include "lisa_log.h"
 #define ADAC_EVT_DONE     (1<<0)
 
 #define ADAC_SAMPLE_BYTE  (2)
-#define ADAC_QUE_BUF_SIZE (1280)
+#define ADAC_QUE_BUF_SIZE (256)
 
 #define ADAC_SEND_CNTS    (12) //
-#define GPDMA_DAC0_CHN    (1)
-#define GPDMA_ECHO_CHN    (0xff)
+#define GPDMA_DAC0_CHN    (2)
+#define GPDMA_ECHO_CHN    (3)
 #define ADAC_DEV_BMP      (DAC_BMP_LEFT)
+
+#define DAC_ECHO_ENABLE (CONFIG_DAC_ECHO_ENABLE)
+#if DAC_ECHO_ENABLE
+#define ECHO_RECV_CNTS      (CONFIG_ECHO_RECV_CNTS)
+#define ECHO_STEP_SAMP      (CONFIG_AUDIO_STEP_SAMPS )
+#define ECHO_STEP_SIZE      (sizeof(short) * ECHO_STEP_SAMP)
+#endif
+
 
 #define ADAC_DEV_AGAIN    (-18)
 #define ADAC_DEV_DGAIN    (-1)
@@ -64,6 +76,12 @@ static struct
     int osr;
     uint8_t *buf;
     QueueHandle_t xque;
+
+    #if DAC_ECHO_ENABLE
+	int echo_xpos;
+	QueueHandle_t echo_xque;
+	void *echo_fifo[ECHO_RECV_CNTS];
+    #endif
     QueueHandle_t xque_buf;
     EventGroupHandle_t xevt;
     enum { ADAC_STAT_IDLE, ADAC_STAT_PLAY_REQ, ADAC_STAT_PLAY_RUN, ADAC_STAT_STOP_REQ } stat;
@@ -164,6 +182,28 @@ static void dac_drv_event(uint32_t event, uint32_t user){
         xEventGroupSetBitsFromISR(lite_dac.xevt, ADAC_EVT_DONE, &yield);
     }
 
+#if DAC_ECHO_ENABLE
+	if (event & (CSK_ADCPDM_EVENT_RECEIVE_COMPLETE | CSK_ADCPDM_EVENT_BLOCK_COMPLETE)) {
+		int ret = CSK_DRIVER_OK;
+        void *recv = lite_dac.echo_fifo[lite_dac.echo_xpos];
+        if (++lite_dac.echo_xpos >= ECHO_RECV_CNTS) lite_dac.echo_xpos = 0;
+        int ipos = lite_dac.echo_xpos;
+        if (++ipos >= ECHO_RECV_CNTS) ipos = 0;
+
+        ret = DAC_Echo_Receive_PiPo(lite_dac.hdrv
+            , &(PIPO_IN_BLOCK){ .sample_data = lite_dac.echo_fifo[ipos], .sample_cnt = ECHO_STEP_SAMP, .flags = 0 }
+            , &(uint8_t){1}, ADAC_DEV_BMP);
+         if(CSK_DRIVER_OK != ret){
+            CLOGE("DAC_Echo_Receive_PiPo:%d", ret);
+         }
+
+        if (!xQueueSendFromISR(lite_dac.echo_xque, &recv, &yield)) {
+            CLOGW("ECHO:LOSE");
+            xQueueReset(lite_dac.echo_xque);
+        }
+    }
+#endif
+
     if (event & (CSK_DAC_EVENT_SEND_COMPLETE |
                  CSK_DAC_EVENT_BLOCK_COMPLETE)) {
 
@@ -222,7 +262,7 @@ static void dac_drv_event(uint32_t event, uint32_t user){
             xQueueSendToBackFromISR(lite_dac.xque_buf, &item, &yield);
         }
     } else {
-        CLOGW("DAC:EVT=%#lx", event);
+        // CLOGW("DAC:EVT=%#lx", event);
     }
     if (event & CSK_DAC_EVENT_TX_FIFO_EMPTY) CLOGW("DAC:TXE");
     if (event & CSK_DAC_EVENT_TX_FIFO_UNDERRUN) {
@@ -238,6 +278,18 @@ int lite_dac_get_buf(uint8_t **buf, TickType_t xTicksToWait)
     dac_item_t item;
     return xQueueReceive(lite_dac.xque_buf, &item, xTicksToWait) == pdPASS ?\
                         (*buf = item.addr, ADAC_QUE_BUF_SIZE) : (*buf = NULL, 0);
+}
+
+int lite_dac_get_echo_buf(uint16_t **buf, TickType_t xTicksToWait)
+{
+	#if DAC_ECHO_ENABLE
+    dac_item_t item;
+    return xQueueReceive(lite_dac.echo_xque, &item, xTicksToWait) == pdPASS ?\
+                        (*buf = item.addr, ECHO_STEP_SAMP) : (*buf = NULL, 0);
+	#else
+	*buf = NULL;
+	return 0;
+	#endif
 }
 
 int lite_dac_write(void *src, int size, TickType_t xTicksToWait)
@@ -282,7 +334,17 @@ int lite_dac_ctrl(uint32_t uarg, void *parg)
             lite_dac.ping_addr = lite_dac.zero;
             lite_dac.pong_addr = lite_dac.zero;
             ret = DAC_Send_PiPo(lite_dac.hdrv, pipo, &(uint8_t){2}, ADAC_DEV_BMP, DAC_TX_FLAG_START_NOW);
+            CLOG("DAC_Send_PiPo:%d", ret);
             PLAY_ASSERT(0 == ret, asm("nop"));
+
+            #if DAC_ECHO_ENABLE
+            ret = DAC_Echo_Receive_PiPo(lite_dac.hdrv, (PIPO_IN_BLOCK[]){
+                { .sample_data = lite_dac.echo_fifo[0], .sample_cnt = ECHO_STEP_SAMP, .flags = 0 },
+                { .sample_data = lite_dac.echo_fifo[1], .sample_cnt = ECHO_STEP_SAMP, .flags = 0 },
+            }, &(uint8_t){2}, ADAC_DEV_BMP);
+            CLOG("DAC_Echo_Receive_PiPo:%d", ret);
+            PLAY_ASSERT(0 == ret, asm("nop"));
+            #endif
         }
         break;
     case ADAC_CTRL_STOP:
@@ -313,10 +375,10 @@ int lite_dac_ctrl(uint32_t uarg, void *parg)
         lite_dac.a_gain = gain->a_gain;
         lite_dac.d_gain = gain->d_gain;
 
-        // ret = DAC_SetVolume(lite_dac.hdrv
-        //     , DAC_GAIN_A_VAL(gain->a_gain), DAC_GAIN_D_VAL(gain->d_gain)
-        //     , DAC_VOL_FLAG_A_LEFT | DAC_VOL_FLAG_D_LEFT);
-        // PLAY_ASSERT(0 == ret, asm("nop"));
+        ret = DAC_SetVolume(lite_dac.hdrv
+            , DAC_GAIN_A_VAL(gain->a_gain), DAC_GAIN_D_VAL(gain->d_gain)
+            , DAC_VOL_FLAG_A_LEFT | DAC_VOL_FLAG_D_LEFT);
+        PLAY_ASSERT(0 == ret, asm("nop"));
         break;
     case ADAC_CTRL_AUD_CFG:
         PLAY_ASSERT(parg, ret=-1;goto EXIT);
@@ -363,6 +425,19 @@ int lite_dac_ctrl(uint32_t uarg, void *parg)
             ret = 0;
             break;
         }
+
+        #if DAC_ECHO_ENABLE
+        ECHO_PARAMS echo_params = { 0 };
+        echo_params.echo_mixed = 0; //1; // only 1 ECHO channel for only 1 DAC channel
+        echo_params.samp_rate = dac_aud->rate;
+        echo_params.trim_16bits = 1; // 16bits echo?
+        ret = DAC_Control(lite_dac.hdrv, CSK_DAC_SET_ECHO_PARAMS, (uint32_t)&echo_params);
+        if(CSK_DRIVER_OK != ret){
+            CLOGE("DAC_Control:%d", ret);
+            assert(0);
+        }
+        #endif
+
         PLAY_ASSERT(((ret = DAC_SetMute(lite_dac.hdrv, ADAC_DEV_BMP, ADAC_DEV_BMP)) == 0), goto EXIT);
         CLOG("DAC again:%ddB, dgain:%ddB", lite_dac.a_gain, lite_dac.d_gain);
         ret = DAC_SetVolume(lite_dac.hdrv
@@ -387,14 +462,31 @@ int lite_dac_init(void){
     lite_dac.xque_buf = xQueueCreate(ADAC_SEND_CNTS, sizeof(dac_item_t));
     lite_dac.xevt = xEventGroupCreate();
     lite_dac.zero = heap_caps_aligned_alloc(32, ADAC_QUE_BUF_SIZE*2, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM);
+
+    #if DAC_ECHO_ENABLE
+    lite_dac.echo_xque =  xQueueCreate(ECHO_RECV_CNTS - 2, sizeof(dac_item_t)); 
+    //echo 
+	lite_dac.echo_xpos = 0;
+    for (int i = 0; i < ECHO_RECV_CNTS; i++) {
+    	// lite_dac.echo_fifo[i] = exram_malloc(32, ECHO_STEP_SIZE);
+    	lite_dac.echo_fifo[i] = heap_caps_aligned_alloc(32, ECHO_STEP_SIZE, MALLOC_CAP_DEFAULT | MALLOC_CAP_SPIRAM);
+    }
+    #endif
+
     memset(lite_dac.zero, 0, ADAC_QUE_BUF_SIZE*2);
     CLOG("lite_dac.zero:%p", lite_dac.zero);
     PLAY_ASSERT((ret = dac_buf_init()) == 0, goto ERR);
 
     dac_pa_ctrl(ADAC_PA_CLOSE);
+    #if DAC_ECHO_ENABLE
+    ret = DAC_Initialize(lite_dac.hdrv, dac_drv_event, (uint32_t)0
+        , (ADAC_DEV_BMP << DAC_BMP_FLAG_OUT_POS) | (ADAC_DEV_BMP << DAC_BMP_FLAG_ECHO_POS) | DAC_BMP_FLAG_USE_16BITS
+        , &(DAC_DMA_CHS){ .dma_ch_out_left = GPDMA_DAC0_CHN, .dma_ch_echo_left = GPDMA_ECHO_CHN });
+    #else
     ret = DAC_Initialize(lite_dac.hdrv, dac_drv_event, (uint32_t)0
         , (ADAC_DEV_BMP << DAC_BMP_FLAG_OUT_POS) | DAC_BMP_FLAG_USE_16BITS
         , &(DAC_DMA_CHS){ .dma_ch_out_left = GPDMA_DAC0_CHN, .dma_ch_echo_left = GPDMA_ECHO_CHN });
+    #endif
     PLAY_ASSERT(0 == ret, goto ERR);
     PLAY_ASSERT(((ret = DAC_PowerControl(lite_dac.hdrv, CSK_POWER_FULL)) == 0), goto ERR);
     return ret;
@@ -410,6 +502,16 @@ ERR:
     }
     vQueueDelete(lite_dac.xque);
     vQueueDelete(lite_dac.xque_buf);
+    #if DAC_ECHO_ENABLE
+    vQueueDelete(lite_dac.echo_xque);
+	lite_dac.echo_xpos = 0;
+    for (int i = 0; i < ECHO_RECV_CNTS; i++) {
+        if(lite_dac.echo_fifo[i]){
+            heap_caps_free(lite_dac.echo_fifo[i]);
+            lite_dac.echo_fifo[i] = NULL;
+        }
+    }
+    #endif
     vEventGroupDelete(lite_dac.xevt);
     DAC_Uninitialize(lite_dac.hdrv);
     return ret;
@@ -431,6 +533,17 @@ int lite_dac_deinit(void){
         heap_caps_free(lite_dac.buf);
         lite_dac.buf = NULL;
     }
+    #if DAC_ECHO_ENABLE
+    vQueueDelete(lite_dac.echo_xque);
+	lite_dac.echo_xpos = 0;
+    for (int i = 0; i < ECHO_RECV_CNTS; i++) {
+        if(lite_dac.echo_fifo[i]){
+            heap_caps_free(lite_dac.echo_fifo[i]);
+            lite_dac.echo_fifo[i] = NULL;
+        }
+    }
+    #endif
+
 EXIT:
     return ret;
 }

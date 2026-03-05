@@ -1,2 +1,3 @@
 rsource "ebus/Kconfig"
 rsource "lisaui/Kconfig"
+rsource "lschat/Kconfig"

@@ -56,7 +56,7 @@ config DUAL_FLASH
 
 config ARCS_HAL_EXT_RAM_SECTION
     string "EXT RAM Section"
-    default ".psram.text"
+    default ".ramcode"
     help
         The section name for the EXT RAM.
         This is used to store the EXT RAM code.

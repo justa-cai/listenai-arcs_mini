@@ -1,0 +1,67 @@
+# cAT - AT Command Parser Library Configuration
+
+menu "cAT AT Command Parser"
+
+    menuconfig SDK_MODULE_CAT
+        bool "cAT AT command parser support"
+        default n
+        help
+          Enable cAT - a lightweight, portable AT command parser library.
+          cAT provides a flexible framework for implementing AT command
+          interfaces commonly used in modems and embedded devices.
+
+          Features:
+          - Standard AT command format support (AT+CMD, AT+CMD?, AT+CMD=?, AT+CMD=<args>)
+          - Variable binding with automatic parsing
+          - Unsolicited event support
+          - Thread-safe with optional mutex interface
+          - Minimal memory footprint
+
+    if SDK_MODULE_CAT
+
+        config SDK_MODULE_CAT_UNSOLICITED_BUFFER_SIZE
+            int "Unsolicited command buffer size"
+            default 4
+            help
+              Size of the buffer for unsolicited AT command events.
+              Increase this value if you need to queue multiple unsolicited events.
+
+        config SDK_MODULE_CAT_TASK_STACK_SIZE
+            int "AT parser task stack size"
+            default 2048
+            help
+                Stack size for the AT command parser task.
+
+        config SDK_MODULE_CAT_TASK_PRIORITY
+            int "AT parser task priority"
+            default 10
+            help
+                Priority for the AT command parser task.
+
+        config SDK_MODULE_CAT_UART_RX_TASK_STACK_SIZE
+            int "cAT UART RX task stack size"
+            default 1024
+            help
+                Stack size for the UART RX task used by the cAT UART adapter (bytes).
+
+        config SDK_MODULE_CAT_UART_RX_TASK_PRIORITY
+            int "cAT UART RX task priority"
+            default 10
+            help
+                Priority for the UART RX task used by the cAT UART adapter.
+
+        config SDK_MODULE_CAT_UART_PROC_TASK_STACK_SIZE
+            int "cAT UART process task stack size"
+            default 2048
+            help
+                Stack size for the UART processing task used by the cAT UART adapter (bytes).
+
+        config SDK_MODULE_CAT_UART_PROC_TASK_PRIORITY
+            int "cAT UART process task priority"
+            default 10
+            help
+                Priority for the UART processing task used by the cAT UART adapter.
+
+    endif # SDK_MODULE_CAT
+
+endmenu

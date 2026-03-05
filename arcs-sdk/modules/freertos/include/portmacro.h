@@ -100,6 +100,7 @@ extern uint64_t ulPortGetRunTimeCounterValue(void);
 #define portENTER_CRITICAL()                    vPortEnterCritical()
 #define portEXIT_CRITICAL()                     vPortExitCritical()
 extern BaseType_t xPortIsInsideInterrupt( void );
+extern BaseType_t xPortIsInsideCritical( void );
 extern UBaseType_t uxCriticalNesting;
 #define portGET_CRITICAL_NESTING_COUNT()            ( uxCriticalNesting )
 #define portSET_CRITICAL_NESTING_COUNT( x )         ( uxCriticalNesting = ( x ) )

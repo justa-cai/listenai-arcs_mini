@@ -104,6 +104,7 @@ void lv_mem_init(void)
         LV_LOG_ERROR("failed to init custom memory");
     }
 #endif
+
 #if LV_MEM_ADD_JUNK
     LV_LOG_WARN("LV_MEM_ADD_JUNK is enabled which makes LVGL much slower");
 #endif

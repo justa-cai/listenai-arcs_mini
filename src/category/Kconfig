@@ -1,0 +1,24 @@
+menu "Application cateory"
+
+choice APPLICATION_CATEORY
+    prompt "Select Application cateory"
+
+    default CATEGORY_YUBA
+
+    config CATEGORY_YUBA
+        bool "Yuba"
+
+    config CATEGORY_EVB
+        bool "evb board"
+
+    config CATEGORY_MINI
+        bool "mini board"
+
+endchoice
+
+orsource "comm/Kconfig"
+orsource "evb/Kconfig"
+orsource "mini/Kconfig"
+orsource "yuba/Kconfig"
+
+endmenu

@@ -15,7 +15,6 @@ endif()
 
 # 添加项目代码到构建系统中
 target_sources(${PROJECT_NAME} PRIVATE 
-    src/main.c
-    src/sdmmc_init.c)
+    src/main.c)
 
 target_compile_options(arcs-hal PRIVATE -DCONFIG_EXT_RAM)

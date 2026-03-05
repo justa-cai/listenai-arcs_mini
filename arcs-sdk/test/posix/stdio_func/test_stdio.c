@@ -23,8 +23,9 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "sdmmc_init.h"
 #include "user_fs.h"
+#include "lisa_sdmmc.h"
+#include "IOMuxManager.h"
 
 void setUp(void)
 {
@@ -204,7 +205,14 @@ void test_getcwd(void)
 /*=======MAIN=====*/
 int main(void)
 {
-    sdmmc_hard_init();
+    /* Configure SDMMC pins (same as lisa_disk test) */
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 6, CSK_IOMUX_FUNC_ALTER15); /* CLK */
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 7, CSK_IOMUX_FUNC_ALTER15); /* CMD */
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 5, CSK_IOMUX_FUNC_ALTER15); /* DAT0 */
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 4, CSK_IOMUX_FUNC_ALTER15); /* DAT1 */
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 9, CSK_IOMUX_FUNC_ALTER15); /* DAT2 */
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 8, CSK_IOMUX_FUNC_ALTER15); /* DAT3 */
+
     user_fs_init();
 
     printf("user fs init complete\n");

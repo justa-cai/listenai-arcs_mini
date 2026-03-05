@@ -1,0 +1,8 @@
+tests:
+  samples.lisa_i2c_basic_write_read:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "All API examples completed"
+

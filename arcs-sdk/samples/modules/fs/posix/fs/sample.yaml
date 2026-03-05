@@ -4,5 +4,5 @@ tests:
     runner: uart
     log_analyzer:
       type: "regex"
-      pattern: "LVFS sample"
+      pattern: "Unmounted"
 

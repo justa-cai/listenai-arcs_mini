@@ -958,6 +958,13 @@ tcp_process(struct tcp_pcb *pcb)
     case SYN_RCVD:
       if (flags & TCP_SYN) {
         if (seqno == pcb->rcv_nxt - 1) {
+#if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
+          if (pcb->listener == NULL) {
+            /* listen pcb might be closed by now */
+            tcp_abort(pcb);
+            return ERR_ABRT;
+          }
+#endif /* LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG */
           /* Looks like another copy of the SYN - retransmit our SYN-ACK */
           tcp_rexmit(pcb);
         }

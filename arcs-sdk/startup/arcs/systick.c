@@ -55,7 +55,7 @@ __attribute__((weak)) void SysTick_Delay_Us(uint32_t nus){
     } while (delta_mtime < delay_ticks);
 }
 
-__attribute__((section(".ipc.sys.time.base"))) volatile uint32_t sys_time_base_cp = 0;
+__attribute__((section(".ipc.sys.time.base"), used)) volatile uint32_t sys_time_base_cp = 0;
 
 void SysTimeBaseSetCP(uint32_t ms)
 {

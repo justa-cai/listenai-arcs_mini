@@ -52,18 +52,25 @@
  *    - 0 : succeed
  *    - others: other errors.
  */
-__WEAK int ls_read_temp_voltage(int count, float *vout)
+__attribute__((weak)) int ls_read_temp_voltage(float *vout)
 {
+    // 不能运行到这个weak函数，应该用外部的实现
+    __builtin_trap();
+
     float vptat_sum = 0.0, vptat, vfs = 1.2;
     uint32_t code = 0x00;
     static uint8_t init = 0;
-    volatile int32_t delay_count = 10000;
+//    volatile int32_t delay_count = 10000;
     int ret = 0;
 
+#if (CONFIG_PM == 0)
     if (!init)
+#endif
     {
         HAL_GPADC_Initialize(GPADC());
+#if (CONFIG_PM == 0)
         init = 1;
+#endif
     }
     HAL_GPADC_Control(GPADC(), (CSK_GPADC_CHANNEL_SEL_TEMP | CSK_GPADC_CHANNEL_SEL_VBAT) | \
                                 CSK_GPADC_DMA_ENABLE(0));
@@ -74,16 +81,13 @@ __WEAK int ls_read_temp_voltage(int count, float *vout)
     HAL_GPADC_Start(GPADC());
     HAL_GPADC_PollForConversion(GPADC(), 0);
 
-    while(delay_count--) ;
+//    while(delay_count--) ;
 
+    code = HAL_GPADC_GetValue(GPADC(),CSK_GPADC_CHANNEL_SEL_TEMP);
+    vptat = code / 1024.0 * vfs;
+    //vptat_sum += vptat;
 
-    for(int i = 0; i < count; i++)
-    {
-        code = HAL_GPADC_GetValue(GPADC(),CSK_GPADC_CHANNEL_SEL_TEMP);
-        vptat = code / 1024.0 * vfs;
-        vptat_sum += vptat;
-    }
-    *vout = (vptat_sum / count);
+    *vout = vptat;
     return ret;
 }
 
@@ -99,7 +103,7 @@ static void gen_random_mac(uint8_t *mac_addr)
     HAL_TRNG_Control(TRNG(), CSK_TRNG_COLDTIME_2_23 | CSK_TRNG_HOTTIME_2_17 | CSK_TRNG_DELAYTIME_2_11);
     HAL_TRNG_InterruptDisable(TRNG());
 
-    for(uint32_t cnt=0; cnt<8; cnt++)
+    for(uint32_t cnt=0; cnt<6; cnt++)
     {
         HAL_TRNG_Enable(TRNG());
         while(HAL_TRNG_GetDataReady(TRNG()) == 0);
@@ -154,7 +158,7 @@ int8_t ls_get_mac_from_nvs(uint8_t mac_addr[6])
  *    - 0: succeed
  *    - others: other errors.
  */
-int8_t ls_get_mac_customized(uint8_t mac_addr[6])
+__attribute__((weak)) int8_t ls_get_mac_customized(uint8_t mac_addr[6])
 {
      /// TODO
 }

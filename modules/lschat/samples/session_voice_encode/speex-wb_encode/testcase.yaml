@@ -1,0 +1,4 @@
+tests:
+  samples.session_voice_encode.speex-wb_encode.linux:
+    tags: linux
+    build_only: true

@@ -1,0 +1,3 @@
+tests:
+  samples.mqtt.agent:
+    build_only: true

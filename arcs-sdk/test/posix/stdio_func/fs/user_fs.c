@@ -7,9 +7,8 @@
 #include <string.h>
 #include "lsfs.h"
 #include "disk/disk_access.h"
-#include "arcs_ap.h"
+#include "lisa_sdmmc.h"
 #include "log_print.h"
-#include "sdmmc_init.h"
 #if CONFIG_LVFS
 #include "lvfs.h"
 #endif
@@ -31,66 +30,30 @@ static int fs_mount(struct lsfs_mount_t *mp)
     ret = lsfs_mount(mp);
     if (ret != 0)
     {
+        CLOG("No file system, try reformatting, mount ret: %d", ret);
+        /* 格式化底层设备，去掉挂载点前面的'/' 作为设备名，例如 "/SD:" -> "SD:" */
+        ret = lsfs_mkfs(mp->type, &mp->mnt_point[1], NULL, 0);
+        if (ret == 0)
+        {
+            CLOG("mkfs success, retry mount");
+            ret = lsfs_mount(mp);
+        }
+        else
+        {
+            CLOG("mkfs failed, ret: %d", ret);
+        }
+    }
+
+    if (ret != 0)
+    {
         CLOG("Failed to mount filesystem: %d", ret);
         return ret;
     }
     CLOG("%s mounted successfully", mp->mnt_point);
+
+    return 0;
 }
 
-static int fs_unmount(struct lsfs_mount_t *mp)
-{
-    int ret;
-
-    ret = lsfs_unmount(mp);
-    if (ret != 0)
-    {
-        CLOG("%s unmount failed!\n", mp->mnt_point);
-    }
-    CLOG("%s unmount success!\n", mp->mnt_point);
-}
-
-static int list_dir(const char *path)
-{
-    struct lsfs_dir_t dir;
-    struct lsfs_dirent entry;
-    int ret;
-    int nfile = 0, ndir = 0;
-    /* 初始化目录对象 */
-    lsfs_dir_t_init(&dir);
-
-    ret = lsfs_opendir(&dir, path);
-    CLOG("%s opendir: %d", path, ret);
-    if (ret == 0)
-    {
-
-        while (1)
-        {
-            ret = lsfs_readdir(&dir, &entry);
-            if (ret != 0 || entry.name[0] == 0)
-                break; /* Error or end of dir */
-
-            if (entry.type == LSFS_DIR_ENTRY_DIR)
-            {
-                /* Directory */
-                CLOG("   <DIR>   %s", entry.name);
-                ndir++;
-            }
-            else
-            {
-                /* File */
-                CLOG("%10lu %s", entry.size, entry.name);
-                nfile++;
-            }
-        }
-        lsfs_closedir(&dir);
-        CLOG("%d dirs, %d files.", ndir, nfile);
-    }
-    else
-    {
-        CLOG("Failed to open \"%s\". (%u)", path, ret);
-    }
-    return ret;
-}
 
 
 static void user_fs_change_to_root_folder(void)
@@ -110,7 +73,7 @@ static void user_fs_change_to_root_folder(void)
 }
 
 int user_fs_init(void){
-
+    lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
     disk_init(NULL);
 #if CONFIG_LVFS
     lvfs_init();

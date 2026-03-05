@@ -250,7 +250,7 @@
         #ifdef CONFIG_LV_TICK_CUSTOM_SYS_TIME_EXPR
             #define LV_TICK_CUSTOM_SYS_TIME_EXPR CONFIG_LV_TICK_CUSTOM_SYS_TIME_EXPR
         #else
-            #define LV_TICK_CUSTOM_SYS_TIME_EXPR (millis())    /*Expression evaluating to current system time in ms*/
+            #define LV_TICK_CUSTOM_SYS_TIME_EXPR (pdTICKS_TO_MS(xTaskGetTickCount()))
         #endif
     #endif
     /*If using lvgl as ESP32 component*/

@@ -1,6 +1,0 @@
-if (DEFINED CONFIG_LISA_PORTING)
-    add_subdirectory(net)
-    add_subdirectory(kv)
-    add_subdirectory(os)
-    add_subdirectory(log)
-endif()

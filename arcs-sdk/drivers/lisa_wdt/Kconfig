@@ -1,0 +1,16 @@
+# LISA WDT Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_WDT
+	bool "Enable LISA WDT Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA Watchdog Timer device driver based on lisa_device framework.
+	  Provides unified interface for various watchdog timer controllers.
+
+if LISA_WDT
+
+endif # LISA_WDT

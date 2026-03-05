@@ -135,11 +135,8 @@ CRYPTO_PowerControl (void* res, CRYPTO_HW_MODULE module, CSK_POWER_STATE state)
     if(crypto->info->flags != CRYPTO_FLAG_INITIALIZED)
         return CSK_DRIVER_ERROR;
 
-    // HAL_FlushInvalidateDCache();
-
     switch (state) {
     case CSK_POWER_OFF:
-
         __disable_irq();
         if(crypto->info->power_on>0)
             crypto->info->power_on --;
@@ -157,7 +154,11 @@ CRYPTO_PowerControl (void* res, CRYPTO_HW_MODULE module, CSK_POWER_STATE state)
             register_ISR(crypto->irq_num_aes, NULL, NULL);
             register_ISR(crypto->irq_num_hsu, NULL, NULL);
             register_ISR(crypto->irq_num_ecc, NULL, NULL);
+            #if CONFIG_PM && CONFIG_PM_CLOSE_AP
+            pm_force_ap_off();
+            #endif
         }
+
         __enable_irq();
 
         crypto->info->cb_event(CSK_CRYPTO_EVENT_FINISHED, CSK_DRIVER_OK, (void*)crypto->info->workspace);
@@ -167,11 +168,14 @@ CRYPTO_PowerControl (void* res, CRYPTO_HW_MODULE module, CSK_POWER_STATE state)
         return CSK_DRIVER_ERROR_UNSUPPORTED;
 
     case CSK_POWER_FULL:
-
         crypto->info->cb_event(CSK_CRYPTO_EVENT_WAIT_BUSY, CSK_DRIVER_OK, (void*)crypto->info->workspace);
         __disable_irq();
         if(crypto->info->power_on++==0)
         {
+            #if CONFIG_PM && CONFIG_PM_CLOSE_AP
+            pm_force_ap_on();
+            #endif
+
             __HAL_CRM_CRYPTO_CLK_ENABLE();
             IP_AP_CFG->REG_SW_RESET.bit.CRYPTO_RESET = 1;
 

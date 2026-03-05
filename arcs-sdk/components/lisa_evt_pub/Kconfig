@@ -1,0 +1,4 @@
+config LISA_EVT_PUBLISHER
+    bool "event publisher for lisa"
+    default n
+    select SDK_MODULE_COLLECTIONS_C

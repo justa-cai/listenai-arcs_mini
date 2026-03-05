@@ -1,0 +1,4 @@
+tests:
+  tests.lsc_conn_tests..linux:
+    tags: linux
+    build_only: true

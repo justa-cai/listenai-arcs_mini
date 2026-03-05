@@ -93,6 +93,7 @@ int32_t IOMuxManager_ModeConfigure(uint8_t pad, uint8_t pin_num, uint8_t pin_mod
 
 int32_t AON_IOMuxManager_PinConfigure(uint8_t pad, uint8_t pin_num, uint32_t pin_cfg) {
 	volatile uint32_t* volatile aon_pin_base = NULL;
+	volatile uint32_t  value;
 
 	switch(pad) {
 	case CSK_IOMUX_PAD_A:
@@ -111,9 +112,10 @@ int32_t AON_IOMuxManager_PinConfigure(uint8_t pad, uint8_t pin_num, uint32_t pin
 		return CSK_DRIVER_ERROR_PARAMETER;
 	}
 
+	value = *aon_pin_base;
 	/* Clear function select field and set value */
-	*aon_pin_base &= ~0x1f;
-	*aon_pin_base |= (pin_cfg & 0x1f);
+	value &= ~0x1f;
+	*aon_pin_base = value | (pin_cfg & 0x1f);
 	return CSK_DRIVER_OK;
 }
 

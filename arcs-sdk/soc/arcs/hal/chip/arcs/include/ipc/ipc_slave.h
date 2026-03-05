@@ -22,7 +22,11 @@
 #include "ipc_msg.h"
 #include "ipc_config.h"
 #include "ipc_mem.h"
+#include "amp_shared.h"
 #include "ipc_utils.h"
+#ifdef CFG_AMP_IPC_WIFI_CHAN
+#include "ipc_slave_wifi.h"
+#endif
 
 #define IPC_MSG_MGMT
 
@@ -52,21 +56,19 @@ struct ipc_slave_cb_tag
 
 struct ipc_slave_env_tag
 {
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
     struct ipc_slave_cb_tag cb;
-#endif
+    struct ipc_shared_env_tag *shared;
     uint32_t link_state;
 };
 
 
 int32_t ipc_slave_init(struct ipc_slave_cb_tag *cb);
-int32_t ipc_slave_wifi_rxdesc_push(void *data, int32_t size);
-int32_t ipc_slave_wifi_txcfm_push(void *data, int32_t size);
 int32_t ipc_slave_msg_reply(uint16_t dst_id, uint16_t src_id, int32_t len, void *data);
 int32_t ipc_slave_msg_push(uint32_t chan, uint32_t ep_idx, int32_t len, void *data);
 int32_t ipc_slave_print(char *string, int32_t len);
 void ipc_slave_putchar(char c);
 void ipc_slave_release_msg(void *msg);
 struct ipc_ep* ipc_slave_ep_register(uint32_t ep_idx, ipc_ep_handler_t handler, void *arg);
+volatile struct amp_shared_info* ipc_get_amp_shared_info(void);
 
 #endif

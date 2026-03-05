@@ -1,0 +1,8 @@
+menu "coreMQTT-Agent"
+
+config SDK_MODULE_COREMQTT_AGENT
+    bool "enable sdk module core mqtt agent"
+    default n
+    depends on SDK_MODULE_COREMQTT
+    
+endmenu

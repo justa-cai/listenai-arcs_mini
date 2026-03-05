@@ -1,0 +1,47 @@
+/*
+ * Copyright (c) 2025 ARCS SDK Team
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#ifndef ARCS_SDK_VERSION_H
+#define ARCS_SDK_VERSION_H
+
+/**
+ * @brief ARCS SDK 版本信息
+ *
+ * 此文件由 CMake 自动生成，请勿手动编辑
+ * 生成脚本: cmake/gen_version_h.cmake
+ * 模板文件: sdk_version.h.in
+ */
+
+/* 版本号组件 */
+#define SDK_VERSION_MAJOR   @SDK_VERSION_MAJOR@
+#define SDK_VERSION_MINOR   @SDK_VERSION_MINOR@
+#define SDK_PATCHLEVEL      @SDK_PATCHLEVEL@
+
+/* 版本字符串（用于显示） */
+#define SDK_VERSION_STRING  @SDK_VERSION_STRING@
+
+/* 数值版本编码（用于版本比较） */
+#define SDK_VERSION_CODE    @SDK_VERSION_CODE@
+#define SDK_VERSION_NUMBER  @SDK_VERSION_NUMBER@
+#define SDKVERSION          @SDKVERSION@
+
+/* 构建版本信息（Git 提交哈希） */
+#define BUILD_VERSION       "@BUILD_VERSION@"
+
+/**
+ * @brief 版本比较宏
+ * @param a 主版本号
+ * @param b 次版本号
+ * @param c 补丁版本号
+ * @return 组合后的版本号（24位编码）
+ *
+ * 示例:
+ *   #if SDK_VERSION_NUMBER >= SDK_VERSION(1, 10, 0)
+ *     // 需要 SDK 1.10.0 或更高版本的代码
+ *   #endif
+ */
+#define SDK_VERSION(a, b, c) (((a) << 16) + ((b) << 8) + (c))
+
+#endif /* ARCS_SDK_VERSION_H */

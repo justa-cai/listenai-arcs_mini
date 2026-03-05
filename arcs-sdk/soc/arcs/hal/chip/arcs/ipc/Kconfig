@@ -80,20 +80,6 @@ if ARCS_HAL_IPC
         select ARCS_HAL_IPC_MRPC_CLIENT
         help
             Enable MRPC client for NVS API
-    
-    config ARCS_HAL_IPC_MRPC_SERVER_UTILS
-        bool "Enable utils MRPC server"
-        default n
-        select ARCS_HAL_IPC_MRPC_SERVER
-        help
-            Enable MRPC server for utils API
-
-    config ARCS_HAL_IPC_MRPC_CLIENT_UTILS
-        bool "Enable utils MRPC client"
-        default n
-        select ARCS_HAL_IPC_MRPC_CLIENT
-        help
-            Enable MRPC client for utils API
 
     config ARCS_HAL_IPC_MRPC_CLIENT_FLASH_IF
         bool "Enable flash if MRPC client"
@@ -109,19 +95,33 @@ if ARCS_HAL_IPC
         help
             Enable MRPC server for flash if API
 
-    config ARCS_HAL_IPC_MRPC_CLIENT_OTP
-        bool "Enable otp MRPC client"
+    config ARCS_HAL_IPC_MRPC_CLIENT_UTILS_S2M
+        bool "Enable utils MRPC client S2M"
         default n
         select ARCS_HAL_IPC_MRPC_CLIENT
         help
-            Enable MRPC client for otp API
+            Enable MRPC client for utils API
     
-    config ARCS_HAL_IPC_MRPC_SERVER_OTP
-        bool "Enable otp MRPC server"
+    config ARCS_HAL_IPC_MRPC_SERVER_UTILS_S2M
+        bool "Enable utils MRPC server S2M"
         default n
         select ARCS_HAL_IPC_MRPC_SERVER
         help
-            Enable MRPC server for otp API
+            Enable MRPC server for utils API
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_UTILS_M2S
+        bool "Enable utils MRPC client M2S"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for utils API
+    
+    config ARCS_HAL_IPC_MRPC_SERVER_UTILS_M2S
+        bool "Enable utils MRPC server M2S"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for utils API
  
     config ARCS_HAL_IPC_HALT_BY_PEER_CORE
         bool "Halt by peer core"

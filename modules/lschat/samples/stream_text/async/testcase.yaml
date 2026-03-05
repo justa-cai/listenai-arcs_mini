@@ -1,0 +1,4 @@
+tests:
+  samples.stream_text.async.linux:
+    tags: linux
+    build_only: true

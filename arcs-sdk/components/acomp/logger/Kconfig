@@ -1,0 +1,126 @@
+# SPDX-License-Identifier: Apache-2.0
+
+if ACOMP_LOGGER
+
+config ACOMP_LOGGER_STREAM_BUFFER_SIZE
+    int "Logger stream buffer size (bytes)"
+    default 256
+    help
+        Size of each buffer in the logger stream.
+        This determines the maximum size of data that can be written
+        to a single buffer before it needs to be submitted.
+
+config ACOMP_LOGGER_STREAM_BUFFER_COUNT
+    int "Logger stream buffer count"
+    default 128
+    help
+        Number of buffers in the logger stream.
+        More buffers can improve performance but consume more memory.
+        NOTE: Must be a power of 2 (e.g., 2, 4, 8, 16, 32, etc.).
+
+choice ACOMP_LOGGER_KICK_POLICY
+    prompt "Logger stream kick policy"
+    default ACOMP_LOGGER_KICK_MANUAL
+    help
+        Determines when the logger stream is kicked/flushed.
+
+    config ACOMP_LOGGER_KICK_MANUAL
+        bool "Manual kick"
+        help
+            Stream is manually polled and kicked/flushed.
+            Requires periodic polling based on configured interval.
+
+    config ACOMP_LOGGER_KICK_AUTO
+        bool "Auto kick"
+        help
+            Stream is automatically kicked/flushed when buffer threshold is reached.
+
+endchoice
+
+
+if ACOMP_LOGGER_KICK_AUTO
+
+config ACOMP_LOGGER_AUTO_KICK_BUFFER_THRESHOLD
+    int "Logger auto kick buffer threshold"
+    default 4
+    help
+        Number of buffers received before automatically triggering a kick/flush.
+        Only used when kick policy is set to auto.
+        The logger will automatically flush data after receiving this many buffers.
+endif
+
+if ACOMP_LOGGER_KICK_MANUAL        
+config ACOMP_LOGGER_MANUAL_POLL_INTERVAL_MS
+    int "Logger buffer poll interval (ms)"
+    default 10
+    help
+        Polling interval in milliseconds for checking buffers.
+        Only used when kick policy is set to manual.
+        The logger will check for available buffers at this interval.
+endif # ACOMP_LOGGER_KICK_MANUAL
+
+config ACOMP_LOGGER_THREAD_PRIORITY
+    int "Logger thread priority"
+    default 5
+    help
+        Thread priority for logger processing thread.
+        Higher values indicate higher priority.
+        Range: 0 (lowest) to 31 (highest).
+
+config ACOMP_LOGGER_THREAD_STACK_SIZE
+    int "Logger thread stack size (bytes)"
+    default 2048
+    help
+        Stack size in bytes for logger processing thread.
+        Adjust based on logger processing requirements.
+
+config ACOMP_LOGGER_USE_COLOR
+    bool "Enable color highlighting for AP logs"
+    default y
+    help
+        Enable ANSI color codes to highlight AP logs with background color.
+        This makes it easier to distinguish AP logs from Master logs.
+
+if ACOMP_LOGGER_USE_COLOR
+
+choice ACOMP_LOGGER_COLOR_SCHEME
+    prompt "AP log color scheme"
+    default ACOMP_LOGGER_COLOR_CYAN_BG
+    help
+        Select the color scheme for AP logs.
+
+    config ACOMP_LOGGER_COLOR_CYAN_BG
+        bool "Cyan background"
+        help
+            Use cyan background for AP logs (recommended).
+
+    config ACOMP_LOGGER_COLOR_BLUE_BG
+        bool "Blue background"
+        help
+            Use blue background for AP logs.
+
+    config ACOMP_LOGGER_COLOR_GREEN_BG
+        bool "Green background"
+        help
+            Use green background for AP logs.
+
+    config ACOMP_LOGGER_COLOR_YELLOW_BG
+        bool "Yellow background"
+        help
+            Use yellow background for AP logs.
+
+    config ACOMP_LOGGER_COLOR_PURPLE_BG
+        bool "Purple background"
+        help
+            Use purple background for AP logs.
+
+    config ACOMP_LOGGER_COLOR_LIGHT_GRAY_BG
+        bool "Light gray background"
+        help
+            Use light gray background for AP logs.
+
+endchoice
+
+endif # ACOMP_LOGGER_USE_COLOR
+
+endif # ACOMP_LOGGER

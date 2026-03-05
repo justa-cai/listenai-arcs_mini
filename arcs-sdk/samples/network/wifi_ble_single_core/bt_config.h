@@ -27,7 +27,7 @@
 #define  LEA_PRESENT          0
 #define  MESH_PRESENT         0
 //# transport
-#define  HCIT_UART_PRESENT    1
+#define  HCIT_UART_PRESENT    0
 #define  HCIT_USB_PRESENT     0
 //#hci audio access
 #define  HCIT_AUD_PRESENT     0

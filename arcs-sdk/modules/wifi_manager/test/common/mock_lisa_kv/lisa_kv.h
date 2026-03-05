@@ -6,6 +6,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +19,12 @@ int lisa_kv_set_blob(const char *key, uint8_t *data, int len);
 
 int lisa_kv_get_int(const char *key, int *value);
 int lisa_kv_set_int(const char *key, int value);
+
+int lisa_kv_get_string(const char *key, char **value);
+int lisa_kv_set_string(const char *key, const char *value);
+
+int lisa_kv_get_bool(const char *key, bool *value);
+int lisa_kv_set_bool(const char *key, bool value);
 
 int lisa_kv_del(const char *key);
 

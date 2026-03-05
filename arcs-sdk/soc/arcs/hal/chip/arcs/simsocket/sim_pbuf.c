@@ -75,8 +75,9 @@ pbuf_alloc_reference(void *payload, u16_t length, pbuf_type type)
   /* only allocate memory for the pbuf structure */
   p = (struct pbuf*)get_pbuf_mem(SIM_PBUF_SIZE);
   if (p == NULL) {
-    SIMS_DEBUG("pbuf_alloc_reference: Could not allocate MEMP_PBUF for PBUF_%s.",
-                (type == PBUF_ROM) ? "ROM" : "REF");
+    SIMS_DEBUG(PBUF_DEBUG | LWIP_DBG_LEVEL_SERIOUS,
+                ("pbuf_alloc_reference: Could not allocate MEMP_PBUF for PBUF_%s.\n",
+                 (type == PBUF_ROM) ? "ROM" : "REF"));
     return NULL;
   }
   pbuf_init_alloced_pbuf(p, payload, length, length, type, 0);
@@ -110,6 +111,9 @@ struct pbuf* pbuf_alloc(pbuf_layer layer, uint16_t length, pbuf_type type)
         case PBUF_REF: /* fall through */
           p = pbuf_alloc_reference(NULL, length, type);
           SIMS_DEBUG("pbuf_ref 0x%x\n", p);
+          if (p == NULL) {
+              return NULL;
+          }
           break;
         case PBUF_RAM:
             {

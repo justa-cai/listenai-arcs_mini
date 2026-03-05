@@ -243,7 +243,7 @@ int32_t HAL_GPT_PWMControl(void *pGpt, uint32_t control, GPT_CHANNEL_TYPE channe
 {
 	GPT_PWM_RESOURCES * pGptPWM = (GPT_PWM_RESOURCES *)pGpt;
 	uint8_t divider[8] = {0 ,1, 2, 3 ,4, 5, 6, 7};
-	uint32_t clockfreq[3] = {CRM_GetSrcFreq(CRM_IpSrcXtalClk), CLOCK_EXT, CRM_GetSrcFreq(CRM_IpSrcPeriClk)};
+	uint32_t clockfreq[3] = {CRM_GetSrcFreq(CRM_IpSrcXtalClk), CLOCK_EXT, CRM_GetCmn_peri_pclkFreq()};
 	uint32_t tmp;
 	
 	if((pGptPWM->gpt_resources->info->flags&GPT_FLAG_POWERED) == 0)
@@ -252,11 +252,7 @@ int32_t HAL_GPT_PWMControl(void *pGpt, uint32_t control, GPT_CHANNEL_TYPE channe
 		return CSK_DRIVER_ERROR;
 	}
 
-	if(pGptPWM->gpt_resources->hardware->channel_stat[channel] != HARDWARE_CHANNEL_STAT_IDLE)
-	{
-		return CSK_GPT_ERROR_HARDWARE_CONFLICTION;
-	}
-	else if((control & CSK_GPT_PWM_OPERATION_MODE_Msk) == CSK_GPT_PWM_OPERATION_MODE_LEDC){
+	if((control & CSK_GPT_PWM_OPERATION_MODE_Msk) == CSK_GPT_PWM_OPERATION_MODE_LEDC){
 		pGptPWM->gpt_resources->hardware->channel_stat[channel] = HARDWARE_CHANNEL_STAT_USED_BY_LEDC;
 	}
 	else{
@@ -389,7 +385,7 @@ int32_t HAL_GPT_SetPWMFreqDuty(void *pGpt, GPT_CHANNEL_TYPE channel, uint32_t fr
 	GPT_PWM_RESOURCES * pGptPWM = (GPT_PWM_RESOURCES *)pGpt;
 	uint32_t tmp;
 	uint8_t divider[8] = {0 ,1, 2, 3 ,4, 5, 6, 7};
-    uint32_t clockfreq[3] = {CRM_GetSrcFreq(CRM_IpSrcXtalClk), CLOCK_EXT, CRM_GetSrcFreq(CRM_IpSrcPeriClk)};
+    uint32_t clockfreq[3] = {CRM_GetSrcFreq(CRM_IpSrcXtalClk), CLOCK_EXT, CRM_GetCmn_peri_pclkFreq()};
 
 	if((pGptPWM->gpt_resources->info->flags&GPT_FLAG_POWERED) == 0)
 	{

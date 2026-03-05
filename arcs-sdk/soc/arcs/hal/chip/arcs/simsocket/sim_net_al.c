@@ -490,7 +490,7 @@ static void net_l2_send_cfm(uint32_t frame_id, bool acknowledged, void *arg)
     if (arg)
         *((bool *)arg) = acknowledged;
     l2_send_ack = acknowledged;
-    CLOG("%s:%d\n", __func__, l2_send_ack);
+    CLOGV("%s:%d\n", __func__, l2_send_ack);
     rtos_semaphore_signal(l2_semaphore, false);
 }
 

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.10)
 
 # 检查是否在扫描笔工程中构建
-if(DEFINED LISTENAI_SDK_PATH)
+if(DEFINED ENV{ARCS_BASE})
     # 扫描笔工程环境下的构建
     listenai_library_named(ebus)
     listenai_library_sources(
@@ -9,7 +9,7 @@ if(DEFINED LISTENAI_SDK_PATH)
     )
 
     listenai_include_directories(
-        ./inlcude
+        ./include
         ./port
     )
 else()

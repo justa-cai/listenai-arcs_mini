@@ -1,0 +1,214 @@
+# LVGL8 Widgets 控件演示示例
+
+## 功能说明
+
+演示 LVGL 8.x 图形库的 Widgets 控件功能，展示各种 UI 控件的使用方法和效果。
+
+本示例使用 LISA Display 和 LISA Touch 设备框架，通过 SPI 接口驱动 ST7789P3 LCD 屏幕，通过 I2C 接口驱动 CST328 电容触摸屏。Widgets Demo 会展示按钮、滑块、开关、下拉框、图表等多种 LVGL 控件。
+
+## 硬件连接
+
+### LCD 显示屏（SPI 接口）
+
+| 信号 | 引脚 | 说明 |
+|------|------|------|
+| SPI_CLK | PB3 | SPI 时钟 |
+| SPI_DATA | PB1 | SPI 数据 |
+| CS | PB5 | 片选 |
+| DC | PB (LCD_CD_PIN) | 数据/命令选择 |
+| RST | PA (LCD_RST_PIN) | 复位 |
+| PWM | PA (LCD_PWM_PIN) | 背光 PWM |
+
+### 触摸屏（I2C 接口）
+
+| 信号 | 引脚 | 说明 |
+|------|------|------|
+| SDA | PA22 | I2C 数据 |
+| SCL | PA23 | I2C 时钟 |
+| INT | PA24 | 中断 |
+| RST | PA25 | 复位 |
+
+## 示例步骤
+
+1. 初始化 LVGL 库
+2. 配置 GPIO 引脚复用
+3. 初始化 Display 设备并配置 SPI 总线
+4. 初始化 Touch 设备并配置 I2C 总线
+5. 启动 LVGL widgets 控件演示
+6. 在 UI 任务中循环调用 `lv_task_handler()` 处理界面刷新
+
+## 编译
+
+```{eval-rst}
+.. include:: /sample_build.rst
+```
+
+## 预期输出
+
+**终端输出：**
+```
+LVGL8 widgets start
+```
+
+**屏幕显示：**
+- 展示多种 LVGL 控件
+- 支持触摸交互
+- 控件类型包括：
+  - 按钮（Button）
+  - 滑块（Slider）
+  - 开关（Switch）
+  - 下拉框（Dropdown）
+  - 图表（Chart）
+  - 进度条（Bar）
+  - 标签（Label）
+  - 等等
+
+## 核心 API
+
+| API | 说明 |
+|-----|------|
+| `lv_init()` | 初始化 LVGL 库 |
+| `lisa_device_get()` | 获取设备句柄 |
+| `lisa_display_attach_bus()` | 配置显示设备总线 |
+| `lv_port_disp_init()` | 初始化 LVGL 显示驱动 |
+| `lisa_touch_attach_bus()` | 配置触摸设备总线 |
+| `lv_port_indev_init()` | 初始化 LVGL 输入设备驱动 |
+| `lv_task_handler()` | LVGL 任务处理函数 |
+| `lv_demo_widgets()` | 启动 widgets 控件演示 |
+
+## 关键代码
+
+### Display 设备配置
+
+```c
+lisa_display_config_t display_config = {
+    .bus_type = LISA_DISPLAY_BUS_SPI_4WIRE,
+    .bus_config = {.spi_4wire = {
+        .spi_dev = lisa_device_get("spi1"),
+        .cs_gpio = gpiob_dev,
+        .cs_pin = LCD_CS_PIN,
+        .dc_gpio = gpiob_dev,
+        .dc_pin = LCD_CD_PIN,
+        .spi_freq = 50 * 1000 * 1000,
+    }},
+    .backlight = {
+        .type = LISA_DISPLAY_BACKLIGHT_TYPE_PWM,
+        .config.pwm = {.channel = 0, .dev = lisa_device_get("pwm0"), .freq = 2000}
+    },
+    .rst_gpio = gpioa_dev,
+    .rst_pin = LCD_RST_PIN,
+};
+
+lisa_device_t *display_device = lisa_device_get("display");
+lisa_display_attach_bus(display_device, &display_config);
+lv_port_disp_init(display_device);
+```
+
+### Touch 设备配置
+
+```c
+lisa_touch_bus_config_t bus_config = {
+    .bus_type = LISA_TOUCH_BUS_I2C,
+    .config = {
+        .i2c = {
+            .i2c_dev = i2c_dev,
+            .int_gpio = gpioa_dev,
+            .int_pin = LISA_TOUCH_I2C_INT_PIN,
+            .rst_gpio = gpioa_dev,
+            .rst_pin = LISA_TOUCH_I2C_RST_PIN,
+        }
+    }
+};
+
+lisa_device_t *touch_dev = lisa_device_get(TOUCH_DEVICE);
+lisa_touch_attach_bus(touch_dev, &bus_config);
+lv_port_indev_init(touch_dev);
+```
+
+### UI 任务
+
+```c
+static void task_ui(void *pvParameters)
+{
+    lv_demo_widgets();
+    LISA_LOGI(LOG_TAG, "LVGL8 widgets start");
+
+    while (1) {
+        uint32_t wait_time = lv_task_handler();
+        lisa_thread_mdelay(wait_time);
+    }
+}
+```
+
+## 配置说明
+
+### 必需的配置项（prj.conf）
+
+```
+# 设备框架
+CONFIG_LISA_DEVICE=y
+CONFIG_LISA_GPIO_DEVICE=y
+CONFIG_LISA_GPIOA=y
+CONFIG_LISA_GPIOB=y
+CONFIG_LISA_PWM=y
+CONFIG_LISA_SPI1=y
+
+# 显示设备
+CONFIG_LISA_DISPLAY_DEVICE=y
+CONFIG_LISA_DISPLAY_PANEL_ST7789P3=y
+CONFIG_LISA_DISPLAY_BUS_SPI_4WIRE=y
+
+# 触摸设备
+CONFIG_LISA_TOUCH_DEVICE=y
+CONFIG_LISA_I2C=y
+CONFIG_LISA_I2C0=y
+CONFIG_LISA_TOUCH_ARCS_CST328=y
+
+# LVGL8
+CONFIG_SDK_MODULE_LVGL8=y
+CONFIG_LV_USE_DEMO_WIDGETS=y
+CONFIG_LV_USE_GPU_CSK_DMA2D=y
+CONFIG_LV_DOUBLE_VDB=y
+CONFIG_LV_USE_PERF_MONITOR=y
+```
+
+### 性能优化配置
+
+```
+CONFIG_LV_USE_GPU_CSK_DMA2D=y                # 启用 DMA2D 硬件加速
+CONFIG_LV_DOUBLE_VDB=y                        # 双缓冲
+CONFIG_LV_DRIVER_FULL_REFRESH=y               # 全屏刷新
+CONFIG_LV_REFR_UNCONDITIONAL_AREA_JOIN=y      # 区域合并优化
+CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y       # 将性能关键函数放入 ITCM 内存
+```
+
+**CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM 说明:**
+
+启用此选项后,LVGL 的性能关键函数(如绘图函数)将被放置到 ITCM(Instruction Tightly-Coupled Memory)内存区域。ITCM 是一种与 CPU 紧密耦合的快速内存,具有以下优势:
+
+- **零等待访问**: CPU 可以以零等待周期访问 ITCM,无需通过总线仲裁
+- **更快的执行速度**: 相比普通 Flash 或 SRAM,ITCM 的访问速度更快
+- **降低功耗**: 减少总线访问次数,降低系统功耗
+- **提升 UI 流畅度**: 加速 LVGL 的绘图和刷新操作,提高帧率
+
+通过在编译时添加 `__attribute__((section(".itcm.text")))` 属性,标记为 `LV_ATTRIBUTE_FAST_MEM` 的函数会被链接器放置到 ITCM 段。这对于需要高性能 UI 渲染的应用场景特别有用。
+
+## 注意事项
+
+1. **引脚复用配置**：必须在设备初始化前正确配置 GPIO 引脚复用功能
+
+2. **设备初始化顺序**：
+   - 先调用 `lv_init()` 初始化 LVGL
+   - 再初始化 Display 设备
+   - 然后初始化 Touch 设备
+   - 最后创建 UI 任务
+
+3. **屏幕旋转**：通过 `CONFIG_LV_DRIVER_ROTATE_270` 配置屏幕旋转角度
+
+4. **内存配置**：确保 PSRAM 堆大小足够（`CONFIG_PSRAM_HEAP_SIZE=614400`）
+
+5. **性能监控**：启用 `CONFIG_LV_USE_PERF_MONITOR=y` 可在屏幕左上角显示实时 FPS 和 CPU 占用率
+
+6. **触摸交互**：Widgets Demo 支持触摸操作，可以点击按钮、拖动滑块等
+
+7. **ITCM 内存优化**：启用 `CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM=y` 可显著提升 UI 渲染性能,但会占用部分 ITCM 空间。如果 ITCM 空间不足,可以关闭此选项以节省内存

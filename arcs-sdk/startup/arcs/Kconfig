@@ -41,7 +41,33 @@ config WATCHDOG_ENABLE
     help
         Enable the watchdog
 
+config SYS_INIT
+    bool "Enable system initialization framework"
+    default y
+    help
+        Enable the SYS_INIT framework for multi-level system initialization.
+
+        This framework provides 5 initialization levels that match ARCS boot flow:
+
+        - PRE_SYSTEM_INIT:   BEFORE scatload (in platform_pre_startup)
+                             ⚠️ WARNING: .data NOT copied, .bss NOT zeroed!
+                             DO NOT use global variables!
+        - PRE_DEVICES_INIT:  Before lisa_device_init()
+        - PRE_KERNEL:        Before vTaskStartScheduler()
+        - POST_KERNEL:       After vTaskStartScheduler()
+        - PRE_APPLICATION:   Before main()
+
+        Use SYS_INIT macro to register initialization functions at different levels.
+
+        If unsure, say Y.
+
+config SYS_INIT_DEBUG
+    bool "Enable system initialization debug output"
+    depends on SYS_INIT
+    default n
+    help
+        Enable detailed debug logging for system initialization.
+
 rsource "Kconfig.mem"
 rsource "Kconfig.syslog"
-rsource "Kconfig.heap"
 rsource "Kconfig.debug"

@@ -45,9 +45,21 @@ docs/
 
 ## 环境准备
 
-### 安装依赖
+### 安装系统依赖
 
-在开始构建文档之前，需要先安装必要的Python依赖包：
+本文档构建依赖 Doxygen 工具来生成 API 文档，请先安装：
+
+**Ubuntu/Debian:**
+```bash
+sudo apt-get install doxygen
+```
+
+**其他系统:**
+请访问 [Doxygen 官网](https://www.doxygen.nl/download.html) 下载对应平台的安装包。
+
+### 安装 Python 依赖
+
+在开始构建文档之前，还需要安装必要的 Python 依赖包：
 
 ```bash
 pip install --user -r requirements.txt
@@ -78,6 +90,12 @@ pip install --user -r requirements.txt
    ```bash
    make en
    ```
+
+   **将 Sphinx 警告视为错误：**
+   ```bash
+   make SPHINXOPTS="-W"
+   ```
+   > 利用 `SPHINXOPTS` 变量向 `sphinx-build` 追加 `-W` 参数，任何警告都会使构建失败；可与 `make`、`make zh` 等目标同时使用，例如 `make zh SPHINXOPTS="-W"`。
 
    **清理构建缓存：**
    ```bash

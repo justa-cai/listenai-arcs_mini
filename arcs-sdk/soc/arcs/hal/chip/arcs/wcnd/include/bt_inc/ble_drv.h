@@ -69,6 +69,8 @@ enum plf_core_feat {
     PLF_CORE_BT    = 2,
     /// core le audio support
     PLF_CORE_ISO   = 4,
+    /// spark link low energy support
+    PLF_CORE_SLE   = 8,
 };
 
 enum plf_stack_feat {
@@ -82,6 +84,8 @@ enum plf_stack_feat {
     PLF_STACK_MESH  = 4,
     /// le audio stack support
     PLF_STACK_LEA   = 8,
+    /// spark link low energy stack support
+    PLF_STACK_SLE   = 16,
 };
 
 
@@ -352,7 +356,7 @@ struct bt_sleep_api_str
     void (*sleep_init)(void);
     void (*enter_sleep)(uint16_t);
     bool (*is_power_on)(void);
-    bool (*is_wakeup)(void);
+    uint32_t (*is_wakeup)(void);
     uint32_t (*get_wakeup_state)(void);
     bool (*is_bt_wakeup)(void);
     void (*en_32kHZ)(void);
@@ -389,10 +393,40 @@ struct lsip_external_api_str
     void (*bt_drv_init)(uint8_t);
     // init bt sleep api
     uint8_t (*bt_sleep_api_init)(void **api);
-    void (*bt_dma_api_init)(void *api);
+    uint8_t (*bt_dma_api_init)(void *api);
     //init sleep wakeup reg
     void (*bt_sleep_wakeup_reg_init)(void);
 };
+
+struct lsip_nvds_api
+{
+    /**
+     * Get a parameter value
+     * @param[in]      param_id     Parameter identifier
+     * @param[in/out]  lengthPtr    Pointer to the length of the parameter (input: contain max length, output contain the effective param length, in bytes)
+     * @param[out]     buf          Pointer to the buffer be filled with the parameter value
+     * @return  status              0: success | >0 : error
+     */
+    uint8_t (*get) (uint8_t param_id, uint8_t * lengthPtr, uint8_t *buf);
+
+    /**
+     * Set a parameter value
+     * @param[in]      param_id     Parameter identifier
+     * @param[in/out]  length       Length of the parameter (in bytes)
+     * @param[out]     buf          Pointer to the buffer containing the parameter value
+     * @return  status              0: success | >0 : error
+     */
+    uint8_t (*set) (uint8_t param_id, uint8_t length, uint8_t *buf);
+
+    /**
+     * Delete a parameter
+     * @param[in]      param_id     Parameter identifier
+     * @return  status              0: success | >0 : error
+     */
+    uint8_t (*del) (uint8_t param_id);
+};
+
+
 
 /*
  * GLOBAL VARIABLE DECLARATION

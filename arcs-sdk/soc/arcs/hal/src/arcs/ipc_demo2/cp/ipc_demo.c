@@ -146,11 +146,13 @@ static void app_init_task(void *pvParameters)
     arcs_nvs_init();
 #endif
     CLOGD("Done");
-    ipc_wifi_init();
+    ipc_master_wifi_init();
     // register event
     ls_event_init();
     ls_event_register_cb(EVENT_WIFI, EVENT_ID_ALL, wifi_event_cb, NULL);
-
+#if CONFIG_PM
+    vrtc_init();
+#endif
     shell_init(cli_shell_process);
 
     rtos_task_delete(NULL);
@@ -164,9 +166,9 @@ static void app_init_task(void *pvParameters)
 int main(void)
 {
     struct ipc_master_cb_tag ipc_cb = {
-            .wifi_tx_data_cfm = wlif_tx_cfm,
-            .wifi_rx_data_ind = wlif_rx_buf_forward,
-            .indication_handler = ipc_indication_handler
+            .wifi_tx_data_cfm   = wlif_tx_cfm,
+            .wifi_rx_data       = wlif_rx_buf_forward,
+            .indication_handler = ipc_master_indication_handler
     };
 
     logInit(SHELL_UART0, SHELL_UART0_BAUDRATE);

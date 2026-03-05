@@ -33,11 +33,20 @@ NVDS_LEN_WIFI_STA_AUTOCONN    = 1,
 NVDS_TAG_WIFI_MAC_ADDR        = 0x103,
 NVDS_LEN_WIFI_MAC_ADDR        = 6,
 
-NVDS_TAG_WIFI_CHANNEL        = 0x104,
-NVDS_LEN_WIFI_CHANNEL        = 1,
+NVDS_TAG_WIFI_CHANNEL         = 0x104,
+NVDS_LEN_WIFI_CHANNEL         = 4,
 
-NVDS_TAG_DHCP_IP_ADDR        = 0x105,
-NVDS_LEN_IP_ADDR_ADDR        = 4,
+NVDS_TAG_DHCP_IP_ADDR         = 0x105,
+NVDS_LEN_DHCP_IP_ADDR         = 4,
+
+NVDS_TAG_WIFI_PMK             = 0x106,
+NVDS_LEN_WIFI_PMK             = 32,
+
+NVDS_TAG_WIFI_PMK_SET         = 0x107,
+NVDS_LEN_WIFI_PMK_SET         = 1,
+
+NVDS_TAG_WIFI_BSSID           = 0x108,
+NVDS_LEN_WIFI_BSSID           = 6,
 
 // Other for customer define
 

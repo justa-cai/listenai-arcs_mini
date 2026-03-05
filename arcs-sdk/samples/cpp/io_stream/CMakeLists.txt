@@ -12,7 +12,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     src/main.cpp
     src/io_stream_test.cpp
     src/fs.c
-    src/sdmmc_init.c
 )
 
 listenai_include_directories(src)

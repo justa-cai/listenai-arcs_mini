@@ -427,17 +427,17 @@ static void mbx_irq_handler0(void)
 static void mbx_irq_handler1(void)
 {
 	uint32_t status;
-    int32_t i;
+	int32_t i;
 
 	// channel 8-15, 寄存器 10-17
 	status = mbx_res.mbx_cb->REG_CP_MAILBOX_IRQ.all & 0x0000ff00;
 
-    for (i = 8; i < 16; i++) {
-        if (status & (0x1U << i)) {
-            mbx_res.cb_event1(CSK_MBX_EVENT_RECEIVE_COMPLETE, i);
-            // irq 寄存器中清除 channel 14, write 1 bit to clear 1 bit
-            mbx_res.mbx_cb->REG_CP_MAILBOX_IRQ.all = 0x1U << i;  //clear irq bits
-        }
+	for (i = 8; i < 16; i++) {
+		if (status & (0x1U << i)) {
+			mbx_res.cb_event1(CSK_MBX_EVENT_RECEIVE_COMPLETE, i);
+			// irq 寄存器中清除 channel 14, write 1 bit to clear 1 bit
+			mbx_res.mbx_cb->REG_CP_MAILBOX_IRQ.all = 0x1U << i;  //clear irq bits
+		}
     }
 }
 
@@ -818,7 +818,7 @@ static void mbx_irq_handler0(void)
 static void mbx_irq_handler1(void)
 {
 	uint32_t status;
-    int32_t i;
+	int32_t i;
 
 	// channel 8-15, 寄存器 10-17
 	status = mbx_res.mbx_cb->REG_AP_MAILBOX_IRQ.all & 0x0000ff00;
@@ -830,8 +830,7 @@ static void mbx_irq_handler1(void)
 			// irq 寄存器中清除 channel 14, write 1 bit to clear 1 bit
 			mbx_res.mbx_cb->REG_AP_MAILBOX_IRQ.all = 0x1U << i;  //clear irq bits
 		}
-    }
-
+	}
 }
 
 // export MBX API function: MBX_Initialize

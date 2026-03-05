@@ -1,0 +1,3 @@
+tests:
+  samples.cAT.basic:
+    build_only: true

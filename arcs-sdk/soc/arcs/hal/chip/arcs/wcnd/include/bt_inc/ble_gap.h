@@ -717,9 +717,15 @@ typedef struct bt_gap_cb
      ****************************************************************************************
      */
     void (*cb_bt_conn_ind)(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *peer_addr);
+     /**
+     ****************************************************************************************
+     * @brief Handles sco connection event from the GAP
+     ****************************************************************************************
+     */
+    void (*cb_bt_aud_conn_ind)(uint8_t conidx, uint16_t type, uint16_t status);
     /**
      ****************************************************************************************
-     * @brief Handles connection disconnection event from the GAP
+     * @brief Handles sco connection disconnection event from the GAP
      ****************************************************************************************
      */
     void (*cb_bt_aud_disc_ind)(uint8_t conidx, uint16_t conhdl, uint16_t reason);
@@ -1085,6 +1091,18 @@ uint8_t ble_gap_get_con_param_dis(void);
 void ble_gap_adv_user_data(uint8_t adv_id, uint8_t len , uint8_t *adv_data);
 
 /**
+ * Gap set data len
+ *
+ * @param conidx
+ * @param tx_octets
+ * @param tx_time
+ *
+ * @return None.
+ */
+void ble_gap_set_data_len(uint16_t conidx, uint16_t tx_octets, uint16_t tx_time);
+
+
+/**
  * Prepare scan activity.
  *
  * @param scan id       ID number of scan.
@@ -1134,6 +1152,40 @@ void ble_gap_set_loc_pub_addr(uint8_t *addr);
  * @return None.
  */
 void bt_gap_enable(const bt_gap_cfg_t *cfg, const bt_gap_cb_t *cb);
+
+/**
+ * Enable gap bt discover create
+ *
+ * @param own_addr_type               addr type
+ *
+ * @return None.
+ */
+void bt_gap_discover_create(uint8_t own_addr_type);
+
+/**
+ * Enable gap bt discover start
+ *
+ * @param actv_idx               active idx
+ * @param disc_mode              discover mode
+ * @param max_count              max count
+ * @param get_name               get name flag
+ *
+ * @return None.
+ */
+void bt_gap_discover_start(uint8_t actv_idx, uint8_t disc_mode, uint8_t max_count, bool get_name);
+
+/**
+ * Enable gap bt connect
+ *
+ * @param p_addr                 addr point
+ * @param type                   type
+ * @param clk_off                clk_off
+ * @param page_scan_rep_mode     page_scan_rep_mode
+ *
+ * @return None.
+ */
+
+void bt_gap_connect(gap_bdaddr_t addr, uint8_t type, uint16_t clk_off, uint8_t page_scan_rep_mode);
 
 /**
  * Bt scan enable

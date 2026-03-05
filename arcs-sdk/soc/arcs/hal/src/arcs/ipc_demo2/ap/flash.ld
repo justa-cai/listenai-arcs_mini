@@ -72,7 +72,7 @@ SECTIONS
       _eipcshram = . ;
       *(.ic_lock_shared_mem)
   } > IPCSHRAM
-  
+
   /* shared RAM, put calibration and trace memeory at the beginning */
   SHARED (NOLOAD):
   {

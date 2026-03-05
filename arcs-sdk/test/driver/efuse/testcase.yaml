@@ -1,5 +1,5 @@
 tests:
-  test.driver.gpio:
+  test.driver.efuse:
     programmer: arcs
     runner: uart
     log_analyzer: Unity

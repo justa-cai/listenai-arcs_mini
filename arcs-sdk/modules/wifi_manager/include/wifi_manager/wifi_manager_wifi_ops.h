@@ -27,6 +27,14 @@ typedef enum {
     WIFI_MGR_WIFI_EVT_SCAN_FAILED         = (1 << 5),
 } wifi_mgr_wifi_event_t;
 
+/**
+ * @brief WiFi 连接失败信息
+ */
+typedef struct {
+    int error_code;
+    int status_code;
+    int reason_code;
+} wifi_mgr_connect_fail_info_t;
 
 /**
  * @brief WiFi 加密模式
@@ -55,7 +63,18 @@ typedef struct {
     int channel;
     int rssi;
     wifi_mgr_wifi_encryption_mode_t encryption_mode;
+
+    uint8_t pmk[32];      // PMK (Pairwise Master Key) 缓存
+    uint8_t pmk_valid;    // PMK 有效性标志 (0=无效, 1=有效)
 } wifi_mgr_wifi_sta_config_t;
+
+/**
+ * @brief WiFi 断开事件信息（包含失败原因）
+ */
+typedef struct {
+    wifi_mgr_wifi_sta_config_t sta_config;
+    wifi_mgr_connect_fail_info_t fail_info;
+} wifi_mgr_disconnect_event_info_t;
 
 /**
  * @brief WiFi 扫描信息结构

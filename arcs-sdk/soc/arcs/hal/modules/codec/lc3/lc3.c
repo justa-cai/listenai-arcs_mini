@@ -18,24 +18,7 @@
     if (cond)                                                                                                          \
     return (error)
 
-#ifdef SUBSET_NB
-#pragma message("- SUBSET_NB")
-#endif
-#ifdef SUBSET_WB
-#pragma message("- SUBSET_WB")
-#endif
-#ifdef SUBSET_SSWB
-#pragma message("- SUBSET_SSWB")
-#endif
-#ifdef SUBSET_SWB
-#pragma message("- SUBSET_SWB")
-#endif
-#ifdef SUBSET_FB
-#pragma message("- SUBSET_FB")
-#endif
-#ifdef SUBSET_UB
-#pragma message("- SUBSET_UB")
-#endif
+
 
 /* ensure api header constants are up to date */
 STATIC_ASSERT(LC3PLUS_MAX_SAMPLES >= MAX_LEN);

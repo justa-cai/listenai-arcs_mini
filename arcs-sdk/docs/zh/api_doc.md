@@ -1,7 +1,6 @@
 # SDK API 参考
 
-:::{eval-rst}
-
+```{eval-rst}
 关于SDK API 更多的信息可以查看 `SDK API 参考 <_static/api_doc/html/index.html>`_ 。
-:::
+```
 

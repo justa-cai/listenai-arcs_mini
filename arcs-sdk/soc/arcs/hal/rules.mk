@@ -77,6 +77,8 @@ else ifeq ("${CHIP}", "jupiter")
 BUILDTOOL = riscv_nuclei
 else ifeq ("${CHIP}", "venusa")
 BUILDTOOL = riscv_nuclei
+else ifeq ("${CHIP}", "spica")
+BUILDTOOL = riscv_nuclei
 else
 $(info "No BUILDTOOL for" $(CHIP) $(TGT))
 endif
@@ -116,8 +118,7 @@ CFLAGS    += \
 	-DPSRAM_SEC=${PSRAM_SEC} \
 	$(COREFLAGS) \
 	$(OPTIM) -g \
-	-Wall -Wno-format -Wno-unused -Wno-comment -MMD \
-	-ffunction-sections -fdata-sections \
+	-Wno-format -Wno-unused -Wno-comment -MMD
 
 
 LDFLAGS   += \
@@ -166,6 +167,7 @@ $(LIBOUT)/$(LIB)   : mk_dirs $(OBJS)
 mk_libs :
 	@for dir in $(MODULES); do \
 	if [ -f "${TOPDIR}/$$dir/Makefile" ]; then $(MAKE) -C ${TOPDIR}/$$dir $(MKDEFS) libs ||exit 1; fi;\
+	if [ -f "${TOPDIR}/chip/${CHIP}/modules/$$dir/Makefile" ]; then $(MAKE) -C ${TOPDIR}/chip/${CHIP}/modules/$$dir $(MKDEFS) libs ||exit 1; fi;\
 	if [ -f "${TOPDIR}/modules/$$dir/Makefile" ]; then $(MAKE) -C ${TOPDIR}/modules/$$dir $(MKDEFS) libs ||exit 1; fi;\
 	if [ -f "${TOPDIR}/chip/${CHIP}/$$dir/Makefile" ]; then $(MAKE) -C ${TOPDIR}/chip/${CHIP}/$$dir $(MKDEFS) libs ||exit 1; fi;\
 	done
@@ -212,7 +214,7 @@ ${OBJPATH}/%.o: %.c
 	$(CC) -c $(CFLAGS) -std=gnu11 $< -o $@
 
 ${OBJPATH}/%.o: %.cc
-	$(C++) -c $(CFLAGS) -std=gnu++17 $< -o $@
+	$(C++) -c $(CXXFLAGS) -std=gnu++17 $< -o $@
 
 subdirs_c	:
 	@for dir in $(SUBDIRS);\

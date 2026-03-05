@@ -137,15 +137,6 @@ export TX_BUF_COPY
 
 HW_VER=HW_VER_ARCS_D0
 export HW_VER
-ifeq ($(IC_BOARD), 1)
-  ifeq ("$(strip $(CHIP))", "arcs")
-    ifeq ("$(strip $(HW_VER))", "C0")
-      CFLAGS += -DCHIP_ARCS_C0
-    else ifeq ("$(strip $(HW_VER))", "D0")
-      CFLAGS += -DCHIP_ARCS_D0
-    endif
-  endif
-endif
 
 BT_WIFI_COEX=1
 export BT_WIFI_COEX
@@ -154,7 +145,12 @@ CFLAGS += -DBT_WIFI_COEX=$(BT_WIFI_COEX)
 # Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BT
 WCN_TYPE=both
 export WCN_TYPE
-
+# RF_BOARD_VER=0 or undefine for ArcsD EVB,
+# RF_BOARD_VER=1 for Taoyun DVT1
+# RF_BOARD_VER=2 for Taoyun DVT2
+# RF_BOARD_VER=3 for Haier
+RF_BOARD_VER ?= 0
+export RF_BOARD_VER
 # RFCALI_WF_EN: 0=disable, 1=enable
 RFCALI_WF_EN=1
 export RFCALI_WF_EN

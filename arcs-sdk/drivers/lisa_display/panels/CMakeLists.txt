@@ -1,0 +1,3 @@
+listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_PANEL_ST7789P3 panel_st7789p3.c)
+listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_PANEL_AXS15231B panel_axs15231b.c)
+listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_PANEL_ST7701S panel_st7701s.c)

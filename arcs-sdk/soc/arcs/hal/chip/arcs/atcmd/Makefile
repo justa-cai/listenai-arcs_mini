@@ -29,7 +29,7 @@ CPPSRCS	=
 SSRCS	=
 
 
-LWIP_VER := lwip-2.2.0
+LWIP_VER := $(LWIP_VER)
 #includings and flags
 CFLAGS  = -I $(TOPDIR)/include/NMSIS/Core/Include \
           -I $(TOPDIR)/include/debug \

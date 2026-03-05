@@ -46,9 +46,12 @@ do { \
 
 static void efuse_ctrl_init(void)
 {
+#if (CONFIG_PM == 0)
     static bool efuse_inited = false;
 
-    if (!efuse_inited) {
+    if (!efuse_inited)
+#endif
+    {
         // use pclk for efuse
         // enable efuse
         __HAL_EFUSE_CLK_ENABLE();
@@ -60,7 +63,9 @@ static void efuse_ctrl_init(void)
         IP_EFUSE_CTRL->REG_CMD_CTL.bit.EFU_REDUNDANCY_ENA_B = 0x1;
         IP_EFUSE_CTRL->REG_CMD_CTL.bit.EFU_REDUNDANCY_ROW_SEL = 0x0;
 
+#if (CONFIG_PM == 0)
         efuse_inited = true;
+#endif
     }
 }
 

@@ -1,0 +1,25 @@
+# LISA Hardware Timer Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_HWTIMER_DEVICE
+	bool "Enable LISA Hardware Timer Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA hardware timer device driver based on lisa_device framework.
+	  Provides hardware timer interfaces for oneshot and periodic timing,
+	  timeout callbacks, and timer value reading.
+
+	  This driver wraps the HAL timer functions and provides a unified
+	  device interface for hardware timer operations.
+
+if LISA_HWTIMER_DEVICE
+
+rsource "Kconfig.arcs.dual_timer"
+rsource "Kconfig.arcs.aon_timer"
+rsource "Kconfig.arcs.gpt_timer"
+
+
+endif # LISA_HWTIMER_DEVICE

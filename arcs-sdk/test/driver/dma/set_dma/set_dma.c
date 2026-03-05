@@ -414,7 +414,8 @@ bool set_dma_configure_suspresm(uint8_t *pch, DMA_CACHE_SYNC cache_sync, bool ch
             DMA_CH_CTLL_DST_INC | DMA_CH_CTLL_SRC_INC | DMA_CH_CTLL_DST_BSIZE(dst_bsize) | DMA_CH_CTLL_SRC_BSIZE(src_bsize) |
             DMA_CH_CTLL_TTFC_M2M | DMA_CH_CTLL_DMS(0) | DMA_CH_CTLL_SMS(0);
 
-    config_low = DMA_CH_CFGL_CH_PRIOR(0);
+    // 配置时就设置CH_SUSP标志,确保通道启动时处于暂停状态
+    config_low = DMA_CH_CFGL_CH_PRIOR(0) | DMA_CH_CFGL_CH_SUSP;
     config_high = DMA_CH_CFGH_FIFO_MODE; // DMA_CH_CFGH_SRC_PER(x) | DMA_CH_CFGH_DST_PER
 
     uint8_t ch = dma_channel_select(pch, set_dma_callbackEvent, 0, cache_sync);
@@ -434,24 +435,28 @@ bool set_dma_configure_suspresm(uint8_t *pch, DMA_CACHE_SYNC cache_sync, bool ch
         return false;
     }
 
-    if (dma_channel_suspend(ch, true) == -1) {
-        dma_channel_disable(ch, true); // release the selected DMA channel
-        return false;
-    }
+    // 由于配置时已设置CH_SUSP标志,通道已处于暂停状态
+    // 验证通道确实处于暂停状态(可选)
 
-    bool ret = set_dma_waiting_timeout(1); 
+    bool ret = set_dma_waiting_timeout(1);
     if (chk_susp_only) {
+        // 仅检查暂停功能:传输应该被暂停,不会完成
         dma_channel_disable(ch, true); // release the selected DMA channel
-        return !ret;
+        return !ret;  // 期望超时(ret=false),返回true
     }
 
-    if (!ret) { // timeout
-        dma_channel_resume(ch);
-        ret = set_dma_waiting_timeout(1); 
-        if (!ret) { // timeout
+    // 测试恢复功能
+    if (!ret) { // 超时,说明传输被正确暂停
+        dma_channel_resume(ch);  // 恢复传输
+        ret = set_dma_waiting_timeout(1);
+        if (!ret) { // 恢复后仍然超时,说明失败
             dma_channel_disable(ch, true); // release the selected DMA channel
             return false;
         }
+    } else {
+        // 没有超时,说明暂停没有生效(不应该发生)
+        dma_channel_disable(ch, true);
+        return false;
     }
 
     if(memcmp(src_buf, dst_buf, total_bytes) == 0){
@@ -502,12 +507,15 @@ bool set_dma_configure_dis(uint8_t *pch, DMA_CACHE_SYNC cache_sync, bool chk_dis
         return false;
     }
 
+    dma_channel_clear_xfer_status(ch);
     dma_channel_disable(ch, true);
+    dma_channel_clear_xfer_status(ch);
 
-    bool ret = set_dma_waiting_timeout(1); 
     if (chk_dis_only) {
-        return !ret;
+        return (dma_channel_get_status(ch) == 0);
     }
+
+    bool ret = set_dma_waiting_timeout(1);
 
     if (!ret) { // timeout
         dma_channel_enable(ch);

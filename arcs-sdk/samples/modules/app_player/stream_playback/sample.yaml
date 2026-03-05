@@ -1,0 +1,8 @@
+tests:
+  samples.app_player.stream_playback:
+    programmer: arcs
+    runner: uart
+    build_only: true
+    log_analyzer:
+      type: "regex"
+      pattern: "Stream playback completed"

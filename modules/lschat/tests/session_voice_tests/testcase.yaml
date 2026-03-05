@@ -1,0 +1,4 @@
+tests:
+  tests.session_voice_tests..linux:
+    tags: linux
+    build_only: true

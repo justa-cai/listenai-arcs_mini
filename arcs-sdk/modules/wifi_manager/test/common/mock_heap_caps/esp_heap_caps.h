@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 #define MALLOC_CAP_SPIRAM           (1<<10) ///< Memory must be in SPI RAM
+#define MALLOC_CAP_INTERNAL         (1<<11) ///< Internal memory
 
 
 void *heap_caps_malloc(size_t size, uint32_t caps);

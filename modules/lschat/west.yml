@@ -1,0 +1,26 @@
+manifest:
+  remotes:
+    - name: listenai
+      url-base: https://cloud.listenai.com/zephyr
+  projects:
+    - name: csk
+      remote: listenai
+      revision: bugfix/sleep_api_conflict
+      path: csk
+      import:
+        file: west.yml
+        name-allowlist:
+          - zephyr
+          - cmsis
+          - mbedtls
+          - csk6_cm33
+          - protobuf-c
+          - esp-hosted
+          - littlefs
+          - wifi_manager
+          - tinycrypt
+    - name: lisa
+      path: modules/lisa
+      url: https://cloud.listenai.com/CSKG836746/lisa.git
+      submodules: true
+      revision: 069cebcaafbc017be0e516a6f90757fc6f5f530c

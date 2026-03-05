@@ -1,0 +1,50 @@
+# LISA SDMMC Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_SDMMC_DEVICE
+	bool "Enable LISA SDMMC Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA SDMMC device driver based on lisa_device framework.
+	  Provides SD/MMC storage access interfaces.
+
+	  This driver wraps the HAL SDC functions and provides a unified
+	  device interface for sdmmc operations including read, write sectors,
+	  and sdmmc information queries.
+
+if LISA_SDMMC_DEVICE
+
+config LISA_SDMMC_INIT_PRIORITY
+	int "SDMMC device initialization priority"
+	default 60
+	help
+	  Initialization priority for SDMMC device.
+	  Lower values mean earlier initialization.
+
+config LISA_SDMMC_SCAN_TIMEOUT_MS
+	int "Card scan timeout (ms)"
+	default 3000
+	help
+	  Timeout in milliseconds for SD card scan operation.
+	  Increase this value if card detection is unreliable.
+
+config LISA_SDMMC_ACCESS_BUFFER_ALIGN_SIZE
+	int "DMA buffer alignment size"
+	default 64
+	help
+	  Buffer alignment requirement for DMA operations.
+	  Buffers must be aligned to this boundary for direct DMA access.
+	  Non-aligned buffers will use wrap buffer for transfer.
+
+config LISA_SDMMC_ACCESS_WRAP_BUFFER_SIZE
+	int "Wrap buffer size for non-aligned DMA"
+	default 4096
+	help
+	  Size of internal wrap buffer used for non-aligned DMA operations.
+	  Larger buffer improves performance for large transfers but uses
+	  more memory. Must be multiple of sector size (512 bytes).
+
+endif

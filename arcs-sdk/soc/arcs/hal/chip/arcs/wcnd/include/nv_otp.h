@@ -20,9 +20,9 @@
 extern complexint16 nv_tx_pred_table_chan_low[DPD_COMP_TABLE_CNT][MAX_PARALEN];
 extern complexint16 nv_tx_pred_table_chan_mid[DPD_COMP_TABLE_CNT][MAX_PARALEN];
 extern complexint16 nv_tx_pred_table_chan_hig[DPD_COMP_TABLE_CNT][MAX_PARALEN];
-extern complexint16 nv_tx_pred_table_update_chan_low[DPD_COMP_TABLE_CNT_UPDATE][MAX_PARALEN];
-extern complexint16 nv_tx_pred_table_update_chan_mid[DPD_COMP_TABLE_CNT_UPDATE][MAX_PARALEN];
-extern complexint16 nv_tx_pred_table_update_chan_hig[DPD_COMP_TABLE_CNT_UPDATE][MAX_PARALEN];
+extern complexint16 nv_tx_pred_rest_table_chan_low[DPD_REST_TABLE_CNT][MAX_PARALEN];
+extern complexint16 nv_tx_pred_rest_table_chan_mid[DPD_REST_TABLE_CNT][MAX_PARALEN];
+extern complexint16 nv_tx_pred_rest_table_chan_hig[DPD_REST_TABLE_CNT][MAX_PARALEN];
 extern int8_t ls_nv_selfcali_valid_flag;
 extern int8_t nv_selfcali_head_check(void);
 extern int8_t nv_selfcali_load_config(int8_t from_otp);

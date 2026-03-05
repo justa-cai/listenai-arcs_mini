@@ -28,12 +28,12 @@ extern "C"
 #define EBUS_ERR(fmt, ...) printf("[EBUS ERROR] " fmt "\n", ##__VA_ARGS__)
 
 
-    void *platform_malloc(uint32_t size)
+    static void *platform_malloc(uint32_t size)
     {
         return malloc(size);
     }
 
-    void platform_free(void *ptr)
+    static void platform_free(void *ptr)
     {
         free(ptr);
     }

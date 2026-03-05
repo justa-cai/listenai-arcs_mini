@@ -1,109 +1,182 @@
-# 快速上手
+# ARCS 语音解决方案
+
+基于 ARCS SDK 的语音交互解决方案，支持多项目的语音解决方案定制功能。
+
+## 项目概述
+
+本项目是一个完整的语音助手解决方案，集成了语音唤醒、语音识别、云端交互、本地播放等功能。
+
+### 主要特性
+
+- 语音唤醒和识别
+- 云端语音服务对接
+- 本地音频播放
+- WiFi/BLE 网络连接
 
 ## 环境搭建
 
-**系统要求：** Ubuntu 18.04 以上
+参考SDK的开发文档：
+- [开发文档（在线）](https://docs2.listenai.com/arcs-sdk/v0.1.0/zh/html/get_started.html)
 
-### 自动搭建
+## 工程结构
 
-1. 运行脚本 `prepare_listenai_tools.sh` 下载开发工具包：
+### 顶层目录
 
-   ```bash
-   ./arcs-sdk/prepare_listenai_tools.sh
-   ```
+```
+voiceassistant/
+├── apps/              # 应用方案工程集合
+├── arcs-sdk/          # ARCS SDK 核心框架
+├── modules/           # 项目级第三方模块
+├── res/               # 资源文件（固件、配置、音频、图片等）
+├── src/               # 语音交互核心代码
+├── tools/             # 开发工具和脚本
+├── yaml/              # 配置文件
+└── build.sh           # 工程构建脚本
+```
 
-2. 运行脚本 `prepare_toolchain.sh` 下载工具链：
+### 详细目录说明
 
-   ```bash
-   ./arcs-sdk/prepare_toolchain.sh
-   ```
+#### [apps/](apps/) - 应用程序
 
-### 手动搭建
+包含多个应用方案项目,详细说明请参考对应工程下的README.MD（如有）。
 
-1. 下载对应平台的工具链后进行解压，如果已经存在工具链，此步骤可跳过：
-   - [Linux 下载地址](https://iflyos-external.oss-cn-shanghai.aliyuncs.com/chip_arcs/listenai-linux-amd64-tools.tar.gz)
+#### [src/](src/) - 语音交互核心代码
 
-2. 下载对应平台的 ListenAI 开发工具包：
-   - [Linux 下载地址](http://listenai-firmware-delivery.oss-cn-beijing.aliyuncs.com/ARCS/tools/dev-tools/linux-amd64/v0.0.1/listenai-tools.tar.gz)
+包含语音助手的核心业务逻辑、中间件和工具库：
 
-3. 设置环境变量：
-   - 将 `NUCLEI_TOOLCHAIN_PATH` 指向解压后的**工具链**（步骤1下载的工具）的路径
-   - 将 `LISTENAI_TOOLS_PATH` 指向解压后的**ListenAI工具包**（步骤2下载的工具）路径
+```
+src/
+├── category/          # 品类相关代码
+│   ├── comm/          # 品类通用代码
+│   ├── evb/           # EVB 品类实现
+│   └── yuba/          # YUBA 品类实现
+├── framework/         # 核心框架
+│   └── voice_msg.*    # 语音消息处理
+├── middleware/        # 中间件层
+├── server/            # 语音服务
+├── shell/             # 调试命令行
+│   └── cmd/           # Shell 命令实现
+├── system/            # 系统服务
+│   ├── platform.c     # 平台抽象层
+│   └── remote_logger.*# 远程日志
+└── utils/             # 工具库
+```
 
-> **注意：** 目前仅支持 `Linux` 平台，推荐使用 `Ubuntu 18.04` 以上版本
+**核心模块说明：**
 
-## 编译工程
+- **category**: 不同产品品类的特定实现，封装品类差异
+  - **comm**: 品类间通用代码和共享组件
+- **framework**: 核心框架，提供语音消息传递机制
+- **middleware**: 提供硬件抽象和系统服务，供应用层调用
+- **server**: 语音交互核心逻辑，包括云端通信和唤醒处理
+- **shell**: 提供调试命令行接口，用于开发调试
+- **system**: 系统级服务，包括平台抽象和远程日志
+- **utils**: 通用工具库，提供事件、配置、编解码等基础功能
+
+
+## 快速开始
+
+### 编译工程
+
+基本编译命令,这里以/apps/evb-arcs项目为例,用户根据自己的实际项目路径选择：
 
 ```bash
-./build.sh
+./build.sh -S ./apps/arcs-evb -C
 ```
 
-# 目录说明
+编译成功后，固件文件位于 [build/arcs-evb.bin](build/arcs-evb.bin)
 
-```
-.
-├── arcs-sdk        # ARCS SDK 工程
-├── modules         # 存放第三方模块
-├── res             # 存放资源文件
-├── src             # 存放语音交互代码
-├── tools           # 存放工具或者脚本
-└── build.sh        # 工程构建脚本
-```
+### 固件烧录
 
-# 使用说明
+#### FLASH 分区说明
+参考对应app的资源分配置表说明文件
 
-## FLASH 分区说明
+#### 烧录方式
 
-| 分区名称 | 分区起始地址 | 备注 |
-|--------------------|------------|--|
-| `boot.bin`         | `0x0`      | Boot 程序，用于引导/烧录 |
-| `ap.bin`           | `0x40000`  | AP 固件 |
-| `app-config.json`  | `0xF0000`  | App 配置文件 |
-| `tone.bin`         | `0x100000` | 提示音资源 |
-| `wake_word.bin`    | `0x200000` | 算法资源 |
-| `respak.bin`       | `0x400000` | 图片与字体资源 |
-| `aiui.bin`         | `0x600000` | CP 固件 |
+##### 方式一: ROM 升级模式（空板烧录）
 
-## 固件及资源烧录
+适用于首次烧录或 boot 程序损坏的情况。
 
-### 进入 ROM 升级模式
+**进入 ROM 升级模式：**
 
-在该模式下，可以通过指定工具通过串口烧录固件。
+1. 将开发板的 `boot` 引脚接地
+2. 复位开发板
+3. 开发板进入 ROM 升级模式
 
-- **进入方式：** 将 `boot` 引脚接地后，复位开发板，此时开发板会进入 ROM 升级模式
-- **烧录方式：** 先将 `boot` 引脚悬空（该引脚和烧录串口引脚复用），然后使用 `cskburn` 工具通过串口烧录固件
-
-### 空板烧录
-
-无 `boot` 程序表示空板，空板烧录需要使用 ROM 升级模式进行烧录，将串口板连接开发板的 TX0 RX0，烧录 boot 程序。
+**烧录 boot 程序：**
 
 ```bash
-cskburn -C arcs -s /dev/ttyACM0 -b 3000000 0x0 ./res/boot.bin
+# 连接串口 UART0(GPIOA2_RX0/GPIOA3_TX0)
+cskburn -C arcs -s /dev/ttyACM0 -b 3000000 0x0 ./res/res_pack_a/boot.bin
 ```
 
-### 非空板烧录
+> **注意：** boot 引脚和烧录串口引脚复用，烧录前需将 boot 引脚悬空
 
-如果已烧录 boot 程序，则可以使用 ADB 命令进行烧录。
+##### 方式二: ADB 烧录（推荐）
 
-在应用开发过程中，可输入命令进入到恢复模式中，在该模式下可进行固件烧录：
+适用于已有 boot 程序的开发板，支持快速烧录。
+
+**步骤 1: 进入恢复模式**
 
 ```bash
 adb shell recovery
 ```
 
-进入恢复模式后，可通过 `adb push` 命令烧录固件和资源：
+**步骤 2: 烧录固件和资源**
 
-```bash
-adb push res/ap.bin /RAW/NAND/40000
-adb push res/app-config.json /RAW/NAND/F0000
-adb push res/tone.bin /RAW/NAND/100000
-adb push res/wake_word.bin /RAW/NAND/200000
-adb push res/respak.bin /RAW/NAND/400000
-adb push build/aiui.bin /RAW/NAND/600000
-```
+参考对应app的资源分配置表说明文件,烧录所有分区数据.
 
-烧录成功后，运行如下命令重启开发板：
+
+**步骤 3: 重启设备**
 
 ```bash
 adb shell reboot hard
 ```
+
+## 常见问题
+
+### 编译问题
+
+**Q: 找不到工具链**
+```
+A: 检查环境变量是否正确设置：
+   echo $NUCLEI_TOOLCHAIN_PATH
+   echo $LISTENAI_TOOLS_PATH
+```
+
+**Q: 编译失败**
+```
+A: 尝试清理后重新编译：
+   ./build.sh -C
+```
+
+### 烧录问题
+
+**Q: ADB 连接不上设备**
+```
+A: 1. 检查 USB 连接
+   2. 运行 adb devices 查看设备
+   3. 尝试重启 adb: adb kill-server && adb start-server
+```
+
+**Q: 烧录后无法启动**
+```
+A: 1. 检查是否烧录了所有必要分区
+   2. 查看串口日志定位问题
+   3. 尝试重新烧录 boot.bin
+```
+
+## 版本信息
+
+- **当前分支**: master
+- **主分支**: master
+
+## 参考文档
+
+- [ARCS SDK 文档](arcs-sdk/README.MD)
+- [ebus 模块文档](modules/ebus/readme.md)
+- [lschat 模块文档](modules/lschat/README.MD)
+
+## 许可证
+
+本项目遵循相应的开源许可证，详见各模块的 LICENSE 文件。

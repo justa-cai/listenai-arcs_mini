@@ -1,0 +1,34 @@
+# LISA I2C Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_I2C
+	bool "Enable LISA I2C Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA I2C device driver based on lisa_device framework.
+	  Provides master and slave mode I2C communication interfaces.
+
+	  This driver wraps the HAL I2C functions and provides a unified
+	  device interface for I2C operations including read, write, and
+	  combined write-read transactions.
+
+if LISA_I2C
+
+config LISA_I2C0
+	bool "Enable LISA I2C0"
+	default n
+	help
+	  Enable LISA I2C0 controller.
+	  I2C0 is the first I2C controller available on the ARCS platform.
+
+config LISA_I2C1
+	bool "Enable LISA I2C1"
+	default n
+	help
+	  Enable LISA I2C1 controller.
+	  I2C1 is the second I2C controller available on the ARCS platform.
+
+endif # LISA_I2C

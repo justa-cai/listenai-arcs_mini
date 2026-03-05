@@ -1,0 +1,35 @@
+# =============================================================================
+# Voice Assistant Application Build Configuration
+# =============================================================================
+
+listenai_include_directories(./)
+
+add_subdirectory(alarm)
+add_subdirectory(audio)
+add_subdirectory(ble)
+add_subdirectory(libc)
+add_subdirectory(battery)
+add_subdirectory(config)
+add_subdirectory(system)
+add_subdirectory(display)
+# add_subdirectory(led)
+add_subdirectory(button)
+# add_subdirectory(fs)
+add_subdirectory(kv)
+# add_subdirectory(flash)
+# add_subdirectory(video)
+if(CONFIG_MIDDLEWARE_TONE)
+    add_subdirectory(tone)
+endif()
+add_subdirectory(player)
+add_subdirectory(rcmd_router)
+add_subdirectory(usb)
+add_subdirectory(wifi)
+add_subdirectory(workqueue)
+add_subdirectory(romfs)
+add_subdirectory(inih)
+add_subdirectory(vendor_storage)
+add_subdirectory(power)
+# add_subdirectory(sdemmc)
+add_subdirectory(ota)
+

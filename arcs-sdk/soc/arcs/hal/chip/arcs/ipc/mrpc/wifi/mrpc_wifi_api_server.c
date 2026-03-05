@@ -149,7 +149,7 @@ static void mrpc_wifi_get_scan_result(void *msg, struct mrpc_resp_msg *resp_msg)
     resp = (mrpc_wifi_get_scan_result_resp_t*)resp_msg;
     memset(resp, 0, sizeof(mrpc_wifi_get_scan_result_resp_t));
     resp_msg->len = sizeof(mrpc_wifi_get_scan_result_resp_t);
-    resp_msg->status = wifi_get_scan_result();
+    resp_msg->status = wifi_get_scan_result(&resp->scan_results, &resp->cnt);
 }
 
 static void mrpc_wifi_get_sta_scanlist_nums(void *msg, struct mrpc_resp_msg *resp_msg)
@@ -173,7 +173,6 @@ static void mrpc_wifi_get_ipv4_addr(void *msg, struct mrpc_resp_msg *resp_msg)
     resp = (mrpc_wifi_get_ipv4_addr_resp_t*)resp_msg;
     memset(resp, 0, sizeof(mrpc_wifi_get_ipv4_addr_resp_t));
     resp_msg->len = sizeof(mrpc_wifi_get_ipv4_addr_resp_t);
-    extern int wifi_get_ipv4_addr(uint32_t *addr, uint32_t *mask, uint32_t *gw, uint32_t *dns);
     resp_msg->status = wifi_get_ipv4_addr(&resp->addr, &resp->mask, &resp->gw, &resp->dns);
 }
 
@@ -283,30 +282,6 @@ static void mrpc_wifi_get_country_code(void *msg, struct mrpc_resp_msg *resp_msg
     memset(resp, 0, sizeof(mrpc_wifi_get_country_code_resp_t));
     resp_msg->len = sizeof(mrpc_wifi_get_country_code_resp_t);
     resp_msg->status = wifi_get_country_code(resp->country_code);
-}
-
-static void mrpc_wifi_sta_ps_enter(void *msg, struct mrpc_resp_msg *resp_msg)
-{
-    mrpc_wifi_sta_ps_enter_req_t *req;
-    mrpc_wifi_sta_ps_enter_resp_t *resp;
-
-    req = (mrpc_wifi_sta_ps_enter_req_t*)msg;
-    resp = (mrpc_wifi_sta_ps_enter_resp_t*)resp_msg;
-    memset(resp, 0, sizeof(mrpc_wifi_sta_ps_enter_resp_t));
-    resp_msg->len = sizeof(mrpc_wifi_sta_ps_enter_resp_t);
-    resp_msg->status = wifi_sta_ps_enter();
-}
-
-static void mrpc_wifi_sta_ps_exit(void *msg, struct mrpc_resp_msg *resp_msg)
-{
-    mrpc_wifi_sta_ps_exit_req_t *req;
-    mrpc_wifi_sta_ps_exit_resp_t *resp;
-
-    req = (mrpc_wifi_sta_ps_exit_req_t*)msg;
-    resp = (mrpc_wifi_sta_ps_exit_resp_t*)resp_msg;
-    memset(resp, 0, sizeof(mrpc_wifi_sta_ps_exit_resp_t));
-    resp_msg->len = sizeof(mrpc_wifi_sta_ps_exit_resp_t);
-    resp_msg->status = wifi_sta_ps_exit();
 }
 
 static void mrpc_wifi_sta_set_listen_itv(void *msg, struct mrpc_resp_msg *resp_msg)
@@ -657,7 +632,6 @@ static void mrpc_wifi_mfg_exec(void *msg, struct mrpc_resp_msg *resp_msg)
     memset(resp, 0, sizeof(mrpc_wifi_mfg_exec_resp_t));
     req->params = (char *)req->data_buffer;
     resp_msg->len = sizeof(mrpc_wifi_mfg_exec_resp_t);
-    extern int wifi_mfg_exec(char *params, int params_len);
     resp_msg->status = wifi_mfg_exec(req->params, req->params_len);
 }
 
@@ -718,9 +692,103 @@ static void mrpc_ls_rf_cali_redo(void *msg, struct mrpc_resp_msg *resp_msg)
     resp = (mrpc_ls_rf_cali_redo_resp_t*)resp_msg;
     memset(resp, 0, sizeof(mrpc_ls_rf_cali_redo_resp_t));
     resp_msg->len = sizeof(mrpc_ls_rf_cali_redo_resp_t);
-    extern int ls_rf_cali_redo(uint8_t ppa_cap);
-    ls_rf_cali_redo(req->ppa_cap);
-    resp_msg->status = LS_OK;
+    resp_msg->status = ls_rf_cali_redo(req->ppa_cap);
+}
+
+static void mrpc_wifi_dpd_track_connect_switch(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_wifi_dpd_track_connect_switch_req_t *req;
+    mrpc_wifi_dpd_track_connect_switch_resp_t *resp;
+
+    req = (mrpc_wifi_dpd_track_connect_switch_req_t*)msg;
+    resp = (mrpc_wifi_dpd_track_connect_switch_resp_t*)resp_msg;
+    memset(resp, 0, sizeof(mrpc_wifi_dpd_track_connect_switch_resp_t));
+    resp_msg->len = sizeof(mrpc_wifi_dpd_track_connect_switch_resp_t);
+    resp_msg->status = wifi_dpd_track_connect_switch(req->en);
+}
+
+static void mrpc_wifi_ps_mode_set(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_wifi_ps_mode_set_req_t *req;
+    mrpc_wifi_ps_mode_set_resp_t *resp;
+
+    req = (mrpc_wifi_ps_mode_set_req_t*)msg;
+    resp = (mrpc_wifi_ps_mode_set_resp_t*)resp_msg;
+    memset(resp, 0, sizeof(mrpc_wifi_ps_mode_set_resp_t));
+    resp_msg->len = sizeof(mrpc_wifi_ps_mode_set_resp_t);
+    resp_msg->status = wifi_ps_mode_set(req->mode);
+}
+
+static void mrpc_wifi_sta_set_dont_wait_bcmc(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_wifi_sta_set_dont_wait_bcmc_req_t *req;
+    mrpc_wifi_sta_set_dont_wait_bcmc_resp_t *resp;
+
+    req = (mrpc_wifi_sta_set_dont_wait_bcmc_req_t*)msg;
+    resp = (mrpc_wifi_sta_set_dont_wait_bcmc_resp_t*)resp_msg;
+    memset(resp, 0, sizeof(mrpc_wifi_sta_set_dont_wait_bcmc_resp_t));
+    resp_msg->len = sizeof(mrpc_wifi_sta_set_dont_wait_bcmc_resp_t);
+    resp_msg->status = wifi_sta_set_dont_wait_bcmc(req->dont_wait_bcmc);
+}
+
+static void mrpc_wifi_sta_get_dont_wait_bcmc(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_wifi_sta_get_dont_wait_bcmc_req_t *req;
+    mrpc_wifi_sta_get_dont_wait_bcmc_resp_t *resp;
+
+    req = (mrpc_wifi_sta_get_dont_wait_bcmc_req_t*)msg;
+    resp = (mrpc_wifi_sta_get_dont_wait_bcmc_resp_t*)resp_msg;
+    memset(resp, 0, sizeof(mrpc_wifi_sta_get_dont_wait_bcmc_resp_t));
+    resp_msg->len = sizeof(mrpc_wifi_sta_get_dont_wait_bcmc_resp_t);
+    resp_msg->status = wifi_sta_get_dont_wait_bcmc(&resp->dont_wait_bcmc);
+}
+
+static void mrpc_wifi_ps_dbg_level_set(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_wifi_ps_dbg_level_set_req_t *req;
+    mrpc_wifi_ps_dbg_level_set_resp_t *resp;
+
+    req = (mrpc_wifi_ps_dbg_level_set_req_t*)msg;
+    resp = (mrpc_wifi_ps_dbg_level_set_resp_t*)resp_msg;
+    memset(resp, 0, sizeof(mrpc_wifi_ps_dbg_level_set_resp_t));
+    resp_msg->len = sizeof(mrpc_wifi_ps_dbg_level_set_resp_t);
+    resp_msg->status = wifi_ps_dbg_level_set(req->level);
+}
+
+static void mrpc_wifi_get_pmk(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_wifi_get_pmk_req_t *req;
+    mrpc_wifi_get_pmk_resp_t *resp;
+
+    req = (mrpc_wifi_get_pmk_req_t*)msg;
+    resp = (mrpc_wifi_get_pmk_resp_t*)resp_msg;
+    memset(resp, 0, sizeof(mrpc_wifi_get_pmk_resp_t));
+    resp_msg->len = sizeof(mrpc_wifi_get_pmk_resp_t);
+    resp_msg->status = wifi_get_pmk(resp->pmk);
+}
+
+static void mrpc_wifi_set_pmk(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_wifi_set_pmk_req_t *req;
+    mrpc_wifi_set_pmk_resp_t *resp;
+
+    req = (mrpc_wifi_set_pmk_req_t*)msg;
+    resp = (mrpc_wifi_set_pmk_resp_t*)resp_msg;
+    memset(resp, 0, sizeof(mrpc_wifi_set_pmk_resp_t));
+    resp_msg->len = sizeof(mrpc_wifi_set_pmk_resp_t);
+    resp_msg->status = wifi_set_pmk(req->pmk);
+}
+
+static void mrpc_wifi_calc_pmk(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_wifi_calc_pmk_req_t *req;
+    mrpc_wifi_calc_pmk_resp_t *resp;
+
+    req = (mrpc_wifi_calc_pmk_req_t*)msg;
+    resp = (mrpc_wifi_calc_pmk_resp_t*)resp_msg;
+    memset(resp, 0, sizeof(mrpc_wifi_calc_pmk_resp_t));
+    resp_msg->len = sizeof(mrpc_wifi_calc_pmk_resp_t);
+    resp_msg->status = wifi_calc_pmk(req->ssid, req->ssid_len, req->passphrase, req->passphrase_len, resp->pmk);
 }
 
 
@@ -748,8 +816,6 @@ mrpc_msg_handler_t mrpc_msg_wifi_handlers[MRPC_MSG_ID_WIFI_MAX - MRPC_MSG_ID_WIF
     mrpc_wifi_ap_get_basic_info,  /*MRPC_MSG_ID_WIFI_AP_GET_BASIC_INFO*/
     mrpc_wifi_set_country_code,  /*MRPC_MSG_ID_WIFI_SET_COUNTRY_CODE*/
     mrpc_wifi_get_country_code,  /*MRPC_MSG_ID_WIFI_GET_COUNTRY_CODE*/
-    mrpc_wifi_sta_ps_enter,  /*MRPC_MSG_ID_WIFI_STA_PS_ENTER*/
-    mrpc_wifi_sta_ps_exit,  /*MRPC_MSG_ID_WIFI_STA_PS_EXIT*/
     mrpc_wifi_sta_set_listen_itv,  /*MRPC_MSG_ID_WIFI_STA_SET_LISTEN_ITV*/
     mrpc_wifi_sta_get_listen_itv,  /*MRPC_MSG_ID_WIFI_STA_GET_LISTEN_ITV*/
     mrpc_wifi_sta_keepalive_time_set,  /*MRPC_MSG_ID_WIFI_STA_KEEPALIVE_TIME_SET*/
@@ -784,5 +850,13 @@ mrpc_msg_handler_t mrpc_msg_wifi_handlers[MRPC_MSG_ID_WIFI_MAX - MRPC_MSG_ID_WIF
     mrpc_wifi_free_rx_buff,  /*MRPC_MSG_ID_WIFI_FREE_RX_BUFF*/
     mrpc_wifi_reinit_rx_buff,  /*MRPC_MSG_ID_WIFI_REINIT_RX_BUFF*/
     mrpc_ls_rf_cali_redo,  /*MRPC_MSG_ID_LS_RF_CALI_REDO*/
+    mrpc_wifi_dpd_track_connect_switch,  /*MRPC_MSG_ID_WIFI_DPD_TRACK_CONNECT_SWITCH*/
+    mrpc_wifi_ps_mode_set,  /*MRPC_MSG_ID_WIFI_PS_MODE_SET*/
+    mrpc_wifi_sta_set_dont_wait_bcmc,  /*MRPC_MSG_ID_WIFI_STA_SET_DONT_WAIT_BCMC*/
+    mrpc_wifi_sta_get_dont_wait_bcmc,  /*MRPC_MSG_ID_WIFI_STA_GET_DONT_WAIT_BCMC*/
+    mrpc_wifi_ps_dbg_level_set,  /*MRPC_MSG_ID_WIFI_PS_DBG_LEVEL_SET*/
+    mrpc_wifi_get_pmk,  /*MRPC_MSG_ID_WIFI_GET_PMK*/
+    mrpc_wifi_set_pmk,  /*MRPC_MSG_ID_WIFI_SET_PMK*/
+    mrpc_wifi_calc_pmk,  /*MRPC_MSG_ID_WIFI_CALC_PMK*/
     NULL
 };

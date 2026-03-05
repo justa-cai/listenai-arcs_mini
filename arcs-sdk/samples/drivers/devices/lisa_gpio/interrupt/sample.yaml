@@ -1,0 +1,7 @@
+tests:
+  samples.lisa_gpio_interrupt:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Waiting for interrupt..."

@@ -1,0 +1,4 @@
+tests:
+  tests.session_request_tests..linux:
+    tags: linux
+    build_only: true

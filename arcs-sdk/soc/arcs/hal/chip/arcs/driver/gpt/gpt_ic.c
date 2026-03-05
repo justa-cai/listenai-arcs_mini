@@ -249,14 +249,7 @@ int32_t HAL_GPT_IcControl(void *pGpt, uint32_t control, uint32_t channel)
 		return CSK_DRIVER_ERROR;
 	}
 
-	if(pGptIc->gpt_resources->hardware->channel_stat[channel] != HARDWARE_CHANNEL_STAT_IDLE)
-	{
-		return CSK_GPT_ERROR_HARDWARE_CONFLICTION;
-	}
-	else
-	{
-		pGptIc->gpt_resources->hardware->channel_stat[channel] = HARDWARE_CHANNEL_STAT_USED_BY_IC;
-	}
+	pGptIc->gpt_resources->hardware->channel_stat[channel] = HARDWARE_CHANNEL_STAT_USED_BY_IC;
 
 	//clock gate disable
 	pGptIc->gpt_resources->reg->CHx_CLK_CTRL[channel] &= ~(GPT_CHx_CLK_CTRL_CLK_GATE);

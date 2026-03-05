@@ -252,13 +252,13 @@
 #define CSK_UART_RX_TRIG_LVL                   (CSK_UART_RX_TRIG_LVL_1)// 1 character in FIFO
 #define CSK_UART_RX_TRIG_LVL_PARA              (UARTC_FCR_RFIFO_TRGL1)
 #define CSK_UART_RX_DMA_WIDTH_PARA             (DMA_WIDTH_BYTE)
-#define CSK_UART_RX_DMA_BSIZE_PARA             (DMA_BSIZE_16)
+#define CSK_UART_RX_DMA_BSIZE_PARA             (DMA_BSIZE_1)
 
 
 #define CSK_UART_TX_TRIG_LVL                   (8)// FIFO Empty
 #define CSK_UART_TX_TRIG_LVL_PARA              (UARTC_FCR_TFIFO_TRGL2)
 #define CSK_UART_TX_DMA_WIDTH_PARA             (DMA_WIDTH_BYTE)
-#define CSK_UART_TX_DMA_BSIZE_PARA             (DMA_BSIZE_8)
+#define CSK_UART_TX_DMA_BSIZE_PARA             (DMA_BSIZE_1)
 
 
 // Modem configure marco

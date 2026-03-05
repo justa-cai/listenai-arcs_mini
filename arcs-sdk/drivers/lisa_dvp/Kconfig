@@ -1,0 +1,5 @@
+menuconfig LISA_DVP_DEVICE
+    bool "LISA DVP driver"
+    default n
+    help
+        Enable LISA DVP driver.

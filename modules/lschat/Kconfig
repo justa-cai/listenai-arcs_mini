@@ -1,0 +1,19 @@
+menu "lschat"
+
+config LS_CHAT
+    bool "lschat"
+    select LISA_SNTP
+    select LISA_EVT_PUBLISHER
+    default n
+
+config LS_CHAT_MCP
+    bool "lschat mcp"
+    default y
+    depends on LS_CHAT
+
+config LS_CHAT_MCP_V2
+    bool "lschat mcp v2"
+    default n
+    depends on LS_CHAT_MCP
+
+endmenu

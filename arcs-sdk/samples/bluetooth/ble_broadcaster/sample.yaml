@@ -1,0 +1,7 @@
+tests:
+  samples.bluetooth.ble_broadcaster:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Advertising started"

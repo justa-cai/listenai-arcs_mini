@@ -4,12 +4,23 @@
 
 #include <stdio.h>
 #include <string.h>
+
 #include "uart_reg.h"
 #include "chip.h"
 #include "ClockManager.h"
 #include "IOMuxManager.h"
+#if CONFIG_SYSLOG_UART_BACKEND
+#include "lisa_device.h"
+#include "lisa_uart.h"
+#include "board.h"
+lisa_device_t *uart_dev = NULL;
+#endif
 
+#if CONFIG_SYSLOG_UART_BACKEND
 static UART_RegDef *uart = NULL;
+
+void syslog_config_early(int dbg);
+void syslog_poll_out_erayly(char data);
 
 static uint32_t compute_gcd(uint32_t a, uint32_t c)
 {
@@ -27,13 +38,7 @@ static int32_t __log_compute_div(int dbg, uint32_t baudrate, uint32_t *pm, uint3
     uint32_t gcd, m, n, tmp;
 
     tmp = div * baudrate;
-    uint32_t uart_clk;
-
-    if (dbg == 0) {
-        uart_clk = 24000000;
-    } else if (dbg == 1) {
-        uart_clk = 24000000;
-    }
+    uint32_t uart_clk = 24000000;
 
     gcd = compute_gcd(uart_clk, tmp);
     m = uart_clk / gcd;
@@ -68,35 +73,80 @@ static int32_t log_compute_div(int dbg, uint32_t baudrate, uint32_t *pm, uint32_
     return ret;
 }
 
-static void __log_io_config(int dbg)
-{
-    IOMuxManager_PinConfigure(CONFIG_SYSLOG_UART_TX_PORT, CONFIG_SYSLOG_UART_TX_PIN, CONFIG_SYSLOG_UART_TX_PIN_FUNC_SEL);
-}
-
 int syslog_write(const char *data, int len)
 {
+    static bool device_ready_status = false;
+
     if (uart == NULL || data == NULL || len == 0) {
         return 0;
     }
 
-    for (int i = 0; i < len; i++) {
-        uart->REG_RXTX_BUFFER.all = data[i];
-        while (!uart->REG_STATUS.bit.TX_FIFO_SPACE)
-            ;
+    // 如果设备还未ready，持续检测直到ready
+    if (!device_ready_status) {
+        if (uart_dev == NULL) {
+            #if defined(CONFIG_SYSLOG_UART_DEVICE_UART0)
+                uart_dev = lisa_device_get("uart0");
+            #elif defined(CONFIG_SYSLOG_UART_DEVICE_UART1)
+                uart_dev = lisa_device_get("uart1");
+            #elif defined(CONFIG_SYSLOG_UART_DEVICE_UART2)
+                uart_dev = lisa_device_get("uart2");
+            #endif
+        }
+        device_ready_status = lisa_device_ready(uart_dev);
+
+        // 设备刚ready时立即配置
+        if (device_ready_status) {
+            lisa_uart_config_t config = LISA_UART_CONFIG_DEFAULT();
+            config.baudrate = CONFIG_SYSLOG_UART_BAUDRATE;
+            lisa_uart_configure(uart_dev, &config);
+        }
+    }
+
+    if (device_ready_status) {
+        for (int i = 0; i < len; i++) {
+            lisa_uart_poll_out(uart_dev, data[i]);
+        }
+    } else {
+        for (int i = 0; i < len; i++) {
+            syslog_poll_out_erayly(data[i]);
+        }
     }
 
     return len;
 }
 
-int syslog_init(int dbg, uint32_t baudrate)
+int syslog_init_early(void)
+{
+    int dbg = 0;
+#if defined(CONFIG_SYSLOG_UART_DEVICE_UART0)
+    lisa_uart0_pinmux();
+    dbg = 0;
+#elif defined(CONFIG_SYSLOG_UART_DEVICE_UART1)
+    lisa_uart1_pinmux();
+    dbg = 1;
+#elif defined(CONFIG_SYSLOG_UART_DEVICE_UART2)
+    lisa_uart2_pinmux();
+    dbg = 2;
+#endif
+
+    syslog_config_early(dbg);
+
+    return 0;
+}
+
+void syslog_poll_out_erayly(char data)
+{
+    uart->REG_RXTX_BUFFER.all = data;
+    while (!uart->REG_STATUS.bit.TX_FIFO_SPACE)
+        ;    
+}
+
+void syslog_config_early(int dbg)
 {
     uint32_t m, n, div;
-
-    if (log_compute_div(dbg, baudrate, &m, &n, &div) < 0) {
-        return -1;
+    if (log_compute_div(dbg, CONFIG_SYSLOG_UART_BAUDRATE, &m, &n, &div) < 0) {
+        return;
     }
-
-    __log_io_config(dbg);
 
     switch (dbg) {
     case 0:
@@ -137,9 +187,17 @@ int syslog_init(int dbg, uint32_t baudrate)
     uart->REG_CTRL.bit.DATA_BITS = 1; // 8bits
     uart->REG_CTRL.bit.ENABLE = 1;    // enable uart
     uart->REG_STATUS.all = 1;         // clear line error bits
+}
+#else
 
+int syslog_init_early(void){
     return 0;
 }
+__attribute__((weak)) int syslog_write(const char *data, int len)
+{
+    return 0;
+}
+#endif // CONFIG_SYSLOG_UART_BACKEND
 
 void (*syslog_output_hook)(const char *, va_list) = NULL;
 

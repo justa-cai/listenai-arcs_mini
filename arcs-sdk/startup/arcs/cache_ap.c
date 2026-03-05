@@ -21,11 +21,16 @@
  */
 void HAL_EnableICache(void){
 #if HAL_ICACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	EnableICache();
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -41,11 +46,16 @@ void HAL_EnableICache(void){
  */
 void HAL_DisableICache(void){
 #if HAL_ICACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	DisableICache();
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -61,11 +71,16 @@ void HAL_DisableICache(void){
  */
 void HAL_InvalidateICache(void){
 #if HAL_ICACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	MInvalICache();
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -84,13 +99,18 @@ void HAL_InvalidateICache(void){
  */
 void HAL_InvalidateICache_by_Addr(uint32_t *addr, uint32_t dsize){
 #if HAL_ICACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
     unsigned long cnt = 0;
     cnt = ((uint32_t)addr % HAL_ICACHE_CFG_LINE_SIZE + dsize + (HAL_ICACHE_CFG_LINE_SIZE - 1)) / HAL_ICACHE_CFG_LINE_SIZE;
     MInvalICacheLines((unsigned long)addr, (unsigned long)cnt);
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -107,13 +127,18 @@ void HAL_InvalidateICache_by_Addr(uint32_t *addr, uint32_t dsize){
  */
 void HAL_LockICache_by_Addr(uint32_t *addr, uint32_t dsize){
 #if HAL_ICACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
     unsigned long cnt = 0;
     cnt = ((uint32_t)addr % HAL_ICACHE_CFG_LINE_SIZE + dsize + (HAL_ICACHE_CFG_LINE_SIZE - 1)) / HAL_ICACHE_CFG_LINE_SIZE;
     MLockICacheLines((unsigned long)addr, (unsigned long)cnt);
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -130,13 +155,18 @@ void HAL_LockICache_by_Addr(uint32_t *addr, uint32_t dsize){
  */
 void HAL_UnLockICache_by_Addr(uint32_t *addr, uint32_t dsize){
 #if HAL_ICACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
     unsigned long cnt = 0;
     cnt = ((uint32_t)addr % HAL_ICACHE_CFG_LINE_SIZE + dsize + (HAL_ICACHE_CFG_LINE_SIZE - 1)) / HAL_ICACHE_CFG_LINE_SIZE;
     MUnlockICacheLines((unsigned long)addr, (unsigned long)cnt);
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -153,11 +183,16 @@ void HAL_UnLockICache_by_Addr(uint32_t *addr, uint32_t dsize){
  */
 void HAL_EnableDCache(void){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	EnableDCache();
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -174,11 +209,16 @@ void HAL_EnableDCache(void){
  */
 void HAL_DisableDCache(void){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	DisableDCache();
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -197,11 +237,16 @@ void HAL_DisableDCache(void){
  */
 void HAL_InvalidateDCache(void){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
     MInvalDCache();
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -219,11 +264,16 @@ void HAL_InvalidateDCache(void){
  */
 void HAL_FlushDCache(void){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	MFlushDCache();
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -241,11 +291,16 @@ void HAL_FlushDCache(void){
  */
 void HAL_FlushInvalidateDCache(void){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	MFlushInvalDCache();
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -264,13 +319,18 @@ void HAL_FlushInvalidateDCache(void){
  */
 _FAST_FUNC_SRAM void HAL_InvalidateDCache_by_Addr(uint32_t *addr, uint32_t dsize){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	unsigned long cnt = 0;
 	cnt = ((uint32_t)addr % HAL_DCACHE_CFG_LINE_SIZE + dsize + (HAL_DCACHE_CFG_LINE_SIZE - 1)) / HAL_DCACHE_CFG_LINE_SIZE;
 	MInvalDCacheLines((unsigned long)addr, (unsigned long)cnt);
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -287,13 +347,18 @@ _FAST_FUNC_SRAM void HAL_InvalidateDCache_by_Addr(uint32_t *addr, uint32_t dsize
  */
 _FAST_FUNC_SRAM void HAL_FlushDCache_by_Addr(uint32_t *addr, uint32_t dsize){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	unsigned long cnt = 0;
 	cnt = ((uint32_t)addr % HAL_DCACHE_CFG_LINE_SIZE + dsize + (HAL_DCACHE_CFG_LINE_SIZE - 1)) / HAL_DCACHE_CFG_LINE_SIZE;
 	MFlushDCacheLines((unsigned long)addr, (unsigned long)cnt);
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -312,13 +377,18 @@ _FAST_FUNC_SRAM void HAL_FlushDCache_by_Addr(uint32_t *addr, uint32_t dsize){
  */
 void HAL_FlushInvalidateDCache_by_Addr(uint32_t *addr, uint32_t dsize){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	unsigned long cnt = 0;
 	cnt = ((uint32_t)addr % HAL_DCACHE_CFG_LINE_SIZE + dsize + (HAL_DCACHE_CFG_LINE_SIZE - 1)) / HAL_DCACHE_CFG_LINE_SIZE;
 	MFlushInvalDCacheLines((unsigned long)addr, (unsigned long)cnt);
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -335,13 +405,18 @@ void HAL_FlushInvalidateDCache_by_Addr(uint32_t *addr, uint32_t dsize){
  */
 void HAL_LockDCache_by_Addr(uint32_t *addr, uint32_t dsize){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
     unsigned long cnt = 0;
     cnt = ((uint32_t)addr % HAL_DCACHE_CFG_LINE_SIZE + dsize + (HAL_DCACHE_CFG_LINE_SIZE - 1)) / HAL_DCACHE_CFG_LINE_SIZE;
     MLockDCacheLines((unsigned long)addr, (unsigned long)cnt);
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -358,13 +433,18 @@ void HAL_LockDCache_by_Addr(uint32_t *addr, uint32_t dsize){
  */
 void HAL_UnLockDCache_by_Addr(uint32_t *addr, uint32_t dsize){
 #if HAL_DCACHE_VALID
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
     unsigned long cnt = 0;
     cnt = ((uint32_t)addr % HAL_DCACHE_CFG_LINE_SIZE + dsize + (HAL_DCACHE_CFG_LINE_SIZE - 1)) / HAL_DCACHE_CFG_LINE_SIZE;
     MUnlockDCacheLines((unsigned long)addr, (unsigned long)cnt);
-    
-    
-    __enable_irq();
+
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 #endif
 }
 
@@ -375,16 +455,20 @@ int range_is_cacheable(unsigned long start, unsigned long size){
 
 void unaligned_cache_line_move(unsigned char* src, unsigned char* dst, unsigned long len)
 {
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
 
-    __disable_irq();
     int i;
     unsigned char* src_p = (unsigned char*) src;
     unsigned char* dst_p = (unsigned char*) dst;
     for (i = 0; i < len; ++i) {
         *(dst_p + i) = *(src_p + i);
     }
-    __enable_irq();
 
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 }
 void dcache_clean_range(unsigned long start, unsigned long end){
     uint32_t line_mask = HAL_DCACHE_CFG_LINE_SIZE - 1;
@@ -395,23 +479,29 @@ void dcache_clean_range(unsigned long start, unsigned long end){
     // 对end向下取整到cache line边界
     unsigned long aligned_end = end & (~line_mask);
     
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
     // 只有当有完整的cache line需要处理时才进行操作
     if (aligned_start < aligned_end) {
         HAL_FlushDCache_by_Addr((uint32_t *)aligned_start, (aligned_end - aligned_start));
     }
-    
+
     // 对不对齐的部分进行单独处理
     if (start < aligned_start) {
         // 处理start到aligned_start之间的数据
         // 这里需要更细粒度的处理方式
     }
-    
+
     if (end > aligned_end) {
         // 处理aligned_end到end之间的数据
         // 这里需要更细粒度的处理方式
     }
-    __enable_irq();
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 }
 
 void dcache_invalidate_range(unsigned long start, unsigned long end){
@@ -423,24 +513,29 @@ void dcache_invalidate_range(unsigned long start, unsigned long end){
     // 对end向下取整到cache line边界
     unsigned long aligned_end = end & (~line_mask);
 
-    __disable_irq();
-    
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
     // 只有当有完整的cache line需要处理时才进行操作
     if (aligned_start < aligned_end) {
         HAL_InvalidateDCache_by_Addr((uint32_t *)aligned_start, (aligned_end - aligned_start));
     }
-    
+
     // 对不对齐的部分进行单独处理
     if (start < aligned_start) {
         // 处理start到aligned_start之间的数据
         // 这里需要更细粒度的处理方式
     }
-    
+
     if (end > aligned_end) {
         // 处理aligned_end到end之间的数据
         // 这里需要更细粒度的处理方式
     }
-    __enable_irq();
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 }
 
 void dcache_flush_range(unsigned long start, unsigned long end){
@@ -451,25 +546,31 @@ void dcache_flush_range(unsigned long start, unsigned long end){
 	
 	// 对end向下取整到cache line边界
 	unsigned long aligned_end = end & (~line_mask);
-	
-    __disable_irq();
+
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	// 只有当有完整的cache line需要处理时才进行操作
 	if (aligned_start < aligned_end) {
 		HAL_FlushDCache_by_Addr((uint32_t *)aligned_start, (aligned_end - aligned_start));
 		HAL_InvalidateDCache_by_Addr((uint32_t *)aligned_start, (aligned_end - aligned_start));
 	}
-	
+
 	// 对不对齐的部分进行单独处理
 	if (start < aligned_start) {
 		// 处理start到aligned_start之间的数据
 		// 这里需要更细粒度的处理方式
 	}
-	
+
 	if (end > aligned_end) {
 		// 处理aligned_end到end之间的数据
 		// 这里需要更细粒度的处理方式
 	}
-    __enable_irq();
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 }
 void cache_dma_fast_inv_stage1(unsigned long start, unsigned long end){
 unsigned long line_size;
@@ -481,7 +582,9 @@ unsigned long line_size;
 	if (start == end)
 		return;
 
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	if (start != old_start) {
 		HAL_FlushDCache_by_Addr((uint32_t *)start, line_size);
 	}
@@ -489,7 +592,11 @@ unsigned long line_size;
 		HAL_FlushDCache_by_Addr((uint32_t *)(end - line_size), line_size);
 	}
 	HAL_InvalidateDCache_by_Addr((uint32_t *)start, (end - start));
-    __enable_irq();
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 }
 // void cache_dma_fast_inv_stage2(unsigned long start, unsigned long end){
 
@@ -525,7 +632,9 @@ void cache_dma_fast_inv_stage2(unsigned long start, unsigned long end)
 		disable_GINT();
 	}
 
-    __disable_irq();
+    // 原子地清除 MIE 位并返回旧值
+    unsigned long mstatus = __RV_CSR_READ_CLEAR(CSR_MSTATUS, MSTATUS_MIE);
+
 	if (start != old_start) {
 		unaligned_cache_line_move((unsigned char*) start, cache_line_buf, old_start - start);
 		HAL_InvalidateDCache_by_Addr((uint32_t *)start, line_size);
@@ -536,7 +645,11 @@ void cache_dma_fast_inv_stage2(unsigned long start, unsigned long end)
 		HAL_InvalidateDCache_by_Addr((uint32_t *)(end - line_size), line_size);
 		unaligned_cache_line_move(cache_line_buf, (unsigned char*) old_end, end - old_end);
 	}
-    __enable_irq();
+
+    // 如果之前中断是开启的，恢复 MIE 位
+    if (mstatus & MSTATUS_MIE) {
+        __RV_CSR_SET(CSR_MSTATUS, MSTATUS_MIE);
+    }
 
 	if (use_lock) {
 		enable_GINT();

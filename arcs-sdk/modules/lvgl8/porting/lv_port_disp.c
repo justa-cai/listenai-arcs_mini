@@ -27,7 +27,7 @@ static void disp_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_
 /**********************
  *  STATIC VARIABLES
  **********************/
-static struct display_device *lv_display_device = NULL;
+lisa_device_t *lv_display_device = NULL;
 
 /* Display buffers */
 static lv_disp_draw_buf_t disp_buf;
@@ -53,7 +53,7 @@ typedef struct {
 static void flush_thread(void *arg)
 {
     flush_msg_t msg;
-    struct display_buffer_descriptor desc;
+    lisa_display_buffer_desc_t desc;
 
     while (1) {
         if (xQueueReceive(flush_queue, &msg, portMAX_DELAY) == pdTRUE) {
@@ -65,7 +65,6 @@ static void flush_thread(void *arg)
             lisa_display_write(lv_display_device, msg.area.x1, msg.area.y1, &desc, msg.color_p);
 
             xSemaphoreGive(flush_sem);
-
         }
     }
 }
@@ -158,33 +157,34 @@ static void disp_rounder(lv_disp_drv_t *disp_drv, lv_area_t *area)
 	if(area->y2 > max_y) area->y2 = max_y;
 }
 #endif
-struct display_device *lv_port_get_display_device(void)
+lisa_device_t *lv_port_get_display_device(void)
 {
     return lv_display_device;
 }
 
-void lv_port_disp_init(display_hw_config_t *config)
+void lv_port_disp_init(lisa_device_t *display_dev)
 {
-    struct display_capabilities caps = {0};
+    lisa_display_capabilities_t caps = {0};
 
-    lvgl_port_mem_init();
     /*-------------------------
      * Initialize your display
      * -----------------------*/
-    lv_display_device = lisa_display_create(config);
+    lv_display_device = display_dev;
     if (lv_display_device == NULL) {
         LV_LOG_ERROR("[%s] display device create faild", __FUNCTION__);
         return;
     }
 
     lisa_display_get_capabilities(lv_display_device, &caps);
-
     lisa_display_blanking_on(lv_display_device);
 
-    uint32_t size = caps.x_resolution * caps.y_resolution * sizeof(lv_color_t);
+    /*-----------------------------
+     * Create a buffer for drawing
+     *----------------------------*/
+    uint32_t size = caps.width * caps.height * sizeof(lv_color_t);
     buf_1 = (lv_color_t *)lv_mem_alloc(size);
     if (buf_1 == NULL) {
-        LV_LOG_ERROR("[%s] no mem !!! (%d)", __FUNCTION__, size);
+        LV_LOG_ERROR("[%s] buf_1 malloc faild", __FUNCTION__);
         return;
     }
 
@@ -250,13 +250,13 @@ void lv_port_disp_init(display_hw_config_t *config)
 
 #if CONFIG_LV_DRIVER_ROTATE_NORMAL
     disp_drv.rotated = LV_DISP_ROT_NONE;
-    lisa_display_set_orientation(lv_display_device, DISPLAY_ORIENTATION_NORMAL);
+    lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_0);
 #elif CONFIG_LV_DRIVER_ROTATE_90
     disp_drv.rotated = LV_DISP_ROT_90;
-    lisa_display_set_orientation(lv_display_device, DISPLAY_ORIENTATION_ROTATED_90);
+    lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_90);
 #elif CONFIG_LV_DRIVER_ROTATE_270
     disp_drv.rotated = LV_DISP_ROT_270;
-    lisa_display_set_orientation(lv_display_device, DISPLAY_ORIENTATION_ROTATED_270);
+    lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_270);
 #endif
 
 #if CONFIG_LV_DRIVER_FULL_REFRESH
@@ -268,13 +268,13 @@ void lv_port_disp_init(display_hw_config_t *config)
 #endif
 
     /*Set the resolution of the display*/
-    disp_drv.hor_res = caps.x_resolution;
-    disp_drv.ver_res = caps.y_resolution;
+    disp_drv.hor_res = caps.width;
+    disp_drv.ver_res = caps.height;
 
     /*Used to copy the buffer's content to the display*/
     disp_drv.draw_buf = &disp_buf;
 #if CONFIG_LV_COLOR_DEPTH_1
-    uint8_t *fb_buffer_mono = lv_mem_alloc(caps.x_resolution * caps.y_resolution / 8);
+    uint8_t *fb_buffer_mono = lv_mem_alloc(caps.width * caps.height / 8);
     if (fb_buffer_mono == NULL) {
         LV_LOG_ERROR("[%s] lv_mem malloc faild", __FUNCTION__);
     } else {
@@ -284,8 +284,6 @@ void lv_port_disp_init(display_hw_config_t *config)
 
     /*Finally register the driver*/
     lv_disp_drv_register(&disp_drv);
-
-    lisa_display_set_brightness(lv_display_device, 50);
 #endif
 }
 
@@ -347,7 +345,7 @@ static void disp_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_
 
     lv_disp_flush_ready(msg.disp_drv);
 #else
-    struct display_buffer_descriptor desc = {0};
+    lisa_display_buffer_desc_t desc = {0};
     /* Update descriptor for the current area */
     desc.width = area->x2 - area->x1 + 1;
     desc.height = area->y2 - area->y1 + 1;

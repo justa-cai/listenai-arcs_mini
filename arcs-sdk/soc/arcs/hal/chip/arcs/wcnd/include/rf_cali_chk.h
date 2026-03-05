@@ -24,7 +24,7 @@
 #define PPA_CAP_DOWN_THD 5
 
 
-extern int8_t rf_cali_check_dc_result(int8_t dc_i, int8_t dc_q, int8_t dc_i_thd, int8_t dc_q_thd);
+extern int8_t rf_cali_check_dc_result(int16_t dc_i, int16_t dc_q, int16_t dc_i_thd, int16_t dc_q_thd);
 extern int8_t rf_cali_check_iq_result(int16_t *c21, int16_t *c22, int16_t c21_thd, int16_t c22_thd);
 extern int8_t rf_cali_check_dpd_result(complexint16* cParaEst);
 

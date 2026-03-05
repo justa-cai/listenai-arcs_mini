@@ -1,0 +1,69 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig APP_PLAYER
+    bool "Enable APP Player"
+    default n
+    select LISA_OS
+    select LOG
+    select LISA_AUDIO_DEVICE
+    select LISA_DEVICE
+    select SDK_MODULE_SPEEXDSP
+    select SDK_MODULE_MP3_DECODER
+    select SDK_MODULE_AAC_DECODER
+    select SDK_MODULE_MEMPOOL
+    select MODULE_ZE_TLS
+    select MODULE_HTTPCLIENT
+    select SDK_MODULE_COREHTTP
+    select LISA_HTTP
+    select LWIP
+    select SYSLOG_PRINTK_REDIRECT
+    help
+      Enable the APP Player component.
+
+if APP_PLAYER
+
+config APP_PLAYER_PA_OFF_DELAY_MS
+    int "PA off delay time in milliseconds"
+    default 1000
+    range 0 10000
+    help
+      Delay time before turning off PA (Power Amplifier) after playback stops.
+      Set to 0 for immediate PA off, or set a delay to avoid pop noise.
+      Default is 1000ms (1 second).
+
+config APP_PLAYER_CALLBACK_THREAD_STACK_SIZE
+    int "Callback thread stack size"
+    default 4096
+    range 1024 16384
+    help
+      Stack size for the callback thread that handles player events.
+      Default is 4096 bytes.
+
+config APP_PLAYER_CALLBACK_THREAD_PRIORITY
+    int "Callback thread priority"
+    default 5
+    range 0 32
+    help
+      Priority for the callback thread that handles player events.
+      Lower values indicate higher priority.
+      Default is 5.
+
+config APP_PLAYER_AUDIO_FOCUS
+    bool "Enable audio focus management"
+    default n
+    help
+      Enable audio focus management for coordinating multiple player instances.
+      When enabled, players can have different priorities and automatically
+      handle focus acquisition and release (e.g., pause music when playing tone).
+
+      Features:
+      - Priority-based focus arbitration
+      - Automatic focus state transitions (FOREGROUND/BACKGROUND/NONE)
+      - Customizable focus change callbacks
+      - Capture rules for channel preemption
+
+      If disabled, all focus-related APIs will be unavailable and the code
+      footprint will be reduced.
+
+endif # APP_PLAYER

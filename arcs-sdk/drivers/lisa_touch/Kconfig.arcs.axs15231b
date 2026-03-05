@@ -1,0 +1,41 @@
+# LISA Touch Driver Configuration - AXS15231B
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_TOUCH_ARCS_AXS15231B
+    bool "Enable LISA Touch ARCS AXS15231B support"
+    default n
+    help
+        Enable LISA Touch ARCS AXS15231B touch chip support.
+        
+        AXS15231B Features:
+        - I2C Address: 0x3B (7-bit)
+        - Register: Command-based (13-byte command)
+        - Resolution: 390x390
+        - Single touch point
+        - Interrupt trigger: Falling edge
+        - Reset sequence: High->Low->High (10ms-10ms-300ms)
+
+if LISA_TOUCH_ARCS_AXS15231B
+
+    config LISA_TOUCH_ARCS_AXS15231B_READ_TASK_PRIORITY
+        int "AXS15231B interrupt mode read task priority"
+        default 2
+        range 1 10
+        help
+            Set the priority of the AXS15231B touch driver's internal read task.
+            
+            This task is created when interrupt mode is enabled and is responsible
+            for reading I2C data from the touch chip after receiving a GPIO interrupt.
+            
+            Priority range: 1-10 (higher number = higher priority)
+            Default: 2 (tskIDLE_PRIORITY + 2)
+            
+            Note:
+            - Higher priority ensures faster response to touch events
+            - Should be higher than idle task (1) but lower than critical system tasks
+            - Recommended range: 2-5 for most applications
+
+endif # LISA_TOUCH_ARCS_AXS15231B
+

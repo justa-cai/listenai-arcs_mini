@@ -1,0 +1,20 @@
+menu "Vendor storage menu"
+
+menuconfig VENDOR_STORAGE_ENABLE
+    bool "Enable vendor storage"
+    default n
+    
+    if VENDOR_STORAGE_ENABLE
+        config VENDOR_STORAGE_SIZE
+            int "Vendor storage size"
+            default 4096
+            help
+              Set the size of the vendor storage in bytes.
+
+        config VENDOR_STORAGE_OFFSET
+            int "Vendor storage offset"
+            default 0x3E000
+            help
+              Set the offset for the vendor storage in bytes.
+    endif
+endmenu

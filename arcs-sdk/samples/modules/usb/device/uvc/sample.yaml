@@ -1,0 +1,4 @@
+tests:
+  samples.usb.device.uvc:
+    build_only: true
+

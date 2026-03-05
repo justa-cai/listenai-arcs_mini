@@ -1,0 +1,108 @@
+小奥同学	xiao ao tong xue
+你好小奥	ni hao xiao ao
+开浴霸	kai yu ba
+关浴霸	guan yu ba
+开恒温暖	kai heng wen nuan
+关恒温暖	guan heng wen nuan
+打开自然风	da kai zi ran feng
+关闭自然风	guan bi zi ran feng
+风速调到一档	feng su tiao dao yi dang
+风速调到二档	feng su tiao dao er dang
+风速调到三档	feng su tiao dao san dang
+风速调到四档	feng su tiao dao si dang
+风速调到五档	feng su tiao dao wu dang
+调大风速	tiao da feng su
+调小风速	tiao xiao feng su
+打开自动换气	da kai zi dong huan qi
+关闭自动换气	guan bi zi dong huan qi
+换气调到一档	huan qi tiao dao yi dang
+换气调到二档	huan qi tiao dao er dang
+换气调到三档	huan qi tiao dao san dang
+换气调到四档	huan qi tiao dao si dang
+换气调到五档	huan qi tiao dao wu dang
+调大换气	tiao da huan qi
+调小换气	tiao xiao huan qi
+开干燥	kai gan zao
+关干燥	guan gan zao
+打开摆叶	da kai bai ye
+暂停摆叶	zan ting bai ye
+关闭摆叶	guan bi bai ye
+打开浴霸照明	da kai yu ba zhao ming
+关闭浴霸照明	guan bi yu ba zhao ming
+开启小夜灯	kai qi xiao ye deng
+关掉小夜灯	guan diao xiao ye deng
+打开浴室灯光	da kai yu shi deng guang
+关闭浴室灯光	guan bi yu shi deng guang
+开灯	kai deng
+关灯	guan deng
+打开空气管家	da kai kong qi guan jia
+关闭空气管家	guan bi kong qi guan jia
+温度调到三十度	wen du tiao dao san shi du
+温度调到三十一度	wen du tiao dao san shi yi du
+温度调到三十二度	wen du tiao dao san shi er du
+温度调到三十三度	wen du tiao dao san shi san du
+温度调到三十四度	wen du tiao dao san shi si du
+温度调到三十五度	wen du tiao dao san shi wu du
+温度调到三十六度	wen du tiao dao san shi liu du
+温度调到三十七度	wen du tiao dao san shi qi du
+温度调到三十八度	wen du tiao dao san shi ba du
+温度调到三十九度	wen du tiao dao san shi jiu du
+温度调到四十度	wen du tiao dao si shi du
+温度调到四十一度	wen du tiao dao si shi yi du
+温度调到四十二度	wen du tiao dao si shi er du
+调高温度	tiao gao wen du
+调低温度	tiao di wen du
+调高音量	tiao gao yin liang
+降低音量	jiang di yin liang
+打开橙光	da kai cheng guang
+打开黄光	da kai huang guang
+关闭橙光	guan bi cheng guang
+关闭黄光	guan bi huang guang
+打开美容光	da kai mei rong guang
+关闭美容光	guan bi mei rong guang
+定时十分钟	ding shi shi fen zhong
+定时二十分钟	ding shi er shi fen zhong
+定时三十分钟	ding shi san shi fen zhong
+定时四十分钟	ding shi si shi fen zhong
+打开低噪换气	da kai di zao huan qi
+关闭低噪换气	guan bi di zao huan qi
+打开快速换气	da kai kuai su huan qi
+关闭快速换气	guan bi kuai su huan qi
+打开除菌	da kai chu jun
+关闭除菌	guan bi chu jun
+打开除异味	da kai chu yi wei
+关闭除异味	guan bi chu yi wei
+开启热干燥	kai qi re gan zao
+关热干燥	guan re gan zao
+开启凉干燥	kai qi liang gan zao
+关凉干燥	guan liang gan zao
+开巡航换气	kai xun hang huan qi
+关巡航换气	guan xun hang huan qi
+打开巡航取暖	da kai xun hang qu nuan
+关闭巡航取暖	guan bi xun hang qu nuan
+打开巡航 NBSS	da kai xun hang NBSS
+关闭巡航 NBSS	guan bi xun hang NBSS
+开启双区取暖	kai qi shuang qu qu nuan
+关双区取暖	guan shuang qu qu nuan
+开启湿区取暖	kai qi shi qu qu nuan
+关湿区取暖	guan shi qu qu nuan
+开干区取暖	kai gan qu qu nuan
+打开恒温干燥	da kai heng wen gan zao
+关闭恒温干燥	guan bi heng wen gan zao
+打开普通干燥	da kai pu tong gan zao
+关闭普通干燥	guan bi pu tong gan zao
+打开干区吹风	da kai gan qu chui feng
+关闭干区吹风	guan bi gan qu chui feng
+打开湿区吹风	da kai shi qu chui feng
+关闭湿区吹风	guan bi shi qu chui feng
+打开亮肤光	da kai liang fu guang
+关闭亮肤光	guan bi liang fu guang
+打开抗衰光	da kai kang shuai guang
+关闭抗衰光	guan bi kang shuai guang
+打开修护光	da kai xiu hu guang
+关闭修护光	guan bi xiu hu guang
+打开舒敏光	da kai shu min guang
+关闭舒敏光	guan bi shu min guang
+滴 一 声	di yi sheng
+滴 二 声	di er sheng
+关闭除臭	guan bi chu chou

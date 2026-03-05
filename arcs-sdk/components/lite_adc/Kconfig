@@ -10,4 +10,74 @@ config LITE_ADC_PROXY
 config LITE_AADC_RECV_CNTS
     int "AADC Recv Count"
     default 12
+
+config AUDIO_STEP_SAMPS
+    int "Audio Step Samples"
+    default 256
+    range 256 256
+config AUDIO_SAMP_BITS
+    int "Audio Sample Bits"
+    default 16
+    range 16 16
+
+if LITE_ADC 
+    choice
+        prompt "ADC Channels"
+        default AADC_L_ONLY
+        config AADC_L_ONLY
+            bool "Left Only"
+        config AADC_R_ONLY
+            bool "Right Only"
+        config AADC_LR_MIX
+            bool "Left + Right"
+    endchoice
+
+    config AADC_CHNS
+        int
+        default 1 if AADC_L_ONLY || AADC_R_ONLY
+        default 2 if AADC_LR_MIX
+    
+    config GPDMA_ADC0_CHN
+        int "GPDMA ADC0 Channel"
+        depends on AADC_L_ONLY || AADC_LR_MIX
+        default 0
+
+    config GPDMA_ADC1_CHN
+        int "GPDMA ADC1 Channel"
+        depends on AADC_R_ONLY || AADC_LR_MIX
+        default 1
+
+
+    choice
+        prompt "Microphone"
+        default AADC_AMIC
+        config AADC_AMIC
+            bool "Analog/MEMS MIC"
+        config AADC_DMIC
+            bool "Digital/PDM MIC"
+    endchoice
+
+    config AADC_GAIN_A
+        int "Analog Gain(*2dB)"
+        default 30
+        range -12 36
+    config AADC_GAIN_D
+        int "Digital Gain(*1dB)"
+        default 0
+        range -83 42
+    config AADC_HPF
+        bool "HPF(High Pass Filter)"
+        default y
+    config AADC_DIFF
+        bool "Differential"
+        default y
+        help
+            Input Signal Type:
+            - yes for Differential
+            - no  for Single-Ended
+    config AADC_PIPO
+        bool "Enable PIPO Mode"
+        default y
+
+endif
 endmenu

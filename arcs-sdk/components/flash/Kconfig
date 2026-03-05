@@ -1,7 +1,0 @@
-menu "lisa flash msg configuration"
-
-    config LISA_FLASH_MSG
-        bool "lisa flash msg support"
-        default n
-
-endmenu

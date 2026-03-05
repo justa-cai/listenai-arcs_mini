@@ -32,7 +32,7 @@ _EXT_RAM void flash_dualflash_config(uint32_t flash0_low, uint32_t flash0_high)
 {
     // Range of Flash0: [flash0_low - flash0_high - 1], aligned to 4K
     // Beyond this range, Flash1 is used
-    outw(0x47600054, ((flash0_high >> 12) << 16) | flash0_low);
+    outw(0x47600054, (((flash0_high & 0x00FFFFFF) >> 12) << 16) | ((flash0_low & 0x00FFFFFF) >> 12));
 }
 
 __STATIC_FORCEINLINE void flash_dualflash_enable_excl(uint32_t flash_id)
@@ -434,6 +434,34 @@ _EXT_RAM int flash_id(FLASH_DEV *dev, uint32_t *id_manufacturer, uint32_t *id_de
         if(RUN_WITHOUT_INT == dev->run_mod) {
             FLASH_DRIVER_UNPROTECT();
         }
+    }
+
+    return ret;
+}
+
+_EXT_RAM int flash_read_jedec_id(FLASH_DEV *dev, uint32_t *jedec_id)
+{
+    int ret = -1;
+    unsigned char temp[4] = {0};
+
+    if(dev == NULL || jedec_id == NULL) {
+        return -1;
+    }
+
+    if(RUN_WITHOUT_INT == dev->run_mod) {
+        FLASH_DRIVER_PROTECT();
+    }
+
+    /* 使用 RDID (0x9F) 命令读取 3 字节 JEDEC ID */
+    ret = spirom_cmd_send(dev, SPIROM_CMD_RDID, 0x0, 0, NULL, (unsigned int*)temp);
+
+    if(ret == 0) {
+        /* 组合 3 字节: [Manufacturer][Type][Capacity] */
+        *jedec_id = (temp[0] << 16) | (temp[1] << 8) | temp[2];
+    }
+
+    if(RUN_WITHOUT_INT == dev->run_mod) {
+        FLASH_DRIVER_UNPROTECT();
     }
 
     return ret;

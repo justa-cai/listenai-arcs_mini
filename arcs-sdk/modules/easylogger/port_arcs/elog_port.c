@@ -80,7 +80,7 @@ void elog_entry(void *para);
 ElogErrCode elog_port_init(void)
 {
     ElogErrCode result = ELOG_NO_ERR;
-    lock = xSemaphoreCreateMutex();
+    lock = xSemaphoreCreateRecursiveMutex();
     if (lock == NULL) {
         return -1;
     }
@@ -103,9 +103,17 @@ ElogErrCode elog_port_init(void)
 
     xTaskCreate(elog_entry,               /* Task function */
                 "elog_async",             /* Task name */
+#if defined(CONFIG_LOG_ASYNC_TASK_STACK_SIZE)
+                CONFIG_LOG_ASYNC_TASK_STACK_SIZE, /* Stack size */
+#else
                 CONFIG_EASYLOGGER_LOG_ASYNC_TASK_STACK_SIZE, /* Stack size */
+#endif
                 NULL,                     /* Parameters */
+#if defined(CONFIG_LOG_ASYNC_TASK_PRIORITY)
+                CONFIG_LOG_ASYNC_TASK_PRIORITY,         /* Priority */
+#else
                 CONFIG_EASYLOGGER_LOG_ASYNC_TASK_PRIORITY,         /* Priority */
+#endif
                 &elog_task_handle);       /* Task handle */
 
     if (elog_task_handle == NULL) {
@@ -141,24 +149,38 @@ void elog_port_output(const char *log, size_t size)
 
 void elog_port_output_lock(void)
 {
-    if (xPortIsInsideInterrupt()) {
-        // BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        // xSemaphoreTakeFromISR(lock, &xHigherPriorityTaskWoken);
-        // portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-    } else {
-        xSemaphoreTake(lock, portMAX_DELAY);
+    if (lock == NULL){
+        return;
     }
+
+    if (xPortIsInsideInterrupt()) {
+        // 中断中跳过锁定，避免死锁
+        return;
+    }
+    if (xPortIsInsideCritical()) {
+        // 临界区内跳过锁定，避免死锁
+        return;
+    }
+
+    xSemaphoreTakeRecursive(lock, portMAX_DELAY);
 }
 
 void elog_port_output_unlock(void)
 {
-    if (xPortIsInsideInterrupt()) {
-        // BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-        // xSemaphoreGiveFromISR(lock, &xHigherPriorityTaskWoken);
-        // portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
-    } else {
-        xSemaphoreGive(lock);
+    if (lock == NULL){
+        return;
     }
+
+    if (xPortIsInsideInterrupt()) {
+        // 中断中跳过解锁
+        return;
+    }
+    if (xPortIsInsideCritical()) {
+        // 临界区内跳过解锁
+        return;
+    }
+
+    xSemaphoreGiveRecursive(lock);
 }
 
 __attribute__((weak)) uint32_t elog_time_ms_get(void)
@@ -169,7 +191,7 @@ __attribute__((weak)) uint32_t elog_time_ms_get(void)
 const char *elog_port_get_time(void)
 {
     static char cur_system_time[15] = "";
-#if CONFIG_EASYLOGGER_USE_POSIX_TIME
+#if defined(CONFIG_LOG_USE_POSIX_TIME) || defined(CONFIG_EASYLOGGER_USE_POSIX_TIME)
     struct timeval _tv;
     struct tm _tm = {0};
     gettimeofday(&_tv, NULL);
@@ -216,7 +238,15 @@ const char *elog_port_get_t_info(void)
 void elog_async_output_notice(void)
 {
 #if CONFIG_EASYLOGGER_LOG_MODE_ASYNC
-    xSemaphoreGive(elog_async_semphr);
+    if (xPortIsInsideInterrupt()) {
+        BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+        xSemaphoreGiveFromISR(elog_async_semphr, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    } else if (!xPortIsInsideCritical()) {
+        xSemaphoreGive(elog_async_semphr);
+    } else {
+        /*do noting*/
+    }
 #endif
 }
 

@@ -42,6 +42,19 @@ int32_t flash_if_init(FLASH_DEV *dev, unsigned char ud0, unsigned char ud1)
     return ret;
 }
 
+int32_t flash_if_read_jedec_id(uint32_t *jedec_id)
+{
+    int ret = -1;   
+#if defined(CFG_AMP_IPC_FLASH_AGENT) && (CFG_AMP_IPC_FLASH_AGENT == 1)
+    ipc_halt_peer_core();
+#endif
+    ret = flash_read_jedec_id(&flash_dev, jedec_id);
+
+#if defined(CFG_AMP_IPC_FLASH_AGENT) && (CFG_AMP_IPC_FLASH_AGENT == 1)
+    ipc_resume_peer_core();
+#endif
+    return ret;
+}
 int32_t flash_if_read(size_t offset, void *data, size_t len)
 {
     int32_t ret = 0;

@@ -17,9 +17,13 @@ add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/atcmd)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/flash_if)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/ic_lock)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/utils)
+add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/pm_impl)
+add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/mbedtls)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/nvs)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/btos)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/profiles)
+add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/audio)
+add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/codec)
 
 ##部分依赖组件头文件！！！
 listenai_include_directories(

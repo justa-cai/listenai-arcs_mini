@@ -27,6 +27,7 @@
 #include "cli_main.h"
 
 #include "bt_api.h"
+#include "bt_ipc_api.h"
 
 #include "ls_event.h"
 
@@ -263,7 +264,7 @@ int ble_scan_param(char *params)
 
 int ble_scan(char *params)
 {
-    ble_scan_t config = {.enable = 0, .intv = 0, .filter_type = 1}; //
+    ble_scan_t config = {.enable = 0, .intv = 1, .filter_type = 0}; //
     char mac_str[18] = {0};
     const char *keys[] = {"-e", "-i", "-f", "-m"};
     const char *fmts[] = {"%i", "%i", "%i", "%17s"};
@@ -313,7 +314,7 @@ int ble_scan_rsp_data(char *params)
     }
     CLOGI("BLESCANRSPDATA: type=%d, data_len=%d, data=%s",
           config.type, config.data_len, data_str);
-    memcpy(config.data.data, data_str, SCAN_RSP_DATA_LEN);
+    memcpy(config.rsp_data.data, data_str, SCAN_RSP_DATA_LEN);
 #ifdef BT_WIFI_COEX
     atcmd_ble_scan_rsp_data_send(&config);
     return CLI_SUCCESS;
@@ -459,9 +460,9 @@ int ble_conn(char *params)
 
 }
 
-int ble_conn_param(char *params)
+int ble_conn_update(char *params)
 {
-    ble_conn_param_t config = {.conn_index = 0, .min_interval = 0x0010, .max_interval = 0x0020, .con_latency = 4, .timeout = 0x0190};
+    ble_conn_update_t config = {.conn_index = 0, .min_interval = 0x0010, .max_interval = 0x0020, .con_latency = 4, .timeout = 0x0190};
     const char *keys[] = {"-c", "-i", "-x", "-l", "-t"};
     const char *fmts[] = {"%i", "%i", "%i", "%i", "%i"};
     const uint8_t types[] = {TYPE_UINT16, TYPE_UINT16, TYPE_UINT16, TYPE_UINT16, TYPE_UINT16};
@@ -481,7 +482,7 @@ int ble_conn_param(char *params)
         return CLI_INVALID_PARAM;
     }
 #ifdef BT_WIFI_COEX
-    atcmd_ble_conn_param_send(&config);
+    atcmd_ble_conn_update_send(&config);
     return CLI_SUCCESS;
 #else
     ble_not_support();
@@ -732,9 +733,13 @@ int ble_non_signal_end(char *params)
 int bt_reset(char *params)
 {
     int res = CLI_SUCCESS;
-    #ifdef BT_WIFI_COEX
+#ifdef BT_WIFI_COEX
+#ifdef CFG_AMP_IPC
+    lsip_reset_api();
+#else
     lsip_reset();
-    #endif
+#endif 
+#endif
 
     return res;
 }
@@ -1090,8 +1095,8 @@ static const struct cli_cmd cli_bt_commands[] =
     {ble_adv_stop,     "bleadvstop",           "bleadvstop [-e <enable>]\r\n : Stop BLE adv, <enable>: 0/1, default 0\r\n"},
     {ble_conn,        "bleconn",              "bleconn [-t <addr_type>] [-m <mac>] [-o <timeout>]\r\n"
                                                    " : BLE connect, <addr_type>: 0=PUBLIC 1=RAND 2=RPA_OR_PUBLIC 3=RPA_OR_RAND, <mac>: xx:xx:xx:xx:xx:xx, <timeout>: ms (hex), defaults 0\r\n"},
-    {ble_conn_param,   "bleconnparam",         "bleconnparam [-c <conn_index>] [-i <min_interval>] [-x <max_interval>] [-l <con_latency>] [-t <timeout>]\r\n"
-                                                   " : Set BLE conn params, <conn_index>: 0-10, <min/max_interval>: 0x0006-0x0C80, <con_latency>: 0x0000-0x01F3, <timeout>: 0x000A-0x0C80, defaults 0\r\n"},
+    {ble_conn_update,   "bleconnupdate",         "bleconnupdate [-c <conn_index>] [-i <min_interval>] [-x <max_interval>] [-l <con_latency>] [-t <timeout>]\r\n"
+                                                   " : Set BLE conn update, <conn_index>: 0-10, <min/max_interval>: 0x0006-0x0C80, <con_latency>: 0x0000-0x01F3, <timeout>: 0x000A-0x0C80, defaults 0\r\n"},
     {ble_disconn,     "bledisconn",           "bledisconn [-t <addr_type>] [-m <mac>]\r\n"
                                                    " : BLE disconnect, <addr_type>: 0-3, <mac>: xx:xx:xx:xx:xx:xx, defaults 0\r\n"},
     {ble_data_len,     "bledatalen",           "bledatalen [-c <conn_index>] [-l <pkt_data_len>]\r\n"
@@ -1189,9 +1194,13 @@ uint32_t bt_cmd_handler(char* command, int len)
     char *param;
     const struct cli_cmd *cmd;
 
-    #if BT_WIFI_COEX
+#if BT_WIFI_COEX
+#ifdef CFG_AMP_IPC
+    //hci_event_notify_reg_api(ls_event_post);
+#else
     hci_event_notify_reg(ls_event_post);
-    #endif
+#endif
+#endif
 
     param = strchr(command, ' ');
     if (param)

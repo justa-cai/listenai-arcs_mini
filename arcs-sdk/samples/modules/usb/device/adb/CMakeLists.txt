@@ -13,7 +13,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     src/main.c
     src/fs.c
     src/usb_descriptors.c
-    src/sdmmc_init.c
 )
 
 listenai_include_directories(

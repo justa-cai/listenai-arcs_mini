@@ -69,29 +69,70 @@ bool dhcp_ip_addr_restore(void *netif)
     bool err = false;
     struct netif *net = (struct netif *)netif;
     struct dhcp *dhcp = netif_dhcp_data(net);
+    uint8_t *bytes;
+
+    CLOGV("netif%d restore ip addr\n", net->num);
+
+#if CONFIG_LWIP_DHCP_RESTORE_LAST_IP_FROM_NVS && CFG_NVS
+    if (restored_ip_addr == 0) {
+        uint32_t ip_addr;
+        size_t lengthPtr = NVDS_LEN_DHCP_IP_ADDR;
+        if (nvds_get(NVDS_TAG_DHCP_IP_ADDR, &lengthPtr, (uint8_t *)(&ip_addr)) == NVDS_OK) {
+            bytes = (uint8_t *)&restored_ip_addr;
+            restored_ip_addr = ip_addr;
+            CLOGV("netif-%d read restore-ip %d.%d.%d.%d\n", net->num, bytes[0], bytes[1], bytes[2], bytes[3]);
+        } else {
+            CLOGV("netif-%d read store-ip failed\n", net->num);
+        }
+    }
+#endif
 
     if (restored_ip_addr != 0) {
-        CLOGI("restore ip addr\n");
+        bytes = (uint8_t *)&restored_ip_addr;
+        CLOGV("netif-%d restore ip addr %d.%d.%d.%d\n", net->num, bytes[0], bytes[1], bytes[2], bytes[3]);
         dhcp->offered_ip_addr.addr = restored_ip_addr;
         err = true;
     }
+
     return err;
 }
 
-// void dhcp_ip_addr_store(void *netif)
-// {
-//     struct netif *net = (struct netif *)netif;
-//     struct dhcp *dhcp = netif_dhcp_data(net);
-//     uint32_t ip_addr = dhcp->offered_ip_addr.addr;
-//     CLOGI("store ip addr\n");
-//     print_ip(restored_ip_addr);
-//     print_ip(ip_addr);
-//     if (restored_ip_addr != ip_addr) {
-//         if (nvds_put(NVDS_LEN_IP_ADDR_ADDR, NVDS_LEN_IP_ADDR_ADDR, (uint8_t *)(&ip_addr)) == NVDS_OK) {
-//             CLOGI("store ip addr success\n");
-//         }
-//     }
-// }
+void dhcp_ip_addr_store(void *netif)
+{
+    struct netif *net = (struct netif *)netif;
+    struct dhcp *dhcp = netif_dhcp_data(net);
+    uint32_t ip_addr = dhcp->offered_ip_addr.addr;
+    uint8_t *bytes = (uint8_t *)&ip_addr;
+
+    CLOGV("netif%d store ip addr\n", net->num);
+    if (restored_ip_addr != ip_addr) {
+        restored_ip_addr = dhcp->offered_ip_addr.addr;
+        #if CONFIG_LWIP_DHCP_RESTORE_LAST_IP_FROM_NVS && CFG_NVS
+        if (nvds_put(NVDS_TAG_DHCP_IP_ADDR, NVDS_LEN_DHCP_IP_ADDR, (uint8_t *)(&ip_addr)) == NVDS_OK) {
+            CLOGV("netif-%d save store-ip %d.%d.%d.%d success\n", net->num, bytes[0], bytes[1], bytes[2], bytes[3]);
+        } else {
+            CLOGE("netif-%d store ip addr failed\n", net->num);
+        }
+        #endif
+        bytes = (uint8_t *)&restored_ip_addr;
+        CLOGV("netif-%d store ip %d.%d.%d.%d\n", net->num, bytes[0], bytes[1], bytes[2], bytes[3]);
+    }
+}
+
+void dhcp_ip_addr_clear(void)
+{
+    uint32_t ip_addr;
+
+    CLOGV("dhcp_ip_addr_clear\n");
+    if (restored_ip_addr) {
+        restored_ip_addr = ip_addr = 0;
+        #if CONFIG_LWIP_DHCP_RESTORE_LAST_IP_FROM_NVS && CFG_NVS
+        if (nvds_put(NVDS_TAG_DHCP_IP_ADDR,  NVDS_LEN_DHCP_IP_ADDR, (uint8_t *)(&ip_addr)) == NVDS_OK) {
+            CLOGV("clear store-ip addr success\n");
+        }
+        #endif
+    }
+}
 
 void dhcp_append_extra_opts(struct netif *netif, uint8_t state, struct dhcp_msg *msg_out, uint16_t *options_out_len)
 {

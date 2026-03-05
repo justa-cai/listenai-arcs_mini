@@ -22,7 +22,7 @@ def message_received(client, server, message):
 	server.send_message(client, message)
 
 PORT=9001
-server = WebsocketServer(host="192.168.32.152", port=PORT, loglevel=logging.INFO)
+server = WebsocketServer(host="0.0.0.0", port=PORT, loglevel=logging.INFO)
 server.set_fn_new_client(new_client)
 server.set_fn_client_left(client_left)
 server.set_fn_message_received(message_received)

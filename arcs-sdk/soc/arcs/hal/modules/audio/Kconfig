@@ -1,0 +1,11 @@
+# BT AUDIO Kconfig 
+
+menu "BT AUDIO"
+
+config BT_AUDIO
+    bool "Enable BT Audio"
+    default n
+    help
+        Enable BT Audio support
+
+endmenu

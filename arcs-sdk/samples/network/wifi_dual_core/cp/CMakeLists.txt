@@ -13,4 +13,3 @@ listenai_include_directories(
 add_subdirectory(src)
 
 listenai_add_executable(${PROJECT_NAME})
-listenai_link_libraries(mbedtls)

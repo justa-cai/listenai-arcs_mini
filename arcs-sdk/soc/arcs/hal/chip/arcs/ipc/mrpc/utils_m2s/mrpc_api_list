@@ -1,0 +1,41 @@
+BEGIN CLIENT_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_utils.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_utils_m2s_api_msg.h"
+#include "mrpc_utils_m2s_api_server.h"
+END
+
+BEGIN SERVER_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_utils.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "pm_impl.h"
+#include "mrpc_utils_m2s_api_msg.h"
+#include "mrpc_utils_m2s_api_server.h"
+END
+
+BEGIN MSG_HDR_INCLUDE_FILE
+#include <stdint.h>
+#include "ls_err.h"
+#include "mrpc.h"
+#include "pm_impl.h"
+END
+
+BEGIN MSG_MAX_SIZE
+IPC_MSG_BUFFER_SIZE
+END
+
+
+BEGIN API_DECLARE_TYPE_OTHER
+
+int32_t pm_sync_config(pm_config_t *config);
+
+END

@@ -4,10 +4,8 @@
 ====
 
 .. toctree::
-    :maxdepth: 1
-    :numbered:
+    :maxdepth: 2
 
-
-    display/README.md
-    touch/README.md
-
+    service_components_zh
+    network_components_zh
+    acomp/index_zh

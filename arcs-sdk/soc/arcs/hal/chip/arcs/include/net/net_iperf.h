@@ -181,6 +181,8 @@ struct net_iperf_stream
     /// State of ping thread (true for active, false for inactive)
     bool active;
     bool connected;
+    bool used;
+    bool exit;
     /// Iperf settings
     struct net_iperf_settings iperf_settings;
     /// Handle of iperf send task

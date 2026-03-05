@@ -66,8 +66,14 @@ uint16_t fhost_ip_chksum(const void *dataptr, int len);
 #define LWIP_FUNC_ATTR_                //__attribute__ ((section (".ramcode2")))
 #define LWIP_FUNC_ALIGN                __attribute__((aligned(32)))
 
-#else
+#elif defined(CONFIG_WIFI)
 #define LWIP_CHKSUM                   fhost_ip_chksum
+#define LWIP_FUNC_ATTR
+#define LWIP_FUNC_ATTR_
+#define LWIP_FUNC_ALIGN
+
+#else
+#define LWIP_CHKSUM                   net_ip_chksum
 
 #define LWIP_FUNC_ATTR
 #define LWIP_FUNC_ATTR_
@@ -105,6 +111,8 @@ uint16_t fhost_ip_chksum(const void *dataptr, int len);
 #define TCP_SND_BUF                   (4 * MAC_TXQ_DEPTH * TCP_MSS)
 
 #define TCP_QUEUE_OOSEQ               1
+//#define TCP_OOSEQ_MAX_BYTES           (2 * MAC_TXQ_DEPTH * TCP_MSS)
+//#define LWIP_TCP_SACK_OUT             1
 #define MEMP_NUM_TCP_SEG              ((4 * TCP_SND_BUF) / TCP_MSS)
 #define MEMP_NUM_PBUF_NET             (TCP_SND_BUF / TCP_MSS)
 #define MEMP_NUM_PBUF                 (MEMP_NUM_PBUF_NET + 20) //20 for internal msg
@@ -133,9 +141,9 @@ uint16_t fhost_ip_chksum(const void *dataptr, int len);
 #endif
 #define MEM_ALIGNMENT                 4
 #if MEM_MIN > 8192
-#define MEM_SIZE                      (MEM_MIN + EXTRA_MEM_SIZE) 
+#define MEM_SIZE                      (MEM_MIN + EXTRA_MEM_SIZE)
 #else
-#define MEM_SIZE                      (8192 + EXTRA_MEM_SIZE) 
+#define MEM_SIZE                      (8192 + EXTRA_MEM_SIZE)
 #endif
 
 #define LWIP_HOOK_FILENAME            "lwiphooks.h"
@@ -236,16 +244,29 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
  * is restored after reset/power-up.
  */
 #include "netif/dhcp_state.h"
-#define CONFIG_LWIP_DHCP_RESTORE_LAST_IP 1
+#ifndef CONFIG_LWIP_DHCP_RESTORE_LAST_IP
+#define CONFIG_LWIP_DHCP_RESTORE_LAST_IP 0
+#endif
+#ifndef CONFIG_LWIP_DHCP_RESTORE_LAST_IP_FROM_NVS
+#define CONFIG_LWIP_DHCP_RESTORE_LAST_IP_FROM_NVS 0
+#endif
+#ifndef CONFIG_LWIP_DHCP_RESTORE_LAST_IP_FROM_LISA_KV
+#define CONFIG_LWIP_DHCP_RESTORE_LAST_IP_FROM_LISA_KV 0
+#endif
+#ifndef CONFIG_LWIP_DHCP_IP_ADDR_KV_KEY
+#define CONFIG_LWIP_DHCP_IP_ADDR_KV_KEY "lwip.dhcp_ip_addr"
+#endif
 
 #if CONFIG_LWIP_DHCP_RESTORE_LAST_IP
 
 #define LWIP_DHCP_IP_ADDR_RESTORE()     dhcp_ip_addr_restore(netif)
 #define LWIP_DHCP_IP_ADDR_STORE()       dhcp_ip_addr_store(netif)
+#define LWIP_DHCP_IP_ADDR_CLEAR()       dhcp_ip_addr_clear()
 #else
- 
-#define LWIP_DHCP_IP_ADDR_RESTORE()      0
-#define LWIP_DHCP_IP_ADDR_STORE()        0
+
+#define LWIP_DHCP_IP_ADDR_RESTORE()      false
+#define LWIP_DHCP_IP_ADDR_STORE()
+#define LWIP_DHCP_IP_ADDR_CLEAR()
 #endif
 
 

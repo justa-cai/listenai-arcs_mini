@@ -1,0 +1,7 @@
+tests:
+  samples.modules.quirc:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "quirc Sample Application"

@@ -177,6 +177,7 @@ struct BT_REG_INIT_ITEM
 extern volatile CMN_BUSCFG_RegDef *CMN_SYS_NODFT_P;
 extern volatile BT_CTRL_TOP_RegDef *BT_CNTL_P;
 extern volatile AON_IOMUX_RegDef *AON_IOMUX_P;
+extern volatile AON_CTRL_RegDef *AON_CTRL_P;
 extern volatile BT_MODEM_RegDef *BT_MODEM_P;
 extern volatile CMN_SYSCFG_RegDef *CMN_SYS_P;
 extern volatile BT_DM_RegDef *BT_DM_P;

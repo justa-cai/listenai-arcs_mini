@@ -1,0 +1,42 @@
+menu "LISA Camera"
+    config LISA_CAMERA_DEVICE
+        bool "LISA Camera support"
+        default n
+        help
+            Enable LISA Camera support
+
+if LISA_CAMERA_DEVICE
+
+choice LISA_CAMERA_BUS_TYPE
+    prompt "Select bus type"
+    default LISA_CAMERA_BUS_SPI
+
+    config LISA_CAMERA_BUS_SPI
+        bool "SPI Bus"
+        select LISA_SPI_DEVICE
+        help
+            Use SPI bus for camera data.
+
+    config LISA_CAMERA_BUS_DVP
+        bool "DVP Bus"
+        select LISA_DVP_DEVICE
+        help
+            Use DVP bus for camera data.
+
+endchoice
+
+config LISA_CAMERA_SENSOR_BF3901
+    bool "BF3901"
+    default n
+    
+config LISA_CAMERA_SENSOR_GC032A
+    bool "GC032A"
+        default n
+    
+config LISA_CAMERA_SENSOR_GC0328
+    bool "GC0328"
+        default n
+
+endif #LISA_CAMERA_DEVICE
+
+endmenu

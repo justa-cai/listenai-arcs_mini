@@ -93,17 +93,11 @@ again:
 
   sleeptime = sys_timeouts_sleeptime();
   if (sleeptime == SYS_TIMEOUTS_SLEEPTIME_INFINITE) {
-#if CFG_PSM
-    psm_wait_active();
-#endif
     UNLOCK_TCPIP_CORE();
     sys_arch_mbox_fetch(mbox, msg, 0);
     LOCK_TCPIP_CORE();
     return;
   } else if (sleeptime == 0) {
-#if CFG_PSM
-    psm_wait_active();
-#endif
     sys_check_timeouts();
     /* We try again to fetch a message from the mbox. */
     goto again;
@@ -113,9 +107,6 @@ again:
   res = sys_arch_mbox_fetch(mbox, msg, sleeptime);
   LOCK_TCPIP_CORE();
   if (res == SYS_ARCH_TIMEOUT) {
-#if CFG_PSM
-    psm_wait_active();
-#endif
     /* If a SYS_ARCH_TIMEOUT value is returned, a timeout occurred
        before a message could be fetched. */
     sys_check_timeouts();

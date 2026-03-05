@@ -187,6 +187,9 @@
 #define PSRAM_MR6_HALF_SLEEP_OFFSET         (0x4)
 #define PSRAM_MR6_HALF_SLEEP_MASK           (0xf)
 
+#define PSRAM_MR6_HALF_SLEEP_MODE           (0xf0)
+#define PSRAM_MR6_DEEP_SLEEP_MODE           (0xc0)
+
 #define PSRAM_AHB_WR_CMD                    PSRAM_XCCELA_LINEAR_BURST_WRITE_INS
 #define PSRAM_AHB_RD_CMD                    PSRAM_XCCELA_LINEAR_BURST_READ_INS
 #define PSRAM_MR_WR_CMD                     PSRAM_XCCELA_MR_WRITE_INS
@@ -322,6 +325,9 @@
 #define PSRAM_MR6_HALF_SLEEP_OFFSET         (0x4)
 #define PSRAM_MR6_HALF_SLEEP_MASK           (0xf)
 
+#define PSRAM_MR6_HALF_SLEEP_MODE           (0xf0)
+#define PSRAM_MR6_DEEP_SLEEP_MODE           (0xc0)
+
 #if PSRAM_MEM_SIZE == PSRAM_MEM_32Mb_DIE
 #define PSRAM_AHB_WR_CMD                    PSRAM_APM_SYNC_WRITE_INS
 #define PSRAM_AHB_RD_CMD                    PSRAM_APM_SYNC_READ_INS
@@ -351,6 +357,8 @@
 #define PSRAM_INSTR_READ16                  0xB
 #define PSRAM_INSTR_DUMMY                   0xC
 #define PSRAM_INSTR_CMDNADDR                0xF
+
+#define PSRAM_EXE_SLEEP_MODE_SEQ_ID         0x5
 
 #define PSRAM_AHB_RD_SEQ_ID                 0
 #define PSRAM_AHB_WR_SEQ_ID                 1
@@ -785,6 +793,8 @@ int32_t PSRAM_Initialize(uint32_t* read_delay, uint32_t* write_delay, uint8_t se
     IP_PSRAM_CTRL->REG_S3LUT0.bit.S3_INSTR1 = PSRAM_INSTR_MARCO(PSRAM_INSTR_ADDR, 0x1);
     IP_PSRAM_CTRL->REG_S3LUT1.bit.S3_INSTR2 = PSRAM_INSTR_MARCO(PSRAM_INSTR_MRWRDATA, 0x0);
 
+    IP_PSRAM_CTRL->REG_S5LUT0.all = PSRAM_INSTR_MARCO(PSRAM_INSTR_CEBLP, 12);
+
     // MR RESET
     IP_PSRAM_CTRL->REG_S6LUT0.bit.S6_INSTR0 = PSRAM_INSTR_MARCO(PSRAM_INSTR_CMD, 0xFF);
     IP_PSRAM_CTRL->REG_S6LUT0.bit.S6_INSTR1 = PSRAM_INSTR_MARCO(PSRAM_INSTR_DUMMY, 2);
@@ -864,6 +874,14 @@ int32_t PSRAM_Initialize(uint32_t* read_delay, uint32_t* write_delay, uint8_t se
         IP_PSRAM_CTRL->REG_DLLRESYNC.bit.DLL_RESYNC = 0x1;
     }
     // DLL lock program end ####################################################
+
+    // Before MR operation, PSRAM need exit sleep mode
+    {
+        uint32_t hclk = CRM_GetHclkFreq();
+        IP_PSRAM_CTRL->REG_CUSTEXE.all = PSRAM_EXE_SLEEP_MODE_SEQ_ID;
+        uint32_t timeout = 30 * (hclk / psram_clock);
+        while(timeout--);
+    }
 
     uint8_t density = 0;
 
@@ -1368,4 +1386,15 @@ uint32_t PSRAM_GetDensity(void){
     }
 
     return 0;
+}
+
+void PSRAM_EnterSleepMode(_psram_sleep_mode_t sleep_mode){
+    if (sleep_mode == PSRAM_SLEEP_MODE_HALF_SLEEP){
+        IP_PSRAM_CTRL->REG_MR6.all = PSRAM_MR6_HALF_SLEEP_MODE;
+    } else if (sleep_mode == PSRAM_SLEEP_MODE_DEEP_SLEEP){
+        IP_PSRAM_CTRL->REG_MR6.all = PSRAM_MR6_DEEP_SLEEP_MODE;
+    } else {
+        PSRAM_LOGE("PSRAM sleep mode error");
+        return;
+    }
 }

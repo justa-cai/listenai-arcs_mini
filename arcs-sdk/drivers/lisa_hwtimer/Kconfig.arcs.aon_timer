@@ -1,0 +1,34 @@
+# LISA Hardware Timer Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_HWTIMER_ARCS_AON_TIMER
+    bool "Enable LISA Hardware Timer ARCS AON Timer support"
+    default n
+    help
+        Enable LISA Hardware Timer ARCS AON Timer support.
+
+if LISA_HWTIMER_ARCS_AON_TIMER
+
+choice
+    prompt "AON Timer Clock Source"
+    default LISA_HWTIMER_ARCS_AON_TIMER_CLK_RC32K
+    help
+        Select the clock source for AON Timer.
+        internal RC oscillator: internal RC oscillator
+        external crystal oscillator: external crystal oscillator
+
+config LISA_HWTIMER_ARCS_AON_TIMER_CLK_RC32K
+    bool "internal RC oscillator"
+    help
+        Use internal RC oscillator as the clock source for AON Timer. Internal RC clock source has larger error margins.
+
+config LISA_HWTIMER_ARCS_AON_TIMER_CLK_XO32K
+    bool "external crystal oscillator"
+    help
+        Use external crystal oscillator as the clock source for AON Timer. Requires external 32K crystal oscillator.
+
+endchoice
+
+endif # LISA_HWTIMER_ARCS_AON_TIMER

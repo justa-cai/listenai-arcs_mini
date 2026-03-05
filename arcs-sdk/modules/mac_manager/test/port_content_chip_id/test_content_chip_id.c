@@ -40,13 +40,27 @@ void test_content_chip_id_get(void)
 
 void test_content_chip_id_random(void)
 {
-    char mac[18] = {0};
-    size_t mac_len = 18;
+    uint8_t mac[6] = {0};
+    size_t mac_len = 6;
 
-    mac_manager_content_ops_chip_id.random(mac, &mac_len);
+    int ret = mac_manager_content_ops_chip_id.random(mac, &mac_len);
 
-    TEST_ASSERT_EQUAL(1, xTaskGetTickCount_fake.call_count);
-    TEST_ASSERT_EQUAL(18, mac_len);
+    TEST_ASSERT_EQUAL_MESSAGE(0, ret, "Random MAC generation should succeed");
+    TEST_ASSERT_EQUAL_MESSAGE(1, xTaskGetTickCount_fake.call_count,
+        "xTaskGetTickCount should be called for randomness");
+    TEST_ASSERT_EQUAL_MESSAGE(6, mac_len, "MAC length should be 6 bytes");
+
+    // 验证MAC头部
+    TEST_ASSERT_EQUAL_MESSAGE(0x26, mac[0], "First byte should be 0x26");
+    TEST_ASSERT_EQUAL_MESSAGE(0x48, mac[1], "Second byte should be 0x48");
+
+    // 验证2-5字节不是禁用值
+    for (int i = 2; i < 6; i++) {
+        TEST_ASSERT_NOT_EQUAL_MESSAGE(0x00, mac[i],
+            "MAC bytes 2-5 should not be 0x00");
+        TEST_ASSERT_NOT_EQUAL_MESSAGE(0xFF, mac[i],
+            "MAC bytes 2-5 should not be 0xFF");
+    }
 }
 
 void test_content_chip_id_random_with_short_mac_len(void)

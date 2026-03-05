@@ -1,0 +1,47 @@
+menu "Recognize Command Router Configuration"
+
+choice RCMD_ROUTER_STRATEGY
+    prompt "Command router strategy"
+    default RCMD_ROUTER_STRATEGY_ONLINE_FIRST
+    help
+        Select the routing strategy for voice commands:
+        - ONLINE_FIRST: Prefer online recognition, fall back to offline when device is offline
+        - OFFLINE_ONLY: Only process offline recognition results
+        - TIMEOUT_FALLBACK: Cache offline command and wait for online result with timeout
+
+    config RCMD_ROUTER_STRATEGY_ONLINE_FIRST
+        bool "Online first"
+        help
+            Process online results with priority. When device is online, ignore offline
+            results and wait for online recognition. When device is offline, process
+            offline results immediately.
+
+    config RCMD_ROUTER_STRATEGY_OFFLINE_ONLY
+        bool "Offline only"
+        help
+            Only process offline voice recognition results. Online results are ignored.
+            This mode is useful for fully offline scenarios.
+
+    config RCMD_ROUTER_STRATEGY_TIMEOUT_FALLBACK
+        bool "Timeout fallback"
+        help
+            Cache offline command and wait for online result. If online result arrives
+            before timeout, process online result and invalidate cached offline command.
+            If timeout occurs, process the cached offline command.
+endchoice
+
+
+if RCMD_ROUTER_STRATEGY_TIMEOUT_FALLBACK
+
+config RCMD_ROUTER_ONLINE_TIMEOUT_MS
+    int "Online command timeout (ms)"
+    default 3000
+    range 100 10000
+    depends on RCMD_ROUTER_STRATEGY_TIMEOUT_FALLBACK
+    help
+        Timeout value in milliseconds for waiting online command result.
+        Only applicable when TIMEOUT_FALLBACK strategy is selected.
+        If no online result arrives within this timeout, the cached offline
+        command will be executed.
+endif
+endmenu

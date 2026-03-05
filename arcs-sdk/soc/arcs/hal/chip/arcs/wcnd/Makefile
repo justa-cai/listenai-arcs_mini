@@ -75,21 +75,33 @@ endif
 RF_BOARD_VER ?= 0
 CFLAGS += -DRF_BOARD_VER=$(RF_BOARD_VER)
 
+CFG_FLASH_NOR_OTP_NV_BASE_ADDR ?= 0x30200000
+CFLAGS += -DFLASH_NOR_OTP_NV_BASE_ADDR=$(CFG_FLASH_NOR_OTP_NV_BASE_ADDR)
+
 #includings and flags
 CFLAGS +=  -I $(TOPDIR)/include/CMSIS \
           -I $(TOPDIR)/include/CMSIS/core \
           -I $(TOPDIR)/chip/${CHIP}/include/ \
           -I $(TOPDIR)/chip/${CHIP}/include/wifi \
+          -I $(TOPDIR)/chip/${CHIP}/include/bt \
           -I $(TOPDIR)/chip/${CHIP}/wcnd/include/ \
           -I $(TOPDIR)/chip/${CHIP}/wcnd/include/bt_inc/ \
           -I $(TOPDIR)/chip/${CHIP}/wcnd/ext_rf/ \
+          -I $(TOPDIR)/chip/${CHIP}/btos \
           -I $(TOPDIR)/chip/${CHIP}/bsp/ \
           -I $(TOPDIR)/chip/${CHIP}/driver/spi \
+          -I $(TOPDIR)/chip/${CHIP}/atcmd/ \
+          -I $(TOPDIR)/chip/${CHIP}/cli_cmd/ \
+          -I $(TOPDIR)/chip/${CHIP}/btos/ \
+          -I $(TOPDIR)/chip/${CHIP}/btos/task/api/ \
+          -I $(TOPDIR)/chip/${CHIP}/rtos/rtos_al \
           -I $(TOPDIR)/include/bsp \
           -I $(TOPDIR)/include/patch \
           -I $(TOPDIR)/src/${APP_PATH} \
           -I $(TOPDIR)/modules/nvs \
           -I $(TOPDIR)/modules/nvs/include \
+          -I $(TOPDIR)/modules/rtos/include \
+          -I $(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure \
           -I $(TOPDIR)/include/ \
           -I $(TOPDIR)/include/luna
 
@@ -108,3 +120,6 @@ endif
 
 include $(TOPDIR)/rules.mk
 
+## TODO in the future may need use -O3 for timecost
+##FILTERED_CFLAGS := $(filter-out -O%,$(CFLAGS))
+##CFLAGS := $(FILTERED_CFLAGS) -O3

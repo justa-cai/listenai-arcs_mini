@@ -1,0 +1,7 @@
+config 4G_MODULE
+	bool "Enable 4G Module Support"
+	default n
+	help
+	  Enable support for ML307 4G module.
+	  This includes AT commands, TCP/UDP communication,
+	  and modem control functionality.

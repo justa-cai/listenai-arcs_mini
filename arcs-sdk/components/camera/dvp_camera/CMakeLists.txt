@@ -1,1 +1,0 @@
-listenai_library_sources(dvp_camera.c)

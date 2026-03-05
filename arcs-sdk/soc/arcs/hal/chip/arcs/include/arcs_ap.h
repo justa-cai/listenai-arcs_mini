@@ -280,7 +280,9 @@ extern volatile IRegion_Info_Type SystemIRegionInfo;
 #define _AP_RAM_BSS_SEC               ".bss.ap_ram"
 
 #define _TMP_RAM_SEC                  ".ramcode"
+#define _TMP_PM_RAM_SEC               ".pm.ramcode"
 
+#define _PM_TEXT_SEC                  ".text.pm"
 /**
  * AP ILM TEXT SECTION
  */
@@ -340,6 +342,8 @@ extern volatile IRegion_Info_Type SystemIRegionInfo;
 #define _AP_RAM_BSS_TAG(tag)        __attribute__ ((section (_AP_RAM_BSS_SEC"."#tag)))
 
 #define __RAMCODE__                 __attribute__ ((section (_TMP_RAM_SEC)))
+#define _PM_TEXT_TEXT               __attribute__ ((section (_PM_TEXT_SEC)))
+#define _PM_RAM_TEXT                __attribute__ ((section (_TMP_PM_RAM_SEC)))
 
 //TODO: Adjust these sections
 //fast function

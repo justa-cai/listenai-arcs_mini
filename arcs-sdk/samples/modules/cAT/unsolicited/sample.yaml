@@ -1,0 +1,3 @@
+tests:
+  samples.cAT.unsolicited:
+    build_only: true

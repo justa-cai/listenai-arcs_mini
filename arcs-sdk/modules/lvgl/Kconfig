@@ -203,6 +203,12 @@ if SDK_MODULE_LVGL
         Use 32-bit coordinates instead of the default 16-bit coordinates.
         This is useful for high-resolution displays or when working with large
         coordinate values.
+    
+      config LS_LV_INDEV_TASK_QUEUE_SIZE
+      int "indev task queue size"
+      default 100
+      help
+          Set the queue size of the LVGL input task.
 
 endif
 

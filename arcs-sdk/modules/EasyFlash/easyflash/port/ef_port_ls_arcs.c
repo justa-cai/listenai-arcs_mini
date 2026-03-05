@@ -7,8 +7,7 @@
 #include <task.h>
 #include <semphr.h>
 
-#include "flash_if.h"
-#include "chip.h"
+#include "lisa_flash.h"
 
 #include "lisa_log.h"
 #include "sysheap.h"
@@ -19,15 +18,8 @@ static const ef_env default_env_set[] = {
     {"ef_test", "1"},
 };
 
-static FLASH_DEV flash0 = {
-	.base_addr = CMN_FLASHC_BASE,
-	.d_width = 4,
-	.sclk_div = 0xFF,
-	.run_mod = RUN_WITHOUT_INT,
-	.timeout = 2000000,
-	.addr_bytes = 3,
-	.addr_auto = 0,
-};
+#define FLASH_DEVICE_NAME "flash0"
+lisa_device_t *flash_dev = NULL;
 
 static SemaphoreHandle_t flash_lock = NULL;
 
@@ -38,8 +30,8 @@ EfErrCode ef_port_init(ef_env const **default_env, size_t *default_env_size)
     *default_env = default_env_set;
     *default_env_size = sizeof(default_env_set) / sizeof(default_env_set[0]);
 
-    r = flash_if_init(&flash0, 0, 0);
-    EF_ASSERT(r == 0);
+    flash_dev = lisa_device_get(FLASH_DEVICE_NAME);
+    EF_ASSERT(flash_dev != NULL);
 
     flash_lock = xSemaphoreCreateMutex();
     EF_ASSERT(flash_lock != NULL);
@@ -53,9 +45,7 @@ EfErrCode ef_port_read(uint32_t addr, uint32_t *buf, size_t size)
     EF_ASSERT(addr >= 0x30000000);
     EF_ASSERT(buf);
 
-    flash_if_write_protection_set(false);
-    r = flash_if_read(addr - 0x30000000, buf, size);
-    flash_if_write_protection_set(true);
+    r = lisa_flash_read(flash_dev, addr - 0x30000000, buf, size);
 
     return (r != 0) ? EF_READ_ERR : EF_NO_ERR;
 }
@@ -66,9 +56,7 @@ EfErrCode ef_port_erase(uint32_t addr, size_t size)
     EF_ASSERT(addr % EF_ERASE_MIN_SIZE == 0);
     EF_ASSERT(addr >= 0x30000000);
 
-    flash_if_write_protection_set(false);
-    r = flash_if_erase(addr - 0x30000000, size);
-    flash_if_write_protection_set(true);
+    r = lisa_flash_erase(flash_dev, addr - 0x30000000, size);
     if (r != 0) {
         return EF_ERASE_ERR;
     }
@@ -84,21 +72,7 @@ EfErrCode ef_port_write(uint32_t addr, const uint32_t *buf, size_t size)
     EF_ASSERT(addr >= 0x30000000);
     EF_ASSERT(buf);
 
-    if ((uint32_t)buf >= 0x30000000) {
-        w_buf = (uint8_t *)psram_malloc(size);
-        if (!w_buf) {
-            return EF_WRITE_ERR;
-        }
-        memcpy(w_buf, buf, size);
-    }
-
-    flash_if_write_protection_set(false);
-    r = flash_if_write(addr - 0x30000000, w_buf, size);
-    flash_if_write_protection_set(true);
-
-    if ((uint32_t)buf >= 0x30000000) {
-        psram_free(w_buf);
-    }
+    r = lisa_flash_write(flash_dev, addr - 0x30000000, buf, size);
 
     if (r != 0) {
         return EF_WRITE_ERR;

@@ -1,3 +1,5 @@
+menu "Arcs SDK"
+
 rsource "startup/Kconfig"
 rsource "soc/Kconfig"
 rsource "components/Kconfig"
@@ -7,3 +9,4 @@ rsource "modules/Kconfig"
 rsource "cmake/Kconfig"
 rsource "boards/Kconfig"
 
+endmenu

@@ -74,6 +74,14 @@ void linklayer_debug_config(void)
     IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 21,  CSK_IOMUX_FUNC_ALTER19); //dbg5
     IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 6,  CSK_IOMUX_FUNC_ALTER19);  //dbg6
     IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 7,  CSK_IOMUX_FUNC_ALTER19);  //dbg7 
+//    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 8,  CSK_IOMUX_FUNC_ALTER19);  //dbg8
+//    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 9,  CSK_IOMUX_FUNC_ALTER19);  //dbg9 
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 10,  CSK_IOMUX_FUNC_ALTER19);  //dbg10
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 11,  CSK_IOMUX_FUNC_ALTER19);  //dbg11 
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 12,  CSK_IOMUX_FUNC_ALTER19);  //dbg12
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 13,  CSK_IOMUX_FUNC_ALTER19);  //dbg13 
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 14,  CSK_IOMUX_FUNC_ALTER19);  //dbg14
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 15,  CSK_IOMUX_FUNC_ALTER19);  //dbg15 
 #endif
     return;
 }

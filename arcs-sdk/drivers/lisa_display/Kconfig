@@ -1,0 +1,63 @@
+# LISA Display Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_DISPLAY_DEVICE
+    bool "Enable LISA Display Device Driver"
+    default n
+    depends on LISA_DEVICE
+    help
+        Enable LISA Display device driver based on lisa_device framework.
+        Provides unified interface for various display controllers.
+
+if LISA_DISPLAY_DEVICE
+
+config LISA_DISPLAY_TE_SYNC
+    bool "Enable TE (Tearing Effect) Sync Support"
+    default n
+    help
+        Enable TE (Tearing Effect) synchronization support to prevent
+        screen tearing when updating display.
+
+choice LISA_DISPLAY_BACKLIGHT_TYPE
+    prompt "Backlight Type"
+    default LISA_DISPLAY_BACKLIGHT_PWM
+
+    config LISA_DISPLAY_BACKLIGHT_PWM
+        bool "PWM Backlight Control"
+        select LISA_PWM
+        help
+            Enable PWM backlight control support.
+    config LISA_DISPLAY_BACKLIGHT_WIRE_DIMMING
+        bool "Wire Dimming Backlight Control"
+        select LISA_GPIO_DEVICE
+        help
+            Enable wire dimming backlight control support.
+endchoice
+
+config LISA_DISPLAY_CPDMA_ROTATE
+    bool "Enable CPDMA-based display rotation"
+    default n
+    help
+        Enable this option to use CPDMA for hardware-accelerated display rotation.
+        This provides better performance than SRAM-based rotation.
+
+config LISA_DISPLAY_CPDMA_CH
+    int "CPDMA channel"
+    default 2
+    range 0 3
+    depends on LISA_DISPLAY_CPDMA_ROTATE
+    help
+        Select the CPDMA channel to be used for display rotation.
+
+config LISA_DISPLAY_COLOR_INVERT
+    bool "Enable LCD color invert"
+    default y
+    help
+        If enabled, LCD color will be inverted.
+
+endif # LISA_DISPLAY_DEVICE
+
+rsource "panels/Kconfig"
+rsource "bus/Kconfig"

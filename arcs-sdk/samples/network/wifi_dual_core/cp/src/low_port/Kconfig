@@ -1,7 +1,0 @@
-menu "low port configuration"
-
-    config LOW_PORT
-        bool "low port support"
-        default n
-
-endmenu

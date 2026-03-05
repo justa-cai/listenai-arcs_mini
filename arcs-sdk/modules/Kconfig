@@ -25,6 +25,7 @@ rsource "giflib/Kconfig"
 rsource "ijg/Kconfig"
 rsource "libico/Kconfig"
 rsource "flexlayout/Kconfig"
+rsource "libjpeg-turbo/Kconfig"
 
 # File System and Storage
 rsource "fs/Kconfig"
@@ -32,6 +33,7 @@ rsource "EasyFlash/Kconfig"
 rsource "csk_sqlite3/Kconfig"
 
 # Network and Communication
+rsource "4g_module/Kconfig"
 rsource "libcurl/Kconfig"
 rsource "httpclient/Kconfig"
 rsource "http_ssl/Kconfig"
@@ -39,6 +41,11 @@ rsource "coreHTTP/Kconfig"
 rsource "coresntp/Kconfig"
 rsource "nopoll/Kconfig"
 rsource "cpr/Kconfig"
+rsource "coreMQTT/Kconfig"
+rsource "coreMQTT-Agent/Kconfig"
+
+# AT Command Parser
+rsource "cAT/Kconfig"
 
 # Security and Encryption
 rsource "mbedtls/Kconfig"
@@ -65,7 +72,6 @@ rsource "mac_manager/Kconfig"
 # Logging and Shell
 rsource "easylogger/Kconfig"
 rsource "letter-shell/Kconfig"
-rsource "lshell/Kconfig"
 
 # Testing Frameworks
 rsource "unity/Kconfig"
@@ -75,6 +81,9 @@ rsource "fff/Kconfig"
 
 # Custom Modules
 rsource "ltlsf/Kconfig"
+
+# QR code encoding/decoding
+rsource "quirc/Kconfig"
 
 endmenu
 

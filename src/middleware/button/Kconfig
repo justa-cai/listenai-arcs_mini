@@ -1,0 +1,6 @@
+config FLEXIBLE_BUTTON
+    bool "Enable flexible button support"
+    default n
+    help
+        Enable flexible button library for ADC button support.
+        This provides multi-button detection using ADC voltage levels.

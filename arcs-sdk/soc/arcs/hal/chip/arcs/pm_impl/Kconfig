@@ -1,0 +1,5 @@
+config ARCS_HAL_PM
+    bool "Power Management implementation"
+    default n
+    help
+        Power Management implementation

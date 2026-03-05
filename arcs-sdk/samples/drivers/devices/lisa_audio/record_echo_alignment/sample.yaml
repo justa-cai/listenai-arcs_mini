@@ -1,0 +1,8 @@
+tests:
+  samples.lisa_audio.record_echo_alignment:
+    programmer: arcs
+    runner: uart
+    build_only: true
+    log_analyzer:
+      type: "regex"
+      pattern: "所有测试完成!"

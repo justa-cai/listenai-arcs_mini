@@ -1,4 +1,5 @@
 #include <string.h>
+#include <assert.h>
 #include "log_print.h"
 #include "systick.h"
 #include "Driver_ADC_PDM.h"
@@ -20,19 +21,20 @@
 #include "lite_adc.h"
 #include "arcs_ap.h"
 
-
-#define CONFIG_AADC_GAIN_A 30
-#define CONFIG_AADC_GAIN_D 0
-#define GPDMA_ADC0_CHN    (0)
-#define GPDMA_ADC1_CHN    (1)
+#define TAG "ADC"
+#include "lisa_log.h"
+// #define CONFIG_AADC_GAIN_A 30
+// #define CONFIG_AADC_GAIN_D 0
+#define GPDMA_ADC0_CHN    (CONFIG_GPDMA_ADC0_CHN)
+#define GPDMA_ADC1_CHN    (CONFIG_GPDMA_ADC1_CHN)
 #define DMA_CHANNEL_ANY   (0xFF)
 
-#define CONFIG_AADC_HPF    1
-#define CONFIG_AADC_DIFF   1
-#define CONFIG_AADC_PIPO   1
+// #define CONFIG_AADC_HPF    1
+// #define CONFIG_AADC_DIFF   1
+// #define CONFIG_AADC_PIPO   1
 
-#define CONFIG_AADC_L_ONLY 1
-#define CONFIG_AADC_CHNS   1
+// #define CONFIG_AADC_L_ONLY 1
+// #define CONFIG_AADC_CHNS   1
 #ifdef CONFIG_LITE_AADC_RECV_CNTS
 #define AADC_RECV_CNTS      (CONFIG_LITE_AADC_RECV_CNTS)
 #else
@@ -58,6 +60,8 @@
 			code;                                       \
 		}                                               \
 	} while (0)
+
+#define ASSERT(exp, fmt, ...)	do{if(!(exp)){CLOGE("error:"fmt,##__VA_ARGS__);assert(exp);}}while(0)
 
 static struct
 {
@@ -180,14 +184,18 @@ int lite_adc_ctrl(uint32_t uarg, void *parg)
     }
     case MAPI_AADC_CTRL_SET_GAIN: { // set gain, val[0]:agin, step:2
         struct { int al, ar, dl, dr; } *gain = parg;
+        uint32_t gain_a = 0, gain_d = 0, vol_flag = 0;
+
     #if AADC_DEV_BMP & CH_BMP_LEFT
         if (gain->al > ADC_PDM_GAIN_A_MAX_DB) gain->al = ADC_PDM_GAIN_A_MAX_DB;
         if (gain->al < ADC_PDM_GAIN_A_MIN_DB) gain->al = ADC_PDM_GAIN_A_MIN_DB;
         if (gain->dl > ADC_PDM_GAIN_D_MAX_DB) gain->dl = ADC_PDM_GAIN_D_MAX_DB;
         if (gain->dl < ADC_PDM_GAIN_D_MIN_DB) gain->dl = ADC_PDM_GAIN_D_MIN_DB;
-        ret |= ADC_PDM_SetVolume(lite_adc.hdrv
-            , ADC_PDM_GAIN_A_VAL(gain->al), ADC_PDM_GAIN_D_VAL(gain->dl)
-            , ADC_PDM_VOL_FLAG_A_LEFT| ADC_PDM_VOL_FLAG_D_LEFT);
+
+        gain_a |= ADC_PDM_GAIN_A_VAL(gain->al);
+        gain_d |= ADC_PDM_GAIN_D_VAL(gain->dl);
+        vol_flag |= ADC_PDM_VOL_FLAG_A_LEFT | ADC_PDM_VOL_FLAG_D_LEFT;
+
         CLOG("AADC.L: ANA=%ddB DIG=%ddB", gain->al, gain->dl);
     #endif
     #if AADC_DEV_BMP & CH_BMP_RIGHT
@@ -195,10 +203,17 @@ int lite_adc_ctrl(uint32_t uarg, void *parg)
         if (gain->ar < ADC_PDM_GAIN_A_MIN_DB) gain->ar = ADC_PDM_GAIN_A_MIN_DB;
         if (gain->dr > ADC_PDM_GAIN_D_MAX_DB) gain->dr = ADC_PDM_GAIN_D_MAX_DB;
         if (gain->dr < ADC_PDM_GAIN_D_MIN_DB) gain->dr = ADC_PDM_GAIN_D_MIN_DB;
-        ret |= ADC_PDM_SetVolume(lite_adc.hdrv, ADC_PDM_GAIN_A_VAL(gain->ar), ADC_PDM_GAIN_D_VAL(gain->dr)
-            , ADC_PDM_VOL_FLAG_A_RIGHT | ADC_PDM_VOL_FLAG_D_RIGHT);
+
+        gain_a |= ADC_PDM_GAIN_A_VAL(gain->ar) << 16;
+        gain_d |= ADC_PDM_GAIN_D_VAL(gain->dr) << 16;
+        vol_flag |= ADC_PDM_VOL_FLAG_A_RIGHT | ADC_PDM_VOL_FLAG_D_RIGHT;
+
         CLOG("AADC.R: ANA=%ddB DIG=%ddB", gain->ar, gain->dr);
     #endif
+        CLOG("AADC ANA=0x%x DIG=0x%x, flag=0x%x", gain_a, gain_d, vol_flag);
+        ret |= ADC_PDM_SetVolume(lite_adc.hdrv, gain_a, gain_d, vol_flag);
+        ASSERT(CSK_DRIVER_OK == ret, "setvol(%d)", ret);
+
         break;
     }
     case MAPI_AADC_CTRL_SET_HPF: {
@@ -215,6 +230,7 @@ int lite_adc_ctrl(uint32_t uarg, void *parg)
 
 int lite_adc_init(void)
 {
+    CLOG("AADC:INIT enter");
     lite_adc.hdrv = ADC_PDM01();
     lite_adc.xque = xQueueCreate(AADC_RECV_CNTS-2, sizeof(void *));
 
@@ -275,6 +291,29 @@ int lite_adc_init(void)
     REC_ASSERT((ret = ADC_PDM_SetMute(lite_adc.hdrv, 0, AADC_DEV_BMP)) == 0, goto EXIT);
 
     //gpio init
+    #if AADC_DEV_BMP & CH_BMP_RIGHT
+    /* mic1的引脚配置 */
+    IP_CMN_IOMUX->REG_PAD_GPIOA_28.bit.PAD_GPIOA_28_OEN_FRC  = 1;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_28.bit.PAD_GPIOA_28_OEN_REG  = 1;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_28.bit.PAD_GPIOA_28_IE_FRC   = 1;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_28.bit.PAD_GPIOA_28_IE_REG   = 0;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_28.bit.PAD_GPIOA_28_PULL_FRC = 1;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_28.bit.PAD_GPIOA_28_PULL_UP  = 0;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_28.bit.PAD_GPIOA_28_PULL_DN  = 0;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_29.bit.PAD_GPIOA_29_OEN_FRC  = 1;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_29.bit.PAD_GPIOA_29_OEN_REG  = 1;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_29.bit.PAD_GPIOA_29_IE_FRC   = 1;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_29.bit.PAD_GPIOA_29_IE_REG   = 0;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_29.bit.PAD_GPIOA_29_PULL_FRC = 1;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_29.bit.PAD_GPIOA_29_PULL_UP  = 0;
+    IP_CMN_IOMUX->REG_PAD_GPIOA_29.bit.PAD_GPIOA_29_PULL_DN  = 0;
+
+    IP_CMN_IOMUX->REG_PAD_GPIOA_28.bit.PAD_GPIOA_28_FSEL = 21; // MIC1_INP
+    IP_CMN_IOMUX->REG_PAD_GPIOA_29.bit.PAD_GPIOA_29_FSEL = 21; // MIC1_INN
+    #endif
+
+    #if AADC_DEV_BMP & CH_BMP_LEFT
+    /* mic0的引脚配置 */
     IP_CMN_IOMUX->REG_PAD_GPIOA_30.bit.PAD_GPIOA_30_OEN_FRC  = 1;
 	IP_CMN_IOMUX->REG_PAD_GPIOA_30.bit.PAD_GPIOA_30_OEN_REG  = 1;
 	IP_CMN_IOMUX->REG_PAD_GPIOA_30.bit.PAD_GPIOA_30_IE_FRC   = 1;
@@ -289,8 +328,15 @@ int lite_adc_init(void)
 	IP_CMN_IOMUX->REG_PAD_GPIOA_31.bit.PAD_GPIOA_31_PULL_FRC = 1;
 	IP_CMN_IOMUX->REG_PAD_GPIOA_31.bit.PAD_GPIOA_31_PULL_UP  = 0;
 	IP_CMN_IOMUX->REG_PAD_GPIOA_31.bit.PAD_GPIOA_31_PULL_DN  = 0;
+
+    IP_CMN_IOMUX->REG_PAD_GPIOA_30.bit.PAD_GPIOA_30_FSEL = 21; // MIC0_INP
+    IP_CMN_IOMUX->REG_PAD_GPIOA_31.bit.PAD_GPIOA_31_FSEL = 21; // MIC0_INN
+    #endif
+    IP_AON_CTRL->REG_AON_TUNE1.bit.TUNE_LDOVA = 0x7;
     
 EXIT:
+
+    CLOG("AADC:INIT exit");
     return ret;
 }
 

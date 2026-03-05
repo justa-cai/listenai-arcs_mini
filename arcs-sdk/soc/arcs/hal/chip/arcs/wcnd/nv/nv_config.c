@@ -45,20 +45,7 @@
 #define MEM_RD32(addr)              (*(volatile uint32_t *)(addr))
 #define MEM_WR32(addr, value)       (*(volatile uint32_t *)(addr)) = (value)
 
-#ifdef CFG_FLASH_IF
-#ifndef WIFI_RAM_ATE
-#define flash_init(dev, sclk_div, run_mod)                 flash_if_init(dev, sclk_div, run_mod)
-#define flash_write_protection_set(dev, enable)            flash_if_write_protection_set(enable)
-#define flash_write(dev, offset, data, len)                flash_if_write(offset, data, len)
-#define flash_read(dev, offset, data, len)                 flash_if_read(offset, data, len)
-#define flash_erase_page(dev, offset, sector_size)         flash_if_erase_page(offset, sector_size)
-#define flash_security_read(dev, offset, data, len)        flash_if_security_read(offset, data, len)
-#define flash_security_write(dev, offset, data, len)       flash_if_security_write(offset, data, len)
-#define flash_security_erase(dev, offset)                  flash_if_security_erase(offset)
-#endif
-#endif
-
-#define MAX_SEC_LEN 512
+#define MAX_SEC_LEN FLASH_OTP_NV_LENGTH
 #define WR_SEC_LEN  256
 uint8_t nv_self_cali_cfg_buf[MAX_SEC_LEN] = {0};
 uint32_t g_magic_code = 0;
@@ -96,9 +83,9 @@ int8_t  wf_power_offset_fake_reg[3] = {0};
 complexint16 nv_tx_pred_table_chan_low[DPD_COMP_TABLE_CNT][MAX_PARALEN] = {0};
 complexint16 nv_tx_pred_table_chan_mid[DPD_COMP_TABLE_CNT][MAX_PARALEN] = {0};
 complexint16 nv_tx_pred_table_chan_hig[DPD_COMP_TABLE_CNT][MAX_PARALEN] = {0};
-complexint16 nv_tx_pred_table_update_chan_low[DPD_COMP_TABLE_CNT_UPDATE][MAX_PARALEN] = {0};
-complexint16 nv_tx_pred_table_update_chan_mid[DPD_COMP_TABLE_CNT_UPDATE][MAX_PARALEN] = {0};
-complexint16 nv_tx_pred_table_update_chan_hig[DPD_COMP_TABLE_CNT_UPDATE][MAX_PARALEN] = {0};
+complexint16 nv_tx_pred_rest_table_chan_low[DPD_REST_TABLE_CNT][MAX_PARALEN] = {0};
+complexint16 nv_tx_pred_rest_table_chan_mid[DPD_REST_TABLE_CNT][MAX_PARALEN] = {0};
+complexint16 nv_tx_pred_rest_table_chan_hig[DPD_REST_TABLE_CNT][MAX_PARALEN] = {0};
 #endif
 
 #if (defined(RF_SELF_CALI_FROM_NV) || defined(RF_SELF_CALI_WRITE_TO_NV))
@@ -106,7 +93,7 @@ complexint16 nv_tx_pred_table_update_chan_hig[DPD_COMP_TABLE_CNT_UPDATE][MAX_PAR
 #define CMN_FLASH_OTP_REGION 0
 uint32_t nv_self_cali_addr = CMN_FLASH_OTP_REGION;
 #else
-uint32_t nv_self_cali_addr = CMN_FLASH_REGION + 0x200000;
+uint32_t nv_self_cali_addr = FLASH_NOR_OTP_NV_BASE_ADDR; // 0x30200000
 #endif
 FLASH_DEV cali_flash_dev  = {
     .base_addr = CMN_FLASHC_BASE,
@@ -355,21 +342,20 @@ int8_t nv_fixzone_head_check(uint32_t base_addr, uint32_t magic_code)
     if(!hdr)
         return -1;
 
-
     if (hdr->magic != magic_code) {
         CLOGI("NV fix zone magic (%x) mismatch, skip it!\n", hdr->magic);
         return -2;
+    }
+    // self cali check version
+    if ((NV_MAGIC_PATTERN2 == magic_code) && (hdr->version != NV_SELF_CALI_VER)) {
+        CLOGI("NV fix zone version (%x) mismatch, skip it!\n", hdr->version);
+        return -4;
     }
     calc_crc = crc32_sw(calc_crc, (uint8_t *)(hdr), (sizeof(*hdr) - 4));
     calc_crc = crc32_sw(calc_crc, (uint8_t *)(hdr + 1), hdr->length);
     if (calc_crc != hdr->crc32) {
         CLOGI("NV fix zone crc (%x) check failed, expect (%x) skip it!\n", hdr->crc32, calc_crc);
         return -3;
-    }
-    // self cali check version
-    if ((NV_MAGIC_PATTERN2 == magic_code) && (hdr->version != cal_ver || cal_ver == 0xffff)) {
-        CLOGI("NV fix zone version (%x) mismatch, skip it!\n", hdr->version);
-        return -4;
     }
 
     return 0;
@@ -549,7 +535,7 @@ int8_t nv_selfcali_head_check(void)
     }
     memset(hdr, 0, sizeof(nv_self_cali_cfg_buf));
     nv_self_cali_addr = 0;
-    ret = flash_security_read(&cali_flash_dev, nv_self_cali_addr, &nv_self_cali_cfg_buf, sizeof(nv_self_cali_cfg_buf));
+    ret = flash_if_security_read(nv_self_cali_addr, &nv_self_cali_cfg_buf, sizeof(nv_self_cali_cfg_buf));
     if (ret) {
         CLOGW("read selfcali NV config from Flash OTP region failed, ret=%d\n", ret);
         goto failed;
@@ -592,20 +578,14 @@ int8_t nv_selfcali_load_config(int8_t from_otp)
         hdr = &nv_selfcali_cfg.hdr;
         body = &nv_selfcali_cfg.bdy;
     }
+    else
+    {
+        nv_selfcali_cfg = *((ls_nv_selfcali_cfg_t *)hdr);
+    }
 #if 0 //DEBUG
     //CLOGI("hdr=%p, %x; body=%p, %x\n", hdr, hdr->magic, body, body->rx_rc_cap);
     CLOGI("load rxcali config from NV, rc_cap=%d, dcoc_comp_i=%d, dcoc_comp_q=%d, iq_comp_i=%d, iq_comp_q=%d\n", body->rx_rc_cap, body->rx_dcoc_comp_i, body->rx_dcoc_comp_q, body->rx_iq_comp_i, body->rx_iq_comp_q);
     CLOGI("load txcali config from NV, dc_comp_i=%d, dc_comp_q=%d, iq_comp_i=%d, iq_comp_q=%d\n", body->tx_dc_comp_i, body->tx_dc_comp_q, body->tx_iq_comp_i, body->tx_iq_comp_q);
-    for (i = 0; i < DPD_COMP_TABLE_CNT; i++)
-    {
-        CLOGI("load txdpd config from NV, idx=%d detail:\n", i);
-        for (j = 0; j < PREDLEN; j++)
-            CLOGI("{%d, %d}", (int16_t)(body->tx_pred_table_chan_low[i][j] & 0xffff), (int16_t)(body->tx_pred_table_chan_low[i][j] >> 16));
-        for (j = 0; j < PREDLEN; j++)
-            CLOGI("{%d, %d}", (int16_t)(body->tx_pred_table_chan_mid[i][j] & 0xffff), (int16_t)(body->tx_pred_table_chan_mid[i][j] >> 16));
-        for (j = 0; j < PREDLEN; j++)
-            CLOGI("{%d, %d}", (int16_t)(body->tx_pred_table_chan_hig[i][j] & 0xffff), (int16_t)(body->tx_pred_table_chan_hig[i][j] >> 16));
-    }
 #endif
     cali->env_init();
     cali->set_ppa_cap(0, body->ppa_cap_0);
@@ -620,7 +600,7 @@ int8_t nv_selfcali_load_config(int8_t from_otp)
     tx_comp_dc.im = body->tx_dc_comp_q;
     cali->txdc_result(&tx_comp_dc, 0);
     cali->txiq_tx_result(body->tx_iq_comp_i, body->tx_iq_comp_q);
-
+    cali->txdpd_remap_pred();
     for (i = 0; i < DPD_COMP_TABLE_CNT; i++)
     {
         uint8_t idx = 0;
@@ -638,31 +618,26 @@ int8_t nv_selfcali_load_config(int8_t from_otp)
             if (idx >= PREDLEN)
                 break;
         }
-        //Add pwr offset
-        if (dpd_cfg_table[i].tssi == dpd_tr_pwr) {
-            for (uint8_t i_update = 0; i_update < DPD_COMP_TABLE_CNT_UPDATE; i_update++) {
-                uint8_t pwr_step = dpd_tr_pwr - dpd_cfg_table_update[i_update].tssi;
-                rf_cali_txdpd_calc_rest_table(&nv_tx_pred_table_update_chan_low[i_update][0], &nv_tx_pred_table_chan_low[i][0], pwr_step);
-                rf_cali_txdpd_calc_rest_table(&nv_tx_pred_table_update_chan_mid[i_update][0], &nv_tx_pred_table_chan_mid[i][0], pwr_step);
-                rf_cali_txdpd_calc_rest_table(&nv_tx_pred_table_update_chan_hig[i_update][0], &nv_tx_pred_table_chan_hig[i][0], pwr_step);
-                #if 0 //DEBUG
-                rf_cali_txdpd_print_para(dpd_cfg_table_update[i_update].pred_lut_idx, dpd_cfg_table_update[i_update].tssi, &nv_tx_pred_table_update_chan_low[i_update][0]);
-                rf_cali_txdpd_print_para(dpd_cfg_table_update[i_update].pred_lut_idx, dpd_cfg_table_update[i_update].tssi, &nv_tx_pred_table_update_chan_mid[i_update][0]);
-                rf_cali_txdpd_print_para(dpd_cfg_table_update[i_update].pred_lut_idx, dpd_cfg_table_update[i_update].tssi, &nv_tx_pred_table_update_chan_hig[i_update][0]);
-                #endif
-            }
-        }
         #if 0 //DEBUG
         CLOGI("load txdpd config from NV, idx=%d detail:", i);
-        for (j = 0; j < MAX_PARALEN; j++)
-            CLOGI("{%d,%d},", nv_tx_pred_table_chan_low[i][j].re, nv_tx_pred_table_chan_low[i][j].im);
-        CLOGI("\n");
-        for (j = 0; j < MAX_PARALEN; j++)
-            CLOGI("{%d,%d},", nv_tx_pred_table_chan_mid[i][j].re, nv_tx_pred_table_chan_mid[i][j].im);
-        CLOGI("\n");
-        for (j = 0; j < MAX_PARALEN; j++)
-            CLOGI("{%d,%d},", nv_tx_pred_table_chan_hig[i][j].re, nv_tx_pred_table_chan_hig[i][j].im);
-        CLOGI("\n");
+        rf_cali_txdpd_print_para(dpd_cfg_table[i].pred_lut_idx, dpd_cfg_table[i].tssi, &nv_tx_pred_table_chan_low[i][0]);
+        rf_cali_txdpd_print_para(dpd_cfg_table[i].pred_lut_idx, dpd_cfg_table[i].tssi, &nv_tx_pred_table_chan_mid[i][0]);
+        rf_cali_txdpd_print_para(dpd_cfg_table[i].pred_lut_idx, dpd_cfg_table[i].tssi, &nv_tx_pred_table_chan_hig[i][0]);
+        #endif
+    }
+    for (i = 0; i < DPD_REST_TABLE_CNT; i++) {
+        uint8_t pwr_step = 2 << i;
+        int8_t rest_pwr_tssi = dpd_cfg_table[0].tssi - pwr_step;
+        int8_t rest_pred_lut_idx = (int8_t)dpd_cfg_table[0].pred_lut_idx - i - 1;
+        if (rest_pred_lut_idx < 0)
+            break;
+        rf_cali_txdpd_calc_rest_table(&nv_tx_pred_rest_table_chan_low[i][0], &nv_tx_pred_table_chan_low[0][0], pwr_step);
+        rf_cali_txdpd_calc_rest_table(&nv_tx_pred_rest_table_chan_mid[i][0], &nv_tx_pred_table_chan_mid[0][0], pwr_step);
+        rf_cali_txdpd_calc_rest_table(&nv_tx_pred_rest_table_chan_hig[i][0], &nv_tx_pred_table_chan_hig[0][0], pwr_step);
+        #if 0 //DEBUG
+        rf_cali_txdpd_print_para(rest_pred_lut_idx, rest_pwr_tssi, &nv_tx_pred_rest_table_chan_low[i][0]);
+        rf_cali_txdpd_print_para(rest_pred_lut_idx, rest_pwr_tssi, &nv_tx_pred_rest_table_chan_mid[i][0]);
+        rf_cali_txdpd_print_para(rest_pred_lut_idx, rest_pwr_tssi, &nv_tx_pred_rest_table_chan_hig[i][0]);
         #endif
     }
     cali->env_deinit();
@@ -769,9 +744,13 @@ void nv_selfcali_init(void)
     ls_nv_fixzone_header_t *hdr = &nv_selfcali_cfg.hdr;
 
     hdr->magic = NV_MAGIC_PATTERN2;
+    hdr->version = NV_SELF_CALI_VER;
     hdr->length = sizeof(ls_nv_selfcali_body_t);
+
+#ifdef CFG_FLASH_IF
     CLOGI("nv_selfcali_init call flash_init\n");
-    flash_init(&cali_flash_dev, 0, 0);
+    flash_if_init(&cali_flash_dev, 0, 0);
+#endif
 }
 
 int8_t nv_selfcali_burn_config(void)
@@ -800,16 +779,15 @@ int8_t nv_selfcali_burn_config(void)
     }
 #endif
     hdr->crc32 = 0;
-    hdr->version = cal_ver;
     hdr->crc32 = crc32_sw(hdr->crc32, (uint8_t *)(hdr), (sizeof(*hdr) - 4));
     hdr->crc32 = crc32_sw(hdr->crc32, (uint8_t *)(hdr) + sizeof(ls_nv_fixzone_header_t), hdr->length);
 
     CLOGI("start write protect flash %x\n", nv_self_cali_addr);
-    flash_write_protection_set(&cali_flash_dev, false);
 #if defined(CFG_FLASH_IF) && (USE_FLASH_OTP == 1)
+    flash_if_write_protection_set(false);
     nv_self_cali_addr = 0;
     CLOGI("start erase flash OTP %x\n", nv_self_cali_addr);
-    ret = flash_security_erase(&cali_flash_dev, nv_self_cali_addr);
+    ret = flash_if_security_erase(nv_self_cali_addr);
     if (ret) {
         CLOGW("erase flash OTP %x failed, ret=%d\n", nv_self_cali_addr, ret);
         goto write_failed;
@@ -821,7 +799,7 @@ int8_t nv_selfcali_burn_config(void)
 
     nv_self_cali_addr = 0;
     while (write_len > WR_SEC_LEN) {
-        ret = flash_security_write(&cali_flash_dev, nv_self_cali_addr, (void *)write_addr, WR_SEC_LEN);
+        ret = flash_if_security_write(nv_self_cali_addr, (void *)write_addr, WR_SEC_LEN);
         if (ret) {
             CLOGE("write selfcali NV config to Flash OTP region failed, ret=%d\n", ret);
             goto write_failed;
@@ -831,7 +809,7 @@ int8_t nv_selfcali_burn_config(void)
         write_addr += WR_SEC_LEN;
         write_len -= WR_SEC_LEN;
     }
-    ret = flash_security_write(&cali_flash_dev, nv_self_cali_addr, (void *)write_addr, write_len);
+    ret = flash_if_security_write(nv_self_cali_addr, (void *)write_addr, write_len);
     if (ret) {
         CLOGE("write selfcali NV config to Flash OTP region tail failed, ret=%d\n", ret);
         goto write_failed;
@@ -840,7 +818,7 @@ int8_t nv_selfcali_burn_config(void)
     #if 1 //read back to check
     memset(nv_self_cali_cfg_buf, 0, sizeof(nv_self_cali_cfg_buf));
     nv_self_cali_addr = 0;
-    ret = flash_security_read(&cali_flash_dev, nv_self_cali_addr, &nv_self_cali_cfg_buf, sizeof(nv_self_cali_cfg_buf));
+    ret = flash_if_security_read(nv_self_cali_addr, &nv_self_cali_cfg_buf, sizeof(nv_self_cali_cfg_buf));
     if (ret) {
         CLOGW("read selfcali NV config from Flash OTP region failed, ret=%d\n", ret);
         goto write_failed;
@@ -851,7 +829,7 @@ int8_t nv_selfcali_burn_config(void)
     print_nv_selfcali_cfg((uint32_t *)buf_hd);
     #endif
 #else
-    ret = flash_erase(&cali_flash_dev, nv_self_cali_addr, sizeof(nv_selfcali_cfg));
+    ret = flash_if_erase(nv_self_cali_addr, sizeof(nv_selfcali_cfg));
     if (ret) {
         CLOGE("erase flash %x failed, ret=%d\n", nv_self_cali_addr, ret);
         goto write_failed;
@@ -859,7 +837,7 @@ int8_t nv_selfcali_burn_config(void)
     else {
         CLOGI("erase flash %x success\n", nv_self_cali_addr);
     }
-    ret = flash_write(&cali_flash_dev, nv_self_cali_addr, (uint8_t *)&nv_selfcali_cfg, sizeof(nv_selfcali_cfg));
+    ret = flash_if_write(nv_self_cali_addr, (uint8_t *)&nv_selfcali_cfg, sizeof(nv_selfcali_cfg));
     if (ret) {
         CLOGE("write flash %x failed, ret=%d\n", nv_self_cali_addr, ret);
         goto write_failed;
@@ -868,40 +846,13 @@ int8_t nv_selfcali_burn_config(void)
         CLOGI("write flash %x success\n", nv_self_cali_addr);
     }
 #endif
-    flash_write_protection_set(&cali_flash_dev, true);
+    flash_if_write_protection_set(true);
     return 0;
 write_failed:
-    flash_write_protection_set(&cali_flash_dev, true);
+    flash_if_write_protection_set(true);
     return -1;
 }
 #endif
-
-int8_t nv_selfcali_erase_otp(void)
-{
-   int8_t ret = 0;
-   
-#if (defined(RF_SELF_CALI_FROM_NV) || defined(RF_SELF_CALI_WRITE_TO_NV))
-#if defined(CFG_FLASH_IF) && (USE_FLASH_OTP == 1)
-    if (!flash_if_check_security_support()) {
-        CLOGE("Flash unsupport OTP region!\n");
-        return -1;
-    }
-    nv_self_cali_addr = 0;
-    flash_write_protection_set(&cali_flash_dev, false);
-    CLOGI("start erase flash OTP %x\n", nv_self_cali_addr);
-    ret = flash_security_erase(&cali_flash_dev, nv_self_cali_addr);
-    flash_write_protection_set(&cali_flash_dev, true);
-    if (ret) {
-        CLOGW("erase flash OTP %x failed, ret=%d\n", nv_self_cali_addr, ret);
-        return -1;
-    }
-    else {
-        CLOGI("erase flash OTP %x success\n", nv_self_cali_addr);
-    }
-#endif
-#endif
-    return ret;
-}
 
 int8_t nv_selfcali_get_otp_flag(uint32_t *flag)
 {
@@ -912,14 +863,17 @@ int8_t nv_selfcali_get_otp_flag(uint32_t *flag)
         return -1;
     }
 
-    #if (defined(RF_SELF_CALI_FROM_NV) || defined(RF_SELF_CALI_WRITE_TO_NV))
+#if (defined(RF_SELF_CALI_FROM_NV) || defined(RF_SELF_CALI_WRITE_TO_NV))
 #if defined(CFG_FLASH_IF) && (USE_FLASH_OTP == 1)
     if (!flash_if_check_security_support()) {
         CLOGE("Flash unsupport OTP region!\n");
         return -1;
     }
-    nv_self_cali_addr = 0;
-    ret = flash_security_read(&cali_flash_dev, nv_self_cali_addr, (void *)&g_magic_code, sizeof(uint32_t));
+#if (USE_FLASH_OTP == 1)
+    ret = flash_if_security_read(nv_self_cali_addr, (void *)&g_magic_code, sizeof(uint32_t));
+#else
+    ret = flash_if_read(nv_self_cali_addr, (void *)&g_magic_code, sizeof(uint32_t));
+#endif
     if (ret) {
         CLOGW("read selfcali NV config from Flash OTP flag failed, ret=%d\n", ret);
         return -1;

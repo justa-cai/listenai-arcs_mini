@@ -12,6 +12,13 @@ ARCS SDK 文档
    :caption: 章节
 
    get_started
+   gdb
+   boards/index_zh
+   drivers/index_zh
    components/index_zh
    samples/index_zh
+   demos/index_zh
+   tools/index_zh
+   thirds
    api_doc
+   CHANGELOG

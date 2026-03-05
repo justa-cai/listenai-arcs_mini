@@ -1,0 +1,3 @@
+menuconfig LISA_HTTP
+    bool "lisa http"
+    default n

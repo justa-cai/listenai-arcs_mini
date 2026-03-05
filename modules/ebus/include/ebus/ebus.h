@@ -40,7 +40,7 @@ typedef struct ebus_chn ebus_chn_t;
  */
 typedef enum {
     EBUS_SUBSCRIBER_TYPE_SYNC,   /**< 同步订阅 */
-    // EBUS_SUBSCRIBER_TYPE_ASYNC, /**< 异步订阅（暂未实现）*/
+    EBUS_SUBSCRIBER_TYPE_ASYNC, /**< 异步订阅（暂未实现）*/
 } ebus_subscribe_type_e;
 
 /**
@@ -125,9 +125,9 @@ int ebus_message_unsubscribe(ebus_chn_t *chn, ebus_chn_cb_t cb);
 
 /**
  * @brief 发布消息到通道
- * 
+ *
  * 此函数会遍历所有订阅者并同步调用其回调函数。
- * 
+ *
  * @param chn 通道句柄，不能为NULL
  * @param code 消息代码
  * @param message 消息数据
@@ -135,6 +135,7 @@ int ebus_message_unsubscribe(ebus_chn_t *chn, ebus_chn_cb_t cb);
  * @return int 0表示成功，负值表示错误码
  */
 int ebus_message_pub(ebus_chn_t *chn, uint32_t code, void *message, uint32_t msg_size);
+int ebus_message_pub_async(ebus_chn_t *chn, uint32_t code, void *message, uint32_t msg_size);
 
 #ifdef __cplusplus
 }

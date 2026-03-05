@@ -12,15 +12,15 @@ usage() {
     echo "  -h, --help             显示此帮助信息"
     echo "  -r, --release          以 Release 模式构建 (移除 DEBUG_PATH 信息)"
     echo "  -w, --warnings-as-errors 将警告视为错误"
-    echo "  -c, --config <file>     指定配置文件 (默认为 prj.conf)"
-    echo "      --overlay-config <file>  指定附加配置文件 (可选，可多次使用)"
+    echo "  -v, --verbose          显示详细的编译命令 (ninja -v)"
+    echo "  -D<var>=<value>        传递 CMake 变量 (可多次使用)"
     echo ""
     echo "示例:"
-    echo "  $0                                   默认构建"
-    echo "  $0 -S samples/hello-world                指定源码目录构建"
-    echo "  $0 -t menuconfig                     运行menuconfig"
-    echo "  $0 -C                                清理并重新构建"
-    echo "  $0 -S samples/hello-world -t menuconfig  指定源码目录并运行menuconfig"
+    echo "  $0 -S samples/helloworld -DBOARD=arcs_mini                      指定板型构建"
+    echo "  $0 -S samples/helloworld -DBOARD=arcs_evb                       使用 EVB 板型"
+    echo "  $0 -S samples/helloworld -t menuconfig -DBOARD=arcs_mini        运行 menuconfig"
+    echo "  $0 -C -S samples/helloworld -DBOARD=arcs_mini                   清理并重新构建"
+    echo "  $0 -S samples/helloworld -DBOARD=my_board -DBOARD_SEARCH_PATH=/path/to/boards  使用自定义板型"
     exit 1
 }
 
@@ -31,12 +31,11 @@ CLEAN=false
 OUTPUT="build"
 WARNINGS_AS_ERRORS=false
 RELEASE=false
+VERBOSE=false
 ARCS_BASE_DIR_NAME="arcs-sdk"
 ARCS_DEV_TOOLS_DIR_NAME="listenai-dev-tools"
 ARCS_DEV_TOOL_TOOLCHAIN_DIR_NAME="gcc"
 ARCS_DEV_TOOL_LISTENAI_TOOLS_DIR_NAME="listenai-tools"
-CONFIG_FILE="prj.conf"
-OVERLAY_CONFIG_FILES=""
 
 find_arcs_base() {
     local current_dir=$(cd "$(dirname "$0")" && pwd)
@@ -101,6 +100,10 @@ while [[ $# -gt 0 ]]; do
       WARNINGS_AS_ERRORS=true
       shift 1
       ;;
+    -v|--verbose)
+      VERBOSE=true
+      shift 1
+      ;;
     -h|--help)
       usage
       ;;
@@ -108,28 +111,10 @@ while [[ $# -gt 0 ]]; do
       RELEASE=true
       shift 1
       ;;
-    -c|--config)
-        if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
-            CONFIG_FILE="$2"
-            shift 2
-        else
-            echo "错误: --config 需要一个配置文件参数"
-            exit 1
-        fi
-        ;;
-    --overlay-config)
-        if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
-            if [ -z "$OVERLAY_CONFIG_FILES" ]; then
-                OVERLAY_CONFIG_FILES="$2"
-            else
-                OVERLAY_CONFIG_FILES="$OVERLAY_CONFIG_FILES;$2"
-            fi
-            shift 2
-        else
-            echo "错误: --overlay-config 需要一个配置文件参数"
-            exit 1
-        fi
-        ;;
+    -D*)
+      CMAKE_VARS+=("$1")
+      shift 1
+      ;;
     *)
       echo "未知参数: $1"
       usage
@@ -137,19 +122,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# 检查配置文件是否存在
-if [ ! -f "$PROJECT_PATH/$CONFIG_FILE" ]; then
-    echo "错误: 配置文件 $CONFIG_FILE 不存在"
-    exit 1
-fi
-
 echo "Source: $PROJECT_PATH"
 echo "Target: $TARGET"
 echo "Clean : $CLEAN"
-echo "Config: $CONFIG_FILE"
-if [ -n "$OVERLAY_CONFIG_FILES" ]; then
-    echo "Overlay Configs: $OVERLAY_CONFIG_FILES"
-fi
 
 if [ -z "$LISTENAI_TOOLS_PATH" ] || [ -z "$NUCLEI_TOOLCHAIN_PATH" ]; then
     find_dev_tools
@@ -197,15 +172,25 @@ if [ "$RELEASE" = true ]; then
     echo "Release mode enabled (-DENABLE_DEBUG_PATH=OFF)"
 fi
 
-CMAKE_VARS+=("-DCONFIG_DEFAULT=$PROJECT_PATH/$CONFIG_FILE")
-CMAKE_VARS+=("-DCONFIG_FILES=$OVERLAY_CONFIG_FILES")
+# add boards path
+CMAKE_VARS+=("-DBOARD_SEARCH_PATH=$SCRIPT_DIR/boards")
 
 $CMAKE_PROGRAM -B "$OUTPUT" -G Ninja -S "$PROJECT_PATH" \
     -DCMAKE_MAKE_PROGRAM="$NINJA_PROGRAM" \
     "${CMAKE_VARS[@]}"
 
-if [ -z "$TARGET" ]; then
-    $CMAKE_PROGRAM --build "$OUTPUT" -j$(nproc)
+# Build with optional verbose flag
+if [ "$VERBOSE" = true ]; then
+    echo "Verbose mode enabled (ninja -v)"
+    if [ -z "$TARGET" ]; then
+        $CMAKE_PROGRAM --build "$OUTPUT" -j4 -- -v
+    else
+        $CMAKE_PROGRAM --build "$OUTPUT" --target "$TARGET" -- -v
+    fi
 else
-    $CMAKE_PROGRAM --build "$OUTPUT" --target "$TARGET"
+    if [ -z "$TARGET" ]; then
+        $CMAKE_PROGRAM --build "$OUTPUT" -j${nproc}
+    else
+        $CMAKE_PROGRAM --build "$OUTPUT" --target "$TARGET"
+    fi
 fi

@@ -1,0 +1,9 @@
+menu "alarm"
+
+config ALARM_RING_DURATION_MS
+    int "Alarm ring stop timeout (ms)"
+    default 60000
+    help
+        Maximum duration for alarm ringing before auto-stop.
+
+endmenu

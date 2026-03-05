@@ -1,0 +1,28 @@
+
+if ACOMP_FD
+    config ACOMP_FD_RES_FACE_DETECT_ADDRESS
+        hex "mlp face detect address"
+        default 0xd200000
+    config ACOMP_FD_RES_FACE_DETECT_LENGTH
+        int "mlp face detect length"
+        default 3546864
+    config ACOMP_FD_RES_FACE_ALIGN_ADDRESS
+        hex "mlp face align address"
+        default 0xcd00000
+    config ACOMP_FD_RES_FACE_ALIGN_LENGTH
+        int "mlp face align length"
+        default 419904
+    config ACOMP_FD_RES_FACE_LIVE_ADDRESS
+        hex "mlp face live address"
+        default 0xcd00000
+    config ACOMP_FD_RES_FACE_LIVE_LENGTH
+        int "mlp face live length"
+        default 419904
+    config ACOMP_FD_FACE_VERIFY_ADDRESS
+        hex "mlp face verify address"
+        default 0xcd00000
+    config ACOMP_FD_FACE_VERIFY_LENGTH
+        int "mlp face verify length"
+        default 419904
+
+endif

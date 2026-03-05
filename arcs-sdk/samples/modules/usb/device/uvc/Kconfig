@@ -1,0 +1,13 @@
+osource "$ARCS_BASE/Kconfig"
+
+config IMAGE_WIDTH
+    int "iamge width"
+    default 640
+
+config IMAGE_HEIGHT
+    int "image height"
+    default 480
+
+config IMAGE_FPS
+    int "image fps"
+    default 15

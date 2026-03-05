@@ -11,6 +11,12 @@ if(CONFIG_LWIP)
     )
 endif()
 
+if (CONFIG_WIFI)
+    listenai_library_sources(
+        ${MBEDTLS_PORT_DIR}/wifi_lib_api/mbedtls_crypto.c
+    )
+endif()
+
 listenai_include_directories(${LISTENAI_CURRENT_LIBRARY}
     PRIVATE ${MBEDTLS_PORT_DIR}
 )

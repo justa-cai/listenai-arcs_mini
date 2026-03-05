@@ -17,15 +17,15 @@
  *****************************************************************************************
  */
         
-#define APB_MODEM_RSSI_BUG_WORKAROUND           (0) //modem rssi bug workaround 
+#define APB_MODEM_RSSI_BUG_WORKAROUND           (1) //modem rssi bug workaround
     
 #define APB_CONFIG_EN                           (APB_MODEM_RSSI_BUG_WORKAROUND) // APB_Function
-
 
 
 #define CHANGE_MIDDLE_FREQ                		(1)
 #define DUMP_DATA_FUNC_EN                       (1)
 #define BR_EDR_MODEM_BUG                        (1)
+
 
 #if (APB_CONFIG_EN)
 
@@ -161,10 +161,17 @@ void apb_modem_rssi_bug_workaround(void)
     uint32_t bt_config_1 = APB_MODEM | CONFIG_MODEM_REG_OFFSET | APB_WRITE | ((em_addr_2+8)>>2);
     uint32_t bt_config_2 = APB_MODEM | CONFIG_MODEM_REG_OFFSET | APB_WRITE;
     uint32_t bt_value_1  = BT_MODEM_P->REG_TOP_CFG0.all & (~0x01);
-    uint32_t bt_value_2  = BT_MODEM_P->REG_TOP_CFG0.all;;
+    uint32_t bt_value_2  = BT_MODEM_P->REG_TOP_CFG0.all;
 
+
+    //bug desc  : coex issue, linklayer request rssi_result from modem before frame end, because of clock sync issue
+    //            modem can not get rssi_req singnal from linklayer, then linklayer can not get rssi_result, so bt frame can not end
+    //workaround: disable rssi function, rssi value of ID packet will be abnormal, other packets are not affected
     //disable rssi function
     BT_CNTL_P->REG_BT_CTRL_RADIO.bit.RSSI_SEL = 0;
+
+
+    //every packet rx end off should reset modem state machine, if not,  C/I -6M will fail
 
     //select ble rx window off, to config modem register(reset modem state machine)
     apb_trx_on_off_enable(APB_BLE_RX_OFF, em_addr);
@@ -459,7 +466,7 @@ void modem_edr_set_deltapower4gfsk()
  void extra_cfg()
  {
      //PTCH(void, extra_config, void);
- 
+
      apb_config();
  
      txrx_int_enable();

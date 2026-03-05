@@ -144,12 +144,11 @@ int16_t CalculateDpdPara(complexint16* cXSignal, complexint16* cYSignal, uint8_t
         CLOGI("cCrossMartix[%d].re=%d,cCrossMartix[i].im = %d\n",i_cc,cCrossMartix[i_cc].re,cCrossMartix[i_cc].im);
     }
 #endif
-
     CalculatePara(cCrossMartix, cLegcyPara, cParaEst, iOrder,iMem, iIterNum, uGainOffset);
     return 0;
 };
 
-inline uint16_t CalculateAmp16(complexint16 cSignal, uint8_t iShift)//S(16,14)*2^14
+inline __attribute__((always_inline)) uint16_t CalculateAmp16(complexint16 cSignal, uint8_t iShift)//S(16,14)*2^14
 {
     uint16_t iMinValue = 0;
     uint16_t iMaxValue = 0;
@@ -169,7 +168,7 @@ inline uint16_t CalculateAmp16(complexint16 cSignal, uint8_t iShift)//S(16,14)*2
     return iAmpValue >> iShift;
 };
 
-inline uint32_t CalculateAmp(complexint32 cSignal, uint8_t iShift)//S(16,14)*2^14
+inline __attribute__((always_inline)) uint32_t CalculateAmp(complexint32 cSignal, uint8_t iShift)//S(16,14)*2^14
 {
     uint32_t iMinValue = 0;
     uint32_t iMaxValue = 0;
@@ -278,7 +277,7 @@ void CalculateCrossMatrix(complexint16* cXSignal, complexint16* cYSignal, uint8_
     return ;
 }
 
-inline complexint32 ComplexAddInt32(complexint32* cPara0, complexint32* cPara1)
+inline __attribute__((always_inline)) complexint32 ComplexAddInt32(complexint32* cPara0, complexint32* cPara1)
 {
     complexint32 cTmp;
     cTmp.re = cPara0->re + cPara1->re;
@@ -286,7 +285,7 @@ inline complexint32 ComplexAddInt32(complexint32* cPara0, complexint32* cPara1)
     return cTmp;
 }
 
-inline complexint16 ComplexAddInt16(complexint16* cPara0, complexint16* cPara1)
+inline __attribute__((always_inline)) complexint16 ComplexAddInt16(complexint16* cPara0, complexint16* cPara1)
 {
     complexint16 cTmp;
     cTmp.re = cPara0->re + cPara1->re;
@@ -295,7 +294,7 @@ inline complexint16 ComplexAddInt16(complexint16* cPara0, complexint16* cPara1)
 }
 
 
-inline complexint64 ComplexAddInt64(complexint64* cPara0, complexint32* cPara1)
+inline __attribute__((always_inline)) complexint64 ComplexAddInt64(complexint64* cPara0, complexint32* cPara1)
 {
     complexint64 cTmp;
     cTmp.re = cPara0->re + cPara1->re;
@@ -303,7 +302,7 @@ inline complexint64 ComplexAddInt64(complexint64* cPara0, complexint32* cPara1)
     return cTmp;
 }
 
-complexint16 ComplexSub16(complexint16* cPara0, complexint16* cPara1)
+inline __attribute__((always_inline)) complexint16 ComplexSub16(complexint16* cPara0, complexint16* cPara1)
 {
     complexint16 cTmp;
     cTmp.re = cPara0->re - cPara1->re;
@@ -311,7 +310,7 @@ complexint16 ComplexSub16(complexint16* cPara0, complexint16* cPara1)
     return cTmp;
 }
 
-complexint32 ComplexMulti(complexint32* cPara0, complexint32* cPara1, uint16_t iShift)
+inline __attribute__((always_inline)) complexint32 ComplexMulti(complexint32* cPara0, complexint32* cPara1, uint16_t iShift)
 {
     //complexdata cTmp;
     //cTmp.re = ((cPara0->re * cPara1->re) - (cPara0->im * cPara1->im)) >> iShift;
@@ -337,7 +336,7 @@ complexint32 ComplexMulti(complexint32* cPara0, complexint32* cPara1, uint16_t i
 }
 
 
-complexint16 ComplexMulti16(complexint16* cPara0, complexint16* cPara1, uint16_t iShift)
+inline __attribute__((always_inline)) complexint16 ComplexMulti16(complexint16* cPara0, complexint16* cPara1, uint16_t iShift)
 {
     //complexdata cTmp;
     //cTmp.re = ((cPara0->re * cPara1->re) - (cPara0->im * cPara1->im)) >> iShift;
@@ -363,9 +362,7 @@ complexint16 ComplexMulti16(complexint16* cPara0, complexint16* cPara1, uint16_t
 }
 
 
-
-
-complexint32 ComplexMulti16_32(complexint16* cPara0, complexint16* cPara1,uint8_t iShift)
+inline __attribute__((always_inline)) complexint32 ComplexMulti16_32(complexint16* cPara0, complexint16* cPara1,uint8_t iShift)
 {
     //complexdata cTmp;
     //cTmp.re = ((cPara0->re * cPara1->re) - (cPara0->im * cPara1->im)) >> iShift;
@@ -378,7 +375,7 @@ complexint32 ComplexMulti16_32(complexint16* cPara0, complexint16* cPara1,uint8_
 
 
 
-inline complexint32 ComplexMultiReal(complexint32* cPara0, int32_t cPara1, uint16_t iShift)
+inline __attribute__((always_inline)) complexint32 ComplexMultiReal(complexint32* cPara0, int32_t cPara1, uint16_t iShift)
 {
     //complexdata cTmp;
     //cTmp.re = (cPara0->re * cPara1) >> iShift;
@@ -402,7 +399,7 @@ inline complexint32 ComplexMultiReal(complexint32* cPara0, int32_t cPara1, uint1
     return cTmp;
 }
 
-inline complexint16 ComplexMultiReal16(complexint16* cPara0, int16_t cPara1, uint16_t iShift)
+inline __attribute__((always_inline)) complexint16 ComplexMultiReal16(complexint16* cPara0, int16_t cPara1, uint16_t iShift)
 {
     //complexdata cTmp;
     //cTmp.re = (cPara0->re * cPara1) >> iShift;
@@ -426,9 +423,7 @@ inline complexint16 ComplexMultiReal16(complexint16* cPara0, int16_t cPara1, uin
     return cTmp;
 }
 
-
-
-inline complexint32 ComplexConj(complexint32* cPara0,int8_t iShift)
+inline __attribute__((always_inline)) complexint32 ComplexConj(complexint32* cPara0,int8_t iShift)
 {
     complexint32 cTmp;
     if (iShift >= 0)
@@ -445,7 +440,7 @@ inline complexint32 ComplexConj(complexint32* cPara0,int8_t iShift)
 }
 
 
-static inline complexint16 ComplexConj16(complexint16* cPara0)
+static inline __attribute__((always_inline)) complexint16 ComplexConj16(complexint16* cPara0)
 {
     complexint16 cTmp;
     cTmp.re = (cPara0->re);
@@ -481,7 +476,6 @@ uint32_t CalculatePara(complexint32* cCrossMartix, complexint16* cLegcyPara, com
         }
         cLegcyPara[0].re = 1 << 9;
     }
-
     iParaCounter = 0;
     for (int idxM = 0;idxM < 3; idxM++)
     {
@@ -596,7 +590,8 @@ void CalculateTimeEst(complexint16* cXSignal, complexint16* cYSignal, uint8_t uT
             uMaxIdx = idx;
         }
     }
-
+    if (uMaxIdx < 1)
+        uMaxIdx = 1;
     b = uCrossAmp[uMaxIdx + 1] - uCrossAmp[uMaxIdx - 1];
     a = uCrossAmp[uMaxIdx + 1] - (b >> 1) - uCrossAmp[uMaxIdx];
     iFracTmp = -1*(b << 3) / a;
@@ -620,27 +615,23 @@ void CalculateTimeEst(complexint16* cXSignal, complexint16* cYSignal, uint8_t uT
 void FbCompTime(complexint16* cYSignal, int16_t iFracDelay)
 {
     complexint16 cTmp1, cTmp2;
+    int16_t iFracDelayR = (int16_t)(1<<5) - iFracDelay;
     for (int idx = 0;idx < SEL_LEN - 1; idx++)
     {
-        cTmp1 = ComplexMultiReal16(cYSignal + idx, (int16_t)(1<<5) - iFracDelay, 5);
-        cTmp2 = ComplexMultiReal16(cYSignal + idx+1, iFracDelay, 5);
+        cTmp1 = ComplexMultiReal16(cYSignal + idx, iFracDelayR, 5);
+        cTmp2 = ComplexMultiReal16(cYSignal + idx + 1, iFracDelay, 5);
 
         *(cYSignal + idx) = ComplexAddInt16(&cTmp1, &cTmp2);
     }
     return;
 }
 
-void CalculateDcEst(complexint16* cYSignal,uint32_t* uPower, complexint16* cDcEstRx)
+void CalculateDcEst(complexint16* cYSignal, complexint16* cDcEstRx)
 {
     complexint32 cDcEst = { 0 };
     complexint16 cDcEst16 = { 0 };
     complexint32 sigTmp = { 0 };
-    uint32_t uPowerSum = 0;
-    for (int idx = 0;idx < SEL_LEN; idx++)
-    {
-        uPowerSum += ((cYSignal[idx].re * cYSignal[idx].re) + (cYSignal[idx].im * cYSignal[idx].im)) >> 3;
-    }
-    *uPower = uPowerSum >> 9;
+
     for (int idx = 0;idx < SEL_LEN; idx++)
     {
         sigTmp.re = (int32_t)(cYSignal + idx)->re;
@@ -690,6 +681,17 @@ inline void CalculatePowerEst(complexint16* cYSignal, uint32_t* uPower)
     }
     *uPower = uPowerSum >> 9;
 
+    return;
+}
+
+inline void CalculatePowerWithDC(complexint16* cYSignal, uint32_t* uPower)
+{
+    uint32_t uPowerSum = 0;
+    for (int idx = 0;idx < SEL_LEN; idx++)
+    {
+        uPowerSum += ((cYSignal[idx].re * cYSignal[idx].re) + (cYSignal[idx].im * cYSignal[idx].im)) >> 3;
+    }
+    *uPower = uPowerSum >> 9;
     return;
 }
 

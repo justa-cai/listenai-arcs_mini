@@ -35,6 +35,7 @@ CFLAGS  = -I $(TOPDIR)/include/NMSIS/Core/Include \
 		  -I $(TOPDIR)/chip/${CHIP}/rtos/rtos_al \
 		  -I $(TOPDIR)/chip/${CHIP}/btos \
 		  -I $(TOPDIR)/chip/${CHIP}/btos/task/api \
+		  -I $(TOPDIR)/modules/rtos/include \
 		  -I $(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure \
 		  -I $(TOPDIR)/include/nvs
 

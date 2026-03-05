@@ -1,0 +1,55 @@
+# LISA WiFi Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_WIFI
+	bool "Enable LISA WiFi"
+	select LISA_OS
+	select ARCS_HAL_UTILS if WIFI_LWIP_SAME_CORE
+	select ARCS_HAL_SIMSOCKET if (WIFI_LWIP_DIFF_CORE && WIFI)
+	select SDK_MODULE_MBEDTLS
+	select LISA_DEVICE
+	select LISA_ADC
+	# 双核模式 - WiFi 协议栈侧配置
+	select ARCS_HAL_IPC_HALT_BY_PEER_CORE if (WIFI_LWIP_DIFF_CORE && WIFI)
+	select ARCS_HAL_IPC_MRPC_CLIENT_FLASH_IF if (WIFI_LWIP_DIFF_CORE && WIFI)
+	select ARCS_HAL_IPC_MRPC_CLIENT_UTILS_S2M if (WIFI_LWIP_DIFF_CORE && WIFI)
+	select ARCS_HAL_IPC_MRPC_SERVER_UTILS_M2S if (WIFI_LWIP_DIFF_CORE && WIFI)
+	select ARCS_HAL_SIMSOCKET if (WIFI_LWIP_DIFF_CORE && WIFI)
+	select WIFI_TX_BUF_COPY if (WIFI_LWIP_DIFF_CORE && WIFI)
+	# 双核模式 - LWIP 侧配置
+	select ARCS_HAL_FLASH_IF if (WIFI_LWIP_DIFF_CORE && LWIP)
+	select ARCS_HAL_IPC_HALT_PEER_CORE if (WIFI_LWIP_DIFF_CORE && LWIP)
+	select ARCS_HAL_IPC_FLASH_AGENT if (WIFI_LWIP_DIFF_CORE && LWIP)
+	select ARCS_HAL_IPC_MRPC_SERVER_FLASH_IF if (WIFI_LWIP_DIFF_CORE && LWIP)
+	select ARCS_HAL_IPC_MRPC_SERVER_UTILS_S2M if (WIFI_LWIP_DIFF_CORE && LWIP)
+	select ARCS_HAL_IPC_MRPC_CLIENT_UTILS_M2S if (WIFI_LWIP_DIFF_CORE && LWIP)
+	select ARCS_HAL_UTILS if (WIFI_LWIP_DIFF_CORE && LWIP)
+	select LWIP_TX_BUF_COPY if (WIFI_LWIP_DIFF_CORE && LWIP)
+	default n
+	help
+		Enable LISA WiFi component for using WiFi easier.
+
+if LISA_WIFI
+
+config LISA_WIFI_CB_TASK_STACK_SIZE
+	int "WiFi callback task stack byte size"
+	default 4096
+	help
+	  Stack byte size for the WiFi callback task.
+
+config LISA_WIFI_CB_TASK_PRIORITY
+	int "WiFi callback task priority"
+	default 5
+	help
+	  Priority for the WiFi callback task.
+	  Lower values indicate higher priority.
+
+config LISA_WIFI_CB_QUEUE_LEN
+	int "WiFi callback queue length"
+	default 4
+	help
+	  Queue length for WiFi callback events.
+
+endif # LISA_WIFI

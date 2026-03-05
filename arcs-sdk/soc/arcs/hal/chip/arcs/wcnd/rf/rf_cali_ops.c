@@ -71,7 +71,6 @@ extern uint32_t CALI_MEM_END_OFFSET;
 #define SIGN(q, bit) (((q) >= (1 << (bit) >> 1)) ? ((q) - (1 << (bit))) : (q))
 #define SIGN24(q) SIGN((q), 24)
 #define SIGN28(q) SIGN((q), 28)
-#define SIGN32(q) SIGN((q), 32)
 
 #define CALI_EST_BYPASS_LEN 100
 
@@ -755,57 +754,40 @@ const uint32_t bt_rxrc_high_data[128] = {
 struct _restore_regs {
     volatile uint32_t *addr;
     volatile uint32_t value;
+    volatile uint32_t mask;
 };
 
 __STATIC struct _restore_regs cali_restore_reg_list[] = {
-    {&RFIF->REG_SX_LOGIC0.all,          0x00000087},
-    {&RFIF->REG_SX_LOGIC1.all,          0x00066665},
-    {&RFIF->REG_RX_LOGIC0.all,          0x00000000},
-    {&RFIF->REG_RX_LOGIC1.all,          0x00000000},
-    {&RFIF->REG_RX_REG1.all,            0x1a112490},
-    //{&RFIF->REG_RSV_REG0.all,           0x00000000},
-    {&RFIF->REG_RX_LOGIC2.all,          0x00000008},
-    {&RFIF->REG_RX_LOGIC3.all,          0x0000000a},
-    {&RFIF->REG_RX_LOGIC4.all,          0x0000000a},
-    {&NEW_DFE->REG_NEW_DFE_NOTCH_BT.all,             0x00000000},
-    {&NEW_DFE->REG_NEW_DFE_HPF1_PART1.all,           0x23f2853f},
-    {&NEW_DFE->REG_RX_DOWNSAMPLE_EN.all,             0x00000000},
-    {&NEW_DFE->REG_RX_FDIQ_COMP_EN.all,              0x00000000},
-    {&NEW_DFE->REG_RX_CALIBR_FREQSHIFT.all,          0x00000000},
-    {&NEW_DFE->REG_DFE_SPUR_CANCEL_CTRL1.all,        0x00000000},
-    {&NEW_DFE->REG_DFE_SPUR_CANCEL_CTRL0.all,        0x00000000},
-    //{&NEW_DFE->REG_AGC_BO_CFG0.all,                  0x00000000},
-    {&WIFI_MAC_CORE->REG_STATECNTRLREG.all,          0x00000000},
-    {&NEW_DFE->REG_TPC_CTRL_COMMON.all, 0x00000000},
-#if 0 //TODO: word operation TxFilter & CFR Register abort
-    {&NEW_DFE->REG_NEW_DFE_TX_FILT_GAIN.all,         0x00000000},
-    {&NEW_DFE->REG_TX_CFR_COMMON_13.all,             0x00000000},
-    {&NEW_DFE->REG_TX_CFR0.all,                      0x00000000},
-    {&NEW_DFE->REG_TX_CFR1.all,                      0x00000000},
-    {&NEW_DFE->REG_TPC_CTRL_CFREN0.all,              0x00000000},
-    {&NEW_DFE->REG_TPC_CTRL_CFREN1.all,              0x00000000},
-#endif
-    //{&RFIF->REG_TX_LOGIC6.all,                       0x00000000},
-#if 0
-    {&RFIF->REG_SX_LOGIC2.all,          0x010100f0},
-    {&RFIF->REG_SX_LOGIC3.all,          0x00000000},
-    {&RFIF->REG_LOGEN_LOGIC0.all,       0x00000000},
-    {&RFIF->REG_LOGEN_REG0.all,         0x000028d2},
-
-    //{&RFIF->REG_RX_LOGIC58.all,         0x00000000},
-    {&RFIF->REG_TX_LOGIC1.all,          0x14101010},
-    {&RFIF->REG_TX_LOGIC3.all,          0x0010010b},
-    {&RFIF->REG_TX_LOGIC9.all,          0x001c9fc1},
-    {&RFIF->REG_TX_LOGIC11.all,         0x00000199},
-    {&RFIF->REG_TRXSW_LOGIC0.all,       0x00000000},
-    {&NEW_DFE->REG_WIFI_CTRL_AGC_TOP_CFG0.all,       0x6c29a240},
-    {&NEW_DFE->REG_WIFI_CTRL_AGC_WIN_CFG1.all,       0x33184210},
-    {&NEW_DFE->REG_DFE_OFDM_CTRL0.all,               0x0010a489},
-    {&NEW_DFE->REG_DSSS_CORR_RESERVED0.all,          0x0000009b},
-    {&NEW_DFE->REG_THRESHOLD_TRIGGER_1ST.all,        0x006e01ec},
-    {&NEW_DFE->REG_NEW_DFE_CCA1.all,                 0x0fffaaaa},
-    {&BT_MODEM->REG_BT_RX_GLB_CFG.all,               0x00000000},
-#endif
+    {&RFIF->REG_SX_LOGIC0.all,          0x00000087,    0x000fffff},
+    {&RFIF->REG_SX_LOGIC1.all,          0x00066665,    0x01fffffc},
+    {&RFIF->REG_RX_LOGIC0.all,          0x00000000,    0xffffffff},
+    {&RFIF->REG_RX_LOGIC1.all,          0x00000000,    0xffffffff},
+    {&RFIF->REG_RX_REG1.all,            0x1a112490,    0xffffffff},
+    {&RFIF->REG_RSV_REG0.all,           0x00000000,    0x00000020},
+    {&RFIF->REG_RX_LOGIC2.all,          0x00000008,    0xffffffff},
+    {&RFIF->REG_RX_LOGIC3.all,          0x0000000a,    0xffffffff},
+    {&RFIF->REG_RX_LOGIC4.all,          0x0000000a,    0xffffffff},
+    {&RFIF->REG_TX_LOGIC0.all,          0x00000000,    (RFIF_TX_LOGIC0_RF_TX_PPA_EN_FORCE_Msk|RFIF_TX_LOGIC0_REG_RF_TX_PPA_EN_Msk)},
+    {&RFIF->REG_TX_LOGIC9.all,          0x00000000,    0x3fff0000},
+    {&NEW_DFE->REG_NEW_DFE_NOTCH_BT.all,             0x00000000,    0x00000003},
+    {&NEW_DFE->REG_RX_DOWNSAMPLE_EN.all,             0x00000000,    NEW_DFE_RX_DOWNSAMPLE_EN_REG_RX_DOWNSAMPLE_EN_Msk},
+    {&NEW_DFE->REG_RX_FDIQ_COMP_EN.all,              0x00000000,    NEW_DFE_RX_FDIQ_COMP_EN_REG_RX_FDIQ_COMP_EN_Msk},
+    {&NEW_DFE->REG_RX_CALIBR_FREQSHIFT.all,          0x00000000,    NEW_DFE_RX_CALIBR_FREQSHIFT_RX_CALIBR_FO_BYPASS_Msk},
+    {&NEW_DFE->REG_DFE_SPUR_CANCEL_CTRL1.all,        0x00000000,    NEW_DFE_DFE_SPUR_CANCEL_CTRL1_CFG_WIFI_RX_NOTCH_FILTER_EN_FORCE_EN_Msk},
+    {&NEW_DFE->REG_DFE_SPUR_CANCEL_CTRL0.all,        0x00000000,    NEW_DFE_DFE_SPUR_CANCEL_CTRL0_CFG_SPUR_CHANNEL_EN_Msk},
+    {&NEW_DFE->REG_NEW_DFE_HPF1_PART1.all,           0x23f2853f,    NEW_DFE_NEW_DFE_HPF1_PART1_REG_HPF_EN_Msk},
+    {&NEW_DFE->REG_AGC_BO_CFG0.all,                  0x00000000,    NEW_DFE_AGC_BO_CFG0_CFG_OVERLOAD_DET_EN_Msk},
+    {&WIFI_CTRL->REG_WIFI_CALIB_RAMIF_DUMP_EN.all,    0x00000000,   WIFI_CTRL_WIFI_CALIB_RAMIF_DUMP_EN_CFG_CALIB_RAMIF_DUMP_EN_Msk},
+    {&NEW_DFE->REG_DFE_EST_CTRL_EN.all,              0x00000000,    NEW_DFE_DFE_EST_CTRL_EN_REG_DFE_EST_RESULT_SHIFT_EN_Msk},
+    {&NEW_DFE->REG_TPC_CTRL_COMMON.all,              0x00000000,    NEW_DFE_TPC_CTRL_COMMON_CFG_TPC_PWR_OFFSET_Msk},
+    {&NEW_DFE->REG_NEW_DFE_TX_FILT_GAIN.all,         0x00000000,    NEW_DFE_NEW_DFE_TX_FILT_GAIN_CFG_NEW_TXMASK_FLT_EN_Msk},
+    {&NEW_DFE->REG_TX_CFR_COMMON_13.all,             0x00000000,    NEW_DFE_TX_CFR_COMMON_13_CFGHCEN_Msk},
+    {&NEW_DFE->REG_TX_CFR0.all,                      0x00000000,    NEW_DFE_TX_CFR0_CFGCFR0EN_Msk},
+    {&NEW_DFE->REG_TX_CFR1.all,                      0x00000000,    NEW_DFE_TX_CFR1_CFGCFR1EN_Msk},
+    {&NEW_DFE->REG_TPC_CTRL_CFREN0.all,              0x00000000,    0x3fffffff},
+    {&NEW_DFE->REG_TPC_CTRL_CFREN1.all,              0x00000000,    0x07ffffff},
+    {&NEW_DFE->REG_CFR_POST_DIG_GAIN_8.all,          0x00000000,    0xffffffff},
+    {&NEW_DFE->REG_CFR_POST_DIG_GAIN_9.all,          0x00000000,    0xffffffff},
     {(volatile uint32_t *)0x4B800854, 0x00000000}, //scramble seed
 };
 
@@ -828,10 +810,14 @@ __STATIC void save_reg_config(void)
 __STATIC void restore_reg_config(void)
 {
     uint16_t i = 0;
+    uint32_t new_value = 0;
 
     for (i = 0; i < ARRAY_SIZE(cali_restore_reg_list); i++)
     {
-        MEM_WR32(cali_restore_reg_list[i].addr, cali_restore_reg_list[i].value);
+        new_value = MEM_RD32(cali_restore_reg_list[i].addr);
+        new_value &= ~(cali_restore_reg_list[i].mask);
+        new_value |= cali_restore_reg_list[i].value & cali_restore_reg_list[i].mask;
+        MEM_WR32(cali_restore_reg_list[i].addr, new_value);
         rf_udelay(10);
     }
 }
@@ -1151,6 +1137,11 @@ void set_sc_q(uint8_t mode, uint8_t sc_q)
 }
 
 #if RFCALI_WF_EN
+void wf_cali_set_channel(uint16_t freq)
+{
+    rf_set_channel_sx(freq);
+}
+
 __STATIC void wf_cali_cmn_rf_init(uint8_t cali_mode, uint16_t freq, uint8_t lna_gain, uint8_t abb_bq, uint8_t abb_buf)
 {
     wf_cali_work_en(0);
@@ -1163,7 +1154,7 @@ __STATIC void wf_cali_cmn_rf_init(uint8_t cali_mode, uint16_t freq, uint8_t lna_
     NEW_DFE->REG_NEW_DFE_NOTCH_BT.bit.CALIB_AGC_ON_EN_FORCE = 1;
     NEW_DFE->REG_NEW_DFE_NOTCH_BT.bit.CALIB_AGC_ON_EN = 1;
     set_rx_gain(lna_gain, abb_bq, abb_buf);
-    SET_CHANNEL(freq);
+    wf_cali_set_channel(freq);
     /* Note: calibration should has this channel settle initial time */
     rf_udelay(100);
     //CLOGD("cali_cmn_rf_init\n");
@@ -1527,7 +1518,7 @@ __STATIC int8_t bt_cali_rxrc_init(int64_t *half_E0_q, uint8_t *cap)
     BT_CALI_TRIGGER_NODUMP;
     read_val = BT_MODEM->REG_BT_RX_GLB_CFG2.bit.RX_IQ_EST_Q;
     if (half_E0_q)
-        *half_E0_q = read_val >> 1;
+        *half_E0_q = (int64_t)(read_val >> 1);
     bt_forge_tone(bt_rxrc_high_data, 128);
     rf_udelay(10);
     return 0;
@@ -1564,7 +1555,7 @@ __STATIC int8_t bt_cali_rxrc_measure(int64_t *E1_q, uint8_t *cap)
     BT_CALI_TRIGGER_NODUMP;
     read_val = BT_MODEM->REG_BT_RX_GLB_CFG2.bit.RX_IQ_EST_Q;
     if (E1_q)
-        *E1_q = read_val;
+        *E1_q = (int64_t)read_val;
     return 0;
 }
 #endif
@@ -1636,7 +1627,7 @@ void wf_cali_read_est_value(int32_t *I, int32_t *Q, int32_t *I2, int32_t *Q2, in
     *Q = SIGN28(NEW_DFE->REG_EST_RESULT_Q_RPT.bit.DFE_EST_Q_RPT);
     *I2 = NEW_DFE->REG_EST_RESULT_I2_L_RPT.bit.DFE_EST_I2_L_RPT;
     *Q2 = NEW_DFE->REG_EST_RESULT_Q2_L_RPT.bit.DFE_EST_Q2_L_RPT;
-    *IQ = SIGN32(NEW_DFE->REG_EST_RESULT_IQ_L_RPT.bit.DFE_EST_IQ_L_RPT);
+    *IQ = (int32_t)(NEW_DFE->REG_EST_RESULT_IQ_L_RPT.bit.DFE_EST_IQ_L_RPT);
     CLOGD("est I=%ld\n", *I);
     CLOGD("est Q=%ld\n", *Q);
     CLOGD("est I2=%ld\n", *I2);
@@ -1683,6 +1674,22 @@ int32_t wf_cali_read_hw_power()
     q2 = NEW_DFE->REG_EST_RESULT_Q2_L_RPT.bit.DFE_EST_Q2_L_RPT;
     CLOGD("power=%ld\n", i2+q2);
     return (i2 + q2);
+}
+
+int32_t wf_cali_read_hw_power_without_dc()
+{
+    int32_t i2, q2, i, q;
+    int32_t power;
+
+    i2 = NEW_DFE->REG_EST_RESULT_I2_L_RPT.bit.DFE_EST_I2_L_RPT;
+    q2 = NEW_DFE->REG_EST_RESULT_Q2_L_RPT.bit.DFE_EST_Q2_L_RPT;
+    i = SIGN28(NEW_DFE->REG_EST_RESULT_I_RPT.bit.DFE_EST_I_RPT);
+    q = SIGN28(NEW_DFE->REG_EST_RESULT_Q_RPT.bit.DFE_EST_Q_RPT);
+    i2 = i2 - i * i;
+    q2 = q2 - q * q;
+    power = i2 + q2;
+    CLOGD("power=%ld\n", power);
+    return (power);
 }
 #endif
 
@@ -2025,12 +2032,20 @@ __STATIC void wf_cali_dpd_fb_enable(void)
 __STATIC void wf_cali_dpd_fb_disable(void)
 {
     #if 1
-    RFIF->REG_TX_LOGIC9.bit.RF_TX_PA_TTG_EN_FORCE = 0x0;  // 1 bits
     RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_TTG_EN = 0x0;  ////0x1;  // 1 bits
-    RFIF->REG_TX_LOGIC9.bit.RF_TX_PA_DPD_EN_FORCE = 0x0;  // 1 bits
+    RFIF->REG_TX_LOGIC9.bit.RF_TX_PA_TTG_EN_FORCE = 0x0;  // 1 bits
     RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_DPD_EN = 0x0;  // 1 bits
+    RFIF->REG_TX_LOGIC9.bit.RF_TX_PA_DPD_EN_FORCE = 0x0;  // 1 bits
+    RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_UPC_LO_EN = 0x0; // 1 bits
     RFIF->REG_TX_LOGIC9.bit.RF_TX_UPC_LO_EN_FORCE = 0x0;  // 1 bits
+    RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_EN = 0x0; // 1 bits
     RFIF->REG_TX_LOGIC9.bit.RF_TX_PA_EN_FORCE = 0x0;  // 1 bits
+    RFIF->REG_TX_LOGIC0.bit.REG_RF_TX_PPA_EN = 0;
+    RFIF->REG_TX_LOGIC0.bit.RF_TX_PPA_EN_FORCE = 0x0;
+    RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_DACIN_I = 0;
+    RFIF->REG_TX_DAC_LOGIC0.bit.RFDAC_DACIN_I_FORCE = 0;
+    RFIF->REG_TX_DAC_LOGIC1.bit.REG_RFDAC_DACIN_Q = 0;
+    RFIF->REG_TX_DAC_LOGIC1.bit.RFDAC_DACIN_Q_FORCE = 0;
     //RFIF->REG_RX_REG0.bit.RF_RX_ABB_CAP_WF = 55;
     RFIF->REG_RX_REG5.bit.RF_RX_ABB_DPD_SW = 0;
     RFIF->REG_RX_LOGIC52.bit.REG_RF_RX_ABB_1ST_GC_WF_0 = 0xa;
@@ -2140,6 +2155,8 @@ __STATIC void macbypass_tx_start(uint8_t tx_pwr, uint8_t mcs)
 
 __STATIC void macbypass_tx_one_frame(uint8_t tx_pwr, uint8_t mcs)
 {
+    int i = 0;
+
     MEM_WR32(0x4B800854, 0xff); //fix scramble seed
     //MEM_WR32((WIFI_MACBYPASS_BASE+0x000C), 0x1); // Open reg clk
     //MEM_WR32((WIFI_MACBYPASS_BASE+0x0000), 0x1); //macbyp_ctrl_set(0);
@@ -2164,16 +2181,15 @@ __STATIC void macbypass_tx_one_frame(uint8_t tx_pwr, uint8_t mcs)
     MEM_WR32((WIFI_MACBYPASS_BASE+0x023C), 0xe8); //macbyp_txv15_set(100);//LENGTH[7:0]
     MEM_WR32((WIFI_MACBYPASS_BASE+0x0240), 0x4);  //macbyp_txv16_set(0x9);//LENGTH[15:8]
     MEM_WR32((WIFI_MACBYPASS_BASE+0x0244), 0x0);  //macbyp_txv14_set(0x9);//LENGTH[19:16]
-#if 0
     MEM_WR32((WIFI_MACBYPASS_BASE+0x0000), 0x201); //macbyp_ctrl_set(0x201);
-    rf_udelay(2000);
-    MEM_WR32((WIFI_MACBYPASS_BASE+0x0000), 0x100); //macbyp_ctrl_set(0x000);
-#endif
-    MEM_WR32((WIFI_MACBYPASS_BASE+0x0000), 0x201); //macbyp_ctrl_set(0x201);
-    rf_udelay(500);
-    MEM_WR32((WIFI_MACBYPASS_BASE+0x0000), 0x000); //macbyp_ctrl_set(0x000);
+    for (i = 0; i < 500; i++) {
+        rf_udelay(1);
+        if ((MEM_RD32(WIFI_MACBYPASS_BASE+0x0000) & 0x80000000)) {
+            break;
+        }
+    }
     MEM_WR32((WIFI_MACBYPASS_BASE+0x0000), 0x100); //macbyp_ctrl_set(0x100);
-
+    //CLOGD("macbypass_tx_one_frame (%d)done\n", i);
     return;
 }
 
@@ -2228,6 +2244,7 @@ __STATIC int8_t wf_cali_send_ttg_stop()
     WIFI_CRM->REG_CLKGATEPHYFCTRL0.bit.FECLKFORCE = 0;
     RFIF->REG_CTRL0.bit.WF_START = 1;
     restore_reg_config();
+    return 0;
 }
 __STATIC int8_t wf_cali_txiq_tx_init(void)
 {
@@ -2341,11 +2358,204 @@ __STATIC int8_t wf_cali_txdcdpd_toggle_mixen(uint8_t en)
     return 0;
 }
 
-__STATIC int8_t wf_cali_txdpd_init(int8_t pwr_idx, uint8_t fb_gain, uint8_t fb_delay)
+static int32_t wf_cali_txdpd_map_pred_lut(uint32_t pwr_idx, uint32_t lut_idx)
 {
+    #if 1
+    uint32_t reg, idx;
+    volatile uint32_t val, *ptr = &NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.all;
+
+    reg = pwr_idx >> 2;
+    idx = (pwr_idx & 0x3) << 3;
+    val = *(ptr + reg);
+    val &= ~(0xFF << idx);
+    val |= ((lut_idx & 0xF) | (1<<4)) << idx;
+    *(ptr + reg) = val;
+    #else
+     switch(pwr_idx) {
+        case 0:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.bit.REG_PRE_D_LUT_IDX_0 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.bit.REG_PRE_D_EN_0 = 1;
+            break;
+        case 1:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.bit.REG_PRE_D_LUT_IDX_1 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.bit.REG_PRE_D_EN_1 = 1;
+            break;
+        case 2:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.bit.REG_PRE_D_LUT_IDX_2 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.bit.REG_PRE_D_EN_2 = 1;
+            break;
+        case 3:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.bit.REG_PRE_D_LUT_IDX_3 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.bit.REG_PRE_D_EN_3 = 1;
+            break;
+        case 4:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.bit.REG_PRE_D_LUT_IDX_4 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.bit.REG_PRE_D_EN_4 = 1;
+            break;
+        case 5:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.bit.REG_PRE_D_LUT_IDX_5 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.bit.REG_PRE_D_EN_5 = 1;
+            break;
+        case 6:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.bit.REG_PRE_D_LUT_IDX_6 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.bit.REG_PRE_D_EN_6 = 1;
+            break;
+        case 7:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.bit.REG_PRE_D_LUT_IDX_7 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.bit.REG_PRE_D_EN_7 = 1;
+            break;
+        case 8:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.bit.REG_PRE_D_LUT_IDX_8 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.bit.REG_PRE_D_EN_8 = 1;
+            break;
+        case 9:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.bit.REG_PRE_D_LUT_IDX_9 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.bit.REG_PRE_D_EN_9 = 1;
+            break;
+        case 10:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.bit.REG_PRE_D_LUT_IDX_10 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.bit.REG_PRE_D_EN_10 = 1;
+            break;
+        case 11:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.bit.REG_PRE_D_LUT_IDX_11 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.bit.REG_PRE_D_EN_11 = 1;
+            break;
+        case 12:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_LUT_IDX_12 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_EN_12 = 1;
+            break;
+        case 13:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_LUT_IDX_13 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_EN_13 = 1;
+            break;
+        case 14:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_LUT_IDX_14 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_EN_14 = 1;
+            break;
+        case 15:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_LUT_IDX_15 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_EN_15 = 1;
+            break;
+        case 16:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_LUT_IDX_16 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_EN_16 = 1;
+            break;
+        case 17:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_LUT_IDX_17 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_EN_17 = 1;
+            break;
+        case 18:
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_LUT_IDX_18 = lut_idx;
+            NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_EN_18 = 1;
+            break;
+        default:
+            break;
+     }
+    #endif
+    return 0;
+}
+
+static int8_t wf_cali_calc_table_shift(int8_t power_offset)
+{
+    int8_t shift = 0;
+    if (power_offset > 0) {
+        shift = power_offset >> 3;
+        int8_t power_remainder = power_offset & 0x7;
+        if (power_remainder > 0)
+            shift ++;
+    }
+    else if (power_offset < 0) {
+        shift = -((-power_offset) >> 3);
+    }
+    return shift;
+}
+
+static void wf_cali_remap_dpd_cfg(P_RF_CALI_DPD_CFG entry, int8_t shift_table)
+{
+    entry->pwr_idx += shift_table;
+    entry->tssi += (shift_table << 1);
+    if (entry->pwr_idx > 18)
+        entry->pwr_idx = 18;
+    if (entry->tssi > 22)
+        entry->tssi = 22;
+    wf_cali_txdpd_map_pred_lut((uint32_t)entry->pwr_idx, (uint32_t)entry->pred_lut_idx);
+    //CLOGI("DPD TSSI=%d, PWR_IDX=%d, LUT_IDX=%d\n", entry->tssi, entry->pwr_idx, entry->pred_lut_idx);
+}
+
+static int8_t wf_cali_txdpd_remap_table(P_RF_CALI_DPD_CFG dst, P_RF_CALI_DPD_CFG src, uint8_t cnt, int8_t shift_table)
+{
+    P_RF_CALI_PARAMS params = &rf_cali.params;
+    uint32_t tbl_idx = (params->txdpd_tbl_idx < cnt) ? params->txdpd_tbl_idx : 0;
+    uint32_t dpd_tr_lut_idx, dpd_tr_pwr_idx;
+
+    for (uint32_t i = 0; i < cnt; i++) {
+        dst[i] = src[i];
+        wf_cali_remap_dpd_cfg(&dst[i], shift_table);
+    }
+    dpd_tr_lut_idx = (uint32_t)src[tbl_idx].pred_lut_idx;
+    dpd_tr_pwr_idx = (uint32_t)src[tbl_idx].pwr_idx;
+    for (uint32_t i = 0; i < 2; i++) {
+        uint32_t rest_pwr_idx = dpd_tr_pwr_idx - i - 1 + shift_table;
+        uint32_t rest_pred_lut_idx = dpd_tr_lut_idx - i - 1;
+        if ((int32_t)rest_pred_lut_idx < 0)
+            break;
+        wf_cali_txdpd_map_pred_lut(rest_pwr_idx, rest_pred_lut_idx);
+        //CLOGI("DPD rest PWR_IDX=%d, LUT_IDX=%d\n", rest_pwr_idx, rest_pred_lut_idx);
+    }
+    return 0;
+}
+
+__STATIC int8_t wf_cali_txdpd_remap_pred(void)
+{
+    int8_t power_offset = SIGN(NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET, 6);
+    int8_t shift_table = wf_cali_calc_table_shift(power_offset);
+
+    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_0.all = 0;
+    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_1.all = 0;
+    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_2.all = 0;
+    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.all = 0;
+    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.all = 0;
+    memset(dpd_cfg_table, 0, sizeof(RF_CALI_DPD_CFG)*DPD_COMP_TABLE_CNT);
+    wf_cali_txdpd_remap_table(dpd_cfg_table, dpd_base_table, DPD_COMP_TABLE_CNT, shift_table);
+    return 0;
+}
+
+#if 0
+static uint8_t saved_cur_mac_state = 0;
+static uint32_t saved_idle_interrupt_mask = 0;
+
+__STATIC void wf_cali_save_mac_state_and_force_idle(void)
+{
+    saved_cur_mac_state = WIFI_MAC_CORE->REG_STATECNTRLREG.bit.CURRENTSTATE;
+    saved_idle_interrupt_mask = WIFI_MAC_PL->REG_GENINTENABLEREG.all;
+    WIFI_MAC_PL->REG_GENINTENABLEREG.bit.IDLEINTERRUPT = 0;
     WIFI_MAC_CORE->REG_STATECNTRLREG.bit.NEXTSTATE = 0;
-    wf_cali_dpd_fb_enable();
+}
+
+__STATIC void wf_cali_restore_mac_state(void)
+{
+    WIFI_MAC_CORE->REG_STATECNTRLREG.bit.NEXTSTATE = saved_cur_mac_state;
+    CLOGD("saved_cur_mac_state=%d, restored WIFI_MAC_CORE->REG_STATECNTRLREG=0x%x\n", saved_cur_mac_state, WIFI_MAC_CORE->REG_STATECNTRLREG.all);
+    WIFI_MAC_PL->REG_GENINTACKREG.bit.IDLEINTERRUPT = 1;
+    WIFI_MAC_PL->REG_GENINTENABLEREG.all = saved_idle_interrupt_mask;
+}
+#endif
+
+__STATIC int8_t wf_cali_txdpd_init(uint8_t fb_delay)
+{
+    uint32_t misc_val = MEM_RD32(0x4B1000e0);
+
+    //wf_cali_save_mac_state_and_force_idle();
+    MEM_WR32(0x4B1000e0, misc_val & (~0x100));
     set_rx_gain(4/*lna*/, 10/*abb_bq*/, 10/*abb_buf*/);
+    wf_cali_dpd_fb_enable();
+    NEW_DFE->REG_CALIBR_TOP_0.bit.CALIBR_MODE = TX_IQ_TTG_CALI;
+    NEW_DFE->REG_CALIBR_TOP_0.bit.CALIBR_WORK_EN = 1;
+    NEW_DFE->REG_CFR_POST_DIG_GAIN_EN.bit.REG_CFR_POST_DIG_GAIN_EN = 1;
+    /* Reset power offset which should be restored after DPD cali*/
+    NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = 0;
+    NEW_DFE->REG_CFR_POST_DIG_GAIN_8.bit.REG_CFR_POST_DIG_GAIN_17 = 512;
+    NEW_DFE->REG_CFR_POST_DIG_GAIN_9.bit.REG_CFR_POST_DIG_GAIN_18 = 512;
     //NEW_DFE->REG_DFE_SHAREMEM_START_ADDR_0.bit.REG_DFE_SHAREMEM_START_ADDR_0 = 0;
     NEW_DFE->REG_DFE_SHAREMEM_START_ADDR_1.bit.REG_DFE_SHAREMEM_START_ADDR_1 = CALI_MEM_START_OFFSET;
     //NEW_DFE->REG_M0_DUMP_AND_BYPASS_LEN.bit.REG_DFE_M0_BYPASS_LEN = 6400;
@@ -2357,8 +2567,6 @@ __STATIC int8_t wf_cali_txdpd_init(int8_t pwr_idx, uint8_t fb_gain, uint8_t fb_d
     NEW_DFE->REG_DFE_SHAREMEM_LEN_1.bit.REG_DFE_SHAREMEM_LENGTH_1 = 4096;
     NEW_DFE->REG_M0_M1_DUMP_AND_TRIG_SEL.bit.REG_M1_DUMP_SEL = 4;
     NEW_DFE->REG_MP_DPD_TX2FB_DLY.bit.REG_MP_DPD_TX2FB_DELAY = 25;
-    NEW_DFE->REG_CALIBR_TOP_0.bit.CALIBR_MODE = TX_IQ_TTG_CALI;
-    NEW_DFE->REG_CALIBR_TOP_0.bit.CALIBR_WORK_EN = 1;
     rf_udelay(100);
     //CLOGD("wf_cali_txdpd_init\n");
     return 0;
@@ -2379,7 +2587,7 @@ __STATIC int8_t wf_cali_txdpd_adjust_gain(int8_t pwr_delta)
             abb_1st_val = (uint8_t)((int8_t)abb_1st_val-((pwr_delta+1)>>1));
         }
         set_abb_1st_gain(abb_1st_val);
-        CLOGI("set abb_1st_gain=%d\n", abb_1st_val);
+        //CLOGI("set abb_1st_gain=%d\n", abb_1st_val);
     }
     else {
         if (((int8_t)abb_bq_val+(pwr_delta>>1)) < 0) {
@@ -2422,8 +2630,8 @@ __STATIC int8_t wf_cali_txdpd_adjust_gain(int8_t pwr_delta)
         }
         set_abb_bq_gain(abb_bq_val);
         set_abb_buf_gain(abb_buf_val);
-        CLOGI("set abb_bq_gain=%d\n", abb_bq_val);
-        CLOGI("set abb_buf_gain=%d\n", abb_buf_val);
+        //CLOGI("set abb_bq_gain=%d\n", abb_bq_val);
+        //CLOGI("set abb_buf_gain=%d\n", abb_buf_val);
     }
     return 0;
 }
@@ -2431,7 +2639,6 @@ __STATIC int8_t wf_cali_txdpd_adjust_gain(int8_t pwr_delta)
 __STATIC int8_t wf_cali_txdpd_measure(int8_t pwr_idx)
 {
     uint8_t capture_cnt = 0;
-    uint32_t misc_val = 0;
 
 #define TXDPD_MAX_CAP_CNY 4
     while(capture_cnt++ < TXDPD_MAX_CAP_CNY)
@@ -2445,9 +2652,6 @@ __STATIC int8_t wf_cali_txdpd_measure(int8_t pwr_idx)
             rf_udelay(10);
         }
         macbypass_tx_stop();
-        misc_val = MEM_RD32(0x4B1000e0);
-        MEM_WR32(0x4B1000e0, misc_val & (~0x100));
-        rf_udelay(100);
         macbypass_tx_one_frame(pwr_idx, 9);
         if (NEW_DFE->REG_DUMP_EST_RESULT_VLD_RPT.bit.DFE_DUMP_AFIFO_FULL_CNT_RPT == 0)
             break;
@@ -2467,14 +2671,18 @@ fail:
 
 __STATIC int8_t wf_cali_txdpd_deinit(void)
 {
+    uint32_t misc_val = MEM_RD32(0x4B1000e0);
+
     wf_cali_dpd_fb_disable();
     macbypass_tx_stop();
     NEW_DFE->REG_CALIBR_TOP_0.bit.CALIBR_MODE = 0;
     NEW_DFE->REG_CALIBR_TOP_0.bit.CALIBR_WORK_EN = 0;
+    //wf_cali_restore_mac_state();
+    MEM_WR32(0x4B1000e0, misc_val | 0x100);
     return 0;
 }
 
-__STATIC int8_t wf_cali_txdpd_result(uint8_t tbl_idx, void *tbl_src)
+static uint32_t *get_table_start_addr(uint8_t tbl_idx)
 {
     volatile uint32_t *table_start_addr;
 
@@ -2501,6 +2709,16 @@ __STATIC int8_t wf_cali_txdpd_result(uint8_t tbl_idx, void *tbl_src)
         table_start_addr = &NEW_DFE->REG_PRE_D_PARA_A00_0.all;
         break;
     }
+    return (uint32_t *)table_start_addr;
+}
+
+__STATIC int8_t wf_cali_txdpd_result(uint8_t tbl_idx, void *tbl_src)
+{
+    uint32_t *table_start_addr = get_table_start_addr(tbl_idx);
+
+    if (tbl_src == NULL)
+        return -1;
+
     if (tbl_idx == 2) {
         uint32_t *tmp_src = (uint32_t *)tbl_src + 10;
 
@@ -2508,6 +2726,24 @@ __STATIC int8_t wf_cali_txdpd_result(uint8_t tbl_idx, void *tbl_src)
         memcpy((void *)(table_start_addr+10+1), (void*)tmp_src, 5 * sizeof(uint32_t));
     } else {
         memcpy((void *)table_start_addr, (void *)tbl_src, 15 * sizeof(uint32_t));
+    }
+    return 0;
+}
+
+__STATIC int8_t wf_cali_txdpd_get_result(uint8_t tbl_idx, void *tbl_dst)
+{
+    uint32_t *table_start_addr = get_table_start_addr(tbl_idx);
+
+    if (tbl_dst == NULL)
+        return -1;
+
+    if (tbl_idx == 2) {
+        uint32_t *tmp_dst = (uint32_t *)tbl_dst + 10;
+
+        memcpy((void *)tbl_dst, (void *)table_start_addr, 10 * sizeof(uint32_t));
+        memcpy((void *)tmp_dst, (void *)(table_start_addr+10+1), 5 * sizeof(uint32_t));
+    } else {
+        memcpy((void *)tbl_dst, (void *)table_start_addr, 15 * sizeof(uint32_t));
     }
     return 0;
 }
@@ -2717,14 +2953,11 @@ __STATIC void wf_cali_env_init(void)
 
     RFIF->REG_CTRL0.bit.WF_END = 1;
     RFIF->REG_CTRL0.bit.CLK_FORCE_ON_WF = 1;
-#if 1
-    NEW_DFE->REG_CFR_POST_DIG_GAIN_5.bit.REG_CFR_POST_DIG_GAIN_10 = 512;
-    NEW_DFE->REG_CFR_POST_DIG_GAIN_6.bit.REG_CFR_POST_DIG_GAIN_12 = 512;
-    NEW_DFE->REG_CFR_POST_DIG_GAIN_7.bit.REG_CFR_POST_DIG_GAIN_14 = 512;
-    NEW_DFE->REG_CFR_POST_DIG_GAIN_8.bit.REG_CFR_POST_DIG_GAIN_16 = 512;
-    NEW_DFE->REG_CFR_POST_DIG_GAIN_8.bit.REG_CFR_POST_DIG_GAIN_17 = 645;
-    NEW_DFE->REG_CFR_POST_DIG_GAIN_9.bit.REG_CFR_POST_DIG_GAIN_18 = 723;
-#endif
+
+    RFIF->REG_TX_LOGIC0.bit.REG_RF_TX_PPA_EN = 0;
+    RFIF->REG_TX_LOGIC0.bit.RF_TX_PPA_EN_FORCE = 0;
+    RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_EN = 0;
+    RFIF->REG_TX_LOGIC9.bit.RF_TX_PA_EN_FORCE = 0;
 
     NEW_DFE->REG_RX_DOWNSAMPLE_EN.bit.REG_RX_DOWNSAMPLE_EN = 0;
     NEW_DFE->REG_RX_FDIQ_COMP_EN.bit.REG_RX_FDIQ_COMP_EN = 0;
@@ -2758,32 +2991,7 @@ __STATIC void wf_cali_env_init(void)
     NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_17 = 0x0;
     NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_18 = 0x0;
 
-    IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = 0;
-
-    /* Reset PRED Params for DPD cali*/
-    memset((void *)&NEW_DFE->REG_PRE_D_PARA_A00_0.all, 0, sizeof(int32_t)*15*6+4);
-    NEW_DFE->REG_PRE_D_PARA_A00_0.bit.REG_PREDPARA_A00_I_0 = 512;
-    NEW_DFE->REG_PRE_D_PARA_A00_1.bit.REG_PREDPARA_A00_I_1 = 512;
-    NEW_DFE->REG_PRE_D_PARA_A00_2.bit.REG_PREDPARA_A00_I_2 = 512;
-    NEW_DFE->REG_PRE_D_PARA_A00_3.bit.REG_PREDPARA_A00_I_3 = 512;
-    NEW_DFE->REG_PRE_D_PARA_A00_4.bit.REG_PREDPARA_A00_I_4 = 512;
-    NEW_DFE->REG_PRE_D_PARA_A00_5.bit.REG_PREDPARA_A00_I_5 = 512;
-    NEW_DFE->REG_CFR_POST_DIG_GAIN_EN.bit.REG_CFR_POST_DIG_GAIN_EN = 1;
-
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_LUT_IDX_12 = dpd_cfg_table_update[0].pred_lut_idx;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_LUT_IDX_13 = dpd_cfg_table[0].pred_lut_idx;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_LUT_IDX_14 = dpd_cfg_table[1].pred_lut_idx;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_LUT_IDX_15 = dpd_cfg_table[2].pred_lut_idx;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_LUT_IDX_16 = dpd_cfg_table[3].pred_lut_idx;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_LUT_IDX_17 = dpd_cfg_table[3].pred_lut_idx;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_LUT_IDX_18 = dpd_cfg_table[3].pred_lut_idx;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_EN_12 = 1;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_EN_13 = 1;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_EN_14 = 1;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_3.bit.REG_PRE_D_EN_15 = 1;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_EN_16 = 1;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_EN_17 = 1;
-    NEW_DFE->REG_PRE_D_EN_AND_LUT_IDX_4.bit.REG_PRE_D_EN_18 = 1;
+    NEW_DFE->REG_NEW_DFE_TX_FILT_GAIN.bit.CFG_NEW_TXMASK_FLT_EN = 0;
 
     //CLOGD("wf_cali_env_init\n");
 }
@@ -2823,28 +3031,6 @@ __STATIC void wf_cali_env_deinit(void)
 
     NEW_DFE->REG_DFE_ARB_DATA_SEL.bit.REG_DFE_ARB_DATA_SEL = 0;
     NEW_DFE->REG_DFE_ARB_EN.bit.REG_DFE_ARB_EN = 0;
-    NEW_DFE->REG_TX_CFR_COMMON_13.bit.CFGHCEN = 1;
-    NEW_DFE->REG_TX_CFR0.bit.CFGCFR0EN = 1;
-    NEW_DFE->REG_TX_CFR1.bit.CFGCFR1EN = 1;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_0 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_1 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_2 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_3 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_4 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_5 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_6 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_7 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_8 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN0.bit.CFG_TPC_CFREN_9 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_10 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_11 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_12 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_13 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_14 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_15 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_16 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_17 = 0x7;
-    NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_18 = 0x7;
     restore_reg_config();
     //rwnxl_reset_evt(0);
     //CLOGD("wf_cali_env_deinit\n");
@@ -2894,11 +3080,13 @@ RF_CALI_OPS wf_cali_ops = {
     .txiq_tx_result = wf_cali_txiq_tx_result,
     .txiq_dump_data = wf_cali_txiq_dump_data,
     .txiq_restore_rxiq_result = wf_cali_txiq_restore_rxiq_result,
+    .txdpd_remap_pred = wf_cali_txdpd_remap_pred,
     .txdpd_init = wf_cali_txdpd_init,
     .txdcdpd_toggle_mixen = wf_cali_txdcdpd_toggle_mixen,
     .txdpd_adjust_gain = wf_cali_txdpd_adjust_gain,
     .txdpd_measure = wf_cali_txdpd_measure,
     .txdpd_result = wf_cali_txdpd_result,
+    .txdpd_get_result = wf_cali_txdpd_get_result,
     .txdpd_deinit = wf_cali_txdpd_deinit,
     .txdc_result = wf_cali_txdc_result,
     .set_ppa_cap = wf_cali_set_ppa_cap,

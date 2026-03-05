@@ -1,8 +1,0 @@
-menu "touch cst328 configuration"
-
-
-if LISA_TOUCH_CST328
-
-endif
-
-endmenu

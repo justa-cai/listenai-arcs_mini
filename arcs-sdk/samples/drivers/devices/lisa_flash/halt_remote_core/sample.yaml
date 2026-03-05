@@ -1,0 +1,8 @@
+tests:
+  samples.drivers.devices.lisa_flash.halt_remote_core:
+    programmer: arcs
+    runner: uart
+    executable: merged.bin
+    log_analyzer:
+      type: "regex"
+      pattern: "All tests passed successfully!"

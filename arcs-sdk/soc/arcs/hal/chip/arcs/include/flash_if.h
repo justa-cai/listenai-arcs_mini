@@ -4,6 +4,7 @@
 #include "spiflash.h"
 
 int32_t flash_if_init(FLASH_DEV *dev, unsigned char ud0, unsigned char ud1);
+int32_t flash_if_read_jedec_id(uint32_t *jedec_id);
 
 int32_t flash_if_read(int32_t offset, void *data, size_t len);
 

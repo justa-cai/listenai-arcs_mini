@@ -30,13 +30,18 @@
 #include "flash_if.h"
 #include "nvs_priv.h"
 #include "nv_config.h"
+#include "wifi_api.h"
+#if CONFIG_PM
+#include "pm_impl.h"
+#include "vrtc.h"
+#endif
 #if CFG_WIFI_MFG
 ls_err_t wifi_mfg_exec(char * params, int32_t params_len);
 #endif
 
 static const struct cli_cmd cli_main_commands[];
 extern void logDbg_enable_set(uint8_t logD_on_off);
-extern int wifi_ls_mac_version(char *ver, int size);
+extern ls_err_t wifi_ls_mac_version(uint8_t *ver, uint32_t size);
 cli_print_fn_t cli_print_func = logDbg;
 ls_nv_selfcali_cfg_t otp_config = {0};
 /**
@@ -532,7 +537,67 @@ int cli_version(char *params)
 
     return CLI_SUCCESS;
 }
+#if CONFIG_PM
+static int cli_sys_pm(char *params)
+{
+    char *ptr, *next = params;
+    pm_config_t config = {.mode = PM_MODE_ACTIVE};
 
+    if (!(ptr = utils_next_token(&next))) {
+        return CLI_SHOW_USAGE;
+    }
+
+    if (!strcmp(ptr, "status"))
+    {
+        uint64_t time1;
+        uint32_t time_h, time_l;
+
+        time1 = vrtc_get_time_us();
+        time_l = time1;
+        time_h = time1>>32;
+        logDbg("vrtc: %d-%d\n", time_h, time_l);
+    }
+    else
+    {
+        do
+        {
+            if (ptr[0] == '-')
+            {
+                switch (ptr[1])
+                {
+                    case ('m'):
+                        ptr = utils_next_token(&next);
+                        if (!ptr)
+                            return CLI_SHOW_USAGE;
+                        if (!strcmp(ptr, "active"))
+                            config.mode = PM_MODE_ACTIVE;
+                        else if (!strcmp(ptr, "light"))
+                            config.mode = PM_MODE_LIGHT_SLEEP;
+                        else if (!strcmp(ptr, "deep"))
+                            config.mode = PM_MODE_DEEP_SLEEP;
+                        else
+                            return CLI_SHOW_USAGE;
+                        break;
+                    case ('t'):
+                        break;
+                    case ('w'):
+                        break;
+                    case ('p'):
+                        if (!(ptr = utils_next_token(&next)))
+                            return CLI_SHOW_USAGE;
+                        config.clock_level = (uint8_t)atoi(ptr);
+                        break;
+                    default:
+                        return CLI_SHOW_USAGE;
+                }
+            }
+        } while ((ptr = utils_next_token(&next)));
+        pm_set_config(&config);
+    }
+
+    return CLI_SUCCESS;
+}
+#endif
 #ifdef CFG_AMP_IPC
 #ifdef IPC_STATS
 static int cli_ipc_dump(char *params)
@@ -577,6 +642,7 @@ static int cli_ipc_dump(char *params)
     return 0;
 }
 #endif
+
 #ifdef IPC_TEST_CASE
 int cli_ipc_test(char *params)
 {
@@ -724,55 +790,194 @@ static int wifi_cli_mfg(char *params)
 }
 #endif
 
+#if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
+static int8_t flash_if_erase_otp(void)
+{
+    int8_t ret = 0;
+    off_t offset = 0;
+
+#if USE_FLASH_OTP == 1
+    if (!flash_if_check_security_support()) {
+        CLI_LOGW("Flash unsupport OTP region!\n");
+        return -1;
+    }
+#endif
+    flash_if_write_protection_set(false);
+#if USE_FLASH_OTP == 1
+    ret = flash_if_security_erase(offset);
+#else
+    offset = FLASH_NOR_OTP_NV_BASE_ADDR;
+    ret = flash_if_erase(offset, FLASH_OTP_NV_LENGTH);
+    CLI_LOGI("erase flash otp offset %x length %x\n", offset, FLASH_OTP_NV_LENGTH);
+#endif
+    flash_if_write_protection_set(true);
+    if (ret) {
+        CLI_LOGW("erase flash OTP failed, ret=%d\n", ret);
+        return -1;
+    }
+    else {
+        CLI_LOGI("erase flash OTP success\n");
+    }
+
+    return ret;
+}
+
+static int8_t flash_if_set_otp_flag(uint32_t magic_code)
+{
+    int32_t ret = 0;
+    off_t offset = 0;
+    uint32_t write_val = magic_code;
+    uint32_t read_val = 0;
+
+#if USE_FLASH_OTP == 1
+    if (!flash_if_check_security_support()) {
+        CLI_LOGE("Flash unsupport OTP region!\n");
+        return -1;
+    }
+#else
+    offset = FLASH_NOR_OTP_NV_BASE_ADDR;
+#endif
+    flash_if_write_protection_set(false);
+#if USE_FLASH_OTP == 1
+    ret = flash_if_security_erase(offset);
+#else
+    ret = flash_if_erase(offset, sizeof(write_val));
+#endif
+    if (ret) {
+        CLI_LOGE("erase flash OTP failed, ret=%d\n", ret);
+        goto write_failed;
+    }
+    else {
+        CLI_LOGI("erase flash OTP success\n");
+    }
+#if USE_FLASH_OTP == 1
+    ret = flash_if_security_write(offset, (void *)&write_val, sizeof(write_val));
+#else
+    ret = flash_if_write(offset, (void *)&write_val, sizeof(write_val));
+#endif
+    if (ret) {
+        CLI_LOGE("write Flash OTP flag failed, ret=%d\n", ret);
+        goto write_failed;
+    } else
+        CLI_LOGI("write Flash OTP flag success\n");
+#if USE_FLASH_OTP == 1
+    ret = flash_if_security_read(0, &read_val, sizeof(read_val));
+#else
+    ret = flash_if_read(offset, (void *)&read_val, sizeof(read_val));
+#endif
+    if (ret < 0 || read_val != magic_code)
+    {
+        CLI_LOGE("read otp failed or invalid value(%x), ret %d\n", read_val, ret);
+        goto write_failed;
+    }
+    flash_if_write_protection_set(true);
+    return 0;
+write_failed:
+    flash_if_write_protection_set(true);
+    return -1;
+}
+
 static int cli_clear_otp(char *params)
 {
-#if CONFIG_ARCS_HAL_IPC_MRPC_CLIENT_OTP
-    nv_selfcali_erase_otp();
-#endif
+#ifdef CFG_FLASH_IF
+    int8_t ret = 0;
+    uint32_t read_val = 0;
 
+    ret = flash_if_erase_otp();
+    if (ret < 0)
+    {
+        CLI_LOGE("clear otp failed, ret %d\n", ret);
+        return CLI_ERROR;
+    }
+#if USE_FLASH_OTP == 1
+    ret = flash_if_security_read(0, &read_val, sizeof(read_val));
+#else
+    ret = flash_if_read(FLASH_NOR_OTP_NV_BASE_ADDR, &read_val, sizeof(read_val));
+#endif
+    if (ret < 0 || read_val != 0xffffffff)
+    {
+        CLI_LOGE("read otp failed or invalid value(%x), ret %d\n", read_val, ret);
+        return CLI_ERROR;
+    }
+    CLI_LOGI("clear otp success, read back value %x\n", read_val);
+#endif
+    return CLI_SUCCESS;
+}
+
+static int cli_set_otp_flag(char *params)
+{
+#ifdef CFG_FLASH_IF
+    char *ptr = params, *next = params;
+    uint32_t val = 0;
+    int8_t ret = 0;
+
+    if (!(ptr = utils_next_token(&next))) {
+        return CLI_SHOW_USAGE;
+    }
+    val = strtoul(ptr, NULL, 0);
+    ret = flash_if_set_otp_flag(val);
+    if (ret < 0)
+    {
+        CLI_LOGE("set otp flag failed, ret %d\n", ret);
+        return CLI_ERROR;
+    }
+    CLI_LOGI("set otp flag 0x%08x\n", val);
+#endif
     return CLI_SUCCESS;
 }
 
 static int cli_check_otp(char *params)
 {
+#if CFG_FLASH_IF
     int32_t ret = 0;
     uint32_t calc_crc = 0;
-    ls_nv_fixzone_header_t *hdr = &otp_config.hdr;
-    ls_nv_selfcali_body_t *body = &otp_config.bdy;
-#if CFG_FLASH_IF
+    ls_nv_fixzone_header_t *hdr;
+    ls_nv_selfcali_cfg_t *otp_config = rtos_malloc(sizeof(ls_nv_selfcali_cfg_t));
+
+    if (!otp_config) {
+        CLI_LOGE("malloc otp_config failed\n");
+        return CLI_ERROR;
+    }
+    hdr = &otp_config->hdr;
+
+#if USE_FLASH_OTP == 1
     if (!flash_if_check_security_support()) {
-        CLOGE("Flash unsupport OTP region!\n");
+        CLI_LOGE("Flash unsupport OTP region!\n");
         goto failed;
     }
-    ret = flash_if_security_read(0, &otp_config, sizeof(otp_config));
+    ret = flash_if_security_read(0, otp_config, sizeof(*otp_config));
+#else
+    ret = flash_if_read(FLASH_NOR_OTP_NV_BASE_ADDR, otp_config, sizeof(*otp_config));
+#endif
     if (ret) {
-        CLOGW("Read otp config failed, ret=%d\n", ret);
+        CLI_LOGW("Read otp config failed, ret=%d\n", ret);
         goto failed;
     } else {
-        CLOGI("Read otp config success\n");
+        CLI_LOGI("Read otp config success\n");
     }
-    CLOGI("Otp check magic %x len %x version %x crc32 %x\n", hdr->magic, hdr->length, hdr->version, hdr->crc32);
+    CLI_LOGI("Otp check magic %x len %x version %x crc32 %x\n", hdr->magic, hdr->length, hdr->version, hdr->crc32);
     if (hdr->magic != NV_MAGIC_PATTERN2) {
-        CLOGI("NV fix zone magic (%x) mismatch, skip it!\n", hdr->magic);
+        CLI_LOGI("NV fix zone magic (%x) mismatch, skip it!\n", hdr->magic);
         goto failed;
     }
     calc_crc = crc32_sw(calc_crc, (uint8_t *)(hdr), (sizeof(*hdr) - 4));
     calc_crc = crc32_sw(calc_crc, (uint8_t *)(hdr + 1), hdr->length);
     if (calc_crc != hdr->crc32) {
-        CLOGI("NV fix zone crc (%x) check failed, expect (%x) skip it!\n", hdr->crc32, calc_crc);
+        CLI_LOGI("NV fix zone crc (%x) check failed, expect (%x) skip it!\n", hdr->crc32, calc_crc);
         goto failed;
     }
-    CLOGI("Check otp success\n");
+    free(otp_config);
+    CLI_LOGI("Check otp success\n");
     return CLI_SUCCESS;
 failed:
-    CLOGE("Check otp failed\n");
+    free(otp_config);
+    CLI_LOGE("Check otp failed\n");
     return CLI_ERROR;
 #else
-    CLOGE("unsupport flash_if module!\n");
+    CLI_LOGE("unsupport flash_if module!\n");
     return CLI_ERROR;
 #endif
 }
-
 
 static int cli_cali_redo(char *params)
 {
@@ -785,68 +990,86 @@ static int cli_dpd_redo(char *params)
     ls_rf_cali_redo(0);
     return CLI_SUCCESS;
 }
+#endif
+
+int cli_dpd_track(char *params)
+{
+    char *token, *next = params;
+
+    token = utils_next_token(&next);
+    if (token == NULL)
+        return CLI_SHOW_USAGE;
+    if (!strcmp("on", token))
+    {
+        wifi_dpd_track_connect_switch(1);
+    }
+    else if (!strcmp("off", token))
+    {
+        wifi_dpd_track_connect_switch(0);
+    }
+    return CLI_SUCCESS;
+}
 
 static const struct cli_cmd cli_main_commands[] =
 {
-#ifndef WIFI_RAM_ATE
     {cli_help, "help", ""},
     {cli_help, "?", ""},
+    {cli_version,     "version", "show version information"},
+#ifndef WIFI_RAM_ATE
     {net_cli_reboot, "reset", ""},
 #if CFG_PING
     {net_cli_ping, "ping",
-     "[-s <pkt_size>] [-r <rate>] [-d (duration)] [-Q <ToS>] [-G (background)] <dest_ip>\r\n"
+     "[-s <pkt_size>] [-r <rate>] [-d (duration)] [-Q <ToS>] [-G (background)] <dest_ip>\n"
      "     stop <id> [-t (continuous)]"},
 #endif
 #if CFG_IPERF
     {net_cli_iperf, "iperf", "-s|-c <host>|-h [options (use -h for details)]"},
 #endif
     {net_cli_sigkill, "sigkill", "<cmd_id>"},
-
-#if CFG_WIFI_MFG
-    {wifi_cli_mfg, "mfg", "config|set|start|stop "
-        "[-c <freq>] [-m <mcs idx>] [-s <b|g|n|ax>] [-l <payload length>] [-h] [options (use -h for details)]" },
-#endif
-    {cli_version,     "version", "show version information"},
 #if CFG_MEMDUMP
     {cli_memdump,   "memdump",            "dump memory through uart"},
 #endif
-#ifndef CFG_AMP_IPC
-    {cli_get_chip_temp,    "temp",       "get chip temperature"},
-    {cli_temp_por_update,    "temp_por",       "temp por update for testing"},
-    {cli_write_efuse,     "efuse_write",     "<addr in word (64-127) (decimal)> <value in hex>"},
-    {cli_read_efuse,     "efuse_read",      "<addr in word (0-127) (decimal)>"},
-#else
+#ifdef CFG_AMP_IPC
 #ifdef IPC_STATS
     {cli_ipc_dump, "ipc_dump", ""},
 #endif
 #ifdef IPC_TEST_CASE
-     {cli_ipc_test, "ipc_test", "[-n number] [-c count]\r\n    stop"},
-     {cli_ipc_slave_test, "ipc_slave_test", "[-n number] [-c count]\r\n    stop"},
+     {cli_ipc_test, "ipc_test", "[-n number] [-c count]\n    stop"},
+     {cli_ipc_slave_test, "ipc_slave_test", "[-n number] [-c count]\n    stop"},
 #endif
 #ifdef CFG_IPC_PRINT
-     {cli_ipc_dbg, "ipc_dbg", "[on|off]\r\n"},
+     {cli_ipc_dbg, "ipc_dbg", "[on|off]\n"},
 #endif
 #endif
-    {cli_mem,     "mem", "[-b] [-w] [-l] r/w addr [len/value]"},
     {cli_log_enable,     "log", "<value> 0: off, 1: on"},
     {cli_log_level_set,     "log_level", "<level> 0~5 : NONE/ERR/WARN/INFO/DEBUG/VERBOSE"},
     {cli_rtos_info,     "rtos_info", "show rtos mem usage and task info"},
+#if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
     {cli_clear_otp,     "clear_otp", "clear the otp region"},
+    {cli_set_otp_flag,  "set_otp_flag", "[flag] set flag 0x11223344 mean to burn OTP"},
     {cli_check_otp,     "check_otp", "check the otp region valid or not"},
-#if defined(CLI_TYPE_WF)
     {cli_cali_redo,  "redo_cali", "redo rf ppa cap + dpd calibration, should in wifi disconnect or soft ap stop state"},
     {cli_dpd_redo,  "redo_dpd", "redo rf dpd calibration, should in wifi disconnect or soft ap stop state"},
-#endif /* CLI_TYPE_WF */
-    /* could add other cli cmd below */
-#else
-    {cli_help, "?", ""},
-    {cli_version,     "version", "show version information"},
-    {cli_mem,     "mem", "[-b] [-w] [-l] r/w addr [len/value]"},
+#endif
+    {cli_dpd_track,  "dpd_track", "[on|off] on:enable dpd track, off:disable dpd track"},
+#if CONFIG_PM
+    {cli_sys_pm,    "sys_pm",  "[-m active|light|deep] [-w <wakeup source: rtc|gpio|uart|timer|all>] [-t <timer value(ms)>] [-r <retention bits>] [-p <gpio pin number>]\n"
+                               "          status"
+    },
+#endif
+#endif
+    {cli_mem,    "mem", "[-b] [-w] [-l] r/w addr [len/value]"},
 #if CFG_WIFI_MFG
     {wifi_cli_mfg, "mfg", "config|set|start|stop "
-        "[-c <freq>] [-m <mcs idx>] [-s <b|g|n|ax>] [-l <payload length>] [-h] [options (use -h for details)]" },
+    "[-c <freq>] [-m <mcs idx>] [-s <b|g|n|ax>] [-l <payload length>] [-h] [options (use -h for details)]" },
 #endif
+#ifndef CFG_AMP_IPC
+    {cli_get_chip_temp,    "temp",		 "get chip temperature"},
+    {cli_temp_por_update,    "temp_por",	   "temp por update for testing"},
+    {cli_write_efuse,    "efuse_write",	 "<addr in word (64-127) (decimal)> <value in hex>"},
+    {cli_read_efuse,    "efuse_read",		"<addr in word (0-127) (decimal)>"},
 #endif
+    /* could add other cli cmd below */
     {NULL, "", ""}
 };
 

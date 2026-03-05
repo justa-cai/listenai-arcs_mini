@@ -19,6 +19,8 @@
 #include "arcs_ap.h"
 #include "disk/disk_access.h"
 #include <disk/disk.h>
+#include "lisa_device.h"
+#include "lisa_sdmmc.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -316,14 +318,8 @@ static void user_usbd_msc_init(void)
 
 static int user_disk_init(void)
 {
-#if (CONFIG_DISK_DRIVER_SDMMC)
-    extern int sdmmc_hard_init(void);
-    if(0 != sdmmc_hard_init()){
-        LOGD("sdmmc hard init failed");
-        return -1;
-    }
-#endif
-    LOGD("sdmmc_hard_init success");
+    lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
+
     disk_init(NULL);
 
     return 0;
@@ -334,19 +330,16 @@ int main(int argc, char **argv)
 {
     int ret = 0;
 #if CFG_TUSB_OS == OPT_OS_FREERTOS
-    #if CONFIG_LOG
-    lisa_log_init();
-    #endif
     
-    LOGD("Start usb device msc sample\n");
+    LOGI("Start usb device msc sample\n");
 
     ret = user_disk_init();
     if(ret < 0){
-        LOGD("user_disk_init failed");
+        LOGE("user_disk_init failed");
         return ret;
     }
 
-    LOGD("user_disk_init success");
+    LOGI("user_disk_init success");
 
     user_usbd_msc_init();
 

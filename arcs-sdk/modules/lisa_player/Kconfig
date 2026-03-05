@@ -4,4 +4,18 @@ config SDK_MODULE_LISA_PLAYER
     bool "Enable lisa player"
     default n
 
+config SDK_MODULE_LISA_PLAYER_SOURCE_CODE
+    bool "lisa player use source code"
+    default n
+
+config SDK_MODULE_LISA_PLAYER_SOURCE_CODE_URL
+    string "lisa player source code url"
+    default ""
+    depends on SDK_MODULE_LISA_PLAYER_SOURCE_CODE
+
+config SDK_MODULE_LISA_PLAYER_SOURCE_CODE_REVERSION
+    string "lisa player source code reversion"
+    default "origin/master"
+    depends on SDK_MODULE_LISA_PLAYER_SOURCE_CODE
+
 endmenu

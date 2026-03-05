@@ -23,6 +23,7 @@ extern void lsble_single_isr(void);  // TODO: Change the name
 #elif (BT_EMB_PRESENT)
 #endif
 
+extern void lsip_rccali_irq_handle(void);
 /*
  * GLOBAL VARIABLES
  ****************************************************************************************
@@ -62,24 +63,28 @@ void lsip_int_enable(void)
     register_ISR(IRQ_BT_VECTOR, lsip_isr, NULL);
     enable_IRQ(IRQ_BT_VECTOR);
 
-    register_ISR(IRQ_TIMER0_VECTOR, lsip_isr, NULL);
-    enable_IRQ(IRQ_TIMER0_VECTOR);
+    //register_ISR(IRQ_TIMER0_VECTOR, lsip_isr, NULL);
+    //enable_IRQ(IRQ_TIMER0_VECTOR);
 
 #elif (BLE_EMB_PRESENT)
     register_ISR(IRQ_BT_VECTOR, lsble_single_isr, NULL);
     enable_IRQ(IRQ_BT_VECTOR);
 
-    register_ISR(IRQ_TIMER0_VECTOR, lsble_single_isr, NULL);
-    enable_IRQ(IRQ_TIMER0_VECTOR);
+    //register_ISR(IRQ_TIMER0_VECTOR, lsble_single_isr, NULL);
+    //enable_IRQ(IRQ_TIMER0_VECTOR);
 #elif (BT_EMB_PRESENT)
 #endif
+//#if (LS_RC_CLOCK_MOD == 3)    
+    register_ISR(IRQ_RCCAL_DONE_VECTOR, lsip_rccali_irq_handle, NULL);
+    enable_IRQ(IRQ_RCCAL_DONE_VECTOR);
+//#endif
+
     bt_irq_ready = 1;
 }
 
 void lsip_int_clear(void)
 {
     clear_IRQ(IRQ_BT_VECTOR);
-    bt_irq_ready = 0;
 }
 
 

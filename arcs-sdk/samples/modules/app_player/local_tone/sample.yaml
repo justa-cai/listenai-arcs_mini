@@ -1,0 +1,3 @@
+tests:
+  samples.app_player.local_tone:
+    build_only: true

@@ -1,12 +1,11 @@
 #include <string.h>
 #include "lsfs.h"
 #include "disk/disk_access.h"
+#include "lisa_sdmmc.h"
 #include "log_print.h"
 #if CONFIG_LVFS_POSIX_API
 #include "lvfs.h"
 #endif
-
-#define LOGD(format, ...) CLOG(format, ##__VA_ARGS__)
 
 #define RAMDISK_DEVICE      "RAM:"
 #define RAMDISK_MOUNT_POINT "/" RAMDISK_DEVICE
@@ -154,10 +153,9 @@ int fs_write_read(const char *fullpath)
     return 0;
 }
 
-extern int sdmmc_hard_init(void);
 int test_lsfs_init()
 {
-    sdmmc_hard_init();
+    lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
     disk_init(NULL);
 
 #if CONFIG_LVFS_POSIX_API

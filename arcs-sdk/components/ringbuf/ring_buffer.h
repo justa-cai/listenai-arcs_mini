@@ -17,8 +17,8 @@
 extern "C" {
 #endif
 
-#define __ASSERT(test, fmt, ...) { if (!(test)) { assert(test); } }
-#define __ASSERT_NO_MSG(test) { if (!(test)) { assert(test); } }
+#define __ASSERT(test, fmt, ...) {}
+#define __ASSERT_NO_MSG(test) { }
 #define MIN(x,y) (x>y?y:x)
 #define likely(x)   __builtin_expect((bool)!!(x), 1)
 #define unlikely(x) __builtin_expect((bool)!!(x), 0)

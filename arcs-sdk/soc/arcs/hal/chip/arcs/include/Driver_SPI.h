@@ -166,11 +166,12 @@ typedef struct {
 
 //------------------------------------------------------------------------------------------
 ///****** SPI Event *****/
-#define CSK_SPI_EVENT_TRANSFER_COMPLETE (1UL << 0)  ///< Data Transfer completed
-#define CSK_SPI_EVENT_DATA_LOST         (1UL << 1)  ///< Data lost: Receive overflow / Transmit underflow
-#define CSK_SPI_EVENT_SLV_CMD_R         (1UL << 3)  ///< Slave mode, receive read command
-#define CSK_SPI_EVENT_SLV_CMD_W         (1UL << 4)  ///< Slave mode, receive write command
-#define CSK_SPI_EVENT_SLV_CMD_S         (1UL << 5)  ///< Slave mode, receive read status command
+#define CSK_SPI_EVENT_TRANSFER_COMPLETE     (1UL << 0)  ///< Data Transfer completed
+#define CSK_SPI_EVENT_DATA_LOST             (1UL << 1)  ///< Data lost: Receive overflow / Transmit underflow
+#define CSK_SPI_EVENT_SLV_CMD_R             (1UL << 3)  ///< Slave mode, receive read command
+#define CSK_SPI_EVENT_SLV_CMD_W             (1UL << 4)  ///< Slave mode, receive write command
+#define CSK_SPI_EVENT_SLV_CMD_S             (1UL << 5)  ///< Slave mode, receive read status command
+#define CSK_SPI_EVENT_DMA_BLOCK_COMPLETE    (1UL << 6)
 
 
 /**
@@ -379,6 +380,50 @@ void* SPI2();
  \return      SPI device index, 0, 1,..., and 0xFF if not existing.
  */
 uint8_t SPI_Index(void *spi_dev);
+
+
+/**​
+ * @brief Start continuous SPI data reception in Ping-Pong mode without triggering ENDINT interrupt.
+ * @details This function initializes and starts a Ping-Pong mode DMA transfer for SPI reception.
+ *  It uses two buffers (data0 and data1) to continuously receive data without interruption.
+ *  When CS signal is raised, the transfer continues without generating ENDINT interrupt.
+ * @param[in] spi_dev Pointer to the SPI device instance
+ * @param[in] data0 Pointer to the first receive buffer
+ * @param[in] data1 Pointer to the second receive buffer (can be NULL)
+ * @param[in] num Number of data elements to receive in each buffer (byte)
+ * @return Execution status
+ * @retval CSK_DRIVER_OK Operation successful
+ * @retval CSK_DRIVER_ERROR_PARAMETER Invalid parameter provided
+ * @retval CSK_DRIVER_ERROR SPI device not configured or DMA error
+ */
+int32_t SPI_Receive_PiPo_Start(void *spi_dev, void *data0, void *data1, uint32_t num);
+
+/**
+ * @brief Cancel the circular Ping-Pong reception operation.
+ * @details This function breaks the circular chain of Ping-Pong reception but does not
+ *  immediately stop the ongoing transfer. The current buffer transfer will complete.
+ * @param[in] spi_dev Pointer to the SPI device instance
+ * @return Execution status
+ * @retval CSK_DRIVER_OK Operation successful
+ * @retval CSK_DRIVER_ERROR_PARAMETER Invalid parameter provided
+ * @retval CSK_DRIVER_OK If channel is already idle or not using DMA
+ */
+int32_t SPI_Receive_PiPo_Stop(void *spi_dev);
+
+/**
+ * @brief Get the current buffer address and size for Ping-Pong reception.
+ * @details This function retrieves information about the current active buffer in the
+ *  Ping-Pong reception operation, including its address and size.
+ * @param[in] spi_dev Pointer to the SPI device instance
+ * @param[out] addr Pointer to store the current buffer address
+ * @param[out] num Pointer to store the size of byte
+ * @return Number of transferred blocks if successful, error code otherwise
+ * @retval >=0 Number of transferred blocks
+ * @retval CSK_DRIVER_ERROR_PARAMETER Invalid parameter provided
+ * @retval CSK_DRIVER_OK If channel is idle or not using DMA
+ */
+int32_t SPI_Receive_PiPo_Get_Addr(void *spi_dev, void *addr, uint32_t *num);
+
 
 //
 //NOTES:

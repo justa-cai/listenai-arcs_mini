@@ -111,6 +111,20 @@ enum bt_os_msg_id
 
     /// AT test
     BT_OS_AT_SEND_EVT                                       = OS_MSG_ID(BT, 0x60),
+
+    BT_OS_CONNECT_UPDATE_EVT                                = OS_MSG_ID(BT, 0x70),
+
+    BT_OS_BT_INQ_START_EVT                                  = OS_MSG_ID(BT, 0x71),
+
+    BT_OS_BT_INQ_STOP_EVT                                   = OS_MSG_ID(BT, 0x72),
+
+    BT_OS_BT_SCAN_EVT                                       = OS_MSG_ID(BT, 0x73),
+
+    BT_OS_BT_CONNECT_EVT                                    = OS_MSG_ID(BT, 0x74),
+
+    BT_OS_BT_DISCONNECT_EVT                                 = OS_MSG_ID(BT, 0x75),
+
+
 };
 
 /*

@@ -1,12 +1,16 @@
 .. _samples:
 
-例程
+示例
 ====
 
 .. toctree::
     :maxdepth: 1
-    :numbered:
 
-
-    drivers/index_zh
+    helloworld/README.rst
+    drivers/devices/index_zh
+    modules/index_zh
+    network/index_zh
+    bluetooth/index_zh
+    algorithms/index_zh
+    cpp/index_zh
 

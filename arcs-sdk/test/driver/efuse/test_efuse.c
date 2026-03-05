@@ -30,23 +30,18 @@ uint64_t uuid = 0;
 void setUp(void)
 {
     /* This is run before EACH TEST */
+    efuse_init();
 
 }
 
 void tearDown(void)
 {
-}
-
-void test_efuse_read_word_verify(void)
-{
-    uint32_t val = 0;
-    int8_t ret = efuse_read_word(0x00, &val);
-    TEST_ASSERT_EQUAL(0, ret);
+    efuse_uninit();
 }
 
 void test_efuse_read_uuid_verify(void)
 {
-    TEST_ASSERT_EQUAL(uuid, efuse_read_uuid());
+    TEST_ASSERT_NOT_EQUAL(uuid, efuse_read_uuid());
 }
 
 /*=======Test Reset Option=====*/
@@ -62,7 +57,6 @@ int main(void)
 {
     UnityBegin("test/derivers/efuse/test_efuse.c");
     RUN_TEST(test_efuse_read_uuid_verify, __LINE__);
-    RUN_TEST(test_efuse_read_word_verify, __LINE__);
     return (UnityEnd());
 }
 

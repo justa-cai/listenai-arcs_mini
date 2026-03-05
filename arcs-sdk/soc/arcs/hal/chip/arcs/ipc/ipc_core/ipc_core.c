@@ -82,7 +82,6 @@ IPC_FUNC_ATTR static int8_t ipc_irq_handler(uint32_t event, uint32_t status)
     ipc_dev.rx_irq_cnt++;
 #endif
 
-    ipc_info("%s: 0x%08x\n",__func__, status);
     status = IPC_PLATFORM_IRQ_STATUS(status);
     while (status)
     {
@@ -529,7 +528,7 @@ IPC_FUNC_ATTR int32_t ipc_sendto(struct ipc_ccb *ccb, struct ipc_msg_desc *desc,
         if (time_count)
         {
             IPC_STAT(ccb, tx, tx_retry);
-            ipc_dbg("tx retry:%d\n", time_count);
+            ipc_err("tx retry:%d\n", time_count);
         }
 
         if (remain)
@@ -620,31 +619,28 @@ int32_t ipc_buf_full(struct ipc_ccb *ccb)
  * @return                - struct ipc_ccb_t
  *
  */
-struct ipc_queue* ipc_shared_queue_init(bool master, volatile struct vring_hdr *vring, volatile void *buf, int32_t item_size, int32_t item_num)
+struct ipc_queue* ipc_get_queue(volatile struct vring_hdr *vring)
 {
     struct ipc_queue *queue;
 
-    if ((item_num < 2) || (item_num & (item_num-1)))
-        return NULL;
-
     queue = (struct ipc_queue*)rtos_malloc(sizeof(struct ipc_queue));
     if (queue)
-        ipc_queue_init(master, queue, vring, buf, item_size, item_num);
+        ipc_queue_init(queue, vring);
 
     return queue;
 }
 
-uint32_t ipc_get_fast_notify_status(void)
+uint32_t ipc_get_fast_notify_state(void)
 {
-    return ipc_dev.local_status->fast_notify_status;
+    return ipc_dev.local_notify->state;
 }
 
 void ipc_fast_notify(uint32_t chan, int32_t event)
 {
     if (IPC_GET_LINK_ID_FROM_CHAN(chan) == CORE_PEER)
-        ipc_dev.remote_status->fast_notify_status |= event;
+        ipc_dev.remote_notify->state |= event;
     else
-        ipc_dev.local_status->fast_notify_status  |= event;
+        ipc_dev.local_notify->state  |= event;
 
     ipc_platform_notify(IPC_GET_LINK_ID_FROM_CHAN(chan), IPC_GET_IRQ_ID_FROM_CHAN(chan));
     ipc_info("%s port 0x%x, 0x%x\n",__func__, chan, event);
@@ -780,11 +776,11 @@ struct ipc_instance* ipc_get_ep_dump(void)
     return &ipc_dev;
 }
 #endif
-void ipc_init(uint32_t link_id, volatile struct ipc_status *local, volatile struct ipc_status *remote)
+void ipc_init(uint32_t link_id, volatile struct ipc_notify *local, volatile struct ipc_notify *remote)
 {
-	ipc_dev.link_id = link_id;
-    ipc_dev.local_status  = local;
-    ipc_dev.remote_status = remote;
+    ipc_dev.link_id = link_id;
+    ipc_dev.local_notify  = local;
+    ipc_dev.remote_notify = remote;
     dl_list_init(&ipc_dev.local_ccb);
     dl_list_init(&ipc_dev.remote_ccb);
     ipc_platform_init(ipc_irq_handler);

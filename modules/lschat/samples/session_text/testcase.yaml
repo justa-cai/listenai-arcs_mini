@@ -1,0 +1,5 @@
+tests:
+  samples.session_text.linux:
+    tags: linux
+    build_only: true
+    

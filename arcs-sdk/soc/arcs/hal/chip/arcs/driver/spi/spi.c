@@ -2651,6 +2651,18 @@ static void spi_abort_transfer(SPI_DEV *spi, bool keep_state)
     } //end if clean_state
 }
 
+/****************************************************************************************************************************************************************************************
+ *
+ *    XTAL_CLK    +-----------------------------------+                +-------------------------------+            +-------------------------------------------------+
+ * -------------->|                                   |                |                               |            |                                                 |
+ *    (24MHz)     | IP_SYSCTRL->REG_PERI_CLK_CFG1     |  SRC_SPI_CLK   | IP_SYSCTRL->REG_PERI_CLK_CFG1 |  SPI_CLK   | IP_SPI0->REG_TIMING                             |  SPI_CLK_OUT
+ *                | if(SEL==0) SRC_SPI_CLK=XTAL_CLK   +--------------->| SPI_CLK=SrcPeriClk*N/M        +----------->| SPI_CLK_OUT=SPI_CLK/((DIV+1)*2)                 +--------------->
+ *   SrcPeriClk   | if(SEL==1) SRC_SPI_CLK=SrcPeriClk |                | (N=1~7 M=1~15 N/M<=1/2)       |            | (DIV=0~0xFF, if(DIV==0xFF) SPI_CLK_OUT=SPI_CLK) |
+ * -------------->|                                   |                |                               |            |                                                 |
+ *    (100MHz)    +-----------------------------------+                +-------------------------------+            +-------------------------------------------------+
+ *
+*****************************************************************************************************************************************************************************************/
+
 // meaningful only in SPI master mode
 static bool spi_set_bus_speed(SPI_DEV *spi, uint32_t arg)
 {
@@ -3034,6 +3046,12 @@ spi_dma_tx_event(uint32_t event_info, uint32_t xfer_bytes, uint32_t usr_param)
     bool no_cs = (spi->info->flags & SPI_FLAG_NO_CS);
 
     switch (event_type) {
+    case DMA_EVENT_BLOCK_COMPLETE:
+        spi->info->xfer.tx_cnt = dma_channel_get_count(spi->info->tx_dyn_dma_ch);
+        if (spi->info->cb_event != NULL)
+            spi->info->cb_event(CSK_SPI_EVENT_DMA_BLOCK_COMPLETE, spi->info->usr_param);
+        break;
+
     case DMA_EVENT_TRANSFER_COMPLETE:
         if (!spi->info->xfer.dma_tx_done) {
             spi->reg->CTRL &= ~TXDMAEN;
@@ -3097,6 +3115,12 @@ spi_dma_rx_event(uint32_t event_info, uint32_t xfer_bytes, uint32_t usr_param)
     bool no_cs = (spi->info->flags & SPI_FLAG_NO_CS);
 
     switch (event_type) {
+    case DMA_EVENT_BLOCK_COMPLETE:
+        spi->info->xfer.rx_cnt = dma_channel_get_count(spi->info->rx_dyn_dma_ch);
+        if (spi->info->cb_event != NULL)
+            spi->info->cb_event(CSK_SPI_EVENT_DMA_BLOCK_COMPLETE, spi->info->usr_param);
+        break;
+
     case DMA_EVENT_TRANSFER_COMPLETE:
         DBG_PIN_WR(1); // Set High
         if (!spi->info->xfer.dma_rx_done) {
@@ -3568,3 +3592,276 @@ void SPI_Pull_CS(void *spi_dev, uint8_t level)
     else
         spi->reg->CTRL &= ~CS_FROM_REG;
 }
+
+
+/**​
+ * @brief Start continuous SPI data reception in Ping-Pong mode without triggering ENDINT interrupt.
+ * @details This function initializes and starts a Ping-Pong mode DMA transfer for SPI reception.
+ *  It uses two buffers (data0 and data1) to continuously receive data without interruption.
+ *  When CS signal is raised, the transfer continues without generating ENDINT interrupt.
+ * @param[in] spi_dev Pointer to the SPI device instance
+ * @param[in] data0 Pointer to the first receive buffer
+ * @param[in] data1 Pointer to the second receive buffer (can be NULL)
+ * @param[in] num Number of data elements to receive in each buffer (byte)
+ * @return Execution status
+ * @retval CSK_DRIVER_OK Operation successful
+ * @retval CSK_DRIVER_ERROR_PARAMETER Invalid parameter provided
+ * @retval CSK_DRIVER_ERROR SPI device not configured or DMA error
+*/
+int32_t SPI_Receive_PiPo_Start(void *spi_dev, void *data0, void *data1, uint32_t num)
+{
+    int32_t ret = 0;
+    DMA_PIPO_BLK spi_blks[2] = {0};
+    uint8_t spi_blk_cnt = 2;
+
+    SPI_DEV *spi = safe_spi_dev(spi_dev);
+    if (spi == NULL) {
+        LOGD("%s: invalid SPI device (0x%08x)!", __func__, spi_dev);
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    bool is_slave = ((spi->info->txrx_mode & CSK_SPI_MODE_Msk) == CSK_SPI_MODE_SLAVE);
+    bool no_cs = (spi->info->flags & SPI_FLAG_NO_CS);
+
+     //FIXME: slave can RX any length of data
+    if ((data0 == NULL) || (num == 0U)) // || (!is_slave && num > MAX_TRANCNT)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    if (!(spi->info->flags & SPI_FLAG_CONFIGURED))
+        return CSK_DRIVER_ERROR;
+
+    spi_blks[0].src = (void *)(&(spi->reg->DATA));
+    spi_blks[0].dst = data0;
+    spi_blks[0].size = num;
+    spi_blks[0].flags = 0;
+
+    if(data1 == NULL) {
+        spi_blk_cnt = 1;
+    } else {
+        spi_blk_cnt = 2;
+        spi_blks[1].src = (void *)(&(spi->reg->DATA));
+        spi_blks[1].dst = data1;
+        spi_blks[1].size = num;
+        spi_blks[1].flags = 0;
+    }
+
+    if (dma_channel_check_select(spi->info->rx_dyn_dma_ch, DMA_TT_P2M, spi->dma_rx.reqsel))
+    {
+        //LOGD("%s: call dma_channel_start_pipo!\n", __func__);
+        ret = dma_channel_start_pipo(spi->info->rx_dyn_dma_ch, &spi_blks[0], &spi_blk_cnt);
+        if (ret < 0) {
+            LOGD("%s: Failed to call dma_channel_start_pipo!!\r\n", __func__);
+            return ret;
+        }
+    }
+    else
+    {
+        //LOGD("[%s:%d] \r\n", __func__, __LINE__);
+
+        /* first init */
+        spi->info->status.all = 0;
+        spi->info->status.bit.busy = 1;
+        spi->info->status.bit.no_endint = 1; // No ENDINT interrupt!!
+        spi->info->xfer.rx_buf = data0;
+        spi->info->xfer.rx_cnt = 0U;
+        spi->info->xfer.req_rx_cnt = num;
+        spi->info->xfer.cur_op = SPI_RECEIVE;
+
+        bool xfer_started = false;
+        uint32_t intren = 0, count = num, thres = spi->rxfifo_depth >> 1;
+
+        // DMA mode
+        while (RX_DMA(spi->info->txrx_mode)) { // DMA RX
+
+            // initial the dma done flag
+            spi->info->xfer.dma_rx_done = 0;
+
+            if (!(spi->dma_rx.flag & SPI_DMA_FLAG_CH_RSVD)) {
+                // select some free DMA channel
+                if (spi->info->rx_dyn_dma_ch == DMA_CHANNEL_ANY)
+                    spi->info->rx_dyn_dma_ch = spi->dma_rx.channel;
+                spi->info->rx_dyn_dma_ch = dma_channel_select(
+                                                &spi->info->rx_dyn_dma_ch,
+                                                spi->dma_rx.cb_event,
+                                                spi->dma_rx.usr_param,
+                                                spi->info->rx_dma_no_syncache ? DMA_CACHE_SYNC_NOP : DMA_CACHE_SYNC_DST);
+                if (spi->info->rx_dyn_dma_ch == DMA_CHANNEL_ANY) {
+                    LOGD("%s: NO free DMA channel!!\r\n", __func__);
+                    return CSK_DRIVER_ERROR;
+                }
+            }
+
+            uint32_t control, config_low, config_high;
+
+            control = DMA_CH_CTLL_DST_WIDTH(spi->info->dma_width_shift) | DMA_CH_CTLL_SRC_WIDTH(spi->info->dma_width_shift) |
+                    DMA_CH_CTLL_DST_BSIZE(spi->info->rx_bsize_shift) | DMA_CH_CTLL_SRC_BSIZE(spi->info->rx_bsize_shift) |
+                    DMA_CH_CTLL_DST_INC | DMA_CH_CTLL_SRC_FIX | DMA_CH_CTLL_TTFC_P2M |
+                    DMA_CH_CTLL_DMS(0) | DMA_CH_CTLL_SMS(DMA_MASTER_SEL_MAX) | DMA_CH_CTLL_INT_EN;
+
+            config_low = DMA_CH_CFGL_CH_PRIOR(spi->dma_rx.ch_prio); // channel priority is higher than 0
+            config_high = DMA_MASTER_SEL_MAX > 0 ? DMA_CH_CFGH_SRC_PER(spi->dma_rx.reqsel) :
+                        (DMA_CH_CFGH_FIFO_MODE | DMA_CH_CFGH_SRC_PER(spi->dma_rx.reqsel));
+
+            ret = dma_channel_setup (spi->info->rx_dyn_dma_ch, DMA_CH_EN_XFER_INT | DMA_CH_EN_BLK_INT | DMA_CH_EN_PIPO,
+                                    control, config_low, config_high, 0, 0); //dst_scat
+            if (ret < 0) {
+                LOGD("%s: Failed to call dma_channel_setup!!\r\n", __func__);
+                dma_channel_disable(spi->info->rx_dyn_dma_ch, false);
+                spi->info->rx_dyn_dma_ch = DMA_CHANNEL_ANY;
+                return CSK_DRIVER_ERROR;
+            }
+
+            ret = dma_channel_start_pipo(spi->info->rx_dyn_dma_ch, &spi_blks[0], &spi_blk_cnt);
+            if (ret < 0) {
+                LOGD("%s: Failed to call dma_channel_start_pipo!!\r\n", __func__);
+                dma_channel_disable(spi->info->rx_dyn_dma_ch, false);
+                spi->info->rx_dyn_dma_ch = DMA_CHANNEL_ANY;
+                return ret;
+            }
+
+            // enable RX DMA
+            spi->reg->CTRL |= RXDMAEN;
+
+            // enable interrupts
+            //intren = SPI_ENDINT;
+
+            spi->info->status.bit.rx_mode = DMA_IO;
+            xfer_started = true;
+
+            break;
+        } // end while
+
+        // neither DMA transfer is started
+        if (!xfer_started) {
+            LOGD("%s: Neither DMA is started!!\r\n", __func__);
+            return CSK_DRIVER_ERROR;
+        }
+
+        // wait prior transfer finish
+        if (!no_cs || !is_slave) // || spi->info->cb_set_cs != NULL
+            spi_polling_spiactive(spi);
+
+        // set new RX FIFO threshold if necessary
+    //    if (no_cs || spi->info->status.bit.rx_mode == PIO_IO)
+    //        spi_set_rx_fifo_threshold(spi, count < thres ? 1 : thres);
+        if (count < thres) {
+            if (no_cs || spi->info->status.bit.rx_mode == PIO_IO)
+                thres = 1;
+        }
+        spi_set_rx_fifo_threshold(spi, thres);
+
+        // enable RX FIFO overrun interrupt when slave mode
+        // set slave cmd interrupt
+        if(is_slave) {
+            CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
+            intren |= SPI_RXFIFOORINT | SPI_SLVCMD;
+        }
+
+        // enable interrupts
+        // (Interrupt could be triggered soon once enabled, so enable interrupts at the end!!)
+        spi->reg->INTREN = intren;
+
+        // set transfer mode to read only and transfer count for read data
+        spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN));
+        //spi->reg->RD_LEN = RD_TRANCNT(num);
+        spi->reg->RD_LEN = 0xFFFFFFFF;
+
+        // trigger transfer when SPI master mode
+        if (is_slave) {
+            if (no_cs && spi->info->cb_set_cs != NULL)
+                //spi->info->cb_set_cs(spi->spi_idx, 0);
+                spi->info->cb_set_cs(spi_dev, 0);
+        } else {
+            spi->reg->CMD = 0;
+        }
+
+    }
+
+    return CSK_DRIVER_OK;
+}
+
+
+/**
+ * @brief Cancel the circular Ping-Pong reception operation.
+ * @details This function breaks the circular chain of Ping-Pong reception but does not
+ *  immediately stop the ongoing transfer. The current buffer transfer will complete.
+ * @param[in] spi_dev Pointer to the SPI device instance
+ * @return Execution status
+ * @retval CSK_DRIVER_OK Operation successful
+ * @retval CSK_DRIVER_ERROR_PARAMETER Invalid parameter provided
+ * @retval CSK_DRIVER_OK If channel is already idle or not using DMA
+*/
+int32_t SPI_Receive_PiPo_Stop (void *spi_dev)
+{
+    int32_t ret = 0;
+
+    SPI_DEV *spi = safe_spi_dev(spi_dev);
+    if (spi == NULL) {
+        LOGD("%s: invalid SPI device (0x%08x)!\n", __func__, spi_dev);
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    //FIXME: just return OK if the channel is idle
+    if (!(spi->info->status.bit.busy))
+        return CSK_DRIVER_OK;
+
+    //FIXME: just return OK if not used dma
+    if (!(dma_channel_check_select(spi->info->rx_dyn_dma_ch, DMA_TT_P2M, spi->dma_rx.reqsel)))
+        return CSK_DRIVER_OK;
+
+    ret = dma_channel_cancel_pipo(spi->info->rx_dyn_dma_ch);
+
+    return ret;
+}
+
+
+/**
+ * @brief Get the current buffer address and size for Ping-Pong reception.
+ * @details This function retrieves information about the current active buffer in the
+ *  Ping-Pong reception operation, including its address and size.
+ * @param[in] spi_dev Pointer to the SPI device instance
+ * @param[out] addr Pointer to store the current buffer address
+ * @param[out] num Pointer to store the size of byte
+ * @return Number of transferred blocks if successful, error code otherwise
+ * @retval >=0 Number of transferred blocks
+ * @retval CSK_DRIVER_ERROR_PARAMETER Invalid parameter provided
+ * @retval CSK_DRIVER_OK If channel is idle or not using DMA
+*/
+int32_t SPI_Receive_PiPo_Get_Addr (void *spi_dev, void *addr, uint32_t *num)
+{
+    int32_t ret = 0;
+    DMA_PIPO_BLK spi_blks[2] = {0};
+
+    SPI_DEV *spi = safe_spi_dev(spi_dev);
+    if ((spi == NULL) || (addr == NULL) || (num == NULL))  {
+        LOGD("[%s:%d] invalid SPI paramter\n", __func__, __LINE__, spi_dev);
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    //FIXME: just return OK if the channel is idle
+    if (!(spi->info->status.bit.busy))
+        return CSK_DRIVER_OK;
+
+    //FIXME: just return OK if not used dma
+    if (!(dma_channel_check_select(spi->info->rx_dyn_dma_ch, DMA_TT_P2M, spi->dma_rx.reqsel)))
+        return CSK_DRIVER_OK;
+
+    ret = dma_channel_get_pipo_blks(spi->info->rx_dyn_dma_ch, &spi_blks[0], 2);
+    if (ret < 0) {
+        LOGD("%s: fail ret=%d\n", __func__, ret);
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    if (ret) {
+        *(uint32_t *)addr = (uint32_t)spi_blks[0].dst;
+        *num = spi_blks[0].size;
+        //LOGD("0: src=0x%x dts=0x%x\n", spi_blks[0].src, spi_blks[0].dst);
+        //LOGD("1: src=0x%x dts=0x%x\n", spi_blks[1].src, spi_blks[1].dst);
+    }
+
+    return ret;
+}
+
+
+
+

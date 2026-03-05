@@ -1,0 +1,18 @@
+# LISA PWM Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_PWM
+	bool "Enable LISA PWM Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA PWM device driver based on lisa_device framework.
+	  Provides PWM signal generation and control interfaces.
+
+	  This driver wraps the HAL PWM functions and provides a unified
+	  device interface for PWM operations including frequency, duty cycle,
+	  and polarity control.
+
+	  The driver provides one PWM device (pwm0) with 8 independent channels.

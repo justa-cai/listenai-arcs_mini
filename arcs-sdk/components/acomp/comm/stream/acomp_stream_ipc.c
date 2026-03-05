@@ -7,6 +7,37 @@
 #define TAG "stream_ipc"
 #include "lisa_log.h"
 
+#define CACHE_LINE_SIZE (32)
+                                                                   
+static void stream_notify(struct virtqueue *vqa){
+
+    struct acomp_device* dev;
+    acomp_stream_t *stream;
+    acomp_stream_channel_t* channel;
+    acomp_ipc_stream_update_t *ipc_desc;
+    int ret;
+
+    channel = vqa->priv;
+    stream = channel->priv;
+
+    ipc_desc = psram_malloc_align(CACHE_LINE_SIZE, sizeof(acomp_ipc_stream_update_t));
+    if(ipc_desc == NULL){
+        LISA_LOGE(TAG,"[%s %d] psram_malloc_align failed",__FUNCTION__,__LINE__);
+        return;
+    }
+    ipc_desc->index = channel->idx;
+
+    ret = acomp_ipc_build_frame_send_sync( stream->dev_index,
+                                    ACOMP_CONTEXT_IPC_GLB_CONTROL| IPC_HEADER_REQ_REPALY,
+                                    ACOMP_IPC_CMD_STREAM_UPDATE,
+                                    0,
+                                    ipc_desc,
+                                    sizeof(acomp_ipc_stream_update_t));   
+
+    psram_free(ipc_desc);
+    // LISA_LOGI(TAG,"[%s %d]ret:%d",__FUNCTION__,__LINE__,ret);  
+}
+
 acomp_stream_channel_t* acomp_stream_ipc_channel_create(acomp_stream_t* stream,uint32_t chn,uint32_t dev_index,acomp_stream_chn_create_desc_t *desc){
 
     uint32_t mem_size;
@@ -25,8 +56,8 @@ acomp_stream_channel_t* acomp_stream_ipc_channel_create(acomp_stream_t* stream,u
             .pad = 32,
         },
         .buffer_size = desc->buffer_size,
+        .notify_fc = stream_notify,
         .callback_fc = NULL,
-        .notify_fc = NULL,
         .kick_policy = desc->kick_policy,
         .user_priv = NULL,
     };
@@ -43,6 +74,7 @@ acomp_stream_channel_t* acomp_stream_ipc_channel_create(acomp_stream_t* stream,u
         return NULL;
     }
     memset(mem_ptr, 0, mem_size);
+    HAL_FlushInvalidateDCache_by_Addr(mem_ptr, mem_size);
 
     chn_desc.ring.phy_addr = mem_ptr;
     acomp_stream_channel_t *channel = stream->ops.channel_create(stream, &chn_desc);

@@ -1,21 +1,6 @@
-menu "boards configuration"
-    
-choice 
-    prompt "Select target board"
-    default BOARDS_CHOICE_ARCS_EVB_IV01
+# ARCS BOARD CONFIGURATION
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
 
-    config BOARDS_CHOICE_CUSTOM
-        bool "Custom development board"
-
-    config BOARDS_CHOICE_ARCS_MINI
-        bool "ARCS MINI"
-
-    config BOARDS_CHOICE_ARCS_EVB_IV01
-        bool "ARCS EVB IV01"
-
-    config BOARDS_CHOICE_ARCS_WORDCARD
-        bool "ARCS WORDCARD"
-
-endchoice
-
-endmenu
+osource "$BOARD_KCONFIG_PATH"

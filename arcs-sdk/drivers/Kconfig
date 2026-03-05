@@ -1,1 +1,53 @@
-# init
+# LISA Device Framework Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_DEVICE
+	bool "Enable LISA Device Framework"
+	default n
+	select LISA_OS
+	select LOG
+	help
+	  Enable the LISA device framework for unified device management.
+	  This provides a base class for all devices with automatic registration,
+	  state management, and observability features.
+
+if LISA_DEVICE
+
+config LISA_DEVICE_DEBUG
+	bool "Enable device framework debug features"
+	default n
+	help
+	  Enable debug features like device registry printing, verification, etc.
+	  This will increase code size and should be disabled in production builds.
+
+config LISA_DEVICE_MANUAL_INIT
+	bool "Manual device initialization mode"
+	default n
+	help
+	  Enable manual initialization mode for testing purposes.
+	  When enabled, lisa_device_init() will not be called automatically.
+	  This allows test code to control the exact timing of device initialization,
+	  useful for testing initialization logic, error handling, and edge cases.
+
+rsource "lisa_adc/Kconfig"
+rsource "lisa_audio/Kconfig"
+rsource "lisa_gpio/Kconfig"
+rsource "lisa_i2c/Kconfig"
+rsource "lisa_pwm/Kconfig"
+rsource "lisa_spi/Kconfig"
+rsource "lisa_uart/Kconfig"
+rsource "lisa_display/Kconfig"
+rsource "lisa_touch/Kconfig"
+rsource "lisa_wdt/Kconfig"
+rsource "lisa_camera/Kconfig"
+rsource "lisa_rtc/Kconfig"
+rsource "lisa_flash/Kconfig"
+rsource "lisa_hwtimer/Kconfig"
+rsource "lisa_sdmmc/Kconfig"
+rsource "lisa_qspilcd/Kconfig"
+rsource "lisa_dvp/Kconfig"
+rsource "lisa_rgb/Kconfig"
+
+endif # LISA_DEVICE

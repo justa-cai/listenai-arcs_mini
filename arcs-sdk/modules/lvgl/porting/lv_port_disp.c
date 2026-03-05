@@ -28,7 +28,7 @@ static void disp_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_
 /**********************
  *  STATIC VARIABLES
  **********************/
-const struct display_device *lv_display_device = NULL;
+lisa_device_t *lv_display_device = NULL;
 
 /* Display buffers */
 static lv_disp_buf_t disp_buf;
@@ -51,7 +51,7 @@ typedef struct {
 static void flush_thread(void *arg)
 {
     flush_msg_t msg;
-    struct display_buffer_descriptor desc;
+    lisa_display_buffer_desc_t desc;
     
     while (1) {
         if (xQueueReceive(flush_queue, &msg, portMAX_DELAY) == pdTRUE) {
@@ -169,14 +169,14 @@ static void monitor_cb(lv_disp_drv_t * drv, uint32_t time, uint32_t px)
 }
 #endif
 
-void lv_port_disp_init(display_hw_config_t *config)
+void lv_port_disp_init(lisa_device_t *display_dev)
 {
-	struct display_capabilities caps = {0};
+	lisa_display_capabilities_t caps = {0};
 
 	/*-------------------------
 	 * Initialize your display
 	 * -----------------------*/
-	lv_display_device = lisa_display_create(config);
+	lv_display_device = display_dev;
 	if (lv_display_device == NULL) {
 		LV_LOG_ERROR("[%s] display device create faild", __FUNCTION__);
 		return;
@@ -190,7 +190,7 @@ void lv_port_disp_init(display_hw_config_t *config)
 	/*-----------------------------
 	 * Create a buffer for drawing
 	 *----------------------------*/
-	uint32_t size = caps.x_resolution * caps.y_resolution * sizeof(lv_color_t);
+	uint32_t size = caps.width * caps.height * sizeof(lv_color_t);
 	lv_color_t *buf_1 = lv_mem_alloc(size);
 	if(buf_1 == NULL) {
 		LV_LOG_ERROR("[%s] buf_1 malloc faild", __FUNCTION__);
@@ -262,13 +262,13 @@ void lv_port_disp_init(display_hw_config_t *config)
 
 #if CONFIG_LV_DRIVER_ROTATE_NORMAL
 	disp_drv.rotated = 0;
-	lisa_display_set_orientation(lv_display_device, DISPLAY_ORIENTATION_NORMAL);
+	lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_0);
 #elif CONFIG_LV_DRIVER_ROTATE_90
 	disp_drv.rotated = 1;
-	lisa_display_set_orientation(lv_display_device, DISPLAY_ORIENTATION_ROTATED_90);
+	lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_90);
 #elif CONFIG_LV_DRIVER_ROTATE_270
 	disp_drv.rotated = 1;
-	lisa_display_set_orientation(lv_display_device, DISPLAY_ORIENTATION_ROTATED_270);
+	lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_270);
 #endif
 
 #if CONFIG_LV_CUSTOM_MONITOR
@@ -276,8 +276,8 @@ void lv_port_disp_init(display_hw_config_t *config)
 #endif
 	
 	/*Set the resolution of the display*/
-	disp_drv.hor_res = caps.x_resolution;
-	disp_drv.ver_res = caps.y_resolution;
+	disp_drv.hor_res = caps.width;
+	disp_drv.ver_res = caps.height;
 
 	/*Used to copy the buffer's content to the display*/
 	disp_drv.buffer = &disp_buf;
@@ -309,7 +309,7 @@ static void disp_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_
 
 	lv_disp_flush_ready(disp_drv);
 #else
-    struct display_buffer_descriptor desc = {0};
+    lisa_display_buffer_desc_t desc = {0};
     /* Update descriptor for the current area */
     desc.width = area->x2 - area->x1 + 1;
     desc.height = area->y2 - area->y1 + 1;

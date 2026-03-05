@@ -1,0 +1,31 @@
+# LISA SPI Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_SPI_DEVICE
+	bool "Enable LISA SPI Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA SPI device driver based on lisa_device framework.
+	  Provides master and slave mode SPI communication interfaces.
+
+	  This driver wraps the HAL SPI functions and provides a unified
+	  device interface for SPI operations including read, write, and
+	  full-duplex transfer.
+
+if LISA_SPI_DEVICE
+
+	config LISA_SPI0
+		bool "Enable LISA SPI0"
+		default n
+
+	config LISA_SPI1
+		bool "Enable LISA SPI1"
+		default n
+
+	config LISA_SPI2
+		bool "Enable LISA SPI2"
+		default n
+endif

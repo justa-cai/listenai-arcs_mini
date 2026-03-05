@@ -1,0 +1,194 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_AUDIO_DEVICE
+    bool "Enable LISA Audio Driver"
+    default n
+    depends on LISA_DEVICE
+    help
+      Enable LISA Audio device driver for ADC/DAC operations.
+      Provides unified audio recording (ADC) and playback (DAC) interfaces.
+
+if LISA_AUDIO_DEVICE
+
+choice
+    prompt "Audio Implementation"
+    default PORT_ARCS
+    help
+      Select the audio driver implementation.
+
+config PORT_ARCS
+    bool "Use ARCS port implementation"
+    help
+      Enable ARCS platform specific implementation.
+
+endchoice
+
+config LISA_AUDIO_INIT_PRIORITY
+    int "Audio device initialization priority"
+    default 50
+    range 0 99
+    help
+      Initialization priority for audio device (0-99, lower value = higher priority).
+
+# ===== Dispatcher Configuration =====
+menu "Audio Dispatcher Configuration"
+
+config LISA_AUDIO_DISPATCH_TASK_STACK_SIZE
+    int "Dispatch task stack size (bytes)"
+    default 4096
+    help
+      Stack size for the unified audio dispatch task.
+
+config LISA_AUDIO_DISPATCH_TASK_PRIORITY
+    int "Dispatch task priority"
+    default 2
+    help
+      Priority of the audio dispatch task
+
+endmenu
+
+# ===== Record (ADC) Configuration =====
+menu "Record (ADC) Configuration"
+
+config LISA_AUDIO_RECORD_USE_PIPO
+    bool "Enable Record PiPo (Ping-Pong) mode"
+    default y
+    help
+      Enable Ping-Pong buffer mode for continuous audio recording.
+
+config LISA_AUDIO_RECORD_USE_DMIC
+    bool "Use digital microphone (DMIC)"
+    default n
+    help
+      Enable PDM mode for digital microphones.
+      Disable for analog microphones (ADC mode).
+
+config  LISA_AUDIO_RECORD_INDIVIDUAL_GAIN
+    bool "Enable individual gain control on left/right channels"
+    default n
+
+choice
+    prompt "LDOVA Output Voltage Level"
+    default LISA_AUDIO_RECORD_LDOVA_1V905
+    help
+      Select the LDOVA (Low Dropout Voltage for Analog) output voltage level.
+      This controls the analog power supply voltage for the ADC module.
+
+config LISA_AUDIO_RECORD_LDOVA_1V68
+    bool "1.68V"
+    help
+      LDOVA output voltage: 1.68V (SEL_VOUT_LDOVA = 0x8)
+
+config LISA_AUDIO_RECORD_LDOVA_1V785
+    bool "1.785V"
+    help
+      LDOVA output voltage: 1.785V (SEL_VOUT_LDOVA = 0xf)
+
+config LISA_AUDIO_RECORD_LDOVA_1V8
+    bool "1.8V - Default"
+    help
+      LDOVA output voltage: 1.8V (SEL_VOUT_LDOVA = 0x0)
+      This is the default voltage level.
+
+config LISA_AUDIO_RECORD_LDOVA_1V815
+    bool "1.815V"
+    help
+      LDOVA output voltage: 1.815V (SEL_VOUT_LDOVA = 0x1)
+
+config LISA_AUDIO_RECORD_LDOVA_1V905
+    bool "1.905V"
+    help
+      LDOVA output voltage: 1.905V (SEL_VOUT_LDOVA = 0x7)
+
+endchoice
+
+endmenu
+
+# ===== Play (DAC) Configuration =====
+menu "Play (DAC) Configuration"
+
+config LISA_AUDIO_PLAY_PA_ENABLE
+    bool "Enable power amplifier (PA) control"
+    default n
+    help
+      Enable GPIO control for external power amplifier.
+      PA will be enabled after playback output stabilizes to prevent pop noise.
+
+if LISA_AUDIO_PLAY_PA_ENABLE
+
+config LISA_AUDIO_PLAY_PA_PAD
+    int "PA GPIO pad (0=PAD_A, 1=PAD_B)"
+    default 0
+    range 0 1
+    help
+      GPIO pad selection for PA control pin.
+      0 = CSK_IOMUX_PAD_A, 1 = CSK_IOMUX_PAD_B
+
+config LISA_AUDIO_PLAY_PA_PIN
+    int "PA GPIO pin number"
+    default 28
+    range 0 31
+    help
+      GPIO pin number for PA control (0-31).
+      Example: Pin 28 on PAD_A = GPIOA28
+
+config LISA_AUDIO_PLAY_PA_PULSE_COUNT
+    int "PA enable pulse count"
+    default 3
+    range 0 10
+    help
+      Number of high-low pulses to send when enabling PA.
+      Some PA chips require pulse sequence for proper startup.
+      Set to 0 to simply set pin high without pulses.
+
+config LISA_AUDIO_PLAY_PA_PULSE_US
+    int "PA pulse duration (microseconds)"
+    default 50
+    range 10 1000
+    help
+      Duration of each high/low level in PA enable pulse sequence.
+
+endif # LISA_AUDIO_PLAY_PA_ENABLE
+
+config LISA_AUDIO_PLAY_ECHO_ENABLE
+    bool "Enable Play Echo capture"
+    default n
+    help
+      Enable Echo capture during playback. Echo data is a copy of the
+      DAC output signal, useful for AEC (Acoustic Echo Cancellation).
+
+      IMPORTANT: Echo uses DMA channel 3 (GPDMA_ECHO_CHN), which conflicts
+      with Record stereo mode (GPDMA_ADC1_CHN = 3).
+
+      Cannot enable simultaneously with Record stereo configuration.
+
+
+config LISA_AUDIO_RECORD_BUFFER_COUNT
+    int "Record buffer count"
+    default 32
+    help
+      Number of Record buffers for ping-pong reception.
+      More buffers reduce the risk of data loss but consume more RAM.
+
+      Minimum: 2 (for ping-pong mode)
+      Recommended: 4-32
+
+      Memory usage = buffer_count × buffer_samples × 2 bytes
+
+config LISA_AUDIO_RECORD_BUFFER_SAMPLES
+    int "Record buffer samples per buffer"
+    default 256
+    range 64 2048
+    help
+      Number of audio samples (16-bit) per Record buffer.
+
+      Smaller buffers = lower latency, higher CPU overhead
+      Larger buffers = higher latency, lower CPU overhead
+
+      Example: 256 samples @ 16kHz = 16ms latency
+
+      Memory per buffer = samples × 2 bytes
+
+endmenu
+
+endif # LISA_AUDIO_DEVICE

@@ -162,7 +162,7 @@ typedef struct _skt_node {
     uint16_t    remote_port;     // 远程端口
     uint32_t    local_ip_addr;   // 本地IP地址
     uint16_t    local_port;      // 本地端口
-    TaskHandle_t handletask;     // 任务句柄
+    void*       handletask;      // 任务句柄
     struct _skt_node* next;      // 指向下一个主节点
     struct _skt_node* nextseed;  // 指向下一个种子节点
 } skt_node_t;

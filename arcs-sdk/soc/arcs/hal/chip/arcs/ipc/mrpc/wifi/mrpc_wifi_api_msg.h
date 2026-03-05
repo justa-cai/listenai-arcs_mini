@@ -120,6 +120,8 @@ typedef struct
 typedef struct
 {
     struct mrpc_resp_msg hdr;
+    wifi_scan_result_t * scan_results;
+    int8_t cnt;
 } mrpc_wifi_get_scan_result_resp_t;
 
 typedef struct
@@ -244,26 +246,6 @@ typedef struct
     struct mrpc_resp_msg hdr;
     char country_code[3];
 } mrpc_wifi_get_country_code_resp_t;
-
-typedef struct
-{
-    struct mrpc_req_msg hdr;
-} mrpc_wifi_sta_ps_enter_req_t;
-
-typedef struct
-{
-    struct mrpc_resp_msg hdr;
-} mrpc_wifi_sta_ps_enter_resp_t;
-
-typedef struct
-{
-    struct mrpc_req_msg hdr;
-} mrpc_wifi_sta_ps_exit_req_t;
-
-typedef struct
-{
-    struct mrpc_resp_msg hdr;
-} mrpc_wifi_sta_ps_exit_resp_t;
 
 typedef struct
 {
@@ -647,5 +629,97 @@ typedef struct
 {
     struct mrpc_resp_msg hdr;
 } mrpc_ls_rf_cali_redo_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+    uint8_t en;
+} mrpc_wifi_dpd_track_connect_switch_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+} mrpc_wifi_dpd_track_connect_switch_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+    wifi_ps_mode_e mode;
+} mrpc_wifi_ps_mode_set_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+} mrpc_wifi_ps_mode_set_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+    uint8_t dont_wait_bcmc;
+} mrpc_wifi_sta_set_dont_wait_bcmc_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+} mrpc_wifi_sta_set_dont_wait_bcmc_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+} mrpc_wifi_sta_get_dont_wait_bcmc_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+    uint8_t dont_wait_bcmc;
+} mrpc_wifi_sta_get_dont_wait_bcmc_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+    uint8_t level;
+} mrpc_wifi_ps_dbg_level_set_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+} mrpc_wifi_ps_dbg_level_set_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+} mrpc_wifi_get_pmk_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+    uint8_t pmk[32];
+} mrpc_wifi_get_pmk_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+    uint8_t pmk[32];
+} mrpc_wifi_set_pmk_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+} mrpc_wifi_set_pmk_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+    uint8_t ssid[33];
+    uint8_t ssid_len;
+    uint8_t passphrase[65];
+    uint8_t passphrase_len;
+} mrpc_wifi_calc_pmk_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+    uint8_t pmk[32];
+} mrpc_wifi_calc_pmk_resp_t;
 
 #endif //__MRPC_WIFI_API_MSG_H__

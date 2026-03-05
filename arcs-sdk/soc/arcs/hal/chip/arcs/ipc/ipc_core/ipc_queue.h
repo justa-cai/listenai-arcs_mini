@@ -65,6 +65,7 @@ int32_t ipc_queue_full(struct ipc_queue *q);
 int32_t ipc_queue_empty(struct ipc_queue *q);
 int32_t ipc_queue_status_get(struct ipc_queue *q);
 void ipc_queue_status_set(struct ipc_queue *q, uint32_t status);
-void ipc_queue_init(bool master, struct ipc_queue *q, volatile struct vring_hdr *vring, volatile void *buf, int32_t item_size, int32_t item_num);
+void ipc_queue_ring_init(volatile struct vring_hdr *vring, volatile void *buf, int32_t item_size, int32_t item_num);
+void ipc_queue_init(struct ipc_queue *q, volatile struct vring_hdr *vring);
 
 #endif

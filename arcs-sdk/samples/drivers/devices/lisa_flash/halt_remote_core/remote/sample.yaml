@@ -1,0 +1,3 @@
+tests:
+  samples.drivers.devices.lisa_flash.halt_remote_core.remote:
+    build_only: true

@@ -33,7 +33,7 @@
 
 #include "btos_al.h"
 
-#define BLE_AUTO_SEND_NET_CFG_SUCESS    (0)
+#define BLE_AUTO_SEND_NET_CFG_SUCESS    (1)
 
 extern void HAL_PMU_Chip_Software_Reset_Enable(void);
 
@@ -100,6 +100,22 @@ uint16_t netcfg_ble_notify_wifi(struct netcfg_ble_data *data)
     return NETCFG_BLE_SUCCESS;
 }
 
+
+#if (BLE_AUTO_SEND_NET_CFG_SUCESS == 1)
+/// dummy to send 
+void netcfg_bles_send_connect_status_cb(TimerHandle_t time_id)
+{
+    app_ble_netcfg_bles_send_notify(0, 0, 0, 0, 0);
+    btos_timer_cancel(time_id);
+}
+
+void netcfg_bles_send_connect_status_dummy(uint32_t milli_seconds)
+{
+    TimerHandle_t update_id = btos_timer_creat(TIMER_TYPE_SINGLE, milli_seconds, netcfg_bles_send_connect_status_cb);
+}
+#endif
+
+
 uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op, uint8_t *p_value)
 {
     uint16_t sta = NETCFG_BLE_ERR;
@@ -124,17 +140,3 @@ uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op
     }
     return sta;
 }
-
-#if (BLE_AUTO_SEND_NET_CFG_SUCESS == 1)
-/// dummy to send 
-void netcfg_bles_send_connect_status_cb(TimerHandle_t time_id)
-{
-    app_ble_netcfg_bles_send_notify(0, 0, 0, 0, 0);
-    btos_timer_cancel(time_id);
-}
-
-void netcfg_bles_send_connect_status_dummy(uint32_t milli_seconds)
-{
-    TimerHandle_t update_id = btos_timer_creat(TIMER_TYPE_SINGLE, milli_seconds, netcfg_bles_send_connect_status_cb);
-}
-#endif

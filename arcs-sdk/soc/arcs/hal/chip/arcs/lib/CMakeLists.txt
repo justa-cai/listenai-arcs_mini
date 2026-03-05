@@ -30,12 +30,6 @@ if(CONFIG_WIFI_TX_BUF_COPY)
 endif()
 
 if(CONFIG_BLE)
-    set(FLOAT_DIR ble32)
-
-    listenai_link_libraries(
-        ${CMAKE_CURRENT_SOURCE_DIR}/${FLOAT_DIR}/libble.a
-        ${CMAKE_CURRENT_SOURCE_DIR}/${FLOAT_DIR}/libbt_base.a
-        ${CMAKE_CURRENT_SOURCE_DIR}/${FLOAT_DIR}/libstack.a
-    )
-
+    # TODO:  Migrate BLE library to hal
+    # Now we use the library in samples
 endif() # CONFIG_BLE

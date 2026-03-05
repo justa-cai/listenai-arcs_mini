@@ -158,14 +158,19 @@ ls_err_t wifi_sta_scanlist_dump(wifi_scan_result_t * results, int tgt_num, int *
     return (ls_err_t)resp.hdr.status;
 }
 
-ls_err_t wifi_get_scan_result(void)
+ls_err_t wifi_get_scan_result(wifi_scan_result_t ** scan_results, int8_t * cnt)
 {
     mrpc_wifi_get_scan_result_req_t req;
     mrpc_wifi_get_scan_result_resp_t resp;
 
+    if (sizeof(mrpc_wifi_get_scan_result_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
     req.hdr.id = MRPC_MSG_ID_WIFI_GET_SCAN_RESULT;
     if (mrpc_msg_send(&req, sizeof(mrpc_wifi_get_scan_result_req_t), &resp))
         return LS_FAIL;
+    *scan_results = resp.scan_results;
+    *cnt = resp.cnt;
 
     return (ls_err_t)resp.hdr.status;
 }
@@ -341,30 +346,6 @@ ls_err_t wifi_get_country_code(char country_code[3])
     if (mrpc_msg_send(&req, sizeof(mrpc_wifi_get_country_code_req_t), &resp))
         return LS_FAIL;
     memcpy(country_code, resp.country_code, sizeof(resp.country_code));
-
-    return (ls_err_t)resp.hdr.status;
-}
-
-ls_err_t wifi_sta_ps_enter(void)
-{
-    mrpc_wifi_sta_ps_enter_req_t req;
-    mrpc_wifi_sta_ps_enter_resp_t resp;
-
-    req.hdr.id = MRPC_MSG_ID_WIFI_STA_PS_ENTER;
-    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_sta_ps_enter_req_t), &resp))
-        return LS_FAIL;
-
-    return (ls_err_t)resp.hdr.status;
-}
-
-ls_err_t wifi_sta_ps_exit(void)
-{
-    mrpc_wifi_sta_ps_exit_req_t req;
-    mrpc_wifi_sta_ps_exit_resp_t resp;
-
-    req.hdr.id = MRPC_MSG_ID_WIFI_STA_PS_EXIT;
-    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_sta_ps_exit_req_t), &resp))
-        return LS_FAIL;
 
     return (ls_err_t)resp.hdr.status;
 }
@@ -897,19 +878,151 @@ ls_err_t wifi_reinit_rx_buff(void)
     return (ls_err_t)resp.hdr.status;
 }
 
-void ls_rf_cali_redo(int8_t ppa_cap)
+ls_err_t ls_rf_cali_redo(int8_t ppa_cap)
 {
     mrpc_ls_rf_cali_redo_req_t req;
     mrpc_ls_rf_cali_redo_resp_t resp;
 
     if (sizeof(mrpc_ls_rf_cali_redo_req_t) > IPC_MSG_BUFFER_SIZE)
-        return;
+        return LS_FAIL;
 
     req.hdr.id = MRPC_MSG_ID_LS_RF_CALI_REDO;
     req.ppa_cap = ppa_cap;
     if (mrpc_msg_send(&req, sizeof(mrpc_ls_rf_cali_redo_req_t), &resp))
-        return;
+        return LS_FAIL;
 
-    return (void)resp.hdr.status;
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t wifi_dpd_track_connect_switch(uint8_t en)
+{
+    mrpc_wifi_dpd_track_connect_switch_req_t req;
+    mrpc_wifi_dpd_track_connect_switch_resp_t resp;
+
+    if (sizeof(mrpc_wifi_dpd_track_connect_switch_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_WIFI_DPD_TRACK_CONNECT_SWITCH;
+    req.en = en;
+    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_dpd_track_connect_switch_req_t), &resp))
+        return LS_FAIL;
+
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t wifi_ps_mode_set(wifi_ps_mode_e mode)
+{
+    mrpc_wifi_ps_mode_set_req_t req;
+    mrpc_wifi_ps_mode_set_resp_t resp;
+
+    if (sizeof(mrpc_wifi_ps_mode_set_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_WIFI_PS_MODE_SET;
+    req.mode = mode;
+    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_ps_mode_set_req_t), &resp))
+        return LS_FAIL;
+
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t wifi_sta_set_dont_wait_bcmc(uint8_t dont_wait_bcmc)
+{
+    mrpc_wifi_sta_set_dont_wait_bcmc_req_t req;
+    mrpc_wifi_sta_set_dont_wait_bcmc_resp_t resp;
+
+    if (sizeof(mrpc_wifi_sta_set_dont_wait_bcmc_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_WIFI_STA_SET_DONT_WAIT_BCMC;
+    req.dont_wait_bcmc = dont_wait_bcmc;
+    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_sta_set_dont_wait_bcmc_req_t), &resp))
+        return LS_FAIL;
+
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t wifi_sta_get_dont_wait_bcmc(uint8_t * dont_wait_bcmc)
+{
+    mrpc_wifi_sta_get_dont_wait_bcmc_req_t req;
+    mrpc_wifi_sta_get_dont_wait_bcmc_resp_t resp;
+
+    if (sizeof(mrpc_wifi_sta_get_dont_wait_bcmc_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_WIFI_STA_GET_DONT_WAIT_BCMC;
+    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_sta_get_dont_wait_bcmc_req_t), &resp))
+        return LS_FAIL;
+    *dont_wait_bcmc = resp.dont_wait_bcmc;
+
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t wifi_ps_dbg_level_set(uint8_t level)
+{
+    mrpc_wifi_ps_dbg_level_set_req_t req;
+    mrpc_wifi_ps_dbg_level_set_resp_t resp;
+
+    if (sizeof(mrpc_wifi_ps_dbg_level_set_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_WIFI_PS_DBG_LEVEL_SET;
+    req.level = level;
+    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_ps_dbg_level_set_req_t), &resp))
+        return LS_FAIL;
+
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t wifi_get_pmk(uint8_t pmk[32])
+{
+    mrpc_wifi_get_pmk_req_t req;
+    mrpc_wifi_get_pmk_resp_t resp;
+
+    if (sizeof(mrpc_wifi_get_pmk_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_WIFI_GET_PMK;
+    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_get_pmk_req_t), &resp))
+        return LS_FAIL;
+    memcpy(pmk, resp.pmk, sizeof(resp.pmk));
+
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t wifi_set_pmk(uint8_t pmk[32])
+{
+    mrpc_wifi_set_pmk_req_t req;
+    mrpc_wifi_set_pmk_resp_t resp;
+
+    if (sizeof(mrpc_wifi_set_pmk_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_WIFI_SET_PMK;
+    memcpy(req.pmk, pmk, sizeof(req.pmk));
+    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_set_pmk_req_t), &resp))
+        return LS_FAIL;
+
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t wifi_calc_pmk(uint8_t ssid[33], uint8_t ssid_len, uint8_t passphrase[65], uint8_t passphrase_len, uint8_t pmk[32])
+{
+    mrpc_wifi_calc_pmk_req_t req;
+    mrpc_wifi_calc_pmk_resp_t resp;
+
+    if (sizeof(mrpc_wifi_calc_pmk_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_WIFI_CALC_PMK;
+    memcpy(req.ssid, ssid, sizeof(req.ssid));
+    req.ssid_len = ssid_len;
+    memcpy(req.passphrase, passphrase, sizeof(req.passphrase));
+    req.passphrase_len = passphrase_len;
+    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_calc_pmk_req_t), &resp))
+        return LS_FAIL;
+    memcpy(pmk, resp.pmk, sizeof(resp.pmk));
+
+    return (ls_err_t)resp.hdr.status;
 }
 

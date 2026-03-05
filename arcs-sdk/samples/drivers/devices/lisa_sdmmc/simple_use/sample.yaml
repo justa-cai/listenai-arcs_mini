@@ -1,0 +1,7 @@
+tests:
+  samples.lisa_sdmmc.simple_use:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "LISA SDMMC Sample OK"

@@ -33,6 +33,10 @@
 
 #include "bt_os_task.h"
 
+#ifdef CFG_AMP_IPC
+#include "bt_ipc_api.h"
+#endif
+
 /*
  * MACROS
  ****************************************************************************************
@@ -45,12 +49,6 @@
  */
 
 /*
- * LOCAL FUNCTIONS DECLARATION
- ****************************************************************************************
- */
-
-
-/*
  * LOCAL VARIABLES
  ****************************************************************************************
  */
@@ -59,6 +57,17 @@
  * GLOBAL VARIABLES
  ****************************************************************************************
  */
+
+extern uint32_t adv_report_num;
+
+void* ble_scan_timer = NULL;
+
+
+/*
+ * LOCAL FUNCTIONS DECLARATION
+ ****************************************************************************************
+ */
+
 
 #if (BT_STACK_PRESENT)
 extern void bt_classic_scan_enable(uint8_t enable);
@@ -120,25 +129,52 @@ extern void SysTick_Close(void);
  */
 bt_at_cmd_t *atcmd_msg_alloc( btos_event_t *ev, uint32_t size)
 {
+#ifdef CFG_AMP_IPC
+    btos_malloc_api(&(ev->msg_body), sizeof(btos_msg_t)+size);
+
+    CLOGD("atcmd_msg_alloc:0x%x, local:0x%x", ev->msg_body, &(ev->msg_body));
+
+#else
     ev->msg_body = btos_malloc(sizeof(btos_msg_t)+size);
+#endif
+
     ev->msg_body->msg_id = BT_OS_AT_SEND_EVT;
     ev->msg_body->param_len = size;
     return (bt_at_cmd_t *)ev->msg_body->param;
 }
 
-uint8_t atcmd_ble_init_send(uint8_t init)
+void* atcmd_msg_proc(uint16_t msg_id, void * msg_body, uint32_t msg_body_len, btos_event_t *evn_ptr)
 {
-    btos_event_t ev;
     bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_init send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(uint8_t)+sizeof(bt_at_cmd_t));
+    CLOGD("atcmd_msg_proc: msg_id 0x%x", msg_id);
+    at_cmd = atcmd_msg_alloc(evn_ptr, msg_body_len+sizeof(bt_at_cmd_t));
 
-    at_cmd->at_id = BT_AT_COMMON_BLE_INIT;
-    at_cmd->data_len = sizeof(uint8_t);
-    at_cmd->data[0] = init;
+    at_cmd->at_id = msg_id;
+    at_cmd->data_len = msg_body_len;
+    if(0 !=msg_body_len)
+    {
+        memcpy(at_cmd->data, msg_body, msg_body_len);
+    }
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
+    return evn_ptr;
+}
+
+
+uint8_t atcmd_ble_init_send(uint8_t init)
+{
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_COMMON_BLE_INIT, &init, sizeof(uint8_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
+    btos_event_t ev;
+
+    atcmd_msg_proc(BT_AT_COMMON_BLE_INIT, &init, sizeof(uint8_t), &ev);
+
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
+
 }
 
 void atcmd_ble_init_handler(uint8_t init)
@@ -149,18 +185,20 @@ void atcmd_ble_init_handler(uint8_t init)
 
 uint8_t atcmd_blename_send(uint8_t *name)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_COMMON_BLE_NAME, name, strlen(name), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_name send");
-    at_cmd = atcmd_msg_alloc(&ev, strlen(name)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_COMMON_BLE_NAME, name, strlen(name), &ev);
 
-    at_cmd->at_id = BT_AT_COMMON_BLE_NAME;
-    at_cmd->data_len = strlen(name);
-    memcpy(at_cmd->data, name, strlen(name));
-
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 }
+
+
 
 void atcmd_ble_name_handler(uint8_t *name)
 {
@@ -173,18 +211,16 @@ void atcmd_ble_name_handler(uint8_t *name)
 
 uint8_t atcmd_ble_scan_param_send(ble_scan_params_t *params)
 {
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_SCAN_PARAM, params, sizeof(ble_scan_params_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_scan_param send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_scan_params_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_SCAN_PARAM, params, sizeof(ble_scan_params_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_SCAN_PARAM;
-    at_cmd->data_len = sizeof(ble_scan_params_t);
-
-    memcpy(at_cmd->data, params, sizeof(ble_scan_params_t));
-
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 }
 
 uint8_t atcmd_ble_scan_param_handler(ble_scan_params_t *params)
@@ -198,23 +234,23 @@ uint8_t atcmd_ble_scan_param_handler(ble_scan_params_t *params)
 
 uint8_t atcmd_ble_scan_send(ble_scan_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_SCAN, params, sizeof(ble_scan_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_scan send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_scan_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_SCAN, params, sizeof(ble_scan_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_SCAN;
-    at_cmd->data_len = sizeof(ble_scan_t);
-    memcpy(at_cmd->data, params, sizeof(ble_scan_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 void blescan_disable()
 {
     ble_scan_en_t en_config = {0};
-    en_config.filter_duplic = 1;
     #if(BLE_EMB_PRESENT)
     hci_le_set_scan_en_cmd_handler(&en_config, 0x200C);
     #else
@@ -234,17 +270,19 @@ void blescan_enable()
     #endif
 }
 
-void SysTick_Handler(void)
+void ble_scan_timer_callback(void* handler)
 {
     blescan_disable();
-
-    SysTick_Close();
+    ble_task_timer_uninit(ble_scan_timer);
+    ble_scan_timer = NULL;
 }
-
 
 uint8_t atcmd_ble_scan_handler(ble_scan_t *params)
 {
     uint8_t status = CO_ERROR_NO_ERROR;
+
+    adv_report_num = 0;
+
     ///disable conus scanning
     if (params->enable == 1)
     {
@@ -261,7 +299,11 @@ uint8_t atcmd_ble_scan_handler(ble_scan_t *params)
         else
         {
             blescan_enable();
-            SysTick_Open((params->intv) * 1000000);
+            if (!ble_task_timer_get(ble_scan_timer))
+            {
+                ble_task_timer_init((void**)&ble_scan_timer, ble_scan_timer_callback, ble_scan_timer);
+                ble_task_timer_set(ble_scan_timer, params->intv * 1000);
+            }
         }
     }
     return status;
@@ -270,17 +312,18 @@ uint8_t atcmd_ble_scan_handler(ble_scan_t *params)
 
 uint8_t atcmd_ble_scan_rsp_data_send(ble_scan_rspdata_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_SCAN_RSP_DATA, params, sizeof(ble_scan_rspdata_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_scan_rsp_data send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_scan_rspdata_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_SCAN_RSP_DATA, params, sizeof(ble_scan_rspdata_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_SCAN_RSP_DATA;
-    at_cmd->data_len = sizeof(ble_scan_rspdata_t);
-    memcpy(at_cmd->data, params, sizeof(ble_scan_rspdata_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_scan_rsp_data_handler(ble_scan_rspdata_t *params)
@@ -294,17 +337,18 @@ uint8_t atcmd_ble_scan_rsp_data_handler(ble_scan_rspdata_t *params)
 
 uint8_t atcmd_ble_adv_param_send(ble_adv_param_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_ADV_PARAM, params, sizeof(ble_adv_param_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_adv_param send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_adv_param_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_ADV_PARAM, params, sizeof(ble_adv_param_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_ADV_PARAM;
-    at_cmd->data_len = sizeof(ble_adv_param_t);
-    memcpy(at_cmd->data, params, sizeof(ble_adv_param_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_adv_param_handler(ble_adv_param_t *params)
@@ -324,17 +368,18 @@ uint8_t atcmd_ble_adv_param_handler(ble_adv_param_t *params)
 
 uint8_t atcmd_ble_adv_data_send(ble_adv_data_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_ADV_DATA, params, sizeof(ble_adv_data_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_adv_data send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_adv_data_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_ADV_DATA, params, sizeof(ble_adv_data_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_ADV_DATA;
-    at_cmd->data_len = sizeof(ble_adv_data_t);
-    memcpy(at_cmd->data, params, sizeof(ble_adv_data_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_adv_data_handler(ble_adv_data_t *params)
@@ -349,17 +394,18 @@ uint8_t atcmd_ble_adv_data_handler(ble_adv_data_t *params)
 
 uint8_t atcmd_ble_adv_start_send(ble_adv_en_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_ADV_START, params, sizeof(ble_adv_en_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_adv_start send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_adv_en_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_ADV_START, params, sizeof(ble_adv_en_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_ADV_START;
-    at_cmd->data_len = sizeof(ble_adv_en_t);
-    memcpy(at_cmd->data, params, sizeof(ble_adv_en_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_adv_start_handler(ble_adv_en_t *params)
@@ -373,17 +419,18 @@ uint8_t atcmd_ble_adv_start_handler(ble_adv_en_t *params)
 
 uint8_t atcmd_ble_adv_stop_send(ble_adv_en_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_ADV_STOP, params, sizeof(ble_adv_en_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_adv_stop send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_adv_en_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_ADV_STOP, params, sizeof(ble_adv_en_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_ADV_STOP;
-    at_cmd->data_len = sizeof(ble_adv_en_t);
-    memcpy(at_cmd->data, params, sizeof(ble_adv_en_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_adv_stop_handler(ble_adv_en_t *params)
@@ -398,17 +445,18 @@ uint8_t atcmd_ble_adv_stop_handler(ble_adv_en_t *params)
 
 uint8_t atcmd_ble_conn_send(ble_conn_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_CONN, params, sizeof(ble_conn_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_conn send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_conn_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_CONN, params, sizeof(ble_conn_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_CONN;
-    at_cmd->data_len = sizeof(ble_conn_t);
-    memcpy(at_cmd->data, params, sizeof(ble_conn_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_conn_handler(ble_conn_t *params)
@@ -431,22 +479,23 @@ uint8_t atcmd_ble_conn_handler(ble_conn_t *params)
     return status;
 }
 
-uint8_t atcmd_ble_conn_param_send(ble_conn_param_t *params)
+uint8_t atcmd_ble_conn_update_send(ble_conn_update_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_CONN_UPDATE, params, sizeof(ble_conn_update_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_conn_param send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_conn_param_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_CONN_UPDATE, params, sizeof(ble_conn_update_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_CONN_PARAM;
-    at_cmd->data_len = sizeof(ble_conn_param_t);
-    memcpy(at_cmd->data, params, sizeof(ble_conn_param_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
-uint8_t atcmd_ble_conn_param_handler(ble_conn_param_t *params)
+uint8_t atcmd_ble_conn_update_handler(ble_conn_update_t *params)
 {
     uint8_t status = CO_ERROR_NO_ERROR;
 
@@ -458,17 +507,18 @@ uint8_t atcmd_ble_conn_param_handler(ble_conn_param_t *params)
 
 uint8_t atcmd_ble_disconn_send(ble_disconn_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_DISCONN, params, sizeof(ble_disconn_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_disconn send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_disconn_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_DISCONN, params, sizeof(ble_disconn_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_DISCONN;
-    at_cmd->data_len = sizeof(ble_disconn_t);
-    memcpy(at_cmd->data, params, sizeof(ble_disconn_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_disconn_handler(ble_disconn_t *params)
@@ -497,17 +547,18 @@ uint8_t atcmd_ble_disconn_handler(ble_disconn_t *params)
 
 uint8_t atcmd_ble_data_len_send(ble_data_len_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BLE_DATA_LEN, params, sizeof(ble_data_len_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_data_len send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_data_len_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BLE_DATA_LEN, params, sizeof(ble_data_len_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BLE_DATA_LEN;
-    at_cmd->data_len = sizeof(ble_data_len_t);
-    memcpy(at_cmd->data, params, sizeof(ble_data_len_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_data_len_handler(ble_data_len_t *params)
@@ -522,17 +573,18 @@ uint8_t atcmd_ble_data_len_handler(ble_data_len_t *params)
 
 uint8_t atcmd_ble_sec_param_send(ble_sec_param_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_HOST_BLE_SEC_PARAM, params, sizeof(ble_sec_param_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_sec_param send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_sec_param_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_HOST_BLE_SEC_PARAM, params, sizeof(ble_sec_param_t), &ev);
 
-    at_cmd->at_id = BT_AT_HOST_BLE_SEC_PARAM;
-    at_cmd->data_len = sizeof(ble_sec_param_t);
-    memcpy(at_cmd->data, params, sizeof(ble_sec_param_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_sec_param_handler(ble_sec_param_t *params)
@@ -543,17 +595,18 @@ uint8_t atcmd_ble_sec_param_handler(ble_sec_param_t *params)
 
 uint8_t atcmd_ble_enc_send(ble_enc_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_HOST_BLE_ENC, params, sizeof(ble_enc_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_enc send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_enc_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_HOST_BLE_ENC, params, sizeof(ble_enc_t), &ev);
 
-    at_cmd->at_id = BT_AT_HOST_BLE_ENC;
-    at_cmd->data_len = sizeof(ble_enc_t);
-    memcpy(at_cmd->data, params, sizeof(ble_enc_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_enc_handler(ble_enc_t *params)
@@ -564,17 +617,18 @@ uint8_t atcmd_ble_enc_handler(ble_enc_t *params)
 
 uint8_t atcmd_ble_key_reply_send(ble_key_reply_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_HOST_BLE_KEY_REPLY, params, sizeof(ble_key_reply_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_key_reply send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_key_reply_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_HOST_BLE_KEY_REPLY, params, sizeof(ble_key_reply_t), &ev);
 
-    at_cmd->at_id = BT_AT_HOST_BLE_KEY_REPLY;
-    at_cmd->data_len = sizeof(ble_key_reply_t);
-    memcpy(at_cmd->data, params, sizeof(ble_key_reply_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_key_reply_handler(ble_key_reply_t *params)
@@ -585,17 +639,18 @@ uint8_t atcmd_ble_key_reply_handler(ble_key_reply_t *params)
 
 uint8_t atcmd_ble_enc_clear_send(ble_enc_clear_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_HOST_BLE_ENC_CLEAR, params, sizeof(ble_enc_clear_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("at_ble_enc_clear send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_enc_clear_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_HOST_BLE_ENC_CLEAR, params, sizeof(ble_enc_clear_t), &ev);
 
-    at_cmd->at_id = BT_AT_HOST_BLE_ENC_CLEAR;
-    at_cmd->data_len = sizeof(ble_enc_clear_t);
-    memcpy(at_cmd->data, params, sizeof(ble_enc_clear_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_enc_clear_handler(ble_enc_clear_t *params)
@@ -606,23 +661,25 @@ uint8_t atcmd_ble_enc_clear_handler(ble_enc_clear_t *params)
 
 uint8_t atcmd_ble_nonsignal_tx_send(uint8_t channel, uint8_t data_len, uint8_t payload, uint8_t phy, uint8_t fhss)
 {
+    ble_test_params_t test_params;
+    
+    test_params.channel = channel;
+    test_params.data_len = data_len;
+    test_params.payload = payload;
+    test_params.phy = phy;
+    test_params.fhss = fhss;
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_TEST_BLE_NONSIGNAL_TX, &test_params, sizeof(ble_test_params_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("atcmd_ble_nonsignal_tx_send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_test_params_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_TEST_BLE_NONSIGNAL_TX, &test_params, sizeof(ble_test_params_t), &ev);
 
-    at_cmd->at_id = BT_AT_TEST_BLE_NONSIGNAL_TX;
-    at_cmd->data_len = sizeof(ble_test_params_t);
-    ble_test_params_t *params = (ble_test_params_t *)at_cmd->data;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    params->channel = channel;
-    params->data_len = data_len;
-    params->payload = payload;
-    params->phy = phy;
-    params->fhss = fhss;
-
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_ble_nonsignal_tx_handler(ble_test_params_t *params)
@@ -654,23 +711,26 @@ uint8_t atcmd_ble_nonsignal_tx_handler(ble_test_params_t *params)
 
 uint8_t atcmd_ble_nonsignal_rx_send(uint8_t channel, uint8_t phy, uint8_t mod_idx, uint8_t infinite_rx_mode)
 {
+
+ble_test_params_t test_params;
+
+test_params.channel = channel;
+test_params.phy = phy;
+//use payload transport mod_idx!!!.
+test_params.payload = mod_idx;
+test_params.infinite_rx_mode = infinite_rx_mode;
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_TEST_BLE_NONSIGNAL_RX, &test_params, sizeof(ble_test_params_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("atcmd_ble_nonsignal_rx_send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(ble_test_params_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_TEST_BLE_NONSIGNAL_RX, &test_params, sizeof(ble_test_params_t), &ev);
 
-    at_cmd->at_id = BT_AT_TEST_BLE_NONSIGNAL_RX;
-    at_cmd->data_len = sizeof(ble_test_params_t);
-    ble_test_params_t *params = (ble_test_params_t *)at_cmd->data;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    params->channel = channel;
-    params->phy = phy;
-    //use payload transport mod_idx!!!.
-    params->payload = mod_idx;
-    params->infinite_rx_mode = infinite_rx_mode;
-
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 void atcmd_ble_nonsignal_rx_handler(ble_test_params_t *params)
@@ -696,16 +756,18 @@ void atcmd_ble_nonsignal_rx_handler(ble_test_params_t *params)
 
 uint8_t atcmd_ble_nonsignal_end_send(void)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_TEST_BLE_NONSIGNAL_END, NULL, 0, (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("ble_nonsignal_end send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_TEST_BLE_NONSIGNAL_END, NULL, 0, &ev);
 
-    at_cmd->at_id = BT_AT_TEST_BLE_NONSIGNAL_END;
-    at_cmd->data_len = 0;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 void atcmd_ble_nonsignal_end_handler(void)
@@ -717,17 +779,18 @@ void atcmd_ble_nonsignal_end_handler(void)
 
 uint8_t atcmd_bt_scan_send(uint8_t enable)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BT_SCAN, &enable, sizeof(uint8_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("bt_scan send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(uint8_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BT_SCAN, &enable, sizeof(uint8_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BT_SCAN;
-    at_cmd->data_len = sizeof(uint8_t);
-    at_cmd->data[0] = enable;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_bt_scan_handler(uint8_t enable)
@@ -749,16 +812,18 @@ uint8_t atcmd_bt_scan_handler(uint8_t enable)
 
 uint8_t atcmd_bt_inquiry_send(bt_inq_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BT_INQUIRY, params, sizeof(bt_inq_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(bt_inq_t)+sizeof(bt_at_cmd_t));
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BT_INQUIRY;
-    at_cmd->data_len = sizeof(bt_inq_t);
+    atcmd_msg_proc(BT_AT_CONTROLLER_BT_INQUIRY, params, sizeof(bt_inq_t), &ev);
 
-    memcpy(at_cmd->data, params, sizeof(bt_inq_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_bt_inquiry_handler(bt_inq_t *params)
@@ -775,17 +840,18 @@ uint8_t atcmd_bt_inquiry_handler(bt_inq_t *params)
 
 uint8_t atcmd_bt_conn_send(bt_conn_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BT_CONN, params, sizeof(bt_conn_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("bt_conn send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(bt_conn_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BT_CONN, params, sizeof(bt_conn_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BT_CONN;
-    at_cmd->data_len = sizeof(bt_conn_t);
-    memcpy(at_cmd->data, params, sizeof(bt_conn_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_bt_conn_handler(bt_conn_t *params)
@@ -803,17 +869,18 @@ uint8_t atcmd_bt_conn_handler(bt_conn_t *params)
 
 uint8_t atcmd_bt_disconn_send(bt_disconn_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_CONTROLLER_BT_DISCONN, params, sizeof(bt_disconn_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("bt_disconn send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(bt_disconn_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_CONTROLLER_BT_DISCONN, params, sizeof(bt_disconn_t), &ev);
 
-    at_cmd->at_id = BT_AT_CONTROLLER_BT_DISCONN;
-    at_cmd->data_len = sizeof(bt_disconn_t);
-    memcpy(at_cmd->data, params, sizeof(bt_disconn_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint8_t atcmd_bt_disconn_handler(bt_disconn_t *params)
@@ -843,17 +910,18 @@ uint8_t atcmd_bt_disconn_handler(bt_disconn_t *params)
 
 uint8_t atcmd_bt_non_signal_tx_send(bt_non_signal_tx_t *params)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_TEST_BT_NONSIGNAL_TX, params, sizeof(bt_non_signal_tx_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("bt_non_signal_tx send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(bt_non_signal_tx_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_TEST_BT_NONSIGNAL_TX, params, sizeof(bt_non_signal_tx_t), &ev);
 
-    at_cmd->at_id = BT_AT_TEST_BT_NONSIGNAL_TX;
-    at_cmd->data_len = sizeof(bt_non_signal_tx_t);
-    memcpy(at_cmd->data, params, sizeof(bt_non_signal_tx_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 
@@ -871,17 +939,19 @@ uint8_t atcmd_bt_non_signal_tx_handler(bt_non_signal_tx_t *params)
 
 uint8_t atcmd_bt_non_signal_rx_send(bt_non_signal_rx_t *params)
 {
+
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_TEST_BT_NONSIGNAL_RX, params, sizeof(bt_non_signal_rx_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("bt_non_signal_rx send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(bt_non_signal_rx_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_TEST_BT_NONSIGNAL_RX, params, sizeof(bt_non_signal_rx_t), &ev);
 
-    at_cmd->at_id = BT_AT_TEST_BT_NONSIGNAL_RX;
-    at_cmd->data_len = sizeof(bt_non_signal_rx_t);
-    memcpy(at_cmd->data, params, sizeof(bt_non_signal_rx_t));
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 
@@ -900,16 +970,19 @@ uint8_t atcmd_bt_non_signal_rx_handler(bt_non_signal_rx_t *params)
 
 uint8_t atcmd_bt_non_signal_disable_send(void)
 {
+
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_TEST_BT_NONSIGNAL_DIS, NULL, 0, (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("bt_non_signal_disable send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(uint8_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_TEST_BT_NONSIGNAL_DIS, NULL, 0, &ev);
 
-    at_cmd->at_id = BT_AT_TEST_BT_NONSIGNAL_DIS;
-    at_cmd->data_len = sizeof(uint8_t);
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 
@@ -927,16 +1000,18 @@ uint8_t atcmd_bt_non_signal_disable_handler()
 
 uint8_t atcmd_bt_non_signal_rx_get_data_send(void)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_TEST_BT_NONSIGNAL_RX_GET_DATA, NULL, 0, (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("bt_non_signal_rx_get_data send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(uint8_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_TEST_BT_NONSIGNAL_RX_GET_DATA, NULL, 0, &ev);
 
-    at_cmd->at_id = BT_AT_TEST_BT_NONSIGNAL_RX_GET_DATA;
-    at_cmd->data_len = sizeof(uint8_t);
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 
@@ -954,17 +1029,18 @@ uint8_t atcmd_bt_non_signal_rx_get_data_handler()
 
 uint8_t atcmd_bt_dutmode_send(uint8_t enable)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_TEST_BT_DUT_MODE, &enable, sizeof(uint8_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("bt_dutmode send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(uint8_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_TEST_BT_DUT_MODE, &enable, sizeof(uint8_t), &ev);
 
-    at_cmd->at_id = BT_AT_TEST_BT_DUT_MODE;
-    at_cmd->data_len = sizeof(uint8_t);
-    at_cmd->data[0] = enable;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint32_t atcmd_bt_dutmode_handler(uint8_t enable)
@@ -980,69 +1056,109 @@ uint32_t atcmd_bt_dutmode_handler(uint8_t enable)
 }
 
 
-/// host
+/// user
 uint8_t atcmd_hble_adv_start_send(uint8_t modes)
 {
+
+#ifdef CFG_AMP_IPC
+    
+    //return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_HOST_BLE_ADV_START, &modes, sizeof(uint8_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+
+#if (BLE_HOST_PRESENT)
+    return app_ble_adv_start(GAP_ADV_ID_0, modes);
+#endif
+
+
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("hble_adv_start send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(uint8_t)+sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_HOST_BLE_ADV_START, &modes, sizeof(uint8_t), &ev);
 
-    at_cmd->at_id = BT_AT_HOST_BLE_ADV_START;
-    at_cmd->data_len = sizeof(uint8_t);
-    at_cmd->data[0] = modes;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 void atcmd_hble_adv_start_handler(uint8_t modes)
 {
     CLOGD("atcmd_hble_adv_start_handler,modes:%d",modes);
-    #if (BLE_HOST_PRESENT)
+
+#ifdef CFG_AMP_IPC
+       //do nothing,
+       //app_ble_adv_start(GAP_ADV_ID_0, modes);
+
+#else
+
+#if (BLE_HOST_PRESENT)
     app_ble_adv_start(GAP_ADV_ID_0, modes);
-    #endif
+#endif
+
+#endif
 
 }
 
+/// user
 uint8_t atcmd_hble_adv_stop_send(void)
 {
+
+#ifdef CFG_AMP_IPC
+
+    //return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_HOST_BLE_ADV_STOP, NULL, 0, (uint32_t)BTOS_TASK_MAX_DELAY);
+
+#if (BLE_HOST_PRESENT)
+    app_ble_adv_stop(GAP_ADV_ID_0);
+#endif
+
+
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("hble_adv_stop send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_HOST_BLE_ADV_STOP, NULL, 0, &ev);
 
-    at_cmd->at_id = BT_AT_HOST_BLE_ADV_STOP;
-    at_cmd->data_len = 0;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 void atcmd_hble_adv_stop_handler(void)
 {
-    #if (BLE_HOST_PRESENT)
-    app_ble_adv_stop(GAP_ADV_ID_0);
-    #endif
+#ifdef CFG_AMP_IPC
+    //do nothing,
+    //app_ble_adv_stop(GAP_ADV_ID_0);
+
+#else
 
     CLOGD("atcmd_hble_adv_stop_handler");
+
+#if (BLE_HOST_PRESENT)
+    app_ble_adv_stop(GAP_ADV_ID_0);
+#endif
+
+
+#endif
+
+
 }
 
 uint8_t atcmd_rf_test_tone_start_send(uint16_t channel, uint8_t power)
 {
+
+    rf_test_tone_start_cmd_t rf_params;
+    rf_params.channel = channel;
+    rf_params.power = power;
+
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_RF_TEST_TONE_START_CMD, &rf_params, sizeof(rf_test_tone_start_cmd_t), (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("atcmd_rf_test_tone_start_send, channel:%d, power:%d", channel , power);
-    at_cmd = (bt_at_cmd_t *)atcmd_msg_alloc(&ev, sizeof(bt_at_cmd_t)+sizeof(rf_test_tone_start_cmd_t));
+    atcmd_msg_proc(BT_AT_RF_TEST_TONE_START_CMD, &rf_params, sizeof(rf_test_tone_start_cmd_t), &ev);
 
-    at_cmd->at_id = BT_AT_RF_TEST_TONE_START_CMD;
-    at_cmd->data_len = sizeof(rf_test_tone_start_cmd_t);
-    rf_test_tone_start_cmd_t *params = (rf_test_tone_start_cmd_t *)at_cmd->data;
-    params->channel = channel;
-    params->power = power;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint32_t atcmd_rf_test_tone_start_handler(rf_test_tone_start_cmd_t *params)
@@ -1055,18 +1171,20 @@ uint32_t atcmd_rf_test_tone_start_handler(rf_test_tone_start_cmd_t *params)
     return status;
 }
 
-uint8_t atcmd_rf_test_tone_stop_send()
+uint8_t atcmd_rf_test_tone_stop_send(void)
 {
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_RF_TEST_TONE_STOP_CMD, NULL, 0, (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
     btos_event_t ev;
-    bt_at_cmd_t *at_cmd;
 
-    CLOGD("atcmd_rf_test_tone_stop_send");
-    at_cmd = atcmd_msg_alloc(&ev, sizeof(bt_at_cmd_t));
+    atcmd_msg_proc(BT_AT_RF_TEST_TONE_STOP_CMD, NULL, 0, &ev);
 
-    at_cmd->at_id = BT_AT_RF_TEST_TONE_STOP_CMD;
-    at_cmd->data_len = 0;
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, BTOS_TASK_MAX_DELAY);
 }
 
 uint32_t atcmd_rf_test_tone_stop_handler()
@@ -1079,11 +1197,48 @@ uint32_t atcmd_rf_test_tone_stop_handler()
     return status;
 }
 
+uint8_t atcmd_bt_hci_mode_send()
+{
+
+#ifdef CFG_AMP_IPC
+
+    return btos_send_at_evt_api(OS_TASK_ID_BT, BT_AT_BT_HCI_TEST_CMD, NULL, 0, (uint32_t)BTOS_TASK_MAX_DELAY);
+#else
+    btos_event_t ev;
+
+    atcmd_msg_proc(BT_AT_BT_HCI_TEST_CMD, NULL, 0, &ev);
+
+    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+#endif
+
+}
+
+#if defined(CONFIG_ARCS_HAL_AT_CMD_BT_HCI_MODE) && CONFIG_ARCS_HAL_AT_CMD_BT_HCI_MODE
+uint32_t atcmd_bt_hci_mode_handler()
+{
+    uint8_t status = CO_ERROR_NO_ERROR;
+    CLOGD("atcmd_bt_hci_mode_handler");
+
+    // deinit shell
+
+    // uart init
+    CLOG_FLUSH();
+    logInit(1, 115200);
+    uart_init();
+
+    // hci init
+    extern void h4tl_init(uint8_t tl_itf, void * uart_env_p);
+    h4tl_init(0, lsip_eif_get(0));
+
+    return status;
+}
+#endif
+
 void bt_at_cmd_msg_handle(bt_at_cmd_t* msg)
 {
     bt_at_cmd_t *at_cmd = msg;
     
-    CLOGD("bt_at_cmd_msg_handle,id:0x%x", at_cmd->at_id);
+    CLOGD("bt_at_cmd_msg_handle,id:0x%x\n", at_cmd->at_id);
     if(at_cmd)
     {
         switch(at_cmd->at_id)
@@ -1137,10 +1292,10 @@ void bt_at_cmd_msg_handle(bt_at_cmd_t* msg)
                 ble_conn_t *params = (ble_conn_t *)at_cmd->data;
                 atcmd_ble_conn_handler(params);
             }break;
-            case BT_AT_CONTROLLER_BLE_CONN_PARAM:
+            case BT_AT_CONTROLLER_BLE_CONN_UPDATE:
             {
-                ble_conn_param_t *params = (ble_conn_param_t *)at_cmd->data;
-                atcmd_ble_conn_param_handler(params);
+                ble_conn_update_t *params = (ble_conn_update_t *)at_cmd->data;
+                atcmd_ble_conn_update_handler(params);
             }break;
             case BT_AT_CONTROLLER_BLE_DISCONN:
             {
@@ -1216,6 +1371,14 @@ void bt_at_cmd_msg_handle(bt_at_cmd_t* msg)
             case BT_AT_RF_TEST_TONE_STOP_CMD:
             {
                 atcmd_rf_test_tone_stop_handler();
+            }break;
+            case BT_AT_BT_HCI_TEST_CMD:
+            {
+#if defined(CONFIG_ARCS_HAL_AT_CMD_BT_HCI_MODE) && CONFIG_ARCS_HAL_AT_CMD_BT_HCI_MODE
+                atcmd_bt_hci_mode_handler();
+#else
+                CLOGD("BT HCI test mode disabled by Kconfig");
+#endif
             }break;
 
             /// host

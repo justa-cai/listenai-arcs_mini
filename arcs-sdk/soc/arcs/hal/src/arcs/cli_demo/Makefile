@@ -92,24 +92,15 @@ endif
 
 HW_VER=HW_VER_ARCS_D0
 export HW_VER
-ifeq ($(IC_BOARD), 1)
-  ifeq ("$(strip $(CHIP))", "arcs")
-    ifeq ("$(strip $(HW_VER))", "C0")
-      CFLAGS += -DCHIP_ARCS_C0
-    else ifeq ("$(strip $(HW_VER))", "D0")
-      CFLAGS += -DCHIP_ARCS_D0
-    endif
-  endif
-endif
 
 # Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BT
 WCN_TYPE=wf
 export WCN_TYPE
 # RF_BOARD_VER=0 or undefine for ArcsD EVB,
-# RF_BOARD_VER=1 for Taoyun OTA
-# RF_BOARD_VER=2 for Taoyun Cable
+# RF_BOARD_VER=1 for Taoyun DVT1
+# RF_BOARD_VER=2 for Taoyun DVT2
 # RF_BOARD_VER=3 for Haier
-RF_BOARD_VER=0
+RF_BOARD_VER ?= 0
 export RF_BOARD_VER
 # RFCALI_WF_EN: 0=disable, 1=enable
 RFCALI_WF_EN=1
@@ -121,7 +112,7 @@ export RFCALI_BT_EN
 CFLAGS += -DRFCALI_BT_EN=$(RFCALI_BT_EN)
 CFG_DPD_LUNA=0
 export CFG_DPD_LUNA
-CFG_RF_SELFCALI_FROM_NV=1
+CFG_RF_SELFCALI_FROM_NV=0
 export CFG_RF_SELFCALI_FROM_NV
 CFG_RF_SELFCALI_WRITE_TO_NV=0
 export CFG_RF_SELFCALI_WRITE_TO_NV
@@ -173,6 +164,26 @@ export CFG_NVS
 CONFIG_NVS_FLASH_XIP = 1
 export CONFIG_NVS_FLASH_XIP
 
+CONFIG_PM := 0
+export CONFIG_PM
+
+CONFIG_PM_UART_WAKEUP := 0
+
+ifeq ($(CONFIG_PM), 1)
+
+ifneq ($(CONFIG_PM_UART_WAKEUP), 1)
+CONFIG_PM_CLOSE_AP := 1
+export CONFIG_PM_CLOSE_AP
+endif
+
+export CONFIG_PM_UART_WAKEUP
+
+CONFIG_PM_KEEP_ALIVE := 1
+export CONFIG_PM_KEEP_ALIVE
+
+CONFIG_PM_DEBUG := 1
+export CONFIG_PM_DEBUG
+endif
 #cali use independent buf or not
 #CALI_BUF=0
 #export CALI_BUF
@@ -216,7 +227,11 @@ else
 ifeq ("$(CFG_AMP_IPC)", "1")
 LDSCRIPT   = ./flash_cp_ipc.ld
 else
+ifeq ($(CONFIG_PM),1)
+LDSCRIPT   = ./flash_cp_pm.ld
+else
 LDSCRIPT   = ./flash_cp.ld
+endif
 endif
 endif
 else

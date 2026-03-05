@@ -109,12 +109,29 @@ def sync_contents(app: Sphinx) -> None:
         if not f.is_dir()
     )
 
+    # Get exclude patterns from config
+    exclude_patterns = getattr(app.config, 'external_content_exclude', [])
+
     for content in app.config.external_content_contents:
         prefix_src, glob = content
+
+        # Build exclude set using glob patterns for this content base path
+        exclude_set = set()
+        for pattern in exclude_patterns:
+            # Use glob to find all files matching the exclude pattern from this base path
+            for excluded_file in prefix_src.glob(pattern):
+                if not excluded_file.is_dir():
+                    exclude_set.add(excluded_file.resolve())
+
         for src in prefix_src.glob(glob):
+            # Check if src is in the exclude set
+            if src.resolve() in exclude_set:
+                continue
+
             if src.is_dir():
                 to_copy.extend(
-                    [(f, prefix_src) for f in src.glob("**/*") if not f.is_dir()]
+                    [(f, prefix_src) for f in src.glob("**/*")
+                     if not f.is_dir() and f.resolve() not in exclude_set]
                 )
             else:
                 to_copy.append((src, prefix_src))
@@ -166,6 +183,7 @@ def setup(app: Sphinx) -> Dict[str, Any]:
     app.add_config_value("external_content_contents", [], "env")
     app.add_config_value("external_content_directives", DEFAULT_DIRECTIVES, "env")
     app.add_config_value("external_content_keep", [], "")
+    app.add_config_value("external_content_exclude", [], "env")
 
     app.connect("builder-inited", sync_contents)
 

@@ -22,6 +22,10 @@
 #include "HTTPClientAuth.h"     // Crypto support (Digest, MD5)
 #include "HTTPClientString.h"   // String utilities
 
+#if CONFIG_4G_MODULE
+#include "lisa_4g_module.h"
+#endif
+
 #ifndef _WIN32
 
 /**
@@ -918,8 +922,6 @@ UINT32 HTTPClientSendRequest (HTTP_SESSION_HANDLE pSession,
                 }
 
         }while(0);
-
-
 
         return nRetCode;
 }
@@ -1818,6 +1820,8 @@ UINT32 HTTPIntrnConnectionClose (P_HTTP_SESSION pHTTPSession)
 #elif _LINUX
                         shutdown(pHTTPSession->HttpConnection.HttpSocket,0x01);
                         close(pHTTPSession->HttpConnection.HttpSocket);
+#elif CONFIG_4G_MODULE
+                        lisa_4g_tcp_closesocket(pHTTPSession->HttpConnection.HttpSocket);
 #else
                         closesocket(pHTTPSession->HttpConnection.HttpSocket);
 #endif
@@ -1888,9 +1892,13 @@ UINT32 HTTPIntrnConnectionOpen (P_HTTP_SESSION pHTTPSession)
                 {
 
                         // Create a TCP/IP stream socket
+#if CONFIG_4G_MODULE
+                        pHTTPSession->HttpConnection.HttpSocket = lisa_4g_tcp_socket(0);
+#else
                         pHTTPSession->HttpConnection.HttpSocket = socket(AF_INET,	    // Address family
                                         SOCK_STREAM,			                    // Socket type
                                         IPPROTO_TCP);		                        // Protocol
+#endif
                 }
 
                 // Exit if we don't have a valid socket
@@ -1904,6 +1912,8 @@ UINT32 HTTPIntrnConnectionOpen (P_HTTP_SESSION pHTTPSession)
                 // Set non blocking socket
 #ifdef _WIN32
                 nRetCode = ioctlsocket(pHTTPSession->HttpConnection.HttpSocket, FIONBIO, &nNonBlocking);
+#elif CONFIG_4G_MODULE
+                nRetCode = lisa_4g_ioctlsocket(pHTTPSession->HttpConnection.HttpSocket);
 #else
                 nRetCode = sktSetNonblocking(pHTTPSession->HttpConnection.HttpSocket , nNonBlocking);
 #endif
@@ -2011,9 +2021,15 @@ UINT32 HTTPIntrnConnectionOpen (P_HTTP_SESSION pHTTPSession)
                 }
                 else    // Non TLS so..
                 {
+#if CONFIG_4G_MODULE
+                        nRetCode = lisa_4g_tcp_connect_with_addr(pHTTPSession->HttpConnection.HttpSocket,
+                                        (HTTP_SOCKADDR*)&ServerAddress,
+                                        sizeof(HTTP_SOCKADDR));
+#else
                         nRetCode = connect(pHTTPSession->HttpConnection.HttpSocket,	// Socket
                                         (HTTP_SOCKADDR*)&ServerAddress,			                // Server address
                                         sizeof(HTTP_SOCKADDR));		                    // Length of server address structure
+#endif
 				}
 
                 // The socket was set to be asyn so we should check the error being returned from connect()
@@ -2149,7 +2165,11 @@ UINT32 HTTPIntrnSend (P_HTTP_SESSION pHTTPSession,
                                 }
                                 else
                                 {
+#if CONFIG_4G_MODULE
+                                        nRetCode = lisa_4g_tcp_send(pConnection->HttpSocket,pData+nSendSize,*(nLength)-nSendSize, 0);
+#else
                                         nRetCode = send(pConnection->HttpSocket,pData+nSendSize,*(nLength)-nSendSize,0);
+#endif
                                 }
 
                                 if(nRetCode == SOCKET_ERROR)
@@ -2264,7 +2284,7 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
 								break;
 						}
 
-
+                        #if !CONFIG_4G_MODULE
                         // Reset socket events
                         FD_SET(pConnection->HttpSocket, &pConnection->FDRead);
                         FD_SET(pConnection->HttpSocket, &pConnection->FDError);
@@ -2283,15 +2303,18 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
 
                         if(FD_ISSET(pConnection->HttpSocket ,&pConnection->FDRead)) // Are there any read events on the socket ?
                         {
-
+                        #endif
                                 // Clear the event
                                 FD_CLR((UINT32)pConnection->HttpSocket,&pConnection->FDRead);
 
                                 // Socket is readable so so read the data
                                 if(PeekOnly == FALSE)
                                 {
-
+#if CONFIG_4G_MODULE
+                                        if((nRetCode = lisa_4g_tcp_recv(pConnection->HttpSocket,pData,*(nLength),1000)) == SOCKET_ERROR)
+#else
                                         if((nRetCode = recv(pConnection->HttpSocket,pData,*(nLength),0)) == SOCKET_ERROR)
+#endif
                                         {
                                                 // Socket error
 
@@ -2303,7 +2326,11 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
                                 else
                                 {
                                         // Only peek te socket
+#if CONFIG_4G_MODULE
+                                        if((nRetCode = lisa_4g_tcp_recv(pConnection->HttpSocket,pData,*(nLength),1000)) == SOCKET_ERROR)
+#else
                                         if((nRetCode = recv(pConnection->HttpSocket,pData,*(nLength),MSG_PEEK)) == SOCKET_ERROR)
+#endif
                                         {
                                                 // Socket error
                                                 nRetCode =  HTTP_CLIENT_ERROR_SOCKET_RECV;
@@ -2327,7 +2354,9 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
                                 // We have successfully got the data from the server
                                 nRetCode = HTTP_CLIENT_SUCCESS;
                                 break;
+                        #if !CONFIG_4G_MODULE
                         }
+                        
                         // We had a socket related error
                         if(FD_ISSET(pConnection->HttpSocket ,&pConnection->FDError))
                         {
@@ -2339,6 +2368,7 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
                                 break;
 
                         }
+                        #endif
                 }
         }while(0);
 

@@ -1,5 +1,12 @@
 menu "syslog backend uart"
 
+config SYSLOG_UART_BACKEND
+    bool "syslog backend uart"
+    default y
+    help
+        Enable syslog backend for UART output.
+
+if SYSLOG_UART_BACKEND
 config SYSLOG_UART_PORT
     int "uart port"
     default 0
@@ -9,17 +16,32 @@ config SYSLOG_UART_BAUDRATE
     int "uart baudrate"
     default 921600
 
-config SYSLOG_UART_TX_PORT
-    int "log uart tx port"
-    default 0
+choice SYSLOG_UART_DEVICE_NAME
+    prompt "uart device name"
+    default SYSLOG_UART_DEVICE_UART0
+    help
+      Specify the UART device name for syslog output.
 
-config SYSLOG_UART_TX_PIN
-    int "log uart tx pin"
-    default 3
+config SYSLOG_UART_DEVICE_UART0
+    bool "uart0"
+    select LISA_DEVICE
+    select LISA_UART_DEVICE
+    select LISA_UART0
 
-config SYSLOG_UART_TX_PIN_FUNC_SEL
-    int "log uart tx pin func sel"
-    default 0x2
+config SYSLOG_UART_DEVICE_UART1
+    bool "uart1"
+    select LISA_DEVICE
+    select LISA_UART_DEVICE
+    select LISA_UART1
+
+config SYSLOG_UART_DEVICE_UART2
+    bool "uart2"
+    select LISA_DEVICE
+    select LISA_UART_DEVICE
+    select LISA_UART2
+
+endchoice
+endif
 
 config SYSLOG_PRINTK_REDIRECT
     bool "printk redirect"

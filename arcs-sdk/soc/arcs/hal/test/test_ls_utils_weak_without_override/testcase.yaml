@@ -1,0 +1,5 @@
+tests:
+  test.ls_utils_weak_without_override:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"

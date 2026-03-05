@@ -1,3 +1,11 @@
+config LVGL_HEAP_SIZE
+    hex "LVGL independent heap size"
+    depends on LV_DEMO_SYS_HEAP
+    default 0x100000
+    help
+        Size of LVGL independent heap in bytes (default 1MB = 0x100000).
+        The heap will be allocated in PSRAM (.psram.bss section).
+        Adjust this value based on your UI complexity and memory usage.
 
 config LV_CUSTOM_MONITOR
     bool "Custom monitor"

@@ -1,4 +1,4 @@
-osource "$LISTENAI_MODULES"
+osource "$ARCS_BASE/Kconfig"
 
 
 

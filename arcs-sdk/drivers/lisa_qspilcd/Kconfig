@@ -1,0 +1,29 @@
+# LISA QSPI LCD Driver Configuration
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_QSPILCD_DEVICE
+    bool "Enable LISA QSPI LCD driver"
+    default n
+    depends on LISA_DEVICE
+    help
+      Enable the LISA QSPI LCD device driver based on lisa_device framework.
+      The driver wraps the HAL QSPI LCD interface and exposes a unified
+      API for command and DMA based pixel transfers.
+
+if LISA_QSPILCD_DEVICE
+
+config LISA_QSPILCD_GPDMA_CH
+    int "QSPI TX GPDMA channel"
+    default 0
+    help
+      QSPI TX GPDMA channel used for pixel transfers.
+
+config LISA_QSPILCD_DEFAULT_CLK_HZ
+    int "Default QSPI LCD clock frequency (Hz)"
+    default 50000000
+    help
+      Default bus clock used when the board specific configuration does not
+      specify an explicit frequency.
+
+endif # LISA_QSPILCD_DEVICE

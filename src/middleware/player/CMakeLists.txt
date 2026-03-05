@@ -1,0 +1,15 @@
+listenai_library_named(player)
+
+listenai_library_sources(
+    audio_player.c
+    listen_audiomgr.c
+    listen_volume.c
+    play_mode.c
+    short_player.c
+    sound_player.c
+	player_mgr.c
+)
+
+listenai_include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)

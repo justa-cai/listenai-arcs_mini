@@ -20,40 +20,41 @@ if (DEFINED CONFIG_LWIP)
         target_compile_definitions(${LISTENAI_CURRENT_LIBRARY} PRIVATE CFG_PING)
     endif()
 
-
+    # Get LWIP version from Kconfig
+    set(LWIP_VERSION_DIR "lwip-${CONFIG_LWIP_VERSION}")
 
     # Core files
     set(LWIP_CORE_SRCS
-        lwip-2.2.0/src/core/init.c
-        lwip-2.2.0/src/core/def.c
-        lwip-2.2.0/src/core/dns.c
-        lwip-2.2.0/src/core/inet_chksum.c
-        lwip-2.2.0/src/core/ip.c
-        lwip-2.2.0/src/core/mem.c
-        lwip-2.2.0/src/core/memp.c
-        lwip-2.2.0/src/core/netif.c
-        lwip-2.2.0/src/core/pbuf.c
-        lwip-2.2.0/src/core/raw.c
-        lwip-2.2.0/src/core/stats.c
-        lwip-2.2.0/src/core/sys.c
-        lwip-2.2.0/src/core/tcp.c
-        lwip-2.2.0/src/core/tcp_in.c
-        lwip-2.2.0/src/core/tcp_out.c
-        lwip-2.2.0/src/core/timeouts.c
-        lwip-2.2.0/src/core/udp.c
+        ${LWIP_VERSION_DIR}/src/core/init.c
+        ${LWIP_VERSION_DIR}/src/core/def.c
+        ${LWIP_VERSION_DIR}/src/core/dns.c
+        ${LWIP_VERSION_DIR}/src/core/inet_chksum.c
+        ${LWIP_VERSION_DIR}/src/core/ip.c
+        ${LWIP_VERSION_DIR}/src/core/mem.c
+        ${LWIP_VERSION_DIR}/src/core/memp.c
+        ${LWIP_VERSION_DIR}/src/core/netif.c
+        ${LWIP_VERSION_DIR}/src/core/pbuf.c
+        ${LWIP_VERSION_DIR}/src/core/raw.c
+        ${LWIP_VERSION_DIR}/src/core/stats.c
+        ${LWIP_VERSION_DIR}/src/core/sys.c
+        ${LWIP_VERSION_DIR}/src/core/tcp.c
+        ${LWIP_VERSION_DIR}/src/core/tcp_in.c
+        ${LWIP_VERSION_DIR}/src/core/tcp_out.c
+        ${LWIP_VERSION_DIR}/src/core/timeouts.c
+        ${LWIP_VERSION_DIR}/src/core/udp.c
     )
 
     # IPv4 files
     set(LWIP_IPV4_SRCS
-        lwip-2.2.0/src/core/ipv4/acd.c
-        lwip-2.2.0/src/core/ipv4/autoip.c
-        lwip-2.2.0/src/core/ipv4/dhcp.c
-        lwip-2.2.0/src/core/ipv4/etharp.c
-        lwip-2.2.0/src/core/ipv4/icmp.c
-        lwip-2.2.0/src/core/ipv4/igmp.c
-        lwip-2.2.0/src/core/ipv4/ip4_frag.c
-        lwip-2.2.0/src/core/ipv4/ip4.c
-        lwip-2.2.0/src/core/ipv4/ip4_addr.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/acd.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/autoip.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/dhcp.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/etharp.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/icmp.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/igmp.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/ip4_frag.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/ip4.c
+        ${LWIP_VERSION_DIR}/src/core/ipv4/ip4_addr.c
     )
 
 
@@ -61,41 +62,46 @@ if (DEFINED CONFIG_LWIP)
         net_al/net_al.c
         net_al/net_ip.c
         net_al/net_tg_al.c
-        lwip-2.2.0/contrib/ports/rtos/sys_arch.c
-        port/netif/dhcp_state.c
+        ${LWIP_VERSION_DIR}/contrib/ports/rtos/sys_arch.c
     )
+
+    if (DEFINED CONFIG_LWIP_DHCP_RESTORE_LAST_IP_FROM_LISA_KV)
+        list(APPEND LWIP_NET_SRCS port/netif/dhcp_state_kv.c)
+    else()
+        list(APPEND LWIP_NET_SRCS port/netif/dhcp_state.c)
+    endif()
 
     # IPv6 files
     set(LWIP_IPV6_SRCS
-        lwip-2.2.0/src/core/ipv6/dhcp6.c
-        lwip-2.2.0/src/core/ipv6/ethip6.c
-        lwip-2.2.0/src/core/ipv6/icmp6.c
-        lwip-2.2.0/src/core/ipv6/inet6.c
-        lwip-2.2.0/src/core/ipv6/ip6.c
-        lwip-2.2.0/src/core/ipv6/ip6_addr.c
-        lwip-2.2.0/src/core/ipv6/ip6_frag.c
-        lwip-2.2.0/src/core/ipv6/mld6.c
-        lwip-2.2.0/src/core/ipv6/nd6.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/dhcp6.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/ethip6.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/icmp6.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/inet6.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/ip6.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/ip6_addr.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/ip6_frag.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/mld6.c
+        ${LWIP_VERSION_DIR}/src/core/ipv6/nd6.c
     )
 
     # API files
     set(LWIP_API_SRCS
-        lwip-2.2.0/src/api/api_lib.c
-        lwip-2.2.0/src/api/api_msg.c
-        lwip-2.2.0/src/api/err.c
-        lwip-2.2.0/src/api/netbuf.c
-        lwip-2.2.0/src/api/netdb.c
-        lwip-2.2.0/src/api/netifapi.c
-        lwip-2.2.0/src/api/sockets.c
-        lwip-2.2.0/src/api/tcpip.c
+        ${LWIP_VERSION_DIR}/src/api/api_lib.c
+        ${LWIP_VERSION_DIR}/src/api/api_msg.c
+        ${LWIP_VERSION_DIR}/src/api/err.c
+        ${LWIP_VERSION_DIR}/src/api/netbuf.c
+        ${LWIP_VERSION_DIR}/src/api/netdb.c
+        ${LWIP_VERSION_DIR}/src/api/netifapi.c
+        ${LWIP_VERSION_DIR}/src/api/sockets.c
+        ${LWIP_VERSION_DIR}/src/api/tcpip.c
     )
 
     # APP files
     set(LWIP_APP_SRCS
-        lwip-2.2.0/src/apps/dhcps/dhcps.c
-        lwip-2.2.0/src/apps/sntp/sntp.c
+        ${LWIP_VERSION_DIR}/src/apps/dhcps/dhcps.c
+        ${LWIP_VERSION_DIR}/src/apps/sntp/sntp.c
     )
-    set(LWIPERF_SRCS  lwip-2.2.0/src/apps/lwiperf/lwiperf.c)
+    set(LWIPERF_SRCS  ${LWIP_VERSION_DIR}/src/apps/lwiperf/lwiperf.c)
 
     if (DEFINED CONFIG_IPERF)
         list(APPEND LWIP_APP_SRCS
@@ -118,16 +124,16 @@ if (DEFINED CONFIG_LWIP)
         ${LWIP_NET_SRCS}
         ${LWIP_APP_SRCS}
         ${LWIPERF_SRCS}
-        lwip-2.2.0/src/netif/ethernet.c
+        ${LWIP_VERSION_DIR}/src/netif/ethernet.c
     )
 
     listenai_include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/../include/net
         ${CMAKE_CURRENT_SOURCE_DIR}/../include
         ${CMAKE_CURRENT_SOURCE_DIR}/port/include
-        lwip-2.2.0/src/include
-        lwip-2.2.0/contrib/ports/rtos/include
-        lwip-2.2.0/src/include/lwip/apps
+        ${LWIP_VERSION_DIR}/src/include
+        ${LWIP_VERSION_DIR}/contrib/ports/rtos/include
+        ${LWIP_VERSION_DIR}/src/include/lwip/apps
         net_al
     )
 

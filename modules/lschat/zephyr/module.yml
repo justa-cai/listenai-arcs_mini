@@ -1,0 +1,4 @@
+name: ls_chat
+build:
+  cmake: .
+  kconfig: Kconfig

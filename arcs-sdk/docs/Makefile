@@ -29,4 +29,9 @@ clean:
 	@rm -rf zh/samples
 	@rm -rf zh/components
 	@rm -rf zh/_static
-
+	@rm -rf zh/drivers
+	@rm -rf zh/modules
+	@rm -rf zh/boards
+	@rm -rf zh/CHANGELOG.md
+	@rm -rf zh/tools
+	@rm -rf zh/demos

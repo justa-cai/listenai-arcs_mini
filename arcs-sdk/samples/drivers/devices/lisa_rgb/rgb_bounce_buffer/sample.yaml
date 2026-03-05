@@ -1,0 +1,7 @@
+tests:
+  samples.lisa_rgb:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Pattern \\d+: (Red|Green|Blue|White|Color bars|Gradient)"

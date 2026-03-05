@@ -86,8 +86,9 @@ uint32_t CalculatePara(complexint32* cCrossMartix, complexint16* cLegcyPara, com
 void CalculateTimeEst(complexint16* cXSignal, complexint16* cYSignal, uint8_t uTimeEstStartTx, uint8_t uTimeEstStartFb, uint16_t uTimeEstWinLen, uint8_t uTimeEstLen, int16_t* iIntDelay, int16_t* iFracDelay);
 void CalculateGainEst(complexint16* cXSignal, complexint16* cYSignal, uint8_t uTimeEstStart, uint16_t uTimeEstLen, complexint16* cGain);
 void FbCompTime(complexint16* cYSignal, int16_t iFracDelay);
-void CalculateDcEst(complexint16* cYSignal, uint32_t* uPower, complexint16* cDcEstRx);
+void CalculateDcEst(complexint16* cYSignal, complexint16* cDcEstRx);
 void CalculatePowerEst(complexint16* cYSignal, uint32_t* uPower);
+void CalculatePowerWithDC(complexint16* cYSignal, uint32_t* uPower);
 void FbCompGain(complexint16* cYSignal, complexint16 cGain);
 void TxCompGain(complexint16* cYSignal, int16_t uGain);
 void CalculateTxDcEst(complexint16* cTxDc, complexint16* cTxLegacyDc, complexint16* cDcEstRx, complexint16* cGainEst, complexint16* cTxDcEst, uint8_t iter);

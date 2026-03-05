@@ -1,0 +1,3 @@
+config OTA
+    bool "Enable online resources update"
+    default n

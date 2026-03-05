@@ -19,10 +19,11 @@
 // any channel of DMA controller
 #define DMA_CHANNEL_ANY                 ((uint8_t)0xFF)
 
-#define MAX_BLK_BITS    20 // 19 //FIXME: MUST confirm it !!
+#define MAX_BLK_BITS    20
 
 //NOTE: original BLOCK_TS 12bits => 19/20bits @CTLx bit[50/51:32], 512K/1M-1
 #define MAX_BLK_TS      ((1 << MAX_BLK_BITS) - 1)
+#define BLK_TS_MASK     ((1 << MAX_BLK_BITS) - 1)
 
 // HW LLP (Linked list multi-block) is supported on ARCS...
 #define SUPPORT_HW_LLP  1 //TODO: change to 1 since Linked list is supported!
@@ -372,6 +373,9 @@ extern int32_t dma_channel_configure_wrapper (uint8_t      ch,
 //#define dma_channel_configure_polling(ch, ...)  \
 //    dma_channel_configure_wrapper(ch, 0, ##__VA_ARGS__)
 
+#define DMA_CH_EN_XFER_INT      (0x1 << 0) // enable xfer & error interrupt (clear for polling)
+#define DMA_CH_EN_BLK_INT       (0x1 << 1) // enable block interrupt (set if PingPong transfer)
+#define DMA_CH_EN_PIPO          (0x1 << 7) // enable PingPong transfer
 extern int32_t dma_channel_configure_polling (uint8_t      ch,
                                             uint32_t      src_addr,
                                             uint32_t      dst_addr,
@@ -390,6 +394,8 @@ typedef enum {
     DMA_TT_P2M,     // DMA_CH_CTLL_TTFC_P2M
     DMA_TT_COUNT
 } DMA_XFER_TYPE;
+#define DMA_TT_MASK(x)      ((x) & 0x03)
+#define DMA_PIPO_MASK(x)    ((x) & 0x80)
 
 // Check the DMA channel has been configured for some peripheral as specified before and select if configured
 // xfer_type    Memory to Peripheral (M2P) or Peripheral to Memory (P2M)
@@ -411,6 +417,15 @@ extern int32_t dma_channel_configure_lite (uint8_t      ch,
                                            uint32_t     src_addr,
                                            uint32_t     dst_addr,
                                            uint32_t     total_size);
+#define PIPO_BLK_FLAG_STOP  (0x1 << 0)
+typedef struct {
+    void *src;     // Source Address
+    void *dst;     // Destination Address
+    // block size, in unit of data_width (maybe BYTE/HALFWORD/WORD),
+    //  no more than (1M - 1) data
+    uint32_t size;    // Block Size
+    uint32_t flags; // 1: Stop PingPing after this block transfer
+} DMA_PIPO_BLK;
 
 /**
   \fn          int32_t dma_channel_configure_LLP (

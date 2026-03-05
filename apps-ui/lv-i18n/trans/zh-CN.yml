@@ -1,0 +1,45 @@
+zh-CN:
+  speaking: 说话中
+  thinking: 思考中
+  service connected: 服务已连接
+  service disconnected: 服务未连接
+  common setting: 基础设置
+  network setting : 网络设置
+  wakeup setting: 唤醒交互
+  alarm setting: 闹钟设置
+  volume: 音量
+  brightness: 亮度
+  WIFI: WIFI
+  AutoScan: 自动扫描
+  no alarm: 暂无闹钟, 可通过语音设置闹钟.
+  listening: 我在听
+  recognizing: 识别中
+  recognition error: 识别出现错误
+  Please speak: 请说话
+  cancel: 取消
+  delete: 删除
+  monday: 星期一
+  tuesday: 星期二
+  wednesday: 星期三
+  thursday: 星期四
+  friday: 星期五
+  saturday: 星期六
+  sunday: 星期日
+  year: 年
+  month: 月
+  day: 日
+  Alarm set successfully: 闹钟设置成功
+  Alarm Reminder: 闹钟提醒
+  enter: 确定
+  scaning: 扫描中
+  no network: 无网络
+  wifi setting: WiFi 设置
+  alarm invalid: 无效闹钟
+  'volume: %d%%': '音量: %d%%'
+  'brightness: %d%%': '亮度: %d%%'
+  button wakeup: 按键唤醒
+  button wakeup description: 长按K1按键唤醒并对话
+  voice wakeup(single): 语音唤醒（单轮）
+  voice wakeup(multiple): 语音唤醒（多轮）
+  voice wakeup single description: 通过语音唤醒，每次唤醒一轮对话
+  voice wakeup multiple description: 通过语音唤醒，支持多轮连续对话
