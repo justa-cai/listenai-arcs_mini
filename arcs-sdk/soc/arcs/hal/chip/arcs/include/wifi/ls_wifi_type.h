@@ -12,7 +12,7 @@
 
 #define VIF_MAX (1)
 
-#define MAX_AP_SCAN (50)
+#define MAX_AP_SCAN (32)
 
 #ifndef __PACKED
 #define __PACKED __attribute__ ((__packed__))
@@ -95,13 +95,19 @@ typedef enum
 
 }wifi_cipher_e;
 
-// wifi error reason code
-#define WIFI_ERROR_STA_AUTH_FAIL                              100
-#define WIFI_ERROR_STA_ASSOC_FAIL                             101
-#define WIFI_ERROR_STA_CONNECT_NO_TARGET_AP                   102
-#define WIFI_ERROR_STA_LINK_LOSS                              103
-#define WIFI_ERROR_WPA3_PWD_OR_AUTH_FAIL                      104
-#define WIFI_ERROR_FOUND_SSID_BUT_KEY_MISMATCH                105
+// wifi error code
+#define WIFI_ERROR_STA_AUTH_FAIL                              200
+#define WIFI_ERROR_STA_ASSOC_FAIL                             201
+#define WIFI_ERROR_STA_CONNECT_NO_TARGET_AP                   202
+#define WIFI_ERROR_STA_LINK_LOSS                              203
+#define WIFI_ERROR_WPA3_PWD_OR_AUTH_FAIL                      204
+#define WIFI_ERROR_FOUND_SSID_BUT_KEY_MISMATCH                205
+#define WIFI_ERROR_NO_FRAME_ALLC_FOR_AUTH_ASSO                206
+#define WIFI_ERROR_ADD_STA_FAIL                               207
+#define WIFI_ERROR_AUTH_ASSOC_TIMEOUT                         208
+#define WIFI_ERROR_DEAUTH_BY_AP                               209
+#define WIFI_ERROR_DEAUTH_BY_LOCAL                            210
+
 // 1-99 is for spec definitions
 #define WIFI_ERROR_UNSPECIFIED_REASON                         1
 #define WIFI_ERROR_INVALID_AUTHENTICATION                     2
@@ -189,7 +195,9 @@ typedef struct
 // parameters for EVENT_WIFI_CONNECT_FAIL report,  use to get connect fail reason code
 typedef struct
 {
-    uint32_t reason_code;
+    uint16_t erro_code;
+    uint16_t status_code;   /* status in associate response*/
+    uint16_t reason_code;   /* reason code in deauth */
     // it would be true when max retry count reach
     bool max_retry_reach;
 } event_connect_fail_param_t;
@@ -197,7 +205,9 @@ typedef struct
 // parameters for EVENT_WIFI_DISCONNECT report,  use to get disconnect reason code
 typedef struct
 {
-    uint32_t reason_code;
+    uint16_t erro_code;
+    uint16_t status_code;        /* status in associate response*/
+    uint16_t reason_code;   /* reason code in deauth */
     // it would be true when max retry count reach
     bool max_retry_reach;
 } event_disconnect_param_t;
@@ -551,17 +561,6 @@ typedef struct wifi_ap_info
     uint8_t channel;          /**< Channel number. */
 } wifi_ap_info_t;
 
-/// Power Save mode setting
-typedef enum
-{
-    /// Power-save off
-    WIFI_PS_MODE_OFF,
-    /// Power-save on - Normal mode
-    WIFI_PS_MODE_ON,
-    /// Power-save on - Dynamic mode
-    WIFI_PS_MODE_ON_DYN,
-} ps_mode_type_e;
-
 /**
  * @brief Wi-Fi 80211 frame TX control.
  */
@@ -711,9 +710,38 @@ struct wifi_mac_hdr
 
 
 typedef const struct wifi_ops {
+    uint8_t dpd_track_temp_disable;
+    uint8_t dpd_track_connect_en;
+    uint8_t fw_log_level; /* 1~5 CRT/ERR/WAR/INFO/VRB, default level 4*/
     int8_t (* get_mac)(uint8_t *mac_addr);
-    void (* temp_update)(void);
+    bool (* temp_update)(void);
 
 } _wifi_ops, *pwifi_ops;
+
+#define WIFI_PS_LOCK_BIT_APP           0x00000001
+#define WIFI_PS_LOCK_BIT_FHOST_CNTRL   0x00000002
+#define WIFI_PS_LOCK_BIT_FHOST_RX      0x00000004
+#define WIFI_PS_LOCK_BIT_LWIP          0x00000008
+
+typedef enum {
+    WIFI_PS_MODE_OFF,        /**< WiFi power save disabled */
+    WIFI_PS_MODE_DTIM,       /**< Wake on every DTIM beacon interval */
+    WIFI_PS_MODE_LISTEN,   /**< Wake on each configured listen interval */
+    WIFI_PS_MODE_MAX
+} wifi_ps_mode_e;
+
+#define WIFI_PS_DEFAULT_TYPE           WIFI_PS_MODE_DTIM
+
+typedef struct wifi_ps_state
+{
+    bool state;
+    bool enable;
+    bool event_pending;
+    uint32_t lock_state;
+    uint32_t prevent;
+    uint32_t vif_prevent;
+    uint32_t tx_cnt;
+    uint32_t timer_prevent;
+} wifi_ps_state_t;
 
 #endif

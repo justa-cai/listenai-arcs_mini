@@ -1,0 +1,86 @@
+config LISA_FLASH_ARCS
+    bool "Enable LISA Flash ARCS support"
+    default n
+    select ARCS_HAL_FLASH_IF
+    select ARCS_HAL_IPC
+    select RTOS_AL
+    help
+        Enable LISA Flash ARCS support.
+
+if LISA_FLASH_ARCS
+
+config LISA_FLASH_ARCS_HALT_REMOTE_CORE
+    bool "Enable HAL IPC halt remote core support"
+    default n
+    select ARCS_HAL_IPC_HALT_PEER_CORE
+    select ARCS_HAL_IPC_FLASH_AGENT
+    help
+        Enable HAL IPC halt remote core support for Flash driver.
+
+config LISA_FLASH_ARCS_CONTROLLER_BASE_ADDR
+    hex "Flash controller base address"
+    default 0x47600000
+    help
+        Base address of the Flash controller.
+        
+config LISA_FLASH_ARCS_ERASE_SECTOR_SIZE
+    int "Flash erase sector size"
+    default 4096
+    help
+        Erase sector size for Flash operations.
+        
+config LISA_FLASH_ARCS_WRITE_BLOCK_SIZE
+    int "Flash write min block size"
+    default 4
+    help
+        Write min block size for Flash operations.
+
+config LISA_FLASH_ARCS_DATA_WIDTH
+    int "Flash data width (1, 2, or 4)"
+    default 4
+    range 1 4
+    help
+        Data width for Flash: 1 (standard SPI), 2 (dual SPI), or 4 (quad SPI).
+
+config LISA_FLASH_ARCS_SCLK_DIV
+    int "Flash SPI clock divider"
+    default 0xff
+    help
+        SPI clock divider for Flash.
+
+config LISA_FLASH_ARCS_ADDR_BYTES
+    int "Flash address bytes (3 or 4)"
+    default 3
+    range 3 4
+    help
+        Number of address bytes: 3 for Flash <= 16MB, 4 for Flash > 16MB.
+
+config LISA_FLASH_ARCS_WRITE_PROTECT_ENABLE
+    bool "Enable Flash write protection"
+    default y
+    help
+        Enable write protection for Flash.
+
+config LISA_FLASH_ARCS_DISABLE_INTERRUPTS
+    bool "Disable interrupts during Flash operations"
+    default y
+    help
+        Enable this option to disable system interrupts during Flash operations.
+
+config LISA_FLASH_ARCS_FLASH_PHYS_ADDR
+    hex "Physical address of Flash memory"
+    default 0x30000000
+    help
+        Physical address where the Flash memory is mapped.
+
+config LISA_FLASH_ARCS_FLASH_PHYS_RESERVE_SIZE
+    hex "Flash physical reserve size"
+    default 0x10000000
+    help
+        Reserved Flash physical address space size.
+        This defines the size of Flash memory space that should be reserved
+        and not used for regular operations. Useful for protecting critical
+        Flash regions or maintaining compatibility with specific hardware layouts.
+
+
+endif    

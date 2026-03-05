@@ -35,13 +35,14 @@ typedef enum {
     WIFI_MGR_STA_CONNECTED = 0,
     WIFI_MGR_STA_CONNECTING,
     WIFI_MGR_STA_DISCONNECTED,
+    WIFI_MGR_STA_CONNECT_FAILED,
     WIFI_MGR_STA_MAX = 0xFF
 } wifi_mgr_connection_status_t;
 
 typedef struct {
     wifi_mgr_connection_status_t status;
     wifi_mgr_sta_config_t *sta_info;
-    int reason;      /* the error code is negative number of @see csk_wifi_event_t */
+    int reason;      /* IEEE 802.11 reason code */
 } wifi_mgr_connection_info_t;
 
 
@@ -253,12 +254,6 @@ int wifi_mgr_remove_scan_done_cb(wifi_mgr_scan_done_cb_t scandone_cb);
 int wifi_mgr_storage_save_ap(wifi_mgr_sta_config_t *ap_info);
 
 /**
- * @brief force save version of wifi_mgr_storage_save_ap whatever ap_info is exist or not.
- *
- */
-int wifi_mgr_storage_save_ap_force(wifi_mgr_sta_config_t *ap_info);
-
-/**
  * @brief Delete a AP device(router) information(ssid, bssid, password, etc...) from the WiFi NVS storage
  * 
  * @note This function will successful only when at least match ssid, bssid fields.
@@ -270,22 +265,23 @@ int wifi_mgr_storage_save_ap_force(wifi_mgr_sta_config_t *ap_info);
 int wifi_mgr_storage_delete_ap(wifi_mgr_sta_config_t *ap_info);
 
 /**
- * @brief Search a AP device(router) information(ssid, bssid, password, etc...) from the WiFi NVS storage
+ * @brief Search a AP device(router) information(ssid, bssid, password, etc...) from the the storage
  * 
  * This function will use the specified searching mode to search the AP device information item from the
- * WiFi info list saved in the WiFi NVS storage. The searching mode defined in the `wifi_mgr_storage_search_mode_t`
+ * WiFi info list saved in the storage. The searching mode defined in the `wifi_mgr_storage_search_mode_t`
  * could be use individually or as combination (use ' | ' as separator) except `SEARCH_ALL` mode.
  * 
  * @note When the searching mode is `SEARCH_ALL`, the `target` parameter should be NULL, and if combination searching
  *       mode is used, the `target` parameter type must be `wifi_mgr_sta_config_t*`.
  *
  * @param matched_list[out] Pointer to the matched AP information list
+ * @param max_count[in] The maximum number of items that matched_list can hold
  * @param search_modes[in] Searching mode
  * @param target[in] Target match item (type should be char*, int*, wifi_mgr_sta_config_t*)
  *
- * @return 0 if successful, negative errno code on failure.
+ * @return The number of matched items found, or negative errno code on failure.
  */
-int wifi_mgr_storage_search_ap(wifi_mgr_sta_config_t **matched_list, wifi_mgr_storage_search_mode_t search_modes, void* target);
+int wifi_mgr_storage_search_ap(wifi_mgr_sta_config_t *matched_list, int max_count, wifi_mgr_storage_search_mode_t search_modes, void* target);
 
 /**
  * @brief Start WiFi auto-connect to neighboring AP device

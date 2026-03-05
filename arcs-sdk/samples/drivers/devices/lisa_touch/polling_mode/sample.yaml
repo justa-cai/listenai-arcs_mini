@@ -1,0 +1,4 @@
+tests:
+  samples.lisa_touch_polling_mode:
+    build_only: true
+

@@ -1,7 +1,7 @@
 /**
  ****************************************************************************************
  *
- * @file ipc_slave.c
+ * @file ipc_utils.c
  *
  * @brief IPC module.
  *
@@ -16,9 +16,12 @@
 #include "ls_rtos.h"
 #include "platform.h"
 #include "ipc.h"
+#include "ic_spinlock.h"
 #ifdef CFG_AMP_IPC_HALT_PEER_CORE
 #include "ic_lock.h"
 #endif
+#include "amp_shared.h"
+#include "vrtc.h"
 
 #define IPC_HALT_PEER_CORE_TIMEOUT         80000000   //2s
 
@@ -38,25 +41,29 @@ static rtos_semaphore halt_by_peer_signal;
 static IC_Mutex halt_peer_mutex;
 #endif
 
+#ifdef CFG_AMP_IPC
 __attribute__((section(CONFIG_ARCS_HAL_IPC_UTILS_IPC_FUNC_SECTION))) void ipc_send_notify(uint32_t event)
 {
-	ipc_fast_notify(IPC_PEER_FAST_CHAN, event);
+    ic_spin_lock_irqsave(IC_SPIN_LOCK_TYPE_IPC);
+    ipc_fast_notify(IPC_PEER_FAST_CHAN, event);
+    ic_spin_unlock_irqsave(IC_SPIN_LOCK_TYPE_IPC);
 }
 
 __attribute__((section(CONFIG_ARCS_HAL_IPC_UTILS_IPC_FUNC_SECTION))) void ipc_set_app_status(uint32_t bit_mask)
 {
-	ipc_shared_env.ipc_app_status |= bit_mask;
+    ipc_shared_env.amp_shared.app_status |= bit_mask;
 }
 
 __attribute__((section(CONFIG_ARCS_HAL_IPC_UTILS_IPC_FUNC_SECTION))) uint32_t ipc_get_app_status(uint32_t bit_mask)
 {
-    return (ipc_shared_env.ipc_app_status & bit_mask);
+    return ((ipc_shared_env.amp_shared.app_status & bit_mask) > 0 ? 1:0);
 }
 
 __attribute__((section(CONFIG_ARCS_HAL_IPC_UTILS_IPC_FUNC_SECTION))) void ipc_clear_app_status(uint32_t bit_mask)
 {
-	ipc_shared_env.ipc_app_status &= ~bit_mask;
+    ipc_shared_env.amp_shared.app_status &= ~bit_mask;
 }
+#endif
 
 #ifdef CFG_AMP_IPC_HALT_BY_PEER_CORE
 void ipc_halt_by_peer(bool isr)
@@ -164,5 +171,14 @@ int32_t ipc_halt_peer_init(void)
     IC_Mutex_init(&halt_peer_mutex, IC_MUTEX_SLEEP_WAIT, IC_MUTEX_TYPE_IPC);
 #endif
     return 0;
+}
+#endif
+
+#ifdef CFG_AMP_IPC
+volatile struct amp_shared_info* ipc_get_shared_info(void)
+{
+    volatile struct amp_shared_info *amp_shared;
+
+    return ipc_get_amp_shared_info();
 }
 #endif

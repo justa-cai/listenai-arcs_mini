@@ -2,9 +2,8 @@ menu "mac manager configuration"
 
 config MAC_MANAGER
         bool "enable mac manager"
-        default n
         select LOG
-        select LISA_KV
+        default n
 
 if MAC_MANAGER
     choice
@@ -13,6 +12,7 @@ if MAC_MANAGER
 
     config MAC_MANAGER_MAC_IN_LISA_KV
         bool "mac from lisa kv"
+        select LISA_KV
 
     config MAC_MANAGER_MAC_IN_FLASH
         bool "mac in flash"

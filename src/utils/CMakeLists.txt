@@ -7,6 +7,7 @@ listenai_library_sources(
     evs_utils.c
     evs_uuid.c
     ico_codec.c
+    # ring_buffer.c
 )
 
 listenai_include_directories(

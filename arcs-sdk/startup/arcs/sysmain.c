@@ -3,7 +3,11 @@
 #include "arcs_ap.h"
 #include "log_print.h"
 #include "syslog.h"
-#include "arcs_sdk_version.h"
+#include "sdk_version.h"
+
+#if CONFIG_SYS_INIT
+#include "sys_init.h"
+#endif
 
 #if CONFIG_ARCS_AP_CORE
 #include "rf_cali.h"
@@ -12,6 +16,7 @@
 #if CONFIG_MODULE_FREERTOS
 #include "FreeRTOS.h"
 #include "task.h"
+#include "memap.h"
 
 #if !defined(CONFIG_MODULE_HEAP)
 
@@ -25,6 +30,12 @@
 #if CONFIG_MODULE_FREERTOS
 void main_task(void *pvParameters)
 {
+
+    /* PRE_APPLICATION initialization - before main() */
+#if CONFIG_SYS_INIT
+    sys_init_run_level(SYS_INIT_LEVEL_PRE_APPLICATION);  /* SYS_INIT_LEVEL_PRE_APPLICATION */
+#endif
+
     int main(int argc, char *argv[]);
     main(0, NULL);
     vTaskDelete(NULL);
@@ -34,7 +45,7 @@ void main_task(void *pvParameters)
 #if CONFIG_SYSLOG_BANNER
 __attribute__((weak)) void boot_banner(void)
 {
-    printf("\n********Arcs SDK@%s-@v%d.%d.%d********\n", VERSION_COMMIT, VERSION_MAJOR, VERSION_MINOR, VERSION_BUILD);
+    printf("\n********Arcs SDK %s @ %s********\n", SDK_VERSION_STRING, BUILD_VERSION);
     printf("Running on hart-id: %ld\n", (unsigned long)__get_hart_id());
 }
 #endif
@@ -79,9 +90,8 @@ __attribute__((weak)) void abort(void)
 
 __attribute__((weak, noreturn)) void entry(void)
 {
-    syslog_init(CONFIG_SYSLOG_UART_PORT, CONFIG_SYSLOG_UART_BAUDRATE);
+    syslog_init_early();
     log_print_hook_set(syslog_raw_output_v);
-
 
 #if CONFIG_WATCHDOG_ENABLE
     boot_watchdog_init();
@@ -95,19 +105,56 @@ __attribute__((weak, noreturn)) void entry(void)
 #endif
 
 #if CONFIG_MODULE_FREERTOS
+#if CONFIG_PSRAM_INIT
+    /* prepare PSRAM */
+    uint32_t rdly = 18, wdly = 22;
+    if (PSRAM_Initialize(&rdly, &wdly, 1) == 0) {
+        CLOGD("PSRAM initialize success");
+    }
+    HAL_InvalidateDCache_by_Addr((void *)MEM_PSRAM_BASE, MEM_PSRAM_SIZE);
+#endif
+
+    scatload_psram();
+
     sysheap_init();
 
 #if CONFIG_LOG
     lisa_log_init();
 #endif
 
+    /* PRE_DEVICES_INIT initialization - before device init */
+#if CONFIG_SYS_INIT
+    extern int sys_init_run_level(uint8_t level);
+    sys_init_run_level(SYS_INIT_LEVEL_PRE_DEVICES_INIT);  /* SYS_INIT_LEVEL_PRE_DEVICES_INIT */
+#endif
+
+#if CONFIG_LISA_DEVICE
+#if !CONFIG_LISA_DEVICE_MANUAL_INIT
+    lisa_device_init();
+#endif
+#endif
+
     extern void pre_main_hook(void);
     pre_main_hook();
 
+    /* PRE_KERNEL initialization - before scheduler starts */
+#if CONFIG_SYS_INIT
+    sys_init_run_level(SYS_INIT_LEVEL_PRE_KERNEL);  /* SYS_INIT_LEVEL_PRE_KERNEL */
+#endif
+
     cpp_init();
+
+    /* POST_KERNEL initialization - RTOS is now running */
+#if CONFIG_SYS_INIT
+    sys_init_run_level(SYS_INIT_LEVEL_POST_KERNEL);  /* SYS_INIT_LEVEL_POST_KERNEL */
+#endif
 
     xTaskCreate(main_task, "main", CONFIG_MAIN_TASK_STACK_SIZE, NULL, CONFIG_MAIN_TASK_PRIORITY, NULL);
     vTaskStartScheduler();
+    /* POST_KERNEL initialization - RTOS is now running */
+#if CONFIG_SYS_INIT
+    sys_init_run_level(SYS_INIT_LEVEL_POST_KERNEL);  /* SYS_INIT_LEVEL_POST_KERNEL */
+#endif
     while(1) {
 
     }

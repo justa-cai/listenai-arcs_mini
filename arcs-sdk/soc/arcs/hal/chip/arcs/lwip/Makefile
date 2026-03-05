@@ -11,7 +11,7 @@ LIBS	=
 exclude_dirs=
 
 #files want to build: eg. CSRCS=a.c  CPPSRCS=b.cpp  SSRCS=c.S
-LWIPDIR := lwip-2.2.0
+LWIPDIR := $(LWIP_VER)
 PORT := rtos
 CSRCS_CORE := $(LWIPDIR)/src/core/init.c \
               $(LWIPDIR)/src/core/def.c\
@@ -92,7 +92,6 @@ CFLAGS := -I$(LWIPDIR)/src/include\
           -I$(TOPDIR)/include/bsp\
           -I$(TOPDIR)/modules/rtos/include\
           -I$(TOPDIR)/chip/$(CHIP)/rtos/rtos_al\
-          -I$(TOPDIR)/modules/debug/include\
           -I$(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure\
           -I$(TOPDIR)/chip/$(CHIP)/include\
           -I$(TOPDIR)/chip/$(CHIP)/include/wifi\

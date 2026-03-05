@@ -1,0 +1,2 @@
+osource "$ZEPHYR_BASE/Kconfig"
+osource "$LSCHAT_BASE/Kconfig"

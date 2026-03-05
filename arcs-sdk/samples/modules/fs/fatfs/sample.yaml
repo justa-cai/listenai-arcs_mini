@@ -1,8 +1,0 @@
-tests:
-  samples.fatfs:
-    programmer: arcs
-    runner: uart
-    log_analyzer:
-      type: "regex"
-      pattern: "FATFS sample"
-

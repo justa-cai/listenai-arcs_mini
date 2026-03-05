@@ -466,10 +466,10 @@ bool dcd_init(uint8_t rhport, const tusb_rhport_init_t* rh_init) {
 void dcd_int_enable(uint8_t rhport) {
     ARG_UNUSED(rhport);
 
+    __enable_irq();
     CSK_USBC->INTRUSBE = usb_venus_ctrl.intr_usbe;
     CSK_USBC->INTRTXE = usb_venus_ctrl.intr_txe;
     CSK_USBC->INTRRXE = usb_venus_ctrl.intr_rxe;
-
 
     // Enable global interrupt
     enable_IRQ(IRQ_USBC_VECTOR);
@@ -482,9 +482,6 @@ void dcd_int_enable(uint8_t rhport) {
 void dcd_int_disable(uint8_t rhport) {
     ARG_UNUSED(rhport);
 
-    CSK_USBC->INTRUSBE = 0x0;
-    CSK_USBC->INTRTXE = 0x0;
-    CSK_USBC->INTRRXE = 0x0;
 
     // Disable global interrupt
     disable_IRQ(IRQ_USBC_VECTOR);
@@ -492,6 +489,8 @@ void dcd_int_disable(uint8_t rhport) {
 #if CONFIG_SOF_CNT
     disable_IRQ(IRQ_SOF_CNT_VECTOR);
 #endif
+
+    __disable_irq();
 }
 
 void dcd_set_address(uint8_t rhport, uint8_t dev_addr) {

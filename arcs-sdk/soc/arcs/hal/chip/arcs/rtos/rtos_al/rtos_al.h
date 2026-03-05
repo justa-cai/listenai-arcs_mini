@@ -572,7 +572,10 @@ int32_t rtos_timer_reload(rtos_timer timer);
 int32_t rtos_timer_destroy(rtos_timer timer);
 void rtos_timer_id_set(rtos_timer timer, void *id);
 void *rtos_timer_id_get(rtos_timer timer);
-
+void rtos_timer_set_reload_mode(rtos_timer timer, bool reload);
+int32_t rtos_timer_is_active(rtos_timer timer);
+void rtos_timer_schedule(rtos_timer timer, uint32_t period_ms);
+uint32_t rtos_timer_get_period(rtos_timer timer);
 void *rtos_aligned_malloc(uint32_t size, uint32_t alignment);
 void rtos_aligned_free(void *ptr);
 

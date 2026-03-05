@@ -4,6 +4,20 @@
 #include "arcs_ap.h"
 
 /**
+ * @brief Initializes the eFuse driver.
+ *
+ * This function enables the eFuse clock and power, and marks the eFuse driver as initialized.
+ */
+void efuse_init(void);
+
+/**
+ * @brief UnInitializes the eFuse driver.
+ *
+ * This function disable the eFuse clock and power, and marks the eFuse driver as UnInitialized.
+ */
+void efuse_uninit(void);
+
+/**
  * @brief Reads a 32-bit word from the specified eFuse address.
  *
  * This function reads a 32-bit (word) value from the eFuse. The address is

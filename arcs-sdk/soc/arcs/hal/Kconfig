@@ -77,6 +77,10 @@ rsource "chip/arcs/ic_lock/Kconfig"
 rsource "chip/arcs/utils/Kconfig"
 rsource "chip/arcs/lib/Kconfig.ble"
 rsource "chip/arcs/btos/Kconfig"
+rsource "chip/arcs/pm_impl/Kconfig"
+rsource "chip/arcs/mbedtls/Kconfig"
 rsource "modules/profiles/Kconfig"
+rsource "modules/audio/Kconfig"
+rsource "modules/codec/Kconfig"
 
 endmenu

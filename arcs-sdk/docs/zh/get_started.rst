@@ -12,10 +12,10 @@
 .. _environment_setup:
 
 环境搭建
-=======
+========
 
 自动搭建（推荐）
---------------
+----------------
 
 1. **下载开发工具包**
 
@@ -33,6 +33,24 @@
 
       ./prepare_toolchain.sh
 
+3. **设置环境变量**
+
+   .. code-block:: shell
+
+      # 设置工具链路径
+      export NUCLEI_TOOLCHAIN_PATH=/path/to/toolchain
+
+      # 设置 ListenAI 工具包路径
+      export LISTENAI_TOOLS_PATH=/path/to/listenai-tools
+
+   .. warning::
+      **必须使用绝对路径！** 环境变量的路径必须是绝对路径（如 ``/home/user/toolchain``），不能使用相对路径（如 ``./toolchain`` 或 ``../toolchain``），否则会导致编译失败。
+
+   其中：
+
+   - ``NUCLEI_TOOLCHAIN_PATH`` 指向解压后的工具链路径（绝对路径）
+   - ``LISTENAI_TOOLS_PATH`` 指向解压后的 ListenAI 工具包路径（绝对路径）
+
 手动搭建
 --------
 
@@ -42,7 +60,7 @@
 
    下载对应平台的工具链并解压（如果已存在工具链，可跳过此步骤）：
 
-   - `Linux 工具链下载地址 <https://iflyos-external.oss-cn-shanghai.aliyuncs.com/chip_arcs/listenai-linux-amd64-tools.tar.gz>`_
+   - `Linux 工具链下载地址 <http://listenai-firmware-delivery.oss-cn-beijing.aliyuncs.com/ARCS/tools/toolchain/linux-amd64/nuclei_riscv_newlibc_prebuilt_linux64_2025.02.tar.bz2>`_
 
 2. **下载 ListenAI 开发工具包**
 
@@ -54,14 +72,17 @@
 
       # 设置工具链路径
       export NUCLEI_TOOLCHAIN_PATH=/path/to/toolchain
-      
+
       # 设置 ListenAI 工具包路径
       export LISTENAI_TOOLS_PATH=/path/to/listenai-tools
 
+   .. warning::
+      **必须使用绝对路径！** 环境变量的路径必须是绝对路径（如 ``/home/user/toolchain``），不能使用相对路径（如 ``./toolchain`` 或 ``../toolchain``），否则会导致编译失败。
+
    其中：
-   
-   - ``NUCLEI_TOOLCHAIN_PATH`` 指向解压后的工具链路径
-   - ``LISTENAI_TOOLS_PATH`` 指向解压后的 ListenAI 工具包路径
+
+   - ``NUCLEI_TOOLCHAIN_PATH`` 指向解压后的工具链路径（绝对路径）
+   - ``LISTENAI_TOOLS_PATH`` 指向解压后的 ListenAI 工具包路径（绝对路径）
 
 .. _quick_start:
 
@@ -79,12 +100,13 @@
 
    .. code-block:: shell
 
-      ./build.sh -S samples/helloworld -C
+      ./build.sh -C -S samples/helloworld -DBOARD=arcs_evb
 
    命令参数说明：
-   
+
    - ``-S``: 指定项目源码路径
-   - ``-C``: 清理构建目录
+   - ``-DBOARD``: 指定目标板型(必需参数,如 arcs_mini、arcs_evb 等)
+   - ``-C``: 清理构建目录(可选)
 
 2. **编译输出**
 
@@ -106,8 +128,8 @@
 
    将串口板连接到开发板：
    
-   - 开发板 TX 脚 (PA2) 连接串口板 RX
-   - 开发板 RX 脚 (PA3) 连接串口板 TX
+   - 开发板 TX 脚 (默认引脚PA2，注意查看板型文件) 连接串口板 RX
+   - 开发板 RX 脚 (默认引脚PA3，注意查看板型文件) 连接串口板 TX
    - 开发板 GND 连接串口板 GND
 
 2. **进入烧录模式**
@@ -118,7 +140,7 @@
       每次重新烧录前，都需要执行按住 BOOT 脚后复位开发板的操作。
 
 自动烧录（推荐）
---------------
+----------------
 
 如果希望实现自动烧录，可以连接控制引脚：
 
@@ -138,12 +160,19 @@
 
 命令参数说明：
 
-- ``-s``: 指定烧录设备（串口设备）
-- ``-b``: 指定烧录波特率
+- ``-s``: 指定烧录设备（串口设备路径）
+
+  .. note::
+     请根据实际情况选择正确的串口设备：
+
+     - 使用 ``ls /dev/ttyUSB*`` 或 ``ls /dev/ttyACM*`` 查看可用设备
+     - 常见设备名：``/dev/ttyUSB0``、``/dev/ttyUSB1``、``/dev/ttyACM0`` 等
+     - 插入串口板时可使用 ``dmesg | tail`` 查看系统分配的设备名
+
+- ``-b``: 指定烧录波特率（推荐使用 3000000）
 - ``0x0``: 烧录起始地址（基于 0x30000000 flash 起始地址的偏移）
 - ``build/helloworld.bin``: 烧录文件路径
-
-更多烧录工具使用方法，请参考 `cskburn 文档 <../tools/burn/README.MD>`_。
+- ``-C arcs``: 指定芯片类型
 
 验证运行
 --------
@@ -152,35 +181,8 @@
 
 .. code-block:: text
 
-   ********arcs boot on hart id:1********
-   boot hart:1
+   Running on hart-id: 1
    Hello, world!
-
-.. _project_configuration:
-
-项目配置
-========
-
-1. **文本配置**
-
-   可在项目顶级目录的 ``prj.conf`` 文件中进行配置：
-
-   .. code-block:: text
-
-      # 项目可根据需要在此文件中设置对应的配置
-      CONFIG_HEAP_SIZE=32768
-      CONFIG_PSRAM_HEAP_SIZE=1048576
-
-2. **图形化配置**
-
-   通过 menuconfig 进行图形化配置：
-
-   .. code-block:: shell
-
-      ./build.sh -t menuconfig
-
-   .. note::
-      当项目目录同时存在 ``.config`` 文件和 ``prj.conf`` 文件时，``.config`` 文件会覆盖 ``prj.conf`` 文件中的配置。运行 menuconfig 时，可选择将 ``.config`` 文件保存到工程目录下。
 
 .. _troubleshooting:
 

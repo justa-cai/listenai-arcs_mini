@@ -365,7 +365,7 @@ static void at_lwip_log_error(at_lwip_errcode_e err_code, const char* function_n
  * @param type 命令类型（未使用）
  * @param arg 包含ping命令参数的字符串
  **************************************************************************/
-static int atcmd_ping(int type, char *arg)
+static int atcmd_ping(int type, void* arg)
 {
     char *cur;
     char *next = arg;
@@ -627,7 +627,7 @@ static int atcmd_lwip_receive_data(skt_node_t *curnode, uint8_t *buffer, uint16_
 	{
 		if (curnode->role == NODE_ROLE_SERVER) {
 			struct sockaddr_in client_addr;
-			socklen_t addr_len = sizeof(struct sockaddr_in);
+			uint32_t addr_len = sizeof(struct sockaddr_in);
 			memset((char *)&client_addr, 0, sizeof(client_addr));
 
 			if ((size = recvfrom(curnode->sockfd, buffer, buffer_size, 0, (struct sockaddr *) &client_addr, &addr_len)) <= 0) 
@@ -641,7 +641,7 @@ static int atcmd_lwip_receive_data(skt_node_t *curnode, uint8_t *buffer, uint16_
 
 		} else {
 			struct sockaddr_in serv_addr;
-			socklen_t addr_len = sizeof(struct sockaddr_in);  
+			uint32_t addr_len = sizeof(struct sockaddr_in);  
 			memset((char *) &serv_addr, 0, sizeof(serv_addr));
 			serv_addr.sin_family = AF_INET;
 			serv_addr.sin_port = htons(curnode->remote_port);
@@ -983,7 +983,7 @@ static void creat_server_task(void *param)
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_server_create(int type, char *arg)
+static int atcmd_server_create(int type, void* arg)
 {
     char *cur;
     char *next = arg;
@@ -1070,7 +1070,7 @@ static int atcmd_server_create(int type, char *arg)
         ATCMD_LWIP_TASK_DEFAULT_STACK_SIZE, 
         servernode, 
         ATCMD_LWIP_DEFAULT_TASK_PRIO, 
-        &servernode->handletask) != pdPASS)
+        ((TaskHandle_t *)&servernode->handletask)) != pdPASS)
 	{	
 		error_code = ERR_ATCMD_SERVER_CREATE_TASK_FAILED;
 		goto err_exit;
@@ -1302,7 +1302,7 @@ static void client_start_task(void *param)
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_client_create(int type, char *arg)
+static int atcmd_client_create(int type, void* arg)
 {
     char *cur;
     char *next = arg;
@@ -1530,7 +1530,7 @@ err_exit:
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_send_data(int type, char *arg)
+static int atcmd_send_data(int type, void* arg)
 {
     char *cur;
     char *next = arg;
@@ -1681,7 +1681,7 @@ static void socket_close_all(void)
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_close_connect(int type, char *arg)
+static int atcmd_close_connect(int type, void* arg)
 {
     char *cur;
     char *next = arg;
@@ -1766,7 +1766,7 @@ err_exit:
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_auto_receive_data(int type, char *arg)
+static int atcmd_auto_receive_data(int type, void* arg)
 {
     char *cur;
     char *next = arg;
@@ -1852,7 +1852,7 @@ err_exit:
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_receive_data(int type, char *arg)
+static int atcmd_receive_data(int type, void* arg)
 {
     char *cur;
     char *next = arg;
@@ -1864,10 +1864,7 @@ static int atcmd_receive_data(int type, char *arg)
 	int recv_size = 0;	
 	int packet_size = 0;
 	skt_node_t* curnode = NULL;
-	struct sockaddr_in cli_addr;
-	int data_sz;
-	uint8_t *data;
-    char udp_clientaddr[16]={0};
+	uint8_t udp_clientaddr[16] = {0};
 	uint16_t udp_clientport = 0;
 
     int total_recv_size = 0;
@@ -2020,7 +2017,7 @@ err_exit:
  * @param arg 指向包含参数的字符串的指针
  * @return int 返回ATCMD_OK表示命令处理成功
 **************************************************************************/
-static int atcmd_lwip_test_mode(int type, char *arg)
+static int atcmd_lwip_test_mode(int type, void* arg)
 {
     char *cur;
     char *next = arg;

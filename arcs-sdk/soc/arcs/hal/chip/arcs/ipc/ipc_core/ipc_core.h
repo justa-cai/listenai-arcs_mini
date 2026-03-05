@@ -109,6 +109,11 @@ enum
 #define IPC_EVT_LINKUP                           0x00000001
 #define IPC_EVT_HALT                             0x00000002
 #define IPC_EVT_PRINT                            0x00000004
+#define IPC_EVT_VRTC_SET                         0x00000008
+#define IPC_EVT_VRTC_ALERT                       0x00000010
+#define IPC_EVT_ENTER_IDLE                       0x00000020
+#define IPC_EVT_WAKEUP                           0x00000040
+
 
 #ifdef IPC_STATS
 #define IPC_NAME(name)                           name
@@ -149,8 +154,8 @@ enum
 enum
 {
     IPC_EP_IND,
-    IPC_EP_MRPC_WL_SRV,
-    IPC_EP_MRPC_WL_CLT,
+    IPC_EP_MRPC_SRV,
+    IPC_EP_MRPC_CLT,
     IPC_EP_MRPC_SRV_TEST,
     IPC_EP_MRPC_CLT_TEST,
     IPC_EP_MRPC_CMN_SRV,
@@ -259,9 +264,9 @@ struct ipc_msg_desc
 #endif
 };
 
-struct ipc_status
+struct ipc_notify
 {
-    uint32_t fast_notify_status;
+    uint32_t state;
 };
 
 typedef int32_t (*ipc_chan_callback_t)(void *ccb, void *param);
@@ -292,8 +297,8 @@ struct ipc_ccb
 struct ipc_instance
 {
     uint32_t link_id;
-    volatile struct ipc_status *local_status;
-    volatile struct ipc_status *remote_status;
+    volatile struct ipc_notify *local_notify;
+    volatile struct ipc_notify *remote_notify;
     struct dl_list local_ccb;
     struct dl_list remote_ccb;
 #ifdef IPC_STATS
@@ -305,8 +310,8 @@ struct ipc_instance
 #ifdef IPC_STATS
 struct ipc_instance* ipc_get_ep_dump(void);
 #endif
-void ipc_init(uint32_t link_id, volatile struct ipc_status *local, volatile struct ipc_status *remote);
-struct ipc_queue* ipc_shared_queue_init(bool master, volatile struct vring_hdr *vring, volatile void *buf, int32_t unit_size, int32_t unit_num);
+void ipc_init(uint32_t link_id, volatile struct ipc_notify *local, volatile struct ipc_notify *remote);
+struct ipc_queue* ipc_get_queue(volatile struct vring_hdr *vring);
 struct ipc_ccb* ipc_chan_create(char *name, int32_t chan, struct ipc_queue *rxq, ipc_chan_callback_t cb, void *cb_param, uint32_t flags);
 uint8_t* ipc_get_tbuffer(struct ipc_ccb *ccb, uint16_t *size, uint32_t timeout);
 int32_t ipc_send_tbuffer(struct ipc_ccb *ccb, struct ipc_msg_desc *desc);
@@ -317,7 +322,7 @@ uint8_t* ipc_get_rbuffer(struct ipc_ccb *ccb, struct ipc_msg_desc *desc, uint32_
 int32_t ipc_recvfrom(struct ipc_ccb *ccb, struct ipc_msg_desc *desc, uint32_t timeout);
 int32_t ipc_buf_full(struct ipc_ccb *ccb);
 void ipc_fast_notify(uint32_t chan, int32_t event);
-uint32_t ipc_get_fast_notify_status(void);
+uint32_t ipc_get_fast_notify_state(void);
 union ipc_eid ipc_get_eid(uint32_t chan, uint32_t idx);
 uint16_t ipc_get_seq(void);
 struct ipc_ccb *ipc_get_ccb(uint32_t chan, int32_t type);

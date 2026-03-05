@@ -18,6 +18,10 @@
 
 #include "atcmd_tcpip.h"
 
+#ifdef CFG_AMP_IPC
+#include "bt_ipc_api.h"
+#endif
+
 extern void set_shell_echo(uint8_t enable);
 
 char at_string[AT_STRING_LEN] = {0};
@@ -35,7 +39,7 @@ const char *atcmd_res_str[ATCMD_RES_MAX] =
 #if BT_WIFI_COEX
 extern void hci_event_notify_reg(void *notify);
 #endif
-int atcmd_help(int type, char *params);
+int atcmd_help(int type, void *params);
 
 void atcmd_handler(char* command, int len)
 {
@@ -51,9 +55,14 @@ void atcmd_handler(char* command, int len)
         atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
         return;
     }
-    #if BT_WIFI_COEX
+#if BT_WIFI_COEX
+#ifdef CFG_AMP_IPC
+    //hci_event_notify_reg_api(ls_event_post);
+#else
     hci_event_notify_reg(ls_event_post);
-    #endif
+#endif    
+#endif
+
     param = cmd_start + 2;
     if (*param == '\0')
     {
@@ -268,7 +277,7 @@ char *atcmd_next_token(char **params)
     return ptr;
 }
 
-int atcmd_echo(int type, char *params)
+int atcmd_echo(int type, void *params)
 {
     if (!strcmp(params, "0"))
     {
@@ -338,7 +347,7 @@ static void at_rtos_info(void)
 	}
 }
 
-int atcmd_rtos_info(int type, char *params)
+int atcmd_rtos_info(int type, void *params)
 {
     ls_err_t ret;
     uint8_t enable = 0;
@@ -380,7 +389,7 @@ void atcmd_local_help(void)
         CLOGI("%s: %s\n", atcmd_local_table[i].atcmd_entry.name, atcmd_local_table[i].atcmd_entry.help);
 }
 
-int atcmd_help(int type, char *params)
+int atcmd_help(int type, void *params)
 {
 #if defined(CLI_TYPE_WF)
     atcmd_wifi_help();

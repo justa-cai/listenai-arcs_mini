@@ -1,0 +1,12 @@
+listenai_library_named(category_mini_mcp_tools)
+
+listenai_library_sources(empty.c)
+
+listenai_library_sources_ifdef(CONFIG_MCP_TOOL_EMOJI mcp_tool_emoji.c)
+listenai_library_sources_ifdef(CONFIG_MCP_TOOL_MODEL_PERSONA_UPDATE mcp_tool_model_persona_update.c)
+listenai_library_sources_ifdef(CONFIG_MCP_TOOL_SHOW_QRCODE mcp_tool_show_qrcode.c)
+listenai_library_sources_ifdef(CONFIG_MCP_TOOL_LOADING mcp_tool_loading.c)
+
+listenai_include_directories(
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)

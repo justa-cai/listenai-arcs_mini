@@ -1,0 +1,76 @@
+menuconfig LISA_WEBSOCKET
+    bool "lisa websocket adapt layer"
+    default n
+    help
+        Enable lisa websocket adapt layer.
+
+config LISA_WEBSOCKET_SEND_RETRY_DELAY_NS
+    int "lisa websocket send retry delay ns"
+    default 10000
+    depends on LISA_WEBSOCKET
+    help
+        Send retry delay ns if a message send failed.
+
+config LISA_WEBSOCKET_SEND_RETRY_COUNT
+    int "lisa websocket send retry count"
+    default 10
+    range 1 100
+    depends on LISA_WEBSOCKET
+    help
+        Websocket send retry count if a message send failed.
+
+config LISA_WEBSOCKET_THREAD_STACK_SIZE
+    int "lisa websocket thread stack size"
+    default 12288
+    depends on LISA_WEBSOCKET
+    help
+        Stack size for websocket thread.
+
+config LISA_WEBSOCKET_THREAD_PRIO
+    int "lisa websocket thread prio"
+    default 5
+    depends on LISA_WEBSOCKET
+
+config LISA_WEBSOCKET_QUEUE_COUNT
+    int "lisa websocket queue count"
+    default 150
+    depends on LISA_WEBSOCKET
+    help
+        Websocket queue count for message.
+
+config LISA_WEBSOCKET_PING_PONG_MSG
+    bool "lisa websocket ping pong msg"
+    default y
+    depends on LISA_WEBSOCKET
+    select NOPOLL_DELIVER_PONG_FRAME_ENABLED
+    help
+        If enable, the websocket will send ping pong message to check the connection.
+        The connection will be closed if the ping pong message is not received within the timeout.
+
+config LISA_WEBSOCKET_PING_PONG_TIMEOUT_MS
+    int "lisa websocket ping pong timeout ms"
+    default 2000
+    depends on LISA_WEBSOCKET
+    help
+        Ping pong message timeout.
+
+config LISA_WEBSOCKET_PING_PONG_RETRY_CNT
+    int "lisa websocket ping pong retry cnt"
+    default 5
+    depends on LISA_WEBSOCKET
+    help
+        Ping pong message retry count if no response.
+
+config LISA_WEBSOCKET_FRAGMENT_RECV_TIMEOUT_MS
+    int "lisa websocket fragment recv timeout ms"
+    default 10000
+    depends on LISA_WEBSOCKET
+    help
+        A fragment message will be received within this time.
+
+config LISA_WEBSOCKET_FRAGMENT_SIZE
+    int "lisa websocket fragment size"
+    default 512
+    depends on LISA_WEBSOCKET
+    help
+        A message will be split into fragments if it is larger than this value.

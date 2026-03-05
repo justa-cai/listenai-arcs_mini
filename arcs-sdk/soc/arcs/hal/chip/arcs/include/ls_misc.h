@@ -2,6 +2,7 @@
 #ifndef _LS_TEMP_H_
 #define _LS_TEMP_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #define FIXED_POINT_ROUND(x) ((int)((x) + 0.5))  // Round to the nearest integer
@@ -18,7 +19,7 @@ void ls_read_efuse_temp_para(void);
 
 int32_t ls_get_cur_temp(void);
 
-void ls_temp_por_update(void);
+bool ls_temp_por_update(void);
 void ls_temp_default_por(void);
 
 int8_t ls_efuse_read_word(uint8_t addr, uint32_t *val);

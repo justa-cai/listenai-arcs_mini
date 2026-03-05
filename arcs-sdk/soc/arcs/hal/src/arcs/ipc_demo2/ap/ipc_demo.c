@@ -38,7 +38,9 @@
 #include "net_al.h"
 #include "spiflash.h"
 #include "ic_lock.h"
-
+#if CONFIG_PM
+#include "pm_impl.h"
+#endif
 static void app_init_task(void *pvParameters)
 {
 #if IC_BOARD == 1
@@ -48,11 +50,13 @@ static void app_init_task(void *pvParameters)
 
     ls_wifi_init();
 
-#ifdef SYS_PSM
+#if CONFIG_PM
+    pm_init();
+#endif
+#if (defined(CONFIG_PM) || SYS_PSM)
     vrtc_init();
 #endif
- rtos_task_delete(NULL);
-
+    rtos_task_delete(NULL);
 }
 
 #define AMP_CP_START_ADDRESS            0x30100000
@@ -92,10 +96,6 @@ int main(void)
     ls_crypto_init();
 
     ls_wifi_init();
-
-#ifdef SYS_PSM
-    vrtc_init();
-#endif
 #endif
 
     rtos_task_create(app_init_task, "app_init_task",

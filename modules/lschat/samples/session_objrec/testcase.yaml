@@ -1,0 +1,4 @@
+tests:
+  samples.session_objrec.linux:
+    tags: linux
+    build_only: true

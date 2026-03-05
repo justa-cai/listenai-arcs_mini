@@ -48,7 +48,7 @@ int main(void)
     memset(_sshram, 0, (_eshram - _sshram));
     ipc_slave_init(&ipc_cb);
 
-    logInit(SHELL_UART, SHELL_UART_BAUDRATE);
+    logInit(SHELL_UART1, SHELL_UART1_BAUDRATE);
 #if IC_BOARD == 1
     ls_rf_cali_proc();
 #endif

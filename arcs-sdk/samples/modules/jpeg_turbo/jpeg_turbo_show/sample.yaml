@@ -1,0 +1,7 @@
+tests:
+  samples.jpeg_turbo.jpeg_turbo_show:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Demo completed"

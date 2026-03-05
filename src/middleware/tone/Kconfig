@@ -1,0 +1,11 @@
+menu "Tone Manager"
+
+config MIDDLEWARE_TONE
+    bool "Enable Tone Manager"
+    default y
+    help
+      Enable tone manager for playing system audio prompts.
+      This module provides tone playback functionality for
+      system notifications and user feedback.
+
+endmenu

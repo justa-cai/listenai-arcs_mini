@@ -123,7 +123,7 @@ uint32_t acomp_stream_calc_mem_size(uint32_t num_descs, uint32_t buffer_size, ui
  * @return: ACOMP_STREAM_SUCCESS on success, error code otherwise
  */
 
-acomp_stream_t *acomp_stream_create(void *dev)
+acomp_stream_t *acomp_stream_create(uint32_t dev_index)
 {
     acomp_stream_t *stream = psram_malloc(sizeof(acomp_stream_t));
     if (!stream) {
@@ -148,7 +148,7 @@ acomp_stream_t *acomp_stream_create(void *dev)
     stream->ops.get_buffer_len = acomp_stream_get_buffer_len;
 
     stream->channel_count = 0;
-    stream->dev = dev; /* Store dev pointer in REMOTE mode */
+    stream->dev_index = dev_index; /* Store dev pointer in REMOTE mode */
 
     CLOGD("[%s] acomp_stream create successfully\n", __FUNCTION__);
     return stream;
@@ -236,8 +236,7 @@ static acomp_stream_channel_t *acomp_stream_channel_create(acomp_stream_t *strea
     /* Set channel as virtqueue's private data for callback */
     channel->vq->priv = channel;
 
-    /* Initialize virtqueue ring */
-    vq_ring_init(channel->vq);
+
 
 #ifdef ACOMP_STREAM_ROLE_MASTER
 if (desc->direction == ACOMP_STREAM_DIRECTION_R2M)
@@ -245,6 +244,8 @@ if (desc->direction == ACOMP_STREAM_DIRECTION_R2M)
 if (desc->direction == ACOMP_STREAM_DIRECTION_M2R)
 #endif
     {
+        /* Initialize virtqueue ring */
+        vq_ring_init(channel->vq);
         if (desc->buffer_size > 0) {
             /* Calculate buffer pool start address:
             * buffer_pool = shared_mem_base + vring_metadata_size
@@ -326,7 +327,7 @@ static void *(acomp_stream_tx_buffer_alloc)(acomp_stream_channel_t *channel, uin
 {
     void *p_buf = NULL;
 
-    if (!channel || !channel->vq || !len || !desc_idx) {
+    if (!channel || !channel->vq) {
         CLOGE("[%s] Invalid parameters\n", __FUNCTION__);
         return NULL;
     }
@@ -352,8 +353,7 @@ static int(acomp_stream_tx_buffer_submit)(acomp_stream_channel_t *channel, void 
                                           uint16_t desc_idx)
 {
     int ret = ACOMP_STREAM_ERROR_WRONG_DIRECTION;
-
-    if (!channel || !channel->vq || !buffer || !len || !desc_idx) {
+    if (!channel || !channel->vq || !buffer || !len) {
         return ACOMP_STREAM_ERROR_INVALID_PARAM;
     }
 
@@ -367,11 +367,12 @@ static int(acomp_stream_tx_buffer_submit)(acomp_stream_channel_t *channel, void 
         env_cache_flush(buffer, len);
         ret = virtqueue_add_consumed_buffer(channel->vq, desc_idx, len);
         /* Kick based on policy */
-        if ((channel->kick_policy != 0) && (channel->kick_count > channel->kick_policy)) {
+        channel->kick_count++;
+        if ((channel->kick_policy != 0) && (channel->kick_count >= channel->kick_policy)) {
             virtqueue_kick(channel->vq);
             channel->kick_count = 0;
         }
-        channel->kick_count++;
+        
     }
 
     return ret;
@@ -381,7 +382,7 @@ static void *(acomp_stream_rx_buffer_get)(acomp_stream_channel_t *channel, uint3
 {
     void *p_buf = NULL;
 
-    if (!channel || !channel->vq || !len || !desc_idx) {
+    if (!channel || !channel->vq) {
         CLOGE("[%s] Invalid parameters\n", __FUNCTION__);
         return NULL;
     }
@@ -409,7 +410,7 @@ static int(acomp_stream_rx_buffer_release)(acomp_stream_channel_t *channel, void
 
     int ret = 0;
 
-    if (!channel || !channel->vq || !buffer || !len || !desc_idx) {
+    if (!channel || !channel->vq || !buffer) {
         return ACOMP_STREAM_ERROR_INVALID_PARAM;
     }
     /* flush cache before submit buffer */

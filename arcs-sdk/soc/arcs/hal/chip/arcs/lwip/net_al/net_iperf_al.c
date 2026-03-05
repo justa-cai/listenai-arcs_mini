@@ -473,16 +473,15 @@ void net_iperf_tcp_close(struct net_iperf_stream *stream, bool close_tcp)
 #else
     net_iperf_print_stats(stream, &report->start_time, &report->end_time, &report->stats);
 #endif
-
     //Delete tcp info
     info->pcb = NULL;
     rtos_free(info);
     stream->arg = NULL;
-
   end:
-    if (!stream->iperf_settings.flags.is_server || !stream->active)
+    if (!stream->iperf_settings.flags.is_server && stream->active)
     {
         // Wakeup IPERF task
+        IPERF_DBG_LOG("%s %d\n", __func__, __LINE__);
         rtos_semaphore_signal(stream->iperf_task_semaphore, false);
     }
 }
@@ -694,7 +693,7 @@ static err_t net_iperf_tcp_recv_cb(void * arg, struct tcp_pcb *newpcb,
 
     if (err != ERR_OK || !stream->active)
     {
-        IPERF_DBG_LOG("%s %d\n", __func__, __LINE__);
+        IPERF_DBG_LOG("%s %d %d\n", __func__, __LINE__, stream->active);
         net_iperf_tcp_close(stream, true);
         ret = ERR_OK;
         goto end;
@@ -872,6 +871,12 @@ static err_t net_iperf_tcp_server_accept(void * arg, struct tcp_pcb *newpcb, err
     {
         IPERF_DBG_LOG("%s %d\n", __func__, __LINE__);
         net_iperf_tcp_close(stream, true);
+    }
+
+    if (stream->exit)
+    {
+        IPERF_DBG_LOG("%s %d reject new tcp client\n", __func__, __LINE__);
+        return ERR_ARG;
     }
 
     if ((err != ERR_OK) || (newpcb == NULL) || (arg == NULL))
@@ -1374,6 +1379,7 @@ static err_t net_iperf_pcb_config(void *pcb, struct net_iperf_stream *stream)
     const struct net_iperf_settings *settings = (struct net_iperf_settings *) &stream->iperf_settings;
     uint32_t ip;
     ip_addr_t lip;
+    int ret;
 
     if (settings->flags.is_server)
     {
@@ -1397,9 +1403,10 @@ static err_t net_iperf_pcb_config(void *pcb, struct net_iperf_stream *stream)
         }
         else
         {
-            if (tcp_bind((struct tcp_pcb *) pcb, &lip, settings->port))
+            ret = tcp_bind((struct tcp_pcb *) pcb, &lip, settings->port);
+            if (ret)
             {
-                IPERF_DBG_LOG("%s %d\n", __func__, __LINE__);
+                IPERF_DBG_LOG("%s %d ret %d\n", __func__, __LINE__, ret);
                 return 1;
             }
         }
@@ -1799,10 +1806,21 @@ int net_iperf_udp_client_run(struct net_iperf_stream* stream)
     }
 
     // Wait until all of pbuf are freed
-    while (rtos_semaphore_get_count(stream->send_buf_semaphore) < NET_IPERF_SEND_BUF_CNT)
+    while (1)
     {
-        rtos_semaphore_wait(stream->send_buf_semaphore, -1);
-        rtos_semaphore_signal(stream->send_buf_semaphore, false);
+        int free_pbuf_cnt = rtos_semaphore_get_count(stream->send_buf_semaphore);
+
+        if (!(free_pbuf_cnt < NET_IPERF_SEND_BUF_CNT))
+            break;
+
+        if (free_pbuf_cnt == 0) {
+            rtos_semaphore_wait(stream->send_buf_semaphore, -1);
+            rtos_semaphore_signal(stream->send_buf_semaphore, false);
+         } else {
+            ///multiple send_buf_semaphore are waiting for all of them to be released,
+            ///so we use rtos_delay().
+            rtos_delay(50);
+         }
     }
 
     LOCK_TCPIP_CORE();

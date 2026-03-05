@@ -104,7 +104,16 @@ void LunaOffsetI32O32(int32_t* in, int32_t scale, int32_t* out, int16_t size, in
     LUNA_API_SIM(luna_offset_i32i32o32)(in, *pApiTemp32, out, size, shift);
 }
 
-void CalculateDcEstLuna(int32_t* in_re, int32_t* in_im, uint32_t* uPower, complexint32* cDcEstRx)
+void CalculateDcEstLuna(int32_t* in_re, int32_t* in_im, complexint32* cDcEstRx)
+{
+    DcEstLuna(in_re, in_im, &(cDcEstRx->re), &(cDcEstRx->im));
+    LunaOffsetI32O32(in_re, -1 * cDcEstRx->re, in_re, SEL_LEN, 0);
+    LunaOffsetI32O32(in_im, -1 * cDcEstRx->im, in_im, SEL_LEN, 0);
+    //CLOGI("LUNA cDcEstRx.re=%d,cDcEstRx.im = %d\n",cDcEstRx->re,cDcEstRx->im);
+    return;
+}
+
+void CalculatePowerWithDcLuna(int32_t* in_re, int32_t* in_im, uint32_t* uPower)
 {
     int32_t uPowerRe = 0;
     int32_t uPowerIm = 0;
@@ -113,10 +122,6 @@ void CalculateDcEstLuna(int32_t* in_re, int32_t* in_im, uint32_t* uPower, comple
     LunaDotProdI32O32(in_im, in_im, &uPowerIm, SEL_LEN, 12);
     uPowerRI = (uint32_t)uPowerRe + (uint32_t)uPowerIm;
     *uPower = uPowerRI;
-    DcEstLuna(in_re, in_im, &(cDcEstRx->re), &(cDcEstRx->im));
-    LunaOffsetI32O32(in_re, -1 * cDcEstRx->re, in_re, SEL_LEN, 0);
-    LunaOffsetI32O32(in_im, -1 * cDcEstRx->im, in_im, SEL_LEN, 0);
-    //CLOGI("LUNA cDcEstRx.re=%d,cDcEstRx.im = %d\n",cDcEstRx->re,cDcEstRx->im);
     return;
 }
 

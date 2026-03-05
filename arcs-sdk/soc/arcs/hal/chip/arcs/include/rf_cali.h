@@ -67,12 +67,14 @@ typedef const struct rf_cali_ops {
     int8_t (*txiq_fb_deinit)(void);
     int8_t (*txiq_dump_data)(int32_t *Isq, int32_t *Qsq, int32_t *IxQ);
     int8_t (*txiq_restore_rxiq_result)(void);
-    int8_t (*txdpd_init)(int8_t pwr_idx, uint8_t fb_gain, uint8_t fb_delay);
+    int8_t (*txdpd_remap_pred)(void);
+    int8_t (*txdpd_init)(uint8_t fb_delay);
     int8_t (*txdcdpd_toggle_mixen)(uint8_t en);
     int8_t (*txdpd_adjust_gain)(int8_t pwr_delta);
     int8_t (*txdpd_measure)(int8_t pwr_idx);
     int8_t (*txdpd_deinit)(void);
     int8_t (*txdpd_result)(uint8_t tbl_idx, void *tbl_src);
+    int8_t (*txdpd_get_result)(uint8_t tbl_idx, void *tbl_dst);
     int8_t (*txdc_result)(void *comp_dc, uint8_t range);
     int8_t (*set_ppa_cap)(uint8_t idx, uint8_t val);
     int8_t (*get_ppa_cap)(uint8_t idx);
@@ -80,7 +82,7 @@ typedef const struct rf_cali_ops {
     int8_t (*send_ttg_stop)(void);
 } RF_CALI_OPS, *P_RF_CALI_OPS;
 
-typedef int32_t (*rf_cali_runtime)(void);
+typedef int32_t (*rf_cali_runtime)(uint32_t log_level);
 
 typedef struct rf_cali_entry {
      P_RF_ENTRY owner;
@@ -117,10 +119,9 @@ typedef struct rf_cali_power_db_table {
 } RF_CALI_POWER_DB_TBL, *P_RF_CALI_POWER_DB_TBL;
 
 extern RF_CALI_DPD_CFG dpd_cfg_table[];
-extern RF_CALI_DPD_CFG dpd_cfg_table_update[];
-extern uint8_t dpd_tr_pwr;
+extern RF_CALI_DPD_CFG dpd_base_table[];
 #define DPD_COMP_TABLE_CNT  4
-#define DPD_COMP_TABLE_CNT_UPDATE  1
+#define DPD_REST_TABLE_CNT  2
 extern RF_CALI_OPS cali_ops;
 extern RF_CALI_ENTRY rf_cali;
 extern RF_CALI_RXDCOC_WORD g_bt_rxdc_comp[3][3];
@@ -129,7 +130,7 @@ extern RF_CALI_TXDC_WORD g_bt_txdc_comp;
 extern RF_CALI_TXIQ_WORD g_bt_txiq_comp;
 extern uint8_t g_bt_rxrc_comp;
 
-void ls_rf_cali_redo(int8_t ppa_cap);
+int ls_rf_cali_redo(int8_t ppa_cap);
 
 extern int32_t ls_rf_cali_probe(rf_cali_runtime *do_rfcali, void *params);
 extern int32_t ls_rf_cali_proc(void);
@@ -144,12 +145,12 @@ extern uint8_t _scali[], _ecali[];
 
 #define SET_CHANNEL(freq) do { (rf_cali.owner->ops->set_channel(freq)); } while(0)
 #define RF_SW_RESET() do { (rf_cali.owner->ops->sw_reset()); } while(0)
+#define WIFI_CALI_BUF_SIZE 72
 #if CALI_BUF
 #define MEM_DUMP_START_ADDR (_scali)
 #define MEM_DUMP_MID_ADDR (_scali + ((uint32_t)(_ecali - _scali) >> 1))
 #define MEM_DUMP_END_ADDR (_ecali)
 #else
-#define WIFI_CALI_BUF_SIZE 72
 #define MEM_DUMP_START_ADDR (_sshram)
 #define MEM_DUMP_MID_ADDR (_sshram +  0x2000)
 #define MEM_DUMP_END_ADDR (_sshram + 0x4000)

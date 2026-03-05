@@ -29,10 +29,9 @@ CPPSRCS	=
 SSRCS	=
 $(info  CFG MEMDUMP $(CFG_MEMDUMP))
 #includings and flags
-CFLAGS = -I $(TOPDIR)/modules/nvs \
-          -I $(TOPDIR)/modules/nvs/include \
-	  -I ../driver/uart \
-          -I./ \
+CFLAGS = -I$(TOPDIR)/modules/nvs \
+         -I$(TOPDIR)/modules/nvs/include \
+         -I../driver/uart
 
 #CMTID = $(shell git rev-parse --short HEAD 2>/dev/null)
 #CFLAGS += -DLIB_NM=\"$(LIB)\" -DCMT_ID=\"$(SDK_VER)\($(CMTID)\)\"

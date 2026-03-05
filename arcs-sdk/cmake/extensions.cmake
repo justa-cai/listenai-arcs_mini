@@ -8,9 +8,6 @@ macro(listenai_library_named _name)
     set(LISTENAI_CURRENT_LIBRARY ${_name})
     listenai_append_cmake_library(${_name})
     target_link_libraries(${_name} PUBLIC listenai_interface)
-    if(DEFINED LISTENAI_EXECUTABLE_COMPLETED)
-        target_link_libraries(${LISTENAI_EXECUTABLE_NAME} PUBLIC ${_name})
-    endif()
 endmacro()
 
 macro(listenai_psram_library_named _name)
@@ -259,6 +256,13 @@ endmacro()
 macro(listenai_link_all_modules target_name)
     get_property(LISTENAI_LIBS_PROPERTY GLOBAL PROPERTY LISTENAI_LIBS)
     list(REMOVE_DUPLICATES LISTENAI_LIBS_PROPERTY)
+
+    # 获取目标已手动链接的库，避免重复链接
+    get_target_property(_existing_libs ${target_name} LINK_LIBRARIES)
+    if(_existing_libs)
+        list(REMOVE_ITEM LISTENAI_LIBS_PROPERTY ${_existing_libs})
+    endif()
+
     if (LISTENAI_LIBS_PROPERTY)
         # 硬编码排除libm.a以避免符号冲突
         # 2025.02版本工具链lib.m存在两个frexpl实现，经芯来原厂沟通，两个实现都可用
@@ -312,22 +316,6 @@ macro(listenai_link_all_modules target_name)
     endif()
 endmacro()
 
-# 简介: 递归查找LISTENAI_MODULES_DIR_LIST列表中的目录下的CMakeLists.txt,
-#      将目录下的CMakeLists.txt加入到构建中,
-#      并将利用listenai cmake扩展定义的目标链接到指定的目标中
-# 提示: 在某一层目录中找到CMakeLists.txt后,将不再递归查找
-#
-# 参数:
-# + target 将要链接到的目标
-function(listenai_find_and_link_modules target)
-    get_property(LISTENAI_MODULES_PROPERTY GLOBAL PROPERTY LISTENAI_MODULES)
-    foreach(module IN LISTS LISTENAI_MODULES_PROPERTY)
-        message(STATUS "Found module: ${module} ")
-        add_subdirectory(${module} ${CMAKE_BINARY_DIR}/modules/${module})
-    endforeach()
-    listenai_link_all_modules(${target})
-endfunction()
-
 # 添加可执行文件
 # 此宏会自动为可执行文件添加bin,hex,lst文件输出
 # 此宏会自动扫描LISTENAI_MODULES_DIR_LIST 列表中的目录, 并添加模块到构建系统中
@@ -343,7 +331,23 @@ macro(listenai_add_executable name)
     if(LISTENAI_ADD_BIN_HEADR)
         listenai_generate_boot_header(${name})
     endif()
-    listenai_find_and_link_modules(${name})
+
+    # 立即扫描并添加模块，但延迟链接操作
+    # 这样可以确保所有 add_subdirectory 执行完后再链接，不受调用顺序影响
+    get_property(LISTENAI_MODULES_PROPERTY GLOBAL PROPERTY LISTENAI_MODULES)
+    foreach(module IN LISTS LISTENAI_MODULES_PROPERTY)
+        message(STATUS "Found module: ${module} ")
+        add_subdirectory(${module} ${CMAKE_BINARY_DIR}/modules/${module})
+    endforeach()
+
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.19")
+        # 延迟链接到配置阶段末尾，确保用户的 add_subdirectory 也执行完成
+        cmake_language(DEFER CALL listenai_link_all_modules ${name})
+    else()
+        # CMake 版本过低，无法使用 DEFER 机制
+        message(FATAL_ERROR "CMake 3.19 or higher is required, but current version is ${CMAKE_VERSION}")
+    endif()
+
     set(LISTENAI_CURRENT_LIBRARY "_inner_app")
     set(LISTENAI_EXECUTABLE_COMPLETED TRUE)
 endmacro()

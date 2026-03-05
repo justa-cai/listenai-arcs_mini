@@ -1,0 +1,29 @@
+if LISA_DISPLAY_DEVICE
+
+choice
+    prompt "Display Panel Driver"
+    default LISA_DISPLAY_PANEL_ST7789P3
+    help
+        Select the specific display panel driver to be used.
+
+config LISA_DISPLAY_PANEL_ST7789P3
+    bool "ST7789P3 Panel Driver"
+    help
+        Enable driver for ST7789P3 display panel.
+
+config LISA_DISPLAY_PANEL_AXS15231B
+    bool "AXS15231B Panel Driver"
+    help
+        Enable driver for AXS15231B display panel.
+
+config LISA_DISPLAY_PANEL_ST7701S
+    bool "ST7701S Panel Driver"
+    help
+        Enable Driver for ST7701S display panel.
+endchoice
+
+rsource "Kconfig.axs15231b"
+rsource "Kconfig.st7789p3"
+rsource "Kconfig.st7701s"
+
+endif

@@ -16,18 +16,14 @@
 #include "ls_wifi_type.h"
 #include "rf_cali.h"
 
-#if RF_BOARD_VER == 0
-// cal version 0xffff for evb board
-#define cal_ver  0xffff
-#else
-#define cal_ver  1
-#endif
-
-
+#define NV_SELF_CALI_VER  1
 #define NV_MAGIC_PATTERN    0x55aa0bf4
 #define NV_MAGIC_PATTERN2   0x22ff0ce5
 #define NV_MAGIC_USR_TRIG1  0x11223344
-#define FLASH_OTP_BASE_ADDR 0xFFF000
+#ifndef FLASH_NOR_OTP_NV_BASE_ADDR
+#define FLASH_NOR_OTP_NV_BASE_ADDR (CMN_FLASH_REGION + 0x200000)
+#endif
+#define FLASH_OTP_NV_LENGTH   512
 #define FIXZONE_NV_BASE_ADDR  0x301FF000
 #define WF_PPA_CAP_BITS_MASK       0x1f
 #define WF_PPA_CAP_BITS_WIDTH         5

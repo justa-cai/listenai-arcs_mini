@@ -1,0 +1,124 @@
+/* Version switcher in sidebar (dropdown style) */
+.version-switcher-sidebar {
+    margin: 1em 0;
+    padding: 0;
+}
+
+.version-select {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 90%;
+    font-family: "Lato", "proxima-nova", "Helvetica Neue", Arial, sans-serif;
+    background-color: #2980B9;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.version-select:hover {
+    background-color: #3091d1;
+}
+
+.version-select:focus {
+    outline: 2px solid #fcfcfc;
+    outline-offset: 2px;
+}
+
+.version-select option {
+    background-color: white;
+    color: #333;
+    padding: 8px;
+}
+
+/* Old bottom version switcher (kept for backward compatibility) */
+.rst-versions {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 300px;
+    color: #fcfcfc;
+    background: #1f1d1d;
+    font-family: "Lato", "proxima-nova", "Helvetica Neue", Arial, sans-serif;
+    z-index: 400;
+    border-top: solid 10px #343131;
+}
+
+.rst-versions a {
+    color: #2980B9;
+    text-decoration: none;
+}
+
+.rst-versions a:hover {
+    color: #3091d1;
+    text-decoration: underline;
+}
+
+.rst-versions .rst-current-version {
+    padding: 12px;
+    background-color: #272525;
+    display: block;
+    text-align: right;
+    font-size: 90%;
+    cursor: pointer;
+    color: #27ae60;
+    transition: background-color 0.2s ease;
+}
+
+.rst-versions .rst-current-version:hover {
+    background-color: #2e2c2c;
+}
+
+.rst-versions .rst-current-version .fa {
+    color: #fcfcfc;
+}
+
+.rst-versions .rst-current-version .fa-book,
+.rst-versions .rst-current-version .fa-caret-down {
+    color: #fcfcfc;
+}
+
+.rst-versions .rst-other-versions {
+    display: none;
+    padding: 12px;
+    color: #fcfcfc;
+    font-size: 90%;
+}
+
+.rst-versions.shift-up .rst-other-versions {
+    display: block;
+}
+
+.rst-versions .rst-other-versions dl {
+    margin-bottom: 0;
+}
+
+.rst-versions .rst-other-versions dt {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 6px;
+    color: #fcfcfc;
+}
+
+.rst-versions .rst-other-versions dd {
+    display: inline-block;
+    margin: 0 0 6px 0;
+}
+
+.rst-versions .rst-other-versions dd a {
+    display: inline-block;
+    padding: 6px;
+    color: #fcfcfc;
+}
+
+.rst-versions .rst-other-versions dd a:hover {
+    background-color: #1f1d1d;
+    color: #27ae60;
+}
+
+.rst-versions .rst-other-versions dd strong {
+    display: inline-block;
+    padding: 6px;
+    color: #27ae60;
+}

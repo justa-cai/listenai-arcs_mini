@@ -1,0 +1,33 @@
+# AUDIO_CODEC Kconfig
+
+menu "Audio AUDIO_CODEC"
+
+config AUDIO_CODEC
+    bool "Enable Audio AUDIO_CODEC"
+    default n
+    help
+        Enable audio AUDIO_CODEC support (LC3, SBC, mSBC)
+
+if AUDIO_CODEC
+
+config AUDIO_CODEC_LC3
+    bool "Enable LC3 AUDIO_CODEC"
+    default y
+    help
+        Enable LC3 (Low Complexity Communication AUDIO_CODEC) support
+
+config AUDIO_CODEC_SBC
+    bool "Enable SBC AUDIO_CODEC"
+    default y
+    help
+        Enable SBC (Subband AUDIO_CODEC) support
+
+config AUDIO_CODEC_MSBC
+    bool "Enable mSBC AUDIO_CODEC"
+    default y
+    help
+        Enable mSBC (Modified SBC) support for wideband speech
+
+endif
+
+endmenu

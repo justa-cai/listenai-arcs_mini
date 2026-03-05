@@ -117,7 +117,7 @@ int acomp_wsp_init(void)
         return ret;
     }
 
-    wsp_handle->stream = acomp_stream_create(NULL);
+    wsp_handle->stream = acomp_stream_create(wsp_handle->dev_index );
     if(wsp_handle->stream == NULL){
 
         return ACOMP_ERR_CREATE_STREAM_FAILED;

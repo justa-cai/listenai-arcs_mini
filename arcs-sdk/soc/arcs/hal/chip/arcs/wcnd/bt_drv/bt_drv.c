@@ -11,13 +11,6 @@
 #include "rf_cali.h"
 
 
-#define ASSERT_ERR(cond)                              \
-    do {                                              \
-        if (!(cond)) {                                \
-            assert_err(#cond, __FILE__, __LINE__);    \
-        }                                             \
-    } while(0)
-
 /*
  * VARIABLES DEFINITIONS
  *****************************************************************************************
@@ -25,7 +18,7 @@
 
 uint8_t RXPWR_INC = 15; //should less 25
 
-volatile CMN_BUSCFG_RegDef *CMN_SYS_NODFT_P = IP_SYSNODEF;
+volatile CMN_BUSCFG_RegDef *CMN_SYS_NODFT_P = CMN_SYS_NODFT;
 volatile BT_CTRL_TOP_RegDef *BT_CNTL_P  = IP_BT_CTRL;
 volatile AON_IOMUX_RegDef *AON_IOMUX_P  = IP_AON_IOMUX;
 volatile AON_CTRL_RegDef *AON_CTRL_P    = IP_AON_CTRL;
@@ -228,7 +221,7 @@ void ble_linklayer_init( void )
     //BT_BLE_P->REG_BLE_RADIOPWRUPDN1.bit.BLE_RXPWRUP1      = 0x46 + RXPWR_INC;
     //BT_BLE_P->REG_BLE_RADIOPWRUPDN1.bit.BLE_TXPWRUP1      = 0x5a; //0x46;
     //BT_BLE_P->REG_BLE_RADIOPWRUPDN1.bit.BLE_TXPWRDN1      = 0x4;
-    BT_BLE_P->REG_BLE_RADIOPWRUPDN1.all                   = ((0x46 + RXPWR_INC)<<16) + (0x5<<8) + (0x5a);
+    BT_BLE_P->REG_BLE_RADIOPWRUPDN1.all                   = ((0x46 + RXPWR_INC)<<16) + (0x4<<8) + (0x5a);
     BT_BLE_P->REG_BLE_RADIOTXRXTIM1.bit.BLE_TXPATHDLY1    = 0x2;  //arcs_c actual value 2.57
     BT_BLE_P->REG_BLE_RADIOTXRXTIM1.bit.BLE_RXPATHDLY1    = 0xe;  //arcs_c actual value 0xc
     BT_BLE_P->REG_BLE_RADIOTXRXTIM1.bit.BLE_RFRXTMDA1     = 0xe;  //arcs_c actual value 0xe  simulate value 0xb
@@ -588,15 +581,25 @@ void rfif_tx_power_config(void)
     RFIF_P->REG_TX_REG3.bit.RF_TX_ABB_TIA_RFB_BT = 5;
 
     //RFIF_P->REG_TX_LOGIC1.bit.RF_TX_PPA_GAIN_BT_FORCE = 1;
-    // 3DH5
-    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 1;  // -17.23
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 3;  // -12.76
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 4;  // -8.67
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 7;  // -5.34
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 8;  // -2
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 14; // 1.4
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 18; // 4.4
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 24; // 7.4
+
+    /*// ble 1M 2M
+    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 1;  // -12
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 3;  // -7
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 4;  // -3
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 7;  // 0
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 8;  // 3
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 14; // 6
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 18; // 9
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 24; // 12 */
+    // ble 1M, 2M
+    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -18.4
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 2;  // -10.7
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 3;  // -7.6
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 4;  // -3.5
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // 0.0
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 10; // 3.5
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 14; // 6.3
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 16; // 9.1
 
 }
 
@@ -655,6 +658,7 @@ void aon_ctrl_init(void)
     //move to rf_por_config function
     //AON_CTRL_P->REG_AON_LDO_CTRL1.bit.TUNE_LDOCORE = 55;     //default value 0,  change for vdd core voltage value
 #endif    
+    AON_CTRL_P->REG_POWER_EXT_CTRL.bit.ENA_EN_LDO_CORE_EXT = 1;
 }
 
 
@@ -662,7 +666,13 @@ void bt_drv_reg_init(uint8_t reset_state)
 {
     PTCH(void, modem_rf_reg_init);
 
-    lsip_modem_env_init();
+    if(reset_state ==0) // ==LSIP_INIT //only run onetime, hci reset no need process
+    {
+        lsip_modem_env_init();
+        
+        aon_ctrl_init();
+        bt_nvs_init();
+    }
 
     modem_init();
 
@@ -672,7 +682,6 @@ void bt_drv_reg_init(uint8_t reset_state)
 
     cmn_sys_ctrl_init();
 
-    aon_ctrl_init();
 
     extra_cfg();
 

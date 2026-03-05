@@ -62,6 +62,7 @@ SECTIONS
   /* shared RAM, put calibration and trace memeory at the beginning */
   SHARED (NOLOAD):
   {
+      *(WIFI_CALI)
 #if CALI_BUF
        _scali = .;
       . += _lcali;
@@ -73,7 +74,6 @@ SECTIONS
       _trace_end = .;
 #endif
       _sshram = . ;
-      *(WIFI_CALI)
       *(SHAREDRAMIPC)
       *(SHAREDRAM)
       _eshram = . ;
@@ -266,7 +266,7 @@ SECTIONS
   {
     *(.cali_luna_bss)
   } >EXTRAM
-  
+
   .tbss (NOLOAD)   : ALIGN(8)
   {
     *(.tbss .tbss.* .gnu.linkonce.tb.*)

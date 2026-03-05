@@ -1,0 +1,17 @@
+menu "Audio PA Manager"
+
+config PA_PORT
+    int "PA GPIO PORT NUM"
+    default 1
+    range 0 1
+
+config PA_PIN
+    int "PA GPIO PIN"
+    default 8
+    range 0 31
+
+config PA_FUNC
+    int "PA PIN IOMUX FUNCTION NUM"
+    default 1
+
+endmenu

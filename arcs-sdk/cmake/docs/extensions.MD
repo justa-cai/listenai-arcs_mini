@@ -245,20 +245,7 @@ listenai_library_sources_ifdef(CONFIG_TEST test.c test1.c test2.c test3.c)
 
 + target_name 将要链接到的目标
 
-### listenai_find_and_link_modules
-简介: 递归查找LISTENAI_MODULES_DIR_LIST列表中的目录下的CMakeLists.txt,
-
-将目录下的CMakeLists.txt加入到构建中,
-
-并将利用listenai cmake扩展定义的目标链接到指定的目标中
-
-提示: 在某一层目录中找到CMakeLists.txt后,将不再递归查找
-
-
-
-参数:
-
-+ target 将要链接到的目标
+注意: 此函数通常不需要手动调用，会在 `listenai_add_executable` 中自动延迟调用
 
 ### listenai_add_executable
 添加可执行文件
@@ -266,6 +253,15 @@ listenai_library_sources_ifdef(CONFIG_TEST test.c test1.c test2.c test3.c)
 此宏会自动为可执行文件添加bin,hex,lst文件输出
 
 此宏会自动扫描LISTENAI_MODULES_DIR_LIST 列表中的目录, 并添加模块到构建系统中
+
+**重要特性:**
+- 使用延迟链接机制（需要 CMake 3.19+）
+- 用户可以在 `listenai_add_executable` 之前或之后调用 `add_subdirectory` 添加库
+- 所有库会被自动包含在 `--whole-archive` 链接选项中，确保未被引用的符号不被丢弃
+
+**CMake 版本要求:**
+- 最低版本: CMake 3.19
+- 低于此版本会报 FATAL_ERROR
 
 ### listenai_executable_set_link_file
 为可执行文件设置链接脚本

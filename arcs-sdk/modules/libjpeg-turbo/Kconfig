@@ -1,0 +1,8 @@
+menu "libjpeg-turbo configuration"
+
+    config SDK_MODULE_LIBJPEG_TURBO
+        bool "libjpeg-turbo support"
+        default n
+        # select LIBJPEG_TURBO
+
+endmenu

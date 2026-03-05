@@ -4,7 +4,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 
-int syslog_init(int dbg, uint32_t baudrate);
+int syslog_init_early(void);
 int syslog_write(const char *data, int len);
 int syslog_hook_set(void (*hook)(const char *, va_list));
 void syslog_raw_output_v(const char *format, va_list args);

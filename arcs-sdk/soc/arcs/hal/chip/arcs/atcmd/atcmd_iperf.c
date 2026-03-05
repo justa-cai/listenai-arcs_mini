@@ -20,7 +20,7 @@
 extern void lwiperf_start_tcp_server_default_task(void *arg);
 extern void lwiperf_start_tcp_client_task(void *arg);
 
-int atcmd_lwiperf_start_tcp_server_default(int type, char *arg)
+int atcmd_lwiperf_start_tcp_server_default(int type, void *arg)
 {
 	if(xTaskCreate(lwiperf_start_tcp_server_default_task, ((const char*)"lwiperf_server"), DEFAULT_THREAD_STACKSIZE, arg, DEFAULT_THREAD_PRIO, NULL) != pdPASS)
 	{	
@@ -83,7 +83,7 @@ err_exit:
 	return;
 } 
 
-int atcmd_lwiperf_start_tcp_client(int type, char *arg)
+int atcmd_lwiperf_start_tcp_client(int type, void *arg)
 {
 	
 	if(xTaskCreate(lwiperf_start_tcp_client_task, ((const char*)"lwiperf_client"), DEFAULT_THREAD_STACKSIZE, arg, DEFAULT_THREAD_PRIO, NULL) != pdPASS)

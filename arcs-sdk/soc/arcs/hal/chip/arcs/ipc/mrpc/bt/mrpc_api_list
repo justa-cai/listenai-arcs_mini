@@ -1,0 +1,59 @@
+BEGIN CLIENT_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+//#include "ls_wifi_type.h"
+#include "bt_ipc_api.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_bt_api_msg.h"
+#include "mrpc_bt_api_server.h"
+END
+
+BEGIN SERVER_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+//#include "ls_wifi_type.h"
+
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_bt_api_msg.h"
+#include "mrpc_bt_api_server.h"
+
+END
+
+BEGIN MSG_HDR_INCLUDE_FILE
+#include <stddef.h>    // standard definitions
+#include <stdint.h>    // standard integer definition
+#include <stdbool.h>   // boolean definition
+#include "ls_err.h"
+#include "ls_bt_type.h"
+#include "mrpc.h"
+#include "btos_def.h"
+#include "bt_ipc_api.h"
+END
+
+BEGIN MSG_MAX_SIZE
+IPC_MSG_BUFFER_SIZE
+END
+
+
+BEGIN API_DECLARE_TYPE_OTHER
+
+ls_err_t btos_send_event_api(btos_task_id task_id, out void **event, btos_msg_t *msg_body, uint32_t msg_body_len, TickType_t time_out);
+ls_err_t btos_send_at_evt_api(btos_task_id task_id, uint16_t msg_id, out void *msg_body, uint32_t msg_body_len, TickType_t time_out);
+ls_err_t btos_send_app_evt_api(btos_task_id task_id, uint16_t msg_id, out void *msg_body, uint32_t msg_body_len, TickType_t time_out);
+
+ls_err_t ble_gap_set_loc_pub_addr_api(out struct out_bd_addr *bd_addr);
+
+ls_err_t llm_get_local_pub_addr_api(in struct out_bd_addr *bd_addr);
+
+ls_err_t btos_malloc_api(in void **buffer_ptr, uint32_t size);
+
+ls_err_t btos_free_api(out void **ptr);
+
+ls_err_t lsip_reset_api(void);
+
+END

@@ -224,6 +224,9 @@ _start:
     /* Enable mcycle and minstret counter */
     csrci CSR_MCOUNTINHIBIT, 0x5
 
+    /*call platform pre startup*/
+    call platform_pre_startup
+
     /* ===== Startup Stage 3 ===== */
     /* Load each prev-stage section from ROM to RAM when the LMA!=VMA and LEN > 0 */
     call scatload

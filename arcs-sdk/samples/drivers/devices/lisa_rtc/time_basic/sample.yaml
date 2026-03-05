@@ -1,0 +1,8 @@
+tests:
+  samples.lisa_rtc_time:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Current time: 20\\d{2}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"
+

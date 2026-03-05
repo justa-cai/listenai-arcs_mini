@@ -3,8 +3,11 @@
 config DISK_DRIVER_SDMMC
 	bool "SDMMC disk driver"
 	default n
+	select LISA_DEVICE
+	select LISA_SDMMC_DEVICE
 	help
-		Support using sdmmc devices as storage media for file systems
+		Support using sdmmc devices as storage media for file systems.
+		Automatically enables LISA SDMMC device driver.
 
 if DISK_DRIVER_SDMMC
 

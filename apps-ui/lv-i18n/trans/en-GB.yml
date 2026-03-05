@@ -1,0 +1,36 @@
+en-GB:
+  speaking: speaking
+  thinking: thinking
+  service connected: service connected
+  service disconnected: service disconnected
+  common setting: Common
+  network setting: Network
+  wakeup setting: Wakeup
+  alarm setting: Alarm
+  volume: volume
+  brightness: brightness
+  WIFI: wifi
+  AutoScan: AutoScan
+  no alarm: There is no alarm clock available; you can set an alarm clock via voice.
+  listening: listening
+  recognizing: recognizing
+  recognition error: recognition error
+  please speak: Please speak
+  cancel: Cancel
+  delete: Delete
+  monday: Monday
+  tuesday: Tuesday
+  wednesday: Wednesday
+  thursday: Thursday
+  friday: Friday
+  saturday: Saturday
+  sunday: Sunday
+  year: Year
+  month: Month
+  day: Day
+  button wakeup: Button
+  button wakeup description: Press and hold the K1 button to wake up and start a conversation.
+  voice wakeup(single): Voice(Single)
+  voice wakeup(multiple): Voice(Multiple)
+  voice wakeup single description: Wake-up via voice, each wake-up call involves a round of dialogue
+  voice wakeup multiple description: Supports multi-turn continuous dialogue via voice wake-up

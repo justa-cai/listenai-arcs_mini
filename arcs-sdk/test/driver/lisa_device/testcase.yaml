@@ -1,0 +1,6 @@
+tests:
+  test.driver.lisa_device:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity
+    

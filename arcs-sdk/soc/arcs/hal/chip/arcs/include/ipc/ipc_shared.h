@@ -13,7 +13,7 @@
 
 #include <stdbool.h>
 #include "ipc_core.h"
-
+#include "amp_shared.h"
 
 #define IPC_TXDESC_CNT                  16
 #define IPC_TXCFM_CNT                   16
@@ -42,12 +42,6 @@
 #define IPC_CFG_SIZE                    128
 #define IPC_WIFI_SHARE_SIZE             72
 
-/*
- * Halt the other core
- */
-#define IPC_APP_STATUS_HALT_PEER_BITS_ACK        0x00000001
-#define IPC_APP_STATUS_HALT_PEER_BITS_RESUME     0x00000002
-#define IPC_APP_STATUS_HALT_PEER_BITS_ALL        0x00000003
 
 struct ipc_rxdesc
 {
@@ -189,13 +183,15 @@ struct ipc_dbg_tag
     volatile uint32_t read_pos;
 };
 
+
+
 /// Structure describing the IPC data shared with the host CPU
 struct __attribute__((aligned(4))) ipc_shared_env_tag
 {
     volatile struct ipc_shared_hdr hdr;
     volatile uint32_t state;
-    volatile struct ipc_status master_status;
-    volatile struct ipc_status slave_status;
+    volatile struct ipc_notify master_notify;
+    volatile struct ipc_notify slave_notify;
     volatile struct ipc_a2c_msg_tag msg_a2c_buf;
     volatile struct ipc_c2a_msg_tag msg_c2a_buf;
     volatile struct ipc_txdesc_tag txdesc;
@@ -204,7 +200,7 @@ struct __attribute__((aligned(4))) ipc_shared_env_tag
     volatile struct ipc_rxcfm_tag  rxcfm;
     volatile uint32_t config[IPC_CFG_SIZE / 4];
     volatile struct ipc_dbg_tag dbg_buffer;
-    volatile uint32_t ipc_app_status;
+    volatile struct amp_shared_info amp_shared;
 };
 
 struct ipc_rxbuf_hdr

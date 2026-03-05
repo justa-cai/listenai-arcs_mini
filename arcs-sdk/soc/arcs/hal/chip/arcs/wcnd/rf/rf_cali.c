@@ -32,7 +32,6 @@
 #include "rf_cali_chk.h"
 #include "wifi_api.h"
 #include "wf_soc_drv.h"
-#include "nv_otp.h"
 
 #define __STATIC
 #define NEW_DFE IP_NEW_DFE
@@ -50,7 +49,7 @@ RF_CALI_TXIQ_WORD g_bt_txiq_comp;
 uint8_t g_bt_rxrc_comp;
 #endif
 
-#define PPA_CAP_USE_SOFT_CALC
+//#define PPA_CAP_USE_SOFT_CALC
 #define FB_VEC_SIZE 4096
 #define POWER_MEASURE_TIMES 32
 #define POWER_MEASURE_THRESHOLD_LOW  200000
@@ -88,9 +87,7 @@ int32_t *pAmpSig = (int32_t *)(LUNA_AMPSIG_ADDR);
 
 #endif
 
-#if CALI_BUF==0
-uint8_t wifi_cali[WIFI_CALI_BUF_SIZE] __attribute__ ((section("WIFI_CALI")));
-#endif
+volatile uint8_t wifi_cali[WIFI_CALI_BUF_SIZE] __attribute__ ((section("WIFI_CALI"), retain));
 
 RF_CALI_ENTRY rf_cali = {
     .owner = &rf_entry,
@@ -135,16 +132,13 @@ uint32_t CALI_MEM_END_OFFSET;
 #define SIGN(q, bit) (((q) >= (1 << (bit) >> 1)) ? ((q) - (1 << (bit))) : (q))
 #define CALI_RUNTIME_STATE_IDLE 0
 #define CALI_RUNTIME_STATE_ONGOING 1
-RF_CALI_DPD_CFG dpd_cfg_table[DPD_COMP_TABLE_CNT] = {
-    {13, 12, 1},
-    {14, 14, 2},
-    {15, 16, 3},
-    {16, 18, 4}
+RF_CALI_DPD_CFG dpd_base_table[DPD_COMP_TABLE_CNT] = {
+    {13, 12, 2},
+    {14, 14, 3},
+    {15, 16, 4},
+    {16, 18, 5}
 };
-RF_CALI_DPD_CFG dpd_cfg_table_update[DPD_COMP_TABLE_CNT_UPDATE] = {
-    {12, 10, 0},
-};
-uint8_t dpd_tr_pwr = 12;
+RF_CALI_DPD_CFG dpd_cfg_table[DPD_COMP_TABLE_CNT] = {0};
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
@@ -163,9 +157,10 @@ RF_CALI_POWER_DB_TBL power_db_table[] = {
 {10	, 2317252}  // 9.5dbm
 };
 
-static uint8_t pwr_idx_dc = 16;
-static uint8_t pwr_idx_iq = 14;
+static int8_t pwr_idx_dc = 16;
+static int8_t pwr_idx_iq = 14;
 static volatile uint8_t cali_runtime_state = CALI_RUNTIME_STATE_IDLE;
+
 
 __STATIC void rf_cali_rxdcoc_sel_sc(uint8_t mode, int16_t dc_i, int16_t dc_q)
 {
@@ -285,8 +280,8 @@ __STATIC int8_t rf_cali_rxdcoc(uint16_t freq, uint8_t lna_gain, uint8_t sc_auto)
     int32_t dc_q_c;
     int32_t dc_i_n = 0;
     int32_t dc_q_n = 0;
-    uint8_t word_i = 0;
-    uint8_t word_q = 0;
+    int8_t word_i = 0;
+    int8_t word_q = 0;
     int8_t direction_i;
     int8_t direction_q;
     uint8_t last_measure_i = 0;
@@ -371,7 +366,8 @@ __STATIC int8_t rf_cali_rxdcoc(uint16_t freq, uint8_t lna_gain, uint8_t sc_auto)
     }
 
 #if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
-    nv_update_selfcali_wf_rx_params(NULL, &word_i, &word_q, NULL, NULL, NULL, NULL);
+    if (mode == RFCALI_MODE_WF)
+        nv_update_selfcali_wf_rx_params(NULL, &word_i, &word_q, NULL, NULL, NULL, NULL);
 #endif
     CLOGI("[RF][RXDCOC] dc_i_p/c/n=%d/%d/%d @word_i=%d\n", dc_i_p, dc_i_c, dc_i_n, word_i);
     CLOGI("[RF][RXDCOC] dc_q_p/c/n=%d/%d/%d @word_q=%d\n", dc_q_p, dc_q_c, dc_q_n, word_q);
@@ -389,6 +385,7 @@ __STATIC int8_t rf_cali_rxrc()
     uint64_t delta;
     uint8_t cap;
     int8_t i;
+    uint8_t mode = rf_cali.params.mode;
     P_RF_CALI_OPS cali = rf_cali.ops;
 
     //CLOGD("rf_cali_rxrc\n");
@@ -443,7 +440,8 @@ __STATIC int8_t rf_cali_rxrc()
     }
     cali->rxrc_result(cap);
 #if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
-    nv_update_selfcali_wf_rx_params(&cap, NULL, NULL, NULL, NULL, NULL, NULL);
+    if (mode == RFCALI_MODE_WF)
+        nv_update_selfcali_wf_rx_params(&cap, NULL, NULL, NULL, NULL, NULL, NULL);
 #endif
     CLOGI("[RF][RXRC] E0/2=%lld E1=%lld @cap=%d\n", E0_s, E1, cap);
 
@@ -581,7 +579,7 @@ int8_t rf_cali_calc_delta_db(uint32_t uPower)
 {
     int8_t delta_db = -1;
 
-    for (int i = sizeof(power_db_table) / sizeof(RF_CALI_POWER_DB_TBL); i >= 0; i--) {
+    for (int i = sizeof(power_db_table) / sizeof(RF_CALI_POWER_DB_TBL) - 1; i >= 0; i--) {
         if (uPower >= power_db_table[i].pwr) {
             delta_db = power_db_table[i].db;
             break;
@@ -599,52 +597,21 @@ int8_t rf_cali_self_adj_gain(int8_t pwr_idx)
     uint8_t power_violation = 0;
     uint32_t uPower = 0;
     int8_t delta_db = 0;
-    complexint16 mix_on_dc = {0};
-    complexint32 mix_on_dc_luna = {0};
 
     memset(iFbSignalVec, 0, 4096*4);
     cali->txdpd_measure(pwr_idx);
     cali->txdcdpd_toggle_mixen(1);
     while(!dump_finished || power_violation) {
         cali->txdpd_measure(pwr_idx);
-        CLOGD("last feedback sample 0x%x\n", iFbSignalVec[4095]);
+        //CLOGI("last feedback sample 0x%x\n", iFbSignalVec[4095]);
         dump_finished = (((uint32_t *)iFbSignalVec)[4095] >> 31) & 0x1;
         if (dump_finished) {
-            for (int i = 0; i < 4096; i++)
-            {
-            #if DPD_LUNA
-                iFbSignalVecLunaRe[i] = (int32_t)SIGN(iFbSignalVec[i].re & 0x0FFF, 12);
-                iFbSignalVecLunaIm[i] = (int32_t)SIGN(iFbSignalVec[i].im & 0x0FFF, 12);
-            #if DPD_LUNA_DEBUG
-                iFbSignalVec[i].re = SIGN(iFbSignalVec[i].re & 0x0FFF, 12);
-                iFbSignalVec[i].im = SIGN(iFbSignalVec[i].im & 0x0FFF, 12);
-            #endif
-            #else
-                iFbSignalVec[i].re = SIGN(iFbSignalVec[i].re & 0x0FFF, 12);
-                iFbSignalVec[i].im = SIGN(iFbSignalVec[i].im & 0x0FFF, 12);
-            #endif
-
-            }
-        #if DPD_LUNA
-            CalculateDcEstLuna(iFbSignalVecLunaRe, iFbSignalVecLunaIm, &uPower, &mix_on_dc_luna);
-            mix_on_dc.re = (int16_t)mix_on_dc_luna.re;
-            mix_on_dc.im = (int16_t)mix_on_dc_luna.im;
-        #if DPD_LUNA_DEBUG
-            int32_t uPowerR;
-            complexint16 mix_on_dc_r = {0};
-            CalculateDcEst(iFbSignalVec, &uPowerR, &mix_on_dc_r);
-            CLOGI("uPowerR=%d,uPower = %d\n",uPowerR,uPower);
-            CLOGI("mix_on_dc.re=%d,mix_on_dc.im = %d\n",mix_on_dc_luna.re,mix_on_dc_luna.im);
-            CLOGI("mix_on_dc_r.re=%d,mix_on_dc_r.im = %d\n",mix_on_dc_r.re,mix_on_dc_r.im);
-        #endif
-        #else
-            CalculateDcEst(iFbSignalVec, &uPower, &mix_on_dc); // power = sqrt( uPower/(2^22))
-        #endif
+            uPower = wf_cali_read_hw_power();
             power_violation = (uPower > POWER_MEASURE_THRESHOLD_HIGH) || (uPower < POWER_MEASURE_THRESHOLD_LOW) ? 1 : 0;
             if (!power_violation)
                 break;
             delta_db = rf_cali_calc_delta_db(uPower);
-            CLOGI("delta_db=%d, uPower=%d\n", delta_db, uPower);
+            //CLOGI("pwr_idx=%d, delta_db=%d, uPower=%d\n", pwr_idx, delta_db, uPower);
             cali->txdpd_adjust_gain(-delta_db);
         }
         meas_time++;
@@ -652,10 +619,10 @@ int8_t rf_cali_self_adj_gain(int8_t pwr_idx)
             break;
     }
     if (power_violation || meas_time > POWER_MEASURE_TIMES) {
-        CLOGW("target %d measure power(%u) violation from range [%u, %u]\n", pwr_idx, uPower, POWER_MEASURE_THRESHOLD_LOW, POWER_MEASURE_THRESHOLD_HIGH);
+        CLOGW("target %d measure(%d) power(%u) violation from range [%u, %u]\n", pwr_idx, meas_time, uPower, POWER_MEASURE_THRESHOLD_LOW, POWER_MEASURE_THRESHOLD_HIGH);
         return -1;
     }
-    CLOGI("final power=%d,meas_time=%d\n",uPower,meas_time);
+    CLOGI("final pwr_idx=%d, power=%d, meas_time=%d\n", pwr_idx, uPower, meas_time);
     return 0;
 }
 
@@ -674,7 +641,7 @@ __STATIC void rf_cali_txdpd_print_para(uint8_t tbl_idx, int8_t pwr_idx, complexi
         CLOGI("%s", msg);
 }
 
-__STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_times, uint8_t fb_gain, complexint16 *mix_off_dc, uint8_t pwr_idx_dc, uint8_t pwr_idx_iq, complexint16* dpd_para_est)
+__STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_times, complexint16 *mix_off_dc, int8_t pwr_idx_dc, int8_t pwr_idx_iq, complexint16* dpd_para_est)
 {
     uint8_t t;
     uint8_t uTimeEstStartTx = 0;
@@ -684,9 +651,8 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
     int16_t iIntDelay = 0;
     int16_t iFracDelay = 0;
     complexint16 cFbGain = {0};
-    uint32_t uPower = 0;
     complexint16 mix_on_dc = {0};
-    complexint16 pre_comp_dc = {0};
+    complexint16 pre_comp_dc = {SIGN(NEW_DFE->REG_TPC_CTRL_DCCOMP_I0.bit.CFG_TPC_DCCOMP_I_0, 12), SIGN(NEW_DFE->REG_TPC_CTRL_DCCOMP_Q0.bit.CFG_TPC_DCCOMP_Q_0, 12)};
     complexint16 cur_comp_dc = {0};
     uint16_t uGainOffset = 2048;//2368;
     int16_t uGainOffsetDiv = 2048;//1771;
@@ -697,57 +663,38 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
     complexint16 *iFbSignalVec = (complexint16 *)CALI_MEM_START_ADDR;
     int16_t c21 = 0;
     int16_t c22 = 2048;
-    int16_t leg_c21 = 0;
-    int16_t leg_c22 = 2048;
+    int16_t leg_c21 = SIGN(NEW_DFE->REG_TPC_CTRL_IQCOMP_I0.bit.CFG_TPC_IQCOMP_I_0, 12);
+    int16_t leg_c22 = NEW_DFE->REG_TPC_CTRL_IQCOMP_Q0.bit.CFG_TPC_IQCOMP_Q_0;
     uint8_t dump_finished = 0;
     uint8_t meas_time = 0;
     uint8_t power_violation = 0;
     complexint32 mix_on_dc_luna = {0};
-#if DPD_TS_DEBUG
-    uint32_t t_s = 0;
-    uint32_t t_e = 0;
+    int8_t dpd_res;
+    uint8_t dpd_itr = 0;
+
+#if 0 //TODO: DPD cLegcyPara from registers
+    cali->txdpd_get_result(tbl_idx, (void *)&cLegcyPara[0]);
+    for (uint8_t i = 0; i < MAX_PARALEN; i++) {
+        cLegcyPara[i].re = SIGN(cLegcyPara[i].re, 14);
+        cLegcyPara[i].im = SIGN(cLegcyPara[i].im, 14);
+    }
+    rf_cali_txdpd_print_para(tbl_idx, pwr_idx, cLegcyPara);
 #endif
-    /*iTxSignalVecLunaRe[0] = 100;
-      iTxSignalVecLunaRe[1] = 10;
-      LUNA_API_SIM(luna_dot_prod_i32i32o32)(iTxSignalVecLunaRe, iTxSignalVecLunaRe, uPowerTest, 2, 0);
-      CLOGI("iTxSignalVecLunaRe0 =%d\n", iTxSignalVecLunaRe[0]);
-      CLOGI("iTxSignalVecLunaRe1 =%d\n", iTxSignalVecLunaRe[1]);
-      CLOGI("Test =%d(0x%x)\n", *uPowerTest, uPowerTest);*/
-    //memset(iTxSignalVec, 0, 4096*4*2);
-    //memcpy(iTxSignalVec, ro_iTxSignalVec, 4096*4);
-    //cali->txdpd_init(pwr_idx, fb_gain, 0);
-    //cali->txdpd_measure(pwr_idx);
-    //CLOGI("debug Tx sample 0x%x vs ref 0x%x\n", iTxSignalVec[0], ro_iTxSignalVec[0]);
-    //CLOGI("debug Tx sample 0x%x vs ref 0x%x\n", iTxSignalVec[1], ro_iTxSignalVec[1]);
-    //CLOGI("debug Tx sample 0x%x vs ref 0x%x\n", iTxSignalVec[4095], ro_iTxSignalVec[4095]);
     if (pwr_idx_dc == pwr_idx) {
         for (t = 0; t < 4; t++) {
             complexint16 mix_off_tmpdc = {0};
 
             cali->txdcdpd_toggle_mixen(0);
             cali->txdpd_measure(pwr_idx_dc);
-        #if 1 //hardware_output_128
+            /* hardware 128 samples estimate */
             mix_off_dc->re += SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_I, 12);
             mix_off_dc->im += SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_Q, 12);
-        #else
-            for (int i = 0; i < 4096; i++)
-            {
-                //iTxSignalVec[i].re = SIGN(iTxSignalVec[i].re & 0x0FFF, 12);
-                //iTxSignalVec[i].im = SIGN(iTxSignalVec[i].im & 0x0FFF, 12);
-                iFbSignalVec[i].re = SIGN(iFbSignalVec[i].re & 0x0FFF, 12);
-                iFbSignalVec[i].im = SIGN(iFbSignalVec[i].im & 0x0FFF, 12);
-            }
-            DcEst(iFbSignalVec, &mix_off_tmpdc);
-            mix_off_dc->re += mix_off_tmpdc.re;
-            mix_off_dc->im += mix_off_tmpdc.im;
-        #endif
-            CLOGD("mix_off_tmpdc re=%d, im=%d", mix_off_tmpdc.re, mix_off_tmpdc.im);
         }
-        CLOGD("mix_off_dc re=%d, im=%d", mix_off_dc->re, mix_off_dc->im);
         mix_off_dc->re = mix_off_dc->re >> 2;
         mix_off_dc->im = mix_off_dc->im >> 2;
+        //CLOGD("mix_off_dc re=%d, im=%d", mix_off_dc->re, mix_off_dc->im);
     }
-    CLOGI("TXDPD cali table %d pwr %d fb_gain setting %d uGainOffset %d=========================\n", tbl_idx, pwr_idx, fb_gain, uGainOffset);
+    //CLOGI("TXDPD cali table %d pwr %d =========================\n", tbl_idx, pwr_idx);
     cali->txdcdpd_toggle_mixen(1);
     for (t = 0; t < iter_times; t++) {
     #if DPD_LUNA
@@ -762,15 +709,11 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
         meas_time = 0;
         while(!dump_finished) {
             cali->txdpd_measure(pwr_idx);
-            CLOGD("last feedback sample 0x%x\n", iFbSignalVec[4095]);
+            //CLOGD("last feedback sample 0x%x\n", iFbSignalVec[4095]);
             dump_finished = (((uint32_t *)iFbSignalVec)[4095] >> 31) & 0x1;
             if (dump_finished) {
                 for (int i = 0; i < 4096; i++)
                 {
-                    //iTxSignalVec[i].re = SIGN(iTxSignalVec[i].re & 0x0FFF, 12);
-                    //iTxSignalVec[i].im = SIGN(iTxSignalVec[i].im & 0x0FFF, 12);
-                    //iFbSignalVec[i].re = SIGN(iFbSignalVec[i].re & 0x0FFF, 12);
-                    //iFbSignalVec[i].im = SIGN(iFbSignalVec[i].im & 0x0FFF, 12);
                 #if DPD_LUNA
                     iFbSignalVecLunaRe[i] = SIGN(iFbSignalVec[i].re & 0x0FFF, 12);
                     iFbSignalVecLunaIm[i] = SIGN(iFbSignalVec[i].im & 0x0FFF, 12);
@@ -784,25 +727,21 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
                 #endif
                 }
             #if DPD_LUNA
-                CalculateDcEstLuna(iFbSignalVecLunaRe, iFbSignalVecLunaIm, &uPower, &mix_on_dc_luna);
+                CalculateDcEstLuna(iFbSignalVecLunaRe, iFbSignalVecLunaIm, &mix_on_dc_luna);
                 mix_on_dc.re = (int16_t)mix_on_dc_luna.re;
                 mix_on_dc.im = (int16_t)mix_on_dc_luna.im;
             #if DPD_LUNA_DEBUG
-                CalculateDcEst(iFbSignalVec, &uPower, &mix_on_dc);
+                CalculateDcEst(iFbSignalVec, &mix_on_dc);
             #endif
             #else
-                CalculateDcEst(iFbSignalVec, &uPower, &mix_on_dc); // power = sqrt( uPower/(2^22))
+                CalculateDcEst(iFbSignalVec, &mix_on_dc);
             #endif
-                CLOGD("uPower=%d\n", uPower);
                 break;
             }
             meas_time++;
             if (meas_time > 10)
                 goto fail_measure;
         }
-    #if DPD_TS_DEBUG
-        t_s = MEM_RD32(0x4B700120);
-    #endif
     #if DPD_LUNA
         CalculateTimeEstLuna(iTxSignalVecLunaRe, iTxSignalVecLunaIm, iFbSignalVecLunaRe, iFbSignalVecLunaIm, uTimeEstStartTx, uTimeEstStartFb, uTimeEstWinLen, uTimeEstLen, &iIntDelay, &iFracDelay);
     #if DPD_LUNA_DEBUG
@@ -836,8 +775,8 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
     #else
         CalculateGainEst(iTxSignalVec, iFbSignalVec + iIntDelay, 0 , 4000, &cFbGain);
     #endif
-        CLOGD("[iter %d]uPower=%d rest dc.re=%d,im=%d iIntDelay=%d, iFracDelay=%d, cFbGain re=%d im=%d\n",
-            t, uPower, mix_on_dc.re, mix_on_dc.im, iIntDelay, iFracDelay, cFbGain.re, cFbGain.im);
+        CLOGD("[iter %d]rest dc.re=%d,im=%d iIntDelay=%d, iFracDelay=%d, cFbGain re=%d im=%d\n",
+            t, mix_on_dc.re, mix_on_dc.im, iIntDelay, iFracDelay, cFbGain.re, cFbGain.im);
     #if DPD_LUNA
         FbCompGainLuna(iFbSignalVecLunaRe, iFbSignalVecLunaIm, cFbGain);
     #if DPD_LUNA_DEBUG
@@ -849,12 +788,11 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
         FbCompGain(iFbSignalVec, cFbGain);
     #endif
         if (pwr_idx_dc == pwr_idx) {
-        #if 1 //hardware_output_128
+            /* hardware 128 samples estimate */
             mix_on_dc.re = SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_I, 12);
             mix_on_dc.im = SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_Q, 12);
-        #endif
             CalculateTxDcEst(&mix_on_dc, &pre_comp_dc, mix_off_dc, &cFbGain, &cur_comp_dc, t);
-            //CLOGI("mix_off_dc->re=%d, mix_off_dc->im=%d, mix_on_dc.re=%d, mix_on_dc.im=%d, cur_comp_dc.re=%d, cur_comp_dc.im=%d\n",
+            //CLOGD("mix_off_dc->re=%d, mix_off_dc->im=%d, mix_on_dc.re=%d, mix_on_dc.im=%d, cur_comp_dc.re=%d, cur_comp_dc.im=%d\n",
             //    mix_off_dc->re, mix_off_dc->im, mix_on_dc.re, mix_on_dc.im, cur_comp_dc.re, cur_comp_dc.im);
         #if defined(CALI_CHECK_RESULT)
             if (t == iter_times - 1) {
@@ -874,8 +812,6 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
             memcpy(&pre_comp_dc, &cur_comp_dc, sizeof(complexint16));
         }
         if (pwr_idx_iq == pwr_idx) {
-        #if 1
-            //if (t < 4) {
         #if DPD_LUNA
             TxIqEstLuna(iFbSignalVecLunaRe, iFbSignalVecLunaIm, iIntDelay, &c21, &c22);
         #else
@@ -896,49 +832,31 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
             leg_c22 = c22;
             CLOGI("[RF][TXIQ] @c21=%d\n", c21);
             CLOGI("[RF][TXIQ] @c22=%d\n", c22);
-            //}
-        #endif
         }
     #if DPD_LUNA
-        CalculateDpdParaLuna(iTxSignalVecLunaRe, iTxSignalVecLunaIm, iFbSignalVecLunaRe + iIntDelay, iFbSignalVecLunaIm + iIntDelay, MAX_ORDER, MAX_MEMORY, cLegcyPara, cParaEst, 4080, t, uGainOffsetDiv);
+        CalculateDpdParaLuna(iTxSignalVecLunaRe, iTxSignalVecLunaIm, iFbSignalVecLunaRe + iIntDelay, iFbSignalVecLunaIm + iIntDelay, MAX_ORDER, MAX_MEMORY, cLegcyPara, cParaEst, 4080, dpd_itr, uGainOffsetDiv);
     #if DPD_LUNA_DEBUG
         complexint16 cParaEstR[MAX_PARALEN] = {0};
-        CalculateDpdPara(iTxSignalVec, iFbSignalVec + iIntDelay, MAX_ORDER, MAX_MEMORY, cLegcyPara, cParaEstR, 4080, t, uGainOffsetDiv);
-        char msg1[200], *p_msg1=&msg1[0];
-        uint32_t msg_len1 = sprintf(p_msg1, "[RF][DPD] table %d pwr %d @dpd_param={", tbl_idx, pwr_idx);
-        p_msg1 += msg_len1;
-        for (uint32_t i = 0; i < MAX_PARALEN; i++)
-        {
-            msg_len1 = sprintf(p_msg1, "{%d,%d},", cParaEstR[i].re, cParaEstR[i].im);
-            p_msg1 += msg_len1;
-        }
-        p_msg1--;
-        sprintf(p_msg1, "}\n");
-        CLOGI("%s", msg1);
+        CalculateDpdPara(iTxSignalVec, iFbSignalVec + iIntDelay, MAX_ORDER, MAX_MEMORY, cLegcyPara, cParaEstR, 4080, dpd_itr, uGainOffsetDiv);
+        rf_cali_txdpd_print_para(tbl_idx, pwr_idx, cParaEstR);
     #endif
     #else
-        CalculateDpdPara(iTxSignalVec, iFbSignalVec + iIntDelay, MAX_ORDER, MAX_MEMORY, cLegcyPara, cParaEst, 4080, t, uGainOffsetDiv);
-    #endif
-    #if DPD_TS_DEBUG
-        t_e = MEM_RD32(0x4B700120);
-        CLOGI("TS Iiter = %d,total ts=%d, te=%d, delta=%d\n",t , t_s, t_e, t_e - t_s);
+        CalculateDpdPara(iTxSignalVec, iFbSignalVec + iIntDelay, MAX_ORDER, MAX_MEMORY, cLegcyPara, cParaEst, 4080, dpd_itr, uGainOffsetDiv);
     #endif
     #if defined(CALI_CHECK_RESULT)
-        if (t == iter_times - 1) {
-            if (rf_cali_check_dpd_result(cParaEst)) {
-                CLOGW("TXDPD abort since cParaEst out of range\n");
-                for (int i = 0; i < MAX_PARALEN; i++)
-                {
-                    cParaEst[i].re = 0;
-                    cParaEst[i].im = 0;
-                }
-                cParaEst[0].re = 512;
-            }
+        dpd_res = rf_cali_check_dpd_result(cParaEst);
+        if (dpd_res) {
+            CLOGW("TXDPD abort since cParaEst out of range\n");
+            memcpy(cParaEst, cLegcyPara, MAX_PARALEN*sizeof(int32_t));
+        }
+        else {
+            dpd_itr++;
+            memcpy(cLegcyPara, cParaEst, MAX_PARALEN*sizeof(int32_t));
         }
     #endif
         cali->txdpd_result(tbl_idx, (void *)&cParaEst[0]);
         rf_cali_txdpd_print_para(tbl_idx, pwr_idx, cParaEst);
-        memcpy(cLegcyPara, cParaEst, MAX_PARALEN*sizeof(int32_t));
+        CLOGI("dpd_itr=%d\n", dpd_itr);
     }
     if (dpd_para_est)
         memcpy(dpd_para_est, cParaEst, 15*sizeof(int32_t));
@@ -958,7 +876,6 @@ __STATIC int8_t rf_cali_txdc(int8_t pwr_idx_dc, uint8_t fb_gain, uint8_t iter_ti
     int16_t iIntDelay = 0;
     int16_t iFracDelay = 0;
     complexint16 cFbGain = {0};
-    uint32_t uPower = 0;
     complexint16 mix_on_dc = {0};
     complexint16 pre_comp_dc = {0};
     complexint16 cur_comp_dc = {0};
@@ -967,24 +884,13 @@ __STATIC int8_t rf_cali_txdc(int8_t pwr_idx_dc, uint8_t fb_gain, uint8_t iter_ti
     complexint16 *iFbSignalVec = (complexint16 *)CALI_MEM_MID_ADDR;
 
     CLOGI("TXDC cali pwr %d start===================================================\n", pwr_idx_dc);
-    cali->txdpd_init(pwr_idx_dc, fb_gain, 6);
+    cali->txdpd_init(6);
     cali->txdpd_measure(pwr_idx_dc);
     for (t = 0; t < iter_times; t++) {
         cali->txdcdpd_toggle_mixen(0);
         cali->txdpd_measure(pwr_idx_dc);
-        #if 1 //qingqing_128
-            mix_off_dc->re = SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_I, 12);
-            mix_off_dc->im = SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_Q, 12);
-        #else
-        for (int i = 0; i < 4096; i++)
-        {
-            //iTxSignalVec[i].re = SIGN(iTxSignalVec[i].re & 0x0FFF, 12);
-            //iTxSignalVec[i].im = SIGN(iTxSignalVec[i].im & 0x0FFF, 12);
-            iFbSignalVec[i].re = SIGN(iFbSignalVec[i].re & 0x0FFF, 12);
-            iFbSignalVec[i].im = SIGN(iFbSignalVec[i].im & 0x0FFF, 12);
-        }
-        DcEst(iFbSignalVec, mix_off_dc);
-        #endif
+        mix_off_dc->re = SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_I, 12);
+        mix_off_dc->im = SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_Q, 12);
         cali->txdcdpd_toggle_mixen(1);
         cali->txdpd_measure(pwr_idx_dc);
         for (int i = 0; i < 4096; i++)
@@ -994,19 +900,17 @@ __STATIC int8_t rf_cali_txdc(int8_t pwr_idx_dc, uint8_t fb_gain, uint8_t iter_ti
             iFbSignalVec[i].re = SIGN(iFbSignalVec[i].re & 0x0FFF, 12);
             iFbSignalVec[i].im = SIGN(iFbSignalVec[i].im & 0x0FFF, 12);
         }
-        CalculateDcEst(iFbSignalVec, &uPower, &mix_on_dc); // power = sqrt( uPower/(2^22))
+        CalculateDcEst(iFbSignalVec, &mix_on_dc);
         CalculateTimeEst(iTxSignalVec, iFbSignalVec, uTimeEstStartTx, uTimeEstStartFb, uTimeEstWinLen, uTimeEstLen, &iIntDelay, &iFracDelay);
         FbCompTime(iFbSignalVec, iFracDelay);
         CalculateGainEst(iTxSignalVec, iFbSignalVec + iIntDelay, 0 , 4000, &cFbGain);
-        CLOGI("[iter %d]uPower=%d rest dc.re=%d,im=%d iIntDelay=%d, iFracDelay=%d, cFbGain re=%d im=%d\n",
-           t, uPower, mix_on_dc.re, mix_on_dc.im, iIntDelay, iFracDelay, cFbGain.re, cFbGain.im);
+        CLOGD("[iter %d]rest dc.re=%d,im=%d iIntDelay=%d, iFracDelay=%d, cFbGain re=%d im=%d\n",
+           t, mix_on_dc.re, mix_on_dc.im, iIntDelay, iFracDelay, cFbGain.re, cFbGain.im);
         FbCompGain(iFbSignalVec, cFbGain);
-        #if 1 //qingqing 128
         mix_on_dc.re = SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_I, 12);
         mix_on_dc.im = SIGN(NEW_DFE->REG_RXDC_CFG.bit.RX_DC_EST_DATA_Q, 12);
-        #endif
         CalculateTxDcEst(&mix_on_dc, &pre_comp_dc, mix_off_dc, &cFbGain, &cur_comp_dc, t);
-        CLOGI("mix_off_dc->re=%d, mix_off_dc->im=%d, mix_on_dc.re=%d, mix_on_dc.im=%d, cur_comp_dc.re=%d, cur_comp_dc.im=%d\n",
+        CLOGD("mix_off_dc->re=%d, mix_off_dc->im=%d, mix_on_dc.re=%d, mix_on_dc.im=%d, cur_comp_dc.re=%d, cur_comp_dc.im=%d\n",
             mix_off_dc->re, mix_off_dc->im, mix_on_dc.re, mix_on_dc.im, cur_comp_dc.re, cur_comp_dc.im);
         cali->txdc_result(&cur_comp_dc, 2);
         memcpy(&pre_comp_dc, &cur_comp_dc, sizeof(complexint16));
@@ -1021,7 +925,6 @@ void rf_cali_txdpd_calc_rest_table(complexint16* dpd_para_est_update, complexint
     P_RF_CALI_OPS cali = rf_cali.ops;
     uint16_t gain_off_n2db[4] = {13014,10338,8211,6523};
 
-    CLOGI("TXDPD cali calc offset dpd start===================================================\n");
     if (pwr_step == 2) {
         gain_off_n2db[0] = 13014;
         gain_off_n2db[1] = 10338;
@@ -1035,23 +938,38 @@ void rf_cali_txdpd_calc_rest_table(complexint16* dpd_para_est_update, complexint
         gain_off_n2db[3] = 2597;
     }
     else {
-        //CLOGI("Please check update table\n");
         gain_off_n2db[0] = 16384;
         gain_off_n2db[1] = 16384;
         gain_off_n2db[2] = 16384;
         gain_off_n2db[3] = 16384;
     }
-    for (uint32_t para_idx = 0; para_idx < MAX_PARALEN; para_idx++) {
+    for (uint8_t para_idx = 0; para_idx < MAX_PARALEN; para_idx++) {
         if(para_idx%5 != 0) {
-            //CLOGI("paraIdx %d",para_idx);
-            //dpd_para_est_update[para_idx]  = dpd_para_est_tr[para_idx];
             dpd_para_est_update[para_idx] = ComplexMultiReal16(dpd_para_est_tr+para_idx,gain_off_n2db[para_idx%5-1],14);
         }
         else {
-            dpd_para_est_update[para_idx]  = dpd_para_est_tr[para_idx];
+            dpd_para_est_update[para_idx] = dpd_para_est_tr[para_idx];
         }
     }
-    CLOGI("TXDPD cali calc offset dpd end  ===================================================\n");
+}
+
+__STATIC int8_t rf_cali_txdpd_process_rest_tables(complexint16* dpd_para_est_update, complexint16* dpd_para_est_tr, P_RF_CALI_DPD_CFG dpd_tr_table)
+{
+    int8_t dpd_tr_tssi = dpd_tr_table->tssi;
+    uint8_t dpd_tr_lut_idx = dpd_tr_table->pred_lut_idx;
+    P_RF_CALI_OPS cali = rf_cali.ops;
+
+    for (uint8_t i = 0; i < DPD_REST_TABLE_CNT; i++) {
+        uint8_t pwr_step = 2 << i;
+        int8_t rest_pwr_tssi = dpd_tr_tssi - pwr_step;
+        int8_t rest_pred_lut_idx = (int8_t)dpd_tr_lut_idx - i - 1;
+        if (rest_pred_lut_idx < 0)
+            break;
+        rf_cali_txdpd_calc_rest_table(dpd_para_est_update, dpd_para_est_tr, pwr_step);
+        cali->txdpd_result((uint8_t)rest_pred_lut_idx, dpd_para_est_update);
+        rf_cali_txdpd_print_para((uint8_t)rest_pred_lut_idx, rest_pwr_tssi, dpd_para_est_update);
+    }
+    return 0;
 }
 
 __STATIC int8_t rf_cali_txdpd(void)
@@ -1060,7 +978,6 @@ __STATIC int8_t rf_cali_txdpd(void)
     P_RF_CALI_OPS cali = rf_cali.ops;
     uint8_t tbl_idx = params->txdpd_tbl_idx;
     uint8_t iter_times = params->txdpd_iter_times;
-    uint8_t fb_gain = params->txdpd_fb_gain;
     complexint16 mix_off_dc = {0};
     complexint16 dpd_para_est_tr[MAX_PARALEN] = {0};
     complexint16 dpd_para_est_update[MAX_PARALEN] = {0};
@@ -1069,58 +986,44 @@ __STATIC int8_t rf_cali_txdpd(void)
     enable_GINT();
     luna_init();
 #endif
-
     CLOGI("TXDPD start==========================================================================\n");
-    //cali->txiq_tx_result(0, 2048);
+    cali->txdpd_init(0);
     if (tbl_idx < DPD_COMP_TABLE_CNT) {
-        cali->txdpd_init(dpd_cfg_table[tbl_idx].tssi, fb_gain, 0);
         if (rf_cali_self_adj_gain(dpd_cfg_table[tbl_idx].tssi)) {
-            cali->txdpd_deinit();
             goto cali_dpd_done;
         }
-        rf_cali_txdpd_one(tbl_idx, dpd_cfg_table[tbl_idx].tssi, iter_times, fb_gain, &mix_off_dc, dpd_cfg_table[tbl_idx].tssi, dpd_cfg_table[tbl_idx].tssi, dpd_para_est_tr);
-        cali->txdpd_deinit();
+        rf_cali_txdpd_one(dpd_cfg_table[tbl_idx].pred_lut_idx, dpd_cfg_table[tbl_idx].tssi, iter_times, &mix_off_dc, dpd_cfg_table[tbl_idx].tssi, dpd_cfg_table[tbl_idx].tssi, dpd_para_est_tr);
+        rf_cali_txdpd_process_rest_tables(dpd_para_est_update, dpd_para_est_tr, &dpd_cfg_table[tbl_idx]);
     } else {
-        uint8_t i = 0;
-
-        for (i = 0; i < DPD_COMP_TABLE_CNT; i++)
+        for (uint8_t i = 0; i < DPD_COMP_TABLE_CNT; i++)
         {
-            cali->txdpd_init(dpd_cfg_table[i].tssi, fb_gain, 0);
             if (rf_cali_self_adj_gain(dpd_cfg_table[i].tssi)) {
-                cali->txdpd_deinit();
                 continue;
             }
-            rf_cali_txdpd_one(dpd_cfg_table[i].pred_lut_idx, dpd_cfg_table[i].tssi, iter_times, fb_gain, &mix_off_dc, pwr_idx_dc, pwr_idx_iq, dpd_para_est_tr);
-            cali->txdpd_deinit();
+            rf_cali_txdpd_one(dpd_cfg_table[i].pred_lut_idx, dpd_cfg_table[i].tssi, iter_times, &mix_off_dc, pwr_idx_dc, pwr_idx_iq, dpd_para_est_tr);
         #if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
             nv_update_selfcali_dpd_params(i, (uint32_t *)dpd_para_est_tr);
         #endif
-            //Add pwr offset
-            if (dpd_cfg_table[i].tssi == dpd_tr_pwr) {
-                for (uint8_t i_update = 0; i_update < DPD_COMP_TABLE_CNT_UPDATE; i_update++) {
-                    uint8_t pwr_step = dpd_tr_pwr - dpd_cfg_table_update[i_update].tssi;
-                    rf_cali_txdpd_calc_rest_table(dpd_para_est_update, dpd_para_est_tr, pwr_step);
-                    cali->txdpd_result(dpd_cfg_table_update[i_update].pred_lut_idx, dpd_para_est_update);
-                    rf_cali_txdpd_print_para(dpd_cfg_table_update[i_update].pred_lut_idx, dpd_cfg_table_update[i_update].tssi, dpd_para_est_update);
-                }
-            }
+            if (i == 0)
+                rf_cali_txdpd_process_rest_tables(dpd_para_est_update, dpd_para_est_tr, &dpd_cfg_table[0]);
         }
     }
 #if 0
     rf_cali_txdc(5, 10, iter_times, &mix_off_dc);
 #endif
 cali_dpd_done:
+    cali->txdpd_deinit();
     cali->txiq_restore_rxiq_result();
     CLOGI("TXDPD end============================================================================\n");
     return 0;
 }
 
-__STATIC int8_t rf_cali_ppacap_measure_power(P_RF_CALI_OPS cali, int cap_idx, uint8_t ppa_cap, complexint16 *iFbSignalVec, uint32_t *power) {
+__STATIC int8_t rf_cali_ppacap_measure_power(P_RF_CALI_OPS cali, int cap_idx, uint8_t ppa_cap, int8_t pwr_idx, complexint16 *iFbSignalVec, uint32_t *power) {
     uint8_t dump_finished = 0, meas_time = 0;
     cali->set_ppa_cap(cap_idx, ppa_cap);
     memset(iFbSignalVec, 0, FB_VEC_SIZE * sizeof(complexint16));
     while (!dump_finished) {
-        cali->txdpd_measure(10);
+        cali->txdpd_measure(pwr_idx);
         dump_finished = (((uint32_t *)iFbSignalVec)[FB_VEC_SIZE - 1] >> 31) & 0x1;
         if (++meas_time >= POWER_MEASURE_TIMES)
             return -1;
@@ -1132,7 +1035,7 @@ __STATIC int8_t rf_cali_ppacap_measure_power(P_RF_CALI_OPS cali, int cap_idx, ui
     }
     CalculatePowerEst(iFbSignalVec, power);
 #else
-    *power = wf_cali_read_hw_power();
+    *power = wf_cali_read_hw_power_without_dc();
 #endif
     return 0;
 }
@@ -1146,15 +1049,16 @@ __STATIC int8_t rf_cali_ppacap(void)
     uint8_t rec_cap_0 = cali->get_ppa_cap(0);
     uint8_t rec_cap_1 = cali->get_ppa_cap(1);
     uint8_t rec_cap_2 = cali->get_ppa_cap(2);
+    int8_t tx_power = 12;
 
-    cali->txdpd_init(10, 0xff, 0);
+    cali->txdpd_init(0);
     cali->txdcdpd_toggle_mixen(1);
     rf_cali.owner->ops->set_channel(2442);
     rf_udelay(100);
 
     /* 1. 找最大功率点 */
     for (ppa_cap = 0; ppa_cap < 32; ppa_cap++) {
-        if (rf_cali_ppacap_measure_power(cali, 1, ppa_cap, iFbSignalVec, &power)) {
+        if (rf_cali_ppacap_measure_power(cali, 1, ppa_cap, tx_power, iFbSignalVec, &power)) {
             CLOGW("2442M measure ppa cap timeout\n");
             goto fail;
         }
@@ -1171,19 +1075,19 @@ __STATIC int8_t rf_cali_ppacap(void)
 
     /* 2. 2442M目标功率 */
     tar_pos_mid = max_pos + 12;
-    if (rf_cali_ppacap_measure_power(cali, 1, tar_pos_mid, iFbSignalVec, &target_pwr)) {
+    if (rf_cali_ppacap_measure_power(cali, 1, tar_pos_mid, tx_power, iFbSignalVec, &target_pwr)) {
         CLOGE("2412M measure ppa cap timeout\n");
         goto fail;
     }
     CLOGI("[RF][PPA_CAP][chan2442] target_pwr=%u max_pos=%d @tar_pos=%d ", target_pwr, max_pos, tar_pos_mid);
 
-    /* 3. 2412M寻找最接近目标功率点 */
-    rf_cali.owner->ops->set_channel(2412);
+    /* 3. 2417M寻找最接近目标功率点 */
+    rf_cali.owner->ops->set_channel(2417);
     rf_udelay(100);
     min_delta_pwr = 0xffffffff;
     for (ppa_cap = tar_pos_mid; ppa_cap < 32; ppa_cap++) {
-        if (rf_cali_ppacap_measure_power(cali, 0, ppa_cap, iFbSignalVec, &power)) {
-            CLOGE("2412M measure ppa cap timeout\n");
+        if (rf_cali_ppacap_measure_power(cali, 0, ppa_cap, tx_power, iFbSignalVec, &power)) {
+            CLOGE("2417M measure ppa cap timeout\n");
             goto fail;
         }
         tmp_pwr = abs((int32_t)power - (int32_t)target_pwr);
@@ -1201,15 +1105,15 @@ __STATIC int8_t rf_cali_ppacap(void)
         goto fail;
     }
     cali->set_ppa_cap(0, tar_pos_low);
-    CLOGI("[RF][PPA_CAP][chan2412] low_target_pwr=%u @tar_pos=%d", rec_target_pwr, tar_pos_low);
+    CLOGI("[RF][PPA_CAP][chan2417] low_target_pwr=%u @tar_pos=%d", rec_target_pwr, tar_pos_low);
 
-    /* 4. 2472M寻找最接近目标功率点 */
-    rf_cali.owner->ops->set_channel(2472);
+    /* 4. 2462M寻找最接近目标功率点 */
+    rf_cali.owner->ops->set_channel(2462);
     rf_udelay(100);
     min_delta_pwr = 0xffffffff;
     for (ppa_cap = tar_pos_mid; ppa_cap > 0; ppa_cap--) {
-        if (rf_cali_ppacap_measure_power(cali, 2, ppa_cap, iFbSignalVec, &power)) {
-            CLOGI("2472M measure ppa cap timeout\n");
+        if (rf_cali_ppacap_measure_power(cali, 2, ppa_cap, tx_power, iFbSignalVec, &power)) {
+            CLOGI("2462M measure ppa cap timeout\n");
             goto fail;
         }
         tmp_pwr = abs((int32_t)power - (int32_t)target_pwr);
@@ -1227,7 +1131,7 @@ __STATIC int8_t rf_cali_ppacap(void)
         goto fail;
     }
     cali->set_ppa_cap(2, tar_pos_high);
-    CLOGI("[RF][PPA_CAP][chan2472] high_target_pwr=%u @tar_pos=%d", rec_target_pwr, tar_pos_high);
+    CLOGI("[RF][PPA_CAP][chan2462] high_target_pwr=%u @tar_pos=%d", rec_target_pwr, tar_pos_high);
     #if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
         nv_update_selfcali_ppa_cap_params(&tar_pos_low, &tar_pos_mid, &tar_pos_high);
     #endif
@@ -1394,35 +1298,43 @@ __STATIC int8_t rf_cali_ppacap_proc(void)
     return 0;
 }
 
-__STATIC int32_t rf_cali_runtime_proc(void)
+__STATIC int8_t rf_ppacap_update_nv(void)
 {
+    P_RF_CALI_OPS cali = rf_cali.ops;
+    uint8_t rec_cap_0 = cali->get_ppa_cap(0);
+    uint8_t rec_cap_1 = cali->get_ppa_cap(1);
+    uint8_t rec_cap_2 = cali->get_ppa_cap(2);
+
+    nv_update_selfcali_ppa_cap_params(&rec_cap_0, &rec_cap_1, &rec_cap_2);
+    return 0;
+}
+
+__STATIC int32_t rf_cali_runtime_proc(uint32_t log_level)
+{
+    uint32_t saved_cloglvl = cloglvl;
+#define RUNTIME_TS_DEBUG 0
+#if RUNTIME_TS_DEBUG
+    uint32_t t_s = MEM_RD32(0x4B700120);
+    uint32_t t_e = 0;
+#endif
     P_RF_CALI_PARAMS params = &rf_cali.params;
+
+    if (log_level != -1)
+        cloglvl = log_level;
+    if (IP_WIFI_MAC_CORE->REG_STATECNTRLREG.bit.CURRENTSTATE) //Check MAC_STATE is IDLE
+    {
+        CLOGE("rf_cali_runtime_proc MAC_STATE is not IDLE, skip calibration!\n");
+        return -1;
+    }
     if (cali_runtime_state == CALI_RUNTIME_STATE_ONGOING)
         return -1;
     cali_runtime_state = CALI_RUNTIME_STATE_ONGOING;
-#if !CALI_BUF
-    memset(wifi_cali, 0, WIFI_CALI_BUF_SIZE);
-#endif
-#if 0
-    rf_cali.ops->env_init();
 
-    if (!params->rxrc_disable)
-        rf_cali_rxrc();
-    if (!params->rxdcoc_disable)
-        rf_cali_rxdcoc();
-    if (!params->rxiq_disable)
-        rf_cali_rxiq();
-    if (!params->txiq_disable)
-        rf_cali_txiq();
-    rf_cali.ops->env_deinit();
-#endif
-#if 1
     rf_cali.ops->env_init();
     if (!params->txdpd_disable) {
         rf_cali_txiq(11);
         rf_cali.ops->env_deinit();
     }
-#endif
     if (!params->txdpd_disable) {
         rf_cali.ops->env_init();
         rf_cali_txdpd();
@@ -1432,9 +1344,21 @@ __STATIC int32_t rf_cali_runtime_proc(void)
 #if CALI_BUF==0
     memset((void *)CALI_MEM_START_ADDR, 0, (CALI_MEM_END_ADDR - CALI_MEM_START_ADDR));
 #endif
+#if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
+    rf_ppacap_update_nv();
+#endif
 #if defined(RF_SELF_CALI_WRITE_TO_NV)
     nv_selfcali_burn_config();
 #endif
+#if defined(RF_SELF_CALI_FROM_NV)
+    nv_selfcali_load_config(0);
+#endif
+#if RUNTIME_TS_DEBUG
+    t_e = MEM_RD32(0x4B700120);
+    CLOGW("rf_cali_runtime_proc time cost=%d\n", t_e - t_s);
+#endif
+    if (log_level != -1)
+        cloglvl = saved_cloglvl;
     return 0;
 }
 
@@ -1464,9 +1388,7 @@ int32_t ls_rf_cali_probe(rf_cali_runtime *do_rfcali, void *params)
     if (mode == RFCALI_MODE_WF)
     {
         rf_cali.ops = &wf_cali_ops;
-    #if !defined(RF_SELF_CALI_FROM_NV)
         rf_cali_bootup_proc_wf();
-    #endif
     }
 #endif
 
@@ -1486,9 +1408,7 @@ int32_t ls_rf_cali_probe(rf_cali_runtime *do_rfcali, void *params)
     }
 #endif
 
-
     CLOGI("==== rf_cali_probe mode_%s done! ==========\n", mode?"bt":"wf");
-    CLOGI("\n\n");
     return 0;
 bail:
     return -1;
@@ -1505,7 +1425,7 @@ static void set_rf_params(P_RF_CALI_PARAMS p, uint8_t mode)
 
     if (mode == RFCALI_MODE_WF) {
         p->txiq_iter_times = 10;
-        p->txdpd_tbl_idx = 0xff;
+        p->txdpd_tbl_idx = DPD_COMP_TABLE_CNT - 1;
         p->txdpd_iter_times = 5;
         p->txdpd_fb_gain = 0xff;
     }
@@ -1513,43 +1433,37 @@ static void set_rf_params(P_RF_CALI_PARAMS p, uint8_t mode)
 
 int8_t rf_selfcali_one_time_proc(int8_t ppa_cali)
 {
-    P_RF_CALI_OPS cali = rf_cali.ops;
-    uint8_t rec_cap_0 = cali->get_ppa_cap(0);
-    uint8_t rec_cap_1 = cali->get_ppa_cap(1);
-    uint8_t rec_cap_2 = cali->get_ppa_cap(2);
     int8_t ret = 0;
 
-    CLOGI("[ATTENTION]!! start to do selfcali process !! cali addr %x end addr %x\n", CALI_MEM_START_ADDR, CALI_MEM_END_ADDR);
 #if defined(RFCALI_WF_EN)
     uint16_t chan[3] = {2412, 2462, 2442};
+
+    CLOGI("[ATTENTION]!! start to do selfcali process !! cali addr %x end addr %x\n", CALI_MEM_START_ADDR, CALI_MEM_END_ADDR);
     rf_cali.ops = &wf_cali_ops;
+    rf_cali_bootup_proc_wf();
     if (ppa_cali) {
         rf_cali_ppacap_proc();
     }
     else {
-#if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
-        nv_update_selfcali_ppa_cap_params(&rec_cap_0, &rec_cap_1, &rec_cap_2);
-#endif
+        rf_ppacap_update_nv();
     }
-    rf_cali_bootup_proc_wf();
     for (int i = 0; i < 3; i++) {
         ls_rf_set_channel(chan[i]);
         rf_udelay(100);
-        rf_cali_runtime_proc();
+        rf_cali_runtime_proc(-1);
     }
-#endif
-
-#if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
+#if defined(RF_SELF_CALI_FROM_NV)
     ret = nv_selfcali_burn_config();
 #endif
     CLOGI("[ATTENTION]!! selfcali process done !!\n");
+#endif
     return ret;
 }
 
 #if RF_BOARD_VER == 2
 extern int8_t  wf_power_offset_reg[3];
 #endif
-void ls_rf_cali_redo(int8_t ppa_cap)
+int ls_rf_cali_redo(int8_t ppa_cap)
 {
     int res = 0;
 
@@ -1561,13 +1475,16 @@ void ls_rf_cali_redo(int8_t ppa_cap)
     res = wifi_free_rx_buff();
     if (res) {
         CLOGI("free rx buff fail \n");
-        return;
+        return res;
     }
 #if defined(RF_SELF_CALI_FROM_NV)
     res = rf_selfcali_one_time_proc(ppa_cap);
     nv_selfcali_load_config(!res);
+#else
+    rf_cali_runtime_proc(-1);
 #endif
     wifi_reinit_rx_buff();
+    return res;
 }
 
 int32_t ls_rf_cali_proc(void)
@@ -1576,7 +1493,6 @@ int32_t ls_rf_cali_proc(void)
 #if defined(RF_SELF_CALI_FROM_NV)
     int8_t res = 0;
 #endif
-    
 #if RFCALI_WF_EN == 1 || RFCALI_BT_EN == 1
     P_RF_CALI_PARAMS p = &rf_cali.params;
 #endif
@@ -1596,11 +1512,10 @@ int32_t ls_rf_cali_proc(void)
     wf_crm_rcclkforce_setf(1);
     newriu_init();
 #if !defined(RF_SELF_CALI_FROM_NV)
-    rf_cali_ppacap_proc();
-  #if !defined(RF_SELF_CALI_WRITE_TO_NV)
+  #if !defined(WIFI_RAM_ATE) && !defined(RF_SELF_CALI_WRITE_TO_NV)
     ls_rf_set_channel(2442);
     rf_udelay(100);
-    rf_cali_runtime_proc();
+    rf_cali_runtime_proc(-1);
   #endif
 #else
 #if RF_BOARD_VER == 2
@@ -1623,7 +1538,7 @@ selfcali_bail:
 #endif
 
 #if defined(RF_SELF_CALI_FROM_NV)
-    nv_selfcali_load_config(!res);
+    nv_selfcali_load_config(1);
 #endif
     return status;
 }

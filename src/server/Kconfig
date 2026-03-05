@@ -1,0 +1,46 @@
+
+config SERVER_VOICE_LSCHAT
+    bool "Enable LSCHAT Voice Server"
+    default n
+
+if SERVER_VOICE_LSCHAT
+
+config MCP_TOOL_EMOJI_ENABLE
+    bool "Enable emoji tool"
+    default n
+
+config MCP_TOOL_CAMERA_ENABLE
+    bool "Enable camera tool"
+    default n
+
+endif
+
+config AUDIO_DEFAULT_MIC_GAIN_A_DB
+    int "Default analog microphone gain (dB)"
+    default 0
+    range -12 36
+
+config AUDIO_DEFAULT_MIC_GAIN_D_DB
+    int "Default digital microphone gain (dB)"
+    default 0
+    range -83 42
+
+config AUDIO_DEFAULT_REF_GAIN_A_DB
+    int "Default analog reference gain (dB)"
+    default 0
+    range -12 36
+
+config AUDIO_DEFAULT_REF_GAIN_D_DB
+    int "Default digital reference gain (dB)"
+    default 0
+    range -83 42
+
+config AUDIO_DEFAULT_SPK_GAIN_A_DB
+    int "Default analog speaker gain (dB)"
+    default -6
+    range -24 6
+
+config AUDIO_DEFAULT_SPK_GAIN_D_DB
+    int "Default digital speaker gain (dB)"
+    default 0
+    range -113 30

@@ -72,6 +72,7 @@ SECTIONS
     . = ALIGN(4);
     __ap_ilm_text_start__ = .;
     *(.text.ap_ilm .text.ap_ilm.* .text.entry .text.irq .text.irq.* .text.xPortTaskSwitch)
+    *(.ramcode)
     . = ALIGN(4);
     __ap_ilm_text_end__ = .;
   } >ILM AT>ROM

@@ -562,7 +562,7 @@ uint32_t HAL_GPADC_SetVinBuf_Enable(void* res, uint8_t enable)
     GPADC_RESOURCES * pGpadc = (GPADC_RESOURCES *)res; // Cast the input resource pointer to GPADC_RESOURCES type
 
     // Set the input buffer enable setting in the GPADC configuration register
-    pGpadc->reg->REG_ADC_CONFIG.bit.VIN_BUF_EN = enable;
+    pGpadc->reg->REG_ADC_CTRL1.bit.VIN_BUF_CFG = enable;
 
     return CSK_DRIVER_OK; // Return success status code
 }

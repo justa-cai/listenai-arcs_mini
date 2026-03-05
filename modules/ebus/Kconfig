@@ -1,20 +1,48 @@
-menu "ebus translation"
+menuconfig EBUS
+    bool "ebus translation"
+    default n
+    help
+        Enable ebus support
 
-    config EBUS
-        bool "ebus support"
-        default n
-        help
-            Enable ebus support
-        
-        choice
-            prompt "Select Operating System"
-            default EBUS_ENV_OS_FREERTOS
-        
-        config  EBUS_ENV_OS_POSIX
-            bool "POSIX"
-        
-        config EBUS_ENV_OS_FREERTOS
-            bool "FreeRTOS"
-        
-        endchoice
-endmenu
+if EBUS
+
+choice
+    prompt "Select Operating System"
+    default EBUS_ENV_OS_FREERTOS
+
+config  EBUS_ENV_OS_POSIX
+    bool "POSIX"
+
+config EBUS_ENV_OS_FREERTOS
+    bool "FreeRTOS"
+
+endchoice
+
+config EBUS_PERF_MONITOR
+    bool "Enable ebus performance monitor"
+    default y
+    help
+        Enable ebus performance monitor
+
+config EBUS_PERF_MONITOR_TIME_MS_MAX
+    int "ebus performance monitor time ms max"
+    default 5000
+    depends on EBUS_PERF_MONITOR
+    help
+        Ebus performance monitor time ms max
+
+config EBUS_PERF_MONITOR_WARN_THRESHOLD_MS
+    int "ebus performance monitor warn threshold ms"
+    default 20
+    depends on EBUS_PERF_MONITOR
+    help
+        Ebus performance monitor warn threshold ms
+
+config EBUS_PERF_MONITOR_PANIC_ON_TIMEOUT
+    bool "ebus performance monitor panic on timeout"
+    default n
+    depends on EBUS_PERF_MONITOR
+    help
+        Ebus performance monitor panic on timeout
+
+endif

@@ -1,0 +1,4 @@
+tests:
+  demos.face_detect:
+    build_only: true
+

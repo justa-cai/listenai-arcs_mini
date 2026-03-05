@@ -15,6 +15,17 @@ if (CONFIG_ARCS_HAL_SIMSOCKET)
         -w
     )
 
+    if(DEFINED CONFIG_LWIP_VERSION)
+        # 可能LWIP没有打开，只能手动依赖
+        set(LWIP_VERSION_DIR "lwip-${CONFIG_LWIP_VERSION}")
+        listenai_include_directories(
+            ../../../chip/${CHIP}/lwip/${LWIP_VERSION_DIR}/src/include
+            ../../../chip/${CHIP}/lwip/${LWIP_VERSION_DIR}/src/include/compat/posix
+            ../../../chip/${CHIP}/lwip/${LWIP_VERSION_DIR}/src/include/lwip/apps
+            ../../../chip/${CHIP}/lwip/${LWIP_VERSION_DIR}/contrib/ports/rtos/include
+        )
+    endif()
+
     # 包含目录配置
     listenai_include_directories(
         ${ARCS_HAL_LIB_PATH}/include/NMSIS/Core/Include
@@ -28,10 +39,6 @@ if (CONFIG_ARCS_HAL_SIMSOCKET)
         ../../../chip/${CHIP}/ipc/ipc_utils
         ../../../chip/${CHIP}/include/ipc
         ../../../chip/${CHIP}/include/net
-        ../../../chip/${CHIP}/lwip/${LWIP_VER}/src/include
-        ../../../chip/${CHIP}/lwip/${LWIP_VER}/src/include/compat/posix
-        ../../../chip/${CHIP}/lwip/${LWIP_VER}/src/include/compat/stdc
-        ../../../chip/${CHIP}/lwip/${LWIP_VER}/src/include/lwip/apps
         ../../../chip/${CHIP}/lwip/port/include
     )
 

@@ -1,0 +1,87 @@
+# LISA Shell Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_SHELL
+	bool "Enable LISA Shell"
+	default n
+	select SDK_MODULE_LETTER_SHELL
+	select LISA_PORTING
+	depends on SYSLOG_UART_BACKEND
+	help
+	  Enable LISA Shell component for command line interface support.
+
+if LISA_SHELL
+
+config SDK_MODULE_LETTER_SHELL_CONFIG_FILE
+	string
+	default "shell_cfg_user.h"
+
+config LISA_SHELL_TASK_STACK_SIZE
+	int "Shell task stack size"
+	default 1024
+	help
+	  Stack size for the shell task in bytes.
+
+config LISA_SHELL_TASK_PRIORITY
+	int "Shell task priority"
+	default 5
+	range 0 31
+	help
+	  Priority for the shell task. Higher values mean higher priority.
+	  Range: 0 (lowest) to configMAX_PRIORITIES-1 (highest).
+
+config LISA_SHELL_BUFFER_SIZE
+	int "Shell command buffer size"
+	default 512
+	help
+	  Size of the shell command buffer in bytes.
+
+config LISA_SHELL_RX_BUF_SIZE
+	int "UART receive buffer size"
+	default 128
+	help
+	  Size of the UART receive buffer for shell input in bytes.
+
+config LISA_SHELL_SUPPORT_END_LINE
+	bool "Support shell end line mode"
+	default y
+	help
+	  Enable shell end line mode support.
+
+config LISA_SHELL_ENTER_LF
+	bool "Use LF as command line enter trigger"
+	default y
+	help
+	  Use LF (Line Feed, '\n') as command line enter trigger.
+	  Can be enabled together with SHELL_ENTER_CR.
+
+config LISA_SHELL_ENTER_CR
+	bool "Use CR as command line enter trigger"
+	default y
+	help
+	  Use CR (Carriage Return, '\r') as command line enter trigger.
+	  Can be enabled together with SHELL_ENTER_LF.
+
+config LISA_SHELL_ENTER_CRLF
+	bool "Use CRLF as command line enter trigger"
+	default n
+	help
+	  Use CRLF ('\r\n') as command line enter trigger.
+	  Cannot be enabled together with SHELL_ENTER_LF or SHELL_ENTER_CR.
+
+config LISA_SHELL_SCAN_BUFFER
+	int "Shell formatted input buffer size"
+	default 128
+	help
+	  Buffer size for shell formatted input. Set to 0 to disable.
+	  Note: Formatted input will block shellTask, only suitable for RTOS.
+
+config LISA_SHELL_CLS_WHEN_LOGIN
+	bool "Clear screen when logging in"
+	default n
+	help
+	  Clear the screen when logging in.
+
+endif # LISA_SHELL

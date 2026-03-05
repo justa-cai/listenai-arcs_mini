@@ -66,4 +66,65 @@ typedef SemaphoreHandle_t   btos_mutex;
 /// Macro defining max delay for task
 #define BTOS_TASK_NO_DELAY         (0)
 
+/**
+ * btos task identifier
+ */
+#ifndef __ARRAY_EMPTY
+#define __ARRAY_EMPTY
+#endif
+
+#define OS_TASK_PRIORITY_BASE    (7)
+
+
+typedef enum
+{
+    OS_TASK_ID_IDLE = 0,
+    OS_TASK_ID_APP,
+    OS_TASK_ID_BT,
+    OS_TASK_ID_AUD,
+    OS_TASK_ID_AUD_PRO,
+    
+    OS_TASK_ID_SHELL,
+    OS_TASK_ID_TOTAL
+}btos_task_id;
+    
+typedef struct btos_msg
+{
+    uint16_t        msg_id;
+    uint16_t        param_len;
+    uint8_t         param[__ARRAY_EMPTY];
+}btos_msg_t;
+
+typedef struct btos_msg_isr
+{
+    uint16_t        msg_id;
+    uint16_t        param_len;
+    uint8_t         param[4];
+}btos_msg_isr_t;
+
+typedef struct btos_event
+{
+    btos_msg_t      *msg_body;
+}btos_event_t;
+
+typedef struct btos_handle
+{
+    btos_task_id  taskid;
+    btos_task_fct func;
+    void          *name;
+    uint16_t      stack_size;
+    btos_prio     stack_prio;
+    void          *queue;
+    void          *task_handle;
+    uint8_t       sole;
+} btos_handle_t;
+
+typedef enum
+{
+    TIMER_TYPE_IDLE,
+    TIMER_TYPE_SINGLE,
+    TIMER_TYPE_PERIODIC,
+} timer_type_t;
+    
+
 #endif // RTOS_DEF_H_

@@ -1,0 +1,4 @@
+tests:
+  samples.stream_text.sync.linux:
+    tags: linux
+    build_only: true

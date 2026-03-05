@@ -1,0 +1,40 @@
+# LISA Touch Driver Configuration - CST816D
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_TOUCH_ARCS_CST816D
+    bool "Enable LISA Touch ARCS CST816D support"
+    default n
+    help
+        Enable LISA Touch ARCS CST816D touch chip support.
+        
+        CST816D Features:
+        - I2C Address: 0x15 (7-bit)
+        - Register: 0xD000 (16-bit, little-endian)
+        - Resolution: 240x240
+        - Single touch point
+        - Interrupt trigger: Falling edge
+        - Reset sequence: High->Low->High (20ms-20ms-400ms)
+
+if LISA_TOUCH_ARCS_CST816D
+
+    config LISA_TOUCH_ARCS_CST816D_READ_TASK_PRIORITY
+        int "CST816D interrupt mode read task priority"
+        default 2
+        range 1 10
+        help
+            Set the priority of the CST816D touch driver's internal read task.
+            
+            This task is created when interrupt mode is enabled and is responsible
+            for reading I2C data from the touch chip after receiving a GPIO interrupt.
+            
+            Priority range: 1-10 (higher number = higher priority)
+            Default: 2 (tskIDLE_PRIORITY + 2)
+            
+            Note:
+            - Higher priority ensures faster response to touch events
+            - Should be higher than idle task (1) but lower than critical system tasks
+            - Recommended range: 2-5 for most applications
+
+endif # LISA_TOUCH_ARCS_CST816D

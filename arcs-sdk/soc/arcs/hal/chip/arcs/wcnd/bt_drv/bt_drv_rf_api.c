@@ -49,14 +49,14 @@
 extern uint8_t ld_acl_tx_power_level_get(uint8_t link_id);
 extern void    ld_acl_tx_power_level_set(uint8_t link_id, uint8_t tx_pwr_index);
 
-#define TX_PPA_GAIN_BT_0_DBM  (-14)
+#define TX_PPA_GAIN_BT_0_DBM  (-18)
 #define TX_PPA_GAIN_BT_1_DBM  (-10)
-#define TX_PPA_GAIN_BT_2_DBM  (-6)
-#define TX_PPA_GAIN_BT_3_DBM  (-2)
-#define TX_PPA_GAIN_BT_4_DBM  (1)
-#define TX_PPA_GAIN_BT_5_DBM  (4)
-#define TX_PPA_GAIN_BT_6_DBM  (7)
-#define TX_PPA_GAIN_BT_7_DBM  (10)
+#define TX_PPA_GAIN_BT_2_DBM  (-7)
+#define TX_PPA_GAIN_BT_3_DBM  (-3)
+#define TX_PPA_GAIN_BT_4_DBM  (0)
+#define TX_PPA_GAIN_BT_5_DBM  (3)
+#define TX_PPA_GAIN_BT_6_DBM  (6)
+#define TX_PPA_GAIN_BT_7_DBM  (9)
 
 
 #if 1
@@ -157,15 +157,16 @@ __STATIC void bt_rf_force_agc_enable(bool en)
  */
 __STATIC int8_t bt_rf_txpwr_dbm_get(uint8_t txpwr_idx, uint8_t modulation)
 {
-    /* // 3DH5   GFSK +3dbm
-    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 1;  // -17.23
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 3;  // -12.76
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 4;  // -8.67
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 7;  // -5.34
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 8;  // -2
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 14; // 1.4
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 18; // 4.4
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 24; // 7.4 */
+    /* // ble 1M, 2M
+    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -18.4
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 2;  // -10.7
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 3;  // -7.6
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 4;  // -3.5
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // 0.0
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 10; // 3.5
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 14; // 6.3
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 16; // 9.1 */
+
 
 
 
@@ -306,16 +307,15 @@ __STATIC uint8_t bt_rf_txpwr_cs_get (int8_t txpwr_dbm, uint8_t option)
 {
     uint8_t power_index = 0, index=0;
 
-    /* // 3DH5   GFSK +3dbm
-    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 1;  // -17.23
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 3;  // -12.76
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 4;  // -8.67
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 7;  // -5.34
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 8;  // -2
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 14; // 1.4
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 18; // 4.4
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 24; // 7.4 */
-
+    /* // ble 1M, 2M
+    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -18.4
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 2;  // -10.7
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 3;  // -7.6
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 4;  // -3.5
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // 0.0
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 10; // 3.5
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 14; // 6.3
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 16; // 9.1 */
 
 
     //if tx power config modify, this must be modified
@@ -342,7 +342,7 @@ __STATIC uint8_t bt_rf_txpwr_cs_get (int8_t txpwr_dbm, uint8_t option)
 
 
 
-uint8_t bt_rf_api_init(void *api)
+uint8_t bt_rf_api_init(struct ble_rf_api *api)
 {
     if (NULL == api)
         return 1;

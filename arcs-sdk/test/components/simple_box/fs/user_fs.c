@@ -7,9 +7,9 @@
 #include <string.h>
 #include "lsfs.h"
 #include "disk/disk_access.h"
-#include "arcs_ap.h"
 #include "log_print.h"
-#include "sdmmc_init.h"
+#include "lisa_sdmmc.h"
+
 #if CONFIG_LVFS
 #include "lvfs.h"
 #endif
@@ -31,10 +31,28 @@ static int fs_mount(struct lsfs_mount_t *mp)
     ret = lsfs_mount(mp);
     if (ret != 0)
     {
+        CLOG("No file system, try reformatting, mount ret: %d", ret);
+        /* 格式化底层设备，去掉挂载点前面的'/' 作为设备名，例如 "/SD:" -> "SD:" */
+        ret = lsfs_mkfs(mp->type, &mp->mnt_point[1], NULL, 0);
+        if (ret == 0)
+        {
+            CLOG("mkfs success, retry mount");
+            ret = lsfs_mount(mp);
+        }
+        else
+        {
+            CLOG("mkfs failed, ret: %d", ret);
+        }
+    }
+
+    if (ret != 0)
+    {
         CLOG("Failed to mount filesystem: %d", ret);
         return ret;
     }
     CLOG("%s mounted successfully", mp->mnt_point);
+
+    return 0;
 }
 
 static int fs_unmount(struct lsfs_mount_t *mp)
@@ -92,7 +110,6 @@ static int list_dir(const char *path)
     return ret;
 }
 
-
 static void user_fs_change_to_root_folder(void)
 {
     int ret;
@@ -110,12 +127,13 @@ static void user_fs_change_to_root_folder(void)
 }
 
 int user_fs_init(void){
-
+    lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
     disk_init(NULL);
+
+    lsfs_init();
 #if CONFIG_LVFS
     lvfs_init();
 #endif
-    lsfs_init();
 
     if(0 != fs_mount(&flash_lsfs_mnt)){
         return -1;

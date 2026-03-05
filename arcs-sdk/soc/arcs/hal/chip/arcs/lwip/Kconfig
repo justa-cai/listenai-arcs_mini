@@ -8,6 +8,12 @@ config LWIP
     help
         Lightweight TCP/IP stack (LwIP)
 
+config LWIP_VERSION
+    string "LwIP Version" if LWIP
+    default "2.2.0"
+    help
+        LwIP version. You have to select one even if you don't enable LWIP. Because WiFi need it.
+
 if LWIP
 
 choice LWIP_NET_IMPL
@@ -32,6 +38,22 @@ config LWIP_TX_BUF_COPY
     help
         Enable TX buffer copy for LWIP
 
+config LWIP_NETAL_TX_BUF_SIZE
+    int "lwip net-al tx buffer size"
+    default 1536
+
+config LWIP_NETAL_TX_BUF_CNT
+    int "lwip net-al tx buffer count"
+    default 10
+
+config LWIP_NETAL_TX_SAMLL_BUF_SIZE
+    int "lwip net-al tx buffer size"
+    default 128
+
+config LWIP_NETAL_TX_SMALL_BUF_CNT
+    int "lwip net-al tx small buffer count"
+    default 6
+
 config LWIP_OPTION_LWIP_DNS
     bool "Turn on DNS module. UDP must be available for DNS transport."
     default n
@@ -39,5 +61,49 @@ config LWIP_OPTION_LWIP_DNS
 config LWIP_OPTION_SO_REUSE
     bool "Enable SO_REUSEADDR option"
     default n
+
+config LWIP_DHCP_RESTORE_LAST_IP
+    bool "Enable DHCP last IP address restore"
+    default n
+    help
+        Enable restoring last valid IP address obtained from DHCP server
+        after reset/power-up. This feature allows the device to quickly
+        restore its previous IP configuration.
+
+choice LWIP_DHCP_RESTORE_STORAGE_BACKEND
+    prompt "DHCP IP restore storage backend"
+    default LWIP_DHCP_RESTORE_LAST_IP_NONE
+    depends on LWIP_DHCP_RESTORE_LAST_IP
+    help
+        Select the storage backend for DHCP IP address restoration.
+
+    config LWIP_DHCP_RESTORE_LAST_IP_NONE
+        bool "No persistent storage"
+        help
+            Do not use persistent storage for DHCP IP address.
+            IP address will only be cached in RAM.
+
+    config LWIP_DHCP_RESTORE_LAST_IP_FROM_NVS
+        bool "Restore last IP from NVS"
+        help
+            Store and restore last DHCP IP address from Non-Volatile Storage (NVS).
+            This allows the IP address to persist across power cycles.
+
+    config LWIP_DHCP_RESTORE_LAST_IP_FROM_LISA_KV
+        bool "Restore last IP from LISA KV"
+        help
+            Store and restore last DHCP IP address from LISA KV storage.
+            This allows the IP address to persist across power cycles using
+            the LISA KV key-value storage system.
+
+endchoice
+
+config LWIP_DHCP_IP_ADDR_KV_KEY
+    string "DHCP IP address KV storage key"
+    default "lwip.dhcp_ip_addr"
+    depends on LWIP_DHCP_RESTORE_LAST_IP_FROM_LISA_KV
+    help
+        The key name used to store DHCP IP address in LISA KV storage.
+        Default is "lwip.dhcp_ip_addr".
 
 endif # LWIP

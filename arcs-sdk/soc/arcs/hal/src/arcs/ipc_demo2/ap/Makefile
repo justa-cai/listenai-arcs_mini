@@ -35,12 +35,7 @@ CFLAGS += -I $(TOPDIR)/include/NMSIS \
          -I $(TOPDIR)/chip/$(CHIP)/ipc/ipc_utils \
          -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_slave \
          -I $(TOPDIR)/chip/${CHIP}/include/ipc \
-         -I$(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/src/include\
-         -I$(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/src/include/compat/posix\
-         -I$(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/src/include/compat/stdc\
-         -I$(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/src/include/lwip/apps\
-         -I$(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/contrib/ports/rtos/include\
-         -I$(TOPDIR)/chip/${CHIP}/ic_lock
+         -I $(TOPDIR)/chip/${CHIP}/ic_lock
 
 # copy cflags from RW IP
 #CFLAGS += -DCFG_STATIC  #-DCFG_ROM
@@ -93,20 +88,8 @@ ifeq ($(SYS_PSM), 1)
 CFLAGS += -DSYS_PSM
 endif
 
-HW_VER=d0
+HW_VER=HW_VER_ARCS_D0
 export HW_VER
-ifeq ($(IC_BOARD), 1)
-  ifeq ("$(strip $(CHIP))", "arcs")
-    ifeq ("$(strip $(HW_VER))", "c0")
-      CFLAGS += -DCHIP_ARCS_C0
-    else ifeq ("$(strip $(HW_VER))", "d0")
-      CFLAGS += -DCHIP_ARCS_D0
-    endif
-  endif
-endif
-
-RF_BOARD_VER=0
-export RF_BOARD_VER
 
 CFG_RF_SELFCALI_FROM_NV=0
 export CFG_RF_SELFCALI_FROM_NV
@@ -120,7 +103,12 @@ export CFG_USE_FLASH_OTP
 # Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BT
 WCN_TYPE=wf
 export WCN_TYPE
-
+# RF_BOARD_VER=0 or undefine for ArcsD EVB,
+# RF_BOARD_VER=1 for Taoyun DVT1
+# RF_BOARD_VER=2 for Taoyun DVT2
+# RF_BOARD_VER=3 for Haier
+RF_BOARD_VER ?= 0
+export RF_BOARD_VER
 # RFCALI_WF_EN: 0=disable, 1=enable
 RFCALI_WF_EN=1
 export RFCALI_WF_EN
@@ -161,17 +149,17 @@ CFG_AMP_IPC_MRPC_CLIENT_LWIP := 1
 CFG_AMP_IPC_MRPC_SERVER_WIFI := 1
 CFG_AMP_IPC_MRPC_CLIENT_NVS  := 1
 CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF := 1
-CFG_IPC_PRINT := 1
+
 export CFG_AMP_IPC_SLAVE CFG_AMP_IPC_MRPC_SERVER CFG_AMP_IPC_MRPC_CLIENT
-export CFG_AMP_IPC_MRPC_CLIENT_LWIP CFG_AMP_IPC_MRPC_SERVER_WIFI CFG_IPC_PRINT CFG_AMP_IPC_MRPC_CLIENT_NVS
+export CFG_AMP_IPC_MRPC_CLIENT_LWIP CFG_AMP_IPC_MRPC_SERVER_WIFI CFG_AMP_IPC_MRPC_CLIENT_NVS
 export CFG_FLASH_IPC CFG_AMP_IPC_WIFI_CHAN CFG_AMP_IPC_HALT_BY_PEER_CORE CFG_AMP_IPC_TCPIP CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF CFG_AMP_IPC_HALT_PEER_CORE
 
 # mrpc client: GPADC get temp .. on wifi side
-CFG_AMP_IPC_MRPC_CLIENT_UTILS  := 1
-export  CFG_AMP_IPC_MRPC_CLIENT_UTILS
+CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M  := 1
+export  CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M
 
-CFG_AMP_IPC_MRPC_SERVER_OTP  := 1
-export  CFG_AMP_IPC_MRPC_SERVER_OTP
+CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S  := 1
+export  CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S
 
 ifeq ($(PSRAM_HEAP), 1)
 CFLAGS += -DPSRAM_HEAP
@@ -196,6 +184,12 @@ ifeq ("$(strip $(CFG_CRYPTO_IC_MUTEX))","1")
 CFLAGS  += -DCFG_CRYPTO_IC_MUTEX
 endif
 
+ifeq ("$(strip $(CONFIG_PM))","1")
+CFG_AMP_IPC_MRPC_CLIENT_NVS = 0
+CFG_TOTAL_HEAP_SIZE = 64512
+CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF := 0
+endif
+
 ext1 : # don't do this except TapeOut
 	$(TOPDIR)/tools/mkhdr.sh $(TGTOUT)/$(TARGET).bin
 	mkdir -p $(TOPDIR)/chip/$(CHIP)/fhost
@@ -214,7 +208,11 @@ ext:
 include $(TOPDIR)/rules.mk
 
 ifeq ($(IC_BOARD), 1)
+ifeq ("$(strip $(CONFIG_PM))","1")
+LDSCRIPT   = ./flash_pm.ld
+else
 LDSCRIPT   = ./flash.ld
+endif
 else
 LDSCRIPT   = ./fpga_core1.ld
 endif

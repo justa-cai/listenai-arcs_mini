@@ -1,0 +1,3 @@
+tests:
+  samples.app_player.local_fs:
+    build_only: true

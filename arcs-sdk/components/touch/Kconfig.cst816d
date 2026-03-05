@@ -1,8 +1,0 @@
-menu "touch cst816d configuration"
-
-
-if LISA_TOUCH_CST816D
-
-endif
-
-endmenu

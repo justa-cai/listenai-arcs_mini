@@ -7,4 +7,17 @@ config LITE_DAC
 config LITE_DAC_PROXY
     bool "DAC proxy support"
     default n
+
+if LITE_DAC
+
+config DAC_ECHO_ENABLE
+    bool "DAC echo enable"
+    default n
+
+config ECHO_RECV_CNTS
+    int "DAC echo receive cnts"
+    depends on DAC_ECHO_ENABLE
+    default 25
+
+endif
 endmenu

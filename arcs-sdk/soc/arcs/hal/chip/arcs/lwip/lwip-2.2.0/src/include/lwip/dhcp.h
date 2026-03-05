@@ -74,6 +74,7 @@ typedef u16_t dhcp_timeout_t;
 
 #define DHCP_FLAG_SUBNET_MASK_GIVEN 0x01
 #define DHCP_FLAG_EXTERNAL_MEM      0x02
+#define DHCP_FLAG_SKIP_DISCOVER     0x04
 
 /* AutoIP cooperation flags (struct dhcp.autoip_coop_state) */
 typedef enum {

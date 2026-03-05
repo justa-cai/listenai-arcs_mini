@@ -1,7 +1,14 @@
 config ARCS_HAL_AT_CMD
     bool "Enable ARCS HAL AT CMD"
     default n
+    select ARCS_HAL_MODULE_SHELL
     help
         Enable AT CMD support
 
+ config ARCS_HAL_AT_CMD_BT_HCI_MODE
+     bool "Enable AT+BT_HCI_MODE (BT HCI test mode)"
+     default n
+     depends on ARCS_HAL_AT_CMD
+     help
+         Enable BT HCI test mode handler and its dispatch entry.
 

@@ -1,0 +1,7 @@
+tests:
+  samples.lisa_uart.send_sync_int:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Sent: Hello UART"

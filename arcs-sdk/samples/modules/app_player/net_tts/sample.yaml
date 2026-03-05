@@ -1,0 +1,3 @@
+tests:
+  samples.app_player.net_tts:
+    build_only: true

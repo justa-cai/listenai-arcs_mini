@@ -335,6 +335,8 @@ dhcp_handle_nak(struct netif *netif)
   /* Change to a defined state - set this before assigning the address
      to ensure the callback can use dhcp_supplied_address() */
   dhcp_set_state(dhcp, DHCP_STATE_BACKING_OFF);
+  ///dhcp server reject the ip, so clear fast dhcp-c save ip information
+  LWIP_DHCP_IP_ADDR_CLEAR();
   /* remove IP address from interface (must no longer be used, as per RFC2131) */
   netif_set_addr(netif, IP4_ADDR_ANY4, IP4_ADDR_ANY4, IP4_ADDR_ANY4);
   /* We can immediately restart discovery */
@@ -370,7 +372,11 @@ dhcp_conflict_callback(struct netif *netif, acd_callback_enum_t state)
        * a minimum of ten seconds before restarting the configuration process to
        * avoid excessive network traffic in case of looping. */
        dhcp_set_state(dhcp, DHCP_STATE_BACKING_OFF);
-       msecs = 10 * 1000;
+       if (dhcp->flags & DHCP_FLAG_SKIP_DISCOVER) {
+         msecs = DHCP_FINE_TIMER_MSECS;
+       } else {
+         msecs = 10 * 1000;
+       }
        dhcp->request_timeout = (u16_t)((msecs + DHCP_FINE_TIMER_MSECS - 1) / DHCP_FINE_TIMER_MSECS);
        LWIP_DEBUGF(DHCP_DEBUG | LWIP_DBG_TRACE, ("dhcp_decline(): set request timeout %"U16_F" msecs\n", msecs));
       break;
@@ -501,7 +507,12 @@ dhcp_select(struct netif *netif)
   if (dhcp->tries < 255) {
     dhcp->tries++;
   }
-  msecs = DHCP_REQUEST_BACKOFF_SEQUENCE(dhcp->tries);
+  ///if dhcp-c use prev ip, that reduce request_timeout
+  if (dhcp->flags & DHCP_FLAG_SKIP_DISCOVER) {
+    msecs = DHCP_FINE_TIMER_MSECS << 1;
+  } else {
+    msecs = DHCP_REQUEST_BACKOFF_SEQUENCE(dhcp->tries);
+  }
   dhcp->request_timeout = (u16_t)((msecs + DHCP_FINE_TIMER_MSECS - 1) / DHCP_FINE_TIMER_MSECS);
   LWIP_DEBUGF(DHCP_DEBUG | LWIP_DBG_STATE, ("dhcp_select(): set request timeout %"U16_F" msecs\n", msecs));
   return result;
@@ -526,6 +537,8 @@ dhcp_coarse_tmr(void)
         LWIP_DEBUGF(DHCP_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE, ("dhcp_coarse_tmr(): t0 timeout\n"));
         /* this clients' lease time has expired */
         dhcp_release_and_stop(netif);
+        /// clear fast dhcp-c save ip information,becasue of DHCP lease expired
+        LWIP_DHCP_IP_ADDR_CLEAR();
         dhcp_start(netif);
         /* timer is active (non zero), and triggers (zeroes) now? */
       } else if (dhcp->t2_rebind_time && (dhcp->t2_rebind_time-- == 1)) {
@@ -584,6 +597,7 @@ static void
 dhcp_timeout(struct netif *netif)
 {
   struct dhcp *dhcp = netif_dhcp_data(netif);
+  u8_t tries_num = 5;
 
   LWIP_DEBUGF(DHCP_DEBUG | LWIP_DBG_TRACE, ("dhcp_timeout()\n"));
   /* back-off period has passed, or server selection timed out */
@@ -593,11 +607,18 @@ dhcp_timeout(struct netif *netif)
     /* receiving the requested lease timed out */
   } else if (dhcp->state == DHCP_STATE_REQUESTING) {
     LWIP_DEBUGF(DHCP_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE, ("dhcp_timeout(): REQUESTING, DHCP request timed out\n"));
-    if (dhcp->tries <= 5) {
+    if (dhcp->flags & DHCP_FLAG_SKIP_DISCOVER) {
+        ///retry 3time,if failed, do dhcp-discover
+        tries_num = 3;
+    }
+
+    if (dhcp->tries <= tries_num) {
       dhcp_select(netif);
     } else {
       LWIP_DEBUGF(DHCP_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE, ("dhcp_timeout(): REQUESTING, releasing, restarting\n"));
       dhcp_release_and_stop(netif);
+      ///clear fast dhcp-c save ip information,becasue of fast dhcp-c multi-times timeout
+      LWIP_DHCP_IP_ADDR_CLEAR();
       dhcp_start(netif);
     }
   } else if (dhcp->state == DHCP_STATE_REBOOTING) {
@@ -874,10 +895,11 @@ dhcp_start(struct netif *netif)
     dhcp_set_state(dhcp, DHCP_STATE_INIT);
     return ERR_OK;
   }
- 
+
   // Try to restore last valid ip address obtained from DHCP server.
   // If no valid ip is available, run dhcp_discover instead.
-  if(LWIP_DHCP_IP_ADDR_RESTORE()) {
+  if (LWIP_DHCP_IP_ADDR_RESTORE()) {
+    dhcp->flags |= DHCP_FLAG_SKIP_DISCOVER;
     dhcp_set_state(dhcp, DHCP_STATE_BOUND);
     dhcp_network_changed_link_up(netif);
     return ERR_OK;
@@ -1046,6 +1068,8 @@ dhcp_discover(struct netif *netif)
   }
 #endif /* LWIP_DHCP_AUTOIP_COOP */
 
+  dhcp->flags &= (~DHCP_FLAG_SKIP_DISCOVER);
+
   ip4_addr_set_any(&dhcp->offered_ip_addr);
   dhcp_set_state(dhcp, DHCP_STATE_SELECTING);
   /* create and initialize the DHCP message header */
@@ -1159,7 +1183,8 @@ dhcp_bind(struct netif *netif)
   netif_set_addr(netif, &dhcp->offered_ip_addr, &sn_mask, &gw_addr);
   /* interface is used by routing now that an address is set */
   /* xue yun fei add start. */
-    //LWIP_DHCP_IP_ADDR_STORE();
+  LWIP_DHCP_IP_ADDR_STORE();
+  dhcp->flags &= (~DHCP_FLAG_SKIP_DISCOVER);
 }
 
 /**
@@ -1324,7 +1349,12 @@ dhcp_reboot(struct netif *netif)
   if (dhcp->tries < 255) {
     dhcp->tries++;
   }
-  msecs = (u16_t)(dhcp->tries < 10 ? dhcp->tries * 1000 : 10 * 1000);
+  ///if dhcp-c use prev ip, that reduce request_timeout
+  if (dhcp->flags & DHCP_FLAG_SKIP_DISCOVER) {
+    msecs = (u16_t)(DHCP_FINE_TIMER_MSECS << 1);
+  } else {
+    msecs = (u16_t)(dhcp->tries < 10 ? dhcp->tries * 1000 : 10 * 1000);
+  }
   dhcp->request_timeout = (u16_t)((msecs + DHCP_FINE_TIMER_MSECS - 1) / DHCP_FINE_TIMER_MSECS);
   LWIP_DEBUGF(DHCP_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE, ("dhcp_reboot(): set request timeout %"U16_F" msecs\n", msecs));
   return result;

@@ -1,0 +1,3 @@
+tests:
+  test.app_player_audio_focus:
+    build_only: true

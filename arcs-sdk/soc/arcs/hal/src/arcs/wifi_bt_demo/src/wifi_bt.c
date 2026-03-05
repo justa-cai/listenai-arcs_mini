@@ -158,7 +158,7 @@ int wifi_event_cb(void *arg, event_module_t event_module,
 
 
 #if CFG_NVS
-#define NVDS_FLASH_ADDRESS   (CMN_FLASH_REGION + 0x140000) //offset 1280KB
+#define NVDS_FLASH_ADDRESS   (CMN_FLASH_REGION + 0x180000) //offset 1280KB
 #define NVDS_FLASH_SIZE      (0x8000) //32KB
 struct nvs_fs arcs_nvs_fs;
 FLASH_DEV arcs_flash_dev  = {
@@ -175,7 +175,11 @@ int arcs_nvs_init(void)
 {
     struct flash_pages_info info;
 
+#ifdef CFG_FLASH_IF
+    flash_if_init(&arcs_flash_dev, 0, 0);
+#else
     flash_init(&arcs_flash_dev, 0, 0);
+#endif
 
     //flash_write_protection_set(&arcs_flash_dev, false);
     //flash_erase(&arcs_flash_dev, NVDS_FLASH_ADDRESS, NVDS_FLASH_SIZE);
@@ -196,47 +200,29 @@ int arcs_nvs_init(void)
 
 int main(void)
 {
-    memset(_sshram, 0, (_eshram - _sshram));
-
-#if SHRINK==1
-    memset(sram_start, 0, (sram_end - sram_start));
-    memcpy(__text2_start__, _etext, (_etext2 - _etext));
-    memcpy(__text3_start__, _etext2, (_etext3 - _etext2));
-#endif
-    logInit(SHELL_UART0, SHELL_UART0_BAUDRATE);
 #ifdef CFG_ATCMD
     atcmd_init();
 #endif
-    shell_init(cli_shell_process);
+    // shell_init(cli_shell_process);
     //logInit(1, 1000000);
 
 #if CFG_NVS
     arcs_nvs_init();
 #endif
-#if IC_BOARD == 1
-    ls_rf_probe();
-    ls_rf_cali_proc();
-#endif
-
-    ls_crypto_init();
-#ifdef CONFIG_TRACE
-    vTraceEnable(TRC_START);
-#endif
-
-    // register event
-    ls_event_init();
-    ls_event_register_cb(EVENT_WIFI, EVENT_ID_ALL, wifi_event_cb, NULL);
-    ls_event_register_cb(EVENT_BT,   EVENT_ID_ALL, bt_event_cb,   NULL);
 
     ls_wifi_init();
 
-#ifdef SYS_PSM
-    vrtc_init();
-#endif
+    // register event
+    ls_event_init();
+    ls_event_register_cb(EVENT_BT,   EVENT_ID_ALL, bt_event_cb,   NULL);
+
 
     bt_demo_init();
 
-    rtos_start_scheduler();
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(3000));
+    }
+
     return 0;
 }
 

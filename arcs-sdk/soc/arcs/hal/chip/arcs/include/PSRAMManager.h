@@ -73,10 +73,18 @@ typedef enum {
     top_1_8_array_refresh,
 } _psram_stanby_ref_pasr_t;
 
+typedef enum {
+    PSRAM_SLEEP_MODE_NONE = 0x0,
+    PSRAM_SLEEP_MODE_HALF_SLEEP,
+    PSRAM_SLEEP_MODE_DEEP_SLEEP,
+} _psram_sleep_mode_t;
+
 #define PSRAM_REFRESH_PARA                    full_array_refresh
 
 int32_t PSRAM_Initialize(uint32_t* read_delay, uint32_t* write_delay, uint8_t search);
 
 uint32_t PSRAM_GetDensity(void);
+
+void PSRAM_EnterSleepMode(_psram_sleep_mode_t sleep_mode);
 
 #endif /* INCLUDE_DRIVER_PSRAMMANAGER_H_ */

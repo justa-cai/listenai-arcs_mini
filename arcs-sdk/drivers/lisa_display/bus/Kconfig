@@ -1,0 +1,46 @@
+
+menu "Display Bus Configuration"
+
+if LISA_DISPLAY_DEVICE
+    config LISA_DISPLAY_BUS_SPI_4WIRE
+        bool "Enable 4-Wire SPI Bus Support"
+        select LISA_SPI_DEVICE
+        select LISA_GPIO_DEVICE
+        help
+            Enable 4-wire SPI bus interface support for display devices.
+
+if LISA_DISPLAY_BUS_SPI_4WIRE
+
+    config LISA_DISPLAY_SPI_4WIRE_DMA_CH
+        int "SPI 4-Wire DMA Channel"
+        default 3
+        range 0 3
+        help
+            GPDMA channel number used for SPI 4-wire display data transfer.
+
+endif # LISA_DISPLAY_BUS_SPI_4WIRE
+
+    config LISA_DISPLAY_BUS_QSPI
+        bool "Enable QSPI Bus Support"
+        select LISA_QSPILCD_DEVICE
+        help
+            Enable QSPI bus interface support for display devices.
+
+    config LISA_DISPLAY_BUS_SPI_3WIRE
+        bool "Enable 3-Wire SPI Bus Support"
+        help
+            Enable 3-wire SPI bus interface support for display devices.
+
+    config LISA_DISPLAY_BUS_RGB
+        select LISA_RGB_DEVICE
+        bool "Enable RGB Parallel Bus Support"
+        help
+            Enable RGB parallel bus interface support for display devices.
+
+    config LISA_DISPLAY_CMD_BUS_SW_SPI
+        bool "Enable Software SPI Command Bus Support"
+        help
+            Enable software SPI command bus interface support for display devices.
+
+endif # LISA_DISPLAY_DEVICE
+endmenu

@@ -1,0 +1,11 @@
+
+config ROMFS_IMAGE_ADDR
+    hex "Address of romfs iamge"
+    default 0x30100000
+
+config ROMFS_IMAGE_SIZE
+    hex "Size of romfs iamge"
+    default 0x700000
+
+rsource "Kconfig.rcmd"
+rsource "Kconfig.cloud"

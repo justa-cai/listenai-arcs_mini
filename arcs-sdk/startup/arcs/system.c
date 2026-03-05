@@ -28,6 +28,9 @@
 #include "cache.h"
 #include "log_print.h"
 #include "ClockManager.h"
+#if CONFIG_SYS_INIT
+#include "sys_init.h"
+#endif
 
 #include "sysexec.h"
 
@@ -170,7 +173,9 @@ static void system_default_exception_handler(unsigned long mcause, unsigned long
     unsigned long mstratch = __RV_CSR_READ(CSR_MSCRATCH);
 
     uint8_t trap_before = (CSR_MSUBM_Type){.d=__RV_CSR_READ(CSR_MSUBM)}.b.ptyp;
-
+#if defined(CONFIG_LOG)
+    lisa_log_panic_mode_enable();
+#endif
     // 在异常处理期间，需要确保日志输出的及时性，禁用异步日志以避免数据丢失
 #if defined(CONFIG_SDK_MODULE_EASYLOGGER) && defined(CONFIG_EASYLOGGER_LOG_MODE_ASYNC)
     #include "elog.h"
@@ -178,8 +183,9 @@ static void system_default_exception_handler(unsigned long mcause, unsigned long
 #endif
 
     // 关闭可能存在的后端,比如shell
-#if defined(CONFIG_LOG)
-    lisa_log_backend_pause_all();
+    /*由于AP核有核间日志代理,不能关闭日志后端*/
+#if defined(CONFIG_LOG) && defined(CONFIG_ARCS_CP_CORE)
+    lisa_log_backend_resume(CONFIG_LOG_BACKEND_SYS_NAME);
 #endif
 
     __disable_irq();
@@ -488,7 +494,7 @@ static void PMP_Init(void)
         { .base_addr = 0x200C0000,    .order = 15, .protection = PMP_L|PMP_R|PMP_W|PMP_X }, // +SRAM:32KB for BT EM
         { .base_addr = 0x20000000,    .order = 20, .protection = PMP_L|PMP_R|PMP_W|PMP_X }, // +SRAM:1MB
         { .base_addr = 0x28000000,    .order = 24, .protection = PMP_L|PMP_R|PMP_W|PMP_X }, // +PSRAM:16MB
-        { .base_addr = 0x30000000,    .order = 25, .protection = PMP_L|PMP_R|PMP_X       }, // +FLASH:32MB
+        { .base_addr = 0x30000000,    .order = 25, .protection = PMP_L|PMP_R|PMP_W|PMP_X }, // +FLASH:32MB
         { .base_addr = 0x00000000,    .order = 30, .protection = PMP_L                   }, // -MEM:1GB
     };
     for (int i = 0; i < sizeof(regions)/sizeof(regions[0]); i++) __set_PMPENTRYx(i, &regions[i]);
@@ -507,6 +513,30 @@ static void ClockInit(void)
     __HAL_CRM_MTIME_CLK_ENABLE();
 }
 
+void platform_pre_startup(void)
+{
+    /* ============================================================================
+     * WARNING: This runs BEFORE scatload!
+     * ============================================================================
+     *
+     * At this point:
+     *   - Stack pointer (SP) is set
+     *   - Global pointer (GP) is set
+     *   - .data section is NOT copied (all initialized globals are WRONG!)
+     *   - .bss section is NOT zeroed (all uninitialized globals are RANDOM!)
+     *
+     * DO NOT use global variables in PRE_SYSTEM_INIT level functions!
+     * Use only:
+     *   - Local variables (on stack)
+     *   - Constants (in .rodata)
+     *   - Direct hardware register access
+     *
+     * ============================================================================ */
+#if CONFIG_SYS_INIT
+    extern int sys_init_run_level(uint8_t level);
+    sys_init_run_level(0);  /* SYS_INIT_LEVEL_PRE_SYSTEM_INIT */
+#endif
+}
 /**
  * \brief      Function to Initialize the system.
  * \details

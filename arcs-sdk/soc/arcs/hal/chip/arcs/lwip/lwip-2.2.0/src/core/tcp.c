@@ -229,6 +229,54 @@ tcp_free_listen(struct tcp_pcb *pcb)
   CLOG("tcp_listen_free 0x%x\n", pcb);
 }
 
+static void
+tcp_free_listen_sub_pcb(struct tcp_pcb *lpcb)
+{
+    struct tcp_pcb *pcb;
+    bool abort_pcb = false;
+    bool port_reuse = false;
+    bool is_sub_pcb = false;
+
+sub_pcb_start:
+    for (pcb = tcp_active_pcbs; pcb != NULL; pcb = pcb->next) {
+      abort_pcb = false;
+      is_sub_pcb = false;
+      port_reuse = false;
+
+      if (lpcb == pcb) {
+        continue;
+      }
+
+#if LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG
+      if (pcb->listener != (struct tcp_pcb_listen*)lpcb) {
+        continue;
+      } else {
+        is_sub_pcb = true;
+      }
+#endif /* LWIP_CALLBACK_API || TCP_LISTEN_BACKLOG */
+#if SO_REUSE
+      if (ip_get_option(lpcb, SOF_REUSEADDR) && ip_get_option(pcb, SOF_REUSEADDR)) {
+        port_reuse = true;
+      }
+#endif /* SO_REUSE */
+
+      if (pcb->local_port == lpcb->local_port) {
+        if ((pcb->state == SYN_RCVD)
+            || ((pcb->state == CLOSING) && ((!port_reuse) || (is_sub_pcb)))) {
+          abort_pcb = true;
+        }
+      }
+
+      if (abort_pcb) {
+        CLOGD("tcp_free_listen_sub_pcb 0x%x state %d rto %d sa %d sv %d nrtx %d\n",
+          pcb, pcb->state, pcb->rto, pcb->sa, pcb->sv, pcb->nrtx);
+
+        tcp_abort(pcb);
+        goto sub_pcb_start;
+      }
+    }
+}
+
 /**
  * Called periodically to dispatch TCP timers.
  */
@@ -392,6 +440,7 @@ tcp_close_shutdown(struct tcp_pcb *pcb, u8_t rst_on_unacked_data)
       tcp_free(pcb);
       break;
     case LISTEN:
+      tcp_free_listen_sub_pcb(pcb);
       tcp_listen_closed(pcb);
       tcp_pcb_remove(&tcp_listen_pcbs.pcbs, pcb);
       tcp_free_listen(pcb);

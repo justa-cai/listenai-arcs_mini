@@ -25,34 +25,22 @@
  * INCLUDE FILES
  *****************************************************************************************
  */
-#include "bt_config.h"     // SW configuration
-
-
 #include <string.h>         // for memcpy
 #include <stdlib.h>         // standard lib functions
 #include <stddef.h>         // standard definitions
 #include <stdint.h>         // standard integer definition
 #include <stdbool.h>        // boolean definition
-#include "ble_drv.h"
-//#include "co_utils.h"      // common utility definition
-//#include "co_math.h"       // common math functions
-//#include "co_endian.h"     // endian definitions
-//#include "rf.h"            // RF interface
 
-//#include "btip.h"          // for RF API structure definition
-//#include "Driver_Common.h"
-//#include "Driver_PMU.h"
-//#include "IOMuxManager.h"
-
+#include "Driver_Common.h"
+#include "PowerManager.h"
+#include "IOMuxManager.h"
+#include "patch.h"
 //#include "dbg.h"
-
-//#include "aon_ctrl_reg.h"
-//#include "aon_sleep_reg.h"
-//#include "ble_drv.h"
+#include "ble_drv.h"
 #include "log_print.h"    
+#include "arcs_ap.h"
+#include "bt_drv.h"
 
-
-//#define AON_SLEEP_CTRL_BASE		0x45F00000
 
 enum rccal_trig_type
 {
@@ -72,44 +60,81 @@ enum rccal_init_status
 };
 
 
+volatile uint32_t g_sleep_wakeup_status = PMU_WAKEUP_NONE;
+
+extern struct bt_sleep_api_str ls_sleep_api;
+
+extern bool HAL_PMU_Is_PowerOn(void);
+
+extern volatile pmu_wakeupsrc_t wakeup_cause;
 
 
-//volatile AON_SLEEP_RegDef *AP_AON_SLEEP = (volatile AON_SLEEP_RegDef*)(AON_SLEEP_CTRL_BASE);
 
-uint32_t  g_rccali_result = 24000; //31270; //(1<<LS_RCCALI_CYCLE_LENGTH)*1000; //250000;   // 2^rccal_length *24M XTAL /24k rc clk
-uint32_t  g_rc_init_stat = RCCAL_INIT_NO_START;
-uint8_t  g_rc_result_position = 0; // 0: correct time before rc calibration, next time use the cali result   1:correct time after rc calibration, current time use the cali result
-uint8_t  g_rccali_cycle_length = 5;     //about256count*40.8us=10445us  // 32*30.517= 970us  ~ 2^5temp 1ms may 2ms
-uint8_t  g_rc_clock_mod = 3;// 0: no supported  1: 32000Hz  2:32768Hz clock  3:rc32k 
-
-
-extern void ls_chip_Wakeup_Event(void* param);
-void UART_log32(uint8_t log_id, uint32_t log_data);
-
-
-/**
- *****************************************************************************************
- * @brief Get the TX power as control structure TX power field from a value in dBm.
- *
- * @param[in] txpwr_dbm   TX power in dBm
- * @param[in] option	  If TXPWR_CS_LOWER, return index equal to or lower than requested
- *						  If TXPWR_CS_HIGHER, return index equal to or higher than requested
- *						  If TXPWR_CS_NEAREST, return index nearest to the desired value
- *
- * @return The index of the TX power
- *
- *****************************************************************************************
- */
 void ls_chip_sleep_init(void)
 {
 
 }
 
+void RamConfigure(void)
+{
+    PTCH(void, RamConfigure);
 
+    if (HAL_PMU_Is_PowerOn())
+    {
+        //cfg memory retention
+        HAL_PMU_EnableRamRetention(PMU_CP_RAMBANK0);
+        HAL_PMU_EnableRamRetention(PMU_CP_RAMBANK1);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_SUB_RAMBANK0);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_SUB_RAMBANK1);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_SUB_RAMBANK2);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_SUB_RAMBANK3);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_SUB_RAMBANK4);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_SUB_RAMBANK5);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_SUB_RAMBANK6);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_SUB_RAMBANK7);
+//        HAL_PMU_EnableRamRetention(PMU_WIFI_KEY_RAMBANK);
+        HAL_PMU_EnableRamRetention(PMU_BT_RAMBANK0);
+
+
+        // Enable wakeup source
+        HAL_PMU_EnableWakeUpSrc(PMU_WAKEUP_BT);
+
+        // Config chip can enter sleep mode after btdm_osc_en is 1(btdm_osc_en from bt)
+        IP_AON_CTRL->REG_POWER_WKUP_CTRL1.bit.EN_BT_OSCEN = 1;
+
+        // Sleep triggered by CP
+        HAL_PMU_PreConfigSleepTrigger(PMU_SLEEP_CMD_BY_CP);
+
+        // set aon wakeup_power_on counter, value from vegaT
+        // TODO: wait update to arcsd value
+        AON_CTRL_P->REG_PWON_CNT_CFG0.bit.PWON_CNT0     = 10;
+        AON_CTRL_P->REG_PWON_CNT_CFG0.bit.PWON_CNT1     = 10;
+        AON_CTRL_P->REG_PWON_CNT_CFG0.bit.PWON_CNT2     = 10;
+        AON_CTRL_P->REG_PWON_CNT_CFG1.bit.PWON_CNT3     = 10;
+        AON_CTRL_P->REG_PWON_CNT_CFG1.bit.PWON_CNT4     = 10;
+        AON_CTRL_P->REG_PWON_CNT_CFG1.bit.PWON_CNT5     = 10;
+    }
+
+}
 
 void ls_chip_sleep_enter(uint16_t sleep_state)
 {
+	if (sleep_state == LSIP_CPU_SLEEP)
+	{
+        // do nothing
+	}
+	else if(sleep_state == LSIP_DEEP_SLEEP)
+	{
+		RamConfigure();
 
+    	CLOG_FLUSH();
+
+        HAL_PMU_ConfigDeepSleepMode(PMU_SLEEPMODE_MODE2, PMU_HOLDENTRY_WFI);
+    }
+	else
+	{
+		return;
+	}
 
 }
 
@@ -118,56 +143,110 @@ void ls_chip_Wakeup_Event(void* param)
 
 }
 
-volatile uint32_t g_sleep_wakeup_status = 0;
 
 /*
     @retval   0: power on, not wakeup from sleep   others: sleep wakeup
 */
-bool HAL_PMU_Is_Sleep_WakeUp(void){
+uint32_t HAL_PMU_Is_Sleep_WakeUp(void){
 
-	return g_sleep_wakeup_status != 0;
+	return g_sleep_wakeup_status;
 }
 
+bool HAL_PMU_Is_PowerOn(void){
+
+    return (g_sleep_wakeup_status == PMU_WAKEUP_NONE);
+}
 /*
 
   @retval   0: power on   1: sleep wakeup
 */
 bool ls_is_bt_timer_wakeup(void)
 {
-    return false;
+    return (g_sleep_wakeup_status == PMU_WAKEUP_BT);
 }
+
 void lsip_open_hz3200(void)
 { 
 
 }
 
-
 void lsip_rccali_init(void)
 { 
+    AON_CTRL_P->REG_BT_RC_CALI.bit.RCCAL_LENGTH = ls_sleep_api.rc_cali_cycle_length; // time = 2^rccal_length   set rc cali time
+    AON_CTRL_P->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_MASK = 1; // irq mask
+
+    AON_CTRL_P->REG_BT_RC_CALI.bit.RCCAL_START = 1; // trig first time rc calibration at powerup. software start rc cali   w1s register
+    ls_sleep_api.rc_init_stat = RCCAL_INIT_SOFTWARE_START;
+    //lsip_rccali_start();
 
   return;
 }
 
 void lsip_rccali_start(void)
 { 
-
+    //AON_SLEEP_P->REG_BT_RC_CALI.bit.RCCAL_START = 1; // software start rc cali  // wait 1 pulse register
+    AON_CTRL_P->REG_BT_RC_CALI.bit.RCCAL_AUTO_TRIG_SEL = RCCAL_TRIG_TYPE_WAKEUP_LP; //
   return;
 }
 
 void lsip_rccali_irq_handle(void)
-{    
+{
+    PTCH_FST(void, lsip_rccali_irq_handle);
 
+    ls_rc_int_clear();
+    if (ls_sleep_api.rc_clock_mod == 3)
+    {
+        AON_CTRL_P->REG_BT_RC_CALI.bit.RCCAL_AUTO_TRIG_SEL = RCCAL_TRIG_TYPE_DISABLE; 
+
+        ls_sleep_api.rc_cali_result = AON_CTRL_P->REG_BT_RC_CALI.bit.RCCAL_RESULT ;
+
+//        CLOGD("g_rccali_result=0x%d", ls_sleep_api.rc_cali_result);
+
+        if (ls_sleep_api.rc_result_position == 1) // 0: correct time before rc calibration, next time use the cali result   1:correct time after rc calibration, current time use the cali result
+        {
+            if (ls_sleep_api.rc_init_stat != RCCAL_INIT_SOFTWARE_START)
+            {
+                lsip_wakeup();
+            }
+            ls_sleep_api.rc_init_stat = RCCAL_INIT_HW_START;
+        }
+
+        lsip_rccali_start();
+    }
     return;
 }
 
 
 void ls_rc_int_clear(void)
 {
+    AON_CTRL_P->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_CLR = 1;// first clean rccal inner irq
+    clear_IRQ(IRQ_RCCAL_DONE_VECTOR);
+}
+
+// if bt wakeup is triggered by software, should clean before enter sleep
+void hal_sw_trigger_clean(void)
+{
 
 }
 
-void hal_sw_trigger_clean(void){
+void ls_wakeup_start()
+{
+    g_sleep_wakeup_status = wakeup_cause;
 
+	Bt_BootClock_Init();
+
+    // rf init
+    uint32_t tmp = cloglvl;
+//    cloglvl = 1;
+    extern void rf_init_bt();
+     rf_init_bt();
+//     cloglvl = tmp;
+
+    // bt init
+    ble_task_init();
+
+    // enable bt sleep
+    //lsip_prevent_sleep_clear(0x100);
 }
 
 
@@ -181,9 +260,9 @@ struct bt_sleep_api_str ls_sleep_api =
     .get_wakeup_state = NULL,
     .is_bt_wakeup = NULL,
     .en_32kHZ = NULL,
-    .rc_cali_init = NULL,
+    .rc_cali_init = lsip_rccali_init,
     .rc_cali_start = lsip_rccali_start,
-    .rc_cali_irq_handler = NULL,
+    .rc_cali_irq_handler = lsip_rccali_irq_handle,
     .clean_bt_wakeup_singnal = hal_sw_trigger_clean,
 
     .rc_cali_result = 24000,
@@ -201,7 +280,6 @@ struct bt_sleep_api_str ls_sleep_api =
 
 uint8_t bt_sleep_api_init(void **api)
 {
-    printf("func:%s, line:%d\n", __func__, __LINE__);
     *api = &ls_sleep_api;
     return 0;
 }

@@ -1,0 +1,14 @@
+# LISA Hardware Timer Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_HWTIMER_ARCS_GPT_TIMER
+    bool "Enable LISA Hardware Timer ARCS GPT Timer support"
+    default n
+    help
+        Enable LISA Hardware Timer ARCS GPT Timer support.
+
+if LISA_HWTIMER_ARCS_GPT_TIMER
+
+endif # LISA_HWTIMER_ARCS_GPT_TIMER

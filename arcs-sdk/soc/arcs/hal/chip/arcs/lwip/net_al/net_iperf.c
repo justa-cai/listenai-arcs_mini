@@ -166,6 +166,7 @@ static RTOS_TASK_FCT(net_iperf_main)
     rtos_semaphore_delete(iperf_stream->send_buf_semaphore);
     rtos_mutex_delete(iperf_stream->iperf_mutex);
     iperf_stream->active = false;
+    iperf_stream->used = false;
     rtos_task_delete(NULL);
 }
 
@@ -181,9 +182,11 @@ static RTOS_TASK_FCT(net_iperf_main)
 static int net_iperf_find_free_stream_id(void)
 {
     int stream_id;
+
     for (stream_id = 0; stream_id < NET_IPERF_MAX_STREAMS; stream_id++)
     {
-        if (streams[stream_id].active == false)
+        if ((streams[stream_id].active == false)
+            && (streams[stream_id].used == false))
         {
             return stream_id;
         }
@@ -351,9 +354,13 @@ rtos_task_handle net_iperf_start(void *args)
             goto err_timer;
     }
 #endif
+    iperf_stream->used = true;
+    iperf_stream->exit = false;
     if (rtos_task_create(net_iperf_main, "IPERF", IPERF_TASK, CLI_IPERF_STACK_SIZE,
-                         iperf_stream, CLI_IPERF_PRIORITY, &iperf_stream->iperf_handle))
+                         iperf_stream, CLI_IPERF_PRIORITY, &iperf_stream->iperf_handle)) {
+        iperf_stream->used = false;
         goto err_task_create;
+    }
 
     return iperf_stream->iperf_handle;
 
@@ -507,6 +514,9 @@ void net_iperf_print_stats(const struct net_iperf_stream *stream,
     }
     end_ds = end_ds / 100000;
 
+    if (start_sec == end_sec)
+        return;
+
     net_iperf_snprintf(data, sizeof(data), (float)stats->bytes,
                          iperf_settings->format - 'a' + 'A');
     net_iperf_snprintf(bw, sizeof(bw), 1000000 * (float)stats->bytes / duration_usec,
@@ -528,9 +538,9 @@ void net_iperf_print_stats(const struct net_iperf_stream *stream,
 #else
         if (!stream->report.last_stats.bytes)
 #endif
-            CLOG("[ ID]  Interval      Transfer     Bandwidth       Jitter   Lost/Total Datagrams\n");
+            CLOG("[US][ ID]  Interval      Transfer     Bandwidth       Jitter   Lost/Total Datagrams\n");
 
-        CLOG("[%3d] %2d.%01d-%2d.%01d sec  %s  %s/sec  %d.%03d ms   %d/%d (%d.%1d%%)\n",
+        CLOG("[US][%3d] %2d.%01d-%2d.%01d sec  %s  %s/sec  %d.%03d ms   %d/%d (%d.%1d%%)\n",
                     stream->id, start_sec, start_ds, end_sec, end_ds, data, bw,
                     jitter_sec, stats->jitter_us - (jitter_sec * 1000), stats->nb_error,
                     stats->nb_datagrams, lost_percent_int, lost_percent_dec);
@@ -544,8 +554,15 @@ void net_iperf_print_stats(const struct net_iperf_stream *stream,
 #endif
             CLOG("[ ID] Interval       Transfer     Bandwidth\n");
 
-        CLOG("[%3d] %2d.%1d-%2d.%1d sec  %s  %s/sec\n",
-                    stream->id, start_sec, start_ds, end_sec, end_ds, data, bw);
+        if (stream->iperf_settings.flags.is_udp && !iperf_settings->flags.is_server)
+            CLOG("[UC][%3d] %2d.%1d-%2d.%1d sec  %s  %s/sec\n",
+                        stream->id, start_sec, start_ds, end_sec, end_ds, data, bw);
+        else if(!stream->iperf_settings.flags.is_udp && !iperf_settings->flags.is_server)
+            CLOG("[TC][%3d] %2d.%1d-%2d.%1d sec  %s  %s/sec\n",
+                        stream->id, start_sec, start_ds, end_sec, end_ds, data, bw);
+        else
+            CLOG("[TS][%3d] %2d.%1d-%2d.%1d sec  %s  %s/sec\n",
+                        stream->id, start_sec, start_ds, end_sec, end_ds, data, bw);
     }
 }
 
@@ -561,7 +578,11 @@ void net_iperf_wait_report_timer(struct net_iperf_stream *stream)
     {
         if (stream->report_timer)
             rtos_timer_stop(stream->report_timer);
-        rtos_semaphore_signal(stream->iperf_task_semaphore, false);
+        if (stream->active)
+        {
+            CLOG("%s %d\n", __func__, __LINE__);
+            rtos_semaphore_signal(stream->iperf_task_semaphore, false);
+        }
     }
 }
 
@@ -569,19 +590,27 @@ void net_iperf_report_timer_cb(rtos_timer timer)
 {
     struct net_iperf_stream *iperf_stream = (struct net_iperf_stream*)rtos_timer_id_get(timer);
 
-    if (iperf_stream->done)
+    if (iperf_stream->active)
     {
-        /*For client mode send the last report line*/
-        if ((iperf_stream->iperf_settings.flags.is_time_mode) && (!iperf_stream->iperf_settings.flags.is_server))
+        if (iperf_stream->done)
+        {
+            CLOG("%s %d\n", __func__, __LINE__);
+            /*For client mode send the last report line*/
+            if ((iperf_stream->iperf_settings.flags.is_time_mode) && (!iperf_stream->iperf_settings.flags.is_server))
+                net_iperf_print_interv_stats(iperf_stream);
+            net_iperf_print_stats(iperf_stream, &iperf_stream->report.start_time, &iperf_stream->report.end_time, &iperf_stream->report.stats);
+            rtos_timer_stop(iperf_stream->report_timer);
+            rtos_semaphore_signal(iperf_stream->iperf_task_semaphore, false);
+            rtos_semaphore_signal(iperf_stream->to_semaphore, false);
+        }
+        else
+        {
             net_iperf_print_interv_stats(iperf_stream);
-        net_iperf_print_stats(iperf_stream, &iperf_stream->report.start_time, &iperf_stream->report.end_time, &iperf_stream->report.stats);
-        rtos_timer_stop(iperf_stream->report_timer);
-        rtos_semaphore_signal(iperf_stream->iperf_task_semaphore, false);
-        rtos_semaphore_signal(iperf_stream->to_semaphore, false);
+        }
     }
     else
     {
-        net_iperf_print_interv_stats(iperf_stream);
+        CLOGE("iperf report timer cb invalid\n");
     }
 }
 #endif
@@ -590,6 +619,7 @@ int net_iperf_sigkill_handler(rtos_task_handle iperf_handle)
     int stream_id;
     struct net_iperf_stream *iperf_stream = NULL;
     const struct net_iperf_settings *iperf_settings;
+    bool send_sem = false;
 
     // Search iperf stream
     for (stream_id = 0; stream_id < NET_IPERF_MAX_STREAMS; stream_id++)
@@ -603,20 +633,29 @@ int net_iperf_sigkill_handler(rtos_task_handle iperf_handle)
 
     if (stream_id == NET_IPERF_MAX_STREAMS)
     {
-    	CLOGE("Stream id %d not valid\n", stream_id);
+        CLOGE("Stream id %d not valid\n", stream_id);
         return CLI_ERROR;
     }
 
     iperf_settings = &iperf_stream->iperf_settings;
-    iperf_stream->active = false;
     if (iperf_settings->flags.is_udp)
         rtos_semaphore_signal(iperf_stream->iperf_task_semaphore, false);
     else
     {
         LOCK_TCPIP_CORE();
+        ///because iperf tcp server is wait for TCP traffic to end
+        if ((iperf_stream->arg == NULL)
+            && (iperf_stream->iperf_settings.flags.is_server))
+            send_sem = true;
+
+        iperf_stream->exit = true;
         net_iperf_tcp_close(iperf_stream, true);
         UNLOCK_TCPIP_CORE();
     }
+    iperf_stream->active = false;
+
+    if (send_sem)
+        rtos_semaphore_signal(iperf_stream->iperf_task_semaphore, false);
 
     return CLI_SUCCESS;
 }

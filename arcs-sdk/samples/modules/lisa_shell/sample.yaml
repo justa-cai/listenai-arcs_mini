@@ -1,0 +1,8 @@
+tests:
+  samples.lisa_shell:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Type 'help' in shell to see all commands"
+

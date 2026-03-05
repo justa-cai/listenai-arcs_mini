@@ -1,8 +1,8 @@
 #include "Driver_EFUSE.h"
 #include "mac_manager.h"
+#include "lisa_log.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "lisa_log.h"
 
 #include <stdlib.h>
 
@@ -49,8 +49,6 @@ static int set(const uint8_t *value, size_t value_len)
 
 static int get(uint8_t *mac, size_t *mac_len)
 {
-    char uuid_str[18] = {0};
-
     if (mac == NULL || mac_len == NULL) {
         return -1;
     }
@@ -58,7 +56,12 @@ static int get(uint8_t *mac, size_t *mac_len)
         return -1;
     }
 
+    efuse_init();
     uint64_t uuid = efuse_read_uuid();
+    if (uuid == 0) {
+        LISA_LOGE(TAG, "efuse read empty uuid");
+        return -1;
+    }
     mac[0] = ARCS_MAC_HEADER_0;
     mac[1] = ARCS_MAC_HEADER_1;
     mac[2] = get_lotid(uuid);

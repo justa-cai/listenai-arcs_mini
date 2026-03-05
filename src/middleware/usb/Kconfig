@@ -1,0 +1,11 @@
+menu "Application usb menu"
+
+config APP_USB_AUDIO_ENABLE
+    bool "Enable usb audio device"    
+    default n
+
+config APP_USB_CDC_ENABLE
+    bool "Enable usb cdc device"
+    default n
+    
+endmenu

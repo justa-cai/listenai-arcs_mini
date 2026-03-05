@@ -1,0 +1,12 @@
+menu "application middleware"
+
+rsource "audio/Kconfig"
+rsource "alarm/Kconfig"
+rsource "battery/Kconfig"
+rsource "button/Kconfig"
+rsource "power/Kconfig"
+rsource "tone/Kconfig"
+rsource "usb/Kconfig"
+rsource "vendor_storage/Kconfig"
+rsource "ota/Kconfig"
+endmenu

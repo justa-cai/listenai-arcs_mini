@@ -1,0 +1,7 @@
+tests:
+  samples.logger:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "System will keep running"

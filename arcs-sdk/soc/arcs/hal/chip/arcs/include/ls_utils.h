@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-int ls_read_temp_voltage(int count, float *vout);
+int ls_read_temp_voltage(float *vout);
 
 int8_t ls_get_mac_from_nvs(uint8_t mac_addr[6]);
 

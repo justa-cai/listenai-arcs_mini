@@ -1,0 +1,40 @@
+# LISA Touch Driver Configuration - ST77921
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_TOUCH_ARCS_ST77921
+    bool "Enable LISA Touch ARCS ST77921 support"
+    default n
+    help
+        Enable LISA Touch ARCS ST77921 touch chip support.
+        
+        ST77921 Features:
+        - I2C Address: 0x55 (7-bit)
+        - Register: 0x0010/0x0014 (16-bit, big-endian)
+        - Resolution: 480x480
+        - Single touch point
+        - Interrupt trigger: Falling edge
+        - Reset sequence: High->Low->High (10ms-10ms-300ms)
+
+if LISA_TOUCH_ARCS_ST77921
+
+    config LISA_TOUCH_ARCS_ST77921_READ_TASK_PRIORITY
+        int "ST77921 interrupt mode read task priority"
+        default 2
+        range 1 10
+        help
+            Set the priority of the ST77921 touch driver's internal read task.
+            
+            This task is created when interrupt mode is enabled and is responsible
+            for reading I2C data from the touch chip after receiving a GPIO interrupt.
+            
+            Priority range: 1-10 (higher number = higher priority)
+            Default: 2 (tskIDLE_PRIORITY + 2)
+            
+            Note:
+            - Higher priority ensures faster response to touch events
+            - Should be higher than idle task (1) but lower than critical system tasks
+            - Recommended range: 2-5 for most applications
+
+endif # LISA_TOUCH_ARCS_ST77921

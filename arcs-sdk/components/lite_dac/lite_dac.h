@@ -34,6 +34,7 @@ int lite_dac_left_sample(void);
 void dac_pa_ctrl(int enable);
 int lite_dac_ctrl(uint32_t uarg, void *parg);
 int lite_dac_get_buf(uint8_t **buf, TickType_t xTicksToWait);
+int lite_dac_get_echo_buf(uint16_t **buf, TickType_t xTicksToWait);
 int lite_dac_write(void *src, int size, TickType_t xTicksToWait);
 bool lite_dac_queue_empty(void);
 void lite_dac_pa_pulse_set(int pulse);

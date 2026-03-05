@@ -1,6 +1,5 @@
 
 CFG_AMP_IPC := 1
-LWIP_VER := lwip-2.2.0
 WIFI_API := on
 PSRAM_HEAP ?= 1
 export  PSRAM_HEAP
@@ -8,7 +7,7 @@ export  PSRAM_HEAP
 TX_BUF_COPY ?= 0
 export TX_BUF_COPY
 
-export CFG_AMP_IPC LWIP_VER WIFI_API
+export CFG_AMP_IPC  WIFI_API
 
 .PHONY: apps ap_tgt cp_tgt
 

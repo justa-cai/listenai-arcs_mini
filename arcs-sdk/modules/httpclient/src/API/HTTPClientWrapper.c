@@ -4,6 +4,10 @@
 // #include "os_time.h"
 #include "rtos_al.h"
 
+#if CONFIG_4G_MODULE
+#include "lisa_4g_module.h"
+#endif
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //
 // Section      : Stdc: HTTPWrapperIsAscii
@@ -167,6 +171,20 @@ int HTTPWrapperGetSocketError (int s)
 
 static int resolve_dns(const char *host, struct sockaddr *ip, size_t *addrlen)
 {
+#if CONFIG_4G_MODULE
+	/* Use ML307 DNS resolution */
+	char ip_str[16];
+	if (lisa_4g_dns_resolve(host, ip_str, sizeof(ip_str))) {
+		struct sockaddr_in *addr_in = (struct sockaddr_in *)ip;
+		addr_in->sin_family = AF_INET;
+		if (inet_pton(AF_INET, ip_str, &addr_in->sin_addr) == 1) {
+			*addrlen = sizeof(struct sockaddr_in);
+			return 0;
+		}
+	}
+	return -1;
+#else
+	/* Use standard getaddrinfo() */
 	struct addrinfo hints;
 	struct addrinfo *res;
 
@@ -182,6 +200,7 @@ static int resolve_dns(const char *host, struct sockaddr *ip, size_t *addrlen)
 	*addrlen = res->ai_addrlen;
 	freeaddrinfo(res);
 	return 0;
+#endif
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

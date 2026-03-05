@@ -1,0 +1,297 @@
+/**
+ * @file lisa_ui_llm_primary.h
+ * @brief LLM UI主要组件头文件
+ *
+ * 继承自LLM UI基础组件，提供具体的任务栏元素实现，
+ * 包括WiFi图标、状态文本，以及容器中的emoji动画和文本显示。
+ *
+ * @version 1.0.0
+ * @date 2024
+ * @author Lisa UI Team
+ */
+
+#ifndef __LISA_UI_LLM_PRIMARY_H__
+#define __LISA_UI_LLM_PRIMARY_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/*===========================================
+ * 包含文件
+ *==========================================*/
+#include "lisa_ui_llm_base.h"
+#include "lvgl.h"
+#include <stdint.h>
+#include <stdbool.h>
+
+/*===========================================
+ * 宏定义
+ *==========================================*/
+/** 状态文本最大长度 */
+#define LISA_UI_LLM_PRIMARY_MAX_STATUS_LENGTH 32
+
+/** 内容文本最大长度 */
+#define LISA_UI_LLM_PRIMARY_MAX_CONTENT_LENGTH 256
+
+/** 类型检查宏 */
+#define LISA_UI_LLM_PRIMARY_CLASS_CHECK(obj) (lv_obj_has_class(obj, &lisa_ui_llm_primary_class))
+
+/** 根据每帧时长计算总动画时长的辅助宏 */
+#define LISA_UI_LLM_DURATION_BY_FRAME(frame_duration_ms, frame_count) ((frame_duration_ms) * (frame_count))
+
+/**
+ * @brief LLM UI主要组件结构体
+ *
+ * 继承自LLM UI基础组件，添加具体的任务栏元素和容器内容
+ */
+struct lisa_ui_llm_primary {
+    lisa_ui_llm_base_t base_obj; /*!< 基础对象 */
+
+    /* 任务栏元素 */
+#ifndef CONFIG_BOARD_ARCS_MINI
+    lv_obj_t *settings_icon; /*!< 设置图标 */
+#endif
+    lv_obj_t *wifi_icon;     /*!< WiFi图标 */
+    lv_obj_t *full_duplex_icon; /*!< 交互模式图标（全双工） */
+    lv_obj_t *alarm_icon;    /*!< 闹钟图标 */
+    lv_obj_t *battery_icon;  /*!< 电量图标 */
+    lv_obj_t *status_label;  /*!< 状态文本标签 */
+
+    /* 容器内容元素 */
+    lv_obj_t *emoji_container;   /*!< emoji 动画容器 */
+    lv_obj_t *emoji_anim;         /*!< emoji 动画图片 */
+    lv_obj_t *content_container; /*!< 内容文本容器 */
+    lv_obj_t *content_label;     /*!< 内容文本标签 */
+    lv_obj_t *img;
+    lv_obj_t *img_hint;
+};
+
+/** LLM UI主要组件类型定义 */
+typedef struct lisa_ui_llm_primary lisa_ui_llm_primary_t;
+
+/*===========================================
+ * 全局变量声明
+ *==========================================*/
+
+/** LLM UI主要组件类定义 */
+extern const lv_obj_class_t lisa_ui_llm_primary_class;
+
+/*===========================================
+ * 函数声明
+ *==========================================*/
+
+/**
+ * @brief 创建LLM UI主要组件
+ *
+ * @param parent 父对象，如果为NULL则使用当前活动屏幕
+ * @return lv_obj_t* 创建的LLM UI主要组件对象，失败返回NULL
+ *
+ * @note 该函数会自动创建任务栏的所有元素和容器内容
+ *
+ * @code
+ * // 创建LLM UI主要组件
+ * lv_obj_t *llm_ui = lisa_ui_llm_primary_create(lv_scr_act());
+ * if (llm_ui != NULL) {
+ *     // 组件创建成功，包含完整的任务栏和内容区域
+ * }
+ * @endcode
+ */
+lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent);
+
+#ifndef CONFIG_BOARD_ARCS_MINI
+/**
+ * @brief 获取设置图标对象
+ *
+ * @param obj LLM UI主要组件对象
+ * @return lv_obj_t* 设置图标对象，失败返回NULL
+ */
+lv_obj_t *lisa_ui_llm_primary_settings_icon_get(lv_obj_t *obj);
+#endif
+
+/**
+ * @brief 获取WiFi图标对象
+ *
+ * @param obj LLM UI主要组件对象
+ * @return lv_obj_t* WiFi图标对象，失败返回NULL
+ */
+lv_obj_t *lisa_ui_llm_primary_wifi_icon_get(lv_obj_t *obj);
+
+/**
+ * @brief 获取状态文本标签对象
+ *
+ * @param obj LLM UI主要组件对象
+ * @return lv_obj_t* 状态文本标签对象，失败返回NULL
+ */
+lv_obj_t *lisa_ui_llm_primary_status_label_get(lv_obj_t *obj);
+
+/**
+ * @brief 获取电量图标对象
+ *
+ * @param obj LLM UI主要组件对象
+ * @return lv_obj_t* 电量图标对象，失败返回NULL
+ */
+lv_obj_t *lisa_ui_llm_primary_battery_icon_get(lv_obj_t *obj);
+
+/**
+ * @brief 获取emoji动画图片对象
+ *
+ * @param obj LLM UI主要组件对象
+ * @return lv_obj_t* emoji动画图片对象，失败返回NULL
+ */
+lv_obj_t *lisa_ui_llm_primary_emoji_img_get(lv_obj_t *obj);
+
+/**
+ * @brief 获取内容文本标签对象
+ *
+ * @param obj LLM UI主要组件对象
+ * @return lv_obj_t* 内容文本标签对象，失败返回NULL
+ */
+lv_obj_t *lisa_ui_llm_primary_content_label_get(lv_obj_t *obj);
+
+/**
+ * @brief 设置状态文本
+ *
+ * @param obj LLM UI主要组件对象
+ * @param status 状态文本，如果为NULL则清空状态
+ *
+ */
+void lisa_ui_llm_primary_set_status_text(lv_obj_t *obj, const char *status);
+
+/**
+ * @brief 设置内容文本
+ *
+ * @param obj LLM UI主要组件对象
+ * @param content 内容文本，如果为NULL则清空内容
+ *
+ */
+void lisa_ui_llm_primary_set_content_text(lv_obj_t *obj, const char *content);
+
+/**
+ * @brief 设置内容文本(追加)
+ *
+ * @param obj LLM UI主要组件对象
+ * @param content 内容文本，如果为NULL则清空内容
+ *
+ */
+void lisa_ui_llm_primary_add_content_text(lv_obj_t *obj, const char *content);
+
+/**
+ * @brief 设置WiFi图标显示状态
+ *
+ * @param obj LLM UI主要组件对象
+ * @param img_path 图片路径，如果为NULL则不显示WiFi图标
+ */
+void lisa_ui_llm_primary_set_wifi_img(lv_obj_t *obj, const void *img_path);
+
+/**
+ * @brief 设置交互模式图标显示状态
+ *
+ * @param obj LLM UI主要组件对象
+ * @param visible true显示，false隐藏
+ */
+void lisa_ui_llm_primary_set_full_duplex_icon_visible(lv_obj_t *obj, bool visible);
+
+/**
+ * @brief 设置闹钟图标显示状态
+ *
+ * @param obj LLM UI主要组件对象
+ * @param visible true显示，false隐藏
+ */
+void lisa_ui_llm_primary_set_alarm_icon_visible(lv_obj_t *obj, bool visible);
+
+/**
+ * @brief 设置电量图标显示状态
+ *
+ * @param obj LLM UI主要组件对象
+ * @param img_path 图片路径，如果为NULL则隐藏图标
+ */
+void lisa_ui_llm_primary_set_battery_img(lv_obj_t *obj, const void *img_path);
+
+/**
+ * @brief 启动emoji动画
+ *
+ * @param obj LLM UI主要组件对象
+ */
+void lisa_ui_llm_primary_start_emoji_animation(lv_obj_t *obj);
+
+/**
+ * @brief 停止emoji动画
+ *
+ * @param obj LLM UI主要组件对象
+ */
+void lisa_ui_llm_primary_stop_emoji_animation(lv_obj_t *obj);
+
+/**
+ * @brief 设置自定义emoji动画图片
+ *
+ * @param obj LLM UI主要组件对象
+ * @param images 图片数组指针
+ * @param images_count 图片数量
+ * @param duration 动画时长(毫秒)
+ * @param first_frame_delay 第一帧停留时间(毫秒)，0表示无延迟
+ */
+void lisa_ui_llm_primary_set_custom_emoji_animation(lv_obj_t *obj, const void **images, uint32_t images_count,
+                                                    uint32_t duration, uint32_t first_frame_delay);
+
+/**
+ * @brief 设置emoji动画循环参数
+ *
+ * @param obj LLM UI主要组件对象
+ * @param loop_count 循环次数，0表示无限循环
+ */
+void lisa_ui_llm_primary_set_loop_count(lv_obj_t *obj, uint32_t loop_count);
+
+#ifndef CONFIG_BOARD_ARCS_MINI
+/**
+ * @brief 设置设置图标事件回调
+ *
+ * @param obj LLM UI主要组件对象
+ * @param event_cb 事件回调函数
+ * @param user_data 用户数据
+ */
+void lisa_ui_llm_primary_set_settings_icon_event_cb(lv_obj_t *obj, lv_event_cb_t event_cb, void *user_data);
+#endif
+
+/**
+ * @brief 显示拍照图片到表情容器
+ *
+ * @param obj LLM UI主要组件对象
+ * @param rgb565_data RGB565图片数据
+ * @param width 图片宽度
+ * @param height 图片高度
+ */
+void lisa_ui_llm_primary_show_camera_image(lv_obj_t *obj, const uint16_t *rgb565_data, uint32_t width, uint32_t height);
+
+/**
+ * @brief 隐藏拍照图片
+ *
+ * @param obj LLM UI主要组件对象
+ */
+void lisa_ui_llm_primary_hide_camera_image(lv_obj_t *obj);
+lv_obj_t *lisa_ui_llm_primary_emoji_anim_get(lv_obj_t *obj);
+/*===========================================
+ * 内联函数
+ *==========================================*/
+
+/**
+ * @brief 检查对象是否为LLM UI主要组件类型
+ *
+ * @param obj 要检查的对象
+ * @return true 是LLM UI主要组件类型
+ * @return false 不是LLM UI主要组件类型
+ */
+static inline bool lisa_ui_llm_primary_is_valid(lv_obj_t *obj)
+{
+    return (obj != NULL) && LISA_UI_LLM_PRIMARY_CLASS_CHECK(obj);
+}
+void lisa_ui_llm_primary_img_show(lv_obj_t *obj, void *img);
+void lisa_ui_llm_primary_img_hide(lv_obj_t *obj);
+void lisa_ui_llm_primary_img_hint_show(lv_obj_t *obj, const char *text);
+void lisa_ui_llm_primary_img_hint_hide(lv_obj_t *obj);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
+
+#endif /* __LISA_UI_LLM_PRIMARY_H__ */

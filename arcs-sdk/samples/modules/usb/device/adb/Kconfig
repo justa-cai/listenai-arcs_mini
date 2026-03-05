@@ -1,2 +1,2 @@
-osource "$LISTENAI_MODULES"
+osource "$ARCS_BASE/Kconfig"
 osource "../../../modules/fs/Kconfig"

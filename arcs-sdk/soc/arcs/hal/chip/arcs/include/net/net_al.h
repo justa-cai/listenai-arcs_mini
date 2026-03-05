@@ -119,22 +119,43 @@ typedef struct net_if_call_fun_t
 struct net_tx_buf_head
 {
     void *next;
+    void *p_buf;
     uint8_t is_short;
     uint8_t is_master_core;
     uint16_t buf_len;
     uint8_t tx_desc_rsv[NET_TX_BUF_DESC_LEN];
 };
 
+#ifndef CONFIG_LWIP_NETAL_TX_BUF_SIZE
 #define NET_TX_BUF_UNIT_SIZE 1536
+#else
+#define NET_TX_BUF_UNIT_SIZE CONFIG_LWIP_NETAL_TX_BUF_SIZE
+#endif
+
+#ifndef CONFIG_LWIP_NETAL_TX_BUF_CNT
 #define NET_TX_BUF_CNT 10
+#else
+#define NET_TX_BUF_CNT CONFIG_LWIP_NETAL_TX_BUF_CNT
+#endif
+
 struct net_tx_buf_tag
 {
     struct net_tx_buf_head head;
     uint8_t buf[NET_TX_BUF_UNIT_SIZE];
 };
 
+#ifndef CONFIG_LWIP_NETAL_TX_SMALL_BUF_SIZE
 #define NET_SHORT_TX_BUF_UNIT_SIZE 128
+#else
+#define NET_SHORT_TX_BUF_UNIT_SIZE CONFIG_LWIP_NETAL_TX_SMALL_BUF_SIZE
+#endif
+
+#ifndef CONFIG_LWIP_NETAL_TX_SMALL_BUF_CNT
 #define NET_SHORT_TX_BUF_CNT 6
+#else
+#define NET_SHORT_TX_BUF_CNT CONFIG_LWIP_NETAL_TX_SMALL_BUF_CNT
+#endif
+
 struct net_short_tx_buf_tag
 {
     struct net_tx_buf_head head;
@@ -568,6 +589,26 @@ void *net_tx_alloc_mac_buf(net_buf_tx_t *buf, uint16_t rsv_head_len);
 bool net_is_tx_buf_copy(void);
 
 char* net_get_monitor_name(void);
+void net_arp_announce(void);
+
+/**
+ * @brief DHCP status callback function type
+ * @param vif_idx Network Interface Index
+ * @param success: true indicates DHCP success, false indicates failure.
+ * @param ip_addr IP address (valid upon success)
+ * @param netmask Subnet mask (valid if successful)
+ * @param gateway Gateway address (valid upon success)
+ * @param arg User-defined parameter
+ */
+typedef void (*net_dhcp_status_cb_t)(int vif_idx, bool success, uint32_t ip_addr, uint32_t netmask, uint32_t gateway, void *arg);
+
+/**
+ * @brief Register DHCP status callback function
+ * @param cb Callback function pointer
+ * @param arg User-defined parameter
+ */
+void net_dhcp_register_status_callback(net_dhcp_status_cb_t cb, void *arg);
+
 #endif // NET_AL_H_
 /**
  * @}

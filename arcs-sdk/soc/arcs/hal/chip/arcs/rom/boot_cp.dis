@@ -15336,7 +15336,7 @@ _EXT_RAM int flash_init(FLASH_DEV *dev, unsigned char ud0, unsigned char ud1)
 	}
 
 	if(dev->dualflash_mode != 0)
-  20692c:	00e44783          	lbu	a5,14(s0)
+  20692c:	01844783          	lbu	a5,24(s0)
   206930:	c791                	beqz	a5,20693c <flash_init+0x40>
         outw(0x47600058, 0xffff0009);
   206932:	77c1                	lui	a5,0xffff0
@@ -15352,7 +15352,7 @@ _EXT_RAM int flash_init(FLASH_DEV *dev, unsigned char ud0, unsigned char ud1)
   206942:	badff0ef          	jal	2064ee <platform_init>
 
 	if(dev->dualflash_mode != 0 && ret == 0) {
-  206946:	00e44783          	lbu	a5,14(s0)
+  206946:	01844783          	lbu	a5,24(s0)
   20694a:	cb9d                	beqz	a5,206980 <flash_init+0x84>
   20694c:	e915                	bnez	a0,206980 <flash_init+0x84>
         outw(0x47600058, 0xffff0006);
@@ -15369,7 +15369,7 @@ _EXT_RAM int flash_init(FLASH_DEV *dev, unsigned char ud0, unsigned char ud1)
   206962:	4785                	li	a5,1
   206964:	c901                	beqz	a0,206974 <flash_init+0x78>
 			if(dev->dualflash_mode == 0xAD) {
-  206966:	00e44503          	lbu	a0,14(s0)
+  206966:	01844503          	lbu	a0,24(s0)
   20696a:	f5350513          	add	a0,a0,-173
   20696e:	00153513          	seqz	a0,a0
 				// if auto detect mode, set (1 << 0) to indicate the 2nd flash is not supported
@@ -15378,7 +15378,7 @@ _EXT_RAM int flash_init(FLASH_DEV *dev, unsigned char ud0, unsigned char ud1)
 
 			dev->dualflash_mode = 0; // disable dual flash mode
   206972:	4781                	li	a5,0
-  206974:	00f40723          	sb	a5,14(s0)
+  206974:	00f40c23          	sb	a5,24(s0)
     outw(0x47600058, 0xffff0000);
   206978:	7741                	lui	a4,0xffff0
   20697a:	476007b7          	lui	a5,0x47600
@@ -16823,7 +16823,7 @@ _EXT_RAM static int mxic_id_rems(FLASH_DEV *dev, unsigned short *id_rems)
 				dev->interrupt_disable();
   2072fa:	9782                	jalr	a5
 		if(dev->dualflash_mode != 0)
-  2072fc:	00e44783          	lbu	a5,14(s0)
+  2072fc:	01844783          	lbu	a5,24(s0)
   207300:	c791                	beqz	a5,20730c <flash_erase+0x36>
         	flash_dualflash_enable_excl(flash_dualflash_id_get(offset));
   207302:	8526                	mv	a0,s1
@@ -16835,7 +16835,7 @@ _EXT_RAM static int mxic_id_rems(FLASH_DEV *dev, unsigned short *id_rems)
   207310:	8522                	mv	a0,s0
   207312:	3739                	jal	207220 <mxic_erase>
 		if(dev->dualflash_mode != 0)
-  207314:	00e44783          	lbu	a5,14(s0)
+  207314:	01844783          	lbu	a5,24(s0)
   207318:	c789                	beqz	a5,207322 <flash_erase+0x4c>
     outw(0x47600058, 0xffff0000);
   20731a:	476007b7          	lui	a5,0x47600
@@ -16944,7 +16944,7 @@ _EXT_RAM static int mxic_id_rems(FLASH_DEV *dev, unsigned short *id_rems)
 				dev->interrupt_disable();
   2073ba:	9782                	jalr	a5
 		if(dev->dualflash_mode != 0)
-  2073bc:	00e44783          	lbu	a5,14(s0)
+  2073bc:	01844783          	lbu	a5,24(s0)
   2073c0:	c791                	beqz	a5,2073cc <flash_erase_page+0x36>
         	flash_dualflash_enable_excl(flash_dualflash_id_get(offset));
   2073c2:	8526                	mv	a0,s1
@@ -16956,7 +16956,7 @@ _EXT_RAM static int mxic_id_rems(FLASH_DEV *dev, unsigned short *id_rems)
   2073d0:	8522                	mv	a0,s0
   2073d2:	3f85                	jal	207342 <mxic_erase_page>
 		if(dev->dualflash_mode != 0)
-  2073d4:	00e44783          	lbu	a5,14(s0)
+  2073d4:	01844783          	lbu	a5,24(s0)
   2073d8:	c789                	beqz	a5,2073e2 <flash_erase_page+0x4c>
     outw(0x47600058, 0xffff0000);
   2073da:	476007b7          	lui	a5,0x47600
@@ -17193,7 +17193,7 @@ _EXT_RAM static int mxic_id_rems(FLASH_DEV *dev, unsigned short *id_rems)
 				dev->interrupt_disable();
   207544:	9782                	jalr	a5
 		if(dev->dualflash_mode != 0)
-  207546:	00e44783          	lbu	a5,14(s0)
+  207546:	01844783          	lbu	a5,24(s0)
   20754a:	c791                	beqz	a5,207556 <flash_write+0x3a>
         	flash_dualflash_enable_excl(flash_dualflash_id_get(offset));
   20754c:	8526                	mv	a0,s1
@@ -17206,7 +17206,7 @@ _EXT_RAM static int mxic_id_rems(FLASH_DEV *dev, unsigned short *id_rems)
   20755c:	8522                	mv	a0,s0
   20755e:	3725                	jal	207486 <mxic_program>
 		if(dev->dualflash_mode != 0)
-  207560:	00e44783          	lbu	a5,14(s0)
+  207560:	01844783          	lbu	a5,24(s0)
   207564:	c789                	beqz	a5,20756e <flash_write+0x52>
     outw(0x47600058, 0xffff0000);
   207566:	476007b7          	lui	a5,0x47600

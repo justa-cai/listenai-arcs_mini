@@ -45,15 +45,21 @@ uint8_t modem_alarm_start_flag = 0;
  
 void lsip_modem_env_init(void)
 {
-    lsip_modem_api.modem_fsm_reset = modem_reset;
-    /// modem config phy will be excuted at the 1.5 slot later
-    lsip_modem_api.modem_config_cbk_phy = NULL;
+    if (HAL_PMU_Is_PowerOn())
+    {
+        
+        lsip_modem_api.modem_fsm_reset = modem_reset;
+        /// modem config phy will be excuted at the 1.5 slot later
+        lsip_modem_api.modem_config_cbk_phy = NULL;
+        
+        lsip_modem_alarm_hdl_idx = 0;
+        lsip_modem_alarm_set_idx = 0;
+        modem_alarm_start_flag = 0;
+        memset(lsip_modem_param_env, 0, sizeof(struct lsip_modem_param_tag) * MODEM_ALARM_LENGTH);
+        memset(lsip_modem_alarm_arr, 0, sizeof(struct sch_alarm_tag) * MODEM_ALARM_LENGTH);
+    }
 
-    lsip_modem_alarm_hdl_idx = 0;
-    lsip_modem_alarm_set_idx = 0;
-    modem_alarm_start_flag = 0;
-    memset(lsip_modem_param_env, 0, sizeof(struct lsip_modem_param_tag) * MODEM_ALARM_LENGTH);
-    memset(lsip_modem_alarm_arr, 0, sizeof(struct sch_alarm_tag) * MODEM_ALARM_LENGTH);
+    return;
 }
 
 void modem_cfg_phy_alarm_clean(uint8_t et_idx)

@@ -1,10 +1,9 @@
 #include <string.h>
 #include "lsfs.h"
 #include "disk/disk_access.h"
-#include "arcs_ap.h"
+#include "lisa_sdmmc.h"
 #include "log_print.h"
 #include "fs.h"
-#include "sdmmc_init.h"
 #if CONFIG_LVFS_POSIX_API
 #include "lvfs.h"
 #endif
@@ -104,7 +103,7 @@ static void user_fs_change_to_root_folder(void)
     }
 }
 int user_fs_init(void){
-
+    lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
     disk_init(NULL);
 #if CONFIG_LVFS_POSIX_API
     lvfs_init();

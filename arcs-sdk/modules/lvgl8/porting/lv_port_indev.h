@@ -36,7 +36,7 @@ extern "C" {
  *      MACROS
  **********************/
 
-void lv_port_indev_init(touch_hw_config_t *config);
+void lv_port_indev_init(lisa_device_t *touch_dev);
 #ifdef __cplusplus
 } /* extern "C" */
 #endif

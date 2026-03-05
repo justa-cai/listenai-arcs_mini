@@ -150,7 +150,19 @@ void ipc_queue_status_set(struct ipc_queue *q, uint32_t status)
     q->vring->status = status;
 }
 
-void ipc_queue_init(bool master, struct ipc_queue *q, volatile struct vring_hdr *vring, volatile void *buf, int32_t item_size, int32_t item_num)
+void ipc_queue_init(struct ipc_queue *q, volatile struct vring_hdr *vring)
+{
+    if (vring != NULL)
+    {
+        q->vring = vring;
+        q->q_avail_rd_idx = 0;
+        q->q_ready_rd_idx = 0;
+        q->q_item_num     = vring->avail_wr_idx;
+        q->q_item_size    = vring->desc[1].addr - vring->desc[0].addr;
+    }
+}
+
+void ipc_queue_ring_init(volatile struct vring_hdr *vring, volatile void *buf, int32_t item_size, int32_t item_num)
 {
     int32_t i;
     struct vring_desc  *desc;
@@ -158,29 +170,26 @@ void ipc_queue_init(bool master, struct ipc_queue *q, volatile struct vring_hdr 
     struct vring_ready *ready;
     struct ipc_epmsg_hdr *epmsg_hdr;
 
-    if (master)
+    if ((item_num < 2) || (item_num & (item_num - 1)))
     {
-        desc  = (struct vring_desc*)(vring+1);
-        avail = (struct vring_avail*)((uint8_t*)desc + sizeof(struct vring_desc) * item_num);
-        ready = (struct vring_ready*)((uint8_t*)avail + sizeof(struct vring_avail) * item_num);
-        vring->desc  = desc;
-        vring->avail = avail;
-        vring->ready = ready;
-        vring->avail_wr_idx = item_num;
-        vring->ready_wr_idx = 0;
-
-        for (i = 0; i < item_num; i++)
-        {
-            epmsg_hdr = (struct ipc_epmsg_hdr*)(buf + i * item_size);
-            epmsg_hdr->desc_idx  = i;
-            vring->desc[i].addr  = (uint32_t)epmsg_hdr;
-            vring->desc[i].len   = item_size;
-            vring->avail[i].desc_idx = i;
-        }
+        ipc_err("IPC: invalid param");
+        return;
     }
-    q->vring = vring;
-    q->q_avail_rd_idx = 0;
-    q->q_ready_rd_idx = 0;
-    q->q_item_num     = item_num;
-    q->q_item_size    = item_size;
+    desc  = (struct vring_desc*)(vring + 1);
+    avail = (struct vring_avail*)((uint8_t*)desc + sizeof(struct vring_desc) * item_num);
+    ready = (struct vring_ready*)((uint8_t*)avail + sizeof(struct vring_avail) * item_num);
+    vring->desc  = desc;
+    vring->avail = avail;
+    vring->ready = ready;
+    vring->avail_wr_idx = item_num;
+    vring->ready_wr_idx = 0;
+
+    for (i = 0; i < item_num; i++)
+    {
+        epmsg_hdr = (struct ipc_epmsg_hdr*)(buf + i * item_size);
+        epmsg_hdr->desc_idx  = i;
+        vring->desc[i].addr  = (uint32_t)epmsg_hdr;
+        vring->desc[i].len   = item_size;
+        vring->avail[i].desc_idx = i;
+    }
 }

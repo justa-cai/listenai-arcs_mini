@@ -1,0 +1,3 @@
+tests:
+  test.app_player_base:
+    build_only: true

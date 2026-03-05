@@ -26,7 +26,11 @@
 #define ELOG_ASSERT_ENABLE
 
 /* buffer size for every line's log */
+#if defined(CONFIG_LOG_LINE_BUF_SIZE)
+#define ELOG_LINE_BUF_SIZE                   CONFIG_LOG_LINE_BUF_SIZE
+#else
 #define ELOG_LINE_BUF_SIZE                   CONFIG_EASYLOGGER_LINE_BUF_SIZE
+#endif
 /* output line number max length */
 #define ELOG_LINE_NUM_MAX_LEN                5
 /* output filter's tag max length */
@@ -54,7 +58,11 @@
 /* the highest output level for async mode, other level will sync output */
 #define ELOG_ASYNC_OUTPUT_LVL                    ELOG_LVL_ASSERT
 /* buffer size for asynchronous output mode */
+#if defined(CONFIG_LOG_ASYNC_BUF_SIZE)
+#define ELOG_ASYNC_OUTPUT_BUF_SIZE               CONFIG_LOG_ASYNC_BUF_SIZE
+#else
 #define ELOG_ASYNC_OUTPUT_BUF_SIZE               CONFIG_EASYLOGGER_ASYNC_BUF_SIZE
+#endif
 /* each asynchronous output's log which must end with newline sign */
 #define ELOG_ASYNC_LINE_OUTPUT
 #else

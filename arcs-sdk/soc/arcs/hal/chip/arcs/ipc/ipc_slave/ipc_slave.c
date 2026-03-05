@@ -17,24 +17,29 @@
 #include "platform.h"
 #include "ipc_slave.h"
 #include "mrpc.h"
+#include "ic_spinlock.h"
 #ifdef CFG_AMP_IPC_MRPC_SERVER_WIFI
 #include "mrpc_wifi_api_server.h"
 #endif
+#ifdef CFG_AMP_IPC_MRPC_SERVER_BT
+#include "mrpc_bt_api_server.h"
+#endif
+
 #ifdef CFG_AMP_IPC_MRPC_SERVER_OTP
 #include "mrpc_otp_api_server.h"
 #endif
 #ifdef IPC_TEST_CASE
 #include "ipc_test.h"
 #endif
+#ifdef CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S
+#include "mrpc_utils_m2s_api_server.h"
+#endif
+#include "pm_impl.h"
+
 
 static struct ipc_ccb *slave_msg_ccb;
 static struct ipc_ccb *master_msg_ccb;
-#ifdef CFG_AMP_IPC_WIFI_CHAN
-static struct ipc_ccb *slave_txdesc_ccb;
-static struct ipc_ccb *master_txcfm_ccb;
-static struct ipc_ccb *slave_rxcfm_ccb;
-static struct ipc_ccb *master_rxdesc_ccb;
-#endif
+
 static struct ipc_ccb *slave_fast_ccb;
 static struct ipc_ccb *master_fast_ccb;
 
@@ -42,12 +47,14 @@ static struct ipc_slave_env_tag ipc_slave_env;
 struct ipc_shared_env_tag ipc_shared_env __SHAREDRAM_AMP_IPC_ENV;
 
 
-static int32_t ipc_slave_fast_notify_handler(void *ccb, void *fast_notify_status)
+static int32_t ipc_slave_fast_notify_handler(void *ccb, void *fast_notify)
 {
     uint32_t notify;
 
-    notify = *((uint32_t*)fast_notify_status);
-    *((uint32_t*)fast_notify_status) = 0;
+    ic_spin_lock(IC_SPIN_LOCK_TYPE_IPC);
+    notify = *((uint32_t*)fast_notify);
+    *((uint32_t*)fast_notify) = 0;
+    ic_spin_unlock(IC_SPIN_LOCK_TYPE_IPC);
 
 #ifdef CFG_AMP_IPC_HALT_BY_PEER_CORE
     if (notify & IPC_EVT_HALT)
@@ -55,7 +62,17 @@ static int32_t ipc_slave_fast_notify_handler(void *ccb, void *fast_notify_status
         ipc_halt_by_peer(true);
     }
 #endif
+#if CONFIG_PM
+    if (notify & IPC_EVT_VRTC_SET)
+    {
+        vrtc_set_timer_from_ipc();
+    }
 
+    if (notify & IPC_EVT_ENTER_IDLE)/*The master core will go to sleep*/
+    {
+        pm_master_idle_request();
+    }
+#endif
     return 0;
 }
 
@@ -138,7 +155,6 @@ void ipc_slave_vprintf(const char *fmt, ...)
             msg->id  = IPC_IND_PRINT;
             data     = (char*)msg->data;
             va_start(args, fmt);
-            extern int dbg_vsnprintf_offset(char *str, size_t size, size_t offset, const char *fmt, va_list args);
             len = dbg_vsnprintf_offset((char *)data, remain, offset, fmt, args);
             va_end(args);
 
@@ -191,59 +207,7 @@ static int32_t ipc_slave_msg_input(void *ccb, void *param)
     return ret;
 }
 #endif
-#ifdef CFG_AMP_IPC_WIFI_CHAN
-int32_t ipc_slave_wifi_rxbuf_check(void)
-{
-    int32_t ret = 0;
 
-    ret = ipc_buf_full(master_rxdesc_ccb);
-
-    return !ret;
-}
-
-int32_t ipc_slave_wifi_rxdesc_push(void *data, int32_t size)
-{
-    ipc_send(master_rxdesc_ccb, data, size, -1);
-
-    return 0;
-}
-
-int32_t ipc_slave_wifi_txcfm_push(void *data, int32_t size)
-{
-    ipc_send(master_txcfm_ccb, data, size, -1);
-
-    return 0;
-}
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
-static RTOS_TASK_FCT(ipc_slave_wifi_tx_task)
-{
-    struct ipc_txdesc *tx;
-
-    while (1)
-    {
-        if ((tx = (struct ipc_txdesc*)ipc_get_rbuffer(slave_txdesc_ccb, NULL, -1)))
-        {
-            ipc_slave_env.cb.ipc_wifi_tx(NULL, tx->data);
-            ipc_free_rbuffer(slave_txdesc_ccb, (uint8_t*)tx, 0);
-        }
-    }
-}
-
-static RTOS_TASK_FCT(ipc_slave_wifi_rx_task)
-{
-    struct ipc_rxcfm *rx;
-
-    while (1)
-    {
-        if ((rx = (struct ipc_rxcfm*)ipc_get_rbuffer(slave_rxcfm_ccb, NULL, -1)))
-        {
-            ipc_slave_env.cb.ipc_wifi_rx_cfm(NULL, rx->data);
-            ipc_free_rbuffer(slave_rxcfm_ccb, (uint8_t*)rx, 0);
-        }
-    }
-}
-#endif
-#endif
 static int32_t ipc_slave_init_msg_chan(ipc_chan_callback_t cb)
 {
 #ifdef IPC_MSG_MGMT
@@ -251,7 +215,7 @@ static int32_t ipc_slave_init_msg_chan(ipc_chan_callback_t cb)
 #endif
     struct ipc_queue *slave_msg_q, *master_msg_q;
 
-    slave_msg_q = ipc_shared_queue_init(false, &ipc_shared_env.msg_a2c_buf.ring, ipc_shared_env.msg_a2c_buf.items, sizeof(struct ipc_epmsg_a2c_msg), IPC_MSGA2C_BUF_CNT);
+    slave_msg_q = ipc_get_queue(&ipc_shared_env.msg_a2c_buf.ring);
     if (slave_msg_q == NULL)
         goto ERROR1;
 
@@ -259,7 +223,7 @@ static int32_t ipc_slave_init_msg_chan(ipc_chan_callback_t cb)
     if (slave_msg_ccb == NULL)
         goto ERROR2;
 
-    master_msg_q = ipc_shared_queue_init(false, &ipc_shared_env.msg_c2a_buf.ring, ipc_shared_env.msg_c2a_buf.items, sizeof(struct ipc_epmsg_c2a_msg), IPC_MSGC2A_BUF_CNT);
+    master_msg_q = ipc_get_queue(&ipc_shared_env.msg_c2a_buf.ring);
     if (master_msg_q == NULL)
         goto ERROR3;
 
@@ -296,7 +260,7 @@ ERROR1:
 
 static int32_t ipc_slave_init_fast_chan(ipc_chan_callback_t cb)
 {
-    slave_fast_ccb  = ipc_chan_create(IPC_NAME("s_fast"), IPC_CHAN_SLAVE_FAST, NULL, cb, (void*)&ipc_shared_env.slave_status.fast_notify_status, IPC_CHAN_FLAGS_FAST);
+    slave_fast_ccb  = ipc_chan_create(IPC_NAME("s_fast"), IPC_CHAN_SLAVE_FAST, NULL, cb, (void*)&ipc_shared_env.slave_notify.state, IPC_CHAN_FLAGS_FAST);
     if (slave_fast_ccb == NULL)
         goto ERROR1;
 
@@ -310,134 +274,43 @@ ERROR2:
 ERROR1:
     return -1;
 }
-#ifdef CFG_AMP_IPC_WIFI_CHAN
-static int32_t ipc_slave_init_wifi_tx_data_chan(ipc_chan_callback_t cb)
+
+volatile struct amp_shared_info* ipc_get_amp_shared_info(void)
 {
-    struct ipc_queue *slave_txdesc_q, *master_txcfm_q;
-
-    slave_txdesc_q = ipc_shared_queue_init(false, &ipc_shared_env.txdesc.ring, ipc_shared_env.txdesc.items, sizeof(struct ipc_epmsg_txdesc), IPC_TXDESC_CNT);
-    if (slave_txdesc_q == NULL)
-        goto ERROR1;
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
-    slave_txdesc_ccb = ipc_chan_create(IPC_NAME("s_txdesc"), IPC_CHAN_SLAVE_TXDESC, slave_txdesc_q, cb, NULL, IPC_CHAN_FLAGS_USER_MODE);
-#else
-    slave_txdesc_ccb = ipc_chan_create(IPC_NAME("s_txdesc"), IPC_CHAN_SLAVE_TXDESC, slave_txdesc_q, cb, NULL, 0);
-#endif
-    if (slave_txdesc_ccb == NULL)
-        goto ERROR2;
-
-    master_txcfm_q = ipc_shared_queue_init(false, &ipc_shared_env.txcfm.ring, ipc_shared_env.txcfm.items, sizeof(struct ipc_epmsg_txcfm), IPC_TXCFM_CNT);
-    if (master_txcfm_q == NULL)
-        goto ERROR3;
-
-    master_txcfm_ccb = ipc_chan_create(IPC_NAME("m_txcfm"), IPC_CHAN_MASTER_TXCFM, master_txcfm_q, NULL, NULL, IPC_CHAN_FLAGS_REMOTE);
-    if (master_txcfm_ccb == NULL)
-        goto ERROR4;
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
-    if (rtos_task_create(ipc_slave_wifi_tx_task, "wifi_tx", IPC_WIFI_TX_TASK, LS_IPC_TX_TASK_STACK_SIZE, NULL,LS_IPC_TX_TASK_PRIORITY, NULL))
-        goto ERROR5;
-#else
-    /*接收的数据会被发送到rtos queue中，每次接收都需要中断来触发，所以一直处于RX状态*/
-    ipc_status_set(slave_txdesc_ccb, IPC_QUEUE_STATUS_RX);
-#endif
-    return 0;
-
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
-ERROR5:
-    rtos_free(master_txcfm_ccb);
-#endif
-ERROR4:
-    rtos_free(master_txcfm_q);
-ERROR3:
-    rtos_free(slave_txdesc_ccb);
-ERROR2:
-    rtos_free(slave_txdesc_q);
-ERROR1:
-    return -1;
+    return &ipc_shared_env.amp_shared;
 }
-
-static int32_t ipc_slave_init_wifi_rx_data_chan(ipc_chan_callback_t cb)
-{
-    struct ipc_queue *slave_rxcfm_q, *master_rxdesc_q;
-
-    slave_rxcfm_q = ipc_shared_queue_init(false, &ipc_shared_env.rxcfm.ring, ipc_shared_env.rxcfm.items, sizeof(struct ipc_epmsg_rxcfm), IPC_RXCFM_CNT);
-    if (slave_rxcfm_q == NULL)
-        goto ERROR1;
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
-    slave_rxcfm_ccb = ipc_chan_create(IPC_NAME("s_rxcfm"), IPC_CHAN_SLAVE_RXCFM, slave_rxcfm_q, cb, NULL, IPC_CHAN_FLAGS_USER_MODE);
-#else
-    slave_rxcfm_ccb = ipc_chan_create(IPC_NAME("s_rxcfm"), IPC_CHAN_SLAVE_RXCFM, slave_rxcfm_q, cb, NULL, 0);
-#endif
-    if (slave_rxcfm_ccb == NULL)
-        goto ERROR2;
-
-    master_rxdesc_q = ipc_shared_queue_init(false, &ipc_shared_env.rxdesc.ring, ipc_shared_env.rxdesc.items, sizeof(struct ipc_epmsg_rxdesc), IPC_RXDESC_CNT);
-    if (master_rxdesc_q == NULL)
-        goto ERROR3;
-
-    master_rxdesc_ccb = ipc_chan_create(IPC_NAME("m_rxdesc"), IPC_CHAN_MASTER_RXDESC, master_rxdesc_q, NULL, NULL, IPC_CHAN_FLAGS_REMOTE);
-    if (master_rxdesc_ccb == NULL)
-        goto ERROR4;
-
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
-    if (rtos_task_create(ipc_slave_wifi_rx_task, "wifi_rxcfm", IPC_WIFI_RX_TASK, LS_IPC_RXCFM_TASK_STACK_SIZE, NULL, LS_IPC_RXCFM_TASK_PRIORITY, NULL))
-        goto ERROR5;
-#else
-    /*接收的数据会被发送到rtos queue中，每次接收都需要中断来触发，所以一直处于RX状态*/
-    ipc_status_set(slave_rxcfm_ccb, IPC_QUEUE_STATUS_RX);
-#endif
-    return 0;
-
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
-ERROR5:
-    rtos_free(master_rxdesc_ccb);
-#endif
-ERROR4:
-    rtos_free(master_rxdesc_q);
-ERROR3:
-    rtos_free(slave_rxcfm_ccb);
-ERROR2:
-    rtos_free(slave_rxcfm_q);
-ERROR1:
-    return -1;
-}
-#endif
 
 int32_t ipc_slave_init(struct ipc_slave_cb_tag *cb)
 {
     int32_t res;
     struct mrpc_server_env *mrpc_server;
 
-    ipc_init(CORE_ID_SLAVE, &ipc_shared_env.slave_status, &ipc_shared_env.master_status);
+    ipc_slave_env.shared = &ipc_shared_env;
+    ipc_slave_env.cb     = *cb;
+    ipc_init(CORE_ID_SLAVE, &ipc_shared_env.slave_notify, &ipc_shared_env.master_notify);
     res  = ipc_slave_init_fast_chan(ipc_slave_fast_notify_handler);
     res |= ipc_slave_init_msg_chan(ipc_platform_task_notify);
+
 #ifdef CFG_AMP_IPC_WIFI_CHAN
-#ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
-    res |= ipc_slave_init_wifi_tx_data_chan(ipc_platform_task_notify);
-    res |= ipc_slave_init_wifi_rx_data_chan(ipc_platform_task_notify);
-    if (cb)
-        ipc_slave_env.cb = *cb;
-#else
-    if (cb)
-    {
-        res |= ipc_slave_init_wifi_tx_data_chan(cb->ipc_wifi_tx);
-        res |= ipc_slave_init_wifi_rx_data_chan(cb->ipc_wifi_rx_cfm);
-    }
-#endif
+    res |= ipc_slave_wifi_init_tx_data_chan(&ipc_slave_env);
+    res |= ipc_slave_wifi_init_rx_data_chan(&ipc_slave_env);
 #endif
     ipc_slave_env.link_state = IPC_LINK_STATE_INIT;
     IPC_ASSERT(res == 0);
 #ifdef CFG_AMP_IPC_MRPC_SERVER
-    mrpc_server = mrpc_server_init(IPC_CHAN_SLAVE_MSG, IPC_EP_MRPC_WL_SRV);
+    mrpc_server = mrpc_server_init(IPC_CHAN_SLAVE_MSG, IPC_EP_MRPC_SRV);
 #ifdef CFG_AMP_IPC_MRPC_SERVER_WIFI
     mrpc_service_register(mrpc_server, MRPC_SERVICE_TYPE_WIFI, mrpc_msg_wifi_handlers, MRPC_MSG_ID_WIFI_MAX);
 #endif
-#ifdef CFG_AMP_IPC_MRPC_SERVER_OTP
-    mrpc_service_register(mrpc_server, MRPC_SERVICE_TYPE_OTP, mrpc_msg_otp_handlers, MRPC_MSG_ID_OTP_MAX);
+#ifdef CFG_AMP_IPC_MRPC_SERVER_BT
+    mrpc_service_register(mrpc_server, MRPC_SERVICE_TYPE_BT, mrpc_msg_bt_handlers, MRPC_MSG_ID_BT_MAX);
+#endif
+#ifdef CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S
+    mrpc_service_register(mrpc_server, MRPC_SERVICE_TYPE_UTILS_M2S, mrpc_msg_utils_m2s_handlers, MRPC_MSG_ID_UTILS_M2S_MAX);
 #endif
 #endif
 #ifdef CFG_AMP_IPC_MRPC_CLIENT
-    mrpc_client_init(IPC_CHAN_SLAVE_MSG, IPC_CHAN_MASTER_MSG, IPC_EP_MRPC_WL_CLT, IPC_EP_MRPC_WL_SRV);
+    mrpc_client_init(IPC_CHAN_SLAVE_MSG, IPC_CHAN_MASTER_MSG, IPC_EP_MRPC_CLT, IPC_EP_MRPC_SRV);
 #endif
 #ifdef IPC_TEST_CASE
     ipc_test_case_init(mrpc_server);
@@ -445,5 +318,7 @@ int32_t ipc_slave_init(struct ipc_slave_cb_tag *cb)
 #if defined(CFG_AMP_IPC_HALT_PEER_CORE) || defined(CFG_AMP_IPC_HALT_BY_PEER_CORE)
     ipc_halt_peer_init();
 #endif
+
     return 0;
 }
+

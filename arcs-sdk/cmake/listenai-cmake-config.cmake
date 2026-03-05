@@ -53,6 +53,10 @@ check_tool(LISTENAI_TOOLS_KCONFIG "ListenAI Kconfig tool")
 check_tool(LISTENAI_TOOLS_MKHDR "ListenAI mkhdr tool")
 
 include(${LISTENAI_CMAKE_PATH}/hex.cmake)
+
+# 包含版本管理（在 kconfig 之前，因为 kconfig 可能依赖版本信息）
+include(${LISTENAI_CMAKE_PATH}/version.cmake)
+
 message(STATUS "Listenai module dir list: ${LISTENAI_MODULES_DIR_LIST}")
 
 # 从指定的目录中查询模块,并将模块的路径存放到属性LISTENAI_MODULES中
@@ -78,6 +82,36 @@ foreach(dir ${LISTENAI_MODULES_DIR_LIST})
     listenai_find_modules(${dir})
 endforeach()
 
+# 板型搜索逻辑（在 Kconfig 解析之前）
+# 设置 BOARD_KCONFIG_PATH 环境变量，供 boards/Kconfig 动态加载板型配置
+set(BOARD_DIR "")
+
+if(DEFINED BOARD)
+    # 优先级1: 自定义板型路径
+    if(DEFINED BOARD_SEARCH_PATH)
+        if(EXISTS "${BOARD_SEARCH_PATH}/${BOARD}")
+            set(BOARD_DIR "${BOARD_SEARCH_PATH}/${BOARD}")
+        endif()
+    endif()
+
+    # 优先级2: SDK 内置板型
+    if(NOT BOARD_DIR)
+        if(EXISTS "${ARCS_SDK_BASE}/boards/${BOARD}")
+            set(BOARD_DIR "${ARCS_SDK_BASE}/boards/${BOARD}")
+        endif()
+    endif()
+endif()
+
+# 设置板型 Kconfig 路径环境变量
+# 如果找到板型，设置为板型的 Kconfig 文件路径
+# 如果未找到，设置为不存在的路径，让 osource 静默跳过（避免 Kconfig 解析错误）
+if(BOARD_DIR AND EXISTS "${BOARD_DIR}/Kconfig")
+    set(ENV{BOARD_KCONFIG_PATH} "${BOARD_DIR}/Kconfig")
+else()
+    # 设置为一个明确不存在的文件路径，让 osource 静默跳过
+    set(ENV{BOARD_KCONFIG_PATH} "${ARCS_SDK_BASE}/boards/.kconfig.not.found")
+endif()
+
 include(${LISTENAI_CMAKE_PATH}/kconfig.cmake)
 include(${LISTENAI_CMAKE_PATH}/extensions.cmake)
 
@@ -93,3 +127,19 @@ include(${LISTENAI_CMAKE_PATH}/common_link_options.cmake)
 listenai_include_directories(${CMAKE_BINARY_DIR}/generated/include)
 listenai_library_named(_inner_app)
 listenai_library_sources(${LISTENAI_CMAKE_PATH}/empty.c)
+
+# 生成 SDK 版本头文件
+execute_process(
+    COMMAND ${CMAKE_COMMAND}
+        -DARCS_SDK_BASE=${ARCS_SDK_BASE}
+        -DOUT_FILE=${CMAKE_BINARY_DIR}/generated/include/sdk_version.h
+        -DSDK_VERSION_MAJOR=${SDK_VERSION_MAJOR}
+        -DSDK_VERSION_MINOR=${SDK_VERSION_MINOR}
+        -DSDK_PATCHLEVEL=${SDK_PATCHLEVEL}
+        -DSDK_VERSION_STRING=${SDK_VERSION_STRING}
+        -DSDK_VERSION_CODE=${SDK_VERSION_CODE}
+        -DSDK_VERSION_NUMBER=${SDK_VERSION_NUMBER}
+        -DSDKVERSION=${SDKVERSION}
+        -P ${ARCS_SDK_BASE}/cmake/gen_version_h.cmake
+    WORKING_DIRECTORY ${ARCS_SDK_BASE}
+)

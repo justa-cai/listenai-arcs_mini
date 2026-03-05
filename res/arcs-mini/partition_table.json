@@ -1,0 +1,32 @@
+[
+    {
+        "name": "boot",
+        "addr": "0x000000",
+        "file": "./boot.bin"
+    },
+    {
+        "name": "ap",
+        "addr": "0x040000",
+        "file": "./ap.bin"
+    },
+    {
+        "name": "tone",
+        "addr": "0x100000",
+        "file": "./tone.bin"
+    },
+    {
+        "name": "wake_word",
+        "addr": "0x200000",
+        "file": "./wake_word.bin"
+    },
+    {
+        "name": "respak",
+        "addr": "0x400000",
+        "file": "./respak.bin"
+    },
+    {
+        "name": "app",
+        "addr": "0x600000",
+        "file": "${BUILD_DIR}/arcs-mini.bin"
+    }
+]

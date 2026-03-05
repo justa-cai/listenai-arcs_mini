@@ -34,6 +34,14 @@ extern "C" {
 #endif
 
 /*******************
+ * LV_ATTRIBUTE_FAST_MEM
+ *******************/
+
+#ifdef CONFIG_LV_ATTRIBUTE_FAST_MEM_USE_IRAM
+#  define CONFIG_LV_ATTRIBUTE_FAST_MEM __attribute__((section(".itcm.text")))
+#endif
+
+/*******************
  * LV_MEM_SIZE
  *******************/
 

@@ -300,6 +300,12 @@ static int wifi_cli_scan_params(wifi_scan_params_t *cfg, char *params)
             break;
         }
 
+        case 'd':
+        {
+            cfg->duration = atoi(token);
+            break;
+        }
+
         default:
             res = CLI_SHOW_USAGE;
             break;
@@ -383,8 +389,29 @@ static int wifi_cli_scan(char *params)
 static int wifi_cli_get_scan_results(char *params)
 {
     ls_err_t ret = LS_OK;
+    wifi_scan_result_t *scan_results;
+    int8_t cnt=0, i=0;
 
-    ret = wifi_get_scan_result();
+    ret = wifi_get_scan_result(&scan_results,&cnt);
+
+    for (i = 0; i < MAX_AP_SCAN; i++)
+    {
+        if ((wifi_scan_result_t *)(scan_results + i)->is_used)
+        {
+            CLI_LOG("index[%02d]: channel %02u, bssid %02X:%02X:%02X:%02X:%02X:%02X, rssi %4d, auth %20s SSID %s\n",
+                    i,
+                    (wifi_scan_result_t *)(scan_results + i)->channel,
+                    (wifi_scan_result_t *)(scan_results + i)->bssid[0],
+                    (wifi_scan_result_t *)(scan_results + i)->bssid[1],
+                    (wifi_scan_result_t *)(scan_results + i)->bssid[2],
+                    (wifi_scan_result_t *)(scan_results + i)->bssid[3],
+                    (wifi_scan_result_t *)(scan_results + i)->bssid[4],
+                    (wifi_scan_result_t *)(scan_results + i)->bssid[5],
+                    (wifi_scan_result_t *)(scan_results + i)->rssi,
+                    wifi_sec_to_str((wifi_scan_result_t *)(scan_results + i)->auth),
+                    (wifi_scan_result_t *)(scan_results + i)->ssid);
+        }
+    }
 
     return ret;
 }
@@ -711,30 +738,27 @@ static int wifi_cli_get_sta_connected_status(char *params)
 
 static int wifi_cli_powersave(char *params)
 {
-    char *token, *next = params;
-    ls_err_t ret = LS_OK;
+    char *ptr, *next = params;
     int res = CLI_SUCCESS;
 
-    while ((token = utils_next_token(&next)))
-    {
-        if (strncmp(token, "on", 2) == 0)
-        {
-            ret = wifi_sta_ps_enter();
-        }
-        else if (strncmp(token, "off", 3) == 0)
-        {
-            ret = wifi_sta_ps_exit();
-        }
-        else
-        {
-            res = CLI_SHOW_USAGE;
-        }
+    if (!(ptr = utils_next_token(&next))) {
+        return CLI_SHOW_USAGE;
     }
-    
-    if (ret)
+
+    if (!strcmp(ptr, "status"))
     {
-        CLI_LOGE(" %d \r\n", ret);
-        res = CLI_ERROR;
+    }
+    else if (!strcmp(ptr, "on"))
+    {
+        wifi_ps_mode_set(WIFI_PS_DEFAULT_TYPE);
+    }
+    else if (!strcmp(ptr, "off"))
+    {
+        wifi_ps_mode_set(WIFI_PS_MODE_OFF);
+    }
+    else
+    {
+        return CLI_SHOW_USAGE;
     }
 
     return res;
@@ -780,6 +804,54 @@ static int wifi_cli_listen_interval_get(char *params)
     {
        CLI_LOG("Get listen interval %d \r\n", listen_itv);
     }
+    return res;
+}
+
+static int wifi_cli_dont_wait_bcmc_set(char *params)
+{
+    int res = CLI_SUCCESS;
+    ls_err_t ret;
+    uint8_t dont_wait = 0;
+    char *token, *next = params;
+
+    token = utils_next_token(&next);
+    if (token)
+    {
+        dont_wait = atoi(token);
+
+        ret = wifi_sta_set_dont_wait_bcmc(dont_wait);
+
+        if (ret)
+        {
+            CLI_LOGE(" %d \r\n", ret);
+            res = CLI_ERROR;
+        }
+        else
+        {
+           CLI_LOG("SET dont_wait_bcmc %d \r\n", dont_wait);
+        }
+    }
+
+    return res;
+}
+
+static int wifi_cli_dont_wait_bcmc_get(char *params)
+{
+    int res = CLI_SUCCESS;
+    ls_err_t ret;
+    uint8_t dont_wait = 0;
+
+    ret = wifi_sta_get_dont_wait_bcmc(&dont_wait);
+    if (ret)
+    {
+        CLI_LOGE(" %d \r\n", ret);
+        res = CLI_ERROR;
+    }
+    else
+    {
+       CLI_LOG("Get dont_wait_bcmc %d \r\n", dont_wait);
+    }
+
     return res;
 }
 
@@ -1764,7 +1836,7 @@ static const struct cli_cmd cli_wifi_commands[] =
     {wifi_cli_set_country_code, "wifi_set_country", "US/EU/CN/JP"},
     {wifi_cli_get_country_code, "wifi_get_country", ""},
     {wifi_cli_get_channel, "wifi_get_chan", ":get current operating channel"},
-    {wifi_cli_scan, "wifi_scan", "[-s <ssid>] [-b <bssid>] [-c <channel1,channel2,>] \r\n"
+    {wifi_cli_scan, "wifi_scan", "[-s <ssid>] [-b <bssid>] [-c <channel1,channel2,>] [-d <duration in ms, max 150 ms>]\r\n"
      "            example: wifi_scan -c 1,2,5,6,11"},
     {wifi_cli_get_scan_results, "wifi_scan_results", ":show scan results"},
     {wifi_cli_disconnect, "wifi_disconnect", ""},
@@ -1788,9 +1860,13 @@ static const struct cli_cmd cli_wifi_commands[] =
     {wifi_cli_get_rssi, "wifi_rssi", ": get sta mode rssi strength in connection state"},
     {wifi_cli_get_link_status, "wifi_link_status", ": get sta link status"},
     {wifi_cli_get_sta_connected_status, "wifi_sta_state", ": check wifi connected or not"},
-    {wifi_cli_powersave, "wifi_powersave", "<on/off>"},
+     {wifi_cli_powersave, "wifi_powersave", "[-m <keep alive or not:0|1>]\n"
+                                        "                  off\n"
+                                        "                  status"},
     {wifi_cli_listen_interval_set, "wifi_set_listen_interval", "<value>" " max value should less than 20"},
     {wifi_cli_listen_interval_get, "wifi_get_listen_interval", ""},
+    {wifi_cli_dont_wait_bcmc_set, "wifi_set_dont_wait_bcmc", "<enable>"},
+    {wifi_cli_dont_wait_bcmc_get, "wifi_get_dont_wait_bcmc", ""},
     {wifi_cli_keepalive_time_set, "wifi_keepalive", "<value, max value 255, unit:seconds>"},
     {wifi_cli_set_mac_addr, "wifi_set_mac", "<mac address xx:xx:xx:xx:xx:xx>"},
     {wifi_cli_get_sta_mac_addr, "wifi_sta_mac", ": get sta mac address"},

@@ -243,6 +243,28 @@ uint32_t UART_GetRxCount(void *res);
  * */
 int32_t  UART_GetStatus(void *res, CSK_UART_STATUS* stat);
 
+/*
+ * Function name: UART_SetDMATxChannel
+ * Function description: Override the DMA channel assignment used for UART TX transfers.
+ * Parameter list:
+ *          res:         UART device descriptor (UARTX())
+ *          channel:     DMA channel number (0 ~ DMA_MAX_NR_CHANNELS-1) or DMA_CHANNEL_ANY
+ * Return:
+ *          通用返回代码，详见Driver_Common.h
+ */
+int32_t  UART_SetDMATxChannel(void *res, uint8_t channel);
+
+/*
+ * Function name: UART_SetDMARxChannel
+ * Function description: Override the DMA channel assignment used for UART RX transfers.
+ * Parameter list:
+ *          res:         UART device descriptor (UARTX())
+ *          channel:     DMA channel number (0 ~ DMA_MAX_NR_CHANNELS-1) or DMA_CHANNEL_ANY
+ * Return:
+ *          通用返回代码，详见Driver_Common.h
+ */
+int32_t  UART_SetDMARxChannel(void *res, uint8_t channel);
+
 
 /*
  * 获取设备实例函数

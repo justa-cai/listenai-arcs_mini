@@ -1,3 +1,34 @@
+choice WIFI_LWIP_CORE_MODE
+    prompt "WiFi and LWIP Core Mode"
+    default WIFI_LWIP_NONE
+    help
+        Select the core mode for WiFi and LWIP.
+        For compatibility, please choose according to your hardware and software configuration.
+
+config WIFI_LWIP_NONE
+    bool "No WiFi/LWIP support"
+    help
+        Select this if you don't need WiFi or LWIP support.
+
+config WIFI_LWIP_SAME_CORE
+    bool "WiFi and LWIP run on the same core"
+    select WIFI
+    select LWIP
+    help
+        Select this if both WiFi stack and LWIP stack run on the same CPU core.
+
+config WIFI_LWIP_DIFF_CORE
+    bool "WiFi and LWIP run on different cores"
+    select ARCS_HAL_IPC
+    help
+        Select this if WiFi stack and LWIP stack run on different CPU cores.
+        This mode may be used for specific performance optimization or multi-core architecture.
+        NOTE: You need to manually enable WIFI or LWIP in each core's prj.conf:
+          - WiFi core: CONFIG_WIFI=y, CONFIG_ARCS_HAL_SIMSOCKET=y
+          - LWIP core: CONFIG_LWIP=y
+
+endchoice
+
 menuconfig WIFI
     bool "WiFi Support"
     default n
@@ -8,28 +39,6 @@ menuconfig WIFI
     select MBEDTLS_HSU
     help
         Enable WiFi support including core WiFi functionality
-
-choice WIFI_LWIP_CORE_MODE
-    prompt "WiFi and LWIP Core Mode"
-    default WIFI_LWIP_DIFF_CORE if WIFI || LWIP
-    help
-        Select the core mode for WiFi and LWIP.
-        For compatibility, please choose according to your hardware and software configuration.
-
-config WIFI_LWIP_SAME_CORE
-    bool "WiFi and LWIP run on the same core"
-    help
-        Select this if both WiFi stack and LWIP stack run on the same CPU core.
-
-config WIFI_LWIP_DIFF_CORE
-    bool "WiFi and LWIP run on different cores"
-    select ARCS_HAL_SIMSOCKET if WIFI
-    select ARCS_HAL_IPC
-    help
-        Select this if WiFi stack and LWIP stack run on different CPU cores.
-        This mode may be used for specific performance optimization or multi-core architecture.
-
-endchoice
 
 
 if WIFI

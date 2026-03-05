@@ -1,0 +1,17 @@
+menu  "Application UI"
+
+config APPLICATION_UI
+    bool "application ui"
+    default n
+
+if APPLICATION_UI
+
+config ALARM_RING_AUTO_RETURN_MS
+    int "Alarm ring UI auto return timeout (ms)"
+    default 60000
+    help
+        Time before alarm ring page automatically returns to Home.
+
+endif
+
+endmenu

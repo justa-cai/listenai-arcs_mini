@@ -183,12 +183,16 @@ LIBS += -lic_lock
 MODULES  += ic_lock
 endif
 
+ifeq ($(MODULE_PM), 1)
+LIBS += -lpm
+MODULES  += pm_impl
+endif
+
 ifeq ($(LIB_EXT_WIFI_BT), 1)
 EXT_LIBS  := $(shell ls $(TOPDIR)/chip/${CHIP}/lib | sed 's/^lib/-l/; s/\.[^.]*$$//')
 EXTLIBS += $(EXT_LIBS) -L$(TOPDIR)/chip/${CHIP}/lib
 endif
 
-LWIP_VER := lwip-2.2.0
 #includings and flags
 CFLAGS = -I $(TOPDIR)/include/CMSIS \
          -I $(TOPDIR)/include/CMSIS/core \

@@ -1,8 +1,0 @@
-menu "touch ft5336 configuration"
-
-
-if LISA_TOUCH_FT5336
-
-endif
-
-endmenu

@@ -1,0 +1,49 @@
+config ARCS_HAL_MBEDTLS
+    bool "Enable ARCS HAL mbedTLS"
+    default n
+    help
+        Enable mbedTLS cryptographic library support in ARCS HAL.
+        Provides ECC, RSA, and other cryptographic operations.
+
+        HSU (Hardware Speed-Up) acceleration is automatically enabled for optimal
+        WiFi performance. Without HSU, WiFi handshakes may fail due to slow crypto.
+
+if ARCS_HAL_MBEDTLS
+
+config ARCS_HAL_MBEDTLS_CFG_HSU
+    bool "Internal config: Hardware Speed-Up (HSU) acceleration for mbedTLS crypto operations."
+    default y
+    depends on ARCS_HAL_MBEDTLS
+    help
+        Internal config: Hardware Speed-Up (HSU) acceleration for mbedTLS crypto operations.
+        This is automatically enabled when ARCS_HAL_MBEDTLS is selected.
+
+
+choice ARCS_HAL_MBEDTLS_VERSION
+    prompt "mbedTLS Version"
+    default ARCS_HAL_MBEDTLS_VERSION_2_28_9
+    help
+        Select the mbedTLS library version to use.
+
+    config ARCS_HAL_MBEDTLS_VERSION_2_28_9
+        bool "mbedTLS 2.28.9"
+        help
+            Use mbedTLS version 2.28.9 (LTS version)
+
+    config ARCS_HAL_MBEDTLS_VERSION_3_6_4
+        bool "mbedTLS 3.6.4"
+        help
+            Use mbedTLS version 3.6.4 (Latest stable version)
+endchoice
+
+config ARCS_HAL_MBEDTLS_VER
+    string
+    default "mbedtls-2.28.9" if ARCS_HAL_MBEDTLS_VERSION_2_28_9
+    default "mbedtls-3.6.4" if ARCS_HAL_MBEDTLS_VERSION_3_6_4
+
+config ARCS_HAL_MBEDTLS_MAJOR_VER
+    int
+    default 2 if ARCS_HAL_MBEDTLS_VERSION_2_28_9
+    default 3 if ARCS_HAL_MBEDTLS_VERSION_3_6_4
+
+endif # ARCS_HAL_MBEDTLS

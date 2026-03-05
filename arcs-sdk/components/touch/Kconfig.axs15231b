@@ -1,8 +1,0 @@
-menu "touch axs15231b configuration"
-
-
-if LISA_TOUCH_AXS15231B
-
-endif
-
-endmenu

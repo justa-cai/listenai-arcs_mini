@@ -1,0 +1,4 @@
+tests:
+  samples.session_voice.chat_weather.linux:
+    tags: linux
+    build_only: true

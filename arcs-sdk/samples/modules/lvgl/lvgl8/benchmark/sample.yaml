@@ -4,4 +4,4 @@ tests:
     runner: uart
     log_analyzer:
       type: "regex"
-      pattern: "LVGL benchmark start"
+      pattern: "LVGL8 benchmark start"

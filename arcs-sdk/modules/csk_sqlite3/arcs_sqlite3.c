@@ -368,6 +368,9 @@ int csk_Open(sqlite3_vfs *vfs, const char *path, sqlite3_file *file, int flags, 
 	if (path == NULL)
 		return SQLITE_IOERR;
 	dbg_printf("csk_Open: 0o %s %0x\n", path, mode);
+	if (flags & SQLITE_OPEN_CREATE) {
+		mode |= LSFS_O_CREATE;
+	}
 	if (flags & SQLITE_OPEN_READONLY)
 		mode |= LSFS_O_READ;
 	if (flags & SQLITE_OPEN_READWRITE || flags & SQLITE_OPEN_MAIN_JOURNAL) {

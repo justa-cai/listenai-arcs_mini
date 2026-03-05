@@ -85,7 +85,7 @@ ls_err_t wifi_sta_mode_enable(void);
  */
 ls_err_t wifi_sta_mode_disable(void);
 /**
- * @brief     This API connect wifi sta interface to the AP 
+ * @brief     This API connect wifi sta interface to the AP
  *
  * @attention
  *
@@ -98,7 +98,7 @@ ls_err_t wifi_sta_mode_disable(void);
 ls_err_t wifi_sta_connect(wifi_connect_cfg_t *config);
 
 /**
- * @brief     This API disconnect the WIFI connection 
+ * @brief     This API disconnect the WIFI connection
  *
  * @attention
  *
@@ -139,7 +139,7 @@ ls_err_t wifi_sta_auto_reconnect_disable(void);
 /**
  * @brief     This API start wifi scan
  *
- * @attention 
+ * @attention
  *
  * @params    pointer of struct wifi_scan_params_t
  *
@@ -152,20 +152,21 @@ ls_err_t wifi_scan_start(wifi_scan_params_t *config);
 /**
  * @brief     This API show the scan results
  *
- * @attention 
+ * @attention
  *
- * @params
+ * @params    scan_results-- get scan buffer pointer
+ * @params    cnt   AP number in scan results
  *
  * @return
  *    - LS_OK: succeed
  *    - others: other errors.
  */
-ls_err_t wifi_get_scan_result(void);
+ls_err_t wifi_get_scan_result(wifi_scan_result_t **scan_results, int8_t *cnt);
 
 /**
  * @brief     This API get the scan results AP number
  *
- * @attention 
+ * @attention
  *
  * @params ap_num : ap number variable pointer
  *
@@ -178,7 +179,7 @@ ls_err_t wifi_get_sta_scanlist_nums(int *ap_num);
 /**
  * @brief     This API dump the scan results
  *
- * @attention 
+ * @attention
  *
  * @params    results -- pointer of dump buffer
  * @params    tgt_num -- the number of scaned AP expected to be saved in the dump buffer
@@ -193,7 +194,7 @@ ls_err_t wifi_sta_scanlist_dump(wifi_scan_result_t *results, int tgt_num, int *r
 /**
  * @brief     This API get AP rssi info
  *
- * @attention 
+ * @attention
  *
  * @params  rssi value
  *
@@ -219,7 +220,7 @@ ls_err_t wifi_sta_aid_get(uint16_t *aid);
 /**
  * @brief     This API is to get current operating channel
  *
- * @attention 
+ * @attention
  *
  * @params   channel number
  *
@@ -245,7 +246,7 @@ ls_err_t wifi_get_link_status(struct wifi_link_status *link_status);
 /**
  * @brief     This API starts soft AP mode
  *
- * @attention 
+ * @attention
  *
  * @params   pointer of struct wifi_ap_cfg_params_t
  *
@@ -258,7 +259,7 @@ ls_err_t wifi_ap_start(const wifi_ap_cfg_params_t *config);
 /**
  * @brief     This API stops soft AP mode
  *
- * @attention 
+ * @attention
  *
  * @params
  *
@@ -298,7 +299,7 @@ ls_err_t wifi_set_country_code(char *country_code);
 /**
  * @brief     This API is to get country code
  *
- * @attention 
+ * @attention
  *
  * @params
  *
@@ -311,7 +312,7 @@ ls_err_t wifi_get_country_code(char *country_code);
 /**
  * @brief     This API enable power
  *
- * @attention 
+ * @attention
  *
  * @params
  *
@@ -324,7 +325,7 @@ ls_err_t wifi_sta_ps_enter(void);
 /**
  * @brief     This API disable power save
  *
- * @attention 
+ * @attention
  *
  * @params
  *
@@ -338,7 +339,7 @@ ls_err_t wifi_sta_ps_exit(void);
 /**
  * @brief     This API set listen interval
  *
- * @attention 
+ * @attention
  *
  * @params   listen interval value (value < 20)
  *
@@ -351,7 +352,7 @@ ls_err_t wifi_sta_set_listen_itv(uint8_t listen_itv);
 /**
  * @brief     This API gets listen interval value
  *
- * @attention 
+ * @attention
  *
  * @params[out] listen_itv   listen interval value
  *
@@ -392,7 +393,7 @@ ls_err_t wifi_sta_set_vendor_ie(char *ie, int ie_len);
 /**
  * @brief     This API is to clear vendor element for sta mode.
  *
- * @attention 
+ * @attention
  *
  * @params
  *
@@ -447,7 +448,7 @@ ls_err_t wifi_ap_max_sta_num(uint8_t max_sta_supported);
 /**
  * @brief     This API is to delelte sta connected to soft AP
  *
- * @attention 
+ * @attention
  *
  * @params    sta index which to be deleted, get by EVENT_WIFI_AP_STA_ADD or wifi_ap_get_sta_info
  *
@@ -460,7 +461,7 @@ ls_err_t wifi_ap_sta_delete(uint8_t sta_idx);
  /**
  * @brief     This API is to get sta connected status for sta mode
  *
- * @attention 
+ * @attention
  *
  * @params[out] link_status
  *
@@ -473,7 +474,7 @@ ls_err_t wifi_get_sta_state(int *link_status);
  /**
  * @brief     This API is to get whether soft ap has started or not
  *
- * @attention 
+ * @attention
  *
  * @params[out] ap_state
  *
@@ -485,7 +486,7 @@ ls_err_t wifi_get_ap_state(int *ap_state);
  /**
  * @brief     This API is to get connected sta info in Soft AP mode
  *
- * @attention 
+ * @attention
  *
  * @params    pointer of struct  wifi_sta_basic_info
  *
@@ -765,7 +766,6 @@ ls_err_t wifi_on(void);
  *    - others: other errors
  */
 ls_err_t wifi_off(void);
-
 /**
  * @brief     This API is to release rx buffer.
  *
@@ -791,4 +791,177 @@ ls_err_t wifi_free_rx_buff(void);
  *    - others: other errors
  */
 ls_err_t wifi_reinit_rx_buff(void);
+
+/**
+ * @brief     This API is to get pmk after connect success
+ *
+ * @attention
+ *
+ * @params
+ *    - pmk: wpa/wpa2 pmk
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_get_pmk(uint8_t pmk[32]);
+
+/**
+ * @brief     This API is to set pmk for sta mode
+ *
+ * @attention
+ *
+ * @params
+ *    - pmk:  wpa/wpa2 pmk
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_set_pmk(uint8_t pmk[32]);
+
+/**
+ * @brief     This API is to calculate pmk by ssid/passphrase directly, would take nearly 100ms
+ *
+ * @attention
+ *
+ * @params
+ *    - ssid: input ssid stream
+ *    - ssid_len: input ssid str lenght
+ *    - passphrase: input passphrase
+ *    - passphrase_len: input length of passphrase
+ *    - pmk:  output wpa/wpa2 pmk
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_calc_pmk(uint8_t *ssid, uint8_t ssid_len, uint8_t *passphrase, uint8_t passphrase_len, uint8_t *pmk);
+
+/**
+ * @brief     This function callback for user to handle received management frame
+ *
+ * @attention
+ *    - these manage frame did not be filtered by wifi driver, user should process the frame they interested.
+ *    - don't do any modify to the incoming frame or free the frame, the frame also should be processed by upper layer, like wpa supplicant
+ * @params
+ *    - frame: received management frame
+ *    - len: length of frame
+ *    - param: specified by user
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+typedef void (* wifi_mgmt_frame_cb_func)(uint8_t *frame, uint32_t len, void *param);
+
+/**
+ * @brief     This API register customer specified callback to process mgmt frame
+ *
+ * @attention
+ *
+ * @params
+ *    - wifi_mgmt_frame_cb_func: callback function
+ *    - param: specified by user
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_mgmt_frame_cb_register(wifi_mgmt_frame_cb_func cb, void *param);
+
+/**
+ * @brief     This API is to set ps mode.
+ *
+ * @attention
+ *
+ * @params
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_ps_mode_set(wifi_ps_mode_e mode);
+
+
+/**
+ * @brief     This API is to block ps.
+ *
+ * @attention
+ *
+ * @params
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_ps_lock_acquire(uint32_t lock, bool force);
+
+/**
+ * @brief     This API is to unblock ps.
+ *
+ * @attention
+ *
+ * @params
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_ps_lock_release(uint32_t lock);
+
+/**
+ * @brief     This API set dont_wait_bcmc
+ *
+ * @attention
+ *
+ * @params   dont_wait_bcmc value
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors.
+ */
+ls_err_t wifi_sta_set_dont_wait_bcmc(uint8_t dont_wait_bcmc);
+
+/**
+ * @brief     This API gets dont_wait_bcmc
+ *
+ *
+ * @attention
+ *
+ * @params[out] listen_itv   dont_wait_bcmc value
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors.
+ */
+ls_err_t wifi_sta_get_dont_wait_bcmc(uint8_t *dont_wait_bcmc);
+
+/**
+ * @brief     This API is switch the DPD calibration tracking on STA connect or AP start.
+ *
+ * @attention
+ *
+ * @params
+ *    - en 1: enable DPD tracking 0: disable DPD tracking
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_dpd_track_connect_switch(uint8_t en);
+
+/**
+ * @brief     This API is to set the debug level of PS module.
+ *
+ * @attention
+ *
+ * @params
+ *    - level :
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+ls_err_t wifi_ps_dbg_level_set(uint8_t level);
 #endif

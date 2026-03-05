@@ -1,0 +1,84 @@
+/**
+ * Source Link Styling
+ *
+ * Simple and clean styling for source code location links
+ */
+
+.source-link-box {
+    background-color: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-left: 3px solid #2196f3;
+    border-radius: 4px;
+    padding: 10px 16px;
+    margin: 16px 0 24px 0;
+}
+
+.source-link-box p {
+    margin: 0 !important;
+    color: #495057;
+    font-size: 14px;
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.source-link-icon {
+    font-size: 16px;
+    margin-right: 2px;
+}
+
+.source-link-box strong {
+    color: #495057;
+    font-weight: 500;
+}
+
+.source-link-path {
+    background-color: #e9ecef;
+    color: #495057 !important;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+    font-size: 13px;
+    font-weight: normal;
+}
+
+.source-link-button {
+    background-color: #2196f3;
+    color: #ffffff !important;
+    padding: 3px 12px;
+    border-radius: 3px;
+    text-decoration: none !important;
+    font-size: 13px;
+    transition: background-color 0.2s ease;
+    display: inline-block;
+    margin-left: 4px;
+}
+
+.source-link-button:hover {
+    background-color: #1976d2;
+    color: #ffffff !important;
+    text-decoration: none !important;
+}
+
+/* Mobile responsive */
+@media screen and (max-width: 768px) {
+    .source-link-box {
+        padding: 10px 12px;
+    }
+
+    .source-link-box p {
+        font-size: 13px;
+    }
+
+    .source-link-path {
+        font-size: 12px;
+        word-break: break-all;
+    }
+
+    .source-link-button {
+        margin-top: 4px;
+        font-size: 12px;
+    }
+}

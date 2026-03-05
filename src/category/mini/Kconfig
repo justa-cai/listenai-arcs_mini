@@ -1,0 +1,27 @@
+menu "category mini"
+
+config MCP_TOOL_EMOJI
+    bool "mcp tool emoji"
+    default y
+    help
+        Enable mcp tool emoji
+
+config MCP_TOOL_MODEL_PERSONA_UPDATE
+    bool "mcp tool model persona update"
+    default y
+    help
+        Enable mcp tool model persona update
+
+config MCP_TOOL_SHOW_QRCODE
+    bool "mcp tool show qrcode"
+    default y
+    help
+        Enable mcp tool show qrcode
+
+config MCP_TOOL_LOADING
+    bool "mcp tool loading"
+    default y
+    help
+        Enable mcp tool loading
+
+endmenu

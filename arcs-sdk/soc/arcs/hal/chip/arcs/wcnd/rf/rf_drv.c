@@ -26,6 +26,7 @@
 #include "wf_soc_drv.h"
 
 #include "nv_otp.h"
+#include "rf_fxp.h"
 
 #define RFIF IP_RFIF
 #define AON_CTRL IP_AON_CTRL
@@ -40,10 +41,74 @@
 #define MEM_RD32(addr)              (*(volatile uint32_t *)(addr))
 #define MEM_WR32(addr, value)       (*(volatile uint32_t *)(addr)) = (value)
 #define READ8_F(addr_oft) (*(volatile uint8_t *)(FLASH_NV_BASE_ADDR+addr_oft))
+#define ARRAY_SIZE(arr)              (sizeof(arr) / sizeof((arr)[0]))
 
 extern uint8_t wf_power_offset_en;
 
 static void rf_set_wf_ppa_gain(uint8_t index, uint8_t ppa_val);
+
+#if CONFIG_PM
+#define RF_REG_TOTAL_LEN         133
+
+struct rf_reg_info
+{
+    volatile uint32_t *addr;
+    uint32_t len;
+};
+
+static struct rf_reg_info rf_reg_context[] =
+{
+    {&IP_RFIF->REG_CTRL0.all, 2},
+    {&IP_RFIF->REG_DELAY_CTRL0.all, 3},
+    {&IP_RFIF->REG_RX_LOGIC0.all, 59},
+    {&IP_RFIF->REG_RX_LOGIC59.all, 3},
+    {&IP_RFIF->REG_RX_LOGIC62.all, 1},
+    {&IP_RFIF->REG_TX_LOGIC0.all, 2},
+
+    {&IP_NEW_DFE->REG_CFR_POST_DIG_GAIN_0.all, 10},
+    {&IP_NEW_DFE->REG_RXIQ_BANK0_CFG0.all, 3},
+    {&IP_NEW_DFE->REG_RXIQ_BANK1_CFG0.all, 3},
+    {&IP_NEW_DFE->REG_COMPS_CFG0.all, 1},
+    {&IP_NEW_DFE->REG_TPC_CTRL_DCCOMP_I0.all, 10},
+    {&IP_NEW_DFE->REG_TPC_CTRL_DCCOMP_Q0.all, 10},
+    {&IP_NEW_DFE->REG_TPC_CTRL_IQCOMP_I0.all, 10},
+    {&IP_NEW_DFE->REG_TPC_CTRL_IQCOMP_Q0.all, 10},
+
+    {&IP_CMN_SYS->REG_SYS_EFUSE_SEL.all, 1},
+    {&IP_CMN_IOMUX->REG_PAD_FLASHIO_00.all, 5},
+    {0, 0}
+};
+
+
+static uint32_t rf_reg_stash[RF_REG_TOTAL_LEN];
+
+
+static void rf_save_regs(void)
+{
+    uint32_t *stash_ptr = rf_reg_stash;
+
+    for (int32_t i = 0; i < ARRAY_SIZE(rf_reg_context); i++)
+    {
+        for (int32_t j = 0; j < rf_reg_context[i].len; j++)
+        {
+            *stash_ptr++ = MEM_RD32(&rf_reg_context[i].addr[j]);
+        }
+    }
+}
+
+static void rf_restore_regs(void)
+{
+    const volatile uint32_t *stash_ptr = rf_reg_stash;
+
+    for (int32_t i = 0; i < ARRAY_SIZE(rf_reg_context); i++)
+    {
+        for (int32_t j = 0; j < rf_reg_context[i].len; j++)
+        {
+            MEM_WR32(&rf_reg_context[i].addr[j], *stash_ptr++);
+        }
+    }
+}
+#endif
 
 static uint8_t g_wf_ppa_gain_table[19] = {
     #include "rf_ppa_gain_cfg.h"
@@ -60,7 +125,7 @@ extern uint32_t CALI_MEM_END_OFFSET;
 int8_t  wf_power_offset_reg[3] = {-4, 0, 8};
 #endif
 
-int rf_udelay(uint32_t us)
+_PM_TEXT_TEXT int rf_udelay(uint32_t us)
 {
 #if 1
     volatile int ret = 0;
@@ -75,10 +140,9 @@ int rf_udelay(uint32_t us)
 #endif
 }
 
-void wf_clk_init(void)
+static void wf_clk_init(void)
 {
     RFIF->REG_CTRL0.bit.WF_START = 1;
-    while(!IP_SYSNODEF->REG_BBPLL_CFG0.bit.BBPLL_LOCK);
     IP_SYSNODEF->REG_BBPLL_CFG0.bit.BBPLL_ADDABUF_WFCLKEN = 0x1;
 #if 0
     RFIF->REG_ADDA_CLKGEN_LOGIC0.bit.REG_RXADC_CLK_SEL_DIG = 0x4;  // fetx_clk=40HMz
@@ -91,7 +155,6 @@ void wf_clk_init(void)
 
 void bt_clk_init(void)
 {
-
     //RFIF->REG_CTRL0.bit.WF_START = 1;
     if(IP_SYSNODEF->REG_BBPLL_CFG0.bit.BBPLL_ENABLE ==0)  //set at bootclk_init
     {
@@ -229,6 +292,51 @@ void rf_update_ppa_gain()
         rf_set_wf_ppa_gain(i, g_wf_ppa_gain_table[i]);
     }
 }
+
+#if defined(RF_PPA_GAIN_SCALE_BY_POWER_OFFSET)
+/*
+ * 将以0.25dB步进（S6.2格式）的 dB 值转换为线性值（Q4.10格式）。
+ * 仅支持正dB，线性值 = (linear_one_db)^(整数部分) * (linear_quarter_db)^(小数部分)；
+ *     linear_quarter_db = 1054  (Q4.10)
+ *     linear_one_db     = 1149  (Q4.10)
+ */
+int16_t db_to_linear_fixed(int8_t db_fixed)
+{
+    int16_t linear_quarter_db = 1054;  // Q4.10：0.25 dB对应值
+    int16_t linear_one_db     = 1149;  // Q4.10：1 dB对应值
+    // 分解 S6.2格式：整数部分（单位 dB）和小数部分（单位0.25 dB）
+    int8_t int_part = db_fixed >> 2;       // 整数部分 dB
+    int8_t frac_part = db_fixed & 0x3;     // 小数部分 (0~3，对应0~0.75dB)
+    int16_t result = 1024;  // Q4.10中的1.0
+
+    for (int8_t i = 0; i < int_part; i++)
+        result = FIXED_MULT(result, linear_one_db, 10);
+    for (int8_t i = 0; i < frac_part; i++)
+        result = FIXED_MULT(result, linear_quarter_db, 10);
+    return result;
+}
+
+void rf_scale_ppa_gain(void)
+{
+    int8_t power_offset = IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET;
+    int8_t power_max = IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_MAX_POWER;
+    int8_t power_sat_thd = power_max - (dpd_cfg_table[DPD_COMP_TABLE_CNT-1].tssi << 2);
+
+    //CLOGI("rf_scale_ppa_gain: offset=%d, max=%d, sat_thd=%d\n", power_offset, power_max, power_sat_thd);
+    if (power_offset <= power_sat_thd) {
+        rf_update_ppa_gain();
+        return;
+    }
+    IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = power_sat_thd;
+    power_offset -= power_sat_thd;
+    for (int i = 0; i < 19; i++) {
+        int16_t new_gain = FIXED_MULT(g_wf_ppa_gain_table[i], db_to_linear_fixed(power_offset), 10);
+        if (new_gain > 255)
+            new_gain = 255;
+        rf_set_wf_ppa_gain(i, (uint8_t)new_gain);
+    }
+}
+#endif
 
 void rf_load_mfg_cali_goldden()
 {
@@ -506,23 +614,22 @@ void rf_load_nv_config(void)
 #endif
 }
 
-void rf_delay_config(uint32_t multi)
+void rf_delay_config(uint32_t cmn_peri_clk)
 {
-    IP_RFIF->REG_DELAY_CTRL0.bit.DELAY1 = RFIF_DELAY1_DEF * multi;
+    cmn_peri_clk = cmn_peri_clk / 1000;
 
-    IP_RFIF->REG_DELAY_CTRL1.bit.DELAY2 = RFIF_DELAY2_DEF * multi;
-    IP_RFIF->REG_DELAY_CTRL1.bit.DELAY3 = RFIF_DELAY3_DEF * multi;
-    IP_RFIF->REG_DELAY_CTRL1.bit.DELAY4 = RFIF_DELAY4_DEF * multi;
-    IP_RFIF->REG_DELAY_CTRL1.bit.DELAY5 = RFIF_DELAY5_DEF * multi;
-
-    IP_RFIF->REG_DELAY_CTRL2.bit.DELAY7 = RFIF_DELAY7_DEF * multi;
-    IP_RFIF->REG_DELAY_CTRL2.bit.DELAY8 = RFIF_DELAY8_FINE_TUNE;
-    IP_RFIF->REG_DELAY_CTRL2.bit.DELAY9 = RFIF_DELAY9_FINE_TUNE;
+    IP_RFIF->REG_DELAY_CTRL0.bit.DELAY1 = RFIF_DELAY1_US * cmn_peri_clk / 1000000;
+    IP_RFIF->REG_DELAY_CTRL1.bit.DELAY2 = RFIF_DELAY2_US * cmn_peri_clk / 1000000;
+    IP_RFIF->REG_DELAY_CTRL1.bit.DELAY3 = RFIF_DELAY3_US * cmn_peri_clk / 1000000;
+    IP_RFIF->REG_DELAY_CTRL1.bit.DELAY4 = RFIF_DELAY4_US * cmn_peri_clk / 1000000;
+    IP_RFIF->REG_DELAY_CTRL1.bit.DELAY5 = RFIF_DELAY5_US * cmn_peri_clk / 1000000;
+    IP_RFIF->REG_DELAY_CTRL2.bit.DELAY7 = RFIF_DELAY7_US * cmn_peri_clk / 1000000;
+    IP_RFIF->REG_DELAY_CTRL2.bit.DELAY8 = RFIF_DELAY8_US * cmn_peri_clk / 1000000;
+    IP_RFIF->REG_DELAY_CTRL2.bit.DELAY9 = RFIF_DELAY9_US * cmn_peri_clk / 1000000;
 }
 
 void rf_war_config(void)
 {
-
     IP_RFIF->REG_LOGEN_LOGIC0.bit.REG_RF_LOGEN_BUF_RX_EN = 0x1;  // 1 bits
     IP_RFIF->REG_LOGEN_LOGIC0.bit.RF_LOGEN_BUF_RX_EN_FORCE = 0x1;  // 1 bits
 #if 0 //Note: only use in RF Tx Performance test
@@ -586,9 +693,9 @@ void calculate_interpolated_values(int32_t temp, int32_t ref, int32_t *hd, int32
     calculate_bias_values(TEMP_LOW, ref, &hd_l, &ho_l, &ld_l, &lo_l);
     calculate_bias_values(TEMP_HIGH, ref, &hd_h, &ho_h, &ld_h, &lo_h);
 
-    CLOGI("25' - hd:%d, ho:%d, ld:%d, lo:%d\n", hd_n, ho_n, ld_n, lo_n);
-    CLOGI("-40' - hd:%d, ho:%d, ld:%d, lo:%d\n", hd_l, ho_l, ld_l, lo_l);
-    CLOGI("85' - hd:%d, ho:%d, ld:%d, lo:%d\n", hd_h, ho_h, ld_h, lo_h);
+    CLOGV("25' - hd:%d, ho:%d, ld:%d, lo:%d\n", hd_n, ho_n, ld_n, lo_n);
+    CLOGV("-40' - hd:%d, ho:%d, ld:%d, lo:%d\n", hd_l, ho_l, ld_l, lo_l);
+    CLOGV("85' - hd:%d, ho:%d, ld:%d, lo:%d\n", hd_h, ho_h, ld_h, lo_h);
 
     // Perform linear interpolation
     if (temp >= TEMP_NORMAL) {
@@ -612,27 +719,34 @@ void calculate_interpolated_values(int32_t temp, int32_t ref, int32_t *hd, int32
 }
 
 /* Reserve API here for temp PoR configuration */
-void rf_por_temp_config(int32_t temp, uint32_t ref)
+bool rf_por_temp_config(int32_t temp, uint32_t ref)
 {
+    bool ret = false;
 #if 1
-    CLOGI("Current die temperature :%d, ref = %d\n", temp, ref);
+    CLOGV("Current die temperature :%d, ref = %d\n", temp, ref);
     int32_t hd, ho, ld, lo;
+    int32_t last_ld, last_hd;
     IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_DSSS = temp_reg_map[temp2idx(temp)][0];
     IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_OFDM = temp_reg_map[temp2idx(temp)][0];
     IP_RFIF->REG_TX_REG1.bit.RF_TX_PPA_IN_ATT_RES = temp_reg_map[temp2idx(temp)][1];
 
     if (!ref) {
-        CLOGW("BIAS REF not programmed in efuse :%d\n", ref);
+        //CLOGW("BIAS REF not programmed in efuse :%d\n", ref);
         ref = DEF_BIASL_WF;
     }
 
     calculate_interpolated_values(temp, ref, &hd, &ho, &ld, &lo);
 
-    CLOGI("HD:%d, HO:%d, LD:%d, LO:%d\n", hd, ho, ld, lo);
-    IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASL_WF_DSSS = ld;
-    IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASL_WF_OFDM = ld;
-    IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASH_WF_DSSS = hd;
-    IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASH_WF_OFDM = hd;
+    CLOGV("HD:%d, HO:%d, LD:%d, LO:%d\n", hd, ho, ld, lo);
+    last_ld = IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASL_WF_DSSS;
+    last_hd = IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASH_WF_DSSS;
+    if (last_ld != ld || last_hd != hd) {
+        ret = true;
+        IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASL_WF_DSSS = ld;
+        IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASL_WF_OFDM = ld;
+        IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASH_WF_DSSS = hd;
+        IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASH_WF_OFDM = hd;
+    }
     IP_RFIF->REG_TX_REG1.bit.RF_TX_PA_BIASL_BT = lo;
     IP_RFIF->REG_TX_REG1.bit.RF_TX_PA_BIASH_BT = ho;
     if(temp < TEMP_LDO_THRESH) {
@@ -641,6 +755,7 @@ void rf_por_temp_config(int32_t temp, uint32_t ref)
         IP_RFIF->REG_SX_REG0.bit.RF_SX_LDO_OUT = 4;
     }
 #endif
+    return ret;
 }
 
 #define BT_CRM_CLKGATEPHYFCTRL0_ADDR   0x4B400010
@@ -676,10 +791,12 @@ void rf_init()
 
     rf_entry.params.version = rf_get_version();
     rf_por_config(rf_entry.params.version);
+#if !defined(RF_PPA_GAIN_SCALE_BY_POWER_OFFSET)
     rf_update_ppa_gain();
+#endif
     rf_load_mfg_cali_goldden();
     rf_load_nv_config();
-    rf_delay_config(CRM_GetCmn_peri_pclkFreq() / CRM_GetSrcFreq(CRM_IpSrcXtalClk));
+    rf_delay_config(CRM_GetCmn_peri_pclkFreq());
     rf_war_config();
     #if defined(WCN_TYPE_WF)
     //update efuse for temperature cali
@@ -698,13 +815,25 @@ void rf_init()
 #endif
 }
 
-void rf_set_channel(uint16_t freq)
+void rf_init_bt()
+{
+    CLOGD("==== rf_init bt ==========\n");
+
+    rf_entry.params.version = rf_get_version();
+    rf_por_config(rf_entry.params.version);
+
+    rf_delay_config(CRM_GetCmn_peri_pclkFreq());
+
+#if defined(WCN_TYPE_BT)
+    bt_clk_init();
+#endif
+}
+
+_PM_TEXT_TEXT void rf_set_channel_sx(uint16_t freq)
 {
     uint16_t intg = freq / 18;
     uint32_t frac = (freq % 18 << 20) / 18;
-#ifdef RF_SELF_CALI_FROM_NV
-    P_RF_CALI_OPS cali = rf_cali.ops;
-#endif
+
     /* Set LO freq */
     RFIF->REG_SX_REG1.bit.RF_SX_SDM_VDDRES = 0;
     RFIF->REG_SX_LOGIC0.bit.REG_RF_SX_DIVN_INTEG = intg;
@@ -715,6 +844,14 @@ void rf_set_channel(uint16_t freq)
     RFIF->REG_SX_LOGIC1.bit.REG_RF_SX_DIG_START = 0;
     rf_udelay(10);
     RFIF->REG_SX_LOGIC1.bit.REG_RF_SX_DIG_START = 1;
+    //CLOGD("rf_set_channel_sx=%d intg=%d frac=%d\n", freq, intg, frac);
+}
+
+_PM_TEXT_TEXT void rf_set_channel(uint16_t freq)
+{
+    P_RF_CALI_OPS cali = rf_cali.ops;
+
+    rf_set_channel_sx(freq);
     RFIF->REG_SX_LOGIC0.bit.RF_SX_DIVN_INTEG_FORCE = 0;
     RFIF->REG_SX_LOGIC1.bit.RF_SX_DIVN_FRAC_FORCE = 0;
     RFIF->REG_SX_LOGIC1.bit.RF_SX_DIG_START_FORCE = 0;
@@ -732,14 +869,19 @@ void rf_set_channel(uint16_t freq)
         #if RF_BOARD_VER == 2
         IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = wf_power_offset_reg[2];
         #endif
-	if (wf_power_offset_en)
+        if (wf_power_offset_en)
             IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = wf_power_offset_fake_reg[2];
+        cali->txdpd_remap_pred();
     #ifdef RF_SELF_CALI_FROM_NV
         if (nv_tx_pred_table_chan_hig[0][0].re != 0) {
             for (int i = 0; i < DPD_COMP_TABLE_CNT; i++)
                 cali->txdpd_result(dpd_cfg_table[i].pred_lut_idx, (void *)&nv_tx_pred_table_chan_hig[i][0]);
-            for (int i = 0; i < DPD_COMP_TABLE_CNT_UPDATE; i++)
-                cali->txdpd_result(dpd_cfg_table_update[i].pred_lut_idx, (void *)&nv_tx_pred_table_update_chan_hig[i][0]);
+            for (int i = 0; i < DPD_REST_TABLE_CNT; i++) {
+                int8_t rest_pred_lut_idx = (int8_t)dpd_cfg_table[0].pred_lut_idx - i - 1;
+                if (rest_pred_lut_idx < 0)
+                    break;
+                cali->txdpd_result(rest_pred_lut_idx, (void *)&nv_tx_pred_rest_table_chan_hig[i][0]);
+            }
         }
     #endif
     }
@@ -750,12 +892,17 @@ void rf_set_channel(uint16_t freq)
         #endif
         if (wf_power_offset_en)
             IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = wf_power_offset_fake_reg[1];
+        cali->txdpd_remap_pred();
     #ifdef RF_SELF_CALI_FROM_NV
         if (nv_tx_pred_table_chan_mid[0][0].re != 0) {
             for (int i = 0; i < DPD_COMP_TABLE_CNT; i++)
                 cali->txdpd_result(dpd_cfg_table[i].pred_lut_idx, (void *)&nv_tx_pred_table_chan_mid[i][0]);
-            for (int i = 0; i < DPD_COMP_TABLE_CNT_UPDATE; i++)
-                cali->txdpd_result(dpd_cfg_table_update[i].pred_lut_idx, (void *)&nv_tx_pred_table_update_chan_mid[i][0]);
+            for (int i = 0; i < DPD_REST_TABLE_CNT; i++) {
+                int8_t rest_pred_lut_idx = (int8_t)dpd_cfg_table[0].pred_lut_idx - i - 1;
+                if (rest_pred_lut_idx < 0)
+                    break;
+                cali->txdpd_result(rest_pred_lut_idx, (void *)&nv_tx_pred_rest_table_chan_mid[i][0]);
+            }
         }
     #endif
     }
@@ -766,36 +913,34 @@ void rf_set_channel(uint16_t freq)
         #endif
         if (wf_power_offset_en)
             IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = wf_power_offset_fake_reg[0];
+        cali->txdpd_remap_pred();
     #ifdef RF_SELF_CALI_FROM_NV
         if (nv_tx_pred_table_chan_low[0][0].re != 0) {
             for (int i = 0; i < DPD_COMP_TABLE_CNT; i++)
                 cali->txdpd_result(dpd_cfg_table[i].pred_lut_idx, (void *)&nv_tx_pred_table_chan_low[i][0]);
-            for (int i = 0; i < DPD_COMP_TABLE_CNT_UPDATE; i++)
-                cali->txdpd_result(dpd_cfg_table_update[i].pred_lut_idx, (void *)&nv_tx_pred_table_update_chan_low[i][0]);
+            for (int i = 0; i < DPD_REST_TABLE_CNT; i++) {
+                int8_t rest_pred_lut_idx = (int8_t)dpd_cfg_table[0].pred_lut_idx - i - 1;
+                if (rest_pred_lut_idx < 0)
+                    break;
+                cali->txdpd_result(rest_pred_lut_idx, (void *)&nv_tx_pred_rest_table_chan_low[i][0]);
+            }
         }
     #endif
     }
+#if defined(RF_PPA_GAIN_SCALE_BY_POWER_OFFSET)
+    rf_scale_ppa_gain();
 #endif
-    //CLOGD("rf_set_channel=%d intg=%d frac=%d\n", freq, intg, frac);
+#endif
 }
 
 void bt_rf_set_channel(uint16_t freq)
 {
-    uint16_t intg = freq / 18;
-    uint32_t frac = (freq % 18 << 20) / 18;
+    rf_set_channel_sx(freq);
+}
 
-    /* Set LO freq */
-    RFIF->REG_SX_REG1.bit.RF_SX_SDM_VDDRES = 0;
-    RFIF->REG_SX_LOGIC0.bit.REG_RF_SX_DIVN_INTEG = intg;
-    RFIF->REG_SX_LOGIC0.bit.RF_SX_DIVN_INTEG_FORCE = 1;
-    RFIF->REG_SX_LOGIC1.bit.REG_RF_SX_DIVN_FRAC = frac;
-    RFIF->REG_SX_LOGIC1.bit.RF_SX_DIVN_FRAC_FORCE = 1;
-    RFIF->REG_SX_LOGIC1.bit.RF_SX_DIG_START_FORCE = 1;
-    RFIF->REG_SX_LOGIC1.bit.REG_RF_SX_DIG_START = 0;
-    rf_udelay(10);
-    RFIF->REG_SX_LOGIC1.bit.REG_RF_SX_DIG_START = 1;
-
-    CLOGD("rf_set_channel=%d intg=%d frac=%d\n", freq, intg, frac);
+void rf_set_tx_power(uint8_t power)
+{
+    RFIF->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = power;
 }
 
 void rf_start_test_tone(uint16_t channel, uint8_t power)
@@ -820,7 +965,7 @@ void rf_start_test_tone(uint16_t channel, uint8_t power)
 
     // set power
     RFIF->REG_TX_LOGIC4.bit.RF_TX_PPA_GAIN_WF_FORCE = 1;
-    RFIF->REG_TX_LOGIC4.bit.REG_RF_TX_PPA_GAIN_WF_0 = 10;
+    RFIF->REG_TX_LOGIC4.bit.REG_RF_TX_PPA_GAIN_WF_0 = power;
 
     RFIF->REG_TX_LOGIC9.bit.RF_TX_PA_EN_FORCE = 1;
     //RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_EN = 1
@@ -884,14 +1029,18 @@ void rf_sw_reset(void)
     //CLOGD("rf_sw_reset done\n");
 }
 
-static void rf_suspend(int32_t rf_mode)
+static int32_t rf_suspend(int32_t rf_mode)
 {
     RFIF->REG_CTRL0.bit.WF_END = 1;
+
+    return 0;
 }
 
-static void rf_resume(int32_t rf_mode)
+static int32_t rf_resume(int32_t rf_mode)
 {
     RFIF->REG_CTRL0.bit.WF_START = 1;
+
+    return 1;
 }
 
 static void rf_update_cal_addr(uint32_t start, uint32_t end)
@@ -909,7 +1058,7 @@ static void rf_update_cal_addr(uint32_t start, uint32_t end)
     CALI_MEM_MID_OFFSET = ((uint32_t)CALI_MEM_MID_ADDR & ~0x20000000);
     CALI_MEM_END_OFFSET = ((uint32_t)CALI_MEM_END_ADDR & ~0x20000000);
 
-    CLOGI("start addr %x, mid addr %x end addr %x start offset %x mid offset %x end offset %x \n",CALI_MEM_START_ADDR,CALI_MEM_MID_ADDR,CALI_MEM_END_ADDR,CALI_MEM_START_OFFSET,CALI_MEM_MID_OFFSET,CALI_MEM_END_OFFSET);
+//    CLOGI("start addr %x, mid addr %x end addr %x start offset %x mid offset %x end offset %x \n",CALI_MEM_START_ADDR,CALI_MEM_MID_ADDR,CALI_MEM_END_ADDR,CALI_MEM_START_OFFSET,CALI_MEM_MID_OFFSET,CALI_MEM_END_OFFSET);
 }
 
 RF_OPS rf_ops = {
@@ -940,7 +1089,6 @@ RF_ENTRY rf_entry = {
 
 void ls_rf_probe(void)
 {
-
     if (!rf_entry.params.init_done) {
         #if defined(WCN_TYPE_WF)
         extern void wifi_rf_register_cb(RF_OPS *ops);
@@ -1006,15 +1154,25 @@ uint8_t ls_rf_get_bt_ppa_gain(uint8_t index)
     return (rf_entry.ops->get_bt_ppa_gain(index));
 }
 
-int32_t ls_rf_suspend(int32_t rf_mode)
+_PM_TEXT_TEXT int32_t ls_rf_suspend(int32_t rf_mode, int32_t power_off)
 {
     rf_suspend(rf_mode);
-
+#if CONFIG_PM
+    if (power_off)
+        rf_save_regs();
+#endif
     return 0;
 }
 
-int32_t ls_rf_resume(int32_t rf_mode)
+_PM_TEXT_TEXT int32_t ls_rf_resume(int32_t rf_mode, int32_t power_off)
 {
+#if CONFIG_PM
+    if (power_off)
+    {
+        rf_restore_regs();
+        wf_clk_init();
+    }
+#endif
     rf_resume(rf_mode);
 
     return 0;

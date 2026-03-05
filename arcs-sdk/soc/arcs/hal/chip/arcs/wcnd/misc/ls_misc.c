@@ -123,8 +123,8 @@ static float GPADC_read_temp_voltage(int count)
 
 void ls_read_efuse_temp_para(void)
 {
-    int32_t vptat_val = 0;
-    int32_t tcal_val = 0;
+    uint32_t vptat_val = 0;
+    uint32_t tcal_val = 0;
     int8_t ret = 0;
 
     ret = ls_efuse_read_word(14, &tcal_val);
@@ -151,22 +151,23 @@ int32_t ls_get_cur_temp(void)
 {
     float vptat = 0.0;
     float die_temp = 0.0;
-    ls_read_temp_voltage(100, &vptat);
+    ls_read_temp_voltage(&vptat);
     die_temp = tcal + (tcal + 273.15) / vptat_cal * (vptat - vptat_cal);
 
     return (int32_t)die_temp;
 }
 
-void ls_temp_por_update(void)
+bool ls_temp_por_update(void)
 {
     int32_t temp = 0;
     static int32_t last_temp = -273;
     uint32_t ref;
+    bool need_cali = false;
 
     if (ls_efuse_read_word(11, &ref))
     {
         CLOGE("read efuse 11 fail \r\n");
-        return;
+        return last_temp;
     }
 
     // TODO: Generate EFUSE fields from excel
@@ -176,13 +177,15 @@ void ls_temp_por_update(void)
     while(delay_count--);
 
     temp = ls_get_cur_temp();
-   // CLOG("temp %d \r\n", temp);
+    //CLOGD("temp %d\n", temp);
 
     if (abs(temp - last_temp) >= HYSTERESIS_THRESHOLD)
     {
-        rf_por_temp_config(temp, ref);
+        need_cali = rf_por_temp_config(temp, ref);
         last_temp = temp;
     }
+
+    return need_cali;
 }
 
 void ls_temp_default_por(void)

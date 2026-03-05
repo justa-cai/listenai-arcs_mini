@@ -1,6 +1,7 @@
 menuconfig MODULE_EASYFLASH
     prompt "EasyFlash"
     bool "EasyFlash"
+    depends on LISA_FLASH
     default n
 
 if MODULE_EASYFLASH

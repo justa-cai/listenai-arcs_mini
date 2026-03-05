@@ -21,7 +21,7 @@ ls_err_t wifi_scan_start(wifi_scan_params_t * config);
 
 ls_err_t wifi_sta_scanlist_dump(wifi_scan_result_t * results, int tgt_num, int * rel_num);
 
-ls_err_t wifi_get_scan_result(void);
+ls_err_t wifi_get_scan_result(wifi_scan_result_t ** scan_results, int8_t * cnt);
 
 ls_err_t wifi_get_sta_scanlist_nums(int * ap_num);
 
@@ -44,10 +44,6 @@ ls_err_t wifi_ap_get_basic_info(wifi_ap_info_t * ap_info);
 ls_err_t wifi_set_country_code(char country_code[3]);
 
 ls_err_t wifi_get_country_code(char country_code[3]);
-
-ls_err_t wifi_sta_ps_enter(void);
-
-ls_err_t wifi_sta_ps_exit(void);
 
 ls_err_t wifi_sta_set_listen_itv(uint8_t listen_itv);
 
@@ -115,7 +111,23 @@ ls_err_t wifi_free_rx_buff(void);
 
 ls_err_t wifi_reinit_rx_buff(void);
 
-void ls_rf_cali_redo(int8_t ppa_cap);
+ls_err_t ls_rf_cali_redo(int8_t ppa_cap);
+
+ls_err_t wifi_dpd_track_connect_switch(uint8_t en);
+
+ls_err_t wifi_ps_mode_set(wifi_ps_mode_e mode);
+
+ls_err_t wifi_sta_set_dont_wait_bcmc(uint8_t dont_wait_bcmc);
+
+ls_err_t wifi_sta_get_dont_wait_bcmc(uint8_t * dont_wait_bcmc);
+
+ls_err_t wifi_ps_dbg_level_set(uint8_t level);
+
+ls_err_t wifi_get_pmk(uint8_t pmk[32]);
+
+ls_err_t wifi_set_pmk(uint8_t pmk[32]);
+
+ls_err_t wifi_calc_pmk(uint8_t ssid[33], uint8_t ssid_len, uint8_t passphrase[65], uint8_t passphrase_len, uint8_t pmk[32]);
 
 
 #endif

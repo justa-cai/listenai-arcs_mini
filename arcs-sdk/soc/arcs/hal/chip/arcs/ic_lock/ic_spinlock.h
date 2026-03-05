@@ -21,6 +21,9 @@
 
 typedef enum {
     IC_SPIN_LOCK_TYPE_MUTEX,
+    IC_SPIN_LOCK_TYPE_SLEEP,
+    IC_SPIN_LOCK_TYPE_VRTC,
+    IC_SPIN_LOCK_TYPE_IPC,
     IC_SPIN_LOCK_TYPE_MAX
 } ic_spin_lock_type;
 

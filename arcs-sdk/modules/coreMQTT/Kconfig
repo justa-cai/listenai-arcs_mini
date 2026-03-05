@@ -1,0 +1,7 @@
+menu "coreMQTT"
+
+config SDK_MODULE_COREMQTT
+    bool "enable sdk module core mqtt"
+    default n
+
+endmenu

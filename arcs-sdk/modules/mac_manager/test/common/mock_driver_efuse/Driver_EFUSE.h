@@ -12,6 +12,8 @@
 extern "C" {
 #endif
 
+void efuse_init(void);
+
 uint64_t efuse_read_uuid(void);
 
 #ifdef __cplusplus

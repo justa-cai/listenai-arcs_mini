@@ -1,0 +1,9 @@
+menu "work_queue"
+
+config WORK_QUEUE
+    bool "Enable work queue component"
+    default n
+    help
+        Enable the work queue component for asynchronous task execution.
+
+endmenu

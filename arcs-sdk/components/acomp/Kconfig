@@ -14,6 +14,24 @@ if ACOMP
         bool "algo component word spell"
         default n
 
+    config ACOMP_WAKEUP
+        bool "algo component wakeup"
+        default n
+    
+    config ACOMP_LOGGER
+        bool "algo component logger"
+        default n
+
+    config ACOMP_FD
+        bool "algo component face detection"
+        default n
+
+rsource "wakeup/Kconfig"
+rsource "fd/Kconfig"
+endif
+
+if ACOMP_LOGGER
+    rsource "logger/Kconfig"
 endif
 
 rsource "Kconfig.res"

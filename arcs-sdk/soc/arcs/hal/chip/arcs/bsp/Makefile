@@ -19,7 +19,7 @@ exclude_dirs=
 
 CSRCS	= $(wildcard *.c) $(wildcard gcc/*.c) $(wildcard gcc/stubs/*.c)
 CPPSRCS	=
-SSRCS	= $(wildcard gcc/*.S)
+SSRCS	= $(wildcard *.S) $(wildcard gcc/*.S)
 
 #includings and flags
 CFLAGS  = -I $(TOPDIR)/chip/${CHIP}/bsp \

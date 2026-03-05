@@ -1,0 +1,7 @@
+tests:
+  test.wifi_manager_storage:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"
+
+

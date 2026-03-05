@@ -114,7 +114,7 @@ typedef enum atcmd_type
 typedef struct atcmd_entry
 {
     // process function
-    int (*func) (int type, char *params);
+    int (*func) (int type, void *params);
     // name of the command
     char *name;
     // command usage description

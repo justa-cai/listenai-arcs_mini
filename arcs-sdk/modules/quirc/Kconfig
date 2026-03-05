@@ -1,0 +1,10 @@
+menu "quirc configuration"
+
+    config SDK_MODULE_QUIRC
+        bool "quirc QR-code recognition library support"
+        default n
+        help
+          quirc is a library for extracting and decoding QR codes from images.
+          It has fast recognition algorithm with small memory footprint.
+
+endmenu

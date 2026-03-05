@@ -1,0 +1,7 @@
+menuconfig LISA_OS
+    bool "lisa os adapt layer"
+    select MODULE_FREERTOS
+    select FREERTOS_STATIC_ALLOCATION_ENABLE
+    default n
+    help
+        lisa os adapt layer

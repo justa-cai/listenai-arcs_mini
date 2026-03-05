@@ -1,0 +1,109 @@
+# LISA Bluetooth Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_BLUETOOTH
+    bool "Enable Lisa Bluetooth"
+    default n
+    help
+        Enable Lisa Bluetooth component.
+
+if LISA_BLUETOOTH
+
+    config LISA_BLUETOOTH_DEVICE_NAME
+        string "Bluetooth device name"
+        default "ARCS"
+        help
+            Device name used for BLE advertising / BT classic.
+
+    config LISA_BLUETOOTH_CLASSIC
+        bool "Enable Lisa Bluetooth Classic"
+        default n
+        help
+            Enable Lisa Bluetooth Classic component.
+
+    if LISA_BLUETOOTH_CLASSIC
+        config LISA_BLUETOOTH_CLASSIC_HFP
+            bool "Enable Lisa Bluetooth Classic HFP"
+            default n
+            help
+                Enable Lisa Bluetooth Classic HFP component.
+
+        config LISA_BLUETOOTH_CLASSIC_AUDIO
+            bool "Enable Lisa Bluetooth Classic Audio"
+            default n
+            select LISA_BLUETOOTH_BLE  # Have to enable BLE for now 
+            select BT_AUDIO
+            select BT_MUSIC
+            select AUDIO_CODEC
+            help
+                Enable Lisa Bluetooth Classic Audio component.
+
+        if LISA_BLUETOOTH_CLASSIC_AUDIO
+
+            config LISA_BLUETOOTH_AUD_TASK_STACK_SIZE
+                int "Bluetooth audio task stack size(x4 bytes)"
+                default 512
+                help
+                    AUD task stack size in words. Default matches wifi_bt_demo.
+
+            config LISA_BLUETOOTH_AUD_TASK_PRIORITY
+                int "Bluetooth audio task priority"
+                default LISA_BLUETOOTH_TASK_PRIORITY
+                help
+                    AUD task priority. Default follows Bluetooth task priority.
+
+            config LISA_BLUETOOTH_AUD_PRO_TASK_STACK_SIZE
+                int "Bluetooth audio process task stack size(x4 bytes)"
+                default 1536
+                help
+                    AUD_PRO task stack size in words. Default matches wifi_bt_demo.
+
+            config LISA_BLUETOOTH_AUD_PRO_TASK_PRIORITY
+                int "Bluetooth audio process task priority"
+                default LISA_BLUETOOTH_TASK_PRIORITY
+                help
+                    AUD_PRO task priority. Default follows Bluetooth task priority.
+
+        endif # LISA_BLUETOOTH_CLASSIC_AUDIO
+    endif # LISA_BLUETOOTH_CLASSIC
+
+config LISA_BLUETOOTH_BLE
+    bool "Enable Lisa Bluetooth BLE"
+    default y
+    select BLE
+    help
+        Enable Lisa Bluetooth BLE component.
+
+config LISA_BLUETOOTH_WHITE_LIST_ADD
+    bool "Enable BLE white list add"
+    default y
+    help
+        If enabled, add discovered devices to BLE white list.
+
+config LISA_BLUETOOTH_RESOVLE_LIST_ADD
+    bool "Enable BLE resolve list add"
+    default y
+    help
+        If enabled, add devices to BLE resolve list (RAL).
+
+config LISA_BLUETOOTH_NVDS
+    bool "Enable Lisa Bluetooth NVDS"
+    default n
+    help
+        Enable Lisa Bluetooth NVDS component.
+
+config LISA_BLUETOOTH_TASK_STACK_SIZE
+    int "Bluetooth task stack size(x4 bytes)"
+    default 2048
+    help
+        Bluetooth task stack size in words.
+
+config LISA_BLUETOOTH_TASK_PRIORITY
+    int "Bluetooth task priority"
+    default 9
+    help
+        Bluetooth task priority.
+
+endif # LISA_BLUETOOTH

@@ -291,7 +291,7 @@ size_t flash_get_write_block_size(FLASH_DEV *dev);
 struct flash_pages_info {
 	off_t start_offset; /* offset from the base of flash address */
 	size_t size;
-	u32_t index;
+	uint32_t index;
 };
 
 /**
@@ -459,5 +459,26 @@ int mxic_read_uinque_id(FLASH_DEV *dev, unsigned char *buff);
 void flash_dualflash_config(uint32_t flash0_low, uint32_t flash0_high);
 
 int flash_id(FLASH_DEV *dev, uint32_t *id_manufacturer, uint32_t *id_device);
+
+/**
+ * @brief Read JEDEC ID from flash (3-byte manufacturer, type, capacity)
+ *
+ * This function reads the complete JEDEC ID using the RDID (0x9F) command.
+ * The returned 3 bytes contain:
+ * - Byte 0: Manufacturer ID (e.g., 0xC2 for MXIC)
+ * - Byte 1: Memory Type (e.g., 0x20 for 3V SPI)
+ * - Byte 2: Capacity ID (encodes size as 2^N Bytes)
+ *
+ * Example for 16MB Flash (MX25L12835F):
+ *   jedec_id = 0xC22018
+ *   - 0xC2: MXIC manufacturer
+ *   - 0x20: Memory type
+ *   - 0x18: Capacity = 2^24 Bytes = 16MB
+ *
+ * @param dev Pointer to the FLASH_DEV structure
+ * @param jedec_id Pointer to store the 3-byte JEDEC ID (combined as 32-bit value)
+ * @return 0 on success, negative error code on failure
+ */
+int flash_read_jedec_id(FLASH_DEV *dev, uint32_t *jedec_id);
 
 #endif

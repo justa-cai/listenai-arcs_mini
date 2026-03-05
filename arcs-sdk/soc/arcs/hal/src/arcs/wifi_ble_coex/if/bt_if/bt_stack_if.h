@@ -77,8 +77,8 @@
 
 /// white list & ral list
 #define WHITE_LIST_ADV_ENABLE        0
-#define WHITE_LIST_ADD               0
-#define RESOVLE_LIST_ADD             0
+#define WHITE_LIST_ADD               1
+#define RESOVLE_LIST_ADD             1
 
  /**
  * Default Scan response data
@@ -101,7 +101,7 @@
 
 #define BT_NOTIFY_PENDING_MAX                (3)
 
-#define BT_STACK_NVDS_SUPPORT                (0)
+#define BT_STACK_NVDS_SUPPORT                (CFG_NVS)
 
 
 #define BT_STACK_BLE_HOGPD_HID_MAX_COUNT     (20)

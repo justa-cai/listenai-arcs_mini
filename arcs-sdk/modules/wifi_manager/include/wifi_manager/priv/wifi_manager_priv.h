@@ -27,11 +27,18 @@ typedef struct {
     bool enable;
 } wifi_mgr_auto_conn_obj_t;
 
+typedef enum {
+    WIFI_MGR_AUTOCONN_MANUAL_IDLE = 0,
+    WIFI_MGR_AUTOCONN_MANUAL_PAUSED_SYNC,
+    WIFI_MGR_AUTOCONN_MANUAL_RESUME_ON_EVENT,
+} wifi_mgr_manual_autoconn_state_t;
+
 typedef struct {
     wifi_mgr_device_t sta_device;
     wifi_dev_event_cb_t wifi_event_cb;
     sys_dlist_t wifi_callback_list;
     wifi_mgr_auto_conn_obj_t *auto_connect_obj;
+    wifi_mgr_manual_autoconn_state_t manual_autoconn_state;
     void* mutex;
     void* queue;
     bool thread_exit;

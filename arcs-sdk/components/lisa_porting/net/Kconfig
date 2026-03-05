@@ -1,7 +1,0 @@
-menu "lisa network configuration"
-
-    config LISA_NETWORK
-        bool "lisa network support"
-        default n
-
-endmenu

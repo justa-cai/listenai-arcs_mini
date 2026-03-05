@@ -161,7 +161,6 @@ arcs-sdk/samples/
 
 .. toctree::
     :maxdepth: 1
-    :numbered:
 
     display/README.md
     touch/README.md
@@ -180,7 +179,6 @@ arcs-sdk/samples/
 
 .. toctree::
     :maxdepth: 1
-    :numbered:
 
     existing_sample/README.md
     new_sample/README.md         # 新增示例

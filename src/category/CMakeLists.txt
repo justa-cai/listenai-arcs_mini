@@ -1,0 +1,11 @@
+add_subdirectory(comm)
+
+if (CONFIG_CATEGORY_YUBA)
+add_subdirectory(yuba)
+elseif (CONFIG_CATEGORY_EVB)
+add_subdirectory(evb)
+elseif (CONFIG_CATEGORY_MINI)
+add_subdirectory(mini)
+elseif (CONFIG_CATEGORY_ROBOT)
+add_subdirectory(robot)
+endif()

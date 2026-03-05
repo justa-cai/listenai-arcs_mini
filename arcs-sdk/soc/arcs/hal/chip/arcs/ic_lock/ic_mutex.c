@@ -91,7 +91,7 @@ ic_mutex_status_t IC_Mutex_acquire(IC_Mutex *mutex)
             IC_disable_interrupts(mutex->channel);
 
             // clear task notification's value and pending status
-            ulTaskNotifyTake(pdTRUE, 0 ); /* timeout */
+            ulTaskNotifyTake(pdTRUE, 0 /* timeout */);
             if (mutexWQ->_owner != id) {
                 IC_LOG("Sleep waiting on mutex @ %p\n", mutex);
                 IC_Mutex_set_task_handle(mutex->channel, (TaskHandle_t) IC_get_my_thread_id());

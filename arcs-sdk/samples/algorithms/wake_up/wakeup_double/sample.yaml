@@ -1,0 +1,9 @@
+tests:
+  samples.algorithms.wakeup:
+    programmer: arcs
+    runner: uart
+    build_only: true
+    log_analyzer:
+      type: "regex"
+      pattern: "相位补偿已设置"
+

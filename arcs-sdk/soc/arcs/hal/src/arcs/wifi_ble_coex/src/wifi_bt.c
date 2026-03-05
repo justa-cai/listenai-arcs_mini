@@ -77,6 +77,7 @@ extern uint8_t _sshram[], _eshram[];
 extern int bt_demo_init(void);
 extern int wifi_cli_exec_sta_auto_conn(void);
 extern uint8_t app_ble_netcfg_bles_send_notify(uint8_t conidx, uint8_t op, uint8_t state, uint8_t length, uint8_t* value);
+extern int bt_event_cb(void *arg, event_module_t event_module,int event_id, void *event_data);
 
 int wifi_event_cb(void *arg, event_module_t event_module,
                   int event_id, void *event_data)
@@ -159,7 +160,7 @@ int wifi_event_cb(void *arg, event_module_t event_module,
 
 
 #if CFG_NVS
-#define NVDS_FLASH_ADDRESS   (CMN_FLASH_REGION + 0x140000) //offset 1280KB
+#define NVDS_FLASH_ADDRESS   (CMN_FLASH_REGION + 0x200000) //offset 1280KB
 #define NVDS_FLASH_SIZE      (0x8000) //32KB
 struct nvs_fs arcs_nvs_fs;
 FLASH_DEV arcs_flash_dev  = {
@@ -176,7 +177,11 @@ int arcs_nvs_init(void)
 {
     struct flash_pages_info info;
 
+#ifdef CFG_FLASH_IF
+    flash_if_init(&arcs_flash_dev, 0, 0);
+#else
     flash_init(&arcs_flash_dev, 0, 0);
+#endif
 
     //flash_write_protection_set(&arcs_flash_dev, false);
     //flash_erase(&arcs_flash_dev, NVDS_FLASH_ADDRESS, NVDS_FLASH_SIZE);
@@ -216,7 +221,6 @@ int main(void)
 #endif
 
 #if IC_BOARD == 1
-    ls_rf_probe();
     ls_rf_cali_proc();
 #endif
 
@@ -228,6 +232,7 @@ int main(void)
     // register event
     ls_event_init();
     ls_event_register_cb(EVENT_WIFI, EVENT_ID_ALL, wifi_event_cb, NULL);
+    ls_event_register_cb(EVENT_BT,   EVENT_ID_ALL, bt_event_cb,   NULL);
 
     ls_wifi_init();
 

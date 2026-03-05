@@ -1,0 +1,6 @@
+# QR Code Generator Requirements
+# Install with: pip install -r requirements.txt
+
+qrcode[pil]>=7.4.2
+Pillow>=10.0.0
+numpy>=1.24.0

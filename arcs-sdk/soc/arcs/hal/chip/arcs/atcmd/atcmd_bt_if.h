@@ -116,6 +116,54 @@
 #define BLE_MAX_TIME    (17040) // in us
 
 
+// BLE adv type define
+#define BLE_GAP_AD_TYPE_FLAGS                           0x01
+#define BLE_GAP_AD_TYPE_16BIT_SERVICE_UUID_MORE_AVAILABLE 0x02
+#define BLE_GAP_AD_TYPE_16BIT_SERVICE_UUID_COMPLETE     0x03
+#define BLE_GAP_AD_TYPE_32BIT_SERVICE_UUID_MORE_AVAILABLE 0x04
+#define BLE_GAP_AD_TYPE_32BIT_SERVICE_UUID_COMPLETE     0x05
+#define BLE_GAP_AD_TYPE_128BIT_SERVICE_UUID_MORE_AVAILABLE 0x06
+#define BLE_GAP_AD_TYPE_128BIT_SERVICE_UUID_COMPLETE    0x07
+#define BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME                0x08
+#define BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME             0x09
+#define BLE_GAP_AD_TYPE_TX_POWER_LEVEL                  0x0A
+#define BLE_GAP_AD_TYPE_CLASS_OF_DEVICE                 0x0D
+#define BLE_GAP_AD_TYPE_SIMPLE_PAIRING_HASH_C           0x0E
+#define BLE_GAP_AD_TYPE_SIMPLE_PAIRING_RANDOMIZER_R     0x0F
+#define BLE_GAP_AD_TYPE_SECURITY_MANAGER_TK_VALUE       0x10
+#define BLE_GAP_AD_TYPE_SECURITY_MANAGER_OOB_FLAGS      0x11
+#define BLE_GAP_AD_TYPE_SLAVE_CONNECTION_INTERVAL_RANGE 0x12
+#define BLE_GAP_AD_TYPE_SOLICITED_SERVICE_UUIDS_16BIT   0x14
+#define BLE_GAP_AD_TYPE_SOLICITED_SERVICE_UUIDS_128BIT  0x15
+#define BLE_GAP_AD_TYPE_SERVICE_DATA                    0x16
+#define BLE_GAP_AD_TYPE_PUBLIC_TARGET_ADDRESS           0x17
+#define BLE_GAP_AD_TYPE_RANDOM_TARGET_ADDRESS           0x18
+#define BLE_GAP_AD_TYPE_APPEARANCE                      0x19
+#define BLE_GAP_AD_TYPE_ADVERTISING_INTERVAL            0x1A
+#define BLE_GAP_AD_TYPE_LE_BLUETOOTH_DEVICE_ADDRESS     0x1B
+#define BLE_GAP_AD_TYPE_LE_ROLE                         0x1C
+#define BLE_GAP_AD_TYPE_SIMPLE_PAIRING_HASH_C256        0x1D
+#define BLE_GAP_AD_TYPE_SIMPLE_PAIRING_RANDOMIZER_R256  0x1E
+#define BLE_GAP_AD_TYPE_SERVICE_DATA_32BIT_UUID         0x20
+#define BLE_GAP_AD_TYPE_SERVICE_DATA_128BIT_UUID        0x21
+#define BLE_GAP_AD_TYPE_LESC_CONFIRMATION_VALUE         0x22
+#define BLE_GAP_AD_TYPE_LESC_RANDOM_VALUE               0x23
+#define BLE_GAP_AD_TYPE_URI                             0x24
+#define BLE_GAP_AD_TYPE_INDOOR_POSITIONING              0x25
+#define BLE_GAP_AD_TYPE_TRANSPORT_DISCOVERY_DATA        0x26
+#define BLE_GAP_AD_TYPE_LE_SUPPORTED_FEATURES           0x27
+#define BLE_GAP_AD_TYPE_CHANNEL_MAP_UPDATE_INDICATION   0x28
+#define BLE_GAP_AD_TYPE_PB_ADV                          0x29
+#define BLE_GAP_AD_TYPE_MESH_MESSAGE                    0x2A
+#define BLE_GAP_AD_TYPE_MESH_BEACON                     0x2B
+#define BLE_GAP_AD_TYPE_3D_INFORMATION_DATA             0x3D
+#define BLE_GAP_AD_TYPE_MANUFACTURER_SPECIFIC_DATA      0xFF
+
+
+#define MAX_ADV_DATA_LENGTH     31   // Legacy adv max len 31 bytes
+#define MAX_EXT_ADV_DATA_LENGTH 1650 // Extended adv max len 1650 bytes
+
+
 /**
  * Test mode transmit power level in dBm HCI:7.8.122
  *   -127 - Lowest transmit power level
@@ -197,7 +245,7 @@ enum bt_at_msg_id
     BT_AT_CONTROLLER_BLE_ADV_START                              = BT_AT_CMD_ID(CONTROLLER, 0x0A),
     BT_AT_CONTROLLER_BLE_ADV_STOP                               = BT_AT_CMD_ID(CONTROLLER, 0x0B),
     BT_AT_CONTROLLER_BLE_CONN                                   = BT_AT_CMD_ID(CONTROLLER, 0x0C),
-    BT_AT_CONTROLLER_BLE_CONN_PARAM                             = BT_AT_CMD_ID(CONTROLLER, 0x0D),
+    BT_AT_CONTROLLER_BLE_CONN_UPDATE                            = BT_AT_CMD_ID(CONTROLLER, 0x0D),
     BT_AT_CONTROLLER_BLE_DISCONN                                = BT_AT_CMD_ID(CONTROLLER, 0x0E),
     BT_AT_CONTROLLER_BLE_DATA_LEN                               = BT_AT_CMD_ID(CONTROLLER, 0x0F),
 
@@ -215,7 +263,18 @@ enum bt_at_msg_id
     /// RF TEST TONE CMD
     BT_AT_RF_TEST_TONE_START_CMD                                = BT_AT_CMD_ID(TEST, 0x09),
     BT_AT_RF_TEST_TONE_STOP_CMD                                 = BT_AT_CMD_ID(TEST, 0x10),
+    /// BT HCI TEST MODE
+    BT_AT_BT_HCI_TEST_CMD                                       = BT_AT_CMD_ID(TEST, 0x11),
 };
+
+
+typedef struct
+{
+    bool found;
+    bool is_complete;
+    uint8_t name_length;
+    char name[32];
+} device_name_result_t;
 
 typedef struct bt_at_cmd
 {
@@ -377,7 +436,7 @@ typedef struct
     ///
     uint8_t       data_len;
     ///
-    struct out_scan_rsp_data data;
+    struct out_scan_rsp_data rsp_data;
     ///
     uint8_t        type;
 }ble_scan_rspdata_t;
@@ -493,7 +552,7 @@ typedef struct
     uint16_t con_latency;
     ///
     uint16_t timeout;
-}ble_conn_param_t;
+}ble_conn_update_t;
 
 
 typedef struct
@@ -676,7 +735,7 @@ uint8_t atcmd_ble_adv_data_send(ble_adv_data_t *params);
 uint8_t atcmd_ble_adv_start_send(ble_adv_en_t *params);
 uint8_t atcmd_ble_adv_stop_send(ble_adv_en_t *params);
 uint8_t atcmd_ble_conn_send(ble_conn_t *params);
-uint8_t atcmd_ble_conn_param_send(ble_conn_param_t *params);
+uint8_t atcmd_ble_conn_update_send(ble_conn_update_t *params);
 uint8_t atcmd_ble_disconn_send(ble_disconn_t *params);
 uint8_t atcmd_ble_data_len_send(ble_data_len_t *params);
 uint8_t atcmd_ble_sec_param_send(ble_sec_param_t *params);
@@ -701,6 +760,7 @@ uint8_t atcmd_hble_adv_start_send(uint8_t modes);
 uint8_t atcmd_hble_adv_stop_send(void);
 uint8_t atcmd_rf_test_tone_start_send(uint16_t channel, uint8_t power);
 uint8_t atcmd_rf_test_tone_stop_send();
+uint8_t atcmd_bt_hci_mode_send();
 void bt_at_cmd_msg_handle(bt_at_cmd_t* msg);
 
 /// @} BT OS TASK

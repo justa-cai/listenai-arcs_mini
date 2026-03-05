@@ -101,6 +101,14 @@ void newriu_init(void)
     IP_NEW_DFE->REG_TPC_CTRL_CFRIDX1.bit.CFG_TPC_CFRIDX_16 = 0x0; //finetune by haolin@2024-12-30
     IP_NEW_DFE->REG_TPC_CTRL_CFRIDX1.bit.CFG_TPC_CFRIDX_17 = 0x0; //finetune by haolin@2024-12-30
     IP_NEW_DFE->REG_TPC_CTRL_CFRIDX1.bit.CFG_TPC_CFRIDX_18 = 0x0; //finetune by haolin@2024-12-30
+
+
+    //adjust agc start time
+    //As delay 9 set max delay for rf start, which also delay start time
+    //Some AP send ack (6M/24M) a little earlier, and arcs agc may start late , which cause ack was not received well
+    //so start agc a little earlier
+    IP_NEW_DFE->REG_AGC_STAG_CFG13.bit.REG_CNT_AT0ST_TH = 2; // by mingwei@2025-11-10
+
 }
 
 
@@ -146,6 +154,12 @@ void wf_soc_init(void)
     IP_NEW_DFE->REG_CFR_POST_DIG_GAIN_8.bit.REG_CFR_POST_DIG_GAIN_16 = 512; // haolin@2024-11-14
     IP_NEW_DFE->REG_CFR_POST_DIG_GAIN_8.bit.REG_CFR_POST_DIG_GAIN_17 = 645; // haolin@2024-11-26
     IP_NEW_DFE->REG_CFR_POST_DIG_GAIN_9.bit.REG_CFR_POST_DIG_GAIN_18 = 723; // haolin@2024-11-26
+    IP_NEW_DFE->REG_TX_CFR_COMMON_13.bit.REG_CFR_HC_MCS8_EN = 0x1; // leifeng@2025-10-20
+    IP_NEW_DFE->REG_TX_CFR_COMMON_13.bit.REG_CFR_HC_MCS9_EN = 0x1; // leifeng@2025-10-20
+    IP_NEW_DFE->REG_TX_CFR0.bit.REG_CFR0_MCS8_EN = 0x1; // leifeng@2025-10-20
+    IP_NEW_DFE->REG_TX_CFR0.bit.REG_CFR0_MCS9_EN = 0x1; // leifeng@2025-10-20
+    IP_NEW_DFE->REG_TX_CFR1.bit.REG_CFR1_MCS8_EN = 0x1; // leifeng@2025-10-20
+    IP_NEW_DFE->REG_TX_CFR1.bit.REG_CFR1_MCS9_EN = 0x1; // leifeng@2025-10-20
     IP_NEW_DFE->REG_AGC_TOP_CFG1.bit.REG_PATHLOSS = 44; // mingwei@2024-11-28
     IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_MAX_POWER = 88; // haolin@2025-01-20
     IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_MIN_POWER = 200; // haolin@2025-01-20

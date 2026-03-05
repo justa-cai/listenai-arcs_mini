@@ -6,10 +6,12 @@
 
 #include "mock_Driver_EFUSE.h"
 
+DEFINE_FAKE_VOID_FUNC(efuse_init);
 DEFINE_FAKE_VALUE_FUNC(uint64_t, efuse_read_uuid);
 
 void mock_driver_efuse_init(void)
 {
+    RESET_FAKE(efuse_init);
     RESET_FAKE(efuse_read_uuid);
 }
 

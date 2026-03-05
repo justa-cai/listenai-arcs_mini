@@ -42,10 +42,14 @@ if(CONFIG_ARCS_HAL_IPC)
             CFG_AMP_IPC_MASTER=1
         )
         listenai_library_sources(
-            ipc_master/ipc_master.c 
-            ipc_master/ipc_master_utils.c
+            ipc_master/ipc_master.c
             ipc_master/ipc_print.c
         )
+        if(CONFIG_WIFI OR CONFIG_LWIP)
+            listenai_library_sources(
+                ipc_master/ipc_master_wifi.c
+            )
+        endif()
     elseif(CONFIG_ARCS_HAL_IPC_SLAVE)
         listenai_compile_definitions(
             CFG_AMP_IPC_SLAVE=1
@@ -54,6 +58,16 @@ if(CONFIG_ARCS_HAL_IPC)
             ipc_slave/ipc_slave.c 
             ipc_slave/ipc_event_fwd.c
             ipc_slave/ipc_print.c
+        )
+
+        if(CONFIG_WIFI OR CONFIG_LWIP)
+            listenai_library_sources(
+                ipc_slave/ipc_slave_wifi.c
+            )
+        endif()
+
+        listenai_include_directories(
+            ipc_slave
         )
     else()
         message(FATAL_ERROR "Invalid configuration: ARCS_HAL_IPC_MASTER or ARCS_HAL_IPC_SLAVE must be enabled")
@@ -137,24 +151,6 @@ if(CONFIG_ARCS_HAL_IPC)
         )
     endif()
 
-    if(CONFIG_ARCS_HAL_IPC_MRPC_SERVER_UTILS)
-        listenai_compile_definitions(
-            CFG_AMP_IPC_MRPC_SERVER_UTILS=1
-        )
-        listenai_library_sources(
-            mrpc/utils/mrpc_utils_api_server.c
-        )
-    endif()
-
-    if(CONFIG_ARCS_HAL_IPC_MRPC_CLIENT_UTILS)
-        listenai_compile_definitions(
-            CFG_AMP_IPC_MRPC_CLIENT_UTILS=1
-        )
-        listenai_library_sources(
-            mrpc/utils/mrpc_utils_api_client.c
-        )
-    endif()
-
     if(CONFIG_ARCS_HAL_IPC_MRPC_SERVER_FLASH_IF)
         listenai_compile_definitions(
             CFG_AMP_IPC_MRPC_SERVER_FLASH_IF=1
@@ -174,21 +170,40 @@ if(CONFIG_ARCS_HAL_IPC)
         )
     endif()
 
-    if(CONFIG_ARCS_HAL_IPC_MRPC_CLIENT_OTP)
+    if(CONFIG_ARCS_HAL_IPC_MRPC_CLIENT_UTILS_S2M)
         listenai_compile_definitions(
-            CFG_AMP_IPC_MRPC_CLIENT_OTP=1
+            CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M=1
         )
         listenai_library_sources(
-            mrpc/otp/mrpc_otp_api_client.c
+            mrpc/utils_s2m/mrpc_utils_s2m_api_client.c
+        )
+    endif()
+    
+    if(CONFIG_ARCS_HAL_IPC_MRPC_SERVER_UTILS_S2M)
+        listenai_compile_definitions(
+            CFG_AMP_IPC_MRPC_SERVER_UTILS_S2M=1
+        )
+        listenai_library_sources(
+            mrpc/utils_s2m/mrpc_utils_s2m_api_server.c
         )
     endif()
 
-    if(CONFIG_ARCS_HAL_IPC_MRPC_SERVER_OTP)
+
+    if(CONFIG_ARCS_HAL_IPC_MRPC_CLIENT_UTILS_M2S)
         listenai_compile_definitions(
-            CFG_AMP_IPC_MRPC_SERVER_OTP=1
+            CFG_AMP_IPC_MRPC_CLIENT_UTILS_M2S=1
         )
         listenai_library_sources(
-            mrpc/otp/mrpc_otp_api_server.c
+            mrpc/utils_m2s/mrpc_utils_m2s_api_client.c
+        )
+    endif()
+
+    if(CONFIG_ARCS_HAL_IPC_MRPC_SERVER_UTILS_M2S)
+        listenai_compile_definitions(
+            CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S=1
+        )
+        listenai_library_sources(
+            mrpc/utils_m2s/mrpc_utils_m2s_api_server.c
         )
     endif()
 
@@ -225,14 +240,14 @@ if(CONFIG_ARCS_HAL_IPC)
         ../../../chip/${CHIP}/driver/private_include
     )
 
-    # 如果定义了 LWIP_VER，添加 LWIP 相关的包含目录
-    if(DEFINED LWIP_VER)
+    if(DEFINED CONFIG_LWIP_VERSION)
+        # 可能LWIP没有打开，只能手动依赖
+        set(LWIP_VERSION_DIR "lwip-${CONFIG_LWIP_VERSION}")
         listenai_include_directories(
-            ../../../chip/${CHIP}/lwip/${LWIP_VER}/src/include
-            ../../../chip/${CHIP}/lwip/${LWIP_VER}/src/include/compat/posix
-            ../../../chip/${CHIP}/lwip/${LWIP_VER}/src/include/compat/stdc
-            ../../../chip/${CHIP}/lwip/${LWIP_VER}/src/include/lwip/apps
-            ../../../chip/${CHIP}/lwip/${LWIP_VER}/contrib/ports/rtos/include
+            ../../../chip/${CHIP}/lwip/${LWIP_VERSION_DIR}/src/include
+            ../../../chip/${CHIP}/lwip/${LWIP_VERSION_DIR}/src/include/compat/posix
+            ../../../chip/${CHIP}/lwip/${LWIP_VERSION_DIR}/src/include/lwip/apps
+            ../../../chip/${CHIP}/lwip/${LWIP_VERSION_DIR}/contrib/ports/rtos/include
         )
     endif()
 

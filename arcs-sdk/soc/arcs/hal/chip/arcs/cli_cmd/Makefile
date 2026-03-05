@@ -21,7 +21,7 @@ CSRCS	= $(shell find . -name "*.c")
 CPPSRCS	=
 SSRCS	=
 
-LWIP_VER := lwip-2.2.0
+LWIP_VER := $(LWIP_VER)
 #includings and flags
 CFLAGS  = -I $(TOPDIR)/include/NMSIS/Core/Include \
           -I $(TOPDIR)/include/debug \
@@ -56,7 +56,7 @@ CFLAGS += -DWIFI_OTA=$(WIFI_OTA)
 
 #macro ctrl
 ifeq ($(strip $(WCN_TYPE)), both)
-CFLAGS += -DCLI_TYPE_WF 
+CFLAGS += -DCLI_TYPE_WF
 else ifeq ($(strip $(WCN_TYPE)), wf)
 CFLAGS += -DCLI_TYPE_WF
 else ifeq ($(strip $(WCN_TYPE)), bt)
@@ -66,6 +66,18 @@ endif
 ifeq ($(WIFI_RAM_ATE), 1)
 CFLAGS += -DWIFI_RAM_ATE
 endif
+
+ifeq ($(CFG_RF_SELFCALI_FROM_NV), 1)
+CFLAGS += -DRF_SELF_CALI_FROM_NV
+endif
+ifeq ($(CFG_RF_SELFCALI_WRITE_TO_NV), 1)
+CFLAGS += -DRF_SELF_CALI_WRITE_TO_NV
+endif
+ifeq ($(CFG_USE_FLASH_OTP), 1)
+CFLAGS += -DUSE_FLASH_OTP=1
+endif
+CFG_FLASH_NOR_OTP_NV_BASE_ADDR ?= 0x30200000
+CFLAGS += -DFLASH_NOR_OTP_NV_BASE_ADDR=$(CFG_FLASH_NOR_OTP_NV_BASE_ADDR)
 
 include $(TOPDIR)/rules.mk
 

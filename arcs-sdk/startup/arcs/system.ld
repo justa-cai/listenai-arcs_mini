@@ -101,6 +101,7 @@ SECTIONS {
     {
         . = ALIGN(4);
         _wifi_ram_start = . ;
+        *(WIFI_CALI)
 #if CONFIG_WIFI_CALI_BUF
         _scali = .;
         . += _lcali;
@@ -243,6 +244,7 @@ ASSERT  ((_wifi_ram_end <= (0x20000000 + 256 * 1024)), "error: wifi ram end must
         * (.ramcode)
         * (.text.irq .text.xPortTaskSwitch .text.eclic_mtip_handler)
         * (.fast_text .fast_text.*)
+        * (.pm.ramcode)
         /* *heap.a: (.text .text.*) */
         *mapi.o (.text .text.*)
         PROVIDE(_ram_code_end = .);
@@ -253,6 +255,7 @@ ASSERT  ((_wifi_ram_end <= (0x20000000 + 256 * 1024)), "error: wifi ram end must
         PROVIDE(_itcm_code_start = .);
         * (.itcm_text .itcm_text.* .itcm*)
         * (._wf_critical ._wf_critical.*)
+        *(.text.pm)
         PROVIDE(_itcm_code_end = .);
         . = ALIGN(4);
     } >ITCM AT>ROM
@@ -466,6 +469,64 @@ ASSERT  ((_wifi_ram_end <= (0x20000000 + 256 * 1024)), "error: wifi ram end must
         __mcp_tool_end = .;
     } >ROM AT>ROM
 
+    /* LISA Device 设备注册段 */
+    .lisa_device_registry : {
+        . = ALIGN(4);
+        __lisa_device_registry_start = .;
+        KEEP (*(.lisa_device_registry))
+        KEEP (*(SORT(.lisa_device_registry.*)))
+        . = ALIGN(4);
+        __lisa_device_registry_end = .;
+    } >ROM AT>ROM
+
+    /* System Init 系统初始化段
+     * Use two-step sorting to handle sub_priority 0-99 correctly:
+     * Step 1: Process 0-9 (single digit)
+     * Step 2: Process 10-99 (double digit)
+     * This ensures correct numeric order despite lexicographic sorting */
+    .sys_init : {
+        . = ALIGN(4);
+        __sys_init_start = .;
+
+        /* PRE_SYSTEM_INIT: level=0, sub_priority=0-99
+         * BEFORE scatload - NO GLOBAL VARIABLES! */
+        __sys_init_0_start = .;
+        KEEP (*(SORT(.sys_init.0[0-9])))      /* sub_priority 0-9 */
+        KEEP (*(SORT(.sys_init.0[1-9][0-9]))) /* sub_priority 10-99 */
+        __sys_init_0_end = .;
+
+        /* PRE_DEVICES_INIT: level=1, sub_priority=0-99
+         * Before lisa_device_init() */
+        __sys_init_1_start = .;
+        KEEP (*(SORT(.sys_init.1[0-9])))      /* sub_priority 0-9 */
+        KEEP (*(SORT(.sys_init.1[1-9][0-9]))) /* sub_priority 10-99 */
+        __sys_init_1_end = .;
+
+        /* PRE_KERNEL: level=2, sub_priority=0-99
+         * Before vTaskStartScheduler() */
+        __sys_init_2_start = .;
+        KEEP (*(SORT(.sys_init.2[0-9])))      /* sub_priority 0-9 */
+        KEEP (*(SORT(.sys_init.2[1-9][0-9]))) /* sub_priority 10-99 */
+        __sys_init_2_end = .;
+
+        /* POST_KERNEL: level=3, sub_priority=0-99
+         * After vTaskStartScheduler() */
+        __sys_init_3_start = .;
+        KEEP (*(SORT(.sys_init.3[0-9])))      /* sub_priority 0-9 */
+        KEEP (*(SORT(.sys_init.3[1-9][0-9]))) /* sub_priority 10-99 */
+        __sys_init_3_end = .;
+
+        /* PRE_APPLICATION: level=4, sub_priority=0-99
+         * Before main() */
+        __sys_init_4_start = .;
+        KEEP (*(SORT(.sys_init.4[0-9])))      /* sub_priority 0-9 */
+        KEEP (*(SORT(.sys_init.4[1-9][0-9]))) /* sub_priority 10-99 */
+        __sys_init_4_end = .;
+
+        . = ALIGN(4);
+        __sys_init_end = .;
+    } >ROM AT>ROM
+
     ////////////////////////////////////////////////////////////////////////////
     // ROM => RAM
     .mapi : ALIGN(4) {
@@ -509,7 +570,7 @@ ASSERT  ((_wifi_ram_end <= (0x20000000 + 256 * 1024)), "error: wifi ram end must
         _ipcshram = . ;
         *(SHAREDRAM_AMP_IPC_ENV)
         *(SHAREDRAM_AMP_IPC)
-        *(SORT(.ipc.*))
+        KEEP(*(SORT(.ipc.*)))
         _eipcshram = . ;
         *(.ic_lock_shared_mem)
     } > IPC_RAM

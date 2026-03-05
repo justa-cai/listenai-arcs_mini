@@ -89,7 +89,7 @@ typedef struct acomp_stream{
     acomp_stream_channel_t *ch[ACOMP_STREAM_MAX_CHANNEL];
     acomp_stream_ops_t ops;
     uint32_t channel_count;             /* Number of active channels */
-    void* dev;
+    uint32_t  dev_index;
 }acomp_stream_t;
 
 
@@ -103,7 +103,7 @@ typedef struct acomp_stream{
 #define ACOMP_STREAM_ERROR_CREATE_FAILED  (-6)
 
 /* Function declarations */
-acomp_stream_t* acomp_stream_create(void *dev);
+acomp_stream_t* acomp_stream_create(uint32_t dev_index);
 int acomp_stream_destroy(acomp_stream_t* stream);
 uint16_t acomp_stream_calc_buffer_num(uint32_t mem_size, uint32_t buffer_size, uint32_t align);
 uint32_t acomp_stream_calc_mem_size(uint32_t num_descs, uint32_t buffer_size, uint32_t align);

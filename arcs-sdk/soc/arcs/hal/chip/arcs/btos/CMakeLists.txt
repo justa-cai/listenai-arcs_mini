@@ -9,6 +9,13 @@ if(CONFIG_ARCS_HAL_BTOS)
         task/bt_os_task.c
     )
 
+    if (CONFIG_BT_AUDIO)
+        listenai_library_sources(
+            task/aud_os_task.c
+            task/aud_pro_os_task.c
+        )
+    endif()
+
     listenai_library_compile_options_ifdef(
         CONFIG_ARCS_HAL_WARNING_DISABLE
         PRIVATE

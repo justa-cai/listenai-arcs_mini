@@ -53,7 +53,7 @@ SECTIONS
   PROVIDE(__STACK_SIZE = 4K);
   /* heap size defined in FreeRtosConfig.h, if RTOS module was not used, define heap size in ld */
   /*PROVIDE(__HEAP_SIZE = 80K);*/
-  PROVIDE(__BT_HEAP_SIZE = 24K);/*32K size for BT heap*/  
+  PROVIDE(__BT_HEAP_SIZE = 24K);/*32K size for BT heap*/
   PROVIDE(__SMP_CPU_CNT = 1);
   __TOT_STACK_SIZE = __STACK_SIZE * __SMP_CPU_CNT;
 
@@ -65,6 +65,7 @@ SECTIONS
   /* shared RAM, put calibration and trace memeory at the beginning */
   SHARED (NOLOAD):
   {
+      *(WIFI_CALI)
 #if CALI_BUF
       _scali = .;
       . += _lcali;
@@ -76,7 +77,6 @@ SECTIONS
       _trace_end = .;
 #endif
       _sshram = . ;
-      *(WIFI_CALI)
       *(SHAREDRAMIPC)
       *(SHAREDRAM)
       _eshram = . ;

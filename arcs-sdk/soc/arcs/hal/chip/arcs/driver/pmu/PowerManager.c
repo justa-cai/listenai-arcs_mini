@@ -31,10 +31,7 @@
  * @return The reset source as defined in pmu_rstsrc_t.
  */
 pmu_rstsrc_t HAL_PMU_GetSysResetCause(void){
-	uint32_t rstCause;
-	rstCause = IP_AON_CTRL->REG_SYSRST_STATUS.all;
-    //clear reset cause
-    IP_AON_CTRL->REG_SYSRST_STATUS.all = rstCause;
+	uint32_t rstCause = IP_AON_CTRL->REG_SYSRST_STATUS.all;
 
     if (rstCause & (1 << PMU_RST_POR)) return PMU_RST_POR;
     if (rstCause & (1 << PMU_RST_AON)) return PMU_RST_AON;
@@ -57,11 +54,8 @@ pmu_rstsrc_t HAL_PMU_GetSysResetCause(void){
  *         Returns PMU_WAKEUP_NONE if no source is found.
  */
 pmu_wakeupsrc_t HAL_PMU_GetWakeUpCause(void){
-	uint32_t wakeupCause;
+	uint32_t wakeupCause = IP_AON_CTRL->REG_WAKEUP_ISR.all;
 
-	wakeupCause = IP_AON_CTRL->REG_WAKEUP_ISR.all;
-	//clear wakeup cause
-	IP_AON_CTRL->REG_WAKEUP_ICR.all = wakeupCause;
 	if(wakeupCause != 0) {
 	    for (pmu_wakeupsrc_t src = PMU_WAKEUP_TIMER; src <= PMU_WAKEUP_GPIOB_09; src++) {
 	        if (wakeupCause & (1 << src)) {
@@ -80,9 +74,9 @@ pmu_wakeupsrc_t HAL_PMU_GetWakeUpCause(void){
  * This function clears the system reset cause in the REG_SYSRST_STATUS register.
  */
 void HAL_PMU_ClearSysResetCause(void){
-    IP_AON_CTRL->REG_SYSRST_STATUS.all = 0xFFFFFFFF;
+	uint32_t rstCause = IP_AON_CTRL->REG_SYSRST_STATUS.all;
+    IP_AON_CTRL->REG_SYSRST_STATUS.all = rstCause;
 }
-
 
 /**
  * @brief Clear the wake-up cause.
@@ -90,10 +84,8 @@ void HAL_PMU_ClearSysResetCause(void){
  * This function clears the wake-up cause in the PMU wake-up IRQ clear register.
  */
 void HAL_PMU_ClearWakeUpCause(void){
-    IP_AON_CTRL->REG_WAKEUP_ICR.all = 0xFFFFFFFF;
+    IP_AON_CTRL->REG_WAKEUP_ICR.all = 0xFFFFFFFFU;
 }
-
-
 
 /**
  * @brief Enable a specific wake-up source.

@@ -455,12 +455,49 @@ static uint32_t CRM_GetAon32kFreq(void) {
  *          undefined behavior or incorrect values.
  */
 static uint32_t CRM_GetRc32kSrcFreq(void){
-	IP_AON_CTRL->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_CLR = 1;
-	IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_LENGTH = 0x4;
-	IP_AON_CTRL->REG_BT_RC_CALI.bit.AFC_MODE = 0x0;
-	IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_START = 0x1;
-	while(!IP_AON_CTRL->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_RAWSTAT);
-	return CRM_GetXtalSrcFreq() / (IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_RESULT / 16);
+    uint32_t rc32k_freq = IC_BOARD_CMN32K_FREQ;
+    if(IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_RESULT) {
+        uint8_t rccal_length = IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_LENGTH;
+        rc32k_freq = ((CRM_GetXtalSrcFreq()<<rccal_length) / IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_RESULT);
+    }
+    return rc32k_freq;
+}
+
+/**
+ * @brief Enables or disables the automatic trigger for RC32k calibration.
+ */
+void HAL_CRM_SetRc32kCaliAutoTrigger(uint8_t enable){
+    if (enable) {
+        IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_AUTO_TRIG_SEL = 1;
+    } else {
+        IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_AUTO_TRIG_SEL = 0;
+    }
+}
+
+/**
+ * @brief Sets the RC32k calibration cycle number.
+ * This function configures the length of the RC32k calibration cycle by setting the
+ * RCCAL_LENGTH field in the RCCAL register. The length parameter determines how many
+ * cycles(2 ^ length) the calibration process will run, with a maximum value of 8(2 ^ 8).
+ */
+void HAL_CRM_SetRc32kCaliLength(uint8_t length){
+    if (length > 8) {
+        length = 8;
+    }
+    IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_LENGTH = length;
+}
+
+/**
+ * @brief Starts the RC32k calibration process.
+ * This function initiates the RC32k calibration by setting the RCCAL_START bit in the
+ * RCCAL register. It also clears any previous calibration done interrupt status and waits
+ * for the calibration to complete by polling the RCCAL_DONE_RAWSTAT bit in the RCCAL_IRQ
+ * register.
+ */
+void HAL_CRM_SetRc32kCaliStart(){
+    IP_AON_CTRL->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_CLR = 1;
+    IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_START = 0x1;
+    while(!IP_AON_CTRL->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_RAWSTAT);
 }
 
 /**

@@ -144,7 +144,7 @@ void SystemInit_Copy(void){
             }
         }
     }
-    
+
     pCpyItem = &__zero_table_start__;
     pCpyEnd = &__zero_table_end__;
 
@@ -712,6 +712,8 @@ void _fini(void)
     /* Don't put any code here, please use _postmain_fini now */
 }
 
+extern void default_intexc_handler(void);
+
 //In order to improve the performance and reduce the gate count,
 //the alignment of the base address in MTVT is determined by
 //the actual number of interrupts, which is shown in the following table:
@@ -727,7 +729,6 @@ void _fini(void)
 void irq_vectors_init(void)
 {
     extern uint32_t _start;
-    extern void default_intexc_handler(void);
 
     //when original vtable is copied to ILM or SRAM as fast vtable,
     //the old entry 0# "j _start" may failed, because "j" or "jal" can cover about 1MB range
@@ -746,8 +747,17 @@ void irq_vectors_init(void)
     // set my own interrupt vector table
     __RV_CSR_WRITE(CSR_MTVT, OS_CPU_Vector_Table);
 }
-
-
+#if CONFIG_PM
+void irq_vectors_reinit(void)
+{
+    for (int i = 1; i < IRQ_MAX; i++)
+    {
+        if (OS_CPU_Vector_Table[i] != default_intexc_handler)
+            enable_IRQ(i);
+    }
+    __RV_CSR_WRITE(CSR_MTVT, OS_CPU_Vector_Table);
+}
+#endif
 // Register ISR into Interrupt Vector Table
 void register_ISR(uint32_t irq_no, ISR isr, ISR* isr_old)
 {

@@ -1,0 +1,5 @@
+tests:
+  test.driver.lisa_audio:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity

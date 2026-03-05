@@ -1,0 +1,19 @@
+config POWER_MANAGER
+    bool "Enable Power Manager"
+    default n
+
+if POWER_MANAGER
+
+config POWER_MANAGER_POWER_EN_GPIO_PAD
+    string "Power Enable GPIO Pad (\"gpioa\" or \"gpiob\")"
+    default "gpiob"
+
+config POWER_MANAGER_POWER_KEY_GPIO_PAD
+    string "Power Key GPIO Pad (\"gpioa\" or \"gpiob\")"
+    default "gpiob"
+
+config POWER_MANAGER_USB_DETECT_GPIO_PAD
+    string "USB Detect GPIO Pad (\"gpioa\" or \"gpiob\")"
+    default "gpiob"
+
+endif

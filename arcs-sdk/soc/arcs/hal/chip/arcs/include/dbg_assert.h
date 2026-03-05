@@ -2,16 +2,10 @@
     dbg_assert.h
 */
 
-// #undef assert
+#pragma once
 
-// #ifdef NDEBUG           /* required by ANSI standard */
-// # define assert(__e) ((void)0)
-// #else
-// extern void __dbg_assert();
-// #ifndef assert
-// #define assert(__e) ((__e) ? (void)0 : __dbg_assert())
-// #endif
 
-// #endif
-
-// #define ASSERT_ERR assert
+#ifndef ASSERT_ERR
+#include <assert.h>
+#define ASSERT_ERR assert
+#endif

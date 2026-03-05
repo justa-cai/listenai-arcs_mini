@@ -285,7 +285,7 @@ int rtos_task_wait_notification(int timeout)
     return ulTaskNotifyTake(pdTRUE, rtos_timeout_2_tickcount(timeout));
 }
 
-void rtos_task_notify(rtos_task_handle task, bool isr)
+_PM_RAM_TEXT void rtos_task_notify(rtos_task_handle task, bool isr)
 {
     if (isr)
     {
@@ -637,7 +637,7 @@ void rtos_priority_set(rtos_task_handle handle, rtos_prio priority)
 
 uint32_t rtos_get_time(void)
 {
-    return ( xTaskGetTickCount( ) * 1000 / configTICK_RATE_HZ );
+    return ( xTaskGetTickCount( ) * (1000 / configTICK_RATE_HZ) );
 }
 
 bool rtos_time_past(uint32_t timestamp_ms, uint32_t timeout_ms)
@@ -678,7 +678,7 @@ int32_t rtos_get_sys_time(enum time_origin_t origin, uint32_t *sec, uint32_t *us
     return 0;
 }
 
-uint64_t rtos_get_sys_us(void)
+_PM_RAM_TEXT uint64_t rtos_get_sys_us(void)
 {
     return SysTimer_GetLoadValue();
 }
@@ -702,14 +702,19 @@ int32_t rtos_event_clear(rtos_event evt, rtos_event_bit bit)
     return 0;
 }
 
-int32_t rtos_event_set(rtos_event evt, rtos_event_bit bit, bool isr)
+_PM_RAM_TEXT int32_t rtos_event_set(rtos_event evt, rtos_event_bit bit, bool isr)
 {
     rtos_base_type xHigherPriorityTaskWoken = pdFALSE;
 
     if (isr)
+    {
         xEventGroupSetBitsFromISR(evt, bit, &xHigherPriorityTaskWoken);
+        portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+    }
     else
+    {
         xEventGroupSetBits(evt, bit);
+    }
 
     return 0;
 }
@@ -747,9 +752,9 @@ int32_t rtos_timer_reload(rtos_timer timer)
     return xTimerReset(timer, 0);
 }
 
-void rtos_timer_schedule(rtos_timer timer)
+void rtos_timer_schedule(rtos_timer timer, uint32_t period_ms)
 {
-    xTimerChangePeriod(timer, 0, 0);
+    xTimerChangePeriod(timer, period_ms, 0);
 }
 
 void rtos_timer_id_set(rtos_timer timer, void *id)
@@ -760,6 +765,21 @@ void rtos_timer_id_set(rtos_timer timer, void *id)
 void *rtos_timer_id_get(rtos_timer timer)
 {
     return pvTimerGetTimerID(timer);
+}
+
+uint32_t rtos_timer_get_period(rtos_timer timer)
+{
+    return xTimerGetPeriod(timer);
+}
+
+void rtos_timer_set_reload_mode(rtos_timer timer, bool reload)
+{
+    vTimerSetReloadMode(timer, reload);
+}
+
+int32_t rtos_timer_is_active(rtos_timer timer)
+{
+    return xTimerIsTimerActive(timer);
 }
 
 #if ( ( configGENERATE_RUN_TIME_STATS == 1 ) && ( configUSE_STATS_FORMATTING_FUNCTIONS > 0 ) && ( configUSE_TRACE_FACILITY == 1 ) )

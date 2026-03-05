@@ -1,0 +1,47 @@
+config BUTTON
+    bool "include gpio button and adc button"
+    default n
+
+if BUTTON
+    config BUTTON_THREAD_SCAN_FREQ_HZ
+        int "button thread scan freq hz"
+        default 50
+    
+    config BUTTON_THREAD_PRIORITY
+        int "button thread priority"
+        default 8
+    
+    config BUTTON_THREAD_STACK_SIZE
+        int "button thread stack size"
+        default 4096
+    
+    config GPIO_BUTTON
+        bool "gpio button"
+        default n
+
+    config ADC_BUTTON
+        bool "adc button"
+        default n
+
+if ADC_BUTTON
+    config ADC_UNIT_NUM
+        int "adc uint number"
+        default 1
+
+    config ADC_MAX_CHANNEL
+        int "adc max channel"
+        default 6
+        range 1 6
+
+    config ADC_BUTTON_MAX_BUTTON_PER_CHANNEL
+        int "adc button max button per channel"
+        default 10
+        range 1 10
+
+    config ADC_BUTTON_SAMPLE_TIMES
+        int "adc button sample times"
+        default 8
+endif
+
+endif
+

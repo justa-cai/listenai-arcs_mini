@@ -16,7 +16,6 @@
 #define IC_MUTEX_NO_OWNER    0
 #define IC_MUTEX_MAX_WAITERS 4  // must be a power of 2
 
-
 /*! Mutex object type. The minimum size of an object of this type is 
  * \ref IC_MUTEX_SHARED_STRUCT_SIZE. For a cached subsystem, the size is rounded 
  * and aligned to the maximum dcache line size across all cores in the 
@@ -36,7 +35,6 @@ struct _ic_mutex {
     // 本地 rtos mutex
     SemaphoreHandle_t _localMutex;
     uint32_t channel;
-
     // wait queue at shared memory
     volatile ic_mutex_wait_queue_t* _sharedWaitQ;
 };

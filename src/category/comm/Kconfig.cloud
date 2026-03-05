@@ -1,0 +1,40 @@
+menu "Cloud Service Configuration"
+
+config CLOUD_PRODUCT_ID_DEFAULT
+    string "Cloud Product ID"
+    default "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    help
+        The Product ID assigned by the cloud service for this device.
+
+config CLOUD_SECRET_ID_DEFAULT
+    string "Cloud Secret ID"
+    default "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+    help
+        The Secret ID assigned by the cloud service for this device.
+
+config CLOUD_FULL_DUPLEX_ENABLE
+    bool "Enable Full Duplex Mode"
+    default n
+    help
+        Enable or disable full duplex communication with the cloud service.
+        When enabled, the device can send and receive audio data simultaneously.
+
+if CLOUD_FULL_DUPLEX_ENABLE
+
+config CLOUD_FULL_DUPLEX_TIMEOUT_MS
+    int "Full Duplex Timeout (ms)"
+    default 90000
+    help
+        Timeout value in milliseconds for full duplex communication.
+        If no activity is detected within this timeout period, the full duplex
+        session will be terminated.
+endif
+
+config CLOUD_STAGING_MODE_ENABLE
+    bool "Enable Staging Mode"
+    default n
+    help
+        Enable or disable staging mode for testing purposes.
+        When enabled, the device will connect to the staging environment
+        of the cloud service instead of the production environment.
+endmenu

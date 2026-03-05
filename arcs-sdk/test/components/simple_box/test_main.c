@@ -21,7 +21,6 @@
 #include "unity.h"
 #include <setjmp.h>
 
-#include "sdmmc_init.h"
 #include "user_fs.h"
 #include "mock_shell/mock_shell.h"
 #include "shell.h"
@@ -333,7 +332,6 @@ void test_cmd_cp_abs_dir_to_relative_dir(void)
 /*=======MAIN=====*/
 int main(void)
 {
-    sdmmc_hard_init();
     user_fs_init();
 
     printf("user fs init complete\n");

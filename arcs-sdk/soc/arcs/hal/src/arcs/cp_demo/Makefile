@@ -44,7 +44,7 @@ export CONFIG_SKIP_BOOTCLOCK=1
 
 CFLAGS += -DBUILD_DATE=${BUILD_DATE}
 
-#EXTLIBS += -L$(TOPDIR)/chip/$(CHIP)/lib 
+#EXTLIBS += -L$(TOPDIR)/chip/$(CHIP)/lib
 
 # copy cflags from RW IP
 #CFLAGS += -DCFG_STATIC
@@ -115,20 +115,16 @@ export TX_BUF_COPY
 
 HW_VER=HW_VER_ARCS_D0
 export HW_VER
-ifeq ($(IC_BOARD), 1)
-  ifeq ("$(strip $(CHIP))", "arcs")
-    ifeq ("$(strip $(HW_VER))", "c0")
-      CFLAGS += -DCHIP_ARCS_C0
-    else ifeq ("$(strip $(HW_VER))", "d0")
-      CFLAGS += -DCHIP_ARCS_D0
-    endif
-  endif
-endif
 
 # Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BT
 WCN_TYPE=wf
 export WCN_TYPE
-
+# RF_BOARD_VER=0 or undefine for ArcsD EVB,
+# RF_BOARD_VER=1 for Taoyun DVT1
+# RF_BOARD_VER=2 for Taoyun DVT2
+# RF_BOARD_VER=3 for Haier
+RF_BOARD_VER ?= 0
+export RF_BOARD_VER
 # RFCALI_WF_EN: 0=disable, 1=enable
 RFCALI_WF_EN=1
 export RFCALI_WF_EN
@@ -137,7 +133,16 @@ CFLAGS += -DRFCALI_WF_EN=$(RFCALI_WF_EN)
 RFCALI_BT_EN=0
 export RFCALI_BT_EN
 CFLAGS += -DRFCALI_BT_EN=$(RFCALI_BT_EN)
-
+CFG_DPD_LUNA=0
+export CFG_DPD_LUNA
+CFG_RF_SELFCALI_FROM_NV=1
+export CFG_RF_SELFCALI_FROM_NV
+CFG_RF_SELFCALI_WRITE_TO_NV=0
+export CFG_RF_SELFCALI_WRITE_TO_NV
+CFG_FLASH_IF=1
+export CFG_FLASH_IF
+CFG_USE_FLASH_OTP=0
+export CFG_USE_FLASH_OTP
 CFG_PING=1
 CFG_IPERF=1
 ifeq ($(CFG_PING), 1)
@@ -218,10 +223,10 @@ endif
 include $(TOPDIR)/rules.mk
 LDSCRIPT   = ./flash_cp.ld
 
-ext: 
+ext:
 	@sh ${TOPDIR}/tools/mkhdr_ota.sh $(TGTOUT)/$(TARGET).bin
 	@export CONFIG_FREERTOSCONFIG_H_PATH="src/arcs/ap_demo"
-	
+
 #LDSCRIPT  = ./flash.ld
 #ifeq ($(PSRAM_SEC),1)
 #LDSCRIPT   = $(TOPDIR)/chip/${CHIP}/arch/psram.ld

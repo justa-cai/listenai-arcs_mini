@@ -626,7 +626,7 @@ static int fatfs_statvfs(struct lsfs_mount_t *mountp,
 	 * size, otherwise it is configured to a fixed value give by FF_MIN_SS.
 	 */
 #if FF_MAX_SS != FF_MIN_SS
-	stat->f_bsize = lsfs->ssize;
+	stat->f_bsize = fs->ssize;
 #else
 	stat->f_bsize = FF_MIN_SS;
 #endif

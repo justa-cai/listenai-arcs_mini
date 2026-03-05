@@ -6,6 +6,7 @@
 
 #if(CONFIG_FS_ENV_MEMORY_MANAGEMENT_OS)
 #include "esp_heap_caps.h"
+#include "sysheap.h"
 #endif
 #if (CONFIG_FS_ENV_OS_FREERTOS)
 #include "FreeRTOS.h"

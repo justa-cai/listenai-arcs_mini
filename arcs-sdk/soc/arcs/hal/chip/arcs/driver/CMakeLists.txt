@@ -8,6 +8,8 @@ file(GLOB_RECURSE ARCS_HAL_SRCS
 
 listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/uart/
+    ${CMAKE_CURRENT_SOURCE_DIR}/gpio/
 )
 
 list(APPEND ARCS_HAL_SRCS ${ARCS_HAL_SRCS})

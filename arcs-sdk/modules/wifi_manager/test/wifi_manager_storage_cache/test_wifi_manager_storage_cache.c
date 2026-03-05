@@ -1,0 +1,146 @@
+#include "unity.h"
+
+#include <string.h>
+#include <errno.h>
+#include <stdlib.h>
+
+#include "wifi_manager/wifi_manager_storage.h"
+#include "wifi_manager_storage_cache.h"
+#include "wifi_manager_storage_internal.h"
+
+static int s_loader_call_count;
+static int s_free_count;
+
+static void *test_malloc(size_t size)
+{
+    return malloc(size);
+}
+
+static void *test_calloc(size_t nmemb, size_t size)
+{
+    return calloc(nmemb, size);
+}
+
+static void test_free(void *ptr)
+{
+    if (ptr != NULL) {
+        s_free_count++;
+    }
+    free(ptr);
+}
+
+static int loader_ok(wifi_storage_ctx_t *ctx, wifi_storage_item_t **out_list, uint32_t *out_count)
+{
+    s_loader_call_count++;
+    *out_list = WIFI_STORAGE_CALLOC(ctx, 1, sizeof(wifi_storage_item_t));
+    if (*out_list == NULL) {
+        return -ENOMEM;
+    }
+    (*out_list)[0].enable = 1;
+    strcpy((*out_list)[0].ap_info.ssid, "cache_ssid");
+    *out_count = 1;
+    return 0;
+}
+
+static int loader_fail(wifi_storage_ctx_t *ctx, wifi_storage_item_t **out_list, uint32_t *out_count)
+{
+    (void)ctx;
+    (void)out_list;
+    (void)out_count;
+    s_loader_call_count++;
+    return -EIO;
+}
+
+static void init_ctx(wifi_storage_ctx_t *ctx)
+{
+    memset(ctx, 0, sizeof(*ctx));
+    ctx->ops.malloc = test_malloc;
+    ctx->ops.calloc = test_calloc;
+    ctx->ops.free = test_free;
+    ctx->ops.mutex_lock = NULL;
+    ctx->ops.mutex_unlock = NULL;
+    wifi_storage_cache_init_ctx(ctx);
+}
+
+void setUp(void)
+{
+    s_loader_call_count = 0;
+    s_free_count = 0;
+}
+
+void tearDown(void)
+{
+}
+
+void test_cache_load_then_reuse_without_second_loader(void)
+{
+    wifi_storage_ctx_t ctx;
+    init_ctx(&ctx);
+
+    TEST_ASSERT_EQUAL(0, wifi_storage_cache_load(&ctx, loader_ok));
+    TEST_ASSERT_TRUE(wifi_storage_cache_valid(&ctx));
+
+    wifi_storage_item_t *list = NULL;
+    uint32_t count = 0;
+    wifi_storage_cache_get(&ctx, &list, &count);
+    TEST_ASSERT_NOT_NULL(list);
+    TEST_ASSERT_EQUAL(1U, count);
+    TEST_ASSERT_EQUAL_STRING("cache_ssid", list[0].ap_info.ssid);
+    TEST_ASSERT_EQUAL(1, s_loader_call_count);
+
+    TEST_ASSERT_EQUAL(0, wifi_storage_cache_load(&ctx, loader_ok));
+    TEST_ASSERT_EQUAL(1, s_loader_call_count);
+
+    wifi_storage_cache_drop(&ctx);
+    TEST_ASSERT_FALSE(wifi_storage_cache_valid(&ctx));
+    TEST_ASSERT_EQUAL(1, s_free_count);
+}
+
+void test_cache_drop_without_valid_list_is_safe(void)
+{
+    wifi_storage_ctx_t ctx;
+    init_ctx(&ctx);
+
+    wifi_storage_cache_drop(&ctx);
+    TEST_ASSERT_EQUAL(0, s_free_count);
+    TEST_ASSERT_FALSE(wifi_storage_cache_valid(&ctx));
+}
+
+void test_cache_load_error_does_not_set_valid(void)
+{
+    wifi_storage_ctx_t ctx;
+    init_ctx(&ctx);
+
+    TEST_ASSERT_EQUAL(-EIO, wifi_storage_cache_load(&ctx, loader_fail));
+    TEST_ASSERT_FALSE(wifi_storage_cache_valid(&ctx));
+
+    wifi_storage_item_t *list = (wifi_storage_item_t *)0x1;
+    uint32_t count = 123;
+    wifi_storage_cache_get(&ctx, &list, &count);
+    TEST_ASSERT_NULL(list);
+    TEST_ASSERT_EQUAL(0U, count);
+}
+
+void test_cache_set_null_marks_empty_but_valid(void)
+{
+    wifi_storage_ctx_t ctx;
+    init_ctx(&ctx);
+
+    wifi_storage_cache_set(&ctx, NULL, 0);
+    TEST_ASSERT_TRUE(wifi_storage_cache_valid(&ctx));
+    wifi_storage_item_t *list = (wifi_storage_item_t *)0x1;
+    uint32_t count = 123;
+    wifi_storage_cache_get(&ctx, &list, &count);
+    TEST_ASSERT_NULL(list);
+    TEST_ASSERT_EQUAL(0U, count);
+}
+
+int main(void)
+{
+    UNITY_BEGIN();
+    RUN_TEST(test_cache_load_then_reuse_without_second_loader);
+    RUN_TEST(test_cache_drop_without_valid_list_is_safe);
+    RUN_TEST(test_cache_load_error_does_not_set_valid);
+    RUN_TEST(test_cache_set_null_marks_empty_but_valid);
+    return UNITY_END();
+}

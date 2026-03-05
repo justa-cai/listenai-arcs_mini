@@ -1,0 +1,36 @@
+# LISA UART Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_UART_DEVICE
+	bool "Enable LISA UART Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA UART device driver based on lisa_device framework.
+	  Provides asynchronous and synchronous UART communication interfaces.
+
+	  This driver wraps the HAL UART functions and provides a unified
+	  device interface for UART operations including read, write, and
+	  event-driven callbacks.
+
+if LISA_UART_DEVICE
+
+	config LISA_UART_ASYNC_API
+		bool "Enable LISA UART Asynchronous API"
+		default n
+
+	config LISA_UART0
+		bool "Enable LISA UART0"
+		default n
+	
+	config LISA_UART1
+		bool "Enable LISA UART1"
+		default n
+	
+	config LISA_UART2
+		bool "Enable LISA UART2"
+		default n
+	
+endif

@@ -30,6 +30,10 @@
 
 static uint32_t stop_dhcpc = 0;
 
+// DHCP status callback
+static net_dhcp_status_cb_t g_dhcp_status_cb = NULL;
+static void *g_dhcp_status_cb_arg = NULL;
+
 /**
  ******************************************************************************
  * @brief Stop using DHCP
@@ -148,6 +152,11 @@ void ls_netif_status_callback_handler(struct netif *netif)
                 vif_idx, cfg.ipv4.addr & 0xff, (cfg.ipv4.addr >> 8) & 0xff,
                 (cfg.ipv4.addr >> 16) & 0xff, (cfg.ipv4.addr >> 24) & 0xff,
                 32 - co_clz(cfg.ipv4.mask));
+
+    // Invoke the successful DHCP callback registered by the user.
+    if (g_dhcp_status_cb) {
+        g_dhcp_status_cb(vif_idx, true, cfg.ipv4.addr, cfg.ipv4.mask, cfg.ipv4.gw, g_dhcp_status_cb_arg);
+    }
 }
 
 
@@ -197,6 +206,11 @@ err_out:
     {
         CLOGE("%s failed reason = %d ", __func__, ret);
         ls_event_post(EVENT_WIFI, EVENT_WIFI_STA_DHCP_FAIL, NULL, 0, LS_NEVER_TIMEOUT, 0);
+
+        // Calling the user-registered DHCP failure callback
+        if (g_dhcp_status_cb) {
+            g_dhcp_status_cb(vif_idx, false, 0, 0, 0, g_dhcp_status_cb_arg);
+        }
     }
 
     return ret;
@@ -294,8 +308,8 @@ int ls_dhcpc_stop(int vif_idx)
     net_if->static_ip = 0;
     net_if->dhcp_started = 0;
     // clear current IP address
-    stop_dhcp(net_if);
     netif_set_status_callback(net_if, NULL);
+    stop_dhcp(net_if);
     net_if_set_ip(net_if, 0, 0, 0);
     stop_dhcpc = 1;
 
@@ -354,6 +368,20 @@ int ls_dhcps_stop(void)
 {
     dhcps_stop();
     return LS_OK;
+}
+
+/**
+ ****************************************************************************************
+ * @brief Register DHCP status callback function
+ *
+ * @param[in] cb  Callback function pointer
+ * @param[in] arg User-defined parameter
+ ****************************************************************************************
+ */
+void net_dhcp_register_status_callback(net_dhcp_status_cb_t cb, void *arg)
+{
+    g_dhcp_status_cb = cb;
+    g_dhcp_status_cb_arg = arg;
 }
 
 /// @}

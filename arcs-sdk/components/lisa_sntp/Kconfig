@@ -1,0 +1,7 @@
+menu "lisa sntp"
+
+config LISA_SNTP
+	bool "lisa sntp"
+	default n
+
+endmenu

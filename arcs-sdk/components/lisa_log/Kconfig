@@ -1,0 +1,100 @@
+menu "log configuration"
+
+config LOG
+    bool "enable log"
+    default n
+
+if LOG
+
+choice
+    prompt "log frontend"
+    default LOG_FRONTEND_EASYLOGGER
+    config LOG_FRONTEND_EASYLOGGER
+        bool "easylogger frontend"
+        select SDK_MODULE_EASYLOGGER
+endchoice
+
+choice
+    prompt "log backend"
+    default LOG_BACKEND_UART
+    config LOG_BACKEND_UART
+        bool "uart backend"
+endchoice
+
+config LOG_MODE_ASYNC
+    bool "asynchronous mode"
+    default y
+    select EASYLOGGER_LOG_MODE_ASYNC if SDK_MODULE_EASYLOGGER
+    help
+        Enable asynchronous logging mode for better performance.
+        Logs will be buffered and output in a separate task.
+
+if LOG_MODE_ASYNC
+config LOG_ASYNC_BUF_SIZE
+    int "asynchronous buffer size"
+    default 10240
+    help
+        Size of the buffer for asynchronous logging (in bytes).
+        Larger buffer can handle more log messages but uses more memory.
+
+config LOG_ASYNC_TASK_STACK_SIZE
+    int "asynchronous task stack size"
+    default 512
+    help
+        Stack size for the asynchronous logging task (in bytes).
+        Increase this if you experience stack overflow in log task.
+
+config LOG_ASYNC_TASK_PRIORITY
+    int "asynchronous task priority"
+    default 1
+    help
+        Priority of the asynchronous logging task.
+        Higher value means higher priority (depends on your RTOS).
+endif
+
+config LOG_LINE_BUF_SIZE
+    int "line buffer size"
+    default 1024
+    help
+        Maximum size of a single log line (in bytes).
+        Log messages longer than this will be truncated.
+
+config LOG_USE_POSIX_TIME
+    bool "use POSIX time"
+    default n
+    help
+        Enable this to use POSIX time functions for timestamps.
+        Requires POSIX time support in your system.
+
+config LOG_BACKEND_SYS_NAME
+    string "system log backend name"
+    default "sys.log"
+    help
+        Define the name of the system log backend.
+        This name will be used to identify the log backend in the system.
+endif
+
+choice
+    prompt "log level"
+    default LOG_LEVEL_INFO
+    config LOG_LEVEL_ASSERT
+        bool "assert"
+        select EASYLOGGER_LOG_LEVEL_ASSERT if SDK_MODULE_EASYLOGGER
+    config LOG_LEVEL_ERROR
+        bool "error"
+        select EASYLOGGER_LOG_LEVEL_ERROR if SDK_MODULE_EASYLOGGER
+    config LOG_LEVEL_WARN
+        bool "warning"
+        select EASYLOGGER_LOG_LEVEL_WARN if SDK_MODULE_EASYLOGGER
+    config LOG_LEVEL_INFO
+        bool "info"
+        select EASYLOGGER_LOG_LEVEL_INFO if SDK_MODULE_EASYLOGGER
+    config LOG_LEVEL_DEBUG
+        bool "debug"
+        select EASYLOGGER_LOG_LEVEL_DEBUG if SDK_MODULE_EASYLOGGER
+    config LOG_LEVEL_VERBOSE
+        bool "verbose"
+        select EASYLOGGER_LOG_LEVEL_VERBOSE if SDK_MODULE_EASYLOGGER
+endchoice
+
+endmenu

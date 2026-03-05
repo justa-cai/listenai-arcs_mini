@@ -1,0 +1,27 @@
+if ACOMP_WAKEUP
+    choice ACOMP_WAKEUP_ALGORITHM_TYPE
+        prompt "Wakeup type"
+        default ACOMP_WAKEUP_ALGORITHM_TYPE_SINGLE_MIC
+        
+        config ACOMP_WAKEUP_ALGORITHM_TYPE_SINGLE_MIC
+            bool "Single mic wakeup algorithm"
+        
+        config ACOMP_WAKEUP_ALGORITHM_TYPE_DUAL_MIC
+            bool "dual mic wakeup algorithm"
+
+    endchoice
+
+    config ACOMP_WAKEUP_RES_CAE_ESR_MLP_ADDRESS
+        hex "cae esr mlp address"
+        default 0xcd00000
+    config ACOMP_WAKEUP_RES_CAE_ESR_MLP_LENGTH
+        int "cae esr mlp length"
+        default 419904
+    config ACOMP_WAKEUP_RES_AI_WRAP_ADDRESS
+        hex "ai wrap address"
+        default 0xcd00000
+    config ACOMP_WAKEUP_RES_AI_WRAP_LENGTH
+        int "ai wrap length"
+        default 419904
+
+endif

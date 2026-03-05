@@ -4,8 +4,6 @@
  */
 #include "mock_content_ops.h"
 #include <string.h>
-#include <time.h>
-#include <stdlib.h>
 #include <stdio.h>
 
 #define ARCS_MAC_HEADER_0 0x26
@@ -96,19 +94,20 @@ int custom_mac_random(uint8_t *mac, size_t *mac_len)
         return -1;
     }
 
-    // no need to impl real random
-    mac[0] = ARCS_MAC_HEADER_0;
-    mac[1] = ARCS_MAC_HEADER_1;
+    // Mock应该返回固定、可预测的值，便于测试验证
+    // 使用固定的测试MAC地址，避免随机性导致测试不确定
+    static const uint8_t test_mac[6] = {
+        ARCS_MAC_HEADER_0,  // 0x26
+        ARCS_MAC_HEADER_1,  // 0x48
+        0x11,               // 固定值，便于测试
+        0x22,
+        0x33,
+        0x44
+    };
 
-    srand(time(NULL));
-
-    for (int i = 2; i < UINT8_MAC_LEN; i++) {
-        do {
-            mac[i] = (uint8_t)rand() & 0xFF;
-        } while (mac[i] == 0x00 || mac[i] == 0xFF);
-    }
-
+    memcpy(mac, test_mac, UINT8_MAC_LEN);
     *mac_len = UINT8_MAC_LEN;
+
     return 0;
 }
 

@@ -52,6 +52,8 @@ SECTIONS
   /*PROVIDE(__HEAP_SIZE = 80K);*/
   PROVIDE(__SMP_CPU_CNT = 1);
   __TOT_STACK_SIZE = __STACK_SIZE * __SMP_CPU_CNT;
+  PROVIDE(psram_start = ORIGIN(psram));
+  PROVIDE(psram_end = ORIGIN(psram) + LENGTH(psram));
 
   /* ipc shared RAM */
   IPCSHARED (NOLOAD):

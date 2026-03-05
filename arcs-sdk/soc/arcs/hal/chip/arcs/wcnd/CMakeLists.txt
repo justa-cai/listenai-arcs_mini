@@ -30,6 +30,7 @@ if(CONFIG_ARCS_HAL_WCND)
             ${CMAKE_CURRENT_SOURCE_DIR}/bt_drv/bt_drv_rf_api.c
             ${CMAKE_CURRENT_SOURCE_DIR}/bt_drv/bt_drv.c
             ${CMAKE_CURRENT_SOURCE_DIR}/bt_drv/bt_glb_int.c
+            ${CMAKE_CURRENT_SOURCE_DIR}/bt_drv/bt_nvs_configure.c
         )
 
         listenai_library_sources(
@@ -84,8 +85,6 @@ if(CONFIG_ARCS_HAL_WCND)
 
     listenai_include_directories(
         ${ARCS_HAL_LIB_PATH}/chip/arcs/include/net
-        ${ARCS_HAL_LIB_PATH}/chip/arcs/lwip/lwip-2.2.0/src/include
-        ${ARCS_HAL_LIB_PATH}/chip/arcs/lwip/lwip-2.2.0/contrib/ports/rtos/include
         ${ARCS_HAL_LIB_PATH}/chip/arcs/wcnd/include
         ${ARCS_HAL_LIB_PATH}/chip/arcs/include
     )

@@ -75,7 +75,7 @@ if WIFI_MANAGER
 			
 	config WIFI_MGR_THREAD_STACK
 		int "WiFi manager thread stack size (bytes)"
-		default 4096
+		default 8192
 		help
 			Stack size in bytes for WiFi manager thread.
 			

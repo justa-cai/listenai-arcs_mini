@@ -117,10 +117,11 @@ if SDK_MODULE_LVGL8
 
         config LV_TICK_CUSTOM
             bool "Use a custom tick source"
+            default y
 
         config LV_TICK_CUSTOM_INCLUDE
             string "Header for the system time function"
-            default "Arduino.h"
+            default "systick.h"
             depends on LV_TICK_CUSTOM
 
         config LV_DPI_DEF

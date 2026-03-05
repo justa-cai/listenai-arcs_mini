@@ -152,6 +152,19 @@ enum aud_type
     uint8_t *            data;
 }bt_aud_pkt_info_t;
 
+ typedef struct bt_call_pkt_info
+{
+    /// Aud data ptr must put first pos that can be free by common bt free.
+    uint8_t *            data;
+
+    /// Call connect handle.
+    uint8_t             conidx;
+    /// Call frame number.
+    uint8_t              pkt_sta;
+    /// Aud packet length.
+    uint16_t             len;
+}bt_call_pkt_info_t;
+
 typedef struct aud_cb
 {
     /**

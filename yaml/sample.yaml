@@ -1,5 +1,0 @@
-tests:
-  voiceassistant:
-    build_only: true
-
-

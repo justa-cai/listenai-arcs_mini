@@ -1,0 +1,3 @@
+rsource "category/Kconfig"
+rsource "server/Kconfig"
+rsource "middleware/Kconfig"

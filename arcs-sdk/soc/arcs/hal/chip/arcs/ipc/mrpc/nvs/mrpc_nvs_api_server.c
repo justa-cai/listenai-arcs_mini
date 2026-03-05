@@ -14,7 +14,6 @@
 #include <string.h>
 #include "ls_err.h"
 #include "ls_wifi_type.h"
-#include "net_al.h"
 #include "ipc.h"
 #include "mrpc.h"
 #include "mrpc_nvs_api_msg.h"

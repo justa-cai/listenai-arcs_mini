@@ -6223,4 +6223,26 @@ do { \
     IP_SYSCTRL->REG_PERI_CLK_CFG6.bit.ENA_USB_CLK = 0x0; \
 } while(0)
 
+/**
+ * @brief Enables or disables the automatic trigger for RC32k calibration.
+ */
+void HAL_CRM_SetRc32kCaliAutoTrigger(uint8_t enable);
+
+/**
+ * @brief Sets the RC32k calibration cycle number.
+ * This function configures the length of the RC32k calibration cycle by setting the
+ * RCCAL_LENGTH field in the RCCAL register. The length parameter determines how many
+ * cycles(2 ^ length) the calibration process will run, with a maximum value of 8(2 ^ 8).
+ */
+void HAL_CRM_SetRc32kCaliLength(uint8_t length);
+
+/**
+ * @brief Starts the RC32k calibration process.
+ * This function initiates the RC32k calibration by setting the RCCAL_START bit in the
+ * RCCAL register. It also clears any previous calibration done interrupt status and waits
+ * for the calibration to complete by polling the RCCAL_DONE_RAWSTAT bit in the RCCAL_IRQ
+ * register.
+ */
+void HAL_CRM_SetRc32kCaliStart();
+
 #endif /* INCLUDE_DRIVER_CLOCKMANAGER_H_ */

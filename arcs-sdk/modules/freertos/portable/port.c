@@ -748,6 +748,16 @@ portFORCE_INLINE BaseType_t xPortIsInsideInterrupt( void )
     return (CSR_MSUBM_Type){.d=__RV_CSR_READ(CSR_MSUBM)}.b.typ;
 }
 
+/*-----------------------------------------------------------*/
+/* 检测是否在临界区内（通过 MTH 寄存器判断）
+ * @retval 0 不在临界区
+ * @retval 1 在临界区
+ */
+BaseType_t xPortIsInsideCritical( void )
+{
+    return (ECLIC_GetMth() == uxMaxSysCallMTH);
+}
+
 void vPortYield()
 {                        /* Set a software interrupt(SWI) request to request a context switch. */
     SysTimer_SetSWIRQ(); /* Barriers are normally not required but do ensure the code is completely  \

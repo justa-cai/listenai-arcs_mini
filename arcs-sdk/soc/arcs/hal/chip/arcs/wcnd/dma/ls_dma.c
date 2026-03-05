@@ -110,20 +110,18 @@ static int32_t ls_dma_copy(uint8_t channel, void* p_dst_addr, const void* p_src_
 }
 #endif
 
-void ls_dma_api_init(void *api)
+uint8_t ls_dma_api_init(struct lsip_dma_api_str *api)
 {
     if (NULL == api)
     {
-        return;
+        return 1;
     }
 
-    struct lsip_dma_api_str *dma_api = (struct lsip_dma_api_str *)api;
+    api->dma_ch = 0;
+    api->dma_init = ls_dma_init;
+    api->dma_uninit = ls_dma_uninit;
+    api->dma_copy = ls_dma_copy;
 
-    dma_api->dma_ch = 0;
-    dma_api->dma_init = ls_dma_init;
-    dma_api->dma_uninit = ls_dma_uninit;
-    dma_api->dma_copy = ls_dma_copy;
-
-    return;
+    return 0;
 }
 

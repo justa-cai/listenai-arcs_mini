@@ -12,11 +12,5 @@ listenai_include_directories(
 
 listenai_add_executable(${PROJECT_NAME})
 
-target_sources(${PROJECT_NAME} PRIVATE src/main.c src/list_dir_explicit.c)
-if (CONFIG_DISK_DRIVER_SDMMC)
-target_sources(${PROJECT_NAME} PRIVATE src/sdmmc_init.c)
-endif()
+target_sources(${PROJECT_NAME} PRIVATE src/main.c)
 
-if (CONFIG_DISK_DRIVER_FLASH)
-target_compile_options(arcs-hal PRIVATE -DCONFIG_EXT_RAM)
-endif()

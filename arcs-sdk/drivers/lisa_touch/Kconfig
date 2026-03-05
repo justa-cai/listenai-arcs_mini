@@ -1,0 +1,27 @@
+# LISA Touch Driver Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_TOUCH_DEVICE
+	bool "Enable LISA Touch Driver"
+	default n
+	depends on LISA_DEVICE
+	help
+	  Enable LISA touch device driver based on lisa_device framework.
+	  Provides touch screen interfaces for reading touch events,
+	  touch coordinates, and gesture recognition.
+
+	  This driver wraps various touch chip drivers and provides a unified
+	  device interface for touch operations.
+
+if LISA_TOUCH_DEVICE
+
+rsource "Kconfig.arcs.cst328"
+rsource "Kconfig.arcs.axs15231b"
+rsource "Kconfig.arcs.ft5336"
+rsource "Kconfig.arcs.cst816d"
+rsource "Kconfig.arcs.st77921"
+rsource "Kconfig.arcs.bl6133"
+
+endif # LISA_TOUCH_DEVICE

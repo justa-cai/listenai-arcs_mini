@@ -1,3 +1,4 @@
+#!/bin/bash
 # 此脚本用于修改跟目录的build.sh后
 # 自动将build.sh复制到各个项目目录
 

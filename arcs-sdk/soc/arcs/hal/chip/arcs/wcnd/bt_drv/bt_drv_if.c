@@ -22,7 +22,7 @@
 
 extern uint8_t bt_sleep_api_init(void **api);
 extern uint8_t  bt_rf_api_init(void *api);
-extern void ls_dma_api_init(void *api);
+extern uint8_t ls_dma_api_init(void *api);
 
 uint8_t external_api_init(struct lsip_external_api_str *api)
 {

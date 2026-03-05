@@ -1,0 +1,11 @@
+{%- extends "!layout.html" -%}
+
+{%- block footer %}
+{{ super() }}
+
+{# Version switcher widget #}
+{%- if version_switcher_html %}
+{{ version_switcher_html|safe }}
+{%- endif %}
+
+{%- endblock %}

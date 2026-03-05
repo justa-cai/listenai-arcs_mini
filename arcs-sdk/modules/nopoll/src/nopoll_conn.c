@@ -51,6 +51,22 @@
 #if defined(NOPOLL_OS_UNIX)
 # include <netinet/tcp.h>
 #endif
+static int block_timeout = 0;//需要等回复，设置超时时间
+#if CONFIG_4G_MODULE
+#include "lisa_4g_module.h"
+/* SSL status tracking */
+static nopoll_bool ssl_status = nopoll_false;
+
+nopoll_bool nopoll_ml307_is_ssl(void)
+{
+    return ssl_status;
+}
+
+void nopoll_ml307_set_ssl_status(nopoll_bool status)
+{
+    ssl_status = status;
+}
+#endif
 
 
 /**
@@ -245,7 +261,21 @@ NOPOLL_SOCKET __nopoll_conn_sock_connect_opts_internal (noPollCtx       * ctx,
 							const char      * port,
 							noPollConnOpts  * options)
 {
-
+#if CONFIG_4G_MODULE
+	/* Use ML307 TCP adapter for 4G module */
+	/* Determine SSL by port number (443 = HTTPS/WSS) */
+	int ret = 0;
+	if ((ret = lisa_4g_tcp_socket(nopoll_ml307_is_ssl())) < 0)
+		return -1;
+	int port_num = atoi(port);
+    if (port_num <= 0 || port_num > 65535) {
+        nopoll_log(ctx, NOPOLL_LEVEL_CRITICAL, "Invalid port number: %s", port);
+        return NOPOLL_INVALID_SOCKET;
+    }
+	printf("__nopoll_conn_sock_connect_opts_internal %s:%d", host, port_num);
+	if (lisa_4g_tcp_connect(ret, host, port_num, nopoll_ml307_is_ssl()))
+		return ret;
+#else
 	struct addrinfo      hints, *res = NULL;
 	NOPOLL_SOCKET        session     = NOPOLL_INVALID_SOCKET;
 
@@ -341,6 +371,7 @@ NOPOLL_SOCKET __nopoll_conn_sock_connect_opts_internal (noPollCtx       * ctx,
 
 	/* return socket created */
 	return session;
+#endif /* CONFIG_4G_MODULE */
 }
 
 /**
@@ -560,6 +591,10 @@ int __nopoll_conn_tls_handle_error (noPollConn * conn, int res, const char * lab
  */
 int nopoll_conn_tls_receive (noPollConn * conn, char * buffer, int buffer_size)
 {
+#if CONFIG_4G_MODULE
+	return lisa_4g_tcp_recv(conn->session, buffer, buffer_size, block_timeout);
+#endif
+
 #if defined(NOPOLL_MBEDTLS)
     int ret = mbedtls_ssl_read(conn->ssl, (unsigned char *)buffer, buffer_size);
     if (ret < 0 && ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE && ret != MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY){
@@ -597,6 +632,10 @@ int nopoll_conn_tls_receive (noPollConn * conn, char * buffer, int buffer_size)
  */
 int nopoll_conn_tls_send (noPollConn * conn, char * buffer, int buffer_size)
 {
+#if CONFIG_4G_MODULE
+	return lisa_4g_tcp_send(conn->session, buffer, buffer_size, 0);
+#endif
+
 #if defined(NOPOLL_MBEDTLS)
 	int ret = mbedtls_ssl_write(conn->ssl, (unsigned char *)buffer, buffer_size);;
 	// printf("lianghu--->nopoll_conn_tls_send mbedtls_ssl_write: %d\n", ret);
@@ -867,7 +906,9 @@ noPollConn * __nopoll_conn_new_common (noPollCtx       * ctx,
 	/* set default connection port */
 	if (host_port == NULL)
 		host_port = "80";
-
+	#if CONFIG_4G_MODULE
+		nopoll_ml307_set_ssl_status(enable_tls);
+	#endif
 	session = socket;
 	/* create socket connection in a non block manner */
 	if (session == NOPOLL_INVALID_SOCKET)
@@ -1258,6 +1299,7 @@ noPollConn * __nopoll_conn_new_common (noPollCtx       * ctx,
 			} /* end if */
 		} /* end if */
 #endif
+
 		/* configure default handlers */
 		conn->receive = nopoll_conn_tls_receive;
 		conn->send    = nopoll_conn_tls_send;
@@ -2241,8 +2283,12 @@ void          nopoll_conn_shutdown (noPollConn * conn)
 
 	/* shutdown connection here */
 	if (conn->session != NOPOLL_INVALID_SOCKET) {
-	        shutdown (conn->session, SHUT_RDWR);
+#if CONFIG_4G_MODULE
+		lisa_4g_tcp_closesocket(conn->session);
+#else
+	    shutdown (conn->session, SHUT_RDWR);
 		nopoll_close_socket (conn->session);
+#endif
 	}
 	conn->session = NOPOLL_INVALID_SOCKET;
 
@@ -2516,8 +2562,12 @@ void nopoll_conn_unref (noPollConn * conn)
  * @internal Default connection receive until handshake is complete.
  */
 int nopoll_conn_default_receive (noPollConn * conn, char * buffer, int buffer_size)
-{
+{	
+#if CONFIG_4G_MODULE
+	return lisa_4g_tcp_recv(conn->session, buffer, buffer_size, block_timeout);
+#else
 	return recv (conn->session, buffer, buffer_size, 0);
+#endif
 }
 
 /**
@@ -2525,7 +2575,10 @@ int nopoll_conn_default_receive (noPollConn * conn, char * buffer, int buffer_si
  */
 int nopoll_conn_default_send (noPollConn * conn, char * buffer, int buffer_size)
 {
-#if defined(NOPOLL_LWIP)
+	// printf("nopoll_conn_default_send---: %d, %d\r\n", conn->session, buffer_size);
+#if CONFIG_4G_MODULE
+	return lisa_4g_tcp_send(conn->session, buffer, buffer_size, 0);
+#elif defined(NOPOLL_LWIP)
 	return lwip_send(conn->session, buffer, buffer_size, 0);
 #else
 	return send (conn->session, buffer, buffer_size, 0);
@@ -2602,6 +2655,7 @@ int          nopoll_conn_readline (noPollConn * conn, char  * buffer, int  maxle
 			if (errno == NOPOLL_EINTR)
 				goto nopoll_readline_again;
 			if ((errno == NOPOLL_EWOULDBLOCK) || (errno == NOPOLL_EAGAIN) || (rc == -2)) {
+				// printf("NOPOLL_EWOULDBLOCK-----: %d\r\n", errno);
 				if (n > 0) {
 					/* store content read until now */
 					if ((n + desp - 1) > 0) {
@@ -2721,13 +2775,19 @@ int         __nopoll_conn_receive  (noPollConn * conn, char  * buffer, int  maxl
 #endif
 	if ((nread = conn->receive (conn, buffer, maxlen)) < 0) {
 		/* nopoll_log (conn->ctx, NOPOLL_LEVEL_DEBUG, " returning errno=%d (%s)", errno, strerror (errno)); */
+		/* Handle -2 (non-blocking no data available) from ML307 adapter
+		 * This is returned by nopoll_ml307_recv when ml307_tcp_recv returns 0
+		 */
+		// if (nread == -2) {
+		// 	return 0;
+		// }
 		if (errno == NOPOLL_EAGAIN)
 			return 0;
 		if (errno == NOPOLL_EWOULDBLOCK)
 			return 0;
 		if (errno == NOPOLL_EINTR)
 			goto keep_reading;
-
+		// printf("%s,%d,maxlen: %d, nread: %d\r\n", __func__, __LINE__, maxlen, nread);
 		nopoll_log (conn->ctx, NOPOLL_LEVEL_CRITICAL, "unable to readn=%d, error code was: %d (%s) (shutting down connection)", maxlen, errno, strerror (errno));
 		nopoll_conn_shutdown (conn);
 		return -1;
@@ -3339,13 +3399,15 @@ void nopoll_conn_complete_handshake (noPollConn * conn)
 		/* get next line to process: for
 		   NOPOLL_HANDSHAKE_BUFFER_SIZE definition, see
 		   nopoll_decl.h */
+		block_timeout = 1000;
 		buffer_size = nopoll_conn_readline (conn, buffer, NOPOLL_HANDSHAKE_BUFFER_SIZE);
+		block_timeout = 0;
 		if (buffer_size == 0 || buffer_size == -1) {
 			nopoll_log (ctx, NOPOLL_LEVEL_CRITICAL, "Unexpected connection close during handshake..closing connection");
 			nopoll_conn_shutdown (conn);
 			return;
 		} /* end if */
-
+		
 		/* no data at this moment, return to avoid consuming data */
 		if (buffer_size == -2) {
 			nopoll_log (ctx, NOPOLL_LEVEL_DEBUG, "No more data available on connection id %d", conn->id);
@@ -3541,6 +3603,7 @@ noPollMsg   * nopoll_conn_get_msg (noPollConn * conn)
 #endif
 
 #endif
+
 		/* configure default handlers */
 		conn->receive = nopoll_conn_tls_receive;
 		conn->send    = nopoll_conn_tls_send;

@@ -60,6 +60,9 @@ typedef struct EXC_Frame {
 #endif
 } EXC_Frame_Type;
 
+
+void platform_pre_startup(void);
+
 /**
  * \brief Setup the microcontroller system.
  * \details

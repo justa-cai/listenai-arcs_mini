@@ -1,0 +1,21 @@
+config BATTERY_COLLECTION
+    bool "Enable battery data collection"
+    default n
+    depends on POWER_MANAGER
+
+if BATTERY_COLLECTION
+
+config BATTERY_COLLECTION_ADC_PAD
+    string "Battery Voltage ADC Pad (\"gpioa\" or \"gpiob\")"
+    default "gpioa"
+
+config BATTERY_COLLECTION_ADC_CHANNEL
+    int "Battery Voltage ADC Channel Number"
+    default 3
+    range 0 7
+
+config BATTERY_COLLECTION_CHARGE_DETECT_PAD
+    string "Battery Charge Detect GPIO Pad (\"gpioa\" or \"gpiob\")"
+    default "gpiob"
+
+endif
