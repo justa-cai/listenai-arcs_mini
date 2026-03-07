@@ -24,7 +24,7 @@
 - [ ] 优化，稳定性
 
 ## V1.1 功能
-- [ ] 支持，音频解压缩算法
+- [x] 支持，音频解压缩算法
 - [ ] linux端侧仿真功能
 - [ ] 重构，减少arcs_mini相关文件修改，方便合并主干修改
 
@@ -42,22 +42,45 @@
 
 **修改服务器地址：**
 
+有两种方式配置云服务器地址：
+
+#### 方式一：KV 存储（推荐，无需重新编译）
+
+使用 ADB 命令动态设置服务器地址：
+
+```bash
+adb shell kv set string user.kcloud_host "192.168.1.100"
+```
+
+或者使用域名：
+```bash
+adb shell kv set string user.kcloud_host "your-domain.com"
+```
+
+设置后重启设备生效：
+```bash
+adb shell reboot
+```
+
+#### 方式二：编译时配置
+
 编辑 `prj.conf` 文件，修改 `CONFIG_MY_CLOUD_HOST` 配置项：
 
 ```conf
 # 自托管云服务器地址配置
-CONFIG_MY_CLOUD_HOST="192.168.1.169"
+CONFIG_MY_CLOUD_HOST="192.168.1.100"
 ```
 
-将 `192.168.1.169` 改为你的实际服务器地址，例如：
+将 `192.168.1.100` 改为你的实际服务器地址，例如：
 - `CONFIG_MY_CLOUD_HOST="192.168.1.100"` - 局域网地址
 - `CONFIG_MY_CLOUD_HOST="your-domain.com"` - 域名地址
-
 
 修改后重新编译：
 ```bash
 ./build.sh
 ```
+
+**配置优先级：** KV 存储 > prj.conf 配置
 
 ### AEC参数调整
 在长时间的playback模式下，AEC并不稳定，暂时先降低音量进行规避
