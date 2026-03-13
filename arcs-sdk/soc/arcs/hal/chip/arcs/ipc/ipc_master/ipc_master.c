@@ -275,7 +275,11 @@ int32_t ipc_master_init(struct ipc_master_cb_tag *cb)
     res |= ipc_master_wifi_init_tx_chan(&ipc_master_env);
     res |= ipc_master_wifi_init_rx_chan(&ipc_master_env);
 #endif
-    IPC_ASSERT(res == 0);
+    if (res != 0)
+    {
+        CLOGE("IPC master init failed, slave may not be ready");
+        return res;
+    }
 
     /*»ùÓÚmsg channel½¨Á¢indication endpointÓÃÓÚ½ÓÊÕÍ¨Öª*/
     if (cb && cb->indication_handler)
