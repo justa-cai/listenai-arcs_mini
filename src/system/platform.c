@@ -158,18 +158,8 @@ static int voice_platform_init(void)
 
     ls_sys_init(8);
 
-    // uint32_t time = xTaskGetTickCount();
-    // const Config *config = config_init((const char *)0x300f0000);
-    // time = xTaskGetTickCount() - time;
-    // if (config) {
-    //     config_print(config);
-    // } else {
-    //     LISA_LOGW(TAG,"config parse failed\n");
-    // }
-    // LISA_LOGI(TAG,"config parse elapsed time: %d ms\n", time);
-
     ipc_mem_init(1);
-    ipc_master_init(&ipc_cb);
+    int ipc_ready = (ipc_master_init(&ipc_cb) == 0);
 
 #if CONFIG_LISA_SHELL
     lisa_shell_init();
@@ -180,8 +170,12 @@ static int voice_platform_init(void)
      * 此处先进行核间通信的建立
      */
 
-    ic_message_init();
-    LISA_LOGI(TAG, "IC message init end");
+    if (ipc_ready) {
+        ic_message_init();
+        LISA_LOGI(TAG, "IC message init end");
+    } else {
+        LISA_LOGW(TAG, "IPC not ready, skip ic_message_init");
+    }
 
 #ifdef CONFIG_FILE_SYSTEM
     lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
@@ -203,7 +197,7 @@ static int voice_platform_init(void)
 #endif
 
     // Check if KV storage is already initialized (e.g., from factory reset)
-    lisa_kv_init();    
+    lisa_kv_init();
     user_usb_start();
     /* USB-MSC模式下, 不运行应用程序, 只支持USB文件传输 */
     if (app_usb_msc_enabled()) {
@@ -219,12 +213,16 @@ static int voice_platform_init(void)
     lisa_4g_module_init(AT_4G_UART_DEVICE);
     #endif
 
-    // Wifi预初始化
-    ls_wifi_init(NULL);
-    ls_wifi_pre_init(NULL);
-    LISA_LOGI(TAG, "BLE init start\n");
-    lisa_bluetooth_init();
-    LISA_LOGI(TAG, "BLE init end\n");
+    if (ipc_ready) {
+        // Wifi预初始化
+        ls_wifi_init(NULL);
+        ls_wifi_pre_init(NULL);
+        LISA_LOGI(TAG, "BLE init start\n");
+        lisa_bluetooth_init();
+        LISA_LOGI(TAG, "BLE init end\n");
+    } else {
+        LISA_LOGW(TAG, "IPC not ready, skip WiFi and BLE init");
+    }
 
 #if CONFIG_ACOMP
     acomp_init();
@@ -356,7 +354,9 @@ static int voice_platform_init(void)
     // lite_dac_ctrl(ADAC_CTRL_AUD_CFG, &aud);
     // lite_dac_ctrl(ADAC_CTRL_START, NULL);
     player_mgr_init(s_player_configs, sizeof(s_player_configs) / sizeof(s_player_configs[0]));
-    network_probe_init();
+    if (ipc_ready) {
+        network_probe_init();
+    }
 
     mcp_init();
 

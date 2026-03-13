@@ -150,16 +150,20 @@ void ipc_queue_status_set(struct ipc_queue *q, uint32_t status)
     q->vring->status = status;
 }
 
-void ipc_queue_init(struct ipc_queue *q, volatile struct vring_hdr *vring)
+int32_t ipc_queue_init(struct ipc_queue *q, volatile struct vring_hdr *vring)
 {
-    if (vring != NULL)
+    if (vring == NULL || vring->desc == NULL)
     {
-        q->vring = vring;
-        q->q_avail_rd_idx = 0;
-        q->q_ready_rd_idx = 0;
-        q->q_item_num     = vring->avail_wr_idx;
-        q->q_item_size    = vring->desc[1].addr - vring->desc[0].addr;
+        return -1;
     }
+
+    q->vring = vring;
+    q->q_avail_rd_idx = 0;
+    q->q_ready_rd_idx = 0;
+    q->q_item_num     = vring->avail_wr_idx;
+    q->q_item_size    = vring->desc[1].addr - vring->desc[0].addr;
+
+    return 0;
 }
 
 void ipc_queue_ring_init(volatile struct vring_hdr *vring, volatile void *buf, int32_t item_size, int32_t item_num)

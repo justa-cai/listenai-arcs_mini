@@ -625,7 +625,13 @@ struct ipc_queue* ipc_get_queue(volatile struct vring_hdr *vring)
 
     queue = (struct ipc_queue*)rtos_malloc(sizeof(struct ipc_queue));
     if (queue)
-        ipc_queue_init(queue, vring);
+    {
+        if (ipc_queue_init(queue, vring) != 0)
+        {
+            rtos_free(queue);
+            return NULL;
+        }
+    }
 
     return queue;
 }

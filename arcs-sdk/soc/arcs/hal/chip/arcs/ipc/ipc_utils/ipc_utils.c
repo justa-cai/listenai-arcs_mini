@@ -39,6 +39,7 @@ static rtos_semaphore halt_by_peer_signal;
 #endif
 #ifdef CFG_AMP_IPC_HALT_PEER_CORE
 static IC_Mutex halt_peer_mutex;
+static bool halt_peer_initialized = false;
 #endif
 
 #ifdef CFG_AMP_IPC
@@ -114,6 +115,11 @@ __attribute__((section(CONFIG_ARCS_HAL_IPC_UTILS_IPC_FUNC_SECTION))) int32_t ipc
     uint32_t i = 0;
     int32_t ret = 0;
 
+    if (!halt_peer_initialized)
+    {
+        return -1;
+    }
+
     if (IC_Mutex_acquire(&halt_peer_mutex) == IC_MUTEX_OK)
     {
         ipc_clear_app_status(IPC_APP_STATUS_HALT_PEER_BITS_ALL);
@@ -169,6 +175,7 @@ int32_t ipc_halt_peer_init(void)
 #endif
 #ifdef CFG_AMP_IPC_HALT_PEER_CORE
     IC_Mutex_init(&halt_peer_mutex, IC_MUTEX_SLEEP_WAIT, IC_MUTEX_TYPE_IPC);
+    halt_peer_initialized = true;
 #endif
     return 0;
 }
