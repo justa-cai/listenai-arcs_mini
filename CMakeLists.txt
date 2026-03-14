@@ -11,16 +11,19 @@ include(version.cmake)
 add_definitions(-DCONFIG_EXT_RAM)
 
 # Cloud provider selection
-if(CONFIG_MY_CLOUD)
+if(CONFIG_XIAOZHI_CLOUD)
+    add_definitions(-DXIAOZHI_CLOUD)
+    message(STATUS "Using XIAOZHI_CLOUD (Xiaozhi cloud service)")
+elseif(CONFIG_MY_CLOUD)
     add_definitions(-DMY_CLOUD)
     message(STATUS "Using MY_CLOUD (self-hosted server)")
 elseif(CONFIG_LISTEN_CLOUD)
     add_definitions(-DLISTEN_CLOUD)
     message(STATUS "Using LISTEN_CLOUD (AIUI)")
 else()
-    # Default to MY_CLOUD if neither is specified
-    add_definitions(-DMY_CLOUD)
-    message(STATUS "Using MY_CLOUD (self-hosted server) - default")
+    # Default to XIAOZHI_CLOUD if none is specified
+    add_definitions(-DXIAOZHI_CLOUD)
+    message(STATUS "Using XIAOZHI_CLOUD (Xiaozhi cloud service) - default")
 endif()
 
 # Add project root directory to include path for app-config-tls-generic.h and memap.h

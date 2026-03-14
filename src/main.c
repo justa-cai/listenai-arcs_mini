@@ -17,6 +17,9 @@
 #include "tone.h"
 #include "listen_flash.h"
 #include "app_client.h"
+#ifdef XIAOZHI_CLOUD
+#include "xiaozhi/xz_cloud.h"
+#endif
 #include "listen_wifi.h"
 #include "assistant_controller.h"
 #include "assistant_view.h"
@@ -245,8 +248,105 @@ static void play_random_music_task(void *arg)
 }
 
 #if (CONFIG_FLEXIBLE_BUTTON)
+#ifdef XIAOZHI_CLOUD
+/* 按钮防抖保护 */
+#define BUTTON_DEBOUNCE_MS 500  /* 500ms 防抖时间 */
+
+/* 按钮事件类型 */
+typedef enum {
+    BTN_EVENT_STOP_INTERACTION,
+    BTN_EVENT_START_INTERACTION,
+} btn_event_type_e;
+
+/* 按钮事件消息 */
+typedef struct {
+    btn_event_type_e event_type;
+} btn_event_msg_t;
+
+/* 按钮事件处理队列和任务 */
+static QueueHandle_t s_button_event_queue = NULL;
+static SemaphoreHandle_t s_button_mutex = NULL;
+static lisa_thread_t *s_button_event_thread = NULL;
+
+/* 按钮事件处理任务 (持久任务，使用队列接收事件) */
+static void button_event_task(void *arg)
+{
+    (void)arg;
+    LISA_LOGI(TAG, "Button event task started");
+
+    while (1) {
+        btn_event_msg_t msg;
+        if (xQueueReceive(s_button_event_queue, &msg, portMAX_DELAY) == pdTRUE) {
+            xz_cloud_t cloud = xz_cloud_get_instance();
+            if (!cloud) {
+                LISA_LOGE(TAG, "Failed to get cloud instance");
+                continue;
+            }
+
+            switch (msg.event_type) {
+            case BTN_EVENT_STOP_INTERACTION:
+                LISA_LOGI(TAG, "Handle: Stop interaction (S key)");
+                xz_cloud_stop_interaction(cloud);
+                alarm_ring_stop();
+                break;
+            case BTN_EVENT_START_INTERACTION:
+                LISA_LOGI(TAG, "Handle: Start interaction (F key)");
+                xz_cloud_wakeup(cloud);
+                alarm_ring_stop();
+                break;
+            }
+        }
+    }
+}
+
+/* 初始化按钮事件处理任务 */
+static void button_event_handler_init(void)
+{
+    if (s_button_event_queue != NULL) {
+        return;  /* 已经初始化 */
+    }
+
+    /* 创建事件队列 */
+    s_button_event_queue = xQueueCreate(4, sizeof(btn_event_msg_t));
+    if (!s_button_event_queue) {
+        LISA_LOGE(TAG, "Failed to create button event queue");
+        return;
+    }
+
+    /* 创建互斥锁 */
+    s_button_mutex = xSemaphoreCreateMutex();
+    if (!s_button_mutex) {
+        LISA_LOGE(TAG, "Failed to create button mutex");
+        vQueueDelete(s_button_event_queue);
+        s_button_event_queue = NULL;
+        return;
+    }
+
+    /* 创建持久任务处理事件 */
+    lisa_thread_attr_t attr = {
+        .name = "btn_event",
+        .stack_size = 8192,
+        .priority = LISA_OS_PRIORITY_NORMAL
+    };
+    s_button_event_thread = lisa_thread_create(&attr, button_event_task, NULL);
+    if (!s_button_event_thread) {
+        LISA_LOGE(TAG, "Failed to create button event task");
+        vQueueDelete(s_button_event_queue);
+        vSemaphoreDelete(s_button_mutex);
+        s_button_event_queue = NULL;
+        s_button_mutex = NULL;
+        return;
+    }
+
+    LISA_LOGI(TAG, "Button event handler initialized");
+}
+#endif
+
 static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t *info)
 {
+    static uint32_t last_button_tick = 0;
+    uint32_t current_tick = xTaskGetTickCount();
+
     LISA_LOGI(TAG, "Button %d event: %d", info->id, event);
 
     /* 只处理Power按键 */
@@ -254,19 +354,72 @@ static void button_callback_handle(lisa_btn_event_t event, const lisa_btn_info_t
         return;
     }
 
+    /* 防抖保护：忽略短时间内重复的点击 */
+    if (event == LISA_BTN_PRESS_CLICK) {
+        if (last_button_tick > 0 && (current_tick - last_button_tick) < pdMS_TO_TICKS(BUTTON_DEBOUNCE_MS)) {
+            LISA_LOGW(TAG, "Button debounced: %u ms since last press",
+                     (uint32_t)((current_tick - last_button_tick) * portTICK_PERIOD_MS));
+            return;
+        }
+        last_button_tick = current_tick;
+    }
+
     switch (event) {
     case LISA_BTN_PRESS_CLICK:
-        /* 单击: 播放随机音乐 */
+        /* 单击: 根据小智云状态判断行为 (F/S键等效) */
+#ifdef XIAOZHI_CLOUD
+        /* 确保按钮事件处理器已初始化 */
+        if (s_button_event_queue == NULL) {
+            button_event_handler_init();
+        }
+
+        if (xz_cloud_is_connected()) {
+            /* 使用互斥锁保护 */
+            if (xSemaphoreTake(s_button_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                btn_event_msg_t msg;
+
+                xz_cloud_t cloud = xz_cloud_get_instance();
+                if (xz_cloud_is_interacting(cloud)) {
+                    /* 正在交互，发送停止 (S键等效) */
+                    msg.event_type = BTN_EVENT_STOP_INTERACTION;
+                } else {
+                    /* 未交互，发送开始 (F键等效) */
+                    msg.event_type = BTN_EVENT_START_INTERACTION;
+                }
+
+                /* 发送到队列 (非阻塞) */
+                if (xQueueSend(s_button_event_queue, &msg, 0) != pdTRUE) {
+                    LISA_LOGW(TAG, "Button event queue full, dropping event");
+                }
+
+                xSemaphoreGive(s_button_mutex);
+            }
+        } else {
+            /* 小智云未连接，播放随机音乐 */
+            LISA_LOGI(TAG, "Single click: playing random music (xiaozhi not connected)");
+
+            lisa_thread_attr_t attr = {
+                .name = "rand_music",
+                .stack_size = 4096,
+                .priority = LISA_OS_PRIORITY_NORMAL
+            };
+            lisa_thread_create(&attr, play_random_music_task, NULL);
+
+            alarm_ring_stop();
+        }
+#else
+        /* 非小智云模式，播放随机音乐 */
         LISA_LOGI(TAG, "Single click: playing random music");
-        
+
         lisa_thread_attr_t attr = {
             .name = "rand_music",
             .stack_size = 4096,
             .priority = LISA_OS_PRIORITY_NORMAL
         };
         lisa_thread_create(&attr, play_random_music_task, NULL);
-        
+
         alarm_ring_stop();
+#endif
         break;
 
     case LISA_BTN_PRESS_DOUBLE_CLICK:

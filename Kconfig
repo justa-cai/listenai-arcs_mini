@@ -35,7 +35,7 @@ config DEFAULT_VOLUME
 
 choice CLOUD_PROVIDER
     prompt "Cloud Provider Selection"
-    default MY_CLOUD
+    default XIAOZHI_CLOUD
 
 config LISTEN_CLOUD
     bool "ListenAI Cloud (AIUI)"
@@ -47,6 +47,11 @@ config MY_CLOUD
     help
       Use self-hosted cloud server with separate ASR/LLM/TTS services.
 
+config XIAOZHI_CLOUD
+    bool "Xiaozhi Cloud Service"
+    help
+      Use Xiaozhi cloud service for voice assistant.
+
 endchoice
 
 config MY_CLOUD_HOST
@@ -55,6 +60,27 @@ config MY_CLOUD_HOST
     depends on MY_CLOUD
     help
       The host address of the self-hosted cloud server.
+
+config XIAOZHI_CLOUD_HOST
+    string "Xiaozhi Cloud Server Host"
+    default "api.tenclass.net"
+    depends on XIAOZHI_CLOUD
+    help
+      The host address of the Xiaozhi cloud server.
+
+config XIAOZHI_CLOUD_PATH
+    string "Xiaozhi Cloud Path"
+    default "/xiaozhi/v1/"
+    depends on XIAOZHI_CLOUD
+    help
+      The path for Xiaozhi cloud WebSocket API.
+
+config XIAOZHI_CLOUD_USE_SSL
+    bool "Use SSL for Xiaozhi Cloud"
+    default y
+    depends on XIAOZHI_CLOUD
+    help
+      Enable SSL/TLS for secure connection to Xiaozhi cloud.
 
 rsource "$LISTENAI_MODULES"
 rsource "modules/Kconfig"
