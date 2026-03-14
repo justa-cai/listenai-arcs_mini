@@ -7,6 +7,9 @@
 #ifdef MY_CLOUD
 struct jk_cloud;
 #endif
+#ifdef XIAOZHI_CLOUD
+struct xz_cloud_s;
+#endif
 
 typedef struct app_client_s {
 	short *buffer;
@@ -19,6 +22,8 @@ typedef struct app_client_s {
 	struct play_mode_s *play_mode;
 #ifdef MY_CLOUD
 	struct jk_cloud *cloud;
+#elif defined(XIAOZHI_CLOUD)
+	struct xz_cloud_s *cloud;
 #else
 	struct app_cloud_s *cloud;
 #endif

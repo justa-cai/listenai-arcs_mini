@@ -29,6 +29,9 @@
 #ifdef MY_CLOUD
 #include "jk_cloud.h"
 #endif
+#ifdef XIAOZHI_CLOUD
+#include "xz_cloud.h"
+#endif
 #include "listen_wifi.h"
 #include "listen_system.h"
 #include "assistant_controller.h"
@@ -272,6 +275,9 @@ static void _ls_sntp_synced_callback(void)
 #ifdef MY_CLOUD
 	jk_cloud_ntp_ok(NULL);
 #endif
+#ifdef XIAOZHI_CLOUD
+	// xz_cloud_ntp_ok(NULL); // TODO: implement if needed
+#endif
 	app_led_on();
 
 	ota_manager_check_all();
@@ -288,6 +294,9 @@ static void _ls_sntp_synced_callback(void)
 	jk_cloud_ntp_ok(NULL);
 	jk_cloud_process_wifi_connected(s_app_client->cloud);
 #endif
+#ifdef XIAOZHI_CLOUD
+	xz_cloud_process_wifi_connected(s_app_client->cloud);
+#endif
 }
 
 static void _ls_wifi_status_cb(ls_wifi_status_t status)
@@ -303,6 +312,9 @@ static void _ls_wifi_status_cb(ls_wifi_status_t status)
 	#endif
 	#ifdef MY_CLOUD
 		jk_cloud_process_wifi_disconnected(s_app_client->cloud);
+	#endif
+	#ifdef XIAOZHI_CLOUD
+		xz_cloud_process_wifi_disconnected(s_app_client->cloud);
 	#endif
 	}
 }
@@ -335,6 +347,9 @@ app_client_t *app_client_create()
 #endif
 #ifdef MY_CLOUD
 		handle->cloud = jk_cloud_create(handle);
+#endif
+#ifdef XIAOZHI_CLOUD
+		handle->cloud = xz_cloud_create(handle);
 #endif
 
 	}
@@ -386,6 +401,9 @@ void app_client_record(const char *audio, int len)
 		last_log_time = current_time;
 	}
 	jk_cloud_audio(s_app_client->cloud, (const char*)s_record_rec_buf, LS_RECORD_ONE_CHNNEL_SIZE);
+#endif
+#ifdef XIAOZHI_CLOUD
+	xz_cloud_audio(s_app_client->cloud, (const char*)s_record_rec_buf, LS_RECORD_ONE_CHNNEL_SIZE);
 #endif
 }
 

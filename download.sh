@@ -80,3 +80,4 @@ if ! "$adb_cmd" -s "$NEW_DEVICE_ID" shell reboot hard; then
 fi
 
 echo -e "${GREEN}烧录完成！设备正在重启...${NC}"
+sudo killall -USR1 picocom

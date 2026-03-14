@@ -6,6 +6,9 @@
 #ifdef MY_CLOUD
 #include "jk_cloud.h"
 #endif
+#ifdef XIAOZHI_CLOUD
+#include "xz_cloud.h"
+#endif
 #include "recognizer.h"
 #include "lisa_aiui.h"
 #include "app_client.h"
@@ -99,7 +102,10 @@ void app_cloud_txt(const char *txt)
 		return;
 	}
 
-#ifdef MY_CLOUD
+#ifdef XIAOZHI_CLOUD
+	// XIAOZHI_CLOUD 模式: 使用 xz_cloud_txt
+	xz_cloud_txt(txt);
+#elif defined(MY_CLOUD)
 	// JK_CLOUD 模式: 使用 jk_cloud_txt
 	extern void jk_cloud_txt(const char *txt);
 	jk_cloud_txt(txt);
@@ -125,7 +131,10 @@ void app_cloud_tts(const char *text)
 		return;
 	}
 
-#ifdef MY_CLOUD
+#ifdef XIAOZHI_CLOUD
+	// XIAOZHI_CLOUD 模式: 使用 xz_cloud_tts
+	xz_cloud_tts(text);
+#elif defined(MY_CLOUD)
 	// JK_CLOUD 模式: 使用 jk_cloud_tts
 	extern void jk_cloud_tts(const char *text);
 	jk_cloud_tts(text);
@@ -146,7 +155,13 @@ void app_cloud_tts(const char *text)
 
 bool app_cloud_is_connected()
 {
-#ifdef MY_CLOUD
+#ifdef XIAOZHI_CLOUD
+	bool connected = xz_cloud_is_connected();
+	if (!connected) {
+		LISA_LOGW(TAG, "xz_cloud_is_connected returned false");
+	}
+	return connected;
+#elif defined(MY_CLOUD)
 	extern bool jk_cloud_is_connected(void);
 	bool connected = jk_cloud_is_connected();
 	if (!connected) {
@@ -498,21 +513,40 @@ int app_cloud_img_recognition(uint16_t *rgb565_datas, uint32_t width, uint32_t h
 #include "pa_manager.h"
 void app_chat_start(void)
 {
-#ifdef MY_CLOUD
-    if (!jk_cloud_is_connected()) {
-#else
-    if (!app_cloud_is_connected()) {
-#endif
+    app_client_t *client = app_client_get_instance();
+    if (!client || !client->cloud) {
+        LISA_LOGE(TAG, "client or cloud is NULL");
+        return;
+    }
+
+#ifdef XIAOZHI_CLOUD
+    if (!xz_cloud_is_connected()) {
         extern void recongizer_play_audio_id(uint8_t id);
         recongizer_play_audio_id(TONE_ID_85);
         LISA_LOGI(TAG, "cloud is not connected");
         return;
     }
+#elif defined(MY_CLOUD)
+    if (!jk_cloud_is_connected()) {
+        extern void recongizer_play_audio_id(uint8_t id);
+        recongizer_play_audio_id(TONE_ID_85);
+        LISA_LOGI(TAG, "cloud is not connected");
+        return;
+    }
+#else
+    if (!app_cloud_is_connected()) {
+        extern void recongizer_play_audio_id(uint8_t id);
+        recongizer_play_audio_id(TONE_ID_85);
+        LISA_LOGI(TAG, "cloud is not connected");
+        return;
+    }
+#endif
 
-	app_client_t *client = app_client_get_instance();
     assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_RECORD_START, NULL, 0);
     pa_manager_refresh(PA_MGR_ON, LS_PA_BASE_TIME, "wakeup");
-#ifdef MY_CLOUD
+#ifdef XIAOZHI_CLOUD
+    xz_cloud_wakeup((xz_cloud_t)client->cloud);
+#elif defined(MY_CLOUD)
     jk_cloud_wakeup(client->cloud);
 #else
     app_cloud_wakeup(client->cloud);
