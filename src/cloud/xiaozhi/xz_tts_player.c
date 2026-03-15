@@ -22,6 +22,9 @@
 #define XZ_TTS_PLAYER_DEFAULT_CHANNELS 1
 #define XZ_TTS_PLAYER_DEFAULT_BITS 16
 
+/** TTS 播放器延迟关闭时间 (毫秒) */
+#define XZ_TTS_PLAYER_CLOSE_DELAY_MS  10000  /* 10 秒 */
+
 /** 全局单例播放器 */
 static xz_tts_player_t s_tts_player = NULL;
 
@@ -78,15 +81,19 @@ static int tts_player_callback(PlayerEvt evt, int arg1, int arg2, int id)
         case PLAYER_EVT_PLAYBACK_COMPLETE:
             LISA_LOGI(TAG, "TTS player playback complete (total_written=%u bytes)",
                       s_tts_player->total_written);
-            s_tts_player->is_playing = false;
-            s_tts_player->state = TTS_PLAYER_STATE_IDLE;
 
-            pa_manager_refresh(PA_MGR_OFF, LS_PA_BASE_TIME, "tts_player_end");
-            listen_audiomgr_release_channel(s_tts_player->audio_mgr, TTS);
-
+            /* 调用回调（在重置状态之前，此时 total_written 仍然有效） */
             if (s_tts_player->cbs.on_play_complete && s_tts_player->total_written > 0) {
                 s_tts_player->cbs.on_play_complete(s_tts_player);
             }
+
+            s_tts_player->is_playing = false;
+            s_tts_player->state = TTS_PLAYER_STATE_IDLE;
+            s_tts_player->total_written = 0;  /* 重置写入计数器 */
+            s_tts_player->is_preparing = false;  /* 清除准备状态 */
+
+            pa_manager_refresh(PA_MGR_OFF, LS_PA_BASE_TIME, "tts_player_end");
+            listen_audiomgr_release_channel(s_tts_player->audio_mgr, TTS);
             break;
 
         case PLAYER_EVT_ERROR:
@@ -94,6 +101,7 @@ static int tts_player_callback(PlayerEvt evt, int arg1, int arg2, int id)
             s_tts_player->is_playing = false;
             s_tts_player->state = TTS_PLAYER_STATE_IDLE;
             s_tts_player->is_preparing = false;
+            s_tts_player->total_written = 0;  /* 重置写入计数器 */
 
             pa_manager_refresh(PA_MGR_OFF, LS_PA_BASE_TIME, "tts_player_error");
             listen_audiomgr_release_channel(s_tts_player->audio_mgr, TTS);
@@ -253,9 +261,23 @@ int xz_tts_player_write(xz_tts_player_t player, const int16_t *samples, uint32_t
 
         int ret = lisa_player_seturl(player->player, url);
         if (ret != PLAYER_OK) {
-            LISA_LOGE(TAG, "Failed to set stream URL: ret=%d", ret);
-            player->is_playing = false;
-            return -1;
+            LISA_LOGE(TAG, "Failed to set stream URL: ret=%d, attempting recovery", ret);
+
+            /* 无论当前状态是什么，都尝试停止播放器并重试
+             * lisa_player 可能处于错误状态（如 state=7），需要恢复
+             */
+            LISA_LOGW(TAG, "Stopping player to recover from error state");
+            lisa_player_stop_sync(player->player);
+            vTaskDelay(pdMS_TO_TICKS(20));
+
+            /* 重试设置 URL */
+            ret = lisa_player_seturl(player->player, url);
+            if (ret != PLAYER_OK) {
+                LISA_LOGE(TAG, "Failed to set stream URL after recovery retry: ret=%d", ret);
+                player->is_playing = false;
+                return -1;
+            }
+            LISA_LOGI(TAG, "Stream URL set successfully after recovery");
         }
 
         player->is_preparing = true;
@@ -301,7 +323,24 @@ int xz_tts_player_end_stream(xz_tts_player_t player)
         return -1;
     }
 
-    LISA_LOGD(TAG, "End stream called");
+    LISA_LOGI(TAG, "End stream: waiting for playback to complete naturally");
+
+    /* 不立即标记流结束
+     * 让播放器自然完成缓冲区的音频播放
+     * 等待 PLAYER_EVT_PLAYBACK_COMPLETE 事件来清理状态
+     *
+     * 这样可以避免：
+     * 1. 播放器状态不一致（is_playing=false 但内部仍是 PLAYING）
+     * 2. 底层流检测到 EOF 时的停止失败错误
+     */
+
+    /* 只停止接受新数据（解码器已停止）
+     * 但不修改播放器状态，让它自然完成
+     */
+
+    LISA_LOGI(TAG, "End stream: player will complete naturally (state=%d, total_written=%u)",
+              player->state, player->total_written);
+
     return 0;
 }
 

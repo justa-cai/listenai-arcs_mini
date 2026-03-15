@@ -241,6 +241,9 @@ int xz_tts_decoder_stop(xz_tts_decoder_t decoder)
         LISA_LOGW(TAG, "Worker thread still running after timeout");
     }
 
+    /* 清空 worker_thread 指针，以便下次 start 时重新创建 */
+    decoder->worker_thread = NULL;
+
     decoder->state = TTS_DECODER_STATE_IDLE;
     LISA_LOGI(TAG, "TTS decoder stopped");
 

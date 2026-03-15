@@ -129,13 +129,19 @@ static void ws_event_callback(xz_websocket_t ws, xz_ws_event_type_e event, void 
 /**
  * @brief TTS 状态回调 (用于消息解析)
  */
-static void tts_state_callback(xz_tts_state_e state, const uint8_t *data, uint32_t len, void *user)
+static void tts_state_callback(xz_tts_state_e state, const char *text, const uint8_t *data, uint32_t len, void *user)
 {
     (void)data;
     (void)len;
     xz_client_t client = (xz_client_t)user;
     if (!client) {
         return;
+    }
+
+    /* 如果有文本内容，触发文本回调 */
+    if (text && strlen(text) > 0 && client->callbacks.on_tts_text) {
+        LISA_LOGI(TAG, "TTS text: %s", text);
+        client->callbacks.on_tts_text(text, client->callbacks.user_data);
     }
 
     if (state == XZ_TTS_STATE_START) {
@@ -251,6 +257,7 @@ static void ws_data_callback(xz_websocket_t ws, xz_ws_data_type_e type,
                 .on_ping = server_ping_callback,
                 .on_stt = client->callbacks.on_stt_text,
                 .on_llm = client->callbacks.on_llm_content,
+                .on_llm_emoji = client->callbacks.on_llm_emoji,
                 .on_tts = tts_state_callback,
                 .on_iot = client->callbacks.on_iot_command,
                 .on_error = client->callbacks.on_error,

@@ -27,6 +27,7 @@ typedef enum {
     XZ_CLIENT_EVENT_ERROR,             /**< 发生错误 */
     XZ_CLIENT_EVENT_STT_TEXT,          /**< 识别到文本 */
     XZ_CLIENT_EVENT_LLM_CONTENT,       /**< LLM 响应内容 */
+    XZ_CLIENT_EVENT_LLM_EMOJI,         /**< LLM 表情更新 */
     XZ_CLIENT_EVENT_TTS_START,         /**< TTS 开始 */
     XZ_CLIENT_EVENT_TTS_DATA,          /**< TTS 音频数据 */
     XZ_CLIENT_EVENT_TTS_END,           /**< TTS 结束 */
@@ -40,7 +41,9 @@ typedef struct {
     void (*on_error)(int code, const char *message, void *user);
     void (*on_stt_text)(const char *text, bool is_final, void *user);
     void (*on_llm_content)(const char *content, bool is_end, void *user);
+    void (*on_llm_emoji)(const char *emoji_name, void *user);
     void (*on_tts_start)(void *user);
+    void (*on_tts_text)(const char *text, void *user);    /**< TTS 文本回调 */
     void (*on_tts_data)(const uint8_t *data, uint32_t len, void *user);
     void (*on_tts_end)(void *user);
     void (*on_iot_command)(const char *command, const char *param, void *user);

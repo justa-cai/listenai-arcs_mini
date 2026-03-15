@@ -373,12 +373,19 @@ void lisa_ui_llm_primary_set_status_text(lv_obj_t *obj, const char *status)
 void lisa_ui_llm_primary_set_content_text(lv_obj_t *obj, const char *content)
 {
     if (!lisa_ui_llm_primary_is_valid(obj)) {
+        LISA_LOGE("llm_primary", "lisa_ui_llm_primary_set_content_text: Invalid object");
         return;
     }
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
-    
+
+    LISA_LOGI("llm_primary", "lisa_ui_llm_primary_set_content_text: content='%s'", content ? content : "(null)");
+
     if (llm_primary->content_label) {
+        LISA_LOGI("llm_primary", "lisa_ui_llm_primary_set_content_text: Calling lv_textarea_set_text");
         lv_textarea_set_text(llm_primary->content_label, content);
+        LISA_LOGI("llm_primary", "lisa_ui_llm_primary_set_content_text: lv_textarea_set_text completed");
+    } else {
+        LISA_LOGE("llm_primary", "lisa_ui_llm_primary_set_content_text: content_label is NULL!");
     }
 }
 

@@ -340,41 +340,70 @@ xz_msg_type_e xz_msg_parse(const char *json_str, const xz_msg_callbacks_t *callb
     /* LLM 消息 */
     else if (strcmp(type, "llm") == 0) {
         msg_type = XZ_MSG_TYPE_LLM;
+
+        /* 打印完整的LLM消息，用于调试 */
+        char *json_str = cJSON_Print(root);
+        if (json_str) {
+            LISA_LOGI(TAG, "LLM message: %s", json_str);
+            free(json_str);
+        }
+
+        /* 小智云使用 "text" 字段，但为了兼容性也检查 "content" 字段 */
+        cJSON *text_item = cJSON_GetObjectItem(root, "text");
         cJSON *content_item = cJSON_GetObjectItem(root, "content");
         cJSON *is_end_item = cJSON_GetObjectItem(root, "is_end");
+        cJSON *emotion_item = cJSON_GetObjectItem(root, "emotion");
 
-        if (content_item && cJSON_IsString(content_item)) {
+        /* 先处理表情（如果存在） */
+        if (emotion_item && cJSON_IsString(emotion_item) && callbacks->on_llm_emoji) {
+            LISA_LOGI(TAG, "LLM emotion: %s", emotion_item->valuestring);
+            callbacks->on_llm_emoji(emotion_item->valuestring, callbacks->user_data);
+        }
+
+        /* 处理文本内容 - 优先使用 "text" 字段，回退到 "content" */
+        const char *llm_text = NULL;
+        if (text_item && cJSON_IsString(text_item)) {
+            llm_text = text_item->valuestring;
+        } else if (content_item && cJSON_IsString(content_item)) {
+            llm_text = content_item->valuestring;
+        }
+
+        if (llm_text) {
             bool is_end = is_end_item && cJSON_IsBool(is_end_item) ?
                          cJSON_IsTrue(is_end_item) : false;
-            LISA_LOGI(TAG, "LLM: %s (end=%d)", content_item->valuestring, is_end);
+            LISA_LOGI(TAG, "LLM text: %s (end=%d)", llm_text, is_end);
             if (callbacks->on_llm) {
-                callbacks->on_llm(content_item->valuestring, is_end, callbacks->user_data);
+                callbacks->on_llm(llm_text, is_end, callbacks->user_data);
             }
+        } else {
+            LISA_LOGW(TAG, "LLM message has no text or content field");
         }
     }
     /* TTS 消息 */
     else if (strcmp(type, "tts") == 0) {
         msg_type = XZ_MSG_TYPE_TTS;
         cJSON *state_item = cJSON_GetObjectItem(root, "state");
+        cJSON *text_item = cJSON_GetObjectItem(root, "text");
 
         if (state_item && cJSON_IsString(state_item)) {
             const char *state = state_item->valuestring;
+            const char *tts_text = text_item && cJSON_IsString(text_item) ? text_item->valuestring : NULL;
             xz_tts_state_e tts_state;
 
-            if (strcmp(state, "start") == 0) {
+            if (strcmp(state, "start") == 0 || strcmp(state, "sentence_start") == 0) {
                 tts_state = XZ_TTS_STATE_START;
-                LISA_LOGI(TAG, "TTS: start");
-            } else if (strcmp(state, "end") == 0) {
+                LISA_LOGI(TAG, "TTS: start%s", tts_text ? "" : " (no text)");
+            } else if (strcmp(state, "end") == 0 || strcmp(state, "sentence_end") == 0) {
                 tts_state = XZ_TTS_STATE_END;
-                LISA_LOGI(TAG, "TTS: end");
+                LISA_LOGI(TAG, "TTS: end%s", tts_text ? "" : " (no text)");
             } else {
                 tts_state = XZ_TTS_STATE_DATA;
                 LISA_LOGD(TAG, "TTS: data");
             }
 
-            /* TTS 数据在二进制帧中，这里只处理状态 */
+            /* TTS 数据在二进制帧中，这里处理状态和文本 */
             if (callbacks->on_tts) {
-                callbacks->on_tts(tts_state, NULL, 0, callbacks->user_data);
+                callbacks->on_tts(tts_state, tts_text, NULL, 0, callbacks->user_data);
             }
         }
     }
