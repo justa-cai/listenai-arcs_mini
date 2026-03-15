@@ -744,26 +744,26 @@ int xz_ws_send_binary(xz_websocket_t ws, const void *data, uint32_t len)
         return -1;
     }
 
-    /* 掩码并发送数据 */
-    const uint8_t *src = (const uint8_t *)data;
-    uint8_t *masked_buf = (uint8_t *)lisa_mem_alloc(len);
-    if (!masked_buf) {
+    /* 掩码并发送数据 - 使用栈上缓冲区避免频繁堆分配 */
+    /* Opus 编码后的数据通常小于 400 字节，使用栈缓冲区足够 */
+    uint8_t masked_buf[512];
+    if (len > sizeof(masked_buf)) {
+        LISA_LOGE(TAG, "Payload too large for stack buffer: %u", len);
         return -1;
     }
 
+    const uint8_t *src = (const uint8_t *)data;
     for (uint32_t i = 0; i < len; i++) {
         masked_buf[i] = src[i] ^ mask[i % 4];
     }
 
     sent = xz_tls_send(ws->tls, masked_buf, len);
-    lisa_mem_free(masked_buf);
-
     if (sent != (int)len) {
         LISA_LOGE(TAG, "Failed to send frame data");
         return -1;
     }
 
-    LISA_LOGI(TAG, "Sent binary frame: %u bytes", len);
+    LISA_LOGD(TAG, "Sent binary frame: %u bytes", len);
     return 0;
 }
 

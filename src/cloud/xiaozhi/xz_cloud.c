@@ -340,7 +340,7 @@ static void on_tts_data(const uint8_t *data, uint32_t len, void *user)
 
     /* 检查是否有解码器 */
     if (!cloud->tts_decoder) {
-        LISA_LOGW(TAG, "TTS data received but no decoder");
+        LISA_LOGE(TAG, "TTS data received but no decoder");
         return;
     }
 

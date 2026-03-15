@@ -22,7 +22,7 @@
 static int heartbeat_check(void *arg);
 
 /** 心跳间隔 (毫秒) */
-#define HEARTBEAT_INTERVAL_MS  10000  /* 10秒 - 防止服务器超时 */
+#define HEARTBEAT_INTERVAL_MS  30000  /* 30秒 - 防止服务器超时 */
 
 /** 小智客户端结构 */
 struct xz_client_s {

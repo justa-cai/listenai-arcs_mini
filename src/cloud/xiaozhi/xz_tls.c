@@ -180,13 +180,6 @@ int xz_tls_connect(xz_tls_t tls, const char *host, uint16_t port)
         xz_tls_close(tls);
     }
 
-    /* 重置 SSL 会话状态 (必须在重连前调用) */
-    int ret = mbedtls_ssl_session_reset(&tls->ssl);
-    if (ret != 0) {
-        LISA_LOGE(TAG, "Failed to reset SSL session: -0x%04X", -ret);
-        return -1;
-    }
-
     LISA_LOGI(TAG, "Connecting to %s:%u", host, port);
 
     /* 创建 TCP socket */
@@ -262,12 +255,19 @@ int xz_tls_send(xz_tls_t tls, const void *data, size_t len)
 
     size_t total_sent = 0;
     const unsigned char *ptr = (const unsigned char *)data;
+    int retry_count = 0;
+    const int max_retries = 100;  /* 最多重试 100 次，避免长时间阻塞 */
 
-    while (total_sent < len) {
+    while (total_sent < len && retry_count < max_retries) {
         int ret = mbedtls_ssl_write(&tls->ssl, ptr + total_sent, len - total_sent);
         if (ret < 0) {
             if (ret == MBEDTLS_ERR_SSL_WANT_WRITE || ret == MBEDTLS_ERR_SSL_WANT_READ) {
-                /* 需要重试，继续循环 */
+                /* 需要重试 */
+                retry_count++;
+                if (retry_count % 10 == 0) {
+                    /* 每 10 次重试让出 CPU */
+                    vTaskDelay(pdMS_TO_TICKS(1));
+                }
                 continue;
             }
             LISA_LOGE(TAG, "ssl_write failed: -0x%04X at offset %d", -ret, total_sent);
@@ -279,6 +279,14 @@ int xz_tls_send(xz_tls_t tls, const void *data, size_t len)
             break;
         }
         total_sent += ret;
+        retry_count = 0;  /* 成功发送，重置重试计数 */
+    }
+
+    if (retry_count >= max_retries) {
+        LISA_LOGW(TAG, "ssl_write timeout after %d retries, sent %zu/%zu bytes",
+                  max_retries, total_sent, len);
+        tls->connected = false;
+        return -1;
     }
 
     return total_sent;
@@ -333,5 +341,12 @@ void xz_tls_close(xz_tls_t tls)
     }
 
     tls->connected = false;
+
+    /* 重置 SSL 会话状态，为下次重连做准备 */
+    int ret = mbedtls_ssl_session_reset(&tls->ssl);
+    if (ret != 0) {
+        LISA_LOGW(TAG, "Failed to reset SSL session in close: -0x%04X", -ret);
+    }
+
     LISA_LOGI(TAG, "TLS connection closed");
 }
