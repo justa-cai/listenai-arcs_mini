@@ -15,6 +15,7 @@
 #include "lisa_kv.h"
 #include "evs_utils.h"
 #include "assistant_controller.h"
+#include "assistant_view.h"
 #include "tone.h"
 #include "app_client.h"
 #include <string.h>
@@ -28,6 +29,9 @@ typedef struct {
 } xz_cloud_config_t;
 
 /** 小智云端结构 */
+/* TTS 播放器延迟关闭时间 (毫秒) */
+#define XZ_TTS_PLAYER_CLOSE_DELAY_MS  10000  /* 10 秒 */
+
 struct xz_cloud_s {
     xz_client_t client;
     struct app_client_s *app_client;
@@ -37,6 +41,13 @@ struct xz_cloud_s {
     xz_tts_player_t tts_player;
     xz_tts_decoder_t tts_decoder;
     int tts_sample_rate;
+
+    /* TTS 播放器延迟关闭
+     * tts_close_active: 延迟关闭是否激活（有定时器在运行）
+     * tts_close_cancelled: 延迟关闭是否被取消（有新的 TTS 到来）
+     */
+    bool tts_close_active;
+    bool tts_close_cancelled;
 
     /* 状态 */
     bool wifi_connected;
@@ -54,6 +65,55 @@ static xz_cloud_t g_xz_cloud = NULL;
 /* 前向声明 */
 static int activate_runnable(void *arg);
 static int connect_runnable(void *arg);
+static int tts_close_delayed_runnable(void *arg);
+
+/**
+ * @brief TTS 播放器延迟关闭函数
+ * @note 延迟关闭可以避免频繁初始化/反初始化，提升多段 TTS 的连续性
+ */
+static int tts_close_delayed_runnable(void *arg)
+{
+    (void)arg;
+    xz_cloud_t cloud = g_xz_cloud;
+    if (!cloud) {
+        return 0;
+    }
+
+    LISA_LOGI(TAG, "TTS player delayed close timer fired");
+
+    /* 标记延迟关闭完成 */
+    cloud->tts_close_active = false;
+
+    /* 检查是否有新的 TTS 到来
+     * 如果有新的 TTS，on_tts_start 会设置 tts_close_cancelled = true
+     */
+    if (cloud->tts_close_cancelled) {
+        LISA_LOGI(TAG, "TTS close cancelled - new TTS arrived, keeping player/decoder");
+        cloud->tts_close_cancelled = false;
+        return 0;
+    }
+
+    /* 没有新的 TTS，可以安全关闭 */
+    LISA_LOGI(TAG, "No new TTS arrived, closing player/decoder");
+
+    /* 停止并销毁解码器 */
+    if (cloud->tts_decoder) {
+        xz_tts_decoder_stop(cloud->tts_decoder);
+        xz_tts_decoder_destroy(cloud->tts_decoder);
+        cloud->tts_decoder = NULL;
+        LISA_LOGI(TAG, "TTS decoder destroyed (delayed close)");
+    }
+
+    /* 停止并销毁播放器 */
+    if (cloud->tts_player) {
+        xz_tts_player_stop(cloud->tts_player);
+        xz_tts_player_destroy(cloud->tts_player);
+        cloud->tts_player = NULL;
+        LISA_LOGI(TAG, "TTS player destroyed (delayed close)");
+    }
+
+    return 0;
+}
 
 /**
  * @brief 从 KV 存储加载配置
@@ -242,11 +302,15 @@ static void on_error(int code, const char *message, void *user)
 static void on_stt_text(const char *text, bool is_final, void *user)
 {
     (void)user;
+    (void)is_final;  /* 小智云的STT消息不包含is_final字段，始终显示文本 */
     LISA_LOGI(TAG, "STT: %s (final=%d)", text, is_final);
 
-    /* 触发控制器事件显示文本 */
-    if (is_final) {
-        /* 这里可以添加显示逻辑 */
+    /* 触发控制器事件显示文本 - 小智云的STT消息总是需要显示 */
+    if (text && strlen(text) > 0) {
+        LISA_LOGI(TAG, "STT: Triggering controller event CLOUD_UPDATE_IAT_TEXT");
+        assist_controller_trigger_event(CONTROLLER_EVENT_STATE_CLOUD_UPDATE_IAT_TEXT,
+                                         (void *)text, strlen(text) + 1);
+        LISA_LOGI(TAG, "STT: Controller event triggered successfully");
     }
 }
 
@@ -258,8 +322,86 @@ static void on_llm_content(const char *content, bool is_end, void *user)
     (void)user;
     LISA_LOGI(TAG, "LLM: %s (end=%d)", content, is_end);
 
-    /* 触发控制器事件显示内容 */
-    /* 这里可以添加显示逻辑 */
+    /* 更新LLM响应文本 */
+    if (content && strlen(content) > 0) {
+        /* 使用overwrite模式显示LLM内容 */
+        LISA_LOGI(TAG, "LLM: Calling assistant_view_update_reply_text");
+        int ret = assistant_view_update_reply_text(content, LISAUI_USERDATA_TEXT_MODE_OVERWRITE);
+        LISA_LOGI(TAG, "LLM: assistant_view_update_reply_text returned %d", ret);
+    }
+}
+
+/**
+ * @brief LLM 表情回调
+ */
+static void on_llm_emoji(const char *emoji_name, void *user)
+{
+    (void)user;
+    LISA_LOGI(TAG, "LLM emoji: %s", emoji_name);
+
+    /* 触发控制器事件设置表情 */
+    if (emoji_name) {
+        assist_controller_set_mcp_emoji(emoji_name);
+    }
+}
+
+/**
+ * @brief TTS 文本回调 - 显示 TTS 文本到屏幕
+ */
+static void on_tts_text(const char *text, void *user)
+{
+    (void)user;
+    LISA_LOGI(TAG, "TTS text: %s", text);
+
+    /* 更新LLM响应文本 - TTS 文本应该显示在屏幕上 */
+    if (text && strlen(text) > 0) {
+        assistant_view_update_reply_text(text, LISAUI_USERDATA_TEXT_MODE_OVERWRITE);
+    }
+}
+
+/**
+ * @brief 启动 TTS 播放器延迟关闭定时器
+ * @note 在播放完成后调用，延迟关闭以避免频繁初始化/反初始化
+ */
+static void start_tts_delayed_close_timer(xz_cloud_t cloud)
+{
+    if (!cloud) {
+        return;
+    }
+
+    /* 如果已经有延迟关闭在运行，不重复启动 */
+    if (cloud->tts_close_active) {
+        return;
+    }
+
+    LISA_LOGI(TAG, "Starting TTS player delayed close timer (%d ms)", XZ_TTS_PLAYER_CLOSE_DELAY_MS);
+
+    cloud->tts_close_active = true;
+    cloud->tts_close_cancelled = false;
+
+    /* 延迟关闭播放器/解码器 */
+    evs_handler_post_runnable_delay(tts_close_delayed_runnable, NULL,
+                                     XZ_TTS_PLAYER_CLOSE_DELAY_MS);
+}
+
+/**
+ * @brief TTS 播放完成回调
+ * @note 在播放器完成所有音频播放后调用，此时启动延迟关闭定时器
+ */
+static void on_play_complete(xz_tts_player_t player)
+{
+    (void)player;
+    xz_cloud_t cloud = g_xz_cloud;
+    if (!cloud) {
+        return;
+    }
+
+    LISA_LOGI(TAG, "TTS playback complete, starting delayed close timer");
+
+    /* 播放完成后启动延迟关闭定时器
+     * 此时所有音频数据已经播放完毕，可以安全地延迟关闭
+     */
+    start_tts_delayed_close_timer(cloud);
 }
 
 /**
@@ -274,7 +416,16 @@ static void on_tts_start(void *user)
 
     LISA_LOGI(TAG, "TTS started");
 
-    /* 创建 TTS 播放器 */
+    /* 取消延迟关闭
+     * 说明有新的 TTS 到来，需要复用已有的播放器/解码器
+     */
+    if (cloud->tts_close_active) {
+        cloud->tts_close_cancelled = true;
+        LISA_LOGI(TAG, "TTS close cancelled - reusing player/decoder");
+    }
+    cloud->tts_close_active = false;
+
+    /* 创建 TTS 播放器（如果不存在） */
     if (!cloud->tts_player) {
         xz_tts_player_config_t player_config = {
             .sample_rate = cloud->tts_sample_rate > 0 ? cloud->tts_sample_rate : 24000,
@@ -284,7 +435,7 @@ static void on_tts_start(void *user)
 
         xz_tts_player_callbacks_t player_cbs = {
             .on_play_start = NULL,
-            .on_play_complete = NULL,
+            .on_play_complete = on_play_complete,
             .on_error = NULL,
         };
 
@@ -360,19 +511,25 @@ static void on_tts_end(void *user)
 
     LISA_LOGI(TAG, "TTS ended");
 
-    /* 停止解码器 */
+    /* 停止解码器 - 但不销毁，保留用于下一个 TTS 段 */
     if (cloud->tts_decoder) {
         xz_tts_decoder_stop(cloud->tts_decoder);
-        xz_tts_decoder_destroy(cloud->tts_decoder);
-        cloud->tts_decoder = NULL;
+        LISA_LOGI(TAG, "TTS decoder stopped (not destroyed)");
     }
 
-    /* 结束播放流 */
+    /* 结束播放流 - 等待播放自然完成
+     * 注意：TTS: end 只表示文本结束，音频数据可能还在继续发送
+     * 所以不在这里启动延迟关闭定时器
+     */
     if (cloud->tts_player) {
         xz_tts_player_end_stream(cloud->tts_player);
     }
 
     cloud->tts_playing = false;
+
+    /* 不在这里启动延迟关闭定时器
+     * 延迟关闭应该在播放真正完成时启动（播放器回调中）
+     */
 
     /* 触发控制器事件 */
     assist_controller_trigger_event(CONTROLLER_EVENT_STATE_AUDIO_IDLE, NULL, 0);
@@ -438,7 +595,9 @@ xz_cloud_t xz_cloud_create(struct app_client_s *app_client)
         .on_error = on_error,
         .on_stt_text = on_stt_text,
         .on_llm_content = on_llm_content,
+        .on_llm_emoji = on_llm_emoji,
         .on_tts_start = on_tts_start,
+        .on_tts_text = on_tts_text,
         .on_tts_data = on_tts_data,
         .on_tts_end = on_tts_end,
         .on_iot_command = on_iot_command,
@@ -456,6 +615,23 @@ void xz_cloud_destroy(xz_cloud_t cloud)
 {
     if (!cloud) {
         return;
+    }
+
+    /* 标记延迟关闭已取消，避免定时器回调中访问已释放的资源 */
+    cloud->tts_close_active = false;
+    cloud->tts_close_cancelled = false;
+
+    /* 销毁 TTS 资源 */
+    if (cloud->tts_decoder) {
+        xz_tts_decoder_stop(cloud->tts_decoder);
+        xz_tts_decoder_destroy(cloud->tts_decoder);
+        cloud->tts_decoder = NULL;
+    }
+
+    if (cloud->tts_player) {
+        xz_tts_player_stop(cloud->tts_player);
+        xz_tts_player_destroy(cloud->tts_player);
+        cloud->tts_player = NULL;
     }
 
     if (cloud->client) {
@@ -668,7 +844,9 @@ int xz_cloud_activate(const char *server_url)
             .on_error = on_error,
             .on_stt_text = on_stt_text,
             .on_llm_content = on_llm_content,
+            .on_llm_emoji = on_llm_emoji,
             .on_tts_start = on_tts_start,
+            .on_tts_text = on_tts_text,
             .on_tts_data = on_tts_data,
             .on_tts_end = on_tts_end,
             .on_iot_command = on_iot_command,

@@ -30,11 +30,16 @@ riscv64-unknown-elf-addr2line -e build/aiui -a 307d6dc6 3061d6aa 3061d71e 3062fe
 
 **主要构建命令:**
 ```bash
-./build.sh                    # 默认构建
+./build.sh                    # 默认增量构建（推荐）
 ./build.sh -t menuconfig     # 使用 menuconfig 配置
-./build.sh -C                # 清理并重新构建
+./build.sh -C                # 清理并重新构建（全量构建，仅必要时使用）
 ./build.sh -r                # 发布构建 (无调试路径)
 ```
+
+**重要:**
+- **禁止使用 `./build.sh -C` 进行常规构建** - 这是全量清理构建，耗时很长
+- **始终使用 `./build.sh` 进行增量编译** - 只重新编译修改过的文件，速度快
+- `build.sh -C` 仅在以下情况使用：编译错误无法解决、需要强制重新编译所有文件
 
 **必需环境:**
 - `NUCLEI_TOOLCHAIN_PATH` - RISC-V 工具链

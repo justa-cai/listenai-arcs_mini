@@ -48,7 +48,8 @@ typedef struct {
     void (*on_ping)(void *user);            /**< 服务器 Ping 消息回调，应自动回复 Pong */
     void (*on_stt)(const char *text, bool is_final, void *user);
     void (*on_llm)(const char *content, bool is_end, void *user);
-    void (*on_tts)(xz_tts_state_e state, const uint8_t *data, uint32_t len, void *user);
+    void (*on_llm_emoji)(const char *emoji_name, void *user);  /**< LLM 表情回调 */
+    void (*on_tts)(xz_tts_state_e state, const char *text, const uint8_t *data, uint32_t len, void *user);
     void (*on_iot)(const char *command, const char *param, void *user);
     void (*on_error)(int code, const char *message, void *user);
     void *user_data;

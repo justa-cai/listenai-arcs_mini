@@ -89,7 +89,8 @@ static const emoji_anim_config_t emoji_anim_configs[LISA_UI_EMOJI_MAX] = {
         .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_blink),
         .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_blink),
         .enter_end_frame = 1,
-        .loop_end_frame =  LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_blink) - 1,
+        /* loop_end_frame 必须 <= images_count - 2，保留至少1帧给退出阶段 */
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_blink) - 2,
         .loop_duration_ms = 3000,
         .enable_staged_animation = true,
     },
@@ -114,22 +115,26 @@ static const emoji_anim_config_t emoji_anim_configs[LISA_UI_EMOJI_MAX] = {
         .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_LAUGH] = {
-        // .first_frame_delay = 0,
-        // .duration = 2000,
-        // .images_count = sizeof(emoji_mock) / sizeof(emoji_mock[0]),
-        // .images = emoji_mock,
-        .images_count = 0,
-        .images = NULL,
-        .enable_staged_animation = false,
+        /* 临时映射到 happy 表情，因为 mock 资源未添加到 respak.bin */
+        .first_frame_delay = 0,
+        .duration = 1500,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_happy),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_happy),
+        .enter_end_frame = 7,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_happy) - 7,
+        .loop_duration_ms = 3000,
+        .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_SQUINT] = {
-        // .first_frame_delay = 0,
-        // .duration = 2000,
-        // .images_count = sizeof(emoji_squint) / sizeof(emoji_squint[0]),
-        .images_count = 0,
-        .images = NULL,
-        // .images = emoji_squint,
-        .enable_staged_animation = false,
+        /* 临时映射到 eye 表情，因为 squint 资源未添加到 respak.bin */
+        .first_frame_delay = 0,
+        .duration = 1500,
+        .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_eye),
+        .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_eye),
+        .enter_end_frame = 6,
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_eye) - 6,
+        .loop_duration_ms = 3000,
+        .enable_staged_animation = true,
     },
     [LISA_UI_EMOJI_ANGRY] = {
         .first_frame_delay = 0,
@@ -207,7 +212,8 @@ static const emoji_anim_config_t emoji_anim_configs[LISA_UI_EMOJI_MAX] = {
         .images_count = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_wait),
         .images = LISA_UI_ASSETS_IMG_DSC_LIST_GET(img_png_wait),
         .enter_end_frame = 1,
-        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_wait) - 1,
+        /* loop_end_frame 必须 <= images_count - 2，保留至少1帧给退出阶段 */
+        .loop_end_frame = LISA_UI_ASSETS_IMG_DSC_LIST_SIZE(img_png_wait) - 2,
         .loop_duration_ms = 1200,
         .enable_staged_animation = true,
     },
@@ -998,14 +1004,21 @@ static void set_page_status(page_view_t *view, const char *status)
 static void set_content_text(page_view_t *view, const char *text)
 {
     if (!view || !text) {
+        LISAUI_LOGE(TAG, "set_content_text: Invalid view or text");
         return;
     }
 
     strncpy(view->content_text, text, sizeof(view->content_text) - 1);
     view->content_text[sizeof(view->content_text) - 1] = '\0';
 
+    LISAUI_LOGI(TAG, "set_content_text: content_text='%s' (len=%d)", view->content_text, strlen(view->content_text));
+
     if (view->inter) {
+        LISAUI_LOGI(TAG, "set_content_text: Calling lisa_ui_llm_primary_set_content_text");
         lisa_ui_llm_primary_set_content_text(view->inter, text);
+        LISAUI_LOGI(TAG, "set_content_text: lisa_ui_llm_primary_set_content_text returned");
+    } else {
+        LISAUI_LOGE(TAG, "set_content_text: view->inter is NULL!");
     }
 }
 
@@ -1185,24 +1198,43 @@ static int update_inter_state(page_view_t *view)
                 if (last_local_state != LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE)
                     lisa_ui_llm_primary_hide_camera_image(view->inter);
 
-                // 仅当 remote_state 也是 IDLE 时才设置"请唤醒我"，否则保持 remote_state 的状态（如"思考中"、"说话中"）
-                // 这样可以避免从其他页面（如二维码页面）返回主页时丢失云端的实时交互状态
-                if (_userdata->inter.local_state == LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE &&
-                    _userdata->inter.remote_state == LISAUI_USERDATA_INTER_REMOTE_STATE_IDLE) {
-                    set_page_status(view, "请唤醒我");
-                }  
-                start_text_rotation(view);  // 启动文本轮换
+                /* 小智云STT文字异步到达：如果IDLE状态下有STT文字，显示它 */
+                if (_userdata->inter.iat_text != NULL && _userdata->inter.iat_text[0] != '\0') {
+                    stop_text_rotation(view);   // 停止文本轮换
+                    set_content_text(view, _userdata->inter.iat_text);
+                    LISAUI_LOGI(TAG, "[IDLE state] Displaying async STT text: %s", _userdata->inter.iat_text);
+                } else if (_userdata->inter.reply_text != NULL && _userdata->inter.reply_text[0] != '\0') {
+                    /* LLM响应已到达，清除STT文字并显示LLM内容 */
+                    stop_text_rotation(view);
+                    set_content_text(view, _userdata->inter.reply_text);
+                    /* 清除STT文字，避免重复显示 */
+                    if (_userdata->inter.iat_text != NULL) {
+                        _userdata->inter.iat_text[0] = '\0';
+                    }
+                    LISAUI_LOGI(TAG, "[IDLE state] Displaying LLM reply text");
+                } else {
+                    // 仅当 remote_state 也是 IDLE 时才设置"请唤醒我"，否则保持 remote_state 的状态（如"思考中"、"说话中"）
+                    // 这样可以避免从其他页面（如二维码页面）返回主页时丢失云端的实时交互状态
+                    if (_userdata->inter.local_state == LISAUI_USERDATA_INTER_LOCAL_STATE_IDLE &&
+                        _userdata->inter.remote_state == LISAUI_USERDATA_INTER_REMOTE_STATE_IDLE) {
+                        set_page_status(view, "请唤醒我");
+                    }
+                    start_text_rotation(view);  // 启动文本轮换
+                }
                 break;
             }
             case LISAUI_USERDATA_INTER_LOCAL_STATE_RECOGNITION:
                 stop_text_rotation(view);   // 停止文本轮换
-                if (_userdata->inter.iat_text != NULL) {
+                /* 优先显示LLM响应内容，如果有的话 */
+                if (_userdata->inter.reply_text != NULL && _userdata->inter.reply_text[0] != '\0') {
+                    set_content_text(view, _userdata->inter.reply_text);
+                    /* 清除STT文字 */
+                    if (_userdata->inter.iat_text != NULL) {
+                        _userdata->inter.iat_text[0] = '\0';
+                    }
+                } else if (_userdata->inter.iat_text != NULL) {
                     set_content_text(view, _userdata->inter.iat_text);
                 }
-
-                // if (_userdata->inter.remote_state == LISAUI_USERDATA_INTER_REMOTE_STATE_THINKING) {
-                //     set_content_text(view, _userdata->inter.reply_text);
-                // }
                 break;
             default:
                 break;
@@ -1210,8 +1242,10 @@ static int update_inter_state(page_view_t *view)
 
             last_local_state = _userdata->inter.local_state;
 
-            LISAUI_LOGI(TAG, "lisaui update inter state,remote:%d,local:%d,iat_text:%s", _userdata->inter.remote_state,
-                        _userdata->inter.local_state, _userdata->inter.iat_text);
+            LISAUI_LOGI(TAG, "lisaui update inter state,remote:%d,local:%d,iat_text:%s,reply_text:%s",
+                        _userdata->inter.remote_state, _userdata->inter.local_state,
+                        _userdata->inter.iat_text ? _userdata->inter.iat_text : "(null)",
+                        _userdata->inter.reply_text ? _userdata->inter.reply_text : "(null)");
         }
     }
     

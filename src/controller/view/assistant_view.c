@@ -908,6 +908,7 @@ typedef struct{
 }role_emoji_remap_t;
 
 static role_emoji_remap_t emoji_remap[] = {
+    /* 原有表情映射 */
     {
         .str = "love",
         .emoji = ROLE_EMOJI_LOVE,   // 1
@@ -943,6 +944,83 @@ static role_emoji_remap_t emoji_remap[] = {
     {
         .str = "cute",
         .emoji = ROLE_EMOJI_CUTE,   // 9
+    },
+    /* ESP32 小智云表情兼容映射 - 映射到已有表情资源 */
+    {
+        .str = "neutral",
+        .emoji = ROLE_EMOJI_BLINK,  // neutral -> blink (默认表情)
+    },
+    {
+        .str = "heart",
+        .emoji = ROLE_EMOJI_LOVE,   // heart -> love
+    },
+    {
+        .str = "laughing",
+        .emoji = ROLE_EMOJI_HAPPY,  // laughing -> happy (临时映射)
+    },
+    {
+        .str = "funny",
+        .emoji = ROLE_EMOJI_HAPPY,  // funny -> happy
+    },
+    {
+        .str = "loving",
+        .emoji = ROLE_EMOJI_LOVE,   // loving -> love
+    },
+    {
+        .str = "embarrassed",
+        .emoji = ROLE_EMOJI_CUTE,   // embarrassed -> cute
+    },
+    {
+        .str = "surprised",
+        .emoji = ROLE_EMOJI_EYE,    // surprised -> eye
+    },
+    {
+        .str = "shocked",
+        .emoji = ROLE_EMOJI_ANGRY,  // shocked -> angry
+    },
+    {
+        .str = "thinking",
+        .emoji = ROLE_EMOJI_EYE,    // thinking -> eye
+    },
+    {
+        .str = "winking",
+        .emoji = ROLE_EMOJI_BLINK,  // winking -> blink
+    },
+    {
+        .str = "cool",
+        .emoji = ROLE_EMOJI_HAPPY,  // cool -> happy
+    },
+    {
+        .str = "relaxed",
+        .emoji = ROLE_EMOJI_BLINK,  // relaxed -> blink
+    },
+    {
+        .str = "confident",
+        .emoji = ROLE_EMOJI_HAPPY,  // confident -> happy
+    },
+    {
+        .str = "sleepy",
+        .emoji = ROLE_EMOJI_BLINK,  // sleepy -> blink (没有 sleepy 资源)
+    },
+    {
+        .str = "silly",
+        .emoji = ROLE_EMOJI_HAPPY,  // silly -> happy
+    },
+    {
+        .str = "confused",
+        .emoji = ROLE_EMOJI_EYE,    // confused -> eye
+    },
+    {
+        .str = "kissy",
+        .emoji = ROLE_EMOJI_LOVE,   // kissy -> love
+    },
+    {
+        .str = "delicious",
+        .emoji = ROLE_EMOJI_HAPPY,  // delicious -> happy
+    },
+    {
+        .str = "crying",
+        .emoji = ROLE_EMOJI_SAD,    // crying -> sad
     },
 };
 
@@ -1347,9 +1425,12 @@ static int update_reply_text(const char *text, lisaui_userdata_text_mode_e mode)
     char *ptr;
 
     if ((text == NULL) || (strlen(text) == 0)) {
+        LISA_LOGE(TAG, "update_reply_text: text is NULL or empty");
         return -EINVAL;
     }
-    
+
+    LISA_LOGI(TAG, "update_reply_text: text=%s mode=%d", text, mode);
+
     LISAUI_USERDATA_WITH_LOCK(_userdata){
         if (NULL != _userdata->inter.reply_text)
         {
@@ -1362,7 +1443,7 @@ static int update_reply_text(const char *text, lisaui_userdata_text_mode_e mode)
             text_len = strlen(text);
             old_text_len = 0;
         }
-        // LISA_LOGI(TAG, "update_reply_text old_text_len %d, text_len %d mode: %d", old_text_len, text_len, mode);
+        LISA_LOGI(TAG, "update_reply_text: old_text_len=%d text_len=%d", old_text_len, text_len);
         ptr = exram_malloc(4, text_len + 1);
         if (ptr != NULL) {
             if (mode == LISAUI_USERDATA_TEXT_MODE_APPEND && old_text_len > 0) {
@@ -1371,10 +1452,16 @@ static int update_reply_text(const char *text, lisaui_userdata_text_mode_e mode)
             snprintf(ptr + old_text_len, text_len - old_text_len + 1, "%s", text);
             exram_free(_userdata->inter.reply_text);
             _userdata->inter.reply_text = ptr;
+            LISA_LOGI(TAG, "update_reply_text: SUCCESS reply_text=%s", _userdata->inter.reply_text);
+            /* LLM 响应到达时，清除 STT 文本，确保 LLM 文本优先显示 */
+            if (_userdata->inter.iat_text != NULL) {
+                _userdata->inter.iat_text[0] = '\0';
+                LISA_LOGI(TAG, "update_reply_text: Cleared STT iat_text to prioritize LLM reply");
+            }
         } else {
+            LISA_LOGE(TAG, "update_reply_text: FAILED to allocate memory");
             ret = -ENOMEM;
         }
-        // LISA_LOGI(TAG, "update_reply_text text %s, text:%s", _userdata->inter.reply_text, text);
     }
 
 
@@ -1384,6 +1471,23 @@ static int update_reply_text(const char *text, lisaui_userdata_text_mode_e mode)
     }
 
     return ret;
+}
+
+/**
+ * @brief 公共接口：更新LLM响应文本
+ * @param text 要显示的文本内容
+ * @param mode 文本模式（覆盖或追加）
+ * @return 0成功，负数错误码
+ */
+int assistant_view_update_reply_text(const char *text, lisaui_userdata_text_mode_e mode)
+{
+    if (!text) {
+        LISA_LOGE(TAG, "assistant_view_update_reply_text: text is NULL");
+        return -EINVAL;
+    }
+
+    LISA_LOGI(TAG, "assistant_view_update_reply_text: %s (mode=%d)", text, mode);
+    return update_reply_text(text, mode);
 }
 
 static int update_ota_state(ota_state_t *state)

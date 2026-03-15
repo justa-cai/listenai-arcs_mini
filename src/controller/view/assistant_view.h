@@ -188,6 +188,14 @@ int assistant_view_notify_alarm_update(bool has_alarm);
 bool get_show_battery_status(void);
 // 更新并显示二维码
 int assistant_view_update_qrcode(const char *url, const char *message, const char *err_code);
+
+/**
+ * @brief 更新LLM响应文本
+ * @param text 要显示的文本内容
+ * @param mode 文本模式（覆盖或追加）
+ * @return 0成功，负数错误码
+ */
+int assistant_view_update_reply_text(const char *text, lisaui_userdata_text_mode_e mode);
 /**
  * @brief 获取电池图标显示状态
  *
