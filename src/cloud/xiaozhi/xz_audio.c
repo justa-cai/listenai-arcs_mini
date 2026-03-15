@@ -224,6 +224,10 @@ int xz_audio_start(xz_audio_t audio)
         LISA_LOGI(TAG, "Worker thread created (stack: %d bytes)", AUDIO_WORKER_STACK_SIZE);
     }
 
+    /* 清空队列，确保没有上次残留的数据 */
+    xQueueReset(audio->audio_queue);
+    LISA_LOGI(TAG, "Queue cleared before starting");
+
     audio->state = AUDIO_STATE_SENDING;
     audio->pcm_buffer_len = 0;
     xz_opus_reset(audio->opus);
@@ -249,14 +253,17 @@ int xz_audio_stop(xz_audio_t audio)
 
     audio->state = AUDIO_STATE_STOPPING;
 
-    /* 发送 flush 消息 */
+    /* 发送 flush 消息到队列前端（优先处理）*/
     audio_msg_t flush_msg = {
         .is_flush = true,
         .samples = 0,
     };
 
-    if (xQueueSend(audio->audio_queue, &flush_msg, pdMS_TO_TICKS(100)) != pdTRUE) {
+    if (xQueueSendToFront(audio->audio_queue, &flush_msg, pdMS_TO_TICKS(500)) != pdTRUE) {
         LISA_LOGW(TAG, "Failed to send flush message");
+        /* 如果队列满，直接清空队列并设置停止状态 */
+        xQueueReset(audio->audio_queue);
+        audio->worker_running = false;
     }
 
     xSemaphoreGive(audio->mutex);
@@ -270,6 +277,12 @@ int xz_audio_stop(xz_audio_t audio)
 
     if (audio->worker_running) {
         LISA_LOGW(TAG, "Worker thread still running after timeout");
+    }
+
+    /* 清空线程句柄，确保下次 start 能创建新线程 */
+    if (audio->worker_thread) {
+        audio->worker_thread = NULL;
+        LISA_LOGI(TAG, "Worker thread handle cleared");
     }
 
     audio->state = AUDIO_STATE_IDLE;
@@ -318,7 +331,12 @@ int xz_audio_write(xz_audio_t audio, const int16_t *pcm_data, int samples)
 
         if (xQueueSend(audio->audio_queue, &msg, pdMS_TO_TICKS(10)) != pdTRUE) {
             /* 队列满，丢弃数据但继续 */
-            LISA_LOGW(TAG, "Audio queue full, dropping %d samples", chunk_size);
+            static uint32_t last_drop_log = 0;
+            uint32_t now = xTaskGetTickCount() * portTICK_PERIOD_MS;
+            if (now - last_drop_log > 1000) {  /* 每秒最多打印一次 */
+                LISA_LOGW(TAG, "Audio queue full, dropping %d samples", chunk_size);
+                last_drop_log = now;
+            }
             break;
         }
 
@@ -394,10 +412,11 @@ static void audio_worker_task(void *arg)
     while (audio->worker_running) {
         audio_msg_t msg;
 
-        /* 接收消息 (超时 100ms) */
-        if (xQueueReceive(audio->audio_queue, &msg, pdMS_TO_TICKS(100)) != pdTRUE) {
+        /* 接收消息 (超时 50ms，更快响应停止请求) */
+        if (xQueueReceive(audio->audio_queue, &msg, pdMS_TO_TICKS(50)) != pdTRUE) {
             /* 超时，检查是否需要退出 */
             if (audio->state == AUDIO_STATE_STOPPING) {
+                LISA_LOGD(TAG, "Stopping due to STOPPING state");
                 break;
             }
             continue;
@@ -431,6 +450,12 @@ static void audio_worker_task(void *arg)
 
         /* 处理音频数据 */
         process_audio_frame(audio, msg.pcm_data, msg.samples);
+
+        /* 每处理一条消息后检查停止状态 */
+        if (audio->state == AUDIO_STATE_STOPPING) {
+            LISA_LOGD(TAG, "Stopping after processing current message");
+            break;
+        }
     }
 
     audio->worker_running = false;

@@ -20,7 +20,7 @@
 /** 最大缓冲区大小 */
 #define MAX_OPUS_PACKET_SIZE 4000
 #define MAX_PCM_SAMPLES     5760   /* 24kHz * 60ms * 2ch */
-#define TTS_QUEUE_SIZE       16      /* Opus 数据队列深度 */
+#define TTS_QUEUE_SIZE       128    /* Opus 数据队列深度 (增加到 128，约 7680ms 缓冲) */
 #define TTS_WORKER_STACK_SIZE 32768  /* 工作线程堆栈: 32KB */
 
 /** Opus 数据消息 */
@@ -193,6 +193,10 @@ int xz_tts_decoder_start(xz_tts_decoder_t decoder)
     }
 
     decoder->state = TTS_DECODER_STATE_DECODING;
+
+    /* 清空队列，确保没有上次残留的数据 */
+    xQueueReset(decoder->opus_queue);
+
     xSemaphoreGive(decoder->mutex);
 
     LISA_LOGI(TAG, "TTS decoder started");
@@ -335,8 +339,8 @@ static void tts_decoder_worker_task(void *arg)
     while (decoder->worker_running) {
         tts_opus_msg_t msg;
 
-        /* 接收消息 (超时 100ms) */
-        if (xQueueReceive(decoder->opus_queue, &msg, pdMS_TO_TICKS(100)) != pdTRUE) {
+        /* 接收消息 (超时 20ms，加快处理速度防止队列溢出) */
+        if (xQueueReceive(decoder->opus_queue, &msg, pdMS_TO_TICKS(20)) != pdTRUE) {
             /* 超时，检查是否需要退出 */
             if (decoder->state == TTS_DECODER_STATE_STOPPING) {
                 break;
