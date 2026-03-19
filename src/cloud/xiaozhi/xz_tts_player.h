@@ -50,6 +50,14 @@ xz_tts_player_t xz_tts_player_create(listen_audiomgr_t *audio_mgr,
 void xz_tts_player_destroy(xz_tts_player_t player);
 
 /**
+ * @brief 预热播放器（预先初始化底层音频设备）
+ * @param player 播放器句柄
+ * @return 0 成功, -1 失败
+ * @note 在 TTS: start 时立即调用，避免第一帧数据到达时的初始化延迟
+ */
+int xz_tts_player_prewarm(xz_tts_player_t player);
+
+/**
  * @brief 开始播放
  * @param player 播放器句柄
  * @return 0 成功, -1 失败
@@ -98,6 +106,14 @@ bool xz_tts_player_is_playing(xz_tts_player_t player);
  * @return 缓冲的数据字节数
  */
 uint32_t xz_tts_player_get_buffered(xz_tts_player_t player);
+
+/**
+ * @brief 设置预缓冲阈值（动态调整）
+ * @param player 播放器句柄
+ * @param threshold 缓冲阈值（字节数）
+ * @note 用于解码器根据帧间隔自适应调整缓冲深度
+ */
+void xz_tts_player_set_buffer_threshold(xz_tts_player_t player, uint32_t threshold);
 
 #ifdef __cplusplus
 }
