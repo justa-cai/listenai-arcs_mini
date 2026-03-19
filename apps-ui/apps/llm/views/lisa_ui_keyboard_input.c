@@ -173,7 +173,7 @@ lv_obj_t *lisa_ui_keyboard_input_create(lv_obj_t *parent)
 
     /* 创建标题标签 */
     kb_input->title_label = lv_label_create(kb_input->panel);
-    lv_obj_set_style_text_font(kb_input->title_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(kb_input->title_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(kb_input->title_label, lv_color_white(), LV_PART_MAIN);
     lv_obj_align(kb_input->title_label, LV_ALIGN_TOP_MID, 0, 10);
     lv_label_set_text(kb_input->title_label, "");
@@ -192,7 +192,7 @@ lv_obj_t *lisa_ui_keyboard_input_create(lv_obj_t *parent)
     kb_input->input = lv_textarea_create(input_container);
     lv_obj_set_size(kb_input->input, LV_PCT(100), LV_PCT(100));
     lv_obj_align(kb_input->input, LV_ALIGN_CENTER, 0, 0);
-    // lv_obj_set_style_text_font(kb_input->input, &lv_font_chinese_18, LV_PART_MAIN);
+    // lv_obj_set_style_text_font(kb_input->input, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(kb_input->input, lv_color_white(), LV_PART_MAIN);
     lv_obj_set_style_bg_color(kb_input->input, lv_color_hex(0x2a2a2a), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(kb_input->input, LV_OPA_TRANSP, LV_PART_MAIN);

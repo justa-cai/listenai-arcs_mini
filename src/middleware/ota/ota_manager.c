@@ -21,8 +21,9 @@
 #include "kv_sys.h"
 #include "kv_user.h"
 
-static int ota_manager_wake_word_check(void);
-static int ota_manager_prompt_tone_check(void);
+static int ota_manager_wake_word_update(void);
+static int ota_manager_prompt_tone_update(void);
+static int ota_manager_emoji_update(void);
 
 static ota_state_t s_ota_state = {
     .state = OTA_STATE_IDLE,
@@ -65,13 +66,15 @@ static void ota_manager_notify_state(ota_state_e state)
 }
 
 static TickType_t last_progress_update = 0;
+static TickType_t download_start_tick = 0;
 static void ota_manager_notify_progress(uint32_t bytes_processed, uint32_t bytes_total)
 {
     s_ota_state.bytes_processed = bytes_processed;
     s_ota_state.bytes_total = bytes_total;
+    s_ota_state.elapsed_ms = pdTICKS_TO_MS(xTaskGetTickCount() - download_start_tick);
 
     TickType_t current = xTaskGetTickCount();
-    if (current - last_progress_update < pdMS_TO_TICKS(10)) {
+    if (current - last_progress_update < pdMS_TO_TICKS(100)) {
         return;
     }
 
@@ -89,7 +92,12 @@ static int _ota_manager_check_all(void)
     int ret;
     int skip_wake_word_update = 0;
     int skip_prompt_tone_update = 0;
+    int skip_emoji_update = 0;
     bool need_reboot = false;
+
+    bool wake_word_need_update = false;
+    bool prompt_tone_need_update = false;
+    bool emoji_need_update = false;
 
     uint32_t start_time = xTaskGetTickCount();
 
@@ -107,8 +115,13 @@ static int _ota_manager_check_all(void)
         skip_prompt_tone_update = 0;
     }
 
-    if (skip_wake_word_update && skip_prompt_tone_update) {
-        LISA_LOGI(TAG, "Skip wake word and prompt tone update as per user settings");
+    ret = lisa_kv_get_int(KV_KEY_USER_DISABLE_EMOJI_UPDATE, &skip_emoji_update);
+    if (ret != 0) {
+        skip_emoji_update = 0;
+    }
+
+    if (skip_wake_word_update && skip_prompt_tone_update && skip_emoji_update) {
+        LISA_LOGI(TAG, "Skip all resource updates as per user settings");
     } else {
         s_ota_state.target = OTA_TARGET_UNSPECIFIED;
         ota_manager_notify_state(OTA_STATE_CHECKING);
@@ -119,25 +132,56 @@ static int _ota_manager_check_all(void)
             goto up_to_date;
         }
 
-        if (skip_wake_word_update) {
-            LISA_LOGI(TAG, "Skip wake word update as per user settings");
-        } else {
-            s_ota_state.target = OTA_TARGET_WAKE_WORD;
-            ota_manager_notify_state(OTA_STATE_CHECKING);
+        // Phase 1: 检查哪些资源需要更新
+        if (!skip_wake_word_update && dev_conf.wakeup_word.resource.size > 0) {
+            ret = ota_flash_verify(OTA_PART_WAKE_WORD_BIN, dev_conf.wakeup_word.resource.md5,
+                                   dev_conf.wakeup_word.resource.size);
+            wake_word_need_update = (ret > 0);
+            LISA_LOGI(TAG, "wake_word.bin need update: %d", wake_word_need_update);
+        }
 
-            ret = ota_manager_wake_word_check();
+        if (!skip_prompt_tone_update && dev_conf.prompt_tone.size > 0) {
+            ret = ota_flash_verify(OTA_PART_PROMPT_TONE_BIN, dev_conf.prompt_tone.md5,
+                                   dev_conf.prompt_tone.size);
+            prompt_tone_need_update = (ret > 0);
+            LISA_LOGI(TAG, "prompt_tone.bin need update: %d", prompt_tone_need_update);
+        }
+
+        if (!skip_emoji_update && dev_conf.emoji.size > 0) {
+            ret = ota_flash_verify(OTA_PART_EMOJI_BIN, dev_conf.emoji.md5, dev_conf.emoji.size);
+            emoji_need_update = (ret > 0);
+            LISA_LOGI(TAG, "emoji.bin need update: %d", emoji_need_update);
+        }
+
+        uint32_t total = (wake_word_need_update ? 1 : 0) +
+                         (prompt_tone_need_update ? 1 : 0) +
+                         (emoji_need_update ? 1 : 0);
+        uint32_t index = 0;
+
+        s_ota_state.update_total = total;
+        s_ota_state.update_index = 0;
+
+        LISA_LOGI(TAG, "Resources to update: %u", total);
+
+        // Phase 2: 逐个更新
+        if (wake_word_need_update) {
+            index++;
+            s_ota_state.update_index = index;
+            s_ota_state.target = OTA_TARGET_WAKE_WORD;
+
+            ret = ota_manager_wake_word_update();
             if (ret < 0) {
-                LISA_LOGE(TAG, "Wake word check failed (%d)", ret);
+                LISA_LOGE(TAG, "Wake word update failed (%d)", ret);
                 ota_manager_update_reboot_strategy();
                 ota_manager_notify_state(OTA_STATE_FAILED);
                 goto reboot;
-            } else if (ret == 0) {
-                LISA_LOGI(TAG, "Wake word up-to-date");
-            } else {
-                LISA_LOGI(TAG, "Wake word updated (%d)", ret);
-                need_reboot = true;
             }
+            LISA_LOGI(TAG, "Wake word updated");
+            need_reboot = true;
+        }
 
+        // 无论是否更新，都同步唤醒词文本
+        if (!skip_wake_word_update && dev_conf.wakeup_word.text[0] != '\0') {
             char *current_wake_word = NULL;
             lisa_kv_get_string(KV_KEY_SYS_WAKEWORD, &current_wake_word);
             if (current_wake_word == NULL || strcmp(current_wake_word, dev_conf.wakeup_word.text) != 0) {
@@ -147,24 +191,36 @@ static int _ota_manager_check_all(void)
             lisa_kv_free(current_wake_word);
         }
 
-        if (skip_prompt_tone_update) {
-            LISA_LOGI(TAG, "Skip prompt tone update as per user settings");
-        } else {
+        if (prompt_tone_need_update) {
+            index++;
+            s_ota_state.update_index = index;
             s_ota_state.target = OTA_TARGET_PROMPT_TONE;
-            ota_manager_notify_state(OTA_STATE_CHECKING);
 
-            ret = ota_manager_prompt_tone_check();
+            ret = ota_manager_prompt_tone_update();
             if (ret < 0) {
-                LISA_LOGE(TAG, "Prompt tone check failed (%d)", ret);
+                LISA_LOGE(TAG, "Prompt tone update failed (%d)", ret);
                 ota_manager_update_reboot_strategy();
                 ota_manager_notify_state(OTA_STATE_FAILED);
                 goto reboot;
-            } else if (ret == 0) {
-                LISA_LOGI(TAG, "Prompt tone up-to-date");
-            } else {
-                LISA_LOGI(TAG, "Prompt tone updated (%d)", ret);
-                need_reboot = true;
             }
+            LISA_LOGI(TAG, "Prompt tone updated");
+            need_reboot = true;
+        }
+
+        if (emoji_need_update) {
+            index++;
+            s_ota_state.update_index = index;
+            s_ota_state.target = OTA_TARGET_EMOJI;
+
+            ret = ota_manager_emoji_update();
+            if (ret < 0) {
+                LISA_LOGE(TAG, "Emoji update failed (%d)", ret);
+                ota_manager_update_reboot_strategy();
+                ota_manager_notify_state(OTA_STATE_FAILED);
+                goto reboot;
+            }
+            LISA_LOGI(TAG, "Emoji updated");
+            need_reboot = true;
         }
     }
 
@@ -220,7 +276,7 @@ int ota_manager_check_all(void)
     lisa_thread_attr_t attr = {
         .name = "ota_check",
         .stack_size = 16 * 1024,
-        .priority = LISA_OS_PRIORITY_HIGH,
+        .priority = LISA_OS_PRIORITY_LOW, // 6, 和 voice_msg 队列同级，以保障 UI 及时更新
     };
     lisa_thread_create(&attr, ota_manager_check_task, NULL);
 
@@ -243,37 +299,17 @@ static int ota_manager_wake_word_download_cb(const ota_res_info_t *res_info, uin
 }
 
 /**
- * 检查唤醒词更新
+ * 下载并更新唤醒词（调用前已确认需要更新）
  *
- * @return < 0: 检查或更新出错
- *         = 0: 无需更新
- *         > 0: 已更新资源数量
+ * @return 0: 成功, < 0: 失败
  */
-static int ota_manager_wake_word_check(void)
+static int ota_manager_wake_word_update(void)
 {
     int ret;
-    bool wake_word_bin_need_update = false;
-    int updated = 0;
-
-    if (dev_conf.wakeup_word.resource.size > 0) {
-        ret = ota_flash_verify(OTA_PART_WAKE_WORD_BIN, dev_conf.wakeup_word.resource.md5,
-                               dev_conf.wakeup_word.resource.size);
-        if (ret < 0) {
-            return 0;
-        }
-
-        wake_word_bin_need_update = ret > 0;
-        LISA_LOGI(TAG, "wake_word.bin need update: %d", wake_word_bin_need_update);
-    } else {
-        LISA_LOGI(TAG, "wake_word.bin not found, skip checking");
-    }
-
-    if (!wake_word_bin_need_update) {
-        return 0;
-    }
 
     s_ota_state.bytes_processed = 0;
     s_ota_state.bytes_total = dev_conf.wakeup_word.resource.size;
+    download_start_tick = xTaskGetTickCount();
     ota_manager_notify_state(OTA_STATE_UPDATING);
 
     // 停止算法
@@ -302,10 +338,14 @@ static int ota_manager_wake_word_check(void)
         return ret;
     }
 
-    LISA_LOGI(TAG, "Update wake_word.bin finished");
-    updated++;
+    // 发送最终 100% 进度
+    s_ota_state.bytes_processed = s_ota_state.bytes_total;
+    s_ota_state.elapsed_ms = pdTICKS_TO_MS(xTaskGetTickCount() - download_start_tick);
+    ota_manager_publish_state_event();
 
-    return updated;
+    LISA_LOGI(TAG, "Update wake_word.bin finished");
+
+    return 0;
 }
 
 static int ota_manager_prompt_tone_download_cb(const ota_res_info_t *res_info, uint32_t offset, const uint8_t *data,
@@ -323,30 +363,18 @@ static int ota_manager_prompt_tone_download_cb(const ota_res_info_t *res_info, u
     return ret;
 }
 
-static int ota_manager_prompt_tone_check(void)
+/**
+ * 下载并更新提示音（调用前已确认需要更新）
+ *
+ * @return 0: 成功, < 0: 失败
+ */
+static int ota_manager_prompt_tone_update(void)
 {
     int ret;
-    bool prompt_tone_need_update = false;
-    int updated = 0;
-
-    if (dev_conf.prompt_tone.size > 0) {
-        ret = ota_flash_verify(OTA_PART_PROMPT_TONE_BIN, dev_conf.prompt_tone.md5, dev_conf.prompt_tone.size);
-        if (ret < 0) {
-            return 0;
-        }
-
-        prompt_tone_need_update = ret > 0;
-        LISA_LOGI(TAG, "prompt_tone.bin need update: %d", prompt_tone_need_update);
-    } else {
-        LISA_LOGI(TAG, "prompt_tone.bin not found, skip checking");
-    }
-
-    if (!prompt_tone_need_update) {
-        return 0;
-    }
 
     s_ota_state.bytes_processed = 0;
     s_ota_state.bytes_total = dev_conf.prompt_tone.size;
+    download_start_tick = xTaskGetTickCount();
     ota_manager_notify_state(OTA_STATE_UPDATING);
 
     LISA_LOGI(TAG, "Begin update prompt_tone.bin...");
@@ -371,8 +399,71 @@ static int ota_manager_prompt_tone_check(void)
         return ret;
     }
 
-    LISA_LOGI(TAG, "Update prompt_tone.bin finished");
-    updated++;
+    s_ota_state.bytes_processed = s_ota_state.bytes_total;
+    s_ota_state.elapsed_ms = pdTICKS_TO_MS(xTaskGetTickCount() - download_start_tick);
+    ota_manager_publish_state_event();
 
-    return updated;
+    LISA_LOGI(TAG, "Update prompt_tone.bin finished");
+
+    return 0;
+}
+
+static int ota_manager_emoji_download_cb(const ota_res_info_t *res_info, uint32_t offset, const uint8_t *data,
+                                         uint32_t size)
+{
+    int ret;
+
+    ret = ota_flash_update_step(OTA_PART_EMOJI_BIN, offset, data, size);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Write emoji.bin failed at offset %u, size %u (%d)", offset, size, ret);
+    }
+
+    ota_manager_notify_progress(offset + size, res_info->size);
+
+    return ret;
+}
+
+/**
+ * 下载并更新表情（调用前已确认需要更新）
+ *
+ * @return 0: 成功, < 0: 失败
+ */
+static int ota_manager_emoji_update(void)
+{
+    int ret;
+
+    s_ota_state.bytes_processed = 0;
+    s_ota_state.bytes_total = dev_conf.emoji.size;
+    download_start_tick = xTaskGetTickCount();
+    ota_manager_notify_state(OTA_STATE_UPDATING);
+
+    LISA_LOGI(TAG, "Begin update emoji.bin...");
+
+    ret = ota_flash_update_begin(OTA_PART_EMOJI_BIN, dev_conf.emoji.size);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Begin update of emoji.bin partition failed (%d)", ret);
+        return ret;
+    }
+
+    LISA_LOGI(TAG, "Downloading emoji.bin from %s, size %u", dev_conf.emoji.url, dev_conf.emoji.size);
+
+    ret = ota_api_download(&dev_conf.emoji, ota_manager_emoji_download_cb);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Download emoji.bin failed (%d)", ret);
+        return ret;
+    }
+
+    ret = ota_flash_update_finish(OTA_PART_EMOJI_BIN);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Finish update of emoji.bin partition failed (%d)", ret);
+        return ret;
+    }
+
+    s_ota_state.bytes_processed = s_ota_state.bytes_total;
+    s_ota_state.elapsed_ms = pdTICKS_TO_MS(xTaskGetTickCount() - download_start_tick);
+    ota_manager_publish_state_event();
+
+    LISA_LOGI(TAG, "Update emoji.bin finished");
+
+    return 0;
 }

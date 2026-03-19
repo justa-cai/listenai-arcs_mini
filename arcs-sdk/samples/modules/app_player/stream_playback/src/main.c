@@ -23,7 +23,9 @@
 #include "lisa_gpio.h"
 #include "app_player.h"
 
-#ifdef CONFIG_BOARD_ARCS_EVB
+#ifdef CONFIG_BOARD_ARCS_MINI
+#include "pinmux.h"
+#elif defined(CONFIG_BOARD_ARCS_EVB)
 #include "IOMuxManager.h"
 #endif
 
@@ -40,7 +42,12 @@ static volatile bool g_completed = false;
 /*
     为满足不同板型示例场景，重定向gpioa设备的pinmux配置
 */
-#ifdef CONFIG_BOARD_ARCS_EVB
+#ifdef CONFIG_BOARD_ARCS_MINI
+
+#define PA_PIN_NUM PA_EN_PIN
+#define PA_GPIO_DEVICE "gpioa"
+
+#elif defined(CONFIG_BOARD_ARCS_EVB)
 
 #define PA_PIN_NUM 27
 #define PA_GPIO_DEVICE "gpioa"

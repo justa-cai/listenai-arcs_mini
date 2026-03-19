@@ -1,0 +1,98 @@
+{
+  "default_emoji": "neutral",
+  "animations": [
+    {
+      "name": "生气",
+      "intro": {
+        "path": "/生气/frame-%06d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/生气/frame-%06d.png",
+        "range": [5, 8],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/生气/frame-%06d.png",
+        "range": [9, 11],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "开心",
+      "intro": {
+        "path": "/开心/frame-%06d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/开心/frame-%06d.png",
+        "range": [5, 7],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/开心/frame-%06d.png",
+        "range": [8, 11],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "无表情",
+      "loop": {
+        "path": "/无表情/frame-%06d.png",
+        "range": [0, 9],
+        "interval_ms": 100,
+        "interval_overrides": [[0, 2500]]
+      }
+    },
+    {
+      "name": "悲伤",
+      "intro": {
+        "path": "/悲伤/frame-%06d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/悲伤/frame-%06d.png",
+        "range": [5, 11],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/悲伤/frame-%06d.png",
+        "range": [12, 16],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "睡觉",
+      "loop": {
+        "path": "/睡觉/frame-%06d.png",
+        "range": [0, 5],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "惊讶",
+      "intro": {
+        "path": "/惊讶/frame-%06d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/惊讶/frame-%06d.png",
+        "range": [5, 9],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/惊讶/frame-%06d.png",
+        "range": [10, 13],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "neutral",
+      "alias": "无表情"
+    }
+  ]
+}

@@ -125,6 +125,8 @@ static cJSON *ls_play_kuwo_music_call(const char *id, const char *name, cJSON *a
         }
     }
 
+    voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
+
     voice_msg_pub(VOICE_MSG_CLOUD_AUDIO_ITEM, music_items,
                   sizeof(struct voice_msg_audio_items) + cnt * sizeof(struct voice_msg_audio_item));
     lisa_mem_free(music_items);

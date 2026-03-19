@@ -1,0 +1,9 @@
+.clangd
+build/
+.vscode/
+.cache/
+build*/
+tools/tone_tool/output
+tools/tone_tool/tts
+*.lpk
+listenai-dev-tools/

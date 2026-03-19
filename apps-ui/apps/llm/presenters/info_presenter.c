@@ -83,7 +83,11 @@ static int info_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
         LISA_UI_LOGE("Failed to get QR data from model");
     }
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 30000, NULL);
+#else // !CONFIG_BOARD_ARCS_MINI
     scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 10000, NULL);
+#endif
     lv_timer_set_repeat_count(scr_data->auto_return, 1);
 
     *data = scr_data;

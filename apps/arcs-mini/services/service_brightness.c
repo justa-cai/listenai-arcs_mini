@@ -6,7 +6,6 @@
 #define TAG "brightness"
 
 #include "lisa_log.h"
-#include "lisa_display.h"
 #include "lisa_kv.h"
 #include "lisa_display.h"
 
@@ -32,6 +31,10 @@ void service_brightness_init(void)
     lisa_device_t *gpioa_dev = lisa_device_get("gpioa");
     lisa_device_t *gpiob_dev = lisa_device_get("gpiob");
 
+#ifdef CONFIG_LISA_DISPLAY_COMPOSITE
+    board_display_composite_init();
+#endif
+
     lisa_display_config_t display_config = {
         .bus_type = LISA_DISPLAY_BUS_SPI_4WIRE,
         .bus_config =
@@ -39,8 +42,10 @@ void service_brightness_init(void)
                 .spi_4wire =
                     {
                         .spi_dev = lisa_device_get("spi0"),
+#ifndef CONFIG_LISA_DISPLAY_COMPOSITE
                         .cs_gpio = gpioa_dev,
                         .cs_pin = LCD_CS_PIN,
+#endif
                         .dc_gpio = gpioa_dev,
                         .dc_pin = LCD_CD_PIN,
                         .spi_freq = 50 * 1000 * 1000,
@@ -58,6 +63,10 @@ void service_brightness_init(void)
             },
         .rst_gpio = gpiob_dev,
         .rst_pin = LCD_RST_PIN,
+#ifdef CONFIG_LISA_DISPLAY_COMPOSITE
+        .composite_activate = board_display_composite_activate,
+        .composite_deactivate = board_display_composite_deactivate,
+#endif
     };
 
     lisa_display_attach_bus(s_display_device, &display_config);

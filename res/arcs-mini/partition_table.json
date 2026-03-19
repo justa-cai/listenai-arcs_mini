@@ -20,8 +20,13 @@
         "file": "./wake_word.bin"
     },
     {
+        "name": "emoji",
+        "addr": "0x380000",
+        "file": "./emoji.bin"
+    },
+    {
         "name": "respak",
-        "addr": "0x400000",
+        "addr": "0x440000",
         "file": "./respak.bin"
     },
     {

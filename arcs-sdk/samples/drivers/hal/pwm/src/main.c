@@ -7,20 +7,33 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+#include "pinmux.h"
+/* ARCS_MINI: 仅使用 LCD_PWM_PIN (PA21) 的 ch1 */
+#define PWM_CH_START          1
+#define PWM_CH_COUNT          1
+#define PWM_CH1_PAD           (CSK_IOMUX_PAD_A)
+#define PWM_CH1_PIN           (LCD_PWM_PIN)
+#define PWM_CH1_SEL           (CSK_IOMUX_FUNC_ALTER12)
+#else
+#define PWM_CH_START          0
+#define PWM_CH_COUNT          2
 #define PWM_CH0_PAD           (CSK_IOMUX_PAD_A)
 #define PWM_CH0_PIN           (20)
 #define PWM_CH0_SEL           (12)
-
 #define PWM_CH1_PAD           (CSK_IOMUX_PAD_A)
 #define PWM_CH1_PIN           (21)
 #define PWM_CH1_SEL           (12)
+#endif
 
 void GPT_PWM_Output(void)
 {
     uint32_t ret;
 
-    /* 设置PA20和PA21引脚为PWM输出, 具体IOMUX列表见芯片手册的APPENDIX章节 */
+    /* 设置引脚为PWM输出, 具体IOMUX列表见芯片手册的APPENDIX章节 */
+#ifndef CONFIG_BOARD_ARCS_MINI
     IOMuxManager_PinConfigure(PWM_CH0_PAD, PWM_CH0_PIN, PWM_CH0_SEL);
+#endif
     IOMuxManager_PinConfigure(PWM_CH1_PAD, PWM_CH1_PIN, PWM_CH1_SEL);
 
     /* 初始化GPT0_PWM */
@@ -33,7 +46,7 @@ void GPT_PWM_Output(void)
         goto error;
     }
 
-    for (int ch = 0; ch < 2; ch++) {
+    for (int ch = PWM_CH_START; ch < PWM_CH_START + PWM_CH_COUNT; ch++) {
         /* 配置PWM的ch通道的时钟源为PCLK，时钟分频，设置PWM输出模式， */
         ret = HAL_GPT_PWMControl(GPT0_PWM(), 
                         CSK_GPT_PWM_MODE | 

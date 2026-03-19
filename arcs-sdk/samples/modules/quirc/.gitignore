@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Tools output
+tools/output/
+
+# Generated test data
+src/qr_test_data.h
+
+# Build artifacts
+build/
+*.o
+*.a
+*.elf
+*.bin
+*.hex
+*.map

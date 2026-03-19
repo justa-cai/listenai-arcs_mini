@@ -1,0 +1,188 @@
+{
+  "default_emoji": "neutral",
+  "animations": [
+    {
+      "name": "无表情",
+      "loop": {
+        "path": "/无表情/blink_%03d.png",
+        "range": [0, 4],
+        "interval_ms": 100,
+        "interval_overrides": [[0, 1000]]
+      }
+    },
+    {
+      "name": "生气",
+      "intro": {
+        "path": "/生气/angry_%03d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/生气/angry_%03d.png",
+        "range": [5, 9],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/生气/angry_%03d.png",
+        "range": [10, 15],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "开心",
+      "intro": {
+        "path": "/开心/frame-%06d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/开心/frame-%06d.png",
+        "range": [5, 14],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/开心/frame-%06d.png",
+        "range": [15, 20],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "大笑",
+      "intro": {
+        "path": "/大笑/love_%03d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/大笑/love_%03d.png",
+        "range": [5, 16],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/大笑/love_%03d.png",
+        "range": [17, 22],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "悲伤",
+      "intro": {
+        "path": "/悲伤/sad_%03d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/悲伤/sad_%03d.png",
+        "range": [5, 12],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/悲伤/sad_%03d.png",
+        "range": [13, 18],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "撒娇",
+      "intro": {
+        "path": "/撒娇/frame-%06d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/撒娇/frame-%06d.png",
+        "range": [5, 16],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/撒娇/frame-%06d.png",
+        "range": [17, 23],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "舒适",
+      "intro": {
+        "path": "/舒适/frame_%06d.png",
+        "range": [0, 4],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/舒适/frame_%06d.png",
+        "range": [5, 12],
+        "interval_ms": 100
+      },
+      "outro": {
+        "path": "/舒适/frame_%06d.png",
+        "range": [13, 21],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "睡觉",
+      "intro": {
+        "path": "/睡觉/sleepy_%03d.png",
+        "range": [0, 9],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/睡觉/sleepy_%03d.png",
+        "range": [10, 34],
+        "interval_ms": 100,
+        "interval_overrides": [[10, 1000]]
+      },
+      "outro": {
+        "path": "/睡觉/sleepy_%03d.png",
+        "range": [35, 40],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "思考",
+      "loop": {
+        "path": "/思考/wait_%03d.png",
+        "range": [0, 7],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "倾听",
+      "intro": {
+        "path": "/倾听/wakeup_%03d.png",
+        "range": [0, 5],
+        "interval_ms": 100
+      },
+      "loop": {
+        "path": "/倾听/wakeup_%03d.png",
+        "range": [6, 20],
+        "interval_ms": 100,
+        "interval_overrides": [[6, 500]]
+      },
+      "outro": {
+        "path": "/倾听/wakeup_%03d.png",
+        "range": [21, 27],
+        "interval_ms": 100
+      }
+    },
+    {
+      "name": "neutral",
+      "alias": "无表情"
+    },
+    {
+      "name": "battery",
+      "alias": "舒适"
+    },
+    {
+      "name": "sleepy",
+      "alias": "睡觉"
+    },
+    {
+      "name": "wait",
+      "alias": "思考"
+    },
+    {
+      "name": "wakeup",
+      "alias": "倾听"
+    }
+  ]
+}

@@ -14,7 +14,7 @@ typedef struct {
     lv_img_t img;
     lisa_ui_anim_stop_cb_t stop_cb;
     lisa_ui_anim_loop_cb_t loop_cb;
-    const void **frames;
+    const lv_img_dsc_t *frames;
     uint32_t *delays;
     uint16_t frame_count;
     uint16_t current_frame;
@@ -25,7 +25,7 @@ typedef struct {
 } lisa_ui_anim_t;
 
 typedef struct {
-    const void **frames;
+    const lv_img_dsc_t *frames;
     const uint32_t *delays;
     uint16_t frame_count;
     uint32_t default_delay;
@@ -37,7 +37,7 @@ extern const lv_obj_class_t lisa_ui_anim_class;
 
 lv_obj_t *lisa_ui_anim_create(lv_obj_t *parent);
 int lisa_ui_anim_set_config(lv_obj_t *obj, const lisa_ui_anim_config_t *config);
-int lisa_ui_anim_set_frames(lv_obj_t *obj, const void **frames, uint16_t frame_count,
+int lisa_ui_anim_set_frames(lv_obj_t *obj, const lv_img_dsc_t *frames, uint16_t frame_count,
                             uint32_t delay_ms, int loop);
 void lisa_ui_anim_start(lv_obj_t *obj);
 void lisa_ui_anim_pause(lv_obj_t *obj);

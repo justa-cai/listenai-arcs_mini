@@ -119,6 +119,9 @@ static void _audio_play_foreground(audioplayer_t *handle)
 	if (handle->m_player_state == PLAYER_EVT_PAUSED) {
 		app_player_resume_sync(PLAYER_T_CLOUD);
 		handle->m_player_state = PLAYER_EVT_PLAYING;
+	} else if (handle->m_player_state == APP_PLAYER_PREPARING ||
+		   handle->m_player_state == PLAYER_EVT_PREPARED) {
+		LISA_LOGD(TAG, "skip replay when preparing/prepared");
 	} else if (handle->m_player_state != PLAYER_EVT_PLAYING) {
 		_audio_play_next(handle, false);
 	}
@@ -212,15 +215,23 @@ static int _audio_on_play_end(void *arg)
 
 static void _audio_pause(audioplayer_t *handle)
 {
+	handle->m_is_pause_called = true;
+
 	if (handle->m_player_state == PLAYER_EVT_PLAYING) {
-		handle->m_is_pause_called = true;
 		app_player_pause(PLAYER_T_CLOUD);
 		LISA_LOGD(TAG, "audioplayer wait paused ...");
 		lisa_semaphore_take(handle->pause_sema, AUDIOPLAYER_PAUSE_WAIT_TIMEOUT);
 		LISA_LOGD(TAG, "audioplayer has paused");
 	} else if (handle->m_player_state == PLAYER_EVT_PAUSED) {
-		handle->m_is_pause_called = true;
 		LISA_LOGD(TAG, "ready to pause");
+	} else if (handle->m_player_state == APP_PLAYER_PREPARING) {
+		LISA_LOGD(TAG, "audioplayer pause when preparing by user");
+		app_player_pause(PLAYER_T_CLOUD);
+	} else if (handle->m_player_state == PLAYER_EVT_PREPARED) {
+		LISA_LOGD(TAG, "audioplayer pause when prepared by user");
+		app_player_pause(PLAYER_T_CLOUD);
+	} else {
+		LISA_LOGD(TAG, "audioplayer pause requested in state %d", handle->m_player_state);
 	}
 }
 
@@ -298,6 +309,11 @@ void listen_audioplayer_resume(audioplayer_t *handle)
 void listen_audioplayer_pause(audioplayer_t *handle)
 {
 	_audio_pause(handle);
+}
+
+void listen_audioplayer_pause_temp(audioplayer_t *handle)
+{
+	_audio_play_background(handle);
 }
 
 static int _play_callback(uint16_t st)

@@ -18,6 +18,7 @@
 #include "service_image.h"
 
 #include "acomp_wakeup.h"
+#include "listen_wifi.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -30,6 +31,17 @@
 /*缓存500ms的音频*/
 #define VOICE_CLOUD_RECORD_STREAM_BEFORE_DATA_LENGTH  (32000 + 16000)
 #define VOICE_CLOUD_RECORD_STREAM_BUFFER_SIZE (VOICE_CLOUD_RECORD_STREAM_BEFORE_DATA_LENGTH + 10240)
+
+/* DNS 备用服务器，断线时按次轮换，避免长期卡在同一个失效 DNS 上 */
+static const char *const s_dns_fallback[] = {
+    "114.114.114.114", /* 114 DNS */
+    "223.5.5.5",       /* Alibaba DNS */
+    "180.76.76.76",    /* Baidu DNS */
+    "8.8.8.8",         /* Google DNS */
+};
+#define DNS_FALLBACK_COUNT ((uint32_t)(sizeof(s_dns_fallback) / sizeof(s_dns_fallback[0])))
+static uint32_t s_disconn_cnt = 0;
+static uint32_t s_dns_fallback_index = 0;
 
 static StreamBufferHandle_t g_record_stream_buffer = NULL;
 static TaskHandle_t g_audio_send_task = NULL;
@@ -294,12 +306,21 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
         g_cloud_connected = 1;
         voice_msg_pub(VOICE_MSG_CLOUD_CONNECTED, NULL, 0);
     } break;
-    case LSC_DISCONNECTED:
+    case LSC_DISCONNECTED: {
         g_cloud_connected = 0;
         voice_pcm_send_disable();
         xStreamBufferReset(g_record_stream_buffer);
         voice_msg_pub(VOICE_MSG_CLOUD_DISCONNECTED, NULL, 0);
-        break;
+        /* 断线时轮换 DNS */
+        s_disconn_cnt++;
+        if(s_disconn_cnt > 3){
+            s_dns_fallback_index++;
+            const char *dns = s_dns_fallback[(s_dns_fallback_index - 1) % DNS_FALLBACK_COUNT];
+            LOGI("[dns-rotate] disconnect #%u, switching primary DNS -> %s", (unsigned)s_disconn_cnt, dns);
+            ls_wifi_refresh_dnsserver(dns);
+            s_disconn_cnt = 0;
+        }
+    } break;
     case LSC_CLOUD_AUTH_FAILD:
         voice_msg_pub(VOICE_MSG_CLOUD_CLOUD_AUTH_FAILED, NULL, 0);
         break;

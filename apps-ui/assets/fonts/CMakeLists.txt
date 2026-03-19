@@ -1,11 +1,15 @@
 target_sources(
     ${LISA_UI_LIB_NAME}
     PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_chinese_18_bin.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_notosans_cs_medium_14.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_notosans_cs_medium_18.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_rubik_bold_64_ascii.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_rubik_bold_64.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/font_romfs.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/font_cbin.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_chinese_16_bin.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_chinese_18_bin.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_notosans_cs_medium_14.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_notosans_cs_medium_18.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_rubik_bold_64_ascii.c
+    # ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_rubik_bold_64.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/lv_font_rubik_bold_64_bin.c
 )
 
 target_include_directories(

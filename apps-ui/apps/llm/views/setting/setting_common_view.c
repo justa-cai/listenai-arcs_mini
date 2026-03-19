@@ -128,13 +128,13 @@ static void lisa_ui_setting_common_view_class_constructor(const lv_obj_class_t *
     /* 在返回按钮旁边创建标题文本 */
     lv_obj_t *title = lv_label_create(container);
     lv_label_set_text(title, _("common setting"));
-    lv_obj_set_style_text_font(title, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 45, 8);  /* 紧贴返回按钮右侧 */
     
     view->volume_label = lv_label_create(container);
     lv_obj_set_style_text_color(view->volume_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(view->volume_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(view->volume_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_align(view->volume_label, LV_ALIGN_TOP_LEFT, 20, 80);
     
     view->volume_slider = lv_slider_create(container);
@@ -146,7 +146,7 @@ static void lisa_ui_setting_common_view_class_constructor(const lv_obj_class_t *
     
     view->brightness_label = lv_label_create(container);
     lv_obj_set_style_text_color(view->brightness_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(view->brightness_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(view->brightness_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_align_to(view->brightness_label, view->volume_slider, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 30);
     
     view->brightness_slider = lv_slider_create(container);

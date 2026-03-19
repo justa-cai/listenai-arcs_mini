@@ -127,6 +127,13 @@ int player_mgr_pause(int player_id);
 int player_mgr_resume(int player_id);
 
 /**
+ * @brief 临时暂停播放（仅 audio_player 支持，不标记用户主动暂停）
+ * @param player_id 播放器ID
+ * @return 0 成功, 其他失败
+ */
+int player_mgr_pause_temporary(int player_id);
+
+/**
  * @brief 播放下一首（仅 audio_player 支持）
  * @param player_id 播放器ID
  * @return 0 成功, 其他失败
@@ -167,6 +174,13 @@ int player_mgr_get_volume(void);
  * @return 播放器配置
  */
 player_config_t *player_mgr_get_config(int player_id);
+
+/**
+ * @brief 查询播放器是否处于播放中（含准备中/已准备）
+ * @param player_id 播放器ID
+ * @return true 正在播放流程中，false 未在播放流程中
+ */
+bool player_mgr_is_playing(int player_id);
 
 
 #endif

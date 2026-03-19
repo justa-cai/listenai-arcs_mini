@@ -1,0 +1,10 @@
+guardian-out*/
+build*/
+listenai-tools/
+.vscode
+listenai-dev-tools
+.cache
+*.bak
+.clangd
+.cache/
+.env/

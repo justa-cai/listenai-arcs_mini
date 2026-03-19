@@ -155,6 +155,11 @@ if (LISTENAI_SDK_KCONFIG_PARSE)
         list(APPEND KCONFIG_MERGE_LIST ${APPLICATION_SOURCE_DIR}/.config)
     endif()
 
+    if (EXISTS ${BOARD_DIR}/overlay.conf)
+        list(APPEND KCONFIG_MERGE_LIST ${BOARD_DIR}/overlay.conf)
+        message(STATUS "Added board overlay config: ${BOARD_DIR}/overlay.conf")
+    endif()
+
     if (DEFINED CONFIG_FILES)
         foreach(config_file IN LISTS CONFIG_FILES)
             if (IS_ABSOLUTE ${config_file})

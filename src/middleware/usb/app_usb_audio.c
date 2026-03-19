@@ -1,10 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <string.h>
-#include <math.h>
-
+#include <stdint.h>
+#include <stdbool.h>
 #include "tusb.h"
-
+#include "common/tusb_fifo.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "queue.h"
@@ -12,7 +11,9 @@
 #include "timers.h"
 
 #include "lisa_log.h"
+#include "sysheap.h"
 
+#define TAG "usb_audio"
 #define USBD_STACK_SIZE (4 * configMINIMAL_STACK_SIZE / 2) * (CFG_TUSB_DEBUG ? 2 : 1)
 
 #define BLINKY_STACK_SIZE configMINIMAL_STACK_SIZE
@@ -56,16 +57,13 @@ uint8_t clkValid;
 audio_control_range_2_n_t(1) volumeRng[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX + 1]; // Volume range state
 audio_control_range_4_n_t(1) sampleFreqRng;                                     // Sample frequency range state
 
-#if CFG_TUD_AUDIO_ENABLE_ENCODING
-// Audio test data, each buffer contains 2 channels, buffer[0] for CH0-1, buffer[1] for CH1-2
-uint16_t i2s_dummy_buffer[CFG_TUD_AUDIO_FUNC_1_N_TX_SUPP_SW_FIFO][CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX *
-                                                                  CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE / 1000 /
-                                                                  CFG_TUD_AUDIO_FUNC_1_N_TX_SUPP_SW_FIFO];
-#else
-// Audio test data, 4 channels muxed together, buffer[0] for CH0, buffer[1] for CH1, buffer[2] for CH2, buffer[3] for
-// CH3
-uint16_t i2s_dummy_buffer[CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX * CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE / 1000];
-#endif
+struct audio_data {
+    uint16_t *data;
+    uint32_t size;
+};
+
+static QueueHandle_t audio_queue;
+static bool is_recording = false;
 
 void led_blinking_task(void *param);
 void usb_device_task(void *param);
@@ -83,45 +81,9 @@ int app_usb_audio_run(void)
     sampleFreqRng.subrange[0].bMax = AUDIO_SAMPLE_RATE;
     sampleFreqRng.subrange[0].bRes = 0;
 
-    // Generate dummy data
-#if CFG_TUD_AUDIO_ENABLE_ENCODING
-    uint16_t *p_buff = i2s_dummy_buffer[0];
-    uint16_t dataVal = 0;
-    for (uint16_t cnt = 0; cnt < AUDIO_SAMPLE_RATE / 1000; cnt++) {
-        // CH0 saw wave
-        *p_buff++ = dataVal;
-        // CH1 inverted saw wave
-        *p_buff++ = 3200 + AUDIO_SAMPLE_RATE / 1000 - dataVal;
-        dataVal += 32;
-    }
-    p_buff = i2s_dummy_buffer[1];
-    for (uint16_t cnt = 0; cnt < AUDIO_SAMPLE_RATE / 1000; cnt++) {
-        // CH3 square wave
-        *p_buff++ = cnt < (AUDIO_SAMPLE_RATE / 1000 / 2) ? 3400 : 5000;
-        // CH4 sinus wave
-        float t = 2 * 3.1415f * cnt / (AUDIO_SAMPLE_RATE / 1000);
-        *p_buff++ = (uint16_t)((int16_t)(sinf(t) * 750) + 6000);
-    }
-#else
-    uint16_t *p_buff = i2s_dummy_buffer;
-    uint16_t dataVal = 0;
-    for (uint16_t cnt = 0; cnt < AUDIO_SAMPLE_RATE / 1000; cnt++) {
-        // CH0 saw wave
-        *p_buff++ = dataVal;
-        // CH1 inverted saw wave
-        *p_buff++ = 3200 + AUDIO_SAMPLE_RATE / 1000 - dataVal;
-        dataVal += 32;
-        // CH3 square wave
-        *p_buff++ = cnt < (AUDIO_SAMPLE_RATE / 1000 / 2) ? 3400 : 5000;
-        // CH4 sinus wave
-        float t = 2 * 3.1415f * cnt / (AUDIO_SAMPLE_RATE / 1000);
-        *p_buff++ = (uint16_t)((int16_t)(sinf(t) * 750) + 6000);
-    }
-#endif
-
 #if configSUPPORT_STATIC_ALLOCATION
     // Create a task for audio
-    xTaskCreateStatic(audio_task, "audio", AUDIO_STACK_SIZE, NULL, configMAX_PRIORITIES - 2, audio_stack,
+    xTaskCreateStatic(audio_task, "audio", AUDIO_STACK_SIZE, NULL, configMAX_PRIORITIES - 1, audio_stack,
                       &audio_taskdef);
 #else
     xTaskCreate(audio_task, "audio", AUDIO_STACK_SIZE, NULL, configMAX_PRIORITIES - 1, NULL);
@@ -130,21 +92,36 @@ int app_usb_audio_run(void)
     return 0;
 }
 
-static QueueHandle_t audio_queue;
-static bool is_recording = false;
+static void app_usb_audio_discard_pending_queue(void)
+{
+    struct audio_data audio_data = {0};
 
-#define TAG "usb_audio"
-#include "sysheap.h"
-#include "lisa_log.h"
+    if (audio_queue == NULL) {
+        return;
+    }
+
+    while (xQueueReceive(audio_queue, &audio_data, 0) == pdPASS) {
+        if (audio_data.data != NULL) {
+            psram_free(audio_data.data);
+        }
+    }
+}
 
 void app_usb_audio_start_recording(void)
 {
     is_recording = true;
+    if (tud_audio_mounted()) {
+        tud_audio_clear_ep_in_ff();
+    }
 }
 
 void app_usb_audio_stop_recording(void)
 {
     is_recording = false;
+    app_usb_audio_discard_pending_queue();
+    if (tud_audio_mounted()) {
+        tud_audio_clear_ep_in_ff();
+    }
 }
 
 bool app_usb_audio_is_recording(void)
@@ -152,15 +129,10 @@ bool app_usb_audio_is_recording(void)
     return is_recording;
 }
 
-struct audio_data {
-    uint16_t *data;
-    uint32_t size;
-};
-
 int app_usb_audio_write(void *data, uint32_t sample, uint32_t channel, uint8_t bit)
 {
     struct audio_data audio_data = {
-        .size = 4 * sample * sizeof(uint16_t),
+        .size = channel * sample * (bit / 8),
     };
 
     if (audio_queue == NULL) {
@@ -202,7 +174,44 @@ void audio_task(void *param)
             continue;
         }
 
-        tud_audio_write(audio_data.data, audio_data.size);
+        uint8_t *tx_ptr = (uint8_t *)audio_data.data;
+        uint32_t remaining = audio_data.size;
+
+        while (remaining > 0U) {
+            tu_fifo_t *fifo;
+            uint16_t writable;
+            uint16_t written;
+
+            if (!is_recording || !tud_audio_mounted()) {
+                break;
+            }
+
+            fifo = tud_audio_get_ep_in_ff();
+            if (fifo == NULL) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+                continue;
+            }
+
+            writable = tu_fifo_remaining(fifo);
+            if (writable == 0U) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+                continue;
+            }
+
+            if (writable > remaining) {
+                writable = (uint16_t)remaining;
+            }
+
+            written = tud_audio_write(tx_ptr, writable);
+            if (written == 0U) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+                continue;
+            }
+
+            tx_ptr += written;
+            remaining -= written;
+        }
+
         psram_free(audio_data.data);
     }
 }
@@ -352,9 +361,8 @@ bool tud_audio_get_req_entity_cb(uint8_t rhport, tusb_control_request_t const *p
             // The terminal connector control only has a get request with only the CUR attribute.
             audio_desc_channel_cluster_t ret;
 
-            // Those are dummy values for now
-            ret.bNrChannels = 1;
-            ret.bmChannelConfig = 0;
+            ret.bNrChannels = CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX;
+            ret.bmChannelConfig = AUDIO_CHANNEL_CONFIG_NON_PREDEFINED;
             ret.iChannelNames = 0;
 
             LOGI("    Get terminal connector\r\n");
@@ -449,6 +457,19 @@ bool tud_audio_get_req_entity_cb(uint8_t rhport, tusb_control_request_t const *p
     return false; // Yet not implemented
 }
 
+bool tud_audio_set_itf_cb(uint8_t rhport, tusb_control_request_t const *p_request)
+{
+    (void)rhport;
+
+    if (TU_U16_LOW(p_request->wValue) > 0U) {
+        app_usb_audio_start_recording();
+    } else {
+        app_usb_audio_stop_recording();
+    }
+
+    return true;
+}
+
 bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, uint8_t cur_alt_setting)
 {
     (void)rhport;
@@ -456,15 +477,20 @@ bool tud_audio_tx_done_pre_load_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, u
     (void)ep_in;
     (void)cur_alt_setting;
 
-    // In read world application data flow is driven by I2S clock,
-    // both tud_audio_tx_done_pre_load_cb() & tud_audio_tx_done_post_load_cb() are hardly used.
-    // For example in your I2S receive callback:
-    // void I2S_Rx_Callback(int channel, const void* data, uint16_t samples)
-    // {
-    //    tud_audio_write_support_ff(channel, data, samples * N_BYTES_PER_SAMPLE * N_CHANNEL_PER_FIFO);
-    // }
-
     return true;
+}
+
+uint16_t tud_audio_tx_done_direct_buffer_cb(uint8_t rhport, uint8_t itf, uint8_t ep_in, uint8_t cur_alt_setting,
+                                            uint8_t *ep_in_buffer, uint16_t ep_in_buffer_size)
+{
+    (void)rhport;
+    (void)itf;
+    (void)ep_in;
+    (void)cur_alt_setting;
+    (void)ep_in_buffer;
+    (void)ep_in_buffer_size;
+
+    return 0;
 }
 
 bool tud_audio_tx_done_post_load_cb(uint8_t rhport, uint16_t n_bytes_copied, uint8_t itf, uint8_t ep_in,
@@ -483,6 +509,8 @@ bool tud_audio_set_itf_close_EP_cb(uint8_t rhport, tusb_control_request_t const 
 {
     (void)rhport;
     (void)p_request;
+
+    app_usb_audio_stop_recording();
 
     return true;
 }

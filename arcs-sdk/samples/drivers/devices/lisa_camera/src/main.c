@@ -26,6 +26,7 @@
 #include "lisa_gpio.h"
 #include "lisa_uart.h"
 #include "IOMuxManager.h"
+#include "pinmux.h"
 
 #define TAG "sample_camera"
 #include <lisa_log.h>
@@ -174,6 +175,10 @@ void lisa_dvp_pinmux(void)
     IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, CAM_D6_PIN, CSK_IOMUX_FUNC_ALTER16);
     IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, CAM_D7_PIN, CSK_IOMUX_FUNC_ALTER16);
 }
+
+#elif CONFIG_BOARD_ARCS_MINI
+/* ARCS_MINI: DVP/I2C0/GPIOA/GPIOB pinmux 均已在 pinmux.c 中配置，
+ * 引脚宏（CAM_*_PIN、CAMERA_RST_PIN 等）来自 pinmux.h */
 #endif
 
 int main(int argc, char **argv)
@@ -198,9 +203,6 @@ int main(int argc, char **argv)
     LOGI("%s device ready", CAMERA_DEVICE);
 
 
-    lisa_device_t *gpioa = lisa_device_get("gpioa");
-    lisa_gpio_configure(gpioa, 23, LISA_GPIO_CONFIG_OUTPUT_HIGH);
-
     lisa_device_t *i2c_dev = lisa_device_get("i2c0");
     if (!lisa_device_ready(i2c_dev)) {
         LOGE("Error: %s device not ready", "i2c0");
@@ -212,9 +214,11 @@ int main(int argc, char **argv)
         .hw_config = {
             .mclk_pad = CSK_IOMUX_PAD_A,
             .mclk_pin = CAM_MCLK_PIN,
+#ifdef CONFIG_BOARD_ARCS_EVB
             .pwdn_gpio_dev = lisa_device_get("gpiob"),
             .pwdn_pin = CAM_PWDN_PIN,
             .pwdn_delay_us = 0,
+#endif
             .xclk_delay_us = 0,
             .i2c_dev = i2c_dev,
         },

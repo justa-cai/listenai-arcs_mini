@@ -9,10 +9,14 @@
 
 #include "stdint.h"
 #include "stdio.h"
+#include "stdlib.h"
+#include "limits.h"
 #include "alarm_store.h"
 #include "kv_user.h"
 #include "voice_msg.h"
 #include "apps/llm/models/model_voice.h"
+#include "service_volume.h"
+#include "service_brightness.h"
 
 static int kv_cmd_del(int argc, char **argv)
 {
@@ -53,7 +57,36 @@ static int kv_cmd_set(int argc, char **argv)
                 shellPrint(shellGetCurrent(),"flash set %s:%s success\n", key, value);
             }
         } else if (!strcmp(type, "int")) {
-            int int_temp = atoi(value);
+            char *endptr = NULL;
+            long parsed = strtol(value, &endptr, 10);
+            if (endptr == value || *endptr != '\0' || parsed > INT_MAX || parsed < INT_MIN) {
+                shellPrint(shellGetCurrent(), "flash set %s invalid int value: %s\n", key, value);
+                return -1;
+            }
+
+            if ((!strcmp(key, KV_KEY_USER_VOLUME) || !strcmp(key, KV_KEY_USER_BRIGHTNESS))
+                && (parsed < 0 || parsed > 100)) {
+                shellPrint(shellGetCurrent(),
+                           "flash set %s out of range: %ld (valid range: 0-100)\n",
+                           key, parsed);
+                return -1;
+            }
+
+            int int_temp = (int)parsed;
+            if (!strcmp(key, KV_KEY_USER_VOLUME)) {
+                service_volume_set(int_temp);
+                shellPrint(shellGetCurrent(),"set volume success: %d\n", service_volume_get());
+                return 0;
+            }
+
+            if (!strcmp(key, KV_KEY_USER_BRIGHTNESS)) {
+                service_brightness_set(int_temp);
+                shellPrint(shellGetCurrent(),
+                           "set brightness success: %d\n",
+                           service_brightness_get());
+                return 0;
+            }
+
             if (lisa_kv_set_int(key, int_temp) != 0) {
                 shellPrint(shellGetCurrent(),"flash set %s:%d failed\n", key, int_temp);
             } else {

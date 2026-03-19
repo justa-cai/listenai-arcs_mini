@@ -182,7 +182,7 @@ void lisa_ui_setting_view_item_add(lv_obj_t *obj, const char *label, const void 
     lv_obj_t *text = lv_label_create(card);
     lv_label_set_text(text, label);
     lv_obj_set_style_text_color(text, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(text, &lv_font_notosans_cs_medium_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(text, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_align(text, LV_ALIGN_RIGHT_MID, -10, 0);
     
     // Add click event

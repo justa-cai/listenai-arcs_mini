@@ -8,7 +8,6 @@ target_sources(
     setting_wifi_presenter.c
     setting_wakeup_presenter.c
     setting_clock_presenter.c
-    emoji_anim.c
     alarm_success_presenter.c
     alarm_ring_presenter.c
     quota_qrcode_presenter.c

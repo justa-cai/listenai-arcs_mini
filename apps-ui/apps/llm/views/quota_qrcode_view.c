@@ -34,12 +34,17 @@ static void quota_qrcode_view_constructor(const lv_obj_class_t *class_p, lv_obj_
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, 0);
 
     view->qr_img = lv_img_create(obj);
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    lv_obj_set_size(view->qr_img, 160, 160);
+    lv_obj_align(view->qr_img, LV_ALIGN_CENTER, -80, 0);
+#else
     lv_obj_set_size(view->qr_img, 148, 148);
     lv_obj_align(view->qr_img, LV_ALIGN_CENTER, 0, 5);
+#endif
 
     view->title_label = lv_label_create(obj);
     lv_obj_set_style_text_color(view->title_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(view->title_label, &lv_font_notosans_cs_medium_14, 0);
+    lv_obj_set_style_text_font(view->title_label, &lv_font_chinese_16, 0);
     lv_obj_set_style_text_align(view->title_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(view->title_label, LV_PCT(90));
     lv_label_set_long_mode(view->title_label, LV_LABEL_LONG_WRAP);
@@ -48,7 +53,7 @@ static void quota_qrcode_view_constructor(const lv_obj_class_t *class_p, lv_obj_
 
     view->message_label = lv_label_create(obj);
     lv_obj_set_style_text_color(view->message_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(view->message_label, &lv_font_notosans_cs_medium_14, 0);
+    lv_obj_set_style_text_font(view->message_label, &lv_font_chinese_16, 0);
     lv_obj_set_style_text_align(view->message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(view->message_label, LV_PCT(100));
     lv_label_set_long_mode(view->message_label, LV_LABEL_LONG_WRAP);

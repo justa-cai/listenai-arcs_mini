@@ -369,7 +369,7 @@ def list_image(image_path):
             kind = "socket"
         else:
             kind = "fifo"
-        line = f"{kind:8} {size:10} {path}"
+        line = f"0x{info['offset']:08x} {kind:8} {size:10} {path}"
         if node_type == TYPE_SYMLINK:
             target = data[info["data_offset"]:info["data_offset"] + size].decode("utf-8", errors="replace")
             line += f" -> {target}"

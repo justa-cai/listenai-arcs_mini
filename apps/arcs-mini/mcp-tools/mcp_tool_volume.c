@@ -119,40 +119,4 @@ static cJSON *volume_control_call(const char *id, const char *name, cJSON *args)
     return result;
 }
 
-static cJSON *volume_get_list(const char *name)
-{
-    cJSON *tool = mcp_tool_list_info_create_default(name, "获取当前音量。");
-    if (!tool) {
-        return NULL;
-    }
-
-    return tool;
-}
-
-static cJSON *volume_get_call(const char *id, const char *name, cJSON *args)
-{
-    int current_vol = service_volume_get();
-
-    LOGI("Get volume: %d", current_vol);
-
-    cJSON *result = mcp_tool_call_result_create(name);
-    if (!result) {
-        return NULL;
-    }
-
-    char volume_text[64];
-    snprintf(volume_text, sizeof(volume_text), "当前音量为 %d", current_vol);
-
-    cJSON *content_array = cJSON_CreateArray();
-    cJSON *content_item = cJSON_CreateObject();
-    cJSON_AddStringToObject(content_item, "type", "text");
-    cJSON_AddStringToObject(content_item, "text", volume_text);
-    cJSON_AddItemToArray(content_array, content_item);
-    cJSON_AddItemToObject(result, "content", content_array);
-    cJSON_AddBoolToObject(result, "isError", false);
-
-    return result;
-}
-
 MCP_TOOL_DEFINE(ls.set_volume, volume_control_list, volume_control_call);
-MCP_TOOL_DEFINE(ls.get_volume, volume_get_list, volume_get_call);

@@ -20,10 +20,22 @@ config LISA_DISPLAY_PANEL_ST7701S
     bool "ST7701S Panel Driver"
     help
         Enable Driver for ST7701S display panel.
+
+config LISA_DISPLAY_PANEL_GC9A01
+    bool "GC9A01 Panel Driver"
+    help
+        Enable driver for GC9A01 display panel.
+
+config LISA_DISPLAY_PANEL_GC9D01N
+    bool "GC9D01N Panel Driver"
+    help
+        Enable driver for GC9D01N display panel.
 endchoice
 
 rsource "Kconfig.axs15231b"
 rsource "Kconfig.st7789p3"
 rsource "Kconfig.st7701s"
+rsource "Kconfig.gc9a01"
+rsource "Kconfig.gc9d01n"
 
 endif

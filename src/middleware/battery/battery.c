@@ -212,7 +212,7 @@ static void battery_voltage_sample_cb(struct lisa_timer *timer)
         last_status = status;
     }
 
-    LISA_LOGI(TAG, "Battery: raw=%d%%, status=%d", raw_percentage, status);
+    LISA_LOGD(TAG, "Battery: raw=%d%%, status=%d", raw_percentage, status);
 
     lisa_timer_start(battery_timer);
 }
@@ -265,7 +265,7 @@ static uint16_t battery_get_voltage(void)
         filtered_voltage = voltage_moving_average_filter(vbat_real_voltage);
     }
 
-    LISA_LOGI(TAG, "adc_raw: %d, vbat_raw: %d, vbat_filtered: %d", adc_real_voltage, vbat_real_voltage,
+    LISA_LOGD(TAG, "adc_raw: %d, vbat_raw: %d, vbat_filtered: %d", adc_real_voltage, vbat_real_voltage,
               filtered_voltage);
 
     return filtered_voltage;

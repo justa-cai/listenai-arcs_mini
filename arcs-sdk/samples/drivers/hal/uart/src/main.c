@@ -7,11 +7,21 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+#include "pinmux.h"
+/* ARCS_MINI: UART1 on PA8(TX)/PA9(RX) */
+#define UART1_TX_PAD   CSK_IOMUX_PAD_A
+#define UART1_TX_PIN   8
+#define UART1_RX_PAD   CSK_IOMUX_PAD_A
+#define UART1_RX_PIN   9
+#define UART1_FUNC     CSK_IOMUX_FUNC_ALTER3
+#else
 #define UART1_TX_PAD   CSK_IOMUX_PAD_B
 #define UART1_TX_PIN   2
 #define UART1_RX_PAD   CSK_IOMUX_PAD_B
 #define UART1_RX_PIN   3
 #define UART1_FUNC     CSK_IOMUX_FUNC_ALTER3
+#endif
 
 #define RX_BUFFER_SIZE           (64)
 

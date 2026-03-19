@@ -1,0 +1,9 @@
+.cache/
+.vscode/
+build*/
+twister-out*/
+guardian-out*/
+docs/out/*
+docs/source/doxygen/*
+docs/source/samples/*
+*.pyc

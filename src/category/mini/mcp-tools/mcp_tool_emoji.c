@@ -9,25 +9,19 @@
 #include "mcp.h"
 #include "cJSON.h"
 
-struct emoji_info {
-    char *name;
-    char *name_cn;
-};
+#define EMOJI_DESCRIPTION_MAX 1024
+#define EMOJI_PROPERTY_MAX    1536
+#define EMOJI_PROP_FINAL_MAX  1700
 
-static const struct emoji_info emoji_list[] = {
-    {"angry", "生气"},
-    {"happy", "开心"},
-    {"cute", "撒娇"},
-    {"neutral", "无表情"},
-    {"sad", "悲伤"},
-    {"laugh", "大笑"},
-};
+extern int emoji_anim_get_loaded_count(void);
+extern const char *emoji_anim_get_loaded_name(int index);
+extern int emoji_anim_is_alias(int index);
 
 static cJSON *set_emotion_list(const char *name)
 {
-    char *description = psram_malloc(256);
-    char *property_desc = psram_malloc(512);
-    char *final_prop_desc = psram_malloc(600);
+    char *description = psram_malloc(EMOJI_DESCRIPTION_MAX);
+    char *property_desc = psram_malloc(EMOJI_PROPERTY_MAX);
+    char *final_prop_desc = psram_malloc(EMOJI_PROP_FINAL_MAX);
     cJSON *tool = NULL;
 
     if (!description || !property_desc || !final_prop_desc) {
@@ -35,22 +29,31 @@ static cJSON *set_emotion_list(const char *name)
         goto cleanup;
     }
 
-    memset(description, 0, 256);
-    memset(property_desc, 0, 512);
+    memset(description, 0, EMOJI_DESCRIPTION_MAX);
+    memset(property_desc, 0, EMOJI_PROPERTY_MAX);
     int desc_len = 0;
     int prop_len = 0;
 
-    for (int i = 0; i < sizeof(emoji_list) / sizeof(emoji_list[0]); i++) {
-        if (i > 0) {
-            desc_len += snprintf(description + desc_len, 256 - desc_len, ", ");
-            prop_len += snprintf(property_desc + prop_len, 512 - prop_len, "、");
+    int first = 1;
+    for (int i = 0; i < emoji_anim_get_loaded_count(); i++) {
+        const char *name = emoji_anim_get_loaded_name(i);
+        if (name == NULL || name[0] == '\0') {
+            continue;
         }
-        desc_len += snprintf(description + desc_len, 256 - desc_len, "%s", emoji_list[i].name);
-        prop_len += snprintf(property_desc + prop_len, 512 - prop_len, "'%s'/'%s'",
-                            emoji_list[i].name_cn, emoji_list[i].name);
+        if (emoji_anim_is_alias(i)) {
+            continue;
+        }
+
+        if (!first) {
+            desc_len += snprintf(description + desc_len, EMOJI_DESCRIPTION_MAX - desc_len, ", ");
+            prop_len += snprintf(property_desc + prop_len, EMOJI_PROPERTY_MAX - prop_len, "、");
+        }
+        first = 0;
+        desc_len += snprintf(description + desc_len, EMOJI_DESCRIPTION_MAX - desc_len, "%s", name);
+        prop_len += snprintf(property_desc + prop_len, EMOJI_PROPERTY_MAX - prop_len, "'%s'", name);
     }
 
-    snprintf(final_prop_desc, 600, "表情类型，可以是 %s", property_desc);
+    snprintf(final_prop_desc, EMOJI_PROP_FINAL_MAX, "表情类型，可以是 %s", property_desc);
 
     tool = mcp_tool_list_info_create_default(name, description);
     if (!tool) {

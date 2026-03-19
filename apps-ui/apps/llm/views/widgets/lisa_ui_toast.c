@@ -37,7 +37,7 @@ void lisa_ui_toast_show(const char *txt)
     lv_obj_t *label = lv_label_create(toast_obj);
     lv_label_set_text(label, txt);
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);

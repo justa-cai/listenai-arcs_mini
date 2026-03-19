@@ -90,6 +90,34 @@ player_config_t *player_mgr_get_config(int player_id)
     return NULL;
 }
 
+bool player_mgr_is_playing(int player_id)
+{
+    player_entry_t *entry = _get_player_entry(player_id);
+    uint16_t state;
+
+    if (entry == NULL) {
+        return false;
+    }
+
+    if (entry->type == PLAYER_TYPE_SOUND) {
+        sound_player_t *player = (sound_player_t *)entry->player;
+        if (player == NULL) {
+            return false;
+        }
+        state = player->m_play_state;
+    } else if (entry->type == PLAYER_TYPE_AUDIO) {
+        audioplayer_t *player = (audioplayer_t *)entry->player;
+        if (player == NULL) {
+            return false;
+        }
+        state = player->m_player_state;
+    } else {
+        return false;
+    }
+
+    return (state == APP_PLAYER_PREPARING || state == PLAYER_EVT_PREPARED || state == PLAYER_EVT_PLAYING);
+}
+
 // ============== 回调转发 ==============
 
 static void _on_sound_status(uint16_t status)
@@ -413,6 +441,25 @@ static int _pause_impl(void *arg)
     return 0;
 }
 
+static int _pause_temporary_impl(void *arg)
+{
+    player_id_param_t *p = (player_id_param_t *)arg;
+    if (p == NULL) return 0;
+
+    player_entry_t *entry = _get_player_entry(p->player_id);
+    if (entry != NULL && entry->type == PLAYER_TYPE_AUDIO) {
+        audioplayer_t *player = (audioplayer_t *)entry->player;
+        if (player == NULL) {
+            LISA_LOGE(TAG, "Player %d temporary pause not supported (player=%p)", p->player_id, player);
+        } else {
+            listen_audioplayer_pause_temp(player);
+        }
+    }
+
+    lisa_mem_free(p);
+    return 0;
+}
+
 static int _resume_impl(void *arg)
 {
     player_id_param_t *p = (player_id_param_t *)arg;
@@ -729,6 +776,25 @@ int player_mgr_resume(int player_id)
 
     param->player_id = player_id;
     return evs_handler_post_runnable(_resume_impl, param);
+}
+
+int player_mgr_pause_temporary(int player_id)
+{
+    if (g_player_mgr == NULL) return -1;
+
+    player_entry_t *entry = _get_player_entry(player_id);
+    if (entry == NULL || entry->type != PLAYER_TYPE_AUDIO) {
+        LISA_LOGW(TAG, "Player %d does not support temporary pause", player_id);
+        return -1;
+    }
+
+    LISA_LOGI(TAG, "player_mgr_pause_temporary: id=%d", player_id);
+
+    player_id_param_t *param = (player_id_param_t *)lisa_mem_calloc(1, sizeof(player_id_param_t));
+    if (param == NULL) return -1;
+
+    param->player_id = player_id;
+    return evs_handler_post_runnable(_pause_temporary_impl, param);
 }
 
 int player_mgr_play_next(int player_id)

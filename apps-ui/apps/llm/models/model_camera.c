@@ -46,13 +46,16 @@ int model_camera_init(void)
     int r = voice_invoke_sync(bn_camera_hw_init, NULL, 0, &rsp, 1000);
     if (r) {
         LISA_UI_LOGE("bn_camera_hw_init sync invoke failed, r:%d", r);
+        return r;
     } else {
         if (rsp.err) {
-            LISA_UI_LOGE("bn_camera_hw_init sync invoke resp, r:%d", r);
+            LISA_UI_LOGE("bn_camera_hw_init sync invoke resp err, r:%d", rsp.err);
+            return rsp.err;
         }
     }
 #else
     LISA_UI_LOGW("Camera not supported on this platform");
+    return -5;
 #endif
 
     model_camera_ctx.inited = 1;
@@ -91,6 +94,11 @@ int model_camera_capture(uint8_t *in, uint32_t len)
         return -1;
     }
 
+    if (in == NULL || len == 0) {
+        LISA_UI_LOGE("Invalid capture buffer");
+        return -2;
+    }
+
     struct service_camera_rsp rsp = {
         .base = {
             .err = -1,
@@ -119,18 +127,27 @@ int model_camera_capture(uint8_t *in, uint32_t len)
 
 int model_camera_get_framesize(uint16_t *width, uint16_t *height)
 {
+    if (!width || !height) {
+        LISA_UI_LOGE("Invalid framesize output parameters");
+        return -2;
+    }
+
+    *width = 0;
+    *height = 0;
+
+#ifdef LISA_UI_PLATFORM_ARCS
     if (!model_camera_ctx.inited) {
         LISA_UI_LOGE("Camera model not initialized");
         return -1;
     }
 
-#ifdef LISA_UI_PLATFORM_ARCS
-    return service_camera_get_framesize(width, height);
-#else
-    if (width && height) {
+    int r = service_camera_get_framesize(width, height);
+    if (r != 0) {
         *width = 0;
         *height = 0;
     }
+    return r;
+#else
     return 0;
 #endif
 }

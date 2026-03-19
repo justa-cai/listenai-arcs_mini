@@ -6,6 +6,8 @@
 #include "app_datas.h"
 
 #include "tone.h"
+#include "app_tone.h"
+#include "lisa_time.h"
 #include "player_mgr.h"
 #include "lisa_player.h"
 #include "service_alarm.h"
@@ -15,6 +17,75 @@
 #include "lisa_log.h"
 
 static bool s_disconnect_tone_played = false;
+static bool s_content_hold_for_tts = false;
+
+static char *voice_player_get_wakeup_tone_url(void)
+{
+    static bool s_wakeup_tone_inited = false;
+    static uint16_t s_wakeup_tone_ids[5] = {0};
+    static uint8_t s_wakeup_tone_cnt = 0;
+    static bool s_last_wakeup_tone_valid = false;
+    static uint16_t s_last_wakeup_tone_id = TONE_ID_0;
+
+    
+    if (!s_wakeup_tone_inited) {
+        for (uint16_t tone_id = TONE_ID_0; tone_id <= TONE_ID_4; tone_id++) {
+            if (app_tone_get_url(tone_id) != NULL) {
+                s_wakeup_tone_ids[s_wakeup_tone_cnt++] = tone_id;
+            }
+        }
+
+        if (s_wakeup_tone_cnt == 0) {
+            s_wakeup_tone_ids[s_wakeup_tone_cnt++] = TONE_ID_0;
+        }
+
+        s_wakeup_tone_inited = true;
+        LOGI("wakeup tone candidates count: %u", (unsigned int)s_wakeup_tone_cnt);
+    }
+
+    uint16_t tone_id = s_wakeup_tone_ids[0];
+    if (s_wakeup_tone_cnt > 1) {
+        do {
+            tone_id = s_wakeup_tone_ids[lisa_rand32() % s_wakeup_tone_cnt];
+        } while (s_last_wakeup_tone_valid && tone_id == s_last_wakeup_tone_id);
+    }
+
+    char *tone_url = app_tone_get_url(tone_id);
+    if (tone_url == NULL) {
+        tone_id = TONE_ID_0;
+        tone_url = app_tone_get_url(tone_id);
+    }
+
+    if (tone_url != NULL) {
+        s_last_wakeup_tone_id = tone_id;
+        s_last_wakeup_tone_valid = true;
+    }
+
+    return tone_url;
+}
+
+static void voice_player_play_wakeup_tone(void)
+{
+    char *tone_url = voice_player_get_wakeup_tone_url();
+    if (tone_url == NULL) {
+        LOGE("wakeup tone url is null");
+        return;
+    }
+
+    player_mgr_play(AIP, tone_url, 0);
+}
+
+static void hold_content_until_tts_playing(void)
+{
+    if (!s_content_hold_for_tts) {
+        return;
+    }
+
+    if (!player_mgr_is_playing(TTS) && player_mgr_is_playing(CONTENT)) {
+        LOGI("re-pause content while waiting tts start");
+        player_mgr_pause_temporary(CONTENT);
+    }
+}
 
 void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
@@ -36,7 +107,7 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
         }
 
         if (app_datas->voice_cloud_connected == 1) {
-            player_mgr_play(AIP, app_tone_get_url(TONE_ID_0), 0);
+            voice_player_play_wakeup_tone();
         } else if (!app_datas->wifi_connected) {
             player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_64), 0);
         } else if (app_datas->auth_failed) {
@@ -55,7 +126,7 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
         }
 
         if (app_datas->voice_cloud_connected == 1) {
-            player_mgr_play(AIP, app_tone_get_url(TONE_ID_0), 0);
+            voice_player_play_wakeup_tone();
         } else if (!app_datas->wifi_connected) {
             player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_64), 0);
         } else if (app_datas->auth_failed) {
@@ -95,10 +166,40 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
     case VOICE_MSG_CLOUD_TTS_URL: {
         if (data == NULL) {
             LOGE("Invalid data");
-        } else {
-            LOGI("Ready to play tts url: %s", (char *)data);
-            player_mgr_play(TTS, (char *)data, 0);
+            break;
         }
+        
+
+        LOGI("Ready to play tts url: %s", (char *)data);
+        player_mgr_play(TTS, (char *)data, 0);
+
+    } break;
+    case VOICE_MSG_CLOUD_IAT_UPDATE: {
+        if (data == NULL || len == 0 || ((char *)data)[0] == '\0') {
+            break;
+        }
+
+        bool tts_playing = player_mgr_is_playing(TTS);
+        bool content_playing = player_mgr_is_playing(CONTENT);
+        if (!tts_playing && !content_playing) {
+            break;
+        }
+
+        s_content_hold_for_tts = true;
+
+        if (tts_playing) {
+            LOGI("stop tts due to valid iat update");
+            player_mgr_stop(TTS);
+        }
+
+        if (content_playing) {
+            LOGI("pause content due to valid iat update");
+            if (player_mgr_pause_temporary(CONTENT) == 0) {
+            }
+        }
+    } break;
+    case VOICE_MSG_CLOUD_SESSION_FINISHED: {
+        s_content_hold_for_tts = false;
     } break;
     default:
         break;
@@ -162,6 +263,7 @@ static void on_tts_play_status(int player_id, uint16_t status, void *arg)
     LOGI("player id: %d, status: %d", player_id, status);
 
     if (status == PLAYER_EVT_PLAYING) {
+        s_content_hold_for_tts = false;
         voice_msg_pub(VOICE_MSG_PLAYER_TTS_PLAYING, NULL, 0);
     } else if (status == PLAYER_EVT_PAUSED) {
         voice_msg_pub(VOICE_MSG_PLAYER_TTS_PAUSED, NULL, 0);
@@ -172,6 +274,17 @@ static void on_tts_play_status(int player_id, uint16_t status, void *arg)
         }
     } else if (status == PLAYER_EVT_STOPED || status == PLAYER_EVT_ERROR) {
         voice_msg_pub(VOICE_MSG_PLAYER_TTS_STOPED, NULL, 0);
+    }
+}
+
+static void on_content_focus_status(int player_id, focus_state_e state, int by_which, void *arg)
+{
+    (void)player_id;
+    (void)by_which;
+    (void)arg;
+
+    if (state == FOREGROUND) {
+        hold_content_until_tts_playing();
     }
 }
 
@@ -214,6 +327,7 @@ static void voice_alarm_ring_force_stop(void)
 static void voice_player_mcp_chat_exit(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     LOGI("voice_player_mcp_chat_exit, stop content player");
+    s_content_hold_for_tts = false;
     audio_player_stop_by_user();
 }
 
@@ -228,6 +342,8 @@ void voice_player_ready(void *unused, uint32_t msg_id, void *data, uint32_t len,
     voice_msg_sub(VOICE_MSG_WIFI_DISCONNECTED, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_WIFI_CONNECTED, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_URL, voice_player_play_msg, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_IAT_UPDATE, voice_player_play_msg, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_SESSION_FINISHED, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_AUDIO_ITEM, voice_player_audio_item, NULL);
 
     voice_msg_sub(VOICE_MSG_PLAY_CONTROL_PLAY, voice_player_play_control, NULL);
@@ -240,6 +356,7 @@ void voice_player_ready(void *unused, uint32_t msg_id, void *data, uint32_t len,
     alarm_ring_init(voice_alarm_ring_play_once, voice_alarm_ring_force_stop);
     player_mgr_register_status_cb(TTS, on_tts_play_status, NULL);
     player_mgr_register_status_cb(LOCAL, on_local_play_status, NULL);
+    player_mgr_register_focus_cb(CONTENT, on_content_focus_status, NULL);
 }
 
 static int voice_player_init(void)

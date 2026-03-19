@@ -12,6 +12,8 @@
 #include "lisa_flash.h"
 #include "arcs_ap_base.h"
 
+#include "cache.h"
+
 #include "ota_flash.h"
 #include "ota_api.h"
 
@@ -27,12 +29,17 @@ static const ota_partition_t partition_map[] = {
     [OTA_PART_WAKE_WORD_BIN] =
         {
             .addr = 0x00200000,
-            .size = SIZE_M(2),
+            .size = SIZE_K(1536),
         },
     [OTA_PART_PROMPT_TONE_BIN] =
         {
             .addr = 0x00100000,
             .size = SIZE_M(1),
+        },
+    [OTA_PART_EMOJI_BIN] =
+        {
+            .addr = 0x00380000,
+            .size = SIZE_K(768),
         },
 };
 
@@ -46,6 +53,7 @@ int ota_flash_verify(ota_partition_id_e part, const char *md5, uint32_t size)
         return -1;
     }
 
+    HAL_InvalidateDCache_by_Addr((uint32_t *)(CMN_FLASH_REGION + partition->addr), size);
     mbedtls_md5((const uint8_t *)(CMN_FLASH_REGION + partition->addr), size, calc_md5);
     LISA_LOGI(TAG, "Partition %d MD5 actual: " MD5_PRI, part, MD5_ARG(calc_md5));
     LISA_LOGI(TAG, "Partition %d MD5 expect: " MD5_PRI, part, MD5_ARG(md5));
