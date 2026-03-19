@@ -221,8 +221,12 @@ static int update_event(view_event_e event)
         case VIEW_EVENT_AUDIO_RECORD_START:
             _userdata->inter.local_state = LISAUI_USERDATA_INTER_LOCAL_STATE_RECOGNITION;
             _userdata->inter.remote_state = LISAUI_USERDATA_INTER_REMOTE_STATE_LISTENING;
+            /* 清空上次对话的识别文字和回复文字 */
             if (_userdata->inter.iat_text != NULL) {
                 _userdata->inter.iat_text[0] = '\0';
+            }
+            if (_userdata->inter.reply_text != NULL) {
+                _userdata->inter.reply_text[0] = '\0';
             }
             is_inter_state_update = true;
             is_image_hide = true;
