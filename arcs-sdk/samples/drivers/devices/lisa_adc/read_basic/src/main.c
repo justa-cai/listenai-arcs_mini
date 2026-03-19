@@ -22,12 +22,17 @@
 #include "lisa_device.h"
 #include "lisa_adc.h"
 #include "IOMuxManager.h"
+#include "pinmux.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+#define ADC_CHANNEL    3       // BAT_ADC_PIN -> Channel 3
+#else // !CONFIG_BOARD_ARCS_MINI
 #define ADC_CHANNEL    2
 #define ADC_PIN        4       // GPIOB_04 -> Channel 2
+#endif // CONFIG_BOARD_ARCS_MINI
 #define ADC_DEVICE     "adc0"
 
 /*

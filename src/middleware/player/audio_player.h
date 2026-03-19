@@ -74,6 +74,11 @@ void listen_audioplayer_resume(audioplayer_t *handle);
 void listen_audioplayer_pause(audioplayer_t *handle);
 
 /**
+ * @brief 临时暂停播放（用于被其他通道临时打断，允许后续自动恢复）
+ */
+void listen_audioplayer_pause_temp(audioplayer_t *handle);
+
+/**
  * @brief 获取播放状态
  */
 PlayerEvt listen_audioplayer_get_state(audioplayer_t *handle);

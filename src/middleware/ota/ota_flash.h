@@ -6,6 +6,7 @@
 typedef enum {
     OTA_PART_WAKE_WORD_BIN,
     OTA_PART_PROMPT_TONE_BIN,
+    OTA_PART_EMOJI_BIN,
 } ota_partition_id_e;
 
 int ota_flash_verify(ota_partition_id_e part, const char *md5, uint32_t size);

@@ -33,8 +33,16 @@
 #include "task.h"
 
 #define I2C_DEVICE       "i2c0"
+#ifdef CONFIG_BOARD_ARCS_MINI
+/* ARCS_MINI I2C0: PB6=SDA, PB7=SCL, 已在 pinmux.c 中配置 */
+#define IIC0_GPIO_SCL    7
+#define IIC0_GPIO_SDA    6
+#define IIC0_PAD_NAME    "PB"
+#else
 #define IIC0_GPIO_SCL    23
 #define IIC0_GPIO_SDA    22
+#define IIC0_PAD_NAME    "PA"
+#endif
 
 /* 示例设备地址（用于演示，实际使用时需根据设备手册修改） */
 #define DEVICE_ADDR      0x50
@@ -149,7 +157,7 @@ int main(int argc, char **argv)
     LISA_LOGI(LOG_TAG, "=== LISA I2C basic write/read example ===");
 
     /* I2C0 引脚复用配置已由驱动初始化时自动完成（调用示例中重写的 lisa_i2c0_pinmux） */
-    LISA_LOGI(LOG_TAG, "I2C0 SDA@PA%02d / SCL@PA%02d configured", IIC0_GPIO_SDA, IIC0_GPIO_SCL);
+    LISA_LOGI(LOG_TAG, "I2C0 SDA@%s%02d / SCL@%s%02d configured", IIC0_PAD_NAME, IIC0_GPIO_SDA, IIC0_PAD_NAME, IIC0_GPIO_SCL);
 
     /* 获取 I2C 设备 */
     lisa_device_t *i2c_dev = lisa_device_get(I2C_DEVICE);

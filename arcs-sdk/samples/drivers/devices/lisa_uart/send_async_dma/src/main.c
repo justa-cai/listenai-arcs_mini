@@ -21,23 +21,33 @@
 #include "lisa_device.h"
 #include "lisa_uart.h"
 #include "IOMuxManager.h"
+#include "pinmux.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
 
 #define UART_DEVICE    "uart1"
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+/* ARCS_MINI 板型 UART1 引脚: PA9=TX, PA8=RX */
+#define UART1_TX_PAD   CSK_IOMUX_PAD_A
+#define UART1_TX_PIN   9
+#define UART1_RX_PAD   CSK_IOMUX_PAD_A
+#define UART1_RX_PIN   8
+#define UART1_FUNC     CSK_IOMUX_FUNC_ALTER3
+#else // !CONFIG_BOARD_ARCS_MINI
 /* UART1 引脚: PB2=TX, PB3=RX */
 #define UART1_TX_PAD   CSK_IOMUX_PAD_B
 #define UART1_TX_PIN   2
 #define UART1_RX_PAD   CSK_IOMUX_PAD_B
 #define UART1_RX_PIN   3
 #define UART1_FUNC     CSK_IOMUX_FUNC_ALTER3
+#endif // CONFIG_BOARD_ARCS_MINI
 
 /*
     为满足不同板型示例场景，重定向uart设备的pinmux配置
 */
-#ifdef CONFIG_BOARD_ARCS_EVB
+#if defined(CONFIG_BOARD_ARCS_EVB) || defined(CONFIG_BOARD_ARCS_MINI)
 void lisa_uart1_pinmux()
 {
     IOMuxManager_PinConfigure(UART1_TX_PAD, UART1_TX_PIN, UART1_FUNC);

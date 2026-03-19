@@ -31,6 +31,34 @@
 #include "audio_clip1.h"
 #include "sysheap.h"
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+#include "pinmux.h"
+#include "Driver_GPIO.h"
+
+/*
+ * PA (功放) 使能控制 - ARCS_MINI 使用 PA_EN_PIN (PA1)
+ */
+static void pa_init(void)
+{
+    void *gpioa = GPIOA();
+    uint32_t pin_mask = (1 << PA_EN_PIN);
+    GPIO_Initialize(gpioa, NULL, NULL);
+    GPIO_Control(gpioa, CSK_GPIO_DEBOUNCE_DISABLE, pin_mask);
+    GPIO_SetDir(gpioa, pin_mask, CSK_GPIO_DIR_OUTPUT);
+    GPIO_PinWrite(gpioa, pin_mask, 0);
+}
+
+static void pa_on(void)
+{
+    GPIO_PinWrite(GPIOA(), (1 << PA_EN_PIN), 1);
+}
+
+static void pa_off(void)
+{
+    GPIO_PinWrite(GPIOA(), (1 << PA_EN_PIN), 0);
+}
+#endif /* CONFIG_BOARD_ARCS_MINI */
+
 #define AUDIO_DEVICE_NAME    "audio0"
 
 /* 音频参数配置 */
@@ -45,8 +73,13 @@
 #define RECORD_DURATION_SEC 3
 
 /* Record 增益配置 */
+#ifdef CONFIG_BOARD_ARCS_MINI
+#define RECORD_ANALOG_GAIN     36      /* 36 dB */
+#define RECORD_DIGITAL_GAIN    0       /* 0 dB */
+#else
 #define RECORD_ANALOG_GAIN     16      /* 30 dB */
 #define RECORD_DIGITAL_GAIN    8       /* 0 dB */
+#endif
 
 /* Play 增益配置 */
 #define PLAY_ANALOG_GAIN     0       /* 6 dB */
@@ -198,12 +231,19 @@ static int playback_audio(lisa_device_t *play_dev)
         return ret;
     }
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+    pa_on();
+#endif
 
     lisa_audio_play_write(play_dev, audio_buffer, recorded_samples);
 
     LOGI("写入音频数据完成");
     /* 等待播放完成 */
     lisa_audio_play_flush(play_dev);
+
+#ifdef CONFIG_BOARD_ARCS_MINI
+    pa_off();
+#endif
 
     LOGI("播放完成");
     /* 停止播音 */
@@ -263,11 +303,19 @@ static int playback_echo(lisa_device_t *play_dev)
         return ret;
     }
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+    pa_on();
+#endif
+
     /* 写入 Echo 数据 */
     lisa_audio_play_write(play_dev, echo_buffer, echo_samples_collected);
 
     /* 等待播放完成 */
     lisa_audio_play_flush(play_dev);
+
+#ifdef CONFIG_BOARD_ARCS_MINI
+    pa_off();
+#endif
 
     /* 停止播音 */
     lisa_audio_play_stop(play_dev);
@@ -290,6 +338,10 @@ int main(int argc, char **argv)
         return -1;
     }
     LISA_LOGI(LOG_TAG, "Audio 设备获取成功");
+
+#ifdef CONFIG_BOARD_ARCS_MINI
+    pa_init();
+#endif
 
     /* 注册统一回调函数 */
     ret = lisa_audio_register_callback(audio_dev, unified_audio_callback, NULL);

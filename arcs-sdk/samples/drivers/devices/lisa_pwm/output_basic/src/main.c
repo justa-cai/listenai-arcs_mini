@@ -22,12 +22,17 @@
 #include "lisa_device.h"
 #include "lisa_pwm.h"
 #include "IOMuxManager.h"
+#include "pinmux.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
 #define PWM_CHANNEL    0
+#ifdef CONFIG_BOARD_ARCS_MINI
+#define PWM_PIN        LCD_PWM_PIN
+#else
 #define PWM_PIN        20
+#endif
 #define PWM_DEVICE     "pwm0"
 
 /*

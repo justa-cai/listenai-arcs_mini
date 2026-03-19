@@ -567,6 +567,8 @@ static char *session_build_start_frame(uint32_t rid, session_params_t *cfg, uint
 			cJSON_AddItemToObject(asr_properties, "svad", cJSON_CreateString("0"));
 		}
 
+		cJSON_AddStringToObject(asr_properties, "audio_gain", "6.0");
+
 		if (cfg->asr_params.oneshot) {
 			cJSON_AddItemToObject(asr_properties, "oneshot", cJSON_CreateString("1"));
 		}

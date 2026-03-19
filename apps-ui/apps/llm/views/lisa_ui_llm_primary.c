@@ -88,6 +88,11 @@ static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p,
 
     // 创建内容文本标签
     llm_primary->content_label = lv_textarea_create(llm_primary->content_container);
+
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    lv_obj_add_flag(bar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->content_container, LV_OBJ_FLAG_HIDDEN);
+#endif
 }
 
 // ===================== 公共API实现 =====================
@@ -127,7 +132,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     // 设置状态文本标签
     lv_obj_set_style_text_letter_space(llm_primary->status_label, 1, LV_PART_MAIN);
     lv_obj_set_style_text_color(llm_primary->status_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(llm_primary->status_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(llm_primary->status_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_align(llm_primary->status_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_line_space(llm_primary->status_label, 0, LV_PART_MAIN);
     lv_obj_align(llm_primary->status_label, LV_ALIGN_CENTER, 0, 0);
@@ -135,7 +140,11 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     // 设置emoji动画容器
     lv_obj_set_style_bg_opa(llm_primary->emoji_container, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(llm_primary->emoji_container, 0, LV_PART_MAIN);
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    lv_obj_set_size(llm_primary->emoji_container, LV_PCT(100), LV_PCT(100));
+#else
     lv_obj_set_size(llm_primary->emoji_container, LV_PCT(100), 104);
+#endif
     lv_obj_set_style_pad_all(llm_primary->emoji_container, 0, LV_PART_MAIN);
 #ifndef CONFIG_BOARD_ARCS_MINI
     lv_obj_set_style_pad_left(llm_primary->emoji_container, 55, LV_PART_MAIN); // 左边距50像素，表情右移30像素
@@ -162,7 +171,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
 
     lv_label_set_text(llm_primary->img_hint, "图片可在小聆AI小程序中查看");
     lv_obj_set_style_text_color(llm_primary->img_hint, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(llm_primary->img_hint, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(llm_primary->img_hint, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_align(llm_primary->img_hint, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_add_flag(llm_primary->img_hint, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(llm_primary->img_hint, LV_OBJ_FLAG_IGNORE_LAYOUT);
@@ -172,7 +181,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     // 设置内容文本容器
     lv_obj_set_style_bg_opa(llm_primary->content_container, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(llm_primary->content_container, 0, LV_PART_MAIN);
-    lv_obj_set_size(llm_primary->content_container, LV_PCT(100), 88);
+    lv_obj_set_size(llm_primary->content_container, LV_PCT(100), 85);
     lv_obj_set_style_pad_all(llm_primary->content_container, 10, LV_PART_MAIN);
     
     // 设置内容容器为居中对齐
@@ -184,7 +193,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     // 设置内容文本区域
     lv_textarea_set_text(llm_primary->content_label, "请唤醒我");
     lv_obj_set_style_text_color(llm_primary->content_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
-    lv_obj_set_style_text_font(llm_primary->content_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(llm_primary->content_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_align(llm_primary->content_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     
     // 隐藏边框和背景
@@ -203,7 +212,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_set_height(llm_primary->content_label, LV_PCT(100));
     
     // 调整文本样式
-    lv_obj_set_style_text_line_space(llm_primary->content_label, 6, LV_PART_MAIN);    // 行间距（行与行之间）
+    lv_obj_set_style_text_line_space(llm_primary->content_label, 0, LV_PART_MAIN);    // 使用字体自身line_height
     lv_obj_set_style_text_letter_space(llm_primary->content_label, 1, LV_PART_MAIN);  // 字符间距（字符与字符之间）
     lv_obj_set_style_pad_top(llm_primary->content_label, 20, LV_PART_MAIN);     // 上边距
     lv_obj_set_style_pad_bottom(llm_primary->content_label, 20, LV_PART_MAIN);  // 下边距
@@ -391,7 +400,9 @@ static void camera_img_anim_ready_cb(lv_anim_t *a)
     lv_obj_set_style_opa(llm_primary->img, LV_OPA_COVER, 0);  /* Reset opacity for next use */
 
     lv_obj_clear_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_HIDDEN);
+#ifndef CONFIG_BOARD_ARCS_MINI_DOLL_V2
     lv_obj_clear_flag(llm_primary->content_container, LV_OBJ_FLAG_HIDDEN);
+#endif
 }
 
 static void camera_img_hide_timer_cb(lv_timer_t *timer)
@@ -401,7 +412,9 @@ static void camera_img_hide_timer_cb(lv_timer_t *timer)
     lv_anim_t a;
     lv_obj_add_flag(llm_primary->img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_HIDDEN);
+#ifndef CONFIG_BOARD_ARCS_MINI_DOLL_V2
     lv_obj_clear_flag(llm_primary->content_container, LV_OBJ_FLAG_HIDDEN);
+#endif
     lv_timer_del(timer);
 }
 
@@ -413,7 +426,9 @@ void lisa_ui_llm_primary_img_hide(lv_obj_t *obj)
     lv_obj_add_flag(llm_primary->img_hint, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_clear_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_HIDDEN);
+#ifndef CONFIG_BOARD_ARCS_MINI_DOLL_V2
     lv_obj_clear_flag(llm_primary->content_container, LV_OBJ_FLAG_HIDDEN);
+#endif
 }
 
 void lisa_ui_llm_primary_img_show(lv_obj_t *obj, void *img)

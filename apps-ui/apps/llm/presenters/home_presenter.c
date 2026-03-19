@@ -1,7 +1,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
 
 #include "lisa_ui.h"
 #include "lisa_ui_nav_scr.h"
@@ -37,6 +36,7 @@ struct home_nav_scr_data {
     lv_img_dsc_t img;
     lv_img_dsc_t *net_img;
     uint8_t *cap_buf;
+    uint32_t cap_buf_size;
     uint8_t img_rec_running;
     uint8_t img_rec_in_progress;
     uint8_t img_rec_triggered;
@@ -372,9 +372,20 @@ static void model_voice_on_standby_texts_changed(void *arg)
 
 static void camera_capture_timer_callback(lv_timer_t *timer)
 {
+    if (!timer || !timer->user_data) {
+        return;
+    }
+
     struct home_nav_scr_data *d = timer->user_data;
-    uint16_t width;
-    uint16_t height;
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint32_t image_size = 0;
+    int ret = 0;
+
+    if (!d->view) {
+        lv_timer_pause(timer);
+        return;
+    }
 
     /* 如果识别已触发，停止预览拍照 */
     if (!d->img_rec_running) {
@@ -386,20 +397,53 @@ static void camera_capture_timer_callback(lv_timer_t *timer)
     d->img.header.always_zero = 0;
     d->img.header.reserved = 0;
 
-    model_camera_get_framesize(&width, &height);
-
-    if (d->cap_buf == NULL) {
-        d->cap_buf = lisa_ui_malloc(width * height * 2);
-        assert(d->cap_buf);
+    ret = model_camera_get_framesize(&width, &height);
+    if (ret != 0 || width == 0 || height == 0) {
+        LISA_UI_LOGE("Get camera frame size failed: ret=%d, w=%u, h=%u", ret, width, height);
+        d->img_rec_running = false;
+        d->img_rec_triggered = false;
+        lv_timer_pause(timer);
+        return;
     }
 
-    int r = model_camera_capture(d->cap_buf, width * height * 2);
-    if (r) {
+    image_size = (uint32_t)width * (uint32_t)height * 2U;
+    if (image_size == 0) {
+        LISA_UI_LOGE("Invalid image size, w=%u, h=%u", width, height);
+        d->img_rec_running = false;
+        d->img_rec_triggered = false;
+        lv_timer_pause(timer);
+        return;
+    }
+
+    if (d->cap_buf == NULL || d->cap_buf_size < image_size) {
+        if (d->cap_buf != NULL) {
+            lisa_ui_free(d->cap_buf);
+            d->cap_buf = NULL;
+            d->cap_buf_size = 0;
+        }
+
+        d->cap_buf = lisa_ui_malloc(image_size);
+        if (!d->cap_buf) {
+            LISA_UI_LOGE("Failed to alloc capture buffer: %u", image_size);
+            d->img_rec_running = false;
+            d->img_rec_triggered = false;
+            lv_timer_pause(timer);
+            return;
+        }
+        d->cap_buf_size = image_size;
+    }
+
+    ret = model_camera_capture(d->cap_buf, image_size);
+    if (ret != 0) {
+        LISA_UI_LOGE("Camera capture failed: %d", ret);
+        d->img_rec_running = false;
+        d->img_rec_triggered = false;
+        lv_timer_pause(timer);
         return;
     }
 
     d->img.data = d->cap_buf;
-    d->img.data_size = width * height * 2;
+    d->img.data_size = image_size;
     d->img.header.w = width;
     d->img.header.h = height;
 
@@ -439,6 +483,13 @@ static void hide_img_now(struct home_nav_scr_data *scr_data)
 static void model_voice_on_image_preview(void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
+    uint16_t width = 0;
+    uint16_t height = 0;
+    int ret = 0;
+
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
 
     if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
         return;
@@ -458,6 +509,22 @@ static void model_voice_on_image_preview(void *arg)
 
     if (!model_voice_cloud_is_connected()) {
         lisa_ui_toast_show(_("service disconnected"));
+        return;
+    }
+
+    if (!model_camera_is_inited()) {
+        ret = model_camera_init();
+        if (ret != 0) {
+            LISA_UI_LOGE("Camera init failed: %d", ret);
+            lisa_ui_toast_show(_("recognition error"));
+            return;
+        }
+    }
+
+    ret = model_camera_get_framesize(&width, &height);
+    if (ret != 0 || width == 0 || height == 0) {
+        LISA_UI_LOGE("Camera unavailable for preview: ret=%d, w=%u, h=%u", ret, width, height);
+        lisa_ui_toast_show(_("recognition error"));
         return;
     }
 
@@ -561,7 +628,7 @@ static void anim_timer_callback(lv_timer_t *timer)
     struct home_nav_scr_data *d = timer->user_data;
     lv_timer_pause(timer);
 
-    show_emoji_anim(d, "wakeup", 0);
+    show_emoji_anim(d, EMOJI_NAME_WAKEUP, 0);
 
     d->mcp_emoji_running = false;
 }
@@ -584,11 +651,11 @@ static void wifi_status_timer_callback(lv_timer_t *timer)
 static void model_voice_on_image_rec(void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
-    uint16_t width;
-    uint16_t height;
-    uint16_t image_width;
-    uint16_t image_height;
-    uint32_t image_size;
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint16_t image_width = 0;
+    uint16_t image_height = 0;
+    uint32_t image_size = 0;
 
     if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
         LISA_UI_LOGI("on image recv, skip");
@@ -643,7 +710,22 @@ static void model_voice_on_image_rec(void *arg)
         return;
     }
 
-    model_camera_get_framesize(&width, &height);
+    int frame_ret = model_camera_get_framesize(&width, &height);
+    if (frame_ret != 0 || width == 0 || height == 0) {
+        LISA_UI_LOGE("Get frame size failed before recognition: ret=%d, w=%u, h=%u", frame_ret, width, height);
+        lisa_ui_toast_show(_("recognition error"));
+        hide_img_now(scr_data);
+        return;
+    }
+
+    image_size = (uint32_t)width * (uint32_t)height * 2U;
+    if (image_size == 0 || scr_data->cap_buf_size < image_size) {
+        LISA_UI_LOGE("Invalid image buffer size: cap=%u, need=%u", scr_data->cap_buf_size, image_size);
+        lisa_ui_toast_show(_("recognition error"));
+        hide_img_now(scr_data);
+        return;
+    }
+
     image_width = width;
     image_height = height;
 
@@ -654,7 +736,7 @@ static void model_voice_on_image_rec(void *arg)
     } else {
         LISA_UI_LOGW("Rotate captured image failed: %d", rotate_ret);
     }
-    image_size = (uint32_t)image_width * (uint32_t)image_height * 2;
+    image_size = (uint32_t)image_width * (uint32_t)image_height * 2U;
     
     /* Ensure the captured image is displayed before recognition */
     scr_data->img.header.cf = LV_IMG_CF_TRUE_COLOR;
@@ -719,7 +801,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
 
         if (!scr_data->finished) {
             lv_timer_pause(scr_data->anim_timer);
-            show_emoji_anim(scr_data, "blink", 0);
+            show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
             lisa_ui_llm_primary_set_content_text(scr_data->view, model_voice_role_propmt_get());
             scr_data->finished = 1;
         }
@@ -735,7 +817,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
     if (scr_data->work_type == WORK_TYPE_IMG_REC) {
         /* Hide image after TTS playback completes (both single and full duplex mode) */
         hide_img_now(scr_data);
-        show_emoji_anim(scr_data, "blink", 0);
+        show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
 
         /* In full duplex mode, set status to listening if session is still running */
         if (model_voice_cloud_is_running()) {
@@ -751,7 +833,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
         } else {
             if (!scr_data->finished) {
                 lv_timer_pause(scr_data->anim_timer);
-                show_emoji_anim(scr_data, "blink", 0);
+                show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
                 lisa_ui_llm_primary_set_content_text(scr_data->view, model_voice_role_propmt_get());
                 scr_data->finished = 1;
             }
@@ -812,7 +894,7 @@ static void model_voice_on_mcp_loading(void *arg, bool is_loading, const char *l
         scr_data->mcp_emoji_running = 1;
 
         lv_timer_pause(scr_data->anim_timer);
-        show_emoji_anim(scr_data, "wait", 1);
+        show_emoji_anim(scr_data, EMOJI_NAME_WAIT, 1);
 
         if (loading_text && loading_text[0] != '\0') {
             lisa_ui_llm_primary_set_content_text(scr_data->view, loading_text);
@@ -847,7 +929,7 @@ static void model_voice_on_disconnected(void *arg)
 
     lv_timer_pause(scr_data->anim_timer);
 
-    show_emoji_anim(scr_data, "blink", 0);
+    show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
 
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("service disconnected"));
 
@@ -859,7 +941,7 @@ static void model_voice_on_start(void *arg)
     struct home_nav_scr_data *scr_data = arg;
 
     lisa_ui_llm_primary_img_hide(scr_data->view);
-    show_emoji_anim(scr_data, "wakeup", 1);
+    show_emoji_anim(scr_data, EMOJI_NAME_WAKEUP, 1);
 
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
 
@@ -890,7 +972,7 @@ static void enter_standby(struct home_nav_scr_data *scr_data)
 
     lisa_ui_llm_primary_set_content_text(scr_data->view, model_voice_role_propmt_get());
     lv_timer_pause(scr_data->anim_timer);
-    show_emoji_anim(scr_data, "blink", 0);
+    show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("Please wake me"));
     standby_text_timer_update(scr_data);
 }
@@ -917,7 +999,7 @@ static void model_voice_on_finished(void *arg)
 
     if (mode) {
         lv_timer_pause(scr_data->anim_timer);
-        show_emoji_anim(scr_data, "blink", 0);
+        show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
     }
 
     if (scr_data->speaking) {
@@ -1066,7 +1148,7 @@ static void home_reset(struct home_nav_scr_data *scr_data)
     home_update_full_duplex_icon(scr_data);
     home_update_alarm_icon(scr_data);
     home_update_battery_icon(scr_data);
-    show_emoji_anim(scr_data, "blink", true);
+    show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, true);
     lv_timer_pause(scr_data->anim_timer);
 
     standby_text_timer_update(scr_data);
@@ -1078,7 +1160,10 @@ static int home_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
 
     model_voice_init();
     #if !CONFIG_4G_MODULE
-    model_camera_init();
+    int cam_init_ret = model_camera_init();
+    if (cam_init_ret != 0) {
+        LISA_UI_LOGW("Camera init failed on home open: %d", cam_init_ret);
+    }
     #endif
     model_wifi_init();
 
@@ -1208,6 +1293,7 @@ static int home_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *data)
         if (scr_data->cap_buf != NULL) {
             lisa_ui_free(scr_data->cap_buf);
             scr_data->cap_buf = NULL;
+            scr_data->cap_buf_size = 0;
         }
         if (scr_data->net_img != NULL) {
             // lv_img_net_free(scr_data->net_img);

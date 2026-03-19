@@ -120,7 +120,7 @@ static void lisa_ui_setting_wifi_view_class_constructor(const lv_obj_class_t *cl
     // 标题文本
     lv_obj_t *title = lv_label_create(header);
     lv_label_set_text(title, _("wifi setting"));
-    lv_obj_set_style_text_font(title, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
     lv_obj_align(title, LV_ALIGN_LEFT_MID, 50, 0);
 
@@ -138,7 +138,7 @@ static void lisa_ui_setting_wifi_view_class_constructor(const lv_obj_class_t *cl
     // // WiFi 标签
     // lv_obj_t *wifi_label = lv_label_create(switch_container);
     // lv_label_set_text(wifi_label, _("AutoScan"));
-    // lv_obj_set_style_text_font(wifi_label, &lv_font_chinese_18, LV_PART_MAIN);
+    // lv_obj_set_style_text_font(wifi_label, &lv_font_chinese_16, LV_PART_MAIN);
     // lv_obj_set_style_text_color(wifi_label, lv_color_white(), LV_PART_MAIN);
     // lv_obj_align(wifi_label, LV_ALIGN_LEFT_MID, 0, 0);
 
@@ -164,7 +164,7 @@ static void lisa_ui_setting_wifi_view_class_constructor(const lv_obj_class_t *cl
     // 提示信息标签（默认隐藏）
     view->info_label = lv_label_create(container);
     lv_label_set_text(view->info_label, _("scaning"));
-    lv_obj_set_style_text_font(view->info_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(view->info_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(view->info_label, lv_color_hex(0x888888), LV_PART_MAIN);
     lv_obj_align(view->info_label, LV_ALIGN_CENTER, 0, 20);
     lv_obj_add_flag(view->info_label, LV_OBJ_FLAG_HIDDEN);
@@ -283,7 +283,7 @@ static lv_obj_t *create_wifi_item(lisa_ui_setting_wifi_view_t *view, const lisa_
     /* SSID 标签 - 统一左边距，保持对齐 */
     lv_obj_t *ssid_label = lv_label_create(item);
     lv_label_set_text(ssid_label, ap_info->ssid);
-    lv_obj_set_style_text_font(ssid_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(ssid_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(ssid_label, lv_color_white(), LV_PART_MAIN);
     lv_label_set_long_mode(ssid_label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_width(ssid_label, 125);
@@ -305,7 +305,7 @@ static lv_obj_t *create_wifi_item(lisa_ui_setting_wifi_view_t *view, const lisa_
 
     snprintf(signal_buf, sizeof(signal_buf), "%ddBm", ap_info->rssi);
     lv_label_set_text(signal_label, signal_buf);
-    lv_obj_set_style_text_font(signal_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(signal_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(signal_label, signal_color, LV_PART_MAIN);
     lv_obj_align(signal_label, LV_ALIGN_RIGHT_MID, 0, 0);
 

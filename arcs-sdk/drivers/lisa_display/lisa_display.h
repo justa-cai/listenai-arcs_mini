@@ -227,6 +227,11 @@ typedef struct {
     lisa_display_cmd_bus_type_t cmd_bus_type;      /* 命令总线类型 */
     lisa_display_cmd_bus_config_u cmd_bus_config;  /* 命令总线配置 */
 
+#ifdef CONFIG_LISA_DISPLAY_COMPOSITE
+    void (*composite_activate)(int disp_idx);       /* 复合显示激活回调 */
+    void (*composite_deactivate)(int disp_idx);     /* 复合显示取消回调 */
+#endif
+
     lisa_device_t *rst_gpio;                        /* 复位信号的GPIO设备（可选）*/
     uint32_t rst_pin;                               /* 复位引脚号 */
     lisa_device_t *te_gpio;                         /* TE信号的GPIO设备（可选）*/

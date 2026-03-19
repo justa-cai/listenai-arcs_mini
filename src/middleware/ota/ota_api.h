@@ -9,7 +9,7 @@
         md5[13], md5[14], md5[15]
 
 #define OTA_RES_MD5_LEN 16
-#define OTA_RES_URL_LEN 256
+#define OTA_RES_URL_LEN 512
 
 typedef struct {
     uint32_t size;
@@ -24,6 +24,7 @@ typedef struct {
     } wakeup_word;
     ota_res_info_t greeting;
     ota_res_info_t prompt_tone;
+    ota_res_info_t emoji;
 } ota_dev_conf_t;
 
 int ota_api_get_dev_conf(ota_dev_conf_t *conf);

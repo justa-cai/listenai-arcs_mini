@@ -10,6 +10,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+#include "pinmux.h"
+#endif
+
 #define GPADC_VIN0_PIN_NUM      2       // GPIOB_02
 #define GPADC_VIN1_PIN_NUM      3       // GPIOB_03
 #define GPADC_VIN2_PIN_NUM      4       // GPIOB_04
@@ -19,7 +23,17 @@
 
 static void gpadc_test(void)
 {
-    
+#ifdef CONFIG_BOARD_ARCS_MINI
+    /* ARCS_MINI: 使用 BAT_ADC_PIN (PB5) = VIN3 + VBAT 内部通道 */
+    AON_IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, GPADC_VIN3_PIN_NUM, CSK_AON_IOMUX_FUNC_ALTER3);
+    IP_AON_IOMUX->REG_PAD_AON_GPIOB_05.bit.PAD_AON_GPIOB_05_ANA_SEL = CSK_ANA_IOMUX_FUNC_DEFAULT;
+
+    HAL_GPADC_Initialize(GPADC());
+
+    HAL_GPADC_Control(GPADC(), CSK_GPADC_CHANNEL_SEL_3 |
+                                CSK_GPADC_CHANNEL_SEL_VBAT |
+                                CSK_GPADC_DMA_ENABLE(0));
+#else
     /* 配置PB4、PB6、PB7作为GPADC的输入引脚，具体AONMUX列表和ANAMUX列表见芯片手册的APPENDIX章节 */
     /* AON_MUX设置PB4为ANA引脚 */
     AON_IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, GPADC_VIN2_PIN_NUM, CSK_AON_IOMUX_FUNC_ALTER3);
@@ -43,6 +57,7 @@ static void gpadc_test(void)
                                 CSK_GPADC_CHANNEL_SEL_5 | 
                                 CSK_GPADC_CHANNEL_SEL_VBAT | 
                                 CSK_GPADC_DMA_ENABLE(0));
+#endif
 
     /*
      * ref=0，表示参考电压为Vbg, 1.2V
@@ -65,7 +80,11 @@ static void gpadc_test(void)
 		HAL_GPADC_PollForConversion(GPADC(), 0);
 
         /* 获取GPADC采样结果 */
-
+#ifdef CONFIG_BOARD_ARCS_MINI
+        /* 获取VIN3(PB5/BAT_ADC)的采样结果 */
+		adc_value = HAL_GPADC_GetValue(GPADC(),CSK_GPADC_CHANNEL_SEL_3);
+		printf("VIN3(BAT_ADC) adc value 0x%lx/%dmV\n", adc_value, (uint16_t)(adc_value*1000.0/1024*1.2*3));
+#else
         /* 获取VIN2的采样结果 */
 		adc_value = HAL_GPADC_GetValue(GPADC(),CSK_GPADC_CHANNEL_SEL_2);
 		printf("channel type id %d, adc value 0x%lx/%dmV\n", CSK_GPADC_CHANNEL2, adc_value, (uint16_t)(adc_value*1000.0/1024*1.2*3));
@@ -77,10 +96,11 @@ static void gpadc_test(void)
         /* 获取VIN5的采样结果 */
 		adc_value = HAL_GPADC_GetValue(GPADC(),CSK_GPADC_CHANNEL_SEL_5);
 		printf("channel type id %d, adc value 0x%lx/%dmV\n", CSK_GPADC_CHANNEL5, adc_value, (uint16_t)(adc_value*1000.0/1024*1.2*3));
+#endif
 
         /* 获取芯片内部电压的采样结果 */
         adc_value = HAL_GPADC_GetValue(GPADC(),CSK_GPADC_CHANNEL_SEL_VBAT);
-		printf("channel type id %d, adc value 0x%lx/%dmV\n", CSK_GPADC_VBAT, adc_value, (uint16_t)(adc_value*1000.0/1024*1.2*3));
+		printf("VBAT adc value 0x%lx/%dmV\n", adc_value, (uint16_t)(adc_value*1000.0/1024*1.2*3));
 
         vTaskDelay(pdMS_TO_TICKS(1000));
     }

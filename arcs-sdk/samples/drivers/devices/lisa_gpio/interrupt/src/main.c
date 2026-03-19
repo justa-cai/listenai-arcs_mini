@@ -18,12 +18,19 @@
 #include "lisa_gpio.h"
 #include "IOMuxManager.h"
 #include "Driver_GPIO.h"
+#include "pinmux.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
+
+#ifdef CONFIG_BOARD_ARCS_MINI
+#define GPIO_DEVICE "gpiob"
+#define GPIO_PIN  POWER_KEY_PIN
+#else // !CONFIG_BOARD_ARCS_MINI
 #define GPIO_DEVICE "gpioa"
 #define GPIO_PIN  23
+#endif // CONFIG_BOARD_ARCS_MINI
 
 /*
     为满足不同板型示例场景，重定向gpioa设备的pinmux配置

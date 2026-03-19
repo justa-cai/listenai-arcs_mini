@@ -134,7 +134,7 @@ static uint32_t get_frame_delay(lisa_ui_anim_t *anim, uint16_t frame_idx)
 static void update_frame(lisa_ui_anim_t *anim)
 {
     if (anim->current_frame < anim->frame_count && anim->frames != NULL) {
-        lv_img_set_src(&anim->img.obj, anim->frames[anim->current_frame]);
+        lv_img_set_src(&anim->img.obj, &anim->frames[anim->current_frame]);
         LISA_UI_LOGD("Frame %u/%u displayed", anim->current_frame + 1, anim->frame_count);
     }
 }
@@ -197,7 +197,7 @@ int lisa_ui_anim_set_config(lv_obj_t *obj, const lisa_ui_anim_config_t *config)
     return 0;
 }
 
-int lisa_ui_anim_set_frames(lv_obj_t *obj, const void **frames, uint16_t frame_count, uint32_t delay_ms, int loop)
+int lisa_ui_anim_set_frames(lv_obj_t *obj, const lv_img_dsc_t *frames, uint16_t frame_count, uint32_t delay_ms, int loop)
 {
     lisa_ui_anim_config_t config = {
         .frames = frames, .delays = NULL, .frame_count = frame_count, .default_delay = delay_ms, .loop = loop};

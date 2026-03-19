@@ -42,6 +42,9 @@ void lisa_spi1_pinmux()
     IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, LCD_SPI_DATA_PIN, CSK_IOMUX_FUNC_ALTER6);
 }
 
+#elif CONFIG_BOARD_ARCS_MINI
+/* ARCS_MINI: LCD 引脚宏（LCD_CS_PIN、LCD_CD_PIN、LCD_RST_PIN 等）来自 pinmux.h，
+ * SPI0/GPIOA/GPIOB/PWM pinmux 均已在 pinmux.c 中配置 */
 #endif
 
 enum color {
@@ -68,17 +71,34 @@ int main(int argc, char **argv)
         .bus_type = LISA_DISPLAY_BUS_SPI_4WIRE,
         .bus_config = {.spi_4wire =
                            {
+#ifdef CONFIG_BOARD_ARCS_MINI
+                               .spi_dev = lisa_device_get("spi0"),
+                               .cs_gpio = gpioa_dev,
+                               .cs_pin = LCD_CS_PIN,
+                               .dc_gpio = gpioa_dev,
+                               .dc_pin = LCD_CD_PIN,
+#else
                                .spi_dev = lisa_device_get("spi1"),
                                .cs_gpio = gpiob_dev,
                                .cs_pin = LCD_CS_PIN,
                                .dc_gpio = gpiob_dev,
                                .dc_pin = LCD_CD_PIN,
+#endif
                                .spi_freq = 50 * 1000 * 1000,
 
                            }},
-        .backlight = {.type = LISA_DISPLAY_BACKLIGHT_TYPE_PWM, .blacklight_polarity = LISA_DISPLAY_BLACKLIGHT_POLARITY_LOW,
+        .backlight = {.type = LISA_DISPLAY_BACKLIGHT_TYPE_PWM,
+#ifdef CONFIG_BOARD_ARCS_MINI
+                      .config.pwm = {.channel = 1, .dev = lisa_device_get("pwm0"), .freq = 2000}},
+#else
+                      .blacklight_polarity = LISA_DISPLAY_BLACKLIGHT_POLARITY_LOW,
                       .config.pwm = {.channel = 0, .dev = lisa_device_get("pwm0"), .freq = 2000}},
+#endif
+#ifdef CONFIG_BOARD_ARCS_MINI
+        .rst_gpio = gpiob_dev,
+#else
         .rst_gpio = gpioa_dev,
+#endif
         .rst_pin = LCD_RST_PIN,
         // .te_gpio = gpiob_dev,
         // .te_pin  = LCD_TE_PIN

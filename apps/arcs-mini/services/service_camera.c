@@ -40,6 +40,19 @@ static struct camera_context cam_ctx = {
     .height = 0,
 };
 
+static void service_camera_context_reset(void)
+{
+    cam_ctx.inited = 0;
+    cam_ctx.camera_dev = NULL;
+    cam_ctx.i2c_dev = NULL;
+    cam_ctx.dvp_dev = NULL;
+    cam_ctx.gpioa = NULL;
+    cam_ctx.gpiob = NULL;
+    cam_ctx.pixel_format = LISA_CAMERA_PIXFMT_RGB565;
+    cam_ctx.width = 0;
+    cam_ctx.height = 0;
+}
+
 int service_camera_init(void)
 {
     int ret;
@@ -49,20 +62,22 @@ int service_camera_init(void)
         return 0;
     }
 
+    service_camera_context_reset();
+
     cam_ctx.camera_dev = lisa_device_get(CAMERA_DEVICE);
-    if (!lisa_device_ready(cam_ctx.camera_dev)) {
+    if (!cam_ctx.camera_dev || !lisa_device_ready(cam_ctx.camera_dev)) {
         LISA_LOGE(TAG, "Camera device not ready");
         return -1;
     }
 
     cam_ctx.i2c_dev = lisa_device_get(I2C_DEVICE);
-    if (!lisa_device_ready(cam_ctx.i2c_dev)) {
+    if (!cam_ctx.i2c_dev || !lisa_device_ready(cam_ctx.i2c_dev)) {
         LISA_LOGE(TAG, "I2C device not ready");
         return -2;
     }
 
     cam_ctx.dvp_dev = lisa_device_get(DVP_DEVICE);
-    if (!lisa_device_ready(cam_ctx.dvp_dev)) {
+    if (!cam_ctx.dvp_dev || !lisa_device_ready(cam_ctx.dvp_dev)) {
         LISA_LOGE(TAG, "DVP device not ready");
         return -3;
     }
@@ -157,7 +172,7 @@ int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
     lisa_camera_fb_t *fb = NULL;
     int ret;
 
-    if (!cam_ctx.inited) {
+    if (!cam_ctx.inited || !cam_ctx.camera_dev) {
         LISA_LOGE(TAG, "Camera not initialized");
         return -1;
     }
@@ -176,11 +191,15 @@ int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
     ret = lisa_camera_capture(cam_ctx.camera_dev, &fb);
     if (ret != LISA_DEVICE_OK || fb == NULL) {
         LISA_LOGE(TAG, "Capture failed: %d", ret);
+        lisa_camera_stop(cam_ctx.camera_dev);
         return -4;
     }
 
     if (buffer_len < fb->len) {
         LISA_LOGE(TAG, "Buffer len %d is smaller than fb len %d", buffer_len, fb->len);
+        lisa_camera_release_fb(cam_ctx.camera_dev, fb);
+        lisa_camera_stop(cam_ctx.camera_dev);
+        return -5;
     }
 
     memcpy(buffer, fb->buf, fb->len);
@@ -199,7 +218,7 @@ int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
 
 int service_camera_get_framesize(uint16_t *width, uint16_t *height)
 {
-    if (!cam_ctx.inited) {
+    if (!cam_ctx.inited || !cam_ctx.camera_dev) {
         LISA_LOGE(TAG, "Camera not initialized");
         return -1;
     }

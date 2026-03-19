@@ -13,6 +13,12 @@ menuconfig LISA_DISPLAY_DEVICE
 
 if LISA_DISPLAY_DEVICE
 
+config LISA_DISPLAY_COMPOSITE
+    bool "Enable composite display mode"
+    default n
+    help
+        Composite two physical displays into one logical wide display.
+
 config LISA_DISPLAY_TE_SYNC
     bool "Enable TE (Tearing Effect) Sync Support"
     default n

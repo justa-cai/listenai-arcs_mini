@@ -137,7 +137,7 @@ static lv_obj_t *add_radio_group_item(lv_obj_t *group, lisa_ui_setting_wakeup_vi
     view->radio_items[radio_id].radio = checkbox;
     lv_obj_set_size(checkbox, LV_PCT(80), LV_SIZE_CONTENT);
     lv_checkbox_set_text(checkbox, txt);
-    lv_obj_set_style_text_font(checkbox, &lv_font_chinese_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(checkbox, &lv_font_chinese_16, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(checkbox, LV_OBJ_FLAG_EVENT_BUBBLE);
     lv_obj_add_style(checkbox, &style_radio, LV_PART_INDICATOR);
     lv_obj_clear_flag(checkbox, LV_OBJ_FLAG_CLICKABLE);
@@ -152,7 +152,7 @@ static lv_obj_t *add_radio_group_item(lv_obj_t *group, lisa_ui_setting_wakeup_vi
     lv_obj_align_to(tip_text, checkbox, LV_ALIGN_OUT_BOTTOM_LEFT, 30, 5);
     lv_obj_set_size(tip_text, LV_PCT(95), LV_SIZE_CONTENT);
     lv_label_set_text(tip_text, tips_text);
-    lv_obj_set_style_text_font(tip_text, &lv_font_chinese_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(tip_text, &lv_font_chinese_16, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(tip_text, lv_color_hex(0xBCBCBC), LV_PART_MAIN | LV_STATE_DEFAULT);
     
     lv_obj_clear_flag(tip_text, LV_OBJ_FLAG_SCROLLABLE);
@@ -199,7 +199,7 @@ static void lisa_ui_setting_wakeup_view_class_constructor(const lv_obj_class_t *
     view->title_label = lv_label_create(container);
     lv_label_set_text(view->title_label, _("wakeup setting"));
     lv_obj_set_style_text_color(view->title_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(view->title_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(view->title_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_align(view->title_label, LV_ALIGN_TOP_LEFT, 45, 8);
     
     lv_style_init(&style_radio);

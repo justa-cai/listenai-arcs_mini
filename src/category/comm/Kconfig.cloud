@@ -30,6 +30,14 @@ config CLOUD_FULL_DUPLEX_TIMEOUT_MS
         session will be terminated.
 endif
 
+config CLOUD_IDLE_EXIT_TIMEOUT_MS
+    int "Idle Exit Timeout (ms)"
+    default 10000
+    help
+        Local business timeout in milliseconds.
+        After TTS playback ends, if no valid IAT text is received within this
+        timeout, the device will actively exit the current session.
+
 config CLOUD_STAGING_MODE_ENABLE
     bool "Enable Staging Mode"
     default n

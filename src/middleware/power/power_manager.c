@@ -66,9 +66,8 @@ bool power_wait_settle(void)
         return true;
     }
 
-    uint64_t start_time = lisa_os_get_tick_ms();
     while (1) {
-        uint64_t elapsed = lisa_os_get_tick_ms() - start_time;
+        uint64_t elapsed = lisa_os_get_tick_ms();
 
         if (!power_button_pressed()) {
             LISA_LOGI(TAG, "Power button released at %llu ms before settle time", elapsed);

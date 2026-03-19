@@ -33,7 +33,13 @@
 #define SDMMC_MOUNT_POINT "/"SDMMC_DEVICE
 
 /* PA 控制 GPIO 配置 */
-#ifdef CONFIG_BOARD_ARCS_EVB
+#ifdef CONFIG_BOARD_ARCS_MINI
+#include "pinmux.h"
+
+#define PA_PIN_NUM PA_EN_PIN
+#define PA_GPIO_DEVICE "gpioa"
+
+#elif defined(CONFIG_BOARD_ARCS_EVB)
 #define PA_PIN_NUM     27
 #define PA_GPIO_DEVICE "gpioa"
 

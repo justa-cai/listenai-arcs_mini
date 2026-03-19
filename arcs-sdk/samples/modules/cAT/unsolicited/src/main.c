@@ -36,14 +36,22 @@
 #include "task.h"
 #endif
 
-#ifdef CONFIG_BOARD_ARCS_EVB
+#if defined(CONFIG_BOARD_ARCS_MINI) || defined(CONFIG_BOARD_ARCS_EVB)
 #include "IOMuxManager.h"
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+#include "pinmux.h"
+#define UART1_TX_PAD     CSK_IOMUX_PAD_A
+#define UART1_TX_PIN     8
+#define UART1_RX_PAD     CSK_IOMUX_PAD_A
+#define UART1_RX_PIN     9
+#else
 #define UART1_TX_PAD     CSK_IOMUX_PAD_B
-#define UART1_TX_PIN    2
+#define UART1_TX_PIN     2
 #define UART1_RX_PAD     CSK_IOMUX_PAD_B
-#define UART1_RX_PIN    3
-#define UART1_FUNC      CSK_IOMUX_FUNC_ALTER3
+#define UART1_RX_PIN     3
+#endif
+#define UART1_FUNC       CSK_IOMUX_FUNC_ALTER3
 
 void lisa_uart1_pinmux()
 {

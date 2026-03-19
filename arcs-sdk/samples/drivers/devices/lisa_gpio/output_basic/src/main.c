@@ -22,11 +22,14 @@
 #include "lisa_device.h"
 #include "lisa_gpio.h"
 #include "IOMuxManager.h"
+#include "pinmux.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
+#ifndef CONFIG_BOARD_ARCS_MINI
 #define LED_PIN        9
+#endif // !CONFIG_BOARD_ARCS_MINI
 #define GPIO_DEVICE    "gpiob"
 
 /*

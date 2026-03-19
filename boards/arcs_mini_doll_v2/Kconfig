@@ -1,0 +1,22 @@
+# Board Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+
+config BOARD_NAME
+    string
+    default "arcs_mini"
+    prompt "Board Name"
+    help
+        Board Name
+
+config BOARD_ARCS_MINI
+    bool
+    default y
+    help
+        Board is arcs_mini
+
+config BOARD_ARCS_MINI_DOLL_V2
+    bool
+    default y if BOARD_ARCS_MINI

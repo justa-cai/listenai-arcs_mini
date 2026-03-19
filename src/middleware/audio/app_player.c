@@ -133,6 +133,15 @@ static void __player_broadcast_status(app_player_item_t *player_item, PlayerEvt 
 	lisa_mutex_unlock(player_item->cb_map.lock);
 }
 
+static void __player_clear_prepare_state(app_player_item_t *player_item)
+{
+	if (!player_item) return;
+
+	player_item->is_preparing = false;
+	player_item->wait_prepare_intercepted = false;
+	player_item->pause_preparing = false;
+}
+
 /**
  * @brief   提示音播放器状态回调
  * @param   evt     播放器事件
@@ -169,6 +178,10 @@ static int _tone_player_callback(PlayerEvt evt, int arg1, int arg2, int id)
 		case PLAYER_EVT_STOPED:
 		case PLAYER_EVT_PLAYBACK_COMPLETE:
 		case PLAYER_EVT_ERROR:
+			if (evt == PLAYER_EVT_STOPED || evt == PLAYER_EVT_PLAYBACK_COMPLETE || evt == PLAYER_EVT_ERROR) {
+				player->wait_prepare_intercepted = false;
+				player->pause_preparing = false;
+			}
 			if (player->evt == PLAYER_EVT_STOPED && evt == PLAYER_EVT_ERROR) {
 				// 打断时(Stop), 先来Stop情况下, 再来Error, 不需要关闭PA
 			} else {
@@ -224,6 +237,10 @@ static int _audio_player_callback(PlayerEvt evt, int arg1, int arg2, int id)
 		case PLAYER_EVT_STOPED:
 		case PLAYER_EVT_PLAYBACK_COMPLETE:
 		case PLAYER_EVT_ERROR:
+			if (evt == PLAYER_EVT_STOPED || evt == PLAYER_EVT_PLAYBACK_COMPLETE || evt == PLAYER_EVT_ERROR) {
+				player->wait_prepare_intercepted = false;
+				player->pause_preparing = false;
+			}
 			pa_manager_refresh(PA_MGR_OFF, LS_PA_BASE_TIME, "audio_player_end");
 		case PLAYER_EVT_PLAYING: {
 			__player_broadcast_status(player, evt);
@@ -312,6 +329,7 @@ static bool __player_prepare_check(app_player_item_t *player_item, const char *t
 		LISA_LOGD(TAG, "pre %s prepare complete", tips);
 		lisa_player_stop_sync(player_item->hld);
 		lisa_player_reset(player_item->hld);
+		__player_clear_prepare_state(player_item);
 		LISA_LOGD(TAG, "pre %s status check end", tips);
 		return false;
 	}
@@ -338,19 +356,19 @@ void app_player_play_by_throw(player_t type, char *url, int throw_time_ms, playe
 			// Reset Tone Player
 			app_player_reset(PLAYER_T_TONE);
 		}
+		__player_clear_prepare_state(player);
 
 		player->playid++;
 		__player_cache_callback(player, cb, player->playid);
 
 		if (cb) cb(APP_PLAYER_PREPARING);
+		player->pause_preparing = false;
 		lisa_player_throw_low_energy(player->hld, throw_time_ms);
 		player->is_preparing = true;
 		ret = lisa_player_seturl(player->hld, url);
 		if (ret != PLAYER_OK) {
-			player->is_preparing = false;
+			__player_clear_prepare_state(player);
 		}
-
-		player->pause_preparing = false;
 	} else if (type == PLAYER_T_CLOUD) {
 		app_player_item_t *player = &s_app_player->audio_player;
 
@@ -358,22 +376,22 @@ void app_player_play_by_throw(player_t type, char *url, int throw_time_ms, playe
 			// Reset Cloud Player
 			app_player_reset(PLAYER_T_CLOUD);
 		}
+		__player_clear_prepare_state(player);
 
 		player->playid++;
 		__player_cache_callback(player, cb, player->playid);
 
 		if (cb) cb(APP_PLAYER_PREPARING);
+		player->pause_preparing = false;
 
 		if (strncmp("http", url, 4) == 0) {
 			lisa_player_throw_low_energy(player->hld, throw_time_ms);
 			player->is_preparing = true;
 			ret = lisa_player_seturl(player->hld, url);
 			if (ret != PLAYER_OK) {
-				player->is_preparing = false;
+				__player_clear_prepare_state(player);
 			}
 		}
-
-		player->pause_preparing = false;
 	}
 }
 
@@ -491,6 +509,7 @@ void app_player_stop(player_t type)
 		if (__player_prepare_check(player, tips)) {
 			lisa_player_stop(player->hld);
 		}
+		__player_clear_prepare_state(player);
 	}
 }
 
@@ -520,6 +539,7 @@ void app_player_stop_sync(player_t type)
 	} else {
 		__player_broadcast_status(player, PLAYER_EVT_STOPED);
 	}
+	__player_clear_prepare_state(player);
 }
 
 void app_player_seek(player_t type, uint32_t seek_ms)
@@ -620,11 +640,16 @@ void app_player_reset(player_t type)
 	if (!s_app_player) return;
 	if (!(s_app_player->tone_player.hld) || (APP_PLAYER_USE_AUDIO_PLAYER && !(s_app_player->audio_player.hld))) return;
 
+	app_player_item_t *player = NULL;
 	if (type == PLAYER_T_TONE) {
+		player = &s_app_player->tone_player;
 		lisa_player_reset(s_app_player->tone_player.hld);
 	} else if (type == PLAYER_T_CLOUD) {
+		player = &s_app_player->audio_player;
 		lisa_player_reset(s_app_player->audio_player.hld);
 	}
+
+	__player_clear_prepare_state(player);
 }
 
 void app_player_close(player_t type)

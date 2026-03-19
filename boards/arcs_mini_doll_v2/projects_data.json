@@ -1,0 +1,506 @@
+{
+  "project": {
+    "id": 3,
+    "name": "ARCS_76PIN_MINI_1",
+    "sdk": "v0.1.0",
+    "soc": "LS2664",
+    "package": "QFN76"
+  },
+  "pinConfig": {
+    "PA00": {
+      "alias": "CAMERA_RST",
+      "function": "gpioa_00",
+      "instance": "GPIOA",
+      "peripheral": "GPIO",
+      "signal": "GPIO_A_00"
+    },
+    "PA01": {
+      "alias": "PA_EN",
+      "function": "gpioa_01",
+      "instance": "GPIOA",
+      "peripheral": "GPIO",
+      "signal": "GPIO_A_01"
+    },
+    "PA02": {
+      "alias": "AP_LOG_RX",
+      "function": "uart0_rxd",
+      "instance": "UART0",
+      "peripheral": "UART",
+      "signal": "RX"
+    },
+    "PA03": {
+      "alias": "AP_LOG_TX",
+      "function": "uart0_txd",
+      "instance": "UART0",
+      "peripheral": "UART",
+      "signal": "TX"
+    },
+    "PA10": {
+      "function": "vic_h_sync",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_H_SYNC",
+      "alias": "CAM_HSYNC"
+    },
+    "PA11": {
+      "function": "vic_v_sync",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_V_SYNC",
+      "alias": "CAM_VSYNC"
+    },
+    "PA12": {
+      "function": "vic_pixel_clk",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_CLK",
+      "alias": "CAM_PCLK"
+    },
+    "PA13": {
+      "function": "vic_pixel_data4",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_DATA4",
+      "alias": "CAM_D0"
+    },
+    "PA14": {
+      "function": "vic_pixel_data5",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_DATA5",
+      "alias": "CAM_D1"
+    },
+    "PA15": {
+      "function": "vic_pixel_data6",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_DATA6",
+      "alias": "CAM_D2"
+    },
+    "PA16": {
+      "function": "vic_pixel_data7",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_DATA7",
+      "alias": "CAM_D3"
+    },
+    "PA17": {
+      "function": "vic_pixel_data8",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_DATA8",
+      "alias": "CAM_D4"
+    },
+    "PA18": {
+      "function": "vic_pixel_data9",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_DATA9",
+      "alias": "CAM_D5"
+    },
+    "PA19": {
+      "function": "vic_pixel_data10",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_DATA10",
+      "alias": "CAM_D6"
+    },
+    "PA20": {
+      "function": "vic_pixel_data11",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_PIXEL_DATA11",
+      "alias": "CAM_D7"
+    },
+    "PA21": {
+      "alias": "LCD_PWM",
+      "function": "gpt_pwm_1",
+      "instance": "CH1",
+      "peripheral": "PWM",
+      "signal": "OUT"
+    },
+    "PA22": {
+      "function": "gpioa_22",
+      "peripheral": "GPIO",
+      "instance": "GPIOA",
+      "signal": "GPIO_A_22",
+      "alias": "LCD_CS_L"
+    },
+    "PA23": {
+      "alias": "LCD_CD",
+      "function": "gpioa_23",
+      "instance": "GPIOA",
+      "peripheral": "GPIO",
+      "signal": "GPIO_A_23"
+    },
+    "PA24": {
+      "function": "spi0_mosi",
+      "peripheral": "SPI",
+      "instance": "SPI0",
+      "signal": "MOSI",
+      "alias": "LCD_SPI_DATA"
+    },
+    "PA25": {
+      "function": "spi0_clk",
+      "peripheral": "SPI",
+      "instance": "SPI0",
+      "signal": "CLK",
+      "alias": "LCD_SPI_CLK"
+    },
+    "PA26": {
+      "function": "vic_clk_out",
+      "peripheral": "DVP",
+      "instance": "DVP",
+      "signal": "VIC_CLK_OUT",
+      "alias": "CAM_MCLK"
+    },
+    "PA27": {
+      "function": "gpioa_27",
+      "peripheral": "GPIO",
+      "instance": "GPIOA",
+      "signal": "GPIO_A_27",
+      "alias": "LCD_CS_R"
+    },
+    "PB00": {
+      "alias": "USB_DET",
+      "function": "gpiob_00",
+      "instance": "GPIOB",
+      "peripheral": "GPIO",
+      "signal": "GPIO_B_00"
+    },
+    "PB01": {
+      "alias": "LED",
+      "function": "gpiob_01",
+      "instance": "GPIOB",
+      "peripheral": "GPIO",
+      "signal": "GPIO_B_01"
+    },
+    "PB02": {
+      "alias": "CP_LOG_TX",
+      "function": "uart1_txd",
+      "instance": "UART1",
+      "peripheral": "UART",
+      "signal": "TX"
+    },
+    "PB03": {
+      "alias": "POWER_EN",
+      "function": "gpiob_03",
+      "instance": "GPIOB",
+      "peripheral": "GPIO",
+      "signal": "GPIO_B_03"
+    },
+    "PB04": {
+      "alias": "POWER_KEY",
+      "function": "gpiob_04",
+      "instance": "GPIOB",
+      "peripheral": "GPIO",
+      "signal": "GPIO_B_04"
+    },
+    "PB05": {
+      "alias": "BAT_ADC",
+      "function": "adc_ch3",
+      "instance": "CH3",
+      "peripheral": "ADC",
+      "signal": "IN"
+    },
+    "PB06": {
+      "function": "i2c0_sda",
+      "instance": "I2C0",
+      "peripheral": "I2C",
+      "signal": "SDA"
+    },
+    "PB07": {
+      "function": "i2c0_scl",
+      "instance": "I2C0",
+      "peripheral": "I2C",
+      "signal": "SCL"
+    },
+    "PB08": {
+      "alias": "CHARGE_DET",
+      "function": "gpiob_08",
+      "instance": "GPIOB",
+      "peripheral": "GPIO",
+      "signal": "GPIO_B_08"
+    },
+    "PB09": {
+      "alias": "LCD_RST",
+      "function": "gpiob_09",
+      "instance": "GPIOB",
+      "peripheral": "GPIO",
+      "signal": "GPIO_B_09"
+    }
+  },
+  "peripheralConfig": {
+    "ADC": {
+      "CH0": {
+        "IN": null
+      },
+      "CH1": {
+        "IN": null
+      },
+      "CH2": {
+        "IN": null
+      },
+      "CH3": {
+        "IN": "PB05"
+      },
+      "CH4": {
+        "IN": null
+      },
+      "CH5": {
+        "IN": null
+      }
+    },
+    "CAPTURE": {
+      "CH0": {
+        "IN": null
+      },
+      "CH1": {
+        "IN": null
+      },
+      "CH2": {
+        "IN": null
+      },
+      "CH3": {
+        "IN": null
+      },
+      "CH4": {
+        "IN": null
+      },
+      "CH5": {
+        "IN": null
+      },
+      "CH6": {
+        "IN": null
+      },
+      "CH7": {
+        "IN": null
+      }
+    },
+    "DVP": {
+      "DVP": {
+        "VIC_H_SYNC": "PA10",
+        "VIC_V_SYNC": "PA11",
+        "VIC_PIXEL_CLK": "PA12",
+        "VIC_CLK_OUT": "PA26",
+        "VIC_PIXEL_DATA0": null,
+        "VIC_PIXEL_DATA1": null,
+        "VIC_PIXEL_DATA2": null,
+        "VIC_PIXEL_DATA3": null,
+        "VIC_PIXEL_DATA4": "PA13",
+        "VIC_PIXEL_DATA5": "PA14",
+        "VIC_PIXEL_DATA6": "PA15",
+        "VIC_PIXEL_DATA7": "PA16",
+        "VIC_PIXEL_DATA8": "PA17",
+        "VIC_PIXEL_DATA9": "PA18",
+        "VIC_PIXEL_DATA10": "PA19",
+        "VIC_PIXEL_DATA11": "PA20"
+      }
+    },
+    "GPIO": {
+      "GPIOA": {
+        "GPIO_A_00": "PA00",
+        "GPIO_A_01": "PA01",
+        "GPIO_A_02": null,
+        "GPIO_A_03": null,
+        "GPIO_A_04": null,
+        "GPIO_A_05": null,
+        "GPIO_A_06": null,
+        "GPIO_A_07": null,
+        "GPIO_A_08": null,
+        "GPIO_A_09": null,
+        "GPIO_A_10": null,
+        "GPIO_A_11": null,
+        "GPIO_A_12": null,
+        "GPIO_A_13": null,
+        "GPIO_A_14": null,
+        "GPIO_A_15": null,
+        "GPIO_A_16": null,
+        "GPIO_A_17": null,
+        "GPIO_A_18": null,
+        "GPIO_A_19": null,
+        "GPIO_A_20": null,
+        "GPIO_A_21": null,
+        "GPIO_A_22": "PA22",
+        "GPIO_A_23": "PA23",
+        "GPIO_A_24": null,
+        "GPIO_A_25": null,
+        "GPIO_A_26": null,
+        "GPIO_A_27": "PA27",
+        "GPIO_A_28": null,
+        "GPIO_A_29": null,
+        "GPIO_A_30": null,
+        "GPIO_A_31": null
+      },
+      "GPIOB": {
+        "GPIO_B_00": "PB00",
+        "GPIO_B_01": "PB01",
+        "GPIO_B_02": null,
+        "GPIO_B_03": "PB03",
+        "GPIO_B_04": "PB04",
+        "GPIO_B_05": null,
+        "GPIO_B_06": null,
+        "GPIO_B_07": null,
+        "GPIO_B_08": "PB08",
+        "GPIO_B_09": "PB09"
+      }
+    },
+    "I2C": {
+      "I2C0": {
+        "SCL": "PB07",
+        "SDA": "PB06"
+      },
+      "I2C1": {
+        "SCL": null,
+        "SDA": null
+      }
+    },
+    "I2S": {
+      "I2S0": {
+        "BCLK": null,
+        "LRCK": null,
+        "SDOUT": null,
+        "SDIN": null
+      },
+      "I2S1": {
+        "BCLK": null,
+        "LRCK": null,
+        "SDOUT": null,
+        "SDIN": null
+      }
+    },
+    "JTAG": {
+      "JTAG": {
+        "TCK": null,
+        "TMS": null,
+        "TDI": null,
+        "TDO": null
+      }
+    },
+    "PWM": {
+      "CH0": {
+        "OUT": null
+      },
+      "CH1": {
+        "OUT": "PA21"
+      },
+      "CH2": {
+        "OUT": null
+      },
+      "CH3": {
+        "OUT": null
+      },
+      "CH4": {
+        "OUT": null
+      },
+      "CH5": {
+        "OUT": null
+      },
+      "CH6": {
+        "OUT": null
+      },
+      "CH7": {
+        "OUT": null
+      }
+    },
+    "QSPI_LCD": {
+      "QSPI_LCD": {
+        "CS": null,
+        "CLK": null,
+        "IO0": null,
+        "IO1": null,
+        "IO2": null,
+        "IO3": null
+      }
+    },
+    "RGB": {
+      "RGB": {
+        "HSYNC": null,
+        "VSYNC": null,
+        "PCLK": null,
+        "DE": null,
+        "DR0": null,
+        "DR1": null,
+        "DR2": null,
+        "DR3": null,
+        "DR4": null,
+        "DR5": null,
+        "DR6": null,
+        "DR7": null,
+        "DG0": null,
+        "DG1": null,
+        "DG2": null,
+        "DG3": null,
+        "DG4": null,
+        "DG5": null,
+        "DG6": null,
+        "DG7": null,
+        "DB0": null,
+        "DB1": null,
+        "DB2": null,
+        "DB3": null,
+        "DB4": null,
+        "DB5": null,
+        "DB6": null,
+        "DB7": null
+      }
+    },
+    "SDIO": {
+      "SDIO": {
+        "CMD": null,
+        "CLK": null,
+        "DAT0": null,
+        "DAT1": null,
+        "DAT2": null,
+        "DAT3": null
+      }
+    },
+    "SPI": {
+      "SPI0": {
+        "CLK": "PA25",
+        "CS": null,
+        "MISO": null,
+        "MOSI": "PA24",
+        "WP": null,
+        "HOLD": null
+      },
+      "SPI1": {
+        "CLK": null,
+        "CS": null,
+        "MISO": null,
+        "MOSI": null,
+        "WP": null,
+        "HOLD": null
+      },
+      "SPI2": {
+        "CLK": null,
+        "CS": null,
+        "MISO": null,
+        "MOSI": null,
+        "WP": null,
+        "HOLD": null
+      }
+    },
+    "UART": {
+      "UART0": {
+        "TX": "PA03",
+        "RX": "PA02",
+        "CTS": null,
+        "RTS": null
+      },
+      "UART1": {
+        "TX": "PB02",
+        "RX": null,
+        "CTS": null,
+        "RTS": null
+      },
+      "UART2": {
+        "TX": null,
+        "RX": null,
+        "CTS": null,
+        "RTS": null
+      }
+    }
+  },
+  "pin_notes": {}
+}

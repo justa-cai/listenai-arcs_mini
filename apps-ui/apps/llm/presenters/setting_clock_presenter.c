@@ -173,7 +173,7 @@ static void create_delete_confirm_dialog(struct setting_clock_nav_scr_data *scr_
     lv_obj_t *title_label = lv_label_create(dialog);
     lv_label_set_text(title_label, "是否删除该闹钟");
     lv_obj_set_style_text_color(title_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(title_label, &lv_font_chinese_18, 0);
+    lv_obj_set_style_text_font(title_label, &lv_font_chinese_16, 0);
     lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 30);
 
     lv_obj_t *btn_container = lv_obj_create(dialog);
@@ -195,7 +195,7 @@ static void create_delete_confirm_dialog(struct setting_clock_nav_scr_data *scr_
     lv_obj_t *cancel_label = lv_label_create(cancel_btn);
     lv_label_set_text(cancel_label, "取消");
     lv_obj_set_style_text_color(cancel_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(cancel_label, &lv_font_chinese_18, 0);
+    lv_obj_set_style_text_font(cancel_label, &lv_font_chinese_16, 0);
     lv_obj_center(cancel_label);
 
     lv_obj_t *delete_btn = lv_btn_create(btn_container);
@@ -207,7 +207,7 @@ static void create_delete_confirm_dialog(struct setting_clock_nav_scr_data *scr_
     lv_obj_t *delete_label = lv_label_create(delete_btn);
     lv_label_set_text(delete_label, "删除");
     lv_obj_set_style_text_color(delete_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(delete_label, &lv_font_chinese_18, 0);
+    lv_obj_set_style_text_font(delete_label, &lv_font_chinese_16, 0);
     lv_obj_center(delete_label);
 
     lv_obj_add_event_cb(cancel_btn, delete_confirm_btn_event_cb, LV_EVENT_CLICKED, scr_data);

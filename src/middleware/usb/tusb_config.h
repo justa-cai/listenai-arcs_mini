@@ -120,7 +120,11 @@ extern "C" {
 #define CFG_TUD_AUDIO_ENABLE_EP_IN                    1
 #define CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX    2
 #define CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX            4
-#define CFG_TUD_AUDIO_EP_SZ_IN                        TUD_AUDIO_EP_SIZE(CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE, CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX, CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX)
+#define CFG_TUD_AUDIO_FUNC_1_EP_IN_INTERVAL           4
+#define CFG_TUD_AUDIO_EP_SZ_IN                        (((((CFG_TUD_AUDIO_FUNC_1_SAMPLE_RATE *                                         \
+                                                          (1U << (CFG_TUD_AUDIO_FUNC_1_EP_IN_INTERVAL - 1U))) + 7999U) / 8000U) + 1U) \
+                                                        * CFG_TUD_AUDIO_FUNC_1_N_BYTES_PER_SAMPLE_TX                                  \
+                                                        * CFG_TUD_AUDIO_FUNC_1_N_CHANNELS_TX)
 
 #define CFG_TUD_AUDIO_ENABLE_ENCODING                 0
 #define CFG_TUD_AUDIO_EP_IN_FLOW_CONTROL              1

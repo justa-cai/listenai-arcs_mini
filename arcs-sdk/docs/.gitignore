@@ -1,0 +1,12 @@
+build
+output
+zh/components
+zh/boards
+zh/drivers
+zh/_static
+zh/samples
+zh/modules
+zh/demos
+zh/tools
+zh/CHANGELOG.md
+_ext/__pycache__

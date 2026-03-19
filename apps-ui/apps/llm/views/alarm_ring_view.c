@@ -64,7 +64,7 @@ static void alarm_ring_view_constructor(const lv_obj_class_t *class_p, lv_obj_t 
     }
     lv_label_set_text(view->title_label, _("Alarm Reminder"));
     lv_obj_set_style_text_color(view->title_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(view->title_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(view->title_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_align(view->title_label, LV_ALIGN_TOP_MID, 0, 20);
     
     view->time_label = lv_label_create(obj);
@@ -84,7 +84,7 @@ static void alarm_ring_view_constructor(const lv_obj_class_t *class_p, lv_obj_t 
     }
     lv_label_set_text(view->date_label, "");
     lv_obj_set_style_text_color(view->date_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(view->date_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(view->date_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_align_to(view->date_label, view->time_label, LV_ALIGN_OUT_BOTTOM_MID, -50, 5);
     
     view->ring_icon = lv_img_create(obj);
@@ -104,7 +104,7 @@ static void alarm_ring_view_constructor(const lv_obj_class_t *class_p, lv_obj_t 
     lv_obj_set_style_bg_color(view->stop_btn, lv_color_hex(0xFF6B6B), LV_PART_MAIN);
     lv_obj_set_style_radius(view->stop_btn, 25, LV_PART_MAIN);
     lv_obj_set_style_border_width(view->stop_btn, 0, LV_PART_MAIN);
-    lv_obj_align(view->stop_btn, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_align(view->stop_btn, LV_ALIGN_BOTTOM_MID, 0, -10);
     
     lv_obj_t *btn_label = lv_label_create(view->stop_btn);
     if (!btn_label) {
@@ -113,8 +113,8 @@ static void alarm_ring_view_constructor(const lv_obj_class_t *class_p, lv_obj_t 
     }
     lv_label_set_text(btn_label, "唤醒或按键可终止闹铃");
     lv_obj_set_style_text_color(btn_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(btn_label, &lv_font_chinese_18, LV_PART_MAIN);
-    lv_obj_center(btn_label);
+    lv_obj_set_style_text_font(btn_label, &lv_font_chinese_16, LV_PART_MAIN);
+    lv_obj_align(btn_label, LV_ALIGN_CENTER, 0, -3);
     
     view->blink_timer = lv_timer_create(blink_timer_cb, 500, obj);
     if (!view->blink_timer) {

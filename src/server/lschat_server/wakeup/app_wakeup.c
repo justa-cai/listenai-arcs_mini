@@ -244,7 +244,7 @@ static void stream_data_fusion(mic_ref_in_t *algo_buf_in, mic_in_t *adc_data, re
         algo_buf_in[i].mic2 = adc_data[i].mic2;
         algo_buf_in[i].ref1 = ref_data[i].ref;
         algo_buf_in[i].ref2 = ref_data[i].ref;
-#else   // 单麦硬回采
+#else   // 单麦软回采
         algo_buf_in[i].mic1 = adc_data[i].mic1;
         algo_buf_in[i].ref1 = ref_data[i].ref;
 #endif
@@ -258,21 +258,35 @@ static void audio_stream_callback(const lisa_audio_event_t *event, void *user_da
     uint8_t *buffer;
     uint32_t buf_size;
     uint16_t desc_idx;
+    ref_in_t *algo_ref_data = NULL;
 
     bool has_record = (event->record_buffer != NULL && event->record_samples > 0);
-    bool has_echo = (event->echo_buffer != NULL && event->echo_samples > 0);
-
-    if((has_record && has_echo) != (has_record || has_echo)) {
-        LISA_LOGE(LOG_TAG, "Invalid audio event: record=%d, echo=%d",
-                  has_record ? 1 : 0, has_echo ? 1 : 0);
+    if (!has_record) {
+        LISA_LOGE(LOG_TAG, "Invalid audio event: record=0");
         return;
-
     }
+
+#if CONFIG_APP_USB_AUDIO_ENABLE
+    wakeup_stream_debug_data_input(event->record_buffer, event->echo_buffer, event->record_samples,
+                                   event->echo_samples);
+#endif
+
+#if CONFIG_ACOMP_WAKEUP_ALGORITHM_TYPE_DUAL_MIC
+    algo_ref_data = (ref_in_t*)event->echo_buffer;
+#else
+    // 复制 硬回采数据 作为算法的ref输入
+    mic_in_t *adc_data = (mic_in_t *)event->record_buffer;
+    ref_in_t ref_data[BUFFER_SAMPLES];
+    for (int i = 0; i < BUFFER_SAMPLES; i++) {
+        ref_data[i].ref = adc_data[i].mic2;
+    }
+    algo_ref_data = ref_data;
+#endif
 
     buffer = acomp_wakeup_stream_tx_buffer_alloc(WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX, &buf_size, &desc_idx);
 
     if(buffer && buf_size > 0){
-        stream_data_fusion((mic_ref_in_t*)buffer, (mic_in_t*)event->record_buffer, (ref_in_t*)event->echo_buffer, BUFFER_SAMPLES);
+        stream_data_fusion((mic_ref_in_t*)buffer, (mic_in_t *)event->record_buffer, algo_ref_data, BUFFER_SAMPLES);
         acomp_wakeup_stream_tx_buffer_submit(WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX, buffer, buf_size, desc_idx);
     } else {
         LOGE("acomp_wakeup_stream_tx_buffer_alloc failed");
@@ -768,29 +782,41 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN) |
 
 #ifdef CONFIG_BOARD_ARCS_MINI
 static int gain_cmd_set_mic(int argc, char **argv);
+static int gain_cmd_set_mic_d(int argc, char **argv);
 static int gain_cmd_set_aec(int argc, char **argv);
+static int gain_cmd_set_aec_d(int argc, char **argv);
 static int gain_cmd_set_spk(int argc, char **argv);
+static int gain_cmd_set_spk_d(int argc, char **argv);
 static int gain_cmd_print(int argc, char **argv);
 static int gain_cmd_help(int argc, char **argv);
 
 static const struct listen_cmd_t g_gain_cmds[] = {
-    {"set_mic", gain_cmd_set_mic, "Set gain for microphone signal"},
-    {"set_aec", gain_cmd_set_aec, "Set gain for AEC reference signal"},
-    {"set_spk", gain_cmd_set_spk, "Set gain for speaker"},
+    {"set_mic", gain_cmd_set_mic, "Set microphone analog gain"},
+    {"set_mic_d", gain_cmd_set_mic_d, "Set microphone digital gain"},
+    {"set_aec", gain_cmd_set_aec, "Set AEC reference analog gain"},
+    {"set_aec_d", gain_cmd_set_aec_d, "Set AEC reference digital gain"},
+    {"set_spk", gain_cmd_set_spk, "Set speaker analog gain"},
+    {"set_spk_d", gain_cmd_set_spk_d, "Set speaker digital gain"},
     {"print", gain_cmd_print, "Print current gain settings"},
     {"help", gain_cmd_help, "Show help information"},
 };
 
 static int gain_cmd_set_mic(int argc, char **argv)
 {
-    if (argc != 1) {
-        shellPrint(shellGetCurrent(), "Usage: gain set_mic [gain_db] (valid range: %d to %d dB)\n", ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+    if (argc != 1 || argv == NULL || argv[0] == NULL) {
+        shellPrint(shellGetCurrent(), "Usage: gain set_mic [gain_db] (valid range: %d to %d dB)\n",
+                   ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
         return -1;
     }
 
-    int gain_db = atoi(argv[1]);
+    int gain_db = atoi(argv[0]);
     if (gain_db < ADC_PDM_GAIN_A_MIN_DB || gain_db > ADC_PDM_GAIN_A_MAX_DB) {
-        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n", ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n",
+                   ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+        return -1;
+    }
+    if (g_audio_dev == NULL) {
+        shellPrint(shellGetCurrent(), "Error: audio device not ready\n");
         return -1;
     }
 
@@ -813,16 +839,60 @@ static int gain_cmd_set_mic(int argc, char **argv)
     return 0;
 }
 
-static int gain_cmd_set_aec(int argc, char **argv)
+static int gain_cmd_set_mic_d(int argc, char **argv)
 {
-    if (argc != 1) {
-        shellPrint(shellGetCurrent(), "Usage: gain set_aec [gain_db] (valid range: %d to %d dB)\n", ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+    if (argc != 1 || argv == NULL || argv[0] == NULL) {
+        shellPrint(shellGetCurrent(), "Usage: gain set_mic_d [gain_db] (valid range: %d to %d dB)\n",
+                   ADC_PDM_GAIN_D_MIN_DB, ADC_PDM_GAIN_D_MAX_DB);
         return -1;
     }
 
-    int gain_db = atoi(argv[1]);
+    int gain_db = atoi(argv[0]);
+    if (gain_db < ADC_PDM_GAIN_D_MIN_DB || gain_db > ADC_PDM_GAIN_D_MAX_DB) {
+        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n",
+                   ADC_PDM_GAIN_D_MIN_DB, ADC_PDM_GAIN_D_MAX_DB);
+        return -1;
+    }
+    if (g_audio_dev == NULL) {
+        shellPrint(shellGetCurrent(), "Error: audio device not ready\n");
+        return -1;
+    }
+
+    g_record_mic_digital_gain = gain_db;
+
+    lisa_audio_gain_t gain[] = {
+        {
+            .analog_gain = g_record_mic_analog_gain,
+            .digital_gain = g_record_mic_digital_gain,
+        },
+        {
+            .analog_gain = g_record_ref_analog_gain,
+            .digital_gain = g_record_ref_digital_gain,
+        },
+    };
+    lisa_audio_record_set_gain(g_audio_dev, gain);
+
+    shellPrint(shellGetCurrent(), "Microphone digital gain set to %d dB\n", gain_db);
+
+    return 0;
+}
+
+static int gain_cmd_set_aec(int argc, char **argv)
+{
+    if (argc != 1 || argv == NULL || argv[0] == NULL) {
+        shellPrint(shellGetCurrent(), "Usage: gain set_aec [gain_db] (valid range: %d to %d dB)\n",
+                   ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+        return -1;
+    }
+
+    int gain_db = atoi(argv[0]);
     if (gain_db < ADC_PDM_GAIN_A_MIN_DB || gain_db > ADC_PDM_GAIN_A_MAX_DB) {
-        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n", ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n",
+                   ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+        return -1;
+    }
+    if (g_audio_dev == NULL) {
+        shellPrint(shellGetCurrent(), "Error: audio device not ready\n");
         return -1;
     }
 
@@ -845,16 +915,60 @@ static int gain_cmd_set_aec(int argc, char **argv)
     return 0;
 }
 
-static int gain_cmd_set_spk(int argc, char **argv)
+static int gain_cmd_set_aec_d(int argc, char **argv)
 {
-    if (argc != 1) {
-        shellPrint(shellGetCurrent(), "Usage: gain set_spk [gain_db] (valid range: %d to %d dB)\n", DAC_GAIN_A_MIN_DB, DAC_GAIN_A_MAX_DB);
+    if (argc != 1 || argv == NULL || argv[0] == NULL) {
+        shellPrint(shellGetCurrent(), "Usage: gain set_aec_d [gain_db] (valid range: %d to %d dB)\n",
+                   ADC_PDM_GAIN_D_MIN_DB, ADC_PDM_GAIN_D_MAX_DB);
         return -1;
     }
 
-    int gain_db = atoi(argv[1]);
+    int gain_db = atoi(argv[0]);
+    if (gain_db < ADC_PDM_GAIN_D_MIN_DB || gain_db > ADC_PDM_GAIN_D_MAX_DB) {
+        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n",
+                   ADC_PDM_GAIN_D_MIN_DB, ADC_PDM_GAIN_D_MAX_DB);
+        return -1;
+    }
+    if (g_audio_dev == NULL) {
+        shellPrint(shellGetCurrent(), "Error: audio device not ready\n");
+        return -1;
+    }
+
+    g_record_ref_digital_gain = gain_db;
+
+    lisa_audio_gain_t gain[] = {
+        {
+            .analog_gain = g_record_mic_analog_gain,
+            .digital_gain = g_record_mic_digital_gain,
+        },
+        {
+            .analog_gain = g_record_ref_analog_gain,
+            .digital_gain = g_record_ref_digital_gain,
+        },
+    };
+    lisa_audio_record_set_gain(g_audio_dev, gain);
+
+    shellPrint(shellGetCurrent(), "AEC reference digital gain set to %d dB\n", gain_db);
+
+    return 0;
+}
+
+static int gain_cmd_set_spk(int argc, char **argv)
+{
+    if (argc != 1 || argv == NULL || argv[0] == NULL) {
+        shellPrint(shellGetCurrent(), "Usage: gain set_spk [gain_db] (valid range: %d to %d dB)\n", DAC_GAIN_A_MIN_DB,
+                   DAC_GAIN_A_MAX_DB);
+        return -1;
+    }
+
+    int gain_db = atoi(argv[0]);
     if (gain_db < DAC_GAIN_A_MIN_DB || gain_db > DAC_GAIN_A_MAX_DB) {
-        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n", DAC_GAIN_A_MIN_DB, DAC_GAIN_A_MAX_DB);
+        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n", DAC_GAIN_A_MIN_DB,
+                   DAC_GAIN_A_MAX_DB);
+        return -1;
+    }
+    if (g_audio_dev == NULL) {
+        shellPrint(shellGetCurrent(), "Error: audio device not ready\n");
         return -1;
     }
 
@@ -871,23 +985,73 @@ static int gain_cmd_set_spk(int argc, char **argv)
     return 0;
 }
 
+static int gain_cmd_set_spk_d(int argc, char **argv)
+{
+    if (argc != 1 || argv == NULL || argv[0] == NULL) {
+        shellPrint(shellGetCurrent(), "Usage: gain set_spk_d [gain_db] (valid range: %d to %d dB)\n",
+                   DAC_GAIN_D_MIN_DB, DAC_GAIN_D_MAX_DB);
+        return -1;
+    }
+
+    int gain_db = atoi(argv[0]);
+    if (gain_db < DAC_GAIN_D_MIN_DB || gain_db > DAC_GAIN_D_MAX_DB) {
+        shellPrint(shellGetCurrent(), "Error: gain_db out of range (%d to %d dB)\n",
+                   DAC_GAIN_D_MIN_DB, DAC_GAIN_D_MAX_DB);
+        return -1;
+    }
+    if (g_audio_dev == NULL) {
+        shellPrint(shellGetCurrent(), "Error: audio device not ready\n");
+        return -1;
+    }
+
+    g_play_digital_gain = gain_db;
+
+    lisa_audio_gain_t gain = {
+        .analog_gain = g_play_analog_gain,
+        .digital_gain = g_play_digital_gain,
+    };
+    lisa_audio_play_set_gain(g_audio_dev, &gain);
+
+    shellPrint(shellGetCurrent(), "Speaker digital gain set to %d dB\n", gain_db);
+
+    return 0;
+}
+
 static int gain_cmd_print(int argc, char **argv)
 {
+    (void)argc;
+    (void)argv;
+
     shellPrint(shellGetCurrent(), "Current Gain Settings:\n");
-    shellPrint(shellGetCurrent(), "      MIC: %d dB\n", g_record_mic_analog_gain);
-    shellPrint(shellGetCurrent(), "      AEC: %d dB\n", g_record_ref_analog_gain);
-    shellPrint(shellGetCurrent(), "  Speaker: %d dB\n", g_play_analog_gain);
+    shellPrint(shellGetCurrent(), "      MIC: analog=%d dB, digital=%d dB\n", g_record_mic_analog_gain,
+               g_record_mic_digital_gain);
+    shellPrint(shellGetCurrent(), "      AEC: analog=%d dB, digital=%d dB\n", g_record_ref_analog_gain,
+               g_record_ref_digital_gain);
+    shellPrint(shellGetCurrent(), "  Speaker: analog=%d dB, digital=%d dB\n", g_play_analog_gain,
+               g_play_digital_gain);
     return 0;
 }
 
 static int gain_cmd_help(int argc, char **argv)
 {
+    (void)argc;
+    (void)argv;
+
     shellPrint(shellGetCurrent(), "Gain commands:\n");
-    for (size_t i = 0; i < sizeof(g_gain_cmds) / sizeof(g_gain_cmds[0]); i++) {
-        if (g_gain_cmds[i].help != NULL) {
-            shellPrint(shellGetCurrent(), "%-17s\t:\t%s\n", g_gain_cmds[i].name, g_gain_cmds[i].help);
-        }
-    }
+    shellPrint(shellGetCurrent(), "%-17s\t:\t%s (%d to %d dB)\n", "set_mic", "Set microphone analog gain",
+               ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+    shellPrint(shellGetCurrent(), "%-17s\t:\t%s (%d to %d dB)\n", "set_mic_d", "Set microphone digital gain",
+               ADC_PDM_GAIN_D_MIN_DB, ADC_PDM_GAIN_D_MAX_DB);
+    shellPrint(shellGetCurrent(), "%-17s\t:\t%s (%d to %d dB)\n", "set_aec", "Set AEC reference analog gain",
+               ADC_PDM_GAIN_A_MIN_DB, ADC_PDM_GAIN_A_MAX_DB);
+    shellPrint(shellGetCurrent(), "%-17s\t:\t%s (%d to %d dB)\n", "set_aec_d", "Set AEC reference digital gain",
+               ADC_PDM_GAIN_D_MIN_DB, ADC_PDM_GAIN_D_MAX_DB);
+    shellPrint(shellGetCurrent(), "%-17s\t:\t%s (%d to %d dB)\n", "set_spk", "Set speaker analog gain",
+               DAC_GAIN_A_MIN_DB, DAC_GAIN_A_MAX_DB);
+    shellPrint(shellGetCurrent(), "%-17s\t:\t%s (%d to %d dB)\n", "set_spk_d", "Set speaker digital gain",
+               DAC_GAIN_D_MIN_DB, DAC_GAIN_D_MAX_DB);
+    shellPrint(shellGetCurrent(), "%-17s\t:\t%s\n", "print", "Print current gain settings");
+    shellPrint(shellGetCurrent(), "%-17s\t:\t%s\n", "help", "Show help information");
     return 0;
 }
 

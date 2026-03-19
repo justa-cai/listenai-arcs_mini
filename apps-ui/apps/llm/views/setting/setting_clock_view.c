@@ -192,13 +192,13 @@ static lv_obj_t *create_alarm_item(lv_obj_t *parent, const alarm_item_t *alarm_i
     lv_obj_t *time_label = lv_label_create(alarm_container);
     lv_label_set_text(time_label, time_str);
     lv_obj_set_style_text_color(time_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(time_label, &lv_font_chinese_18, 0);
+    lv_obj_set_style_text_font(time_label, &lv_font_chinese_16, 0);
     lv_obj_align(time_label, LV_ALIGN_TOP_LEFT, 5, 8);
 
     lv_obj_t *date_label = lv_label_create(alarm_container);
     lv_label_set_text(date_label, date_str);
     lv_obj_set_style_text_color(date_label, lv_color_make(0xAA, 0xAA, 0xAA), 0);
-    lv_obj_set_style_text_font(date_label, &lv_font_chinese_18, 0);
+    lv_obj_set_style_text_font(date_label, &lv_font_chinese_16, 0);
     lv_obj_align(date_label, LV_ALIGN_BOTTOM_LEFT, 5, -8);
 
     lv_obj_t *delete_btn = lv_btn_create(alarm_container);
@@ -211,7 +211,7 @@ static lv_obj_t *create_alarm_item(lv_obj_t *parent, const alarm_item_t *alarm_i
     lv_obj_t *delete_label = lv_label_create(delete_btn);
     lv_label_set_text(delete_label, _("cancel"));
     lv_obj_set_style_text_color(delete_label, lv_color_white(), 0);
-    lv_obj_set_style_text_font(delete_label, &lv_font_chinese_18, 0);
+    lv_obj_set_style_text_font(delete_label, &lv_font_chinese_16, 0);
     lv_obj_center(delete_label);
 
     lv_obj_add_event_cb(delete_btn, delete_btn_event_cb, LV_EVENT_CLICKED, (void *)&alarm_item->timestamp);
@@ -252,7 +252,7 @@ static void lisa_ui_setting_clock_view_class_constructor(const lv_obj_class_t *c
     /* 在返回按钮旁边创建标题文本 */
     lv_obj_t *title = lv_label_create(container);
     lv_label_set_text(title, _("alarm setting"));
-    lv_obj_set_style_text_font(title, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(title, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_color(title, lv_color_white(), LV_PART_MAIN);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 45, 8); /* 紧贴返回按钮右侧 */
 
@@ -329,7 +329,7 @@ void lisa_ui_setting_clock_view_refresh_list(lv_obj_t *obj)
         view->empty_label = lv_label_create(container);
         lv_label_set_text(view->empty_label, _("no alarm"));
         lv_obj_set_style_text_color(view->empty_label, lv_color_make(0x88, 0x88, 0x88), 0);
-        lv_obj_set_style_text_font(view->empty_label, &lv_font_chinese_18, 0);
+        lv_obj_set_style_text_font(view->empty_label, &lv_font_chinese_16, 0);
         lv_obj_set_style_text_align(view->empty_label, LV_TEXT_ALIGN_CENTER, 0);
         lv_obj_align(view->empty_label, LV_ALIGN_CENTER, 0, 0);
         lv_obj_set_width(view->empty_label, lv_pct(100));

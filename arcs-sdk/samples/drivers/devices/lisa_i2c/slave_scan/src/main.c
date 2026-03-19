@@ -27,8 +27,16 @@
 #include "pinmux.h"
 
 #define I2C_DEVICE       "i2c0"
+#ifdef CONFIG_BOARD_ARCS_MINI
+/* ARCS_MINI I2C0: PB6=SDA, PB7=SCL, 已在 pinmux.c 中配置 */
+#define IIC0_GPIO_SCL    7
+#define IIC0_GPIO_SDA    6
+#define IIC0_PAD_NAME    "PB"
+#else
 #define IIC0_GPIO_SCL    23
 #define IIC0_GPIO_SDA    22
+#define IIC0_PAD_NAME    "PA"
+#endif
 
 /*
     为满足不同板型示例场景，重定向 I2C0 设备的 pinmux 配置
@@ -61,7 +69,7 @@ int main(int argc, char **argv)
     LISA_LOGI(LOG_TAG, "=== LISA I2C bus scan example ===");
 
     /* I2C0 引脚复用配置已由驱动初始化时自动完成（调用示例中重写的 lisa_i2c0_pinmux） */
-    LISA_LOGI(LOG_TAG, "I2C0 SDA@PA%02d / SCL@PA%02d configured", IIC0_GPIO_SDA, IIC0_GPIO_SCL);
+    LISA_LOGI(LOG_TAG, "I2C0 SDA@%s%02d / SCL@%s%02d configured", IIC0_PAD_NAME, IIC0_GPIO_SDA, IIC0_PAD_NAME, IIC0_GPIO_SCL);
 
     lisa_device_t *i2c_dev = lisa_device_get(I2C_DEVICE);
     if (!lisa_device_ready(i2c_dev)) {

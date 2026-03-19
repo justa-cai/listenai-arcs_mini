@@ -66,14 +66,19 @@ static void lisa_ui_info_view_class_constructor(const lv_obj_class_t *class_p, l
     
     // Create QR code image in center
     info_view->qr_img = lv_img_create(container);
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    lv_obj_set_size(info_view->qr_img, 160, 160);
+    lv_obj_align(info_view->qr_img, LV_ALIGN_CENTER, -80, 0);
+#else
     lv_obj_set_size(info_view->qr_img, 148, 148);
     lv_obj_align(info_view->qr_img, LV_ALIGN_CENTER, 0, 5);
+#endif
     
     // Create top label above QR code
     info_view->top_label = lv_label_create(container);
     lv_label_set_text(info_view->top_label, "");
     lv_obj_set_style_text_color(info_view->top_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(info_view->top_label, &lv_font_notosans_cs_medium_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(info_view->top_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_align(info_view->top_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_width(info_view->top_label, LV_PCT(90));
     lv_label_set_long_mode(info_view->top_label, LV_LABEL_LONG_WRAP);
@@ -83,7 +88,7 @@ static void lisa_ui_info_view_class_constructor(const lv_obj_class_t *class_p, l
     info_view->bottom_label = lv_label_create(container);
     lv_label_set_text(info_view->bottom_label, "");
     lv_obj_set_style_text_color(info_view->bottom_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(info_view->bottom_label, &lv_font_notosans_cs_medium_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(info_view->bottom_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_align(info_view->bottom_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_width(info_view->bottom_label, LV_PCT(90));
     lv_label_set_long_mode(info_view->bottom_label, LV_LABEL_LONG_WRAP);

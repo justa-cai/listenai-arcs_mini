@@ -37,9 +37,11 @@
 
 #ifdef CONFIG_BOARD_ARCS_MINI
 #define TONE_BIN_ADDR       (CMN_FLASH_REGION + 0x00100000)
-#define TONE_BIN_SIZE       (1 * 1024 * 1024)
+#define TONE_BIN_SIZE       (1024 * 1024)
 #define WAKE_WORD_BIN_ADDR  (CMN_FLASH_REGION + 0x00200000)
-#define WAKE_WORD_BIN_SIZE  (2 * 1024 * 1024)
+#define WAKE_WORD_BIN_SIZE  (1536 * 1024)
+#define EMOJI_BIN_ADDR      (CMN_FLASH_REGION + 0x00380000)
+#define EMOJI_BIN_SIZE      ( 768 * 1024)
 #endif // CONFIG_BOARD_ARCS_MINI
 
 extern int lisa_shell_init(void);
@@ -357,6 +359,11 @@ static int voice_platform_init(void)
     if (ipc_ready) {
         network_probe_init();
     }
+
+#ifdef CONFIG_BOARD_ARCS_MINI
+    extern int lisa_ui_anim_init(uint32_t flash_addr, uint32_t flash_size);
+    lisa_ui_anim_init(EMOJI_BIN_ADDR, EMOJI_BIN_SIZE);
+#endif
 
     mcp_init();
 

@@ -6,57 +6,60 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-static void* GPIOA_Handler = NULL;
+#ifdef CONFIG_BOARD_ARCS_MINI
+#include "pinmux.h"
+/* ARCS_MINI: 使用 LED_PIN (PB1) 作为输出示例 */
+#define GPIO_HANDLER        GPIOB()
+#define GPIO_PAD            CSK_IOMUX_PAD_B
+#define GPIO_PIN_NUM        LED_PIN
+#define GPIO_PIN_MASK       (1 << LED_PIN)
+#define GPIO_PIN_LABEL      "PB1 (LED)"
+#else
+#define GPIO_HANDLER        GPIOA()
+#define GPIO_PAD            CSK_IOMUX_PAD_A
+#define GPIO_PIN_NUM        20
+#define GPIO_PIN_MASK       CSK_GPIO_PIN20
+#define GPIO_PIN_LABEL      "PA20"
+#endif
 
-void gpio_output(void)
+void gpio_output(void *handler)
 {
     _GPIO_ *status;
     uint32_t size;
 
-    /* 设置PA20引脚为GPIO，具体IOMUX列表见芯片手册的APPENDIX章节 */
-    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 20, CSK_IOMUX_FUNC_DEFAULT);
+    /* 设置引脚为GPIO，具体IOMUX列表见芯片手册的APPENDIX章节 */
+    IOMuxManager_PinConfigure(GPIO_PAD, GPIO_PIN_NUM, CSK_IOMUX_FUNC_DEFAULT);
 
-    /* 初始化GPIOA外设，包含使能GPIOA的时钟，注册GPIOA的中断回调，使能GPIOA的中断等 */
-    GPIO_Initialize(GPIOA_Handler, NULL, NULL);
+    /* 初始化GPIO外设，包含使能时钟，注册中断回调，使能中断等 */
+    GPIO_Initialize(handler, NULL, NULL);
 
-    /* 获取GPIOA所有引脚(GPIOA共32个引脚)的状态，包含方向，上下拉模式、中断模式等配置 */
-    GPIO_Status(GPIOA_Handler, &status, &size);
-    printf("PA20 direction: %d\n", status[20].dir);
+    /* 获取所有引脚的状态，包含方向，上下拉模式、中断模式等配置 */
+    GPIO_Status(handler, &status, &size);
+    printf("%s direction: %d\n", GPIO_PIN_LABEL, status[GPIO_PIN_NUM].dir);
 
-    /* 设置PA20引脚不使能消抖功能 
-     * 此函数主要功能如下
-     *  - 设置GPIO引脚的消抖功能
-     *  - 设置GPIO输入引脚的中断模式
-     *  - 设置GPIO引脚上拉/下拉模式
-     */
-    GPIO_Control(GPIOA_Handler, CSK_GPIO_DEBOUNCE_DISABLE, CSK_GPIO_PIN20);
+    GPIO_Control(handler, CSK_GPIO_DEBOUNCE_DISABLE, GPIO_PIN_MASK);
 
-    /* 设置PA20为输出引脚 */
-    GPIO_SetDir(GPIOA_Handler, CSK_GPIO_PIN20, CSK_GPIO_DIR_OUTPUT);
-    GPIO_Status(GPIOA_Handler, &status, &size);
-    printf("PA20 direction: %d\n", status[20].dir);
+    /* 设置为输出引脚 */
+    GPIO_SetDir(handler, GPIO_PIN_MASK, CSK_GPIO_DIR_OUTPUT);
+    GPIO_Status(handler, &status, &size);
+    printf("%s direction: %d\n", GPIO_PIN_LABEL, status[GPIO_PIN_NUM].dir);
 
     while(1) {
-        /* PA20引脚输出高电平 */
-        GPIO_PinWrite(GPIOA_Handler, CSK_GPIO_PIN20, 1);
+        GPIO_PinWrite(handler, GPIO_PIN_MASK, 1);
         vTaskDelay(pdMS_TO_TICKS(1000));
     
-        /* PA20引脚输出低电平 */
-        GPIO_PinWrite(GPIOA_Handler, CSK_GPIO_PIN20, 0);
+        GPIO_PinWrite(handler, GPIO_PIN_MASK, 0);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 
-    /* GPIOA外设逆初始化，包含关闭GPIOA的时钟，关闭GPIOA的中断等 */
-    GPIO_Uninitialize(GPIOA_Handler);
+    GPIO_Uninitialize(handler);
 }
 
 int main(int argc, char **argv)
 {
     printf("Hello, world! \n");
-    
-    GPIOA_Handler = GPIOA();
 
-    gpio_output();
+    gpio_output(GPIO_HANDLER);
 
     return 0;
 }

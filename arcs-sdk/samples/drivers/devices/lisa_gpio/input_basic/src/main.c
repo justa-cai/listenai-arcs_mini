@@ -18,12 +18,18 @@
 #include "lisa_device.h"
 #include "lisa_gpio.h"
 #include "IOMuxManager.h"
+#include "pinmux.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+#define GPIO_DEVICE "gpiob"
+#define INPUT_PIN   POWER_KEY_PIN
+#else // !CONFIG_BOARD_ARCS_MINI
 #define GPIO_DEVICE "gpioa"
 #define INPUT_PIN   23
+#endif // CONFIG_BOARD_ARCS_MINI
 
 /*
     为满足不同板型示例场景，重定向gpioa设备的pinmux配置
@@ -60,7 +66,7 @@ int main(int argc, char **argv)
         if (ret < 0) {
             LISA_LOGE(LOG_TAG, "Error: read pin failed");
         }
-        LISA_LOGI(LOG_TAG, "PA%d level: %s", INPUT_PIN, (ret == LISA_GPIO_HIGH) ? "HIGH" : "LOW");
+        LISA_LOGI(LOG_TAG, "Pin %d level: %s", INPUT_PIN, (ret == LISA_GPIO_HIGH) ? "HIGH" : "LOW");
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }

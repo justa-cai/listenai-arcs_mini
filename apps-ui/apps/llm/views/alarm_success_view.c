@@ -32,7 +32,7 @@ static void alarm_success_view_constructor(const lv_obj_class_t *class_p, lv_obj
     view->title_label = lv_label_create(obj);
     lv_label_set_text(view->title_label, _("Alarm set successfully"));
     lv_obj_set_style_text_color(view->title_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(view->title_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(view->title_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_align(view->title_label, LV_ALIGN_TOP_MID, 0, 30);
     
     view->time_label = lv_label_create(obj);
@@ -44,7 +44,7 @@ static void alarm_success_view_constructor(const lv_obj_class_t *class_p, lv_obj
     view->date_label = lv_label_create(obj);
     lv_label_set_text(view->date_label, "");
     lv_obj_set_style_text_color(view->date_label, lv_color_white(), LV_PART_MAIN);
-    lv_obj_set_style_text_font(view->date_label, &lv_font_chinese_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(view->date_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_align_to(view->date_label, view->time_label, LV_ALIGN_OUT_BOTTOM_MID, -50, 30);
 }
 

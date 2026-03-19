@@ -241,6 +241,14 @@ int ota_api_get_dev_conf(ota_dev_conf_t *conf)
                   MD5_ARG(conf->prompt_tone.md5), conf->prompt_tone.url);
     }
 
+    cJSON *emoji = cJSON_GetObjectItem(data, "emoji");
+    if (ota_api_parse_res_info(emoji, &conf->emoji) != 0) {
+        LISA_LOGE(TAG, "Failed to parse emoji resource info");
+    } else {
+        LISA_LOGI(TAG, "Found emoji resource, size: %d, md5: " MD5_PRI ", url: %s", conf->emoji.size,
+                  MD5_ARG(conf->emoji.md5), conf->emoji.url);
+    }
+
     cJSON_Delete(json);
 
     return 0;
