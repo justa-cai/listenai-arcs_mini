@@ -472,7 +472,13 @@ static void on_tts_start(void *user)
 
     /* 启动解码器 */
     xz_tts_decoder_start(cloud->tts_decoder);
-    xz_tts_player_start(cloud->tts_player);
+
+    /* 先设置 is_playing=true，再预热播放器
+     * lisa_player 内部可能检查 is_playing 状态来决定是否处理数据
+     * 如果 is_playing=false，写入的数据可能被忽略
+     */
+    xz_tts_player_start(cloud->tts_player);     /* 设置 is_playing=true */
+    xz_tts_player_prewarm(cloud->tts_player);  /* 在 is_playing=true 时预热 */
     cloud->tts_playing = true;
 
     /* 触发控制器事件 */

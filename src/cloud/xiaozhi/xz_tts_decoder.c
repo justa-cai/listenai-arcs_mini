@@ -23,6 +23,14 @@
 #define TTS_QUEUE_SIZE       128    /* Opus 数据队列深度 (增加到 128，约 7680ms 缓冲) */
 #define TTS_WORKER_STACK_SIZE 32768  /* 工作线程堆栈: 32KB */
 
+/** 动态缓冲配置 */
+#define FRAME_INTERVAL_HISTORY_SIZE 8   /* 跟踪最近 8 帧的间隔 */
+#define BYTES_PER_FRAME_24KHZ  2880     /* 24kHz 单声道 16bit: 60ms = 2880 字节 */
+#define BYTES_PER_FRAME_16KHZ  1920     /* 16kHz 单声道 16bit: 60ms = 1920 字节 */
+#define MIN_BUFFER_FRAMES     2         /* 最小缓冲帧数 */
+#define MAX_BUFFER_FRAMES     12        /* 最大缓冲帧数 */
+#define SAFETY_MARGIN_MULTIPLIER 1.5    /* 安全余量倍数（平均间隔 * 1.5） */
+
 /** Opus 数据消息 */
 typedef struct {
     uint8_t opus_data[MAX_OPUS_PACKET_SIZE];
@@ -53,6 +61,25 @@ struct xz_tts_decoder_s {
 
     volatile bool worker_running;
     tts_decoder_state_e state;
+
+    /* 性能测量：TTS start 时间戳 */
+    uint32_t start_time_ms;
+
+    /* 帧计数器：用于实现"等待第二帧到达再播放"的优化策略
+     * 第一帧解码但缓存，第二帧到达时才开始写入播放器
+     * 这样利用第二帧的网络延迟作为自然缓冲，避免固定延迟
+     */
+    int frame_count;
+    int16_t first_frame_buffer[MAX_PCM_SAMPLES];  /* 第一帧 PCM 缓存 */
+    int first_frame_samples;  /* 第一帧采样点数 */
+
+    /* 动态缓冲：跟踪帧间隔以自适应调整缓冲深度 */
+    uint32_t last_frame_time_ms;                   /* 上一帧到达时间 */
+    uint32_t frame_intervals[FRAME_INTERVAL_HISTORY_SIZE];  /* 帧间隔历史 */
+    int interval_index;                            /* 当前写入位置 */
+    int interval_count;                            /* 已记录的间隔数量 */
+    bool dynamic_buffer_enabled;                   /* 是否启用动态缓冲 */
+    int bytes_per_frame;                           /* 每帧字节数 */
 };
 
 /** 工作线程 */
@@ -105,6 +132,14 @@ xz_tts_decoder_t xz_tts_decoder_create(const xz_tts_decoder_config_t *config,
     tts_dec->frame_size = dec_config.frame_size;
     tts_dec->state = TTS_DECODER_STATE_IDLE;
     tts_dec->worker_running = false;
+
+    /* 初始化动态缓冲 */
+    tts_dec->dynamic_buffer_enabled = true;
+    tts_dec->bytes_per_frame = (config->sample_rate * 60 * 2) / 1000;  /* 60ms, 16bit = sample_rate * 0.06 * 2 */
+    tts_dec->last_frame_time_ms = 0;
+    tts_dec->interval_index = 0;
+    tts_dec->interval_count = 0;
+    memset(tts_dec->frame_intervals, 0, sizeof(tts_dec->frame_intervals));
 
     /* 创建互斥锁 */
     tts_dec->mutex = xSemaphoreCreateMutex();
@@ -193,6 +228,19 @@ int xz_tts_decoder_start(xz_tts_decoder_t decoder)
     }
 
     decoder->state = TTS_DECODER_STATE_DECODING;
+
+    /* 记录 TTS start 时间，用于性能测量 */
+    decoder->start_time_ms = lisa_os_get_tick_ms();
+
+    /* 重置帧计数器和第一帧缓存 */
+    decoder->frame_count = 0;
+    decoder->first_frame_samples = 0;
+
+    /* 重置动态缓冲状态 */
+    decoder->last_frame_time_ms = 0;
+    decoder->interval_index = 0;
+    decoder->interval_count = 0;
+    memset(decoder->frame_intervals, 0, sizeof(decoder->frame_intervals));
 
     /* 清空队列，确保没有上次残留的数据 */
     xQueueReset(decoder->opus_queue);
@@ -307,24 +355,68 @@ int xz_tts_decoder_end_stream(xz_tts_decoder_t decoder)
     return xz_tts_decoder_stop(decoder);
 }
 
-/** 处理 Opus 数据解码和播放 */
-static void process_opus_frame(xz_tts_decoder_t decoder, const uint8_t *opus_data, uint32_t len)
+/**
+ * @brief 更新帧间隔历史并计算动态缓冲阈值
+ * @param decoder 解码器实例
+ * @param frame_interval_ms 当前帧间隔（毫秒）
+ * @return 推荐的缓冲字节数
+ *
+ * 算法：
+ * 1. 记录最近 N 帧的间隔
+ * 2. 计算平均间隔和最大间隔
+ * 3. 动态缓冲 = 平均间隔 * 1.5（安全余量）
+ * 4. 限制在 MIN_BUFFER_FRAMES 到 MAX_BUFFER_FRAMES 之间
+ */
+static uint32_t update_dynamic_buffer(xz_tts_decoder_t decoder, uint32_t frame_interval_ms)
 {
-    /* 在独立线程中，可以使用栈缓冲区进行解码 */
-    int16_t pcm_buffer[MAX_PCM_SAMPLES];
-    int out_len = MAX_PCM_SAMPLES;
-
-    xz_opus_dec_result_e result = xz_opus_dec_decode(decoder->decoder,
-                                                      opus_data,
-                                                      len,
-                                                      pcm_buffer,
-                                                      &out_len);
-    if (result == XZ_OPUS_DECODE_OK) {
-        /* 将解码后的 PCM 数据送入播放器 */
-        xz_tts_player_write(decoder->player, pcm_buffer, out_len);
-    } else {
-        LISA_LOGE(TAG, "TTS decode failed: %d", result);
+    if (!decoder->dynamic_buffer_enabled) {
+        /* 禁用动态缓冲，返回默认 3 帧 */
+        return 3 * decoder->bytes_per_frame;
     }
+
+    /* 记录当前帧间隔 */
+    decoder->frame_intervals[decoder->interval_index] = frame_interval_ms;
+    decoder->interval_index = (decoder->interval_index + 1) % FRAME_INTERVAL_HISTORY_SIZE;
+    if (decoder->interval_count < FRAME_INTERVAL_HISTORY_SIZE) {
+        decoder->interval_count++;
+    }
+
+    /* 需要至少 3 帧历史才开始计算 */
+    if (decoder->interval_count < 3) {
+        return 3 * decoder->bytes_per_frame;  /* 初始使用 3 帧 */
+    }
+
+    /* 计算平均帧间隔 */
+    uint32_t sum = 0;
+    uint32_t max_interval = 0;
+    for (int i = 0; i < decoder->interval_count; i++) {
+        sum += decoder->frame_intervals[i];
+        if (decoder->frame_intervals[i] > max_interval) {
+            max_interval = decoder->frame_intervals[i];
+        }
+    }
+    uint32_t avg_interval = sum / decoder->interval_count;
+
+    /* 计算动态缓冲帧数：平均间隔 / 60ms * 安全余量 */
+    float buffer_frames_f = (avg_interval / 60.0f) * SAFETY_MARGIN_MULTIPLIER;
+    int buffer_frames = (int)buffer_frames_f;
+
+    /* 限制在合理范围内 */
+    if (buffer_frames < MIN_BUFFER_FRAMES) {
+        buffer_frames = MIN_BUFFER_FRAMES;
+    } else if (buffer_frames > MAX_BUFFER_FRAMES) {
+        buffer_frames = MAX_BUFFER_FRAMES;
+    }
+
+    /* 打印动态缓冲信息（仅在变化时） */
+    static int last_buffer_frames = -1;
+    if (buffer_frames != last_buffer_frames) {
+        LISA_LOGI(TAG, "Dynamic buffer: %d frames (avg_interval=%u ms, max=%u ms)",
+                 buffer_frames, avg_interval, max_interval);
+        last_buffer_frames = buffer_frames;
+    }
+
+    return buffer_frames * decoder->bytes_per_frame;
 }
 
 /** 工作线程主函数 */
@@ -336,8 +428,6 @@ static void tts_decoder_worker_task(void *arg)
     }
 
     LISA_LOGI(TAG, "TTS decoder worker thread started");
-
-    static int decode_count = 0;
 
     while (decoder->worker_running) {
         tts_opus_msg_t msg;
@@ -354,16 +444,138 @@ static void tts_decoder_worker_task(void *arg)
         /* 处理 flush 消息 */
         if (msg.is_flush) {
             LISA_LOGD(TAG, "Processing flush message");
+
+            /* 检查是否有第一帧缓存但未写入（TTS 只有 1 帧的情况）
+             * 如果有，需要强制写入播放器，否则用户听不到声音
+             */
+            if (decoder->frame_count == 1 && decoder->first_frame_samples > 0) {
+                LISA_LOGI(TAG, "TTS end with only 1 frame, writing cached frame to player");
+                xz_tts_player_write(decoder->player, decoder->first_frame_buffer,
+                                   decoder->first_frame_samples);
+                decoder->first_frame_samples = 0;  /* 清除缓存 */
+            }
+
             break;  /* 退出循环 */
         }
 
-        /* 处理 Opus 数据 */
-        process_opus_frame(decoder, msg.opus_data, msg.len);
+        /* 增加帧计数 */
+        decoder->frame_count++;
 
-        /* 调试输出 */
-        if (decode_count++ < 5) {
-            LISA_LOGI(TAG, "TTS decoded: %u bytes -> %d samples", msg.len,
-                     decoder->frame_size * decoder->channels);
+        /* 策略：第一帧解码但缓存，第二帧到达时才开始写入播放器
+         * 这样利用第二帧的网络延迟作为自然缓冲，避免固定延迟
+         */
+        if (decoder->frame_count == 1) {
+            /* 第一帧：解码并缓存 */
+            uint32_t frame1_start = lisa_os_get_tick_ms();
+            uint32_t frame1_latency = frame1_start - decoder->start_time_ms;
+
+            /* 记录第一帧到达时间（用于计算第二帧间隔） */
+            decoder->last_frame_time_ms = frame1_start;
+
+            int16_t pcm_buffer[MAX_PCM_SAMPLES];
+            int out_len = MAX_PCM_SAMPLES;
+
+            uint32_t decode_start = lisa_os_get_tick_ms();
+            xz_opus_dec_result_e result = xz_opus_dec_decode(decoder->decoder,
+                                                              msg.opus_data,
+                                                              msg.len,
+                                                              pcm_buffer,
+                                                              &out_len);
+            uint32_t decode_end = lisa_os_get_tick_ms();
+            uint32_t decode_time = decode_end - decode_start;
+
+            if (result == XZ_OPUS_DECODE_OK) {
+                /* 缓存第一帧 */
+                memcpy(decoder->first_frame_buffer, pcm_buffer, out_len * sizeof(int16_t));
+                decoder->first_frame_samples = out_len;
+
+                LISA_LOGI(TAG, "Frame 1: latency %u ms, decode %u ms, %d samples (cached, waiting for frame 2)",
+                         frame1_latency, decode_time, out_len);
+            } else {
+                LISA_LOGE(TAG, "Frame 1: Decode failed: %d", result);
+            }
+        } else if (decoder->frame_count == 2) {
+            /* 第二帧：先写入第一帧缓存，再解码并写入第二帧 */
+            uint32_t frame2_start = lisa_os_get_tick_ms();
+            uint32_t frame2_latency = frame2_start - decoder->start_time_ms;
+
+            /* 计算第一帧到第二帧的间隔 */
+            uint32_t frame_interval = frame2_start - decoder->last_frame_time_ms;
+
+            /* 根据帧间隔计算并更新动态缓冲阈值 */
+            uint32_t dynamic_threshold = update_dynamic_buffer(decoder, frame_interval);
+            xz_tts_player_set_buffer_threshold(decoder->player, dynamic_threshold);
+
+            /* 更新上一帧时间 */
+            decoder->last_frame_time_ms = frame2_start;
+
+            /* 写入第一帧缓存 */
+            if (decoder->first_frame_samples > 0) {
+                uint32_t write1_start = lisa_os_get_tick_ms();
+                xz_tts_player_write(decoder->player, decoder->first_frame_buffer,
+                                   decoder->first_frame_samples);
+                uint32_t write1_end = lisa_os_get_tick_ms();
+                uint32_t write1_latency = write1_end - decoder->start_time_ms;
+                LISA_LOGI(TAG, "Frame 1: written to player at %u ms", write1_latency);
+            }
+
+            /* 解码并写入第二帧 */
+            int16_t pcm_buffer[MAX_PCM_SAMPLES];
+            int out_len = MAX_PCM_SAMPLES;
+
+            uint32_t decode_start = lisa_os_get_tick_ms();
+            xz_opus_dec_result_e result = xz_opus_dec_decode(decoder->decoder,
+                                                              msg.opus_data,
+                                                              msg.len,
+                                                              pcm_buffer,
+                                                              &out_len);
+            uint32_t decode_end = lisa_os_get_tick_ms();
+            uint32_t decode_time = decode_end - decode_start;
+
+            if (result == XZ_OPUS_DECODE_OK) {
+                uint32_t write2_start = lisa_os_get_tick_ms();
+                xz_tts_player_write(decoder->player, pcm_buffer, out_len);
+                uint32_t write2_end = lisa_os_get_tick_ms();
+                uint32_t write2_latency = write2_end - decoder->start_time_ms;
+                LISA_LOGI(TAG, "Frame 2: latency %u ms, decode %u ms, written at %u ms, %d samples (playback started)",
+                         frame2_latency, decode_time, write2_latency, out_len);
+            } else {
+                LISA_LOGE(TAG, "Frame 2: Decode failed: %d", result);
+            }
+        } else {
+            /* 第三帧及后续：正常解码并写入，并打印时间戳 */
+            uint32_t frame_start = lisa_os_get_tick_ms();
+            uint32_t frame_latency = frame_start - decoder->start_time_ms;
+
+            /* 计算帧间隔并更新动态缓冲 */
+            uint32_t frame_interval = frame_start - decoder->last_frame_time_ms;
+            uint32_t dynamic_threshold = update_dynamic_buffer(decoder, frame_interval);
+            xz_tts_player_set_buffer_threshold(decoder->player, dynamic_threshold);
+            decoder->last_frame_time_ms = frame_start;
+
+            /* 解码 */
+            int16_t pcm_buffer[MAX_PCM_SAMPLES];
+            int out_len = MAX_PCM_SAMPLES;
+
+            uint32_t decode_start = lisa_os_get_tick_ms();
+            xz_opus_dec_result_e result = xz_opus_dec_decode(decoder->decoder,
+                                                              msg.opus_data,
+                                                              msg.len,
+                                                              pcm_buffer,
+                                                              &out_len);
+            uint32_t decode_end = lisa_os_get_tick_ms();
+            uint32_t decode_time = decode_end - decode_start;
+
+            if (result == XZ_OPUS_DECODE_OK) {
+                uint32_t write_start = lisa_os_get_tick_ms();
+                xz_tts_player_write(decoder->player, pcm_buffer, out_len);
+                uint32_t write_end = lisa_os_get_tick_ms();
+                uint32_t write_latency = write_end - decoder->start_time_ms;
+                LISA_LOGI(TAG, "Frame %d: latency %u ms, decode %u ms, written at %u ms, %d samples",
+                         decoder->frame_count, frame_latency, decode_time, write_latency, out_len);
+            } else {
+                LISA_LOGE(TAG, "Frame %d: Decode failed: %d", decoder->frame_count, result);
+            }
         }
     }
 
