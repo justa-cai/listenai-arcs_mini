@@ -19,6 +19,30 @@
 static bool s_disconnect_tone_played = false;
 static bool s_content_hold_for_tts = false;
 
+static uint32_t xorshift32(void)
+{
+    static uint32_t state = 0;
+    if (state == 0) {
+        state = lisa_rand32() | 1;
+    }
+    state ^= state << 13;
+    state ^= state >> 17;
+    state ^= state << 5;
+    return state;
+}
+
+/* 闹钟播放阶段管理 */
+typedef enum {
+    ALARM_PLAY_PHASE_TONE_FIRST = 0,  // 首次播放默认提示音
+    ALARM_PLAY_PHASE_TTS,              // 播放云端TTS
+    ALARM_PLAY_PHASE_TONE_LOOP,        // 循环播放默认提示音
+} alarm_play_phase_t;
+
+static struct {
+    alarm_play_phase_t phase;
+    char text[128];
+} s_alarm_play_ctx = {0};
+
 static char *voice_player_get_wakeup_tone_url(void)
 {
     static bool s_wakeup_tone_inited = false;
@@ -45,10 +69,13 @@ static char *voice_player_get_wakeup_tone_url(void)
 
     uint16_t tone_id = s_wakeup_tone_ids[0];
     if (s_wakeup_tone_cnt > 1) {
+        uint8_t attempts = 0;
         do {
-            tone_id = s_wakeup_tone_ids[lisa_rand32() % s_wakeup_tone_cnt];
-        } while (s_last_wakeup_tone_valid && tone_id == s_last_wakeup_tone_id);
+            tone_id = s_wakeup_tone_ids[xorshift32() % s_wakeup_tone_cnt];
+        } while (s_last_wakeup_tone_valid && tone_id == s_last_wakeup_tone_id && ++attempts < 8);
     }
+
+    LOGI("Selected wakeup tone id: %u", tone_id);
 
     char *tone_url = app_tone_get_url(tone_id);
     if (tone_url == NULL) {
