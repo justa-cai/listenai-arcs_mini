@@ -32,6 +32,7 @@
 #include "IOMuxManager.h"
 #include "Driver_GPIO.h"
 #include "pinmux.h"
+#include "lcd_logo.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -198,6 +199,9 @@ int main(int argc, char **argv)
     lisa_bluetooth_init();
 
     LISA_LOGI(LOG_TAG, "BLE Stack Initialized");
+
+    // 初始化 LCD 并显示 Logo
+    lcd_show_logo();
 
     // Start Advertising
     app_ble_adv_start(0, BLE_ADV_GEN);
