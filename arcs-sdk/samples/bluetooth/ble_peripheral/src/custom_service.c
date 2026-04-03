@@ -18,6 +18,8 @@
 
 #include "custom_service.h"
 #include "ble_gatt.h"
+#include "hogpd_msg.h"
+#include "hogpd.h"
 #include <string.h>
 
 #define LOG_TAG "custom_svc"
@@ -30,6 +32,157 @@
 #define CUSTOM_CHAR_NOTIFY_UUID      0x1237
 #define CUSTOM_CHAR_READ_WRITE_UUID  0x1238
 #define CUSTOM_CHAR_SEC_READ_UUID    0x1239
+
+// HID Report Map（完整版本，包含所有报告）
+static const uint8_t hid_report_map[] = {
+    // Keyboard
+    0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
+    0x09, 0x06,                    // USAGE (Keyboard)
+    0xa1, 0x01,                    // COLLECTION (Application)
+
+    0x85, HIDS_KB_REPORT_ID,       //   REPORT_ID (Keyboard)
+    0x05, 0x07,                    //   USAGE_PAGE (Keyboard)
+    0x19, 0x4b,                    //   USAGE_MINIMUM (Keyboard PageUp)
+    0x29, 0x52,                    //   USAGE_MAXIMUM (Keyboard UpArrow)
+    0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
+    0x25, 0x01,                    //   LOGICAL_MAXIMUM (1)
+    0x75, 0x01,                    //   REPORT_SIZE (1)
+    0x95, 0x08,                    //   REPORT_COUNT (8)
+    0x81, 0x02,                    //   INPUT (Data,Var,Abs)
+
+    0x95, 0x01,                    //   REPORT_COUNT (1)
+    0x75, 0x08,                    //   REPORT_SIZE (8)
+    0x81, 0x03,                    //   INPUT (Cnst,Var,Abs)
+
+    0x95, 0x05,                    //   REPORT_COUNT (5)
+    0x75, 0x01,                    //   REPORT_SIZE (1)
+    0x05, 0x08,                    //   USAGE_PAGE (LEDs)
+    0x19, 0x01,                    //   USAGE_MINIMUM (Num Lock)
+    0x29, 0x05,                    //   USAGE_MAXIMUM (Kana)
+    0x91, 0x02,                    //   OUTPUT (Data,Var,Abs)
+
+    0x95, 0x01,                    //   REPORT_COUNT (1)
+    0x75, 0x03,                    //   REPORT_SIZE (3)
+    0x91, 0x03,                    //   OUTPUT (Cnst,Var,Abs)
+
+    0x95, 0x6,                     //   REPORT_COUNT (6)
+    0x75, 0x08,                    //   REPORT_SIZE (8)
+    0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
+    0x25, 0xff,                    //   LOGICAL_MAXIMUM (101)
+    0x05, 0x07,                    //   USAGE_PAGE (Keyboard)
+    0x19, 0x00,                    //   USAGE_MINIMUM (Reserved (no event indicated))
+    0x29, 0xff,                    //   USAGE_MAXIMUM (Keyboard Application)
+    0x81, 0x00,                    //   INPUT (Data,Ary,Abs)
+    0xc0,                          //   END_COLLECTION
+
+    // Mouse
+    0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
+    0x09, 0x02,                    // USAGE (Mouse)
+    0xa1, 0x01,                    // COLLECTION (Application)
+
+    0x85, HIDS_MOUSE_REPORT_ID,    //   REPORT_ID (Mouse)
+    0x09, 0x01,                    //   USAGE_PAGE (Pointer)
+    0xa1, 0x00,                    //   COLLECTION (PHYSICAL)
+    0x05, 0x09,                    //   USAGE_PAGE (BUTTON)
+    0x19, 0x01,                    //   USAGE_MINIMUM (1)
+    0x29, 0x05,                    //   USAGE_MAXIMUM (5)
+    0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
+    0x25, 0x01,                    //   LOGICAL_MAXIMUM (1)
+    0x95, 0x05,                    //   REPORT_COUNT (5)
+    0x75, 0x01,                    //   REPORT_SIZE (1)
+    0x81, 0x02,                    //   INPUT (Data,Var,Abs)
+    0x95, 0x01,                    //   REPORT_COUNT (1)
+    0x75, 0x03,                    //   REPORT_SIZE (3)
+    0x81, 0x01,                    //   INPUT (CONSTANT); 3 bit padding
+    0x05, 0x01,                    //   USAGE_PAGE (Generic Desktop)
+    0x09, 0x30,                    //   USAGE (X)
+    0x09, 0x31,                    //   USAGE (Y)
+    0x09, 0x38,                    //   USAGE (Wheel)
+    0x15, 0x81,                    //   LOGICAL_MINIMUM (-127)
+    0x25, 0x7f,                    //   LOGICAL_MAXIMUM (127)
+    0x75, 0x08,                    //   REPORT_SIZE (8)
+    0x95, 0x03,                    //   REPORT_SIZE (3)
+    0x81, 0x06,                    //   INPUT (Data,Var,Rel); 3 position bytes(X,Y,Wheel)
+    0xc0,                          // END_COLLECTION
+    0xc0,                          // END_COLLECTION
+
+    // Media Consumer Control
+    0x05, 0x0C,                    // USAGE_PAGE (Consumer Devices)
+    0x09, 0x01,                    // USAGE (Consumer Control)
+    0xA1, 0x01,                    // COLLECTION (Application)
+    0x85, HIDS_MEDIA_REPORT_ID,    // REPORT_ID (3)
+    0x19, 0x00,                    // USAGE_MINIMUM (0x00)
+    0x2A, 0x9C, 0x02,              // USAGE_MAXIMUM (0x029C)
+    0x15, 0x00,                    // LOGICAL_MINIMUM (0x00)
+    0x26, 0x9C, 0x02,              // LOGICAL_MAXIMUM (0x029C)
+    0x95, 0x01,                    // REPORT_COUNT (1)
+    0x75, 0x10,                    // REPORT_SIZE (0x10)
+    0x81, 0x00,                    // INPUT (Data,Ary,Abs)
+    0xC0,                          // END_COLLECTION
+
+    // Voice data report
+    0x05, 0x0C,                    // Usage Page (Consumer Devices)
+    0x09, 0x01,                    // Usage (Consumer Control)
+    0xA1, 0x01,                    // Collection (Application)
+    0x85, HIDS_VOICE_DATA_IN_REPORT_ID,  // Report ID=0xFC
+    0x95, 0xff,                    // REPORT_COUNT (255)
+    0x75, 0x08,                    // REPORT_SIZE (8)
+    0x15, 0x00,                    // LOGICAL_MINIMUM (0)
+    0x26, 0xFF, 0x00,              // LOGICAL_MAXIMUM (255)
+    0x81, 0x00,                    // INPUT (Data,Ary,Abs)
+    0xC0,                          // END_COLLECTION
+
+    // GDE ACK in
+    0x05, 0x0C,                    // Usage Page (Consumer Devices)
+    0x09, 0x01,                    // Usage (Consumer Control)
+    0xA1, 0x01,                    // Collection (Application)
+    0x85, HIDS_GDE_ACK_IN_REPORT_ID,   // Report ID=0xF8
+    0x95, 0xff,                    // REPORT_COUNT (255)
+    0x75, 0x08,                    // REPORT_SIZE (8)
+    0x15, 0x00,                    // LOGICAL_MINIMUM (0)
+    0x26, 0xFF, 0x00,              // LOGICAL_MAXIMUM (255)
+    0x81, 0x00,                    // INPUT (Data,Ary,Abs)
+    0xC0,                          // END_COLLECTION
+
+    // GDE Feedback
+    0x05, 0x0C,                    // Usage Page (Consumer Devices)
+    0x09, 0x01,                    // Usage (Consumer Control)
+    0xA1, 0x01,                    // Collection (Application)
+    0x85, HIDS_GDE_FEEDBACK_IN_REPORT_ID,  // Report ID=0xF9
+    0x95, 0xff,                    // REPORT_COUNT (255)
+    0x75, 0x08,                    // REPORT_SIZE (8)
+    0x15, 0x00,                    // LOGICAL_MINIMUM (0)
+    0x26, 0xFF, 0x00,              // LOGICAL_MAXIMUM (255)
+    0x81, 0x00,                    // INPUT (Data,Ary,Abs)
+    0xC0,                          // END_COLLECTION
+};
+
+// HOGPD 回调函数
+static void ble_hid_read_cmp(uint32_t token, uint8_t val_id)
+{
+    LISA_LOGI(LOG_TAG, "HID read complete, val_id=%d", val_id);
+}
+
+static void ble_hid_send_cmp(uint32_t token, uint8_t val_id)
+{
+    LISA_LOGI(LOG_TAG, "HID send complete, val_id=%d", val_id);
+}
+
+static void ble_hid_rcv(uint8_t conidx, uint16_t index, uint16_t length,
+                        uint16_t offset, uint8_t *data)
+{
+    LISA_LOGI(LOG_TAG, "HID received: idx=%d, len=%d", index, length);
+}
+
+// HOGPD 回调结构定义
+const hogpd_cb_t ble_hogpd_cb = {
+    .cb_read_cmp = ble_hid_read_cmp,
+    .cb_notify_cmp = ble_hid_send_cmp,
+    .cb_write_cmp = NULL,
+    .cb_read_ind = NULL,
+    .cb_notify_ind = NULL,
+    .cb_write_ind = ble_hid_rcv,
+};
 
 /**
  * @brief 属性数据库索引枚举
@@ -204,16 +357,35 @@ static const ble_gatt_srv_cb_t custom_cb = {
  */
 void app_ble_init_cmp(void)
 {
-    LISA_LOGI(LOG_TAG, "Initializing Custom Service");
-    
+    LISA_LOGI(LOG_TAG, "Initializing BLE Services");
+
     // 1. 注册 GATT 用户回调
     // pref_mtu: 512, prio: 0
     ble_gatt_user_register(512, 0, &custom_cb, &custom_user_lid);
-    
-    // 2. 添加服务
+
+    // 2. 添加自定义服务
     // uuid: 0x1234 (CUSTOM_SVC_UUID)
     // nb_att: IDX_NB (属性数量)
     ble_gatt_db_svc16_add(custom_user_lid, 0, CUSTOM_SVC_UUID, IDX_NB, NULL, custom_att_db, IDX_NB, &custom_start_hdl);
-    
+
     LISA_LOGI(LOG_TAG, "Custom Service added, start_hdl=%d", custom_start_hdl);
+
+    // 3. 初始化 HOGP HID 服务
+    uint8_t svc_features = HOGPD_CFG_KEYBOARD | HOGPD_CFG_MOUSE |
+                          HOGPD_CFG_PROTO_MODE | HOGPD_CFG_REPORT_NTF_EN;
+    uint8_t report_char_cfg = HOGPD_CFG_REPORT_IN;
+    hogpd_report_map_t report_map = {
+        .size = sizeof(hid_report_map),
+        .remain_size = 0,
+        .rep_map = (uint8_t *)hid_report_map
+    };
+
+    uint16_t ret = ble_hogpd_init(svc_features, report_char_cfg,
+                                  (hogpd_cb_t *)&ble_hogpd_cb, &report_map);
+    if (ret == 0) {
+        LISA_LOGI(LOG_TAG, "HOGPD service initialized");
+        // 不在这里启用，等待连接建立后再启用
+    } else {
+        LISA_LOGE(LOG_TAG, "Failed to init HOGPD: 0x%x", ret);
+    }
 }

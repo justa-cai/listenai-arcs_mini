@@ -27,6 +27,11 @@
 #include "nvs.h"
 #include "lisa_bluetooth.h"
 #include "bt_app_if.h"
+#include "hogpd_msg.h"
+#include "hogpd.h"
+#include "IOMuxManager.h"
+#include "Driver_GPIO.h"
+#include "pinmux.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -66,6 +71,8 @@ static int arcs_nvs_init(void)
 static const uint8_t user_adv_data[] = {
     // Flags
     0x02, 0x01, 0x06,
+    // Complete List of 16-bit Service UUIDs: HID (0x1812)
+    0x03, 0x03, 0x12, 0x18,
     // Complete Local Name: "LISA_BLE"
     0x09, 0x09, 'L', 'I', 'S', 'A', '_', 'B', 'L', 'E',
 };
@@ -102,15 +109,90 @@ void lisa_bt_gap_config(ble_gap_cfg_t *cfg)
     memcpy(cfg->name, name, cfg->name_len);
 }
 
+// HOGPD 回调结构（在 custom_service.c 中定义）
+extern const hogpd_cb_t ble_hogpd_cb;
+
+static void *gpio_handler = NULL;
+static volatile bool button_pressed = false;
+static bool hogpd_enabled = false;
+static uint8_t last_connected_state = 0;
+
+// GPIO 中断回调
+static void gpio_button_callback(uint32_t event, void *workspace)
+{
+    if (event & (1 << POWER_KEY_PIN)) {
+        LISA_LOGI(LOG_TAG, "Button pressed!");
+        button_pressed = true;
+        // 禁用中断防止抖动
+        GPIO_Control(gpio_handler, CSK_GPIO_INTR_DISABLE, (1 << POWER_KEY_PIN));
+    }
+}
+
+// 初始化 GPIO
+static void gpio_button_init(void)
+{
+    // 配置引脚复用
+    lisa_gpiob_pinmux();
+
+    // 获取 GPIO 句柄
+    gpio_handler = GPIOB();
+
+    // 初始化 GPIO
+    GPIO_Initialize(gpio_handler, gpio_button_callback, NULL);
+
+    // 设置为输入
+    GPIO_SetDir(gpio_handler, (1 << POWER_KEY_PIN), CSK_GPIO_DIR_INPUT);
+
+    // 配置下降沿触发中断（按键按下）
+    GPIO_Control(gpio_handler,
+        CSK_GPIO_DEBOUNCE_DISABLE |
+        CSK_GPIO_SET_INTR_NEGATIVE_EDGE |
+        CSK_GPIO_INTR_ENABLE, (1 << POWER_KEY_PIN));
+
+    LISA_LOGI(LOG_TAG, "GPIO button initialized (PB%d)", POWER_KEY_PIN);
+}
+
+// 发送"下一首"媒体按键
+static void send_media_next_track(void)
+{
+    // 媒体控制 HID 报告格式：
+    // Report ID: 0x03, Report Index: HIDS_MEDIA_INDEX (2)
+    // Scan Next Track: Usage ID 0x00B5 (小端序: 0xB5, 0x00)
+
+    // 发送"按下"报告
+    uint8_t media_report_press[] = {0xB5, 0x00};
+    int ret = ble_hogpd_report_upd(0, HIDS_MEDIA_INDEX, sizeof(media_report_press), media_report_press);
+    if (ret == 0) {
+        LISA_LOGI(LOG_TAG, "Media press sent: 0x%02X%02X", media_report_press[0], media_report_press[1]);
+    } else {
+        LISA_LOGE(LOG_TAG, "Failed to send media press: %d", ret);
+        return;
+    }
+
+    // 短暂延迟后发送"抬起"报告
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    uint8_t media_report_release[] = {0x00, 0x00};
+    ret = ble_hogpd_report_upd(0, HIDS_MEDIA_INDEX, sizeof(media_report_release), media_report_release);
+    if (ret == 0) {
+        LISA_LOGI(LOG_TAG, "Media release sent");
+    } else {
+        LISA_LOGE(LOG_TAG, "Failed to send media release: %d", ret);
+    }
+}
+
 int main(int argc, char **argv)
 {
-    LISA_LOGI(LOG_TAG, "=== BLE Peripheral Example ===");
+    LISA_LOGI(LOG_TAG, "=== BLE Peripheral with HID Keyboard ===");
 
     arcs_nvs_init();
 
     // 射频校准
     ls_rf_probe();
     ls_rf_cali_proc();
+
+    // 初始化 GPIO
+    gpio_button_init();
 
     // BLE 初始化
     lisa_bluetooth_init();
@@ -120,8 +202,37 @@ int main(int argc, char **argv)
     // Start Advertising
     app_ble_adv_start(0, BLE_ADV_GEN);
 
+    LISA_LOGI(LOG_TAG, "Press POWER_KEY (PB4) to send 'Next Track' media key");
+
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        // 检查连接状态
+        uint8_t connected = app_ble_connected_state(0);
+        if (connected && !hogpd_enabled && connected != last_connected_state) {
+            // 连接建立，启用 HOGPD 服务和连接参数更新
+            LISA_LOGI(LOG_TAG, "BLE connected, enabling HOGPD service");
+            ble_hogpd_enable(0);
+            ble_gap_set_con_param_dis(0);  // 启用连接参数更新，解决连接超时问题
+            hogpd_enabled = true;
+        }
+        last_connected_state = connected;
+
+        if (button_pressed) {
+            button_pressed = false;
+
+            // 检查是否已连接
+            if (hogpd_enabled) {
+                // 发送媒体按键
+                send_media_next_track();
+            } else {
+                LISA_LOGW(LOG_TAG, "BLE not connected, ignoring button");
+            }
+
+            // 短暂延迟后重新启用中断
+            vTaskDelay(pdMS_TO_TICKS(200));
+            GPIO_Control(gpio_handler, CSK_GPIO_INTR_ENABLE, (1 << POWER_KEY_PIN));
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     return 0;
