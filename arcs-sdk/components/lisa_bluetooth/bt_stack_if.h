@@ -58,7 +58,7 @@
 //for the LE link. The Supervision_Timeout in milliseconds shall be larger than (1
 //+ Connection_Latency) * Connection_Interval_Max * 2, where
 //Connection_Interval_Max is given in milliseconds.
-#define BLE_CON_LATENCY              99
+#define BLE_CON_LATENCY              0
 #define BLE_CON_INTERVAL_MIN         8
 #define BLE_CON_INTERVAL_MAX         8
 #define BLE_CON_SUPERVISION_TIMEOUT  500
