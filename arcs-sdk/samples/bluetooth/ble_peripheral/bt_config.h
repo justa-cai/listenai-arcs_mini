@@ -4,6 +4,9 @@
 //# bt ip config
 //#
 
+//# Enable BLE NVDS support for persistent pairing information
+#define CFG_NVS 1
+
 //# Top level product configuration
 
 //# controller

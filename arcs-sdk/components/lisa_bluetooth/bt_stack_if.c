@@ -248,7 +248,14 @@ static void bt_stack_reset_cmp(uint16_t status)
     bt_stack_ble_add_paired_to_wlist();
     #endif
     #if RESOVLE_LIST_ADD
+    LISA_LOGI(TAG, "Startup: calling ble_gap_add_paired_rpa_to_rlist");
     ble_gap_add_paired_rpa_to_rlist();
+    LISA_LOGI(TAG, "Startup: querying RAL list size");
+    ble_gap_get_dev_info(GAP_INFO_RAL_LIST_SIZE);
+    // 等待一小段时间让 RAL 设置生效
+    vTaskDelay(pdMS_TO_TICKS(100));
+    // 再次查询 RAL 状态
+    ble_gap_get_dev_info(GAP_INFO_RAL_LIST_SIZE);
     #endif
 #endif
 

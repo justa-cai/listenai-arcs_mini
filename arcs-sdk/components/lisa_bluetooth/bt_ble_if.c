@@ -46,13 +46,32 @@
 extern uint16_t dis_profile_get_cb(uint8_t conidx, uint8_t att_idx, uint8_t *p_value, uint16_t max_len, uint16_t *ret_len);
 extern uint8_t app_ble_adv_start(uint8_t adv_id, uint8_t adv_type);
 extern uint8_t bt_stack_nvs_get(uint8_t param_id, uint8_t * lengthPtr, uint8_t *buf);
+extern uint8_t bt_stack_nvs_set(uint8_t param_id, uint8_t length, uint8_t *buf);
 extern uint8_t bt_stack_nvs_del(uint8_t param_id);
+
+// 自定义 NVS ID 用于存储 Peer IRK (使用应用特定槽位)
+#define NVS_ID_PEER_IRK_BASE    0xA0   // 起始槽位
+#define NVS_ID_PEER_IRK_MAX     8      // 最多8个设备
 extern void gapc_con_param_clear_peer_feat(uint8_t conidx);
 extern uint8_t ble_gap_get_ltk_nocon(gap_addr_t * addr, uint8_t *p_ltk);
 extern uint8_t app_hid_rcv_data(uint8_t conidx, uint16_t index, uint16_t length, uint16_t offset, uint8_t *data);
 extern uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op, uint8_t *p_value);
 
+// RPA 解析列表相关函数声明 (从预编译库反编译分析得出)
+extern uint8_t ble_gap_get_paired_ral_info(void *ral_list, uint8_t max_count);
+extern void ble_gap_ral_list_set(uint8_t count, void *ral_list);
+
+// RAL 设备结构 (40 字节) - 基于反编译分析
+typedef struct {
+    uint8_t addr[6];          // 6 字节 - BD Address
+    uint8_t addr_type;        // 1 字节 - 地址类型 (0=public, 1=random)
+    uint8_t peer_irk[16];     // 16 字节 - Peer IRK
+    uint8_t local_irk[16];    // 16 字节 - Local IRK
+    uint8_t privacy_mode;     // 1 字节 - 隐私模式
+} gap_ral_dev_t;
+
 void bt_stack_ble_hid_rcv(uint8_t conidx, uint16_t index, uint16_t length, uint16_t offset, uint8_t *data);
+static void bt_stack_ble_add_paired_to_ralist(void);
 static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id);
 static void  bt_stack_ble_hid_read_cmp(uint32_t token, uint8_t val_id);
 uint8_t *bt_stack_vbat_percent_get(void);
@@ -366,34 +385,45 @@ void bt_stack_ble_bond_ind(uint8_t conidx, uint16_t status)
         if(conidx & GAP_ENCRYPT_REQ)
         {
             LISA_LOGI(TAG, "encrtpt request: %d", status);
-            if(1 == status) 
+            if(1 == status)
             {
+                // 加密请求失败 - LTK 不匹配或 RPA 无法解析
+                // 尝试触发重新配对流程
+                LISA_LOGW(TAG, "Encryption request failed, triggering re-pair");
+                ble_gap_auth_req(conidx & 0x7F, GAP_SEC_UNAUTH);
             }
-            else if(0 == status) 
+            else if(0 == status)
             {
                 stack_env->bt_ble_encryption = 1;
             }
         }
         else/// bond indicate
         {
-            if(0 == status) 
+            if(0 == status)
             {
 #if WHITE_LIST_ADD
                 bt_stack_ble_add_paired_to_wlist();
 #endif
 #if RESOVLE_LIST_ADD
+                LISA_LOGI(TAG, "Pairing success, updating RAL");
+                // 获取对端 BD 地址信息
+                ble_gap_get_con_info(conidx & 0x7F, GAP_INFO_BDADDR);
+                // 尝试使用显式 RAL API
+                bt_stack_ble_add_paired_to_ralist();
+                // 也调用原有的函数
                 ble_gap_add_paired_rpa_to_rlist();
+                // 查询 RAL 状态
+                ble_gap_get_dev_info(GAP_INFO_RAL_LIST_SIZE);
 #endif
                 stack_env->bt_ble_encryption = 1;
-            } 
-            else if(1 == status) 
+            }
+            else if(1 == status)
             {
-            #if (BT_STACK_NVDS_SUPPORT)
-                ble_gap_delete_bond(NULL);  //clear all
-                bt_stack_nvs_del(NVS_ID_PEER_ADDRESS);
-                LISA_LOGI(TAG, "user dis: 0x18");
-                ble_gap_disconnect(0, 0x18);
-            #endif
+                // 配对请求 - 需要显式触发认证流程
+                LISA_LOGI(TAG, "Pairing request (status=1, condix=0), triggering auth");
+                // 提取实际连接索引（bits 0-6）并触发配对
+                // GAP_SEC_UNAUTH = 1 (无认证配对，Just Works 模式)
+                ble_gap_auth_req(conidx & 0x7F, GAP_SEC_UNAUTH);
             }
         }
 
@@ -436,6 +466,26 @@ void bt_stack_ble_info_ind(uint8_t conidx, uint8_t type, ble_info_data_t *data)
             ble_gap_set_phy(conidx, BLE_CON_PHY, BLE_CON_PHY, 0);
         }
     }
+#if RESOVLE_LIST_ADD
+    else if(type == GAP_INFO_RAL_LIST_SIZE)
+    {
+        LISA_LOGI(TAG, "RAL list size: operation=%d, size=%d", data->operation, data->size);
+    }
+    else if(type == GAP_INFO_WHITE_LIST_SIZE)
+    {
+        LISA_LOGI(TAG, "White list size: operation=%d, size=%d", data->operation, data->size);
+    }
+    else if(type == GAP_INFO_BDADDR)
+    {
+        // 获取对端地址 - 这可能是 RPA 或身份地址
+        LISA_LOGI(TAG, "Peer BD addr: %02X:%02X:%02X:%02X:%02X:%02X, type=%d",
+            data->addr.addr[5], data->addr.addr[4], data->addr.addr[3],
+            data->addr.addr[2], data->addr.addr[1], data->addr.addr[0],
+            data->addr.addr_type);
+        // 保存对端地址到 NVS（覆盖之前的 RPA）
+        bt_stack_nvs_set(NVS_ID_PEER_ADDRESS, GAP_BD_ADDR_LEN, data->addr.addr);
+    }
+#endif
 }
 
 void bt_stack_ble_adv_report_ind(uint8_t flag, gap_bdaddr_t *peer_addr, int8_t rssi, uint8_t len, uint8_t *data)
@@ -679,6 +729,229 @@ void bt_stack_ble_add_paired_to_wlist(void)
     }
 #endif
 }
+
+#if RESOVLE_LIST_ADD
+
+// 读取并显示存储在自定义 NVS 槽位中的 Peer IRK
+// 用于验证数据稳定性和调试
+static void bt_stack_read_stored_peer_irk(void)
+{
+    LISA_LOGI(TAG, "Reading stored Peer IRK from custom NVS slots");
+
+    for (uint8_t i = 0; i < NVS_ID_PEER_IRK_MAX; i++) {
+        uint8_t nvs_id = NVS_ID_PEER_IRK_BASE + i;
+        uint8_t peer_irk_data[23];  // 6字节地址 + 1字节类型 + 16字节IRK = 23字节
+        uint8_t len = sizeof(peer_irk_data);
+
+        if (bt_stack_nvs_get(nvs_id, &len, peer_irk_data) == 0 && len == sizeof(peer_irk_data)) {
+            uint8_t *addr = &peer_irk_data[0];
+            uint8_t addr_type = peer_irk_data[6];
+            uint8_t *irk = &peer_irk_data[7];
+
+            // 检查 IRK 是否全零
+            bool has_data = false;
+            for (uint8_t j = 0; j < 16; j++) {
+                if (irk[j] != 0) { has_data = true; break; }
+            }
+
+            LISA_LOGI(TAG, "  NVS[0x%02X]: addr=%02X:%02X:%02X:%02X:%02X:%02X, type=%d, IRK=%02X%02X%02X%02X...%02X%02X%02X%02X %s",
+                nvs_id,
+                addr[5], addr[4], addr[3], addr[2], addr[1], addr[0],
+                addr_type,
+                irk[0], irk[1], irk[2], irk[3],
+                irk[12], irk[13], irk[14], irk[15],
+                has_data ? "(valid)" : "(zero)");
+        }
+    }
+}
+
+// 使用 RAL API 手动设置解析列表
+static void bt_stack_ble_add_paired_to_ralist(void)
+{
+    // 首先读取之前存储的 Peer IRK，用于对比
+    bt_stack_read_stored_peer_irk();
+
+    gap_bdaddr_t paired_addr[NVS_COUNT_LTK] = {0};
+    gap_ral_dev_t ral_devs[NVS_COUNT_LTK] = {0};
+    uint8_t paired_num = 0;
+    uint8_t local_irk[16] = {0};
+    uint8_t irk_len = 16;
+
+    LISA_LOGI(TAG, "Getting paired device addresses and RAL info from NVS");
+
+    // 获取配对设备的地址
+    paired_num = ble_gap_get_paired_addr(paired_addr);
+    LISA_LOGI(TAG, "Got %d paired devices", paired_num);
+
+    // 打印配对设备地址
+    for (uint8_t i = 0; i < paired_num; i++) {
+        LISA_LOGI(TAG, "Paired[%d]: addr=%02X:%02X:%02X:%02X:%02X:%02X, type=%d",
+            i,
+            paired_addr[i].addr[5], paired_addr[i].addr[4], paired_addr[i].addr[3],
+            paired_addr[i].addr[2], paired_addr[i].addr[1], paired_addr[i].addr[0],
+            paired_addr[i].addr_type);
+    }
+
+    // 获取本地 IRK
+    bt_stack_nvs_get(NVS_ID_LOC_IRK, &irk_len, local_irk);
+
+    // ✅ 新方案：直接从 LTK 数据中提取 Peer IRK！
+    // LTK 结构 (36 bytes):
+    //   Offset 0-5:   BD Address (reversed)
+    //   Offset 6:     Address type/flags
+    //   Offset 7-22:  LTK (16 bytes)
+    //   Offset 23-30: RAND or Peer IRK part 1?
+    //   Offset 31-32: EDIV
+    //   Offset 33-35: Padding/Peer IRK part 2?
+    //
+    // 实际发现：bytes 20-35 看起来像是 Peer IRK！
+    // 让我们尝试从不同的偏移量提取 Peer IRK
+
+    uint8_t extracted_peer_irk[NVS_COUNT_LTK][16] = {0};
+    bool has_valid_peer_irk[NVS_COUNT_LTK] = {false};
+
+    for (uint8_t i = 0; i < paired_num && i < 3; i++) {
+        uint8_t ltk_data[36] = {0};
+        uint8_t ltk_len = 36;
+        uint8_t nvs_id = NVS_ID_LTK_FIRST + i;
+
+        if (bt_stack_nvs_get(nvs_id, &ltk_len, ltk_data) == 0) {
+            LISA_LOGI(TAG, "LTK[%d] (NVS ID=0x%02X) raw dump:", i, nvs_id);
+            // 完整打印 36 字节，分析结构
+            LISA_LOGI(TAG, "  %02X %02X %02X %02X %02X %02X | %02X | %02X %02X %02X %02X %02X %02X %02X %02X",
+                ltk_data[0], ltk_data[1], ltk_data[2], ltk_data[3], ltk_data[4], ltk_data[5],
+                ltk_data[6],
+                ltk_data[7], ltk_data[8], ltk_data[9], ltk_data[10], ltk_data[11], ltk_data[12], ltk_data[13], ltk_data[14]);
+            LISA_LOGI(TAG, "  %02X %02X %02X %02X %02X %02X %02X %02X | %02X %02X %02X %02X | %02X %02X %02X %02X | %02X %02X %02X",
+                ltk_data[15], ltk_data[16], ltk_data[17], ltk_data[18], ltk_data[19], ltk_data[20], ltk_data[21], ltk_data[22],
+                ltk_data[23], ltk_data[24], ltk_data[25], ltk_data[26],
+                ltk_data[27], ltk_data[28], ltk_data[29], ltk_data[30],
+                ltk_data[31], ltk_data[32], ltk_data[33], ltk_data[34], ltk_data[35]);
+            LISA_LOGI(TAG, "  Off: 0-5=Addr(rev), 6=Type, 7-22=LTK?, 23-26=?, 27-30=?, 31-34=?, 35=?");
+
+            // 地址是否为 RPA？检查前2位的高位比特
+            // RPA: top 2 bits = 0x40 (0100xxxx)
+            bool is_rpa = (ltk_data[5] & 0xC0) == 0x40;
+            LISA_LOGI(TAG, "  Address type: %s (byte[5]=0x%02X)", is_rpa ? "RPA" : "Static/Public", ltk_data[5]);
+
+            // 尝试多种 Peer IRK 位置
+            // 位置 1: bytes 20-35 (16字节)
+            memcpy(extracted_peer_irk[i], &ltk_data[20], 16);
+            bool irk_valid_1 = false;
+            for (uint8_t j = 0; j < 16; j++) {
+                if (extracted_peer_irk[i][j] != 0) { irk_valid_1 = true; break; }
+            }
+
+            // 位置 2: bytes 23-35 (13字节) - 不够16字节
+            // 位置 3: 检查 bytes 7-22 (LTK) 的熵值
+
+            has_valid_peer_irk[i] = irk_valid_1;
+
+            LISA_LOGI(TAG, "  Peer IRK candidate @ 20-35: %02X%02X%02X%02X...%02X%02X%02X%02X (valid:%d)",
+                extracted_peer_irk[i][0], extracted_peer_irk[i][1], extracted_peer_irk[i][2], extracted_peer_irk[i][3],
+                extracted_peer_irk[i][12], extracted_peer_irk[i][13], extracted_peer_irk[i][14], extracted_peer_irk[i][15],
+                irk_valid_1);
+
+            // 🔥 与之前存储的 Peer IRK 进行对比，验证稳定性
+            uint8_t nvs_id = NVS_ID_PEER_IRK_BASE + i;
+            uint8_t stored_data[23];  // 6字节地址 + 1字节类型 + 16字节IRK = 23字节
+            uint8_t stored_len = sizeof(stored_data);
+            if (bt_stack_nvs_get(nvs_id, &stored_len, stored_data) == 0 && stored_len == sizeof(stored_data)) {
+                uint8_t *stored_irk = &stored_data[7];
+                bool match = true;
+                for (uint8_t j = 0; j < 16; j++) {
+                    if (extracted_peer_irk[i][j] != stored_irk[j]) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    LISA_LOGI(TAG, "  ✅ Peer IRK matches stored value (stable across reboots)");
+                } else {
+                    LISA_LOGW(TAG, "  ⚠️ Peer IRK differs from stored value (data changed!)");
+                    LISA_LOGI(TAG, "     Stored: %02X%02X%02X%02X...%02X%02X%02X%02X",
+                        stored_irk[0], stored_irk[1], stored_irk[2], stored_irk[3],
+                        stored_irk[12], stored_irk[13], stored_irk[14], stored_irk[15]);
+                }
+            } else {
+                LISA_LOGI(TAG, "  No previously stored Peer IRK found (first pairing?)");
+            }
+        }
+    }
+
+    // 🔥 存储提取的 Peer IRK 到自定义 NVS 槽位
+    // 这样可以在重启后恢复，即使 LTK 数据发生变化也能保持稳定
+    LISA_LOGI(TAG, "Storing extracted Peer IRK to custom NVS slots");
+    for (uint8_t i = 0; i < paired_num && i < NVS_ID_PEER_IRK_MAX; i++) {
+        uint8_t nvs_id = NVS_ID_PEER_IRK_BASE + i;
+        uint8_t peer_irk_data[23];  // 6字节地址 + 1字节类型 + 16字节IRK = 23字节
+
+        // 复制地址和 IRK 到存储结构
+        memcpy(peer_irk_data, paired_addr[i].addr, 6);
+        peer_irk_data[6] = paired_addr[i].addr_type;
+        memcpy(&peer_irk_data[7], extracted_peer_irk[i], 16);
+
+        // 存储到 NVS
+        uint8_t ret = bt_stack_nvs_set(nvs_id, sizeof(peer_irk_data), peer_irk_data);
+        if (ret == 0) {
+            LISA_LOGI(TAG, "  Stored Peer IRK[%d] to NVS ID=0x%02X: addr=%02X:%02X:...%02X, IRK=%02X%02X...%02X%02X",
+                i, nvs_id,
+                paired_addr[i].addr[5], paired_addr[i].addr[4], paired_addr[i].addr[0],
+                extracted_peer_irk[i][0], extracted_peer_irk[i][1],
+                extracted_peer_irk[i][14], extracted_peer_irk[i][15]);
+        } else {
+            LISA_LOGW(TAG, "  Failed to store Peer IRK[%d] to NVS ID=0x%02X, ret=%d", i, nvs_id, ret);
+        }
+    }
+
+    // 不再使用 ble_gap_get_paired_ral_info()，它返回全零数据！
+    // 直接使用从 LTK 提取的 Peer IRK 构建 RAL
+    LISA_LOGI(TAG, "Building RAL from extracted Peer IRK data");
+
+    // 构建 RAL 条目 - 使用从 LTK 提取的 Peer IRK
+    uint8_t final_ral_num = 0;
+
+    if (paired_num > 0) {
+        LISA_LOGI(TAG, "Building RAL: using paired addresses with extracted Peer IRK from LTK");
+
+        for (uint8_t i = 0; i < paired_num && i < 3; i++) {
+            // 复制配对设备的地址（这是正确的身份地址）
+            memcpy(ral_devs[i].addr, paired_addr[i].addr, 6);
+            ral_devs[i].addr_type = paired_addr[i].addr_type;
+
+            // 使用从 LTK 提取的 Peer IRK
+            if (has_valid_peer_irk[i]) {
+                memcpy(ral_devs[i].peer_irk, extracted_peer_irk[i], 16);
+                LISA_LOGI(TAG, "RAL[%d]: addr=%02X:%02X:%02X:%02X:%02X:%02X, Peer IRK: %02X%02X...%02X%02X",
+                    i,
+                    ral_devs[i].addr[5], ral_devs[i].addr[4], ral_devs[i].addr[3],
+                    ral_devs[i].addr[2], ral_devs[i].addr[1], ral_devs[i].addr[0],
+                    ral_devs[i].peer_irk[0], ral_devs[i].peer_irk[1],
+                    ral_devs[i].peer_irk[14], ral_devs[i].peer_irk[15]);
+            } else {
+                memset(ral_devs[i].peer_irk, 0, 16);
+                LISA_LOGW(TAG, "RAL[%d]: addr=%02X:%02X:%02X:%02X:%02X:%02X, NO Peer IRK",
+                    i,
+                    ral_devs[i].addr[5], ral_devs[i].addr[4], ral_devs[i].addr[3],
+                    ral_devs[i].addr[2], ral_devs[i].addr[1], ral_devs[i].addr[0]);
+            }
+
+            // 设置本地 IRK
+            memcpy(ral_devs[i].local_irk, local_irk, 16);
+
+            // 隐私模式
+            ral_devs[i].privacy_mode = 0;
+
+            final_ral_num++;
+        }
+    }
+
+    if (final_ral_num > 0) {
+        LISA_LOGI(TAG, "Setting RAL with %d devices", final_ral_num);
+        ble_gap_ral_list_set(final_ral_num, ral_devs);
+    }
+}
+#endif
 
 uint8_t *bt_stack_vbat_percent_get(void)
 {

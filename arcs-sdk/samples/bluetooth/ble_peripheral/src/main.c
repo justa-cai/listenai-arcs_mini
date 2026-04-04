@@ -211,6 +211,7 @@ int main(int argc, char **argv)
     while (1) {
         // 检查连接状态
         uint8_t connected = app_ble_connected_state(0);
+
         if (connected && !hogpd_enabled && connected != last_connected_state) {
             // 连接建立，启用 HOGPD 服务和连接参数更新
             LISA_LOGI(LOG_TAG, "BLE connected, enabling HOGPD service");
@@ -218,6 +219,15 @@ int main(int argc, char **argv)
             ble_gap_set_con_param_dis(0);  // 启用连接参数更新，解决连接超时问题
             hogpd_enabled = true;
         }
+
+        // 检测断开连接并重新启动广播
+        if (!connected && hogpd_enabled && connected != last_connected_state) {
+            // 断开连接了，重新启动广播
+            LISA_LOGI(LOG_TAG, "BLE disconnected, restarting advertising");
+            app_ble_adv_start(0, BLE_ADV_GEN);
+            hogpd_enabled = false;
+        }
+
         last_connected_state = connected;
 
         if (button_pressed) {
