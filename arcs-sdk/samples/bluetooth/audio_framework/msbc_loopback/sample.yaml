@@ -1,0 +1,7 @@
+tests:
+  samples.bt_audio_framework.msbc_loopback:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Sample running"

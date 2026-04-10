@@ -40,17 +40,10 @@ GPADC 总共有 10 个采样通道：
 
 ### 1. 构建项目
 
-在示例目录下执行构建脚本：
+在 SDK 根目录执行构建命令：
 
 ```bash
-cd samples/drivers/gpadc
-./build.sh
-```
-
-或者在 SDK 根目录执行：
-
-```bash
-./build.sh -S samples/drivers/gpadc -C
+./build.sh -S samples/drivers/hal/gpadc
 ```
 
 ```shell

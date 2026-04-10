@@ -1,4 +1,4 @@
-# LISA Display 显示屏驱动示例（SPI 4-Wire 模式 + PWM 背光）
+# LISA Display 显示屏驱动示例
 
 ## 功能说明
 
@@ -47,6 +47,12 @@
 
 ```{eval-rst}
 .. include:: /sample_build.rst
+```
+
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
 ## 预期输出

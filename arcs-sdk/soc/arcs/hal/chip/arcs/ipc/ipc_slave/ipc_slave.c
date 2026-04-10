@@ -35,7 +35,7 @@
 #include "mrpc_utils_m2s_api_server.h"
 #endif
 #include "pm_impl.h"
-
+#include "vrtc.h"
 
 static struct ipc_ccb *slave_msg_ccb;
 static struct ipc_ccb *master_msg_ccb;
@@ -134,7 +134,7 @@ void ipc_slave_putchar(char c)
 
     ipc_slave_printf(string, 1);
 }
-
+#if 0
 void ipc_slave_vprintf(const char *fmt, ...)
 {
     uint16_t remain = 0;
@@ -175,7 +175,7 @@ void ipc_slave_vprintf(const char *fmt, ...)
         }
     } while (len >= offset);
 }
-
+#endif
 #ifdef IPC_MSG_MGMT
 static RTOS_TASK_FCT(ipc_slave_msg_task)
 {
@@ -286,7 +286,8 @@ int32_t ipc_slave_init(struct ipc_slave_cb_tag *cb)
     struct mrpc_server_env *mrpc_server;
 
     ipc_slave_env.shared = &ipc_shared_env;
-    ipc_slave_env.cb     = *cb;
+    if (cb)
+        ipc_slave_env.cb = *cb;
     ipc_init(CORE_ID_SLAVE, &ipc_shared_env.slave_notify, &ipc_shared_env.master_notify);
     res  = ipc_slave_init_fast_chan(ipc_slave_fast_notify_handler);
     res |= ipc_slave_init_msg_chan(ipc_platform_task_notify);

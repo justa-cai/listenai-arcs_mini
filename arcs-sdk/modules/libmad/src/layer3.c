@@ -2657,11 +2657,13 @@ int mad_layer_III(struct mad_stream *stream, struct mad_frame *frame)
   {
     struct mad_bitptr peek;
     unsigned long header;
+    volatile unsigned long mask;
 
     mad_bit_init(&peek, stream->next_frame);
     if (mad_bit_length(&peek, &bufend_ptr) >= 57) {
       header = mad_bit_read(&peek, 32);
-      if ((header & 0xffe60000L) /* syncword | layer */ == 0xffe20000L) {
+      mask = header & 0xffe60000L;
+      if (mask == 0xffe20000L) {
         if (!(header & 0x00010000L))  /* protection_bit */
 	  mad_bit_skip(&peek, 16);  /* crc_check */
 

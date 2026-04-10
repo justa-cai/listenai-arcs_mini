@@ -12,6 +12,7 @@
 #include "wifi_manager/wifi_dev.h"
 #include "wifi_manager/dlist.h"
 #include "wifi_manager/wifi_manager_storage.h"
+#include "wifi_manager/priv/wifi_manager_autoconn_internal.h"
 
 #ifdef __cplusplus
 extern "C" {

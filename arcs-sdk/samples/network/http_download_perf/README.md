@@ -105,15 +105,20 @@ ip addr show | grep "inet "
 
 查找类似 `192.168.x.x` 的局域网地址。
 
-## 编译运行
+## 示例内容
 
-### 编译
+1. 连接 WiFi 并获取 IP 地址
+2. 使用不同缓冲区大小和文件大小组合进行 HTTP 下载测试
+3. 实时统计下载速度和数据块分布
+4. 生成性能测试汇总报告
+
+## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
 
-### 烧录
+## 烧录
 
 ```{eval-rst}
 .. include:: /sample_flash.rst

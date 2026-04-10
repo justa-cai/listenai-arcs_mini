@@ -1,7 +1,7 @@
 # BLE Profiles Kconfig aggregator
 
 menu "BLE Profiles"
-    depends on BLE
+    depends on BLE || BT || BLUETOOTH
 
 rsource "hogp/Kconfig"
 rsource "bas/Kconfig"

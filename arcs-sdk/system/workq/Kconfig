@@ -1,0 +1,11 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "work_queue"
+
+config WORK_QUEUE
+	bool "Enable work queue component"
+	help
+		Enable the work queue component for asynchronous task execution.
+
+endmenu

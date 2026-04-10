@@ -219,7 +219,7 @@ int acomp_wsp_remove_callback(wsp_event_cb_t cb)
         return ACOMP_ERR_INVALID_STATE;
     }
 
-    ret = gcl_cb_list_remove(wsp_handle->event_callbacks, cb);
+    ret = gcl_cb_list_remove_callback(wsp_handle->event_callbacks, cb);
     return ret;
 }
 

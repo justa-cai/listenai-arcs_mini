@@ -77,7 +77,7 @@ void test_state_after_play(void)
         "State should be PREPARING, PREPARED or PLAYING after play");
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -113,7 +113,7 @@ void test_state_after_pause(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -150,7 +150,7 @@ void test_state_after_resume(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -170,7 +170,7 @@ void test_state_after_stop(void)
     wait_ms(TEST_WAIT_LONG_MS);
 
     /* 停止 */
-    ret = app_player_stop_sync(player);
+    ret = app_player_stop(player);
     TEST_ASSERT_EQUAL(APP_PLAYER_OK, ret);
 
     app_player_state_t state = app_player_get_state(player);
@@ -199,7 +199,7 @@ void test_state_after_reset(void)
     wait_ms(TEST_WAIT_LONG_MS);
 
     /* 停止播放 */
-    ret = app_player_stop_sync(player);
+    ret = app_player_stop(player);
     TEST_ASSERT_EQUAL(APP_PLAYER_OK, ret);
 
     /* 重置 */

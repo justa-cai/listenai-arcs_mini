@@ -34,6 +34,12 @@ static void model_brightness_set_invoke_bn(void *arg, uint32_t arg_len)
     uint8_t brightness = *(uint8_t *)arg;
     service_brightness_set(brightness);
 }
+
+static void model_brightness_set_temp_invoke_bn(void *arg, uint32_t arg_len)
+{
+    uint8_t brightness = *(uint8_t *)arg;
+    service_brightness_set_temp(brightness);
+}
 #endif
 
 int model_common_init(void)
@@ -104,6 +110,22 @@ int model_common_brightness_set(uint8_t brightness)
 #endif
 
     LISA_UI_LOGD("Brightness set to: %d", brightness);
+
+    return 0;
+}
+
+int model_common_brightness_set_temp(uint8_t brightness)
+{
+    if (brightness > 100) {
+        LISA_UI_LOGE("Invalid temporary brightness: %d", brightness);
+        return -1;
+    }
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    LISA_UI_INVOKE_BN(model_brightness_set_temp_invoke_bn, &brightness, sizeof(brightness));
+#endif
+
+    LISA_UI_LOGD("Temporary brightness applied: %d", brightness);
 
     return 0;
 }

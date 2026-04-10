@@ -45,6 +45,7 @@ typedef struct {
     lisa_mutex_t *mutex;                 /* 互斥锁 */
     lisa_i2c_config_t config;            /* 当前配置 */
     volatile uint32_t event_flags;        /* 事件标志（用于同步） */
+    volatile TaskHandle_t waiting_task;   /* 等待传输完成的任务句柄 */
 } lisa_i2c_priv_t;
 
 /* ===== I2C 设备静态实例 ===== */
@@ -63,6 +64,12 @@ static void i2c0_event_callback(uint32_t event, void *workspace)
     lisa_i2c_priv_t *priv = (lisa_i2c_priv_t *)workspace;
     if (priv) {
         priv->event_flags |= event;
+        TaskHandle_t task = priv->waiting_task;
+        if (task) {
+            BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+            vTaskNotifyGiveFromISR(task, &xHigherPriorityTaskWoken);
+            portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        }
     }
 }
 #endif
@@ -73,6 +80,12 @@ static void i2c1_event_callback(uint32_t event, void *workspace)
     lisa_i2c_priv_t *priv = (lisa_i2c_priv_t *)workspace;
     if (priv) {
         priv->event_flags |= event;
+        TaskHandle_t task = priv->waiting_task;
+        if (task) {
+            BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+            vTaskNotifyGiveFromISR(task, &xHigherPriorityTaskWoken);
+            portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        }
     }
 }
 #endif
@@ -110,56 +123,73 @@ static uint32_t speed_to_hal_speed(uint32_t speed)
 }
 
 /**
+ * @brief 检查传输事件并返回结果
+ * @return LISA_DEVICE_OK / ERR_NACK / ERR_IO 表示传输已结束, -1 表示尚未完成
+ */
+static inline int check_transfer_events(lisa_i2c_priv_t *priv, bool is_probe)
+{
+    uint32_t events = priv->event_flags;
+
+    if (events & CSK_I2C_EVENT_TRANSFER_DONE) {
+        if (is_probe) {
+            priv->event_flags = 0;
+            return (events & CSK_I2C_EVENT_ADDRESS_ACK) ?
+                   LISA_DEVICE_OK : LISA_DEVICE_ERR_NACK;
+        }
+        priv->event_flags = 0;
+        return LISA_DEVICE_OK;
+    }
+
+    if (events & (CSK_I2C_EVENT_ADDRESS_NACK | CSK_I2C_EVENT_ARBITRATION_LOST | CSK_I2C_EVENT_BUS_ERROR)) {
+        priv->event_flags = 0;
+        if (events & CSK_I2C_EVENT_ADDRESS_NACK) {
+            return LISA_DEVICE_ERR_NACK;
+        }
+        return LISA_DEVICE_ERR_IO;
+    }
+
+    return -1; /* 尚未完成 */
+}
+
+/**
  * @brief 等待传输完成或错误
- * @param priv I2C设备私有数据指针
- * @param timeout_ms 超时时间（毫秒）
- * @param is_probe 是否为设备探测（0字节传输）
- * @return LISA_DEVICE_OK 传输成功, LISA_DEVICE_ERR_NACK 地址无应答, LISA_DEVICE_ERR_IO I/O错误, LISA_DEVICE_ERR_TIMEOUT 超时
+ *
+ * 基于 FreeRTOS 任务通知：ISR 回调中 vTaskNotifyGiveFromISR 唤醒本任务，
+ * 零延迟、零 CPU 空转。
  */
 static int wait_for_transfer(lisa_i2c_priv_t *priv, uint32_t timeout_ms, bool is_probe)
 {
-    uint32_t start_time = lisa_os_get_tick_ms();
-    uint32_t end_time = start_time + timeout_ms;
+    int ret;
 
-    while (lisa_os_get_tick_ms() < end_time) {
-        uint32_t events = priv->event_flags;
+    /* 快速路径：事件可能在 I2C_MasterTransmit 返回前已由 ISR 置位 */
+    ret = check_transfer_events(priv, is_probe);
+    if (ret != -1) {
+        return ret;
+    }
 
-        /* 检查传输完成
-         * 对于设备探测（0字节传输），必须严格检查 NACK
-         * 对于正常数据传输，与原始实现保持一致
-         */
-        if (events & CSK_I2C_EVENT_TRANSFER_DONE) {
-            /* 对于设备探测（0字节传输），严格检查地址应答 */
-            if (is_probe) {
-                /* 检查是否有地址应答 */
-                if (events & CSK_I2C_EVENT_ADDRESS_ACK) {
-                    priv->event_flags = 0;
-                    return LISA_DEVICE_OK;  /* 设备存在 */
-                } else {
-                    priv->event_flags = 0;
-                    return LISA_DEVICE_ERR_NACK;  /* 设备不存在 */
-                }
-            }
-            
-            /* 对于正常传输，传输完成即认为成功（保持与修复前一致，以免影响 camera） */
-            priv->event_flags = 0;
-            return LISA_DEVICE_OK;
-        }
+    /* 注册当前任务，等待 ISR 通知 */
+    priv->waiting_task = xTaskGetCurrentTaskHandle();
 
-        /* 检查错误事件（仅在传输未完成时） */
-        if (events & (CSK_I2C_EVENT_ADDRESS_NACK | CSK_I2C_EVENT_ARBITRATION_LOST | CSK_I2C_EVENT_BUS_ERROR)) {
-            priv->event_flags = 0; /* 清除所有事件 */
-            if (events & CSK_I2C_EVENT_ADDRESS_NACK) {
-                return LISA_DEVICE_ERR_NACK;
-            }
-            if (events & CSK_I2C_EVENT_BUS_ERROR) {
-                return LISA_DEVICE_ERR_IO;
-            }
-            return LISA_DEVICE_ERR_IO;
-        }
+    /* 再次检查（防止在赋值 waiting_task 前 ISR 已触发） */
+    ret = check_transfer_events(priv, is_probe);
+    if (ret != -1) {
+        priv->waiting_task = NULL;
+        return ret;
+    }
 
-        /* 短暂延时，避免 CPU 占用过高 */
-        vTaskDelay(pdMS_TO_TICKS(1));
+    /* 阻塞等待 ISR 通知，带超时 */
+    TickType_t ticks = pdMS_TO_TICKS(timeout_ms);
+    if (ticks == 0) {
+        ticks = 1;
+    }
+    ulTaskNotifyTake(pdTRUE, ticks);
+
+    priv->waiting_task = NULL;
+
+    /* 检查最终事件 */
+    ret = check_transfer_events(priv, is_probe);
+    if (ret != -1) {
+        return ret;
     }
 
     /* 超时 */
@@ -577,6 +607,7 @@ LISA_DEVICE_REGISTER(i2c0,                        /* 设备名称 */
                      &i2c0_priv,                  /* 私有数据指针 */
                      NULL,                        /* 用户数据 */
                      arcs_i2c0_init,              /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
                      LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
 #endif
 
@@ -586,5 +617,6 @@ LISA_DEVICE_REGISTER(i2c1,                        /* 设备名称 */
                      &i2c1_priv,                  /* 私有数据指针 */
                      NULL,                        /* 用户数据 */
                      arcs_i2c1_init,              /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
                      LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
 #endif

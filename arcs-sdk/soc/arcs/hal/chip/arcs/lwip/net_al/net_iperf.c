@@ -26,6 +26,7 @@
 #include "net_iperf_al.h"
 #include "net_iperf.h"
 #include "cli_main.h"
+#include "cli_net.h"
 #include "net_al.h"
 
 /// Default Port

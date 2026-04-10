@@ -11,3 +11,5 @@
     lisa_http/README.md
     lisa_wifi/README.md
     lisa_bluetooth/README.rst
+    lisa_modem/README.md
+    lisa_net/README.md

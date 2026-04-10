@@ -7,9 +7,7 @@ if(CONFIG_LISA_RTC)
 
 listenai_library_named(lisa_rtc)
 
-listenai_library_sources(
-    lisa_rtc_arcs.c     # 平台适配层实现
-)
+listenai_library_sources_ifdef(CONFIG_SOC_ARCS  lisa_rtc_arcs.c)
 
 listenai_include_directories(.)
 

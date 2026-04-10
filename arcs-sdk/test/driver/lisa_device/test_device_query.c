@@ -15,14 +15,14 @@
  * 测试用设备定义
  * ======================================== */
 
-LISA_DEVICE_REGISTER(test_query_device1, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_query_device1, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
-LISA_DEVICE_REGISTER(test_query_device2, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_query_device2, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
-LISA_DEVICE_REGISTER(test_query_device3, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_query_device3, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
 /* ========================================
  * 测试用例

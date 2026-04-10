@@ -7,9 +7,7 @@ if(CONFIG_LISA_PWM)
 
 listenai_library_named(lisa_pwm)
 
-listenai_library_sources(
-    lisa_pwm_arcs.c     # 平台适配层实现
-)
+listenai_library_sources_ifdef(CONFIG_SOC_ARCS  lisa_pwm_arcs.c)
 
 listenai_include_directories(.)
 

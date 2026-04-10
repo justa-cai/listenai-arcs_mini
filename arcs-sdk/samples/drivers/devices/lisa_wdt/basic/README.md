@@ -24,6 +24,12 @@
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 **终端输出：**
@@ -62,6 +68,29 @@ Feeding WDT every 300 ms
 ### 喂狗频率
 
 示例中每 300ms 喂一次狗，小于总复位时间 500ms，确保在中断阶段前完成喂狗，避免触发复位。
+
+## 关键代码
+
+```c
+/* 获取 WDT 设备 */
+lisa_device_t *wdt_dev = lisa_device_get("wdt0");
+
+/* 配置看门狗：中断超时 300ms，复位超时 200ms */
+lisa_wdt_config_t config = {
+    .int_timeout_ms = 300,
+    .rst_timeout_ms = 200,
+};
+lisa_wdt_setup(wdt_dev, &config);
+
+/* 启动看门狗 */
+lisa_wdt_start(wdt_dev);
+
+/* 定期喂狗 */
+while (1) {
+    lisa_wdt_feed(wdt_dev);
+    vTaskDelay(pdMS_TO_TICKS(300));
+}
+```
 
 ## 注意事项
 

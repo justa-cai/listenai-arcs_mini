@@ -1,0 +1,3 @@
+tests:
+  samples.app_player.mem_audio:
+    build_only: true

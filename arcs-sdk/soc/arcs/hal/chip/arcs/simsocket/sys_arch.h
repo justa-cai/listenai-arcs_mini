@@ -15,14 +15,13 @@
 #ifndef _SYS_ARCH_H_
 #define _SYS_ARCH_H_
 
-#include "log_print.h"
 
 #define SYS_ARCH_TIMEOUT 0xffffffffUL
 
 #define set_errno(err)
 
-#define SIMS_DEBUG(...)  CLOGD(__VA_ARGS__)
-#define SIMS_ERR(...)    CLOGE(__VA_ARGS__)
+#define SIMS_DEBUG(...)
+#define SIMS_ERR(...)
 
 #define SIMS_ASSERT(msg, assertion) do {\
                     if (!(assertion)) { \

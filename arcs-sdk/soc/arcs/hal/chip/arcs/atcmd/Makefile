@@ -21,7 +21,16 @@ CSRCS	= atcmd.c atcmd_wifi.c atcmd_hash.c atcmd_iperf.c atcmd_lwip.c ping.c atcm
 else ifeq ($(strip $(WCN_TYPE)), wf)
 CSRCS	= atcmd.c atcmd_wifi.c atcmd_hash.c atcmd_iperf.c atcmd_lwip.c ping.c
 else ifeq ($(strip $(WCN_TYPE)), bt)
-CSRCS	= atcmd.c atcmd_bt.c atcmd_bt_if.c
+CSRCS	= atcmd.c atcmd_bt.c atcmd_bt_if.c atcmd_hash.c
+endif
+
+#macro ctrl
+ifeq ($(strip $(WCN_TYPE)), both)
+CFLAGS += -DAT_TYPE_WF -DAT_TYPE_BT
+else ifeq ($(strip $(WCN_TYPE)), wf)
+CFLAGS += -DAT_TYPE_WF
+else ifeq ($(strip $(WCN_TYPE)), bt)
+CFLAGS += -DAT_TYPE_BT
 endif
 
 #CSRCS	= $(shell find . -name "*.c")
@@ -31,13 +40,14 @@ SSRCS	=
 
 LWIP_VER := $(LWIP_VER)
 #includings and flags
-CFLAGS  = -I $(TOPDIR)/include/NMSIS/Core/Include \
+CFLAGS  += -I $(TOPDIR)/include/NMSIS/Core/Include \
           -I $(TOPDIR)/include/debug \
           -I $(TOPDIR)/include/bsp \
           -I $(TOPDIR)/include/driver \
           -I $(TOPDIR)/include/rtos \
           -I $(TOPDIR)/chip/${CHIP}/bsp \
           -I $(TOPDIR)/chip/${CHIP}/btos \
+          -I $(TOPDIR)/chip/${CHIP}/bt_hal \
           -I $(TOPDIR)/chip/${CHIP}/btos/task/api \
           -I $(TOPDIR)/chip/${CHIP}/include \
           -I $(TOPDIR)/chip/${CHIP}/include/net \
@@ -54,11 +64,13 @@ CFLAGS  = -I $(TOPDIR)/include/NMSIS/Core/Include \
           -I $(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/src/include/lwip/apps\
           -I $(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/src/include/lwip \
           -I $(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/contrib/ports/rtos/include \
-	  -I $(TOPDIR)/chip/$(CHIP)/lwip/port/include \
+          -I $(TOPDIR)/chip/$(CHIP)/lwip/port/include \
           -I $(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure \
           -I $(TOPDIR)/include/nvs \
           -I $(TOPDIR)/src/${APP_PATH} \
-          -I $(TOPDIR)/chip/${CHIP}/cli_cmd
+          -I $(TOPDIR)/chip/${CHIP}/cli_cmd \
+          -I $(TOPDIR)/src/${APP_PATH} \
+          -I $(TOPDIR)/src/${APP_PATH}/if/bt_if
 
 
 include $(TOPDIR)/rules.mk

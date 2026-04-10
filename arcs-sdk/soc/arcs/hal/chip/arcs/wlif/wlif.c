@@ -36,6 +36,36 @@
 struct wlif_env netif_env;
 typedef void (*netif_tx_cb)(uint32_t frame_id, bool acknowledged, void *arg);
 
+net_if_t *wlif_get_if(uint8_t vif_idx)
+{
+    ASSERT_ERR(vif_idx < WLIF_IDX_MAX);
+    return (netif_env.vif[vif_idx].netif);
+}
+
+struct vif_info_tag *wlif_get_vif(uint8_t vif_idx)
+{
+    struct vif_info_tag *mac_vif = &netif_env.vif[vif_idx].mac_vif;
+
+    // Sanity check - Currently we consider that when this function is called there shall
+    // be a MAC VIF attached to the FHOST VIF. If in the future this has to change then
+    // this assertion will be removed
+    ASSERT_ERR(mac_vif != NULL);
+
+    return mac_vif;
+}
+
+struct vif_info_tag *wlif_get_mac_vif(uint8_t vif_idx)
+{
+    struct vif_info_tag *mac_vif = &netif_env.vif[vif_idx].mac_vif;
+
+    // Sanity check - Currently we consider that when this function is called there shall
+    // be a MAC VIF attached to the FHOST VIF. If in the future this has to change then
+    // this assertion will be removed
+    ASSERT_ERR(mac_vif != NULL);
+
+    return mac_vif;
+}
+
 int wlif_name(int vif_idx, char *name, int len)
 {
     if (vif_idx > WLIF_IDX_MAX)
@@ -182,11 +212,11 @@ LWIP_FUNC_ATTR static void wlif_tx_req(net_if_t *net_if, void *buf,
         wlif_tx_cfm(tx_buf, -1);
 }
 
-LWIP_FUNC_ATTR static int wlif_tx_start(net_if_t *net_if, net_buf_tx_t *buf,
+LWIP_FUNC_ATTR static int wlif_tx_start(net_if_t *net_if, void *buf,
 		netif_tx_cb cfm_cb, void *cfm_cb_arg)
 {
 	WLIF_TX_LOCK();
-    wlif_tx_req(net_if, (void*)buf, IEEE802_3, cfm_cb, cfm_cb_arg);
+    wlif_tx_req(net_if, buf, IEEE802_3, cfm_cb, cfm_cb_arg);
     WLIF_TX_UNLOCK();
 
     return 0;

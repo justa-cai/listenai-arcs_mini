@@ -174,7 +174,7 @@ if SDK_MODULE_LVGL
 
         config LVGL_GPU_CSK_CPDMA_DMA2D_CH
             depends on LVGL_GPU_CSK_CPDMA_DMA2D
-            int "csk cpdma channel for blend and fill "
+            int "csk cpdma channel for blend and fill"
             default 1
     endmenu
 

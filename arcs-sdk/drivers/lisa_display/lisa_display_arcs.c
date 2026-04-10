@@ -123,6 +123,17 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
 #endif
     panel->backlight = config->backlight;
 
+    /* 处理面板初始化参数（如果由上层传入）——复制到 panel 实例以保证生命周期 */
+    if (config->panel_init_params && config->panel_init_params_len > 0) {
+        panel->init_params = lisa_mem_alloc(config->panel_init_params_len);
+        if (!panel->init_params) {
+            LISA_LOGE(LOG_TAG, "Failed to allocate memory for panel init params");
+            return LISA_DEVICE_ERR_NO_MEM;
+        }
+        memcpy(panel->init_params, config->panel_init_params, config->panel_init_params_len);
+        panel->init_params_len = config->panel_init_params_len;
+    }
+
     /* 配置命令总线(如果指定了独立命令总线) */
     if (config->cmd_bus_type != LISA_DISPLAY_CMD_BUS_NONE) {
         const lisa_display_cmd_bus_api_t *cmd_bus_api = NULL;
@@ -189,6 +200,11 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
             lisa_semaphore_delete(priv->te_sync_sem);
             priv->te_sync_sem = NULL;
         }
+        if (panel->init_params) {
+            lisa_mem_free(panel->init_params);
+            panel->init_params = NULL;
+            panel->init_params_len = 0;
+        }
         lisa_mem_free(panel);
         return ret;
     }
@@ -217,6 +233,11 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
             if (priv->te_sync_sem) {
                 lisa_semaphore_delete(priv->te_sync_sem);
                 priv->te_sync_sem = NULL;
+            }
+            if (panel->init_params) {
+                lisa_mem_free(panel->init_params);
+                panel->init_params = NULL;
+                panel->init_params_len = 0;
             }
             lisa_mem_free(panel);
             return ret;
@@ -478,4 +499,4 @@ static const lisa_display_api_t arcs_display_api = {
     .set_orientation  = arcs_set_orientation,
 };
 
-LISA_DEVICE_REGISTER(display, &arcs_display_api, &arcs_display_priv, NULL, lisa_display_device_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(display, &arcs_display_api, &arcs_display_priv, NULL, lisa_display_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);

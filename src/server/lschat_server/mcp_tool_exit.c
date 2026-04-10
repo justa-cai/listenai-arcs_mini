@@ -2,7 +2,6 @@
 
 #include "lisa_log.h"
 #include "voice_msg.h"
-#include "player_mgr.h"
 
 #include "mcp.h"
 #include "cJSON.h"

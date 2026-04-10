@@ -9,7 +9,7 @@ config ARCS_HAL_IPC
 if ARCS_HAL_IPC
     config ARCS_HAL_IPC_UTILS_IPC_FUNC_SECTION
         string "IPC utils function section"
-        default .itcm_text
+        default ".itcm_text"
         help
             Enable IPC utils function section
 
@@ -80,6 +80,21 @@ if ARCS_HAL_IPC
         select ARCS_HAL_IPC_MRPC_CLIENT
         help
             Enable MRPC client for NVS API
+
+    config ARCS_HAL_IPC_MRPC_SERVER_BT
+        bool "Enable BT MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for BT API (runs on AP core with BLE stack)
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_BT
+        bool "Enable BT MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        select ARCS_HAL_BTOS_INCLUDE
+        help
+            Enable MRPC client for BT API (runs on CP core to call BLE remotely)
 
     config ARCS_HAL_IPC_MRPC_CLIENT_FLASH_IF
         bool "Enable flash if MRPC client"

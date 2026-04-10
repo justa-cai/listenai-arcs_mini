@@ -9,6 +9,7 @@
 #include "wifi_manager/wifi_manager_wifi_ops.h"
 #include "wifi_manager/dlist.h"
 #include "wifi_manager/wifi_manager_storage.h"
+#include "wifi_manager/priv/wifi_manager_autoconn_internal.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -61,6 +62,10 @@
 #define WIFI_INFO_COUNT_ID                      2
 #define MAX_WIFI_AUTO_CONN_RETRY                1
 #define MAX_AP_FAILURE_COUNT                    3
+#define WIFI_MGR_AUTOCONN_DEFAULT_INTERVAL_MS   1000U
+#define WIFI_MGR_AUTOCONN_WARMUP_CYCLES         3U
+#define WIFI_MGR_AUTOCONN_CONNECT_FAIL_MAX_MUL  8U
+#define WIFI_MGR_AUTOCONN_NOT_FOUND_MAX_MUL     32U
 
 #define WIFI_MGR_QUEUE_COUNT                    10
 #define WIFI_MGR_QUEUE_NAME                     "wifi_mgr_queue"
@@ -107,6 +112,9 @@ typedef enum {
 typedef struct {
     wifi_mgr_autoconn_config_t config;
     bool enable;
+    uint32_t base_interval_ms;
+    uint32_t current_interval_ms;
+    uint32_t no_candidate_streak;
     wifi_mgr_last_tried_ap_t last_tried_ap;  // 记住上次尝试的具体AP
     sys_dlist_t failure_records_list;  // 失败记录链表
 } wifi_mgr_auto_conn_obj_t;
@@ -146,6 +154,88 @@ static void wifi_mgr_fill_connection_info(wifi_mgr_connection_info_t *connection
                                           void *event_data,
                                           uint32_t data_len,
                                           wifi_mgr_connection_status_t status);
+
+/**
+ * @brief Validate BSSID format (XX:XX:XX:XX:XX:XX)
+ * @param bssid BSSID string to validate
+ * @return true if valid, false otherwise
+ */
+static bool is_valid_bssid_format(const char *bssid)
+{
+    if (!bssid) {
+        return false;
+    }
+    
+    // Empty BSSID is valid (means any BSSID)
+    if (bssid[0] == '\0') {
+        return true;
+    }
+    
+    // Check length (17 chars for XX:XX:XX:XX:XX:XX)
+    size_t len = strlen(bssid);
+    if (len != 17) {
+        return false;
+    }
+    
+    // Check format: XX:XX:XX:XX:XX:XX
+    for (int i = 0; i < 17; i++) {
+        if (i % 3 == 2) {
+            // Should be ':'
+            if (bssid[i] != ':') {
+                return false;
+            }
+        } else {
+            // Should be hex digit
+            char c = bssid[i];
+            if (!((c >= '0' && c <= '9') || 
+                  (c >= 'a' && c <= 'f') || 
+                  (c >= 'A' && c <= 'F'))) {
+                return false;
+            }
+        }
+    }
+    
+    return true;
+}
+
+uint32_t wifi_mgr_autoconn_next_interval_ms(uint32_t base_interval_ms,
+                                            uint32_t current_interval_ms,
+                                            uint32_t no_candidate_streak,
+                                            wifi_mgr_autoconn_cycle_result_t result,
+                                            uint32_t max_interval_ms)
+{
+    uint32_t base = (base_interval_ms == 0U) ? WIFI_MGR_AUTOCONN_DEFAULT_INTERVAL_MS : base_interval_ms;
+    uint32_t current = (current_interval_ms == 0U) ? base : current_interval_ms;
+
+    if (result == WIFI_MGR_AUTOCONN_CYCLE_SUCCESS) {
+        return base;
+    }
+
+    if (result == WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE &&
+        no_candidate_streak <= WIFI_MGR_AUTOCONN_WARMUP_CYCLES) {
+        return base;
+    }
+
+    uint32_t next = current;
+    uint32_t max_mul = WIFI_MGR_AUTOCONN_CONNECT_FAIL_MAX_MUL;
+    if (result == WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE) {
+        max_mul = WIFI_MGR_AUTOCONN_NOT_FOUND_MAX_MUL;
+    }
+
+    if (next <= (UINT32_MAX / 2U)) {
+        next *= 2U;
+    }
+
+    uint32_t max_interval = (base > (UINT32_MAX / max_mul)) ? UINT32_MAX : (base * max_mul);
+    if (max_interval_ms != 0U) {
+        max_interval = (max_interval_ms < base) ? base : max_interval_ms;
+    }
+
+    if (next > max_interval) {
+        next = max_interval;
+    }
+    return next;
+}
 
 static bool is_ap_blacklisted(wifi_mgr_auto_conn_obj_t *auto_connect_obj, const char *ssid, const char *bssid)
 {
@@ -575,7 +665,11 @@ int wifi_mgr_init(wifi_mgr_ops_t *ops)
         goto __cleanup;
     }
     memset(s_wifi_mgr_obj->auto_connect_obj, 0, sizeof(wifi_mgr_auto_conn_obj_t));
-    s_wifi_mgr_obj->auto_connect_obj->config.interval_ms = 0xffff;
+    s_wifi_mgr_obj->auto_connect_obj->config.interval_ms = WIFI_MGR_AUTOCONN_DEFAULT_INTERVAL_MS;
+    s_wifi_mgr_obj->auto_connect_obj->config.max_interval_ms = 0U;
+    s_wifi_mgr_obj->auto_connect_obj->base_interval_ms = WIFI_MGR_AUTOCONN_DEFAULT_INTERVAL_MS;
+    s_wifi_mgr_obj->auto_connect_obj->current_interval_ms = WIFI_MGR_AUTOCONN_DEFAULT_INTERVAL_MS;
+    s_wifi_mgr_obj->auto_connect_obj->no_candidate_streak = 0;
     sys_dlist_init(&s_wifi_mgr_obj->auto_connect_obj->failure_records_list);
     s_wifi_mgr_obj->manual_autoconn_state = WIFI_MGR_AUTOCONN_MANUAL_IDLE;
     s_wifi_mgr_obj->manual_autoconn_state = WIFI_MGR_AUTOCONN_MANUAL_IDLE;
@@ -642,46 +736,68 @@ __cleanup:
 int wifi_mgr_deinit()
 {
     WIFI_MGR_CHECK(s_wifi_mgr_obj != NULL, -EIO);
-    WIFI_MGR_MUTEX_LOCK();
-
-    s_wifi_mgr_obj->thread_exit = true;
-    void *thread = s_wifi_mgr_obj->thread;
-    wifi_mgr_wifi_event_cb_t event_cb = s_wifi_mgr_obj->wifi_event_cb;
-    WIFI_MGR_MUTEX_UNLOCK();
-
-    s_wifi_mgr_obj->os_ops.thread_delete(thread);
-    s_wifi_mgr_obj->wifi_ops.remove_callback(&event_cb);
-    s_wifi_mgr_obj->wifi_ops.deinit();
-
-    if (s_wifi_mgr_obj->auto_connect_obj) {
-        wifi_auto_connect_stop(s_wifi_mgr_obj->auto_connect_obj);
+    
+    // Step 1: Save local copies of resources and operations
+    wifi_mgr_obj_t *obj = s_wifi_mgr_obj;
+    void (*free_func)(void *) = obj->mem_ops.free;
+    wifi_manager_os_ops_t os_ops = obj->os_ops;
+    wifi_manager_wifi_ops_t wifi_ops = obj->wifi_ops;
+    wifi_mgr_wifi_event_cb_t event_cb = obj->wifi_event_cb;
+    void *thread = obj->thread;
+    void *mutex = obj->mutex;
+    void *queue = obj->queue;
+    
+    // Step 2: Unregister WiFi callback first to prevent new events
+    // This is critical: no new events can arrive after this point
+    wifi_ops.remove_callback(&event_cb);
+    
+    // Step 3: Signal thread to exit and wait for it
+    os_ops.mutex_lock(mutex, _WAIT_FOREVER);
+    obj->thread_exit = true;
+    os_ops.mutex_unlock(mutex);
+    
+    os_ops.thread_delete(thread);
+    
+    // Step 4: Deinitialize WiFi driver
+    wifi_ops.deinit();
+    
+    // Step 5: Clean up auto-connect resources
+    if (obj->auto_connect_obj) {
+        wifi_auto_connect_stop(obj->auto_connect_obj);
         // 释放失败记录链表
         wifi_mgr_ap_failure_record_t *entry, *next;
-        SYS_DLIST_FOR_EACH_CONTAINER_SAFE(&s_wifi_mgr_obj->auto_connect_obj->failure_records_list, entry, next, node) {
+        SYS_DLIST_FOR_EACH_CONTAINER_SAFE(&obj->auto_connect_obj->failure_records_list, entry, next, node) {
             sys_dlist_remove(&entry->node);
-            WIFI_MGR_FREE(entry);
+            free_func(entry);
         }
-        WIFI_MGR_FREE(s_wifi_mgr_obj->auto_connect_obj);
-        s_wifi_mgr_obj->auto_connect_obj = NULL;
+        free_func(obj->auto_connect_obj);
+        obj->auto_connect_obj = NULL;
     }
-    s_wifi_mgr_obj->manual_autoconn_state = WIFI_MGR_AUTOCONN_MANUAL_IDLE;
     
-    wifi_storage_deinit(&s_wifi_mgr_obj->storage_ctx);
+    // Step 6: Clean up callback list
+    wifi_mgr_event_cb_t *cb_entry, *cb_next;
+    SYS_DLIST_FOR_EACH_CONTAINER_SAFE(&obj->wifi_callback_list, cb_entry, cb_next, node) {
+        sys_dlist_remove(&cb_entry->node);
+        free_func(cb_entry);
+    }
+    
+    // Step 7: Deinitialize storage
+    wifi_storage_deinit(&obj->storage_ctx);
 
-    void (*free_func)(void *) = s_wifi_mgr_obj->mem_ops.free;
-    void *mutex = s_wifi_mgr_obj->mutex;
-    void *queue = s_wifi_mgr_obj->queue;
-    
+    // Step 8: Delete synchronization objects
     if (mutex) {
-        s_wifi_mgr_obj->os_ops.mutex_delete(mutex);
+        os_ops.mutex_delete(mutex);
     }
     
     if (queue) {
-        s_wifi_mgr_obj->os_ops.queue_delete(queue);
+        os_ops.queue_delete(queue);
     }
     
-    free_func(s_wifi_mgr_obj);
+    // Step 9: Set global pointer to NULL (after all cleanup)
     s_wifi_mgr_obj = NULL;
+    
+    // Step 10: Finally free the main object
+    free_func(obj);
 
     return 0;
 }
@@ -994,15 +1110,15 @@ static int find_next_ap_from_list(wifi_mgr_scan_info_t *aps_info, int ap_num, wi
     return 0;
 }
 
-static void autoconnect_work_handler(void)
+static wifi_mgr_autoconn_cycle_result_t autoconnect_work_handler(void)
 {
     /* Do nothing if sta is disabled */
     if(!s_wifi_mgr_obj->wifi_ops.sta_is_enable()){
-        return;
+        return WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE;
     }
     /* Do nothing if sta is already connected */
     if(s_wifi_mgr_obj->sta_device.sta_status == WIFI_MGR_STA_CONNECTED){
-        return;
+        return WIFI_MGR_AUTOCONN_CYCLE_SUCCESS;
     }
 
     /* do the processing that needs to be done periodically */
@@ -1014,7 +1130,7 @@ static void autoconnect_work_handler(void)
     uint32_t nb_ap = WIFI_SCAN_MAX_NUMBER;
     aps_info = WIFI_MGR_MALLOC(sizeof(wifi_mgr_scan_info_t) * nb_ap);
     if (aps_info == NULL) {
-        return;
+        return WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE;
     }
 
     ap_num = s_wifi_mgr_obj->wifi_ops.scan_ap(aps_info, nb_ap, LISA_WAIT_FOREVER);
@@ -1023,7 +1139,17 @@ static void autoconnect_work_handler(void)
     if (ap_num <= 0) {
         LISA_LOGW(TAG, "WiFi auto connection scan failed, ap_num:%d", ap_num);
         WIFI_MGR_FREE(aps_info);
-        return;
+        return WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE;
+    }
+
+    // Validate BSSID format for all scanned APs
+    for (int idx = 0; idx < ap_num; idx++) {
+        if (!is_valid_bssid_format(aps_info[idx].bssid)) {
+            LISA_LOGW(TAG, "Invalid BSSID format from scan result: '%s' (SSID: %s), skipping this AP", 
+                     aps_info[idx].bssid, aps_info[idx].ssid);
+            // Mark as invalid by clearing SSID so it will be skipped later
+            aps_info[idx].ssid[0] = '\0';
+        }
     }
 
     // 在一个周期内尝试所有可用的AP，直到成功或全部尝试完
@@ -1064,7 +1190,7 @@ static void autoconnect_work_handler(void)
     if (max_attempts == 0) {
         LISA_LOGW(TAG, "No available APs (all blacklisted or not saved), scanning result count: %d", ap_num);
         WIFI_MGR_FREE(aps_info);
-        return;
+        return WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE;
     }
     
     LISA_LOGI(TAG, "Found %d available APs to try in this cycle", max_attempts);
@@ -1116,6 +1242,11 @@ static void autoconnect_work_handler(void)
     }
 
     WIFI_MGR_FREE(aps_info);
+
+    if (connection_success) {
+        return WIFI_MGR_AUTOCONN_CYCLE_SUCCESS;
+    }
+    return WIFI_MGR_AUTOCONN_CYCLE_CONNECT_FAIL;
 }
 
 
@@ -1209,18 +1340,40 @@ static void wifi_mgr_thread(void *arg){
             LISA_LOGI(TAG, "wifi_mgr_thread exit\n");
             return;
         }
-        result = s_wifi_mgr_obj->os_ops.queue_pop(s_wifi_mgr_obj->queue, &msg, sizeof(wifi_mgr_queue_message_t), s_wifi_mgr_obj->auto_connect_obj->config.interval_ms);
+        
+        if (!s_wifi_mgr_obj->auto_connect_obj) {
+            LISA_LOGE(TAG, "auto_connect_obj is NULL, thread exiting");
+            return;
+        }
+
+        uint32_t wait_ms = s_wifi_mgr_obj->auto_connect_obj->current_interval_ms;
+        if (wait_ms == 0U) {
+            wait_ms = s_wifi_mgr_obj->auto_connect_obj->base_interval_ms;
+        }
+        
+        result = s_wifi_mgr_obj->os_ops.queue_pop(s_wifi_mgr_obj->queue, &msg, sizeof(wifi_mgr_queue_message_t), wait_ms);
         if(result == LISA_OK){
             switch(msg.event){
                 case WIFI_MGR_QUEUE_MSG_EVENT_WIFI_AUTO_CONNECT_START:
-                    cfg = (wifi_mgr_autoconn_config_t*)msg.payload; // Fix, need to check if cfg is NULL
-                    s_wifi_mgr_obj->auto_connect_obj->enable = true;
-                    if(cfg != NULL){
-                        memcpy(&s_wifi_mgr_obj->auto_connect_obj->config, cfg, sizeof(wifi_mgr_autoconn_config_t));
+                    cfg = (wifi_mgr_autoconn_config_t*)msg.payload;
+                    if (s_wifi_mgr_obj->auto_connect_obj) {
+                        s_wifi_mgr_obj->auto_connect_obj->enable = true;
+                        if(cfg != NULL){
+                            memcpy(&s_wifi_mgr_obj->auto_connect_obj->config, cfg, sizeof(wifi_mgr_autoconn_config_t));
+                        }
+                        s_wifi_mgr_obj->auto_connect_obj->base_interval_ms =
+                            (s_wifi_mgr_obj->auto_connect_obj->config.interval_ms == 0U) ?
+                            WIFI_MGR_AUTOCONN_DEFAULT_INTERVAL_MS :
+                            s_wifi_mgr_obj->auto_connect_obj->config.interval_ms;
+                        s_wifi_mgr_obj->auto_connect_obj->current_interval_ms =
+                            s_wifi_mgr_obj->auto_connect_obj->base_interval_ms;
+                        s_wifi_mgr_obj->auto_connect_obj->no_candidate_streak = 0;
                     }
                     break;
                 case WIFI_MGR_QUEUE_MSG_EVENT_WIFI_AUTO_CONNECT_STOP:
-                    s_wifi_mgr_obj->auto_connect_obj->enable = false;
+                    if (s_wifi_mgr_obj->auto_connect_obj) {
+                        s_wifi_mgr_obj->auto_connect_obj->enable = false;
+                    }
                     break;
                 default:
                     break;
@@ -1230,8 +1383,21 @@ static void wifi_mgr_thread(void *arg){
             }
         }
         
-        if(s_wifi_mgr_obj->auto_connect_obj->enable){
-            autoconnect_work_handler();
+        if(s_wifi_mgr_obj->auto_connect_obj && s_wifi_mgr_obj->auto_connect_obj->enable){
+            wifi_mgr_autoconn_cycle_result_t cycle = autoconnect_work_handler();
+            if (cycle == WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE) {
+                s_wifi_mgr_obj->auto_connect_obj->no_candidate_streak++;
+            } else {
+                s_wifi_mgr_obj->auto_connect_obj->no_candidate_streak = 0;
+            }
+
+            s_wifi_mgr_obj->auto_connect_obj->current_interval_ms =
+                wifi_mgr_autoconn_next_interval_ms(
+                    s_wifi_mgr_obj->auto_connect_obj->base_interval_ms,
+                    s_wifi_mgr_obj->auto_connect_obj->current_interval_ms,
+                    s_wifi_mgr_obj->auto_connect_obj->no_candidate_streak,
+                    cycle,
+                    s_wifi_mgr_obj->auto_connect_obj->config.max_interval_ms);
         }
     }
 }

@@ -55,9 +55,11 @@ void pa_manager_pre_init()
 
 int pa_manager_onoff(int onoff)
 {
+	void *caller = __builtin_return_address(0);
+	
 	if (PA_DRV_HANDLE != NULL) {
 		if (onoff) {
-			LISA_LOGI(TAG, "PA ON");
+			LISA_LOGI(TAG, "PA ON, caller: %p", caller);
 			for(volatile int i = 0; i < 7; i++) {
 				GPIO_PinWrite(PA_DRV_HANDLE, PA_CONTROL_IO_POS, PA_OUT_OFF);
 				SysTick_Delay_Us(50);
@@ -65,7 +67,7 @@ int pa_manager_onoff(int onoff)
 				SysTick_Delay_Us(50);
 			}
 		} else {
-			LISA_LOGI(TAG, "PA OFF");
+			LISA_LOGI(TAG, "PA OFF, caller: %p", caller);
 			GPIO_PinWrite(PA_DRV_HANDLE, PA_CONTROL_IO_POS, PA_OUT_OFF);
 			SysTick_Delay_Us(50);
 		}

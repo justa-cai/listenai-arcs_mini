@@ -50,8 +50,13 @@ static void lisa_ui_anim_loop_cb_handle(lv_obj_t *obj)
             lisa_ui_anim_stop(obj);
         }
     } else if (anim_ext->state == LISA_UI_ANIM_STATE_NEXT_REQ) {
-        lisa_ui_anim_ext_set_config(obj, &anim_ext->next);
-        lisa_ui_anim_ext_start(obj);
+        if (anim_ext->curr.exit.frame_count != 0) {
+            lisa_ui_anim_set_config(obj, &anim_ext->curr.exit);
+            lisa_ui_anim_start(obj);
+        } else {
+            lisa_ui_anim_ext_set_config(obj, &anim_ext->next);
+            lisa_ui_anim_ext_start(obj);
+        }
     }
 }
 

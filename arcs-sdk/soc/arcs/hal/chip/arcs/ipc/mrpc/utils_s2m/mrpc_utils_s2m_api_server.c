@@ -56,10 +56,35 @@ static void mrpc_ls_get_mac_customized(void *msg, struct mrpc_resp_msg *resp_msg
 }
 
 
+/* CP-local netcfg IPC handler, implemented in lisa_ble_api_ipc.c.
+ * Weak default returns error when BLE netcfg is not enabled. */
+__attribute__((weak)) int lisa_ble_netcfg_ipc_handler(const char *ssid, const char *pwd)
+{
+    (void)ssid;
+    (void)pwd;
+    return LS_FAIL;
+}
+
+static void mrpc_netcfg_wifi_connect(void *msg, struct mrpc_resp_msg *resp_msg)
+{
+    mrpc_netcfg_wifi_connect_req_t *req = (mrpc_netcfg_wifi_connect_req_t *)msg;
+    mrpc_netcfg_wifi_connect_resp_t *resp = (mrpc_netcfg_wifi_connect_resp_t *)resp_msg;
+
+    memset(resp, 0, sizeof(mrpc_netcfg_wifi_connect_resp_t));
+    resp_msg->len = sizeof(mrpc_netcfg_wifi_connect_resp_t);
+
+    /* Ensure null-termination */
+    req->ssid[MRPC_NETCFG_SSID_MAX_LEN - 1] = '\0';
+    req->pwd[MRPC_NETCFG_PWD_MAX_LEN - 1] = '\0';
+
+    resp_msg->status = lisa_ble_netcfg_ipc_handler(req->ssid, req->pwd);
+}
+
 mrpc_msg_handler_t mrpc_msg_utils_s2m_handlers[MRPC_MSG_ID_UTILS_S2M_MAX - MRPC_MSG_ID_UTILS_S2M_START] =
 {
-    mrpc_ls_read_temp_voltage,  /*MRPC_MSG_ID_LS_READ_TEMP_VOLTAGE*/
-    mrpc_ls_get_mac_from_nvs,  /*MRPC_MSG_ID_LS_GET_MAC_FROM_NVS*/
+    mrpc_ls_read_temp_voltage,   /*MRPC_MSG_ID_LS_READ_TEMP_VOLTAGE*/
+    mrpc_ls_get_mac_from_nvs,    /*MRPC_MSG_ID_LS_GET_MAC_FROM_NVS*/
     mrpc_ls_get_mac_customized,  /*MRPC_MSG_ID_LS_GET_MAC_CUSTOMIZED*/
+    mrpc_netcfg_wifi_connect,    /*MRPC_MSG_ID_NETCFG_WIFI_CONNECT*/
     NULL
 };

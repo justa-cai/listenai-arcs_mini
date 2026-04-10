@@ -19,7 +19,7 @@
  *
  * @code
  * // 1. 获取设备
- * lisa_device_t *sdmmc = lisa_device_get_by_name("sdmmc0");
+ * lisa_device_t *sdmmc = lisa_device_get("sdmmc0");
  *
  * // 2. 探测并初始化设备
  * lisa_sdmmc_probe(sdmmc);

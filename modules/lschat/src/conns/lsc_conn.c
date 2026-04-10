@@ -229,6 +229,15 @@ static int conn_connect(char *token)
 	lsc_conn_t *conn = g_lsc_conn_obj;
 	CHECK_COND_RETURN_VAL(conn, LSC_INVALID_STATE, "conn not init");
 
+	if (conn->ws_hdl == NULL) {
+		conn->ws_hdl = lisa_ws_new();
+		if (conn->ws_hdl == NULL) {
+			LISA_NLOGE("lisa websocket new failed");
+			return LSC_ERR;
+		}
+		LISA_NLOGI("ws_hdl recreated");
+	}
+
 	ret = conn_update_auth_header(token);
 	CHECK_COND_RETURN_VAL(ret == LSC_OK, LSC_INVALID_STATE, "update auth header faild");
 

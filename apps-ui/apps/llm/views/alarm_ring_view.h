@@ -33,15 +33,40 @@ void alarm_ring_view_set_time(lv_obj_t *obj, const char *time_str);
 
 /**
  * @brief Set alarm date text
- * 
+ *
  * @param obj View object
  * @param date_str Date string (e.g. "12月29日 周日")
  */
 void alarm_ring_view_set_date(lv_obj_t *obj, const char *date_str);
 
 /**
+ * @brief Set alarm text content
+ *
+ * @param obj View object
+ * @param text Alarm text content
+ */
+void alarm_ring_view_set_text(lv_obj_t *obj, const char *text);
+
+/**
+ * @brief Set hint text
+ *
+ * @param obj View object
+ * @param hint Hint text
+ */
+void alarm_ring_view_set_hint(lv_obj_t *obj, const char *hint);
+
+/**
+ * @brief Show a toast message inside alarm ring view
+ *
+ * @param obj View object
+ * @param text Toast text
+ */
+void alarm_ring_view_show_toast(lv_obj_t *obj, const char *text);
+
+
+/**
  * @brief Set stop button callback
- * 
+ *
  * @param obj View object
  * @param cb Callback function
  * @param user_data User data passed to callback

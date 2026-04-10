@@ -1,0 +1,65 @@
+tests:
+  test.driver.vaddr_remap.boot_a:
+    programmer: arcs
+    runner: uart
+    build_extra_args: "-c prj_boot_a.conf"
+    images:
+      - file: "vaddr_remap_test_boot.bin"
+        address: "0x0"
+      - file: "fw/vaddr_remap_fw.bin"
+        address: "0x20000"
+    log_analyzer:
+      type: "regex"
+      pattern: "Firmware A running!"
+
+  test.driver.vaddr_remap.boot_b:
+    programmer: arcs
+    runner: uart
+    build_extra_args: "-c prj_boot_b.conf"
+    images:
+      - file: "vaddr_remap_test_boot.bin"
+        address: "0x0"
+      - file: "fw/vaddr_remap_fw.bin"
+        address: "0x40000"
+    log_analyzer:
+      type: "regex"
+      pattern: "Firmware B running!"
+
+  test.driver.vaddr_remap.boot_c:
+    programmer: arcs
+    runner: uart
+    build_extra_args: "-c prj_boot_c.conf"
+    images:
+      - file: "vaddr_remap_test_boot.bin"
+        address: "0x0"
+      - file: "fw/vaddr_remap_fw.bin"
+        address: "0x60000"
+    log_analyzer:
+      type: "regex"
+      pattern: "Firmware C running!"
+
+  test.driver.vaddr_remap.boot_d:
+    programmer: arcs
+    runner: uart
+    build_extra_args: "-c prj_boot_d.conf"
+    images:
+      - file: "vaddr_remap_test_boot.bin"
+        address: "0x0"
+      - file: "fw/vaddr_remap_fw.bin"
+        address: "0x80000"
+    log_analyzer:
+      type: "regex"
+      pattern: "Firmware D running!"
+
+  test.driver.vaddr_remap.boot_cp_a:
+    programmer: arcs
+    runner: uart
+    build_extra_args: "-c prj_boot_cp_a.conf"
+    images:
+      - file: "vaddr_remap_test_boot.bin"
+        address: "0x0"
+      - file: "fw/vaddr_remap_fw.bin"
+        address: "0x20000"
+    log_analyzer:
+      type: "regex"
+      pattern: "Firmware A running!"

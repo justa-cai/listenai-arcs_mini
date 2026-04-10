@@ -17,7 +17,7 @@ BLE_HOST_PRESENT   = 1
 BT_STACK_PRESENT   = 1
 # classic profile
 BT_MUSIC_PRESENT   = 1
-BT_CALL_PRESENT    = 0
+BT_CALL_PRESENT    = 1
 # ble profile
 BLE_GAF_PRESENT    = 0
 SMP_PRESENT        = 1

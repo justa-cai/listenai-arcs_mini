@@ -11,6 +11,7 @@
  */
 #include <stdbool.h>
 #include "atcmd.h"
+#include "atcmd_hash.h"
 #include "log_print.h"
 #include "lwip/inet.h"
 #include "ping.h"
@@ -289,7 +290,7 @@ static void delete_node(skt_node_t* node_to_remove)
 
             if (current_seed->protocol == NODE_MODE_TCP && current_seed->sockfd != INVALID_SOCKET_ID) 
             {
-                close(current_seed->sockfd); 
+                lwip_close(current_seed->sockfd); 
                 current_seed->sockfd = INVALID_SOCKET_ID;
             }
 
@@ -303,7 +304,7 @@ static void delete_node(skt_node_t* node_to_remove)
     {
         if (node_to_remove->sockfd != INVALID_SOCKET_ID) 
         {
-            close(node_to_remove->sockfd);  
+            lwip_close(node_to_remove->sockfd);  
             node_to_remove->sockfd = INVALID_SOCKET_ID;  
         }
     }
@@ -365,7 +366,7 @@ static void at_lwip_log_error(at_lwip_errcode_e err_code, const char* function_n
  * @param type 命令类型（未使用）
  * @param arg 包含ping命令参数的字符串
  **************************************************************************/
-static int atcmd_ping(int type, void* arg)
+static int atcmd_ping(int type, char *arg)
 {
     char *cur;
     char *next = arg;
@@ -615,7 +616,7 @@ static int atcmd_lwip_receive_data(skt_node_t *curnode, uint8_t *buffer, uint16_
 	tv.tv_sec = RECV_SELECT_TIMEOUT_SEC;
 	tv.tv_usec = RECV_SELECT_TIMEOUT_USEC;
 
-	ret = select(curnode->sockfd + 1, &readfds, NULL, NULL, &tv);
+	ret = lwip_select(curnode->sockfd + 1, &readfds, NULL, NULL, &tv);
 	if (!((ret > 0)&&(FD_ISSET(curnode->sockfd, &readfds))))
 	{
 		goto err_exit;
@@ -630,7 +631,7 @@ static int atcmd_lwip_receive_data(skt_node_t *curnode, uint8_t *buffer, uint16_
 			uint32_t addr_len = sizeof(struct sockaddr_in);
 			memset((char *)&client_addr, 0, sizeof(client_addr));
 
-			if ((size = recvfrom(curnode->sockfd, buffer, buffer_size, 0, (struct sockaddr *) &client_addr, &addr_len)) <= 0) 
+			if ((size = lwip_recvfrom(curnode->sockfd, buffer, buffer_size, 0, (struct sockaddr *) &client_addr, (socklen_t *)&addr_len)) <= 0)
             {
                 error_code = ERR_ATLWIP_RECV_DATA_UDPSER_FAILED;
                 goto err_exit;
@@ -647,14 +648,14 @@ static int atcmd_lwip_receive_data(skt_node_t *curnode, uint8_t *buffer, uint16_
 			serv_addr.sin_port = htons(curnode->remote_port);
 			serv_addr.sin_addr.s_addr = htonl(curnode->remote_ip_addr);
 			
-			if ((size = recvfrom(curnode->sockfd, buffer, buffer_size, 0, (struct sockaddr *) &serv_addr, &addr_len)) <= 0) 
+			if ((size = lwip_recvfrom(curnode->sockfd, buffer, buffer_size, 0, (struct sockaddr *) &serv_addr, (socklen_t *)&addr_len)) <= 0)
             {
                 error_code = ERR_ATLWIP_RECV_DATA_UDPCLI_FAILED;
                 goto err_exit;
 			}
 		}
 	} else {
-		size = read(curnode->sockfd,buffer,buffer_size);
+		size = lwip_read(curnode->sockfd,buffer,buffer_size);
 		
 		if (size == 0) {
 			error_code = ERR_ATLWIP_RECV_DATA_TCP_CLOSED;
@@ -730,7 +731,7 @@ static void atcmd_lwip_receive_task(void *param)
                         // atcmd_print_data(rx_buffer, recv_size);
                         if (atcmd_lwip_is_test_mode())
 						{
-							ret = write(curnode->sockfd, rx_buffer, recv_size);
+							ret = lwip_write(curnode->sockfd, rx_buffer, recv_size);
 							if(ret < 0)
 							{
 								AT_DBG_MSG(AT_LOG_FLAG_LWIP, AT_LOG_LEVEL_ERROR,
@@ -814,9 +815,9 @@ static void server_start(void *param)
     }
 
     if (protocol_mode == NODE_MODE_UDP) {
-        server_socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
+        server_socket_fd = lwip_socket(AF_INET, SOCK_DGRAM, 0);
     } else if (protocol_mode == NODE_MODE_TCP) {
-        server_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+        server_socket_fd = lwip_socket(AF_INET, SOCK_STREAM, 0);
     } else {
         error_code = ERR_ATLWIP_SERVER_START_NODE_MODE_INVALID;
         goto err_exit;
@@ -828,9 +829,9 @@ static void server_start(void *param)
         goto err_exit;
     }
 
-    if (setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse_address_option, sizeof(reuse_address_option)) < 0) 
+    if (lwip_setsockopt(server_socket_fd, SOL_SOCKET, SO_REUSEADDR, (const char *)&reuse_address_option, sizeof(reuse_address_option)) < 0) 
     {
-        close(server_socket_fd);
+        lwip_close(server_socket_fd);
         error_code = ERR_ATLWIP_SERVER_START_SOCKET_OPTION_FAILED;
         goto err_exit;
     }
@@ -840,9 +841,9 @@ static void server_start(void *param)
     server_address.sin_addr.s_addr = htonl(INADDR_ANY);
     server_address.sin_port = htons(local_port);
 
-    if (bind(server_socket_fd, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) 
+    if (lwip_bind(server_socket_fd, (struct sockaddr *)&server_address, sizeof(server_address)) < 0) 
     {
-        close(server_socket_fd);
+        lwip_close(server_socket_fd);
         error_code = ERR_ATLWIP_SERVER_START_SOCKET_BIND_FAILED;
         goto err_exit;
     }
@@ -856,7 +857,7 @@ static void server_start(void *param)
 
     if (protocol_mode == NODE_MODE_TCP) 
     {
-        if (listen(server_socket_fd, 5) < 0) 
+        if (lwip_listen(server_socket_fd, 5) < 0) 
         {
             error_code = ERR_ATLWIP_SERVER_START_SOCKET_LISTEN_FAILED;
             goto err_exit;
@@ -875,7 +876,7 @@ static void server_start(void *param)
 
         while (1) 
         {
-            client_socket_fd = accept(server_socket_fd, (struct sockaddr *)&client_address, &client_address_length);
+            client_socket_fd = lwip_accept(server_socket_fd, (struct sockaddr *)&client_address, &client_address_length);
             if (client_socket_fd < 0) 
             {
                 AT_DBG_MSG(AT_LOG_FLAG_LWIP, AT_LOG_LEVEL_ERROR, "Failed to accept client connection");
@@ -885,7 +886,7 @@ static void server_start(void *param)
             skt_node_t *seed_node = create_node(protocol_mode, NODE_ROLE_SEED);
             if (!seed_node) 
             {
-                close(client_socket_fd);
+                lwip_close(client_socket_fd);
                 error_code = ERR_ATLWIP_SERVER_START_SEED_CREATE_FAILED;
                 goto err_exit;
             }
@@ -897,7 +898,7 @@ static void server_start(void *param)
             if (add_seednode_to_mainnode(server_node, seed_node) < 0)
             {
                 delete_node(seed_node);
-                close(client_socket_fd);
+                lwip_close(client_socket_fd);
                 error_code = ERR_ATLWIP_SERVER_START_SEED_ADD_FAILED;
                 goto err_exit;
             }
@@ -918,7 +919,7 @@ static void server_start(void *param)
     } else {
 #if IP_SOF_BROADCAST && IP_SOF_BROADCAST_RECV
         int broadcast_enable = 1;
-        if (setsockopt(server_socket_fd, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable)) < 0) 
+        if (lwip_setsockopt(server_socket_fd, SOL_SOCKET, SO_BROADCAST, &broadcast_enable, sizeof(broadcast_enable)) < 0) 
         {
             AT_DBG_MSG(AT_LOG_FLAG_LWIP, AT_LOG_LEVEL_ERROR, "Failed to enable broadcast on UDP socket");
             error_code = ERR_ATLWIP_SERVER_START_BROADCAST_OPTION_FAILED;
@@ -950,7 +951,7 @@ err_exit:
 
         if (server_socket_fd != INVALID_SOCKET_ID) 
         {
-            close(server_socket_fd);
+            lwip_close(server_socket_fd);
         }    
     }
 
@@ -969,9 +970,9 @@ static void creat_server_task(void *param)
 {
     if(!param)
         return;
-	server_start(param);
-	vTaskDelete(NULL);
-	return;
+    server_start(param);
+    vTaskDelete(NULL);
+    return;
 }
 
 /**************************************************************************
@@ -983,7 +984,7 @@ static void creat_server_task(void *param)
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_server_create(int type, void* arg)
+static int atcmd_server_create(int type, char *arg)
 {
     char *cur;
     char *next = arg;
@@ -1070,7 +1071,7 @@ static int atcmd_server_create(int type, void* arg)
         ATCMD_LWIP_TASK_DEFAULT_STACK_SIZE, 
         servernode, 
         ATCMD_LWIP_DEFAULT_TASK_PRIO, 
-        ((TaskHandle_t *)&servernode->handletask)) != pdPASS)
+        (TaskHandle_t *)&servernode->handletask) != pdPASS)
 	{	
 		error_code = ERR_ATCMD_SERVER_CREATE_TASK_FAILED;
 		goto err_exit;
@@ -1141,7 +1142,7 @@ static void client_start(void *param)
     /* 协议特定处理 */
     if (protocol_type == NODE_MODE_TCP) 
     {
-        if (connect(client_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0) 
+        if (lwip_connect(client_sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) != 0) 
         {
             error_code = ERR_ATLWIP_CLIENT_START_CONNECT_FAILED;
             goto err_exit;
@@ -1190,14 +1191,14 @@ err_exit:
 **************************************************************************/
 static int create_client_socket(int proto, int *keepalive)
 {
-    int sockfd = socket(AF_INET, 
+    int sockfd = lwip_socket(AF_INET, 
         (proto == NODE_MODE_TCP) ? SOCK_STREAM : SOCK_DGRAM, 0);
     
     if (sockfd == INVALID_SOCKET_ID) return sockfd;
 
     /* TCP Keepalive设置 */
     if (proto == NODE_MODE_TCP && *keepalive) {
-        setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, 
+        lwip_setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, 
                  keepalive, sizeof(*keepalive));
     }
     return sockfd;
@@ -1244,7 +1245,7 @@ static int setup_udp_socket(int sockfd, struct sockaddr_in *addr, skt_node_t *no
             .sin_port = htons(node->local_port),
             .sin_addr.s_addr = htonl(INADDR_ANY)
         };
-        ret = bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr));
+        ret = lwip_bind(sockfd, (struct sockaddr *)&local_addr, sizeof(local_addr));
     }
     return ret;
 }
@@ -1302,7 +1303,7 @@ static void client_start_task(void *param)
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_client_create(int type, void* arg)
+static int atcmd_client_create(int type, char *arg)
 {
     char *cur;
     char *next = arg;
@@ -1472,7 +1473,7 @@ static int atcmd_lwip_send_data(skt_node_t *curnode, uint8_t *data, uint16_t dat
 	int ret;
 
 	if ((curnode->protocol == NODE_MODE_UDP) && (curnode->role == NODE_ROLE_SERVER)) {
-		if (sendto(curnode->sockfd, data, data_sz, 0, (struct sockaddr *)&cli_addr, sizeof(cli_addr)) <= 0) 
+		if (lwip_sendto(curnode->sockfd, data, data_sz, 0, (struct sockaddr *)&cli_addr, sizeof(cli_addr)) <= 0) 
         {
 			error_code = ERR_ATLWIP_SEND_DATA_UDPSER_FAILED;
             goto err_exit;
@@ -1488,10 +1489,10 @@ static int atcmd_lwip_send_data(skt_node_t *curnode, uint8_t *data, uint16_t dat
 			#ifdef UDP_TEST
             while(1)
             {
-                sendto(curnode->sockfd, data, data_sz, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
+                lwip_sendto(curnode->sockfd, data, data_sz, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr));
             }
 			#else
-			if (sendto( curnode->sockfd, data, data_sz, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) <= 0)
+			if (lwip_sendto( curnode->sockfd, data, data_sz, 0, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) <= 0)
             {
 				error_code = ERR_ATLWIP_SEND_DATA_UDPCLI_FAILED;
                 goto err_exit;
@@ -1530,7 +1531,7 @@ err_exit:
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_send_data(int type, void* arg)
+static int atcmd_send_data(int type, char *arg)
 {
     char *cur;
     char *next = arg;
@@ -1681,7 +1682,7 @@ static void socket_close_all(void)
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_close_connect(int type, void* arg)
+static int atcmd_close_connect(int type, char *arg)
 {
     char *cur;
     char *next = arg;
@@ -1766,7 +1767,7 @@ err_exit:
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_auto_receive_data(int type, void* arg)
+static int atcmd_auto_receive_data(int type, char *arg)
 {
     char *cur;
     char *next = arg;
@@ -1852,7 +1853,7 @@ err_exit:
  * @param type 命令类型，当前未使用
  * @param arg 指向包含参数的字符串的指针
 **************************************************************************/
-static int atcmd_receive_data(int type, void* arg)
+static int atcmd_receive_data(int type, char *arg)
 {
     char *cur;
     char *next = arg;
@@ -2017,7 +2018,7 @@ err_exit:
  * @param arg 指向包含参数的字符串的指针
  * @return int 返回ATCMD_OK表示命令处理成功
 **************************************************************************/
-static int atcmd_lwip_test_mode(int type, void* arg)
+static int atcmd_lwip_test_mode(int type, char *arg)
 {
     char *cur;
     char *next = arg;
@@ -2091,14 +2092,14 @@ err_exit:
 
 const atcmd_item_t atcmd_lwip_table[] =
 {
-    {atcmd_ping,       		                "AT+PING", 		        "ping <IP or domain>\r\n"},
-    {atcmd_server_create,       		    "AT+CIPSERVER", 		"AT+CIPSERVER=<mode>(TCP/UDP),<local_port>\r\n"},
-    {atcmd_client_create,       		    "AT+CIPSTART", 		    "AT+CIPSTART=<mode>(TCP/UDP),<remote_ip>,<remote_port>,<local_port>\r\n"},
-    {atcmd_send_data,       		        "AT+CIPSEND", 		    "AT+CIPSEND=<len>,<con_id>[,<udp_dst_ip>,<udp_dst_port>]:<data>\r\n"},
-    {atcmd_close_connect,       		    "AT+CIPCLOSE", 		    "AT+CIPCLOSE=<con_id>\r\n"},
-    {atcmd_auto_receive_data,       		"AT+CIPAUTORECV", 		"AT+CIPAUTORECV=<set_val>\r\n"},
-    {atcmd_receive_data,       		        "AT+CIPRECVDATA", 		"AT+CIPRECVDATA=<con_id>,<read_size>\r\n"},
-    {atcmd_lwip_test_mode,       		    "AT+CIPTESTMODE", 		"AT+CIPTESTMODE=<set_val>\r\n"},
+    {{atcmd_ping,       		                "AT+PING", 		        "ping <IP or domain>\r\n"}, },
+    {{atcmd_server_create,       		    "AT+CIPSERVER", 		"AT+CIPSERVER=<mode>(TCP/UDP),<local_port>\r\n"}, },
+    {{atcmd_client_create,       		    "AT+CIPSTART", 		    "AT+CIPSTART=<mode>(TCP/UDP),<remote_ip>,<remote_port>,<local_port>\r\n"}, },
+    {{atcmd_send_data,       		        "AT+CIPSEND", 		    "AT+CIPSEND=<len>,<con_id>[,<udp_dst_ip>,<udp_dst_port>]:<data>\r\n"}, },
+    {{atcmd_close_connect,       		    "AT+CIPCLOSE", 		    "AT+CIPCLOSE=<con_id>\r\n"}, },
+    {{atcmd_auto_receive_data,       		"AT+CIPAUTORECV", 		"AT+CIPAUTORECV=<set_val>\r\n"}, },
+    {{atcmd_receive_data,       		        "AT+CIPRECVDATA", 		"AT+CIPRECVDATA=<con_id>,<read_size>\r\n"}, },
+    {{atcmd_lwip_test_mode,       		    "AT+CIPTESTMODE", 		"AT+CIPTESTMODE=<set_val>\r\n"}, },
 };
 
 /************************************************************************** 

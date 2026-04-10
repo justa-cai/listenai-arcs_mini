@@ -9,6 +9,13 @@ if(DEFINED CONFIG_SDK_MODULE_LETTER_SHELL)
     listenai_library_sources(${source_files})
     listenai_include_directories(src)
 
+    # Linker fragments: .shell + .shell_command sections
+    listenai_add_linker_section(
+        FILE ${CMAKE_CURRENT_SOURCE_DIR}/shell-sections.ld
+        SLOT ROM SORT_KEY "30-module"
+    )
+    listenai_add_linker_scatter(SCATLOAD .shell)
+
     if (DEFINED CONFIG_SDK_MODULE_LETTER_SHELL_CONFIG_FILE)
         listenai_compile_definitions(
             SHELL_CFG_USER=CONFIG_SDK_MODULE_LETTER_SHELL_CONFIG_FILE

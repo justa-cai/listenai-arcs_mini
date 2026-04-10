@@ -22,10 +22,6 @@
 #include "HTTPClientAuth.h"     // Crypto support (Digest, MD5)
 #include "HTTPClientString.h"   // String utilities
 
-#if CONFIG_4G_MODULE
-#include "lisa_4g_module.h"
-#endif
-
 #ifndef _WIN32
 
 /**
@@ -922,6 +918,8 @@ UINT32 HTTPClientSendRequest (HTTP_SESSION_HANDLE pSession,
                 }
 
         }while(0);
+
+
 
         return nRetCode;
 }
@@ -1820,8 +1818,6 @@ UINT32 HTTPIntrnConnectionClose (P_HTTP_SESSION pHTTPSession)
 #elif _LINUX
                         shutdown(pHTTPSession->HttpConnection.HttpSocket,0x01);
                         close(pHTTPSession->HttpConnection.HttpSocket);
-#elif CONFIG_4G_MODULE
-                        lisa_4g_tcp_closesocket(pHTTPSession->HttpConnection.HttpSocket);
 #else
                         closesocket(pHTTPSession->HttpConnection.HttpSocket);
 #endif
@@ -1892,13 +1888,9 @@ UINT32 HTTPIntrnConnectionOpen (P_HTTP_SESSION pHTTPSession)
                 {
 
                         // Create a TCP/IP stream socket
-#if CONFIG_4G_MODULE
-                        pHTTPSession->HttpConnection.HttpSocket = lisa_4g_tcp_socket(0);
-#else
                         pHTTPSession->HttpConnection.HttpSocket = socket(AF_INET,	    // Address family
                                         SOCK_STREAM,			                    // Socket type
                                         IPPROTO_TCP);		                        // Protocol
-#endif
                 }
 
                 // Exit if we don't have a valid socket
@@ -1912,10 +1904,10 @@ UINT32 HTTPIntrnConnectionOpen (P_HTTP_SESSION pHTTPSession)
                 // Set non blocking socket
 #ifdef _WIN32
                 nRetCode = ioctlsocket(pHTTPSession->HttpConnection.HttpSocket, FIONBIO, &nNonBlocking);
-#elif CONFIG_4G_MODULE
-                nRetCode = lisa_4g_ioctlsocket(pHTTPSession->HttpConnection.HttpSocket);
 #else
-                nRetCode = sktSetNonblocking(pHTTPSession->HttpConnection.HttpSocket , nNonBlocking);
+                // nRetCode = sktSetNonblocking(pHTTPSession->HttpConnection.HttpSocket , nNonBlocking);
+                nNonBlocking = 0;
+                nRetCode = ioctlsocket(pHTTPSession->HttpConnection.HttpSocket, FIONBIO, &nNonBlocking);
 #endif
                 if(nRetCode != 0)
                 {
@@ -2021,15 +2013,9 @@ UINT32 HTTPIntrnConnectionOpen (P_HTTP_SESSION pHTTPSession)
                 }
                 else    // Non TLS so..
                 {
-#if CONFIG_4G_MODULE
-                        nRetCode = lisa_4g_tcp_connect_with_addr(pHTTPSession->HttpConnection.HttpSocket,
-                                        (HTTP_SOCKADDR*)&ServerAddress,
-                                        sizeof(HTTP_SOCKADDR));
-#else
                         nRetCode = connect(pHTTPSession->HttpConnection.HttpSocket,	// Socket
                                         (HTTP_SOCKADDR*)&ServerAddress,			                // Server address
                                         sizeof(HTTP_SOCKADDR));		                    // Length of server address structure
-#endif
 				}
 
                 // The socket was set to be asyn so we should check the error being returned from connect()
@@ -2114,92 +2100,48 @@ UINT32 HTTPIntrnSend (P_HTTP_SESSION pHTTPSession,
                                 break;
                         }
 
-                        // Reset socket events , only Error, since we don't want to get
-                        // a repeated Write events (socket is connected)
+                        /* Use send directly with timeout instead of select */
+                        /* Set socket send timeout using Timeval */
+                        setsockopt(pConnection->HttpSocket, SOL_SOCKET, SO_SNDTIMEO, &Timeval, sizeof(Timeval));
 
-                        FD_SET(pConnection->HttpSocket, &pConnection->FDError);
-
-#ifdef HTTPC_LWIP
-                        FD_SET(pConnection->HttpSocket, &pConnection->FDWrite);
-
-#endif
-                        // See if we got any events on the socket
-
-                        nSocketEvents = select((pConnection->HttpSocket + 1), 0,
-                                        &pConnection->FDWrite,
-                                        &pConnection->FDError,
-                                        &Timeval);
-                        if(nSocketEvents < 0) // No events on the socket
+                        // Send the data
+                        if((pHTTPSession->HttpFlags & HTTP_CLIENT_FLAG_SECURE) == HTTP_CLIENT_FLAG_SECURE)
                         {
-                                *(nLength) = 0;
-                                break; // To-Do: This might be an error
-                        }
-
-                        if(nSocketEvents == 0) // No new events so
-                        {
-                                continue; // restart this loop
-                        }
-
-
-                        // Socket is writable (we are connected) so send the data
-                        if(FD_ISSET(pConnection->HttpSocket ,&pConnection->FDWrite))
-                        {
-
-                                FD_CLR((UINT32)pConnection->HttpSocket,&pConnection->FDWrite);
-                                // Send the data
-                                if((pHTTPSession->HttpFlags & HTTP_CLIENT_FLAG_SECURE) == HTTP_CLIENT_FLAG_SECURE)
+                                // TLS Protected connection
+                                if(pConnection->TlsNego == FALSE)
                                 {
-                                        // TLS Protected connection
-                                        if(pConnection->TlsNego == FALSE)
+                                        nRetCode = HTTPWrapperSSLNegotiate(&(pHTTPSession->HttpSSL), pConnection->HttpSocket,0,0,"desktop");
+                                        if(nRetCode != 0)
                                         {
-                                                nRetCode = HTTPWrapperSSLNegotiate(&(pHTTPSession->HttpSSL), pConnection->HttpSocket,0,0,"desktop");
-                                                if(nRetCode != 0)
-                                                {
-                                                        // TLS Error
-                                                        nRetCode = HTTP_CLIENT_ERROR_TLS_NEGO;
-                                                        break;
-                                                }
-                                                pConnection->TlsNego = TRUE;
+                                                // TLS Error
+                                                nRetCode = HTTP_CLIENT_ERROR_TLS_NEGO;
+                                                break;
                                         }
-                                        nRetCode = HTTPWrapperSSLSend(&(pHTTPSession->HttpSSL), pConnection->HttpSocket,pData,*(nLength),0);
+                                        pConnection->TlsNego = TRUE;
                                 }
-                                else
-                                {
-#if CONFIG_4G_MODULE
-                                        nRetCode = lisa_4g_tcp_send(pConnection->HttpSocket,pData+nSendSize,*(nLength)-nSendSize, 0);
-#else
-                                        nRetCode = send(pConnection->HttpSocket,pData+nSendSize,*(nLength)-nSendSize,0);
-#endif
-                                }
-
-                                if(nRetCode == SOCKET_ERROR)
-                                {
-                                        nRetCode = SocketGetErr(pHTTPSession->HttpConnection.HttpSocket);
-                                        nRetCode = HTTP_CLIENT_ERROR_SOCKET_SEND;
-                                        break;
-                                }
-								else
-								{
-									nSendSize += nRetCode;
-									if((UINT32)nSendSize != *(nLength))
-										continue;
-								}
-                                // The data was sent to the remote server
-                                *(nLength) = nSendSize;
-                                nRetCode = HTTP_CLIENT_SUCCESS;
-                                break;
+                                nRetCode = HTTPWrapperSSLSend(&(pHTTPSession->HttpSSL), pConnection->HttpSocket,pData,*(nLength),0);
+                        }
+                        else
+                        {
+                                nRetCode = send(pConnection->HttpSocket,pData+nSendSize,*(nLength)-nSendSize,0);
                         }
 
-                        // We had a socket related error
-                        if(FD_ISSET(pConnection->HttpSocket ,&pConnection->FDError))
+                        if(nRetCode == SOCKET_ERROR)
                         {
-                                FD_CLR((UINT32)pConnection->HttpSocket,&pConnection->FDError);
-                                *(nLength) = 0;
-                                // To-Do: Handle this case
+                                nRetCode = SocketGetErr(pHTTPSession->HttpConnection.HttpSocket);
                                 nRetCode = HTTP_CLIENT_ERROR_SOCKET_SEND;
                                 break;
                         }
-
+                        else
+                        {
+                                nSendSize += nRetCode;
+                                if((UINT32)nSendSize != *(nLength))
+                                        continue;
+                        }
+                        // The data was sent to the remote server
+                        *(nLength) = nSendSize;
+                        nRetCode = HTTP_CLIENT_SUCCESS;
+                        break;
                 }
         } while(0);
 
@@ -2231,7 +2173,7 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
 {
         INT32           nSocketEvents;
         INT32           nRetCode = HTTP_CLIENT_SUCCESS;
-        HTTP_TIMEVAL    Timeval         = { 0, 50000 };
+        HTTP_TIMEVAL    Timeval         = { 0, 1000000 };
         HTTP_CONNECTION *pConnection     = NULL;
 
         do
@@ -2284,37 +2226,11 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
 								break;
 						}
 
-                        #if !CONFIG_4G_MODULE
-                        // Reset socket events
-                        FD_SET(pConnection->HttpSocket, &pConnection->FDRead);
-                        FD_SET(pConnection->HttpSocket, &pConnection->FDError);
+                        setsockopt(pConnection->HttpSocket, SOL_SOCKET, SO_RCVTIMEO, &Timeval, sizeof(Timeval));
 
-                        // See if we got any events on the socket
-                        nSocketEvents = select(pConnection->HttpSocket + 1, &pConnection->FDRead,
-                                        0,
-                                        &pConnection->FDError,
-                                        &Timeval);
-
-                        if(nSocketEvents < 0) // Error or no new socket events
+                        if(PeekOnly == FALSE)
                         {
-                                *(nLength) = 0;
-                                break;
-                        }
-
-                        if(FD_ISSET(pConnection->HttpSocket ,&pConnection->FDRead)) // Are there any read events on the socket ?
-                        {
-                        #endif
-                                // Clear the event
-                                FD_CLR((UINT32)pConnection->HttpSocket,&pConnection->FDRead);
-
-                                // Socket is readable so so read the data
-                                if(PeekOnly == FALSE)
-                                {
-#if CONFIG_4G_MODULE
-                                        if((nRetCode = lisa_4g_tcp_recv(pConnection->HttpSocket,pData,*(nLength),1000)) == SOCKET_ERROR)
-#else
                                         if((nRetCode = recv(pConnection->HttpSocket,pData,*(nLength),0)) == SOCKET_ERROR)
-#endif
                                         {
                                                 // Socket error
 
@@ -2326,11 +2242,7 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
                                 else
                                 {
                                         // Only peek te socket
-#if CONFIG_4G_MODULE
-                                        if((nRetCode = lisa_4g_tcp_recv(pConnection->HttpSocket,pData,*(nLength),1000)) == SOCKET_ERROR)
-#else
                                         if((nRetCode = recv(pConnection->HttpSocket,pData,*(nLength),MSG_PEEK)) == SOCKET_ERROR)
-#endif
                                         {
                                                 // Socket error
                                                 nRetCode =  HTTP_CLIENT_ERROR_SOCKET_RECV;
@@ -2346,29 +2258,14 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
 #else
                                         if ( nRetCode == 0 /*|| nRetCode == HTTP_ECONNRESET*/)
 #endif
-                                        {
-                                                // Connection closed, simply break - this is not an error
-                                                nRetCode =  HTTP_CLIENT_EOS;  // Signal end of stream
-                                                break;
-                                        }
-                                // We have successfully got the data from the server
-                                nRetCode = HTTP_CLIENT_SUCCESS;
-                                break;
-                        #if !CONFIG_4G_MODULE
-                        }
-                        
-                        // We had a socket related error
-                        if(FD_ISSET(pConnection->HttpSocket ,&pConnection->FDError))
                         {
-                                FD_CLR((UINT32)pConnection->HttpSocket,&pConnection->FDError);
-                                *(nLength) = 0;
-
-                                // To-Do: Handle this case
-                                nRetCode = HTTP_CLIENT_ERROR_SOCKET_RECV;
+                                // Connection closed, simply break - this is not an error
+                                nRetCode =  HTTP_CLIENT_EOS;  // Signal end of stream
                                 break;
-
                         }
-                        #endif
+                        // We have successfully got the data from the server
+                        nRetCode = HTTP_CLIENT_SUCCESS;
+                        break;
                 }
         }while(0);
 

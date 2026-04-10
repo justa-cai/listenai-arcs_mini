@@ -326,4 +326,4 @@ static int arcs_aon_timer_init(void)
 }
 
 LISA_DEVICE_REGISTER(aon_timer, &arcs_aon_timer_api, &arcs_aon_timer_priv, NULL, arcs_aon_timer_init,
-                     LISA_DEVICE_PRIORITY_NORMAL);
+                     LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);

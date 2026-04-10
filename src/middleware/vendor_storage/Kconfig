@@ -1,20 +1,39 @@
-menu "Vendor storage menu"
+menu "MAC Address Storage"
 
-menuconfig VENDOR_STORAGE_ENABLE
-    bool "Enable vendor storage"
-    default n
-    
-    if VENDOR_STORAGE_ENABLE
-        config VENDOR_STORAGE_SIZE
-            int "Vendor storage size"
-            default 4096
-            help
-              Set the size of the vendor storage in bytes.
+choice MAC_STORAGE_METHOD
+    prompt "MAC Address Storage Method"
+    default MAC_EFUSE_ENABLE
+    help
+      Select the method for storing WiFi MAC address.
+      - eFuse: Use SDK eFuse interface (recommended for production)
+      - Vendor Storage: Use Flash vendor storage partition
 
-        config VENDOR_STORAGE_OFFSET
-            int "Vendor storage offset"
-            default 0x3E000
-            help
-              Set the offset for the vendor storage in bytes.
-    endif
+    config MAC_EFUSE_ENABLE
+        bool "Use eFuse for MAC storage"
+        help
+          Use SDK eFuse interface to read MAC address.
+          MAC is written during factory test and stored in eFuse.
+          Priority: Flash fixzone > eFuse > NVS (random).
+
+    config VENDOR_STORAGE_ENABLE
+        bool "Use Vendor Storage for MAC storage"
+        help
+          Use Flash vendor storage partition to store MAC address.
+          MAC can be written at runtime.
+endchoice
+
+if VENDOR_STORAGE_ENABLE
+    config VENDOR_STORAGE_SIZE
+        int "Vendor storage size"
+        default 4096
+        help
+          Set the size of the vendor storage in bytes.
+
+    config VENDOR_STORAGE_OFFSET
+        int "Vendor storage offset"
+        default 0x3E000
+        help
+          Set the offset for the vendor storage in bytes.
+endif
+
 endmenu

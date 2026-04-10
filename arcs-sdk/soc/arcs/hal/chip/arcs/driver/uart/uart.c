@@ -22,7 +22,7 @@
 #include "uart.h"
 #include "PowerManager.h"
 #include "ClockManager.h"
-#if CONFIG_PM && PM_UART_WAKEUP
+#if CONFIG_PM && CONFIG_PM_UART_WAKEUP
 #include "pm_impl.h"
 #endif
 
@@ -40,7 +40,7 @@ static const CSK_DRIVER_VERSION DriverVersion = {
         }\
 }while(0)
 
-#if CONFIG_PM && PM_UART_WAKEUP
+#if CONFIG_PM && CONFIG_PM_UART_WAKEUP
 #define UART_PM_STATE_IDLE         0
 #define UART_PM_STATE_BUSY         1
 
@@ -344,7 +344,7 @@ int32_t UART_Initialize(void *res, CSK_UART_SignalEvent_t cb_event, void* worksp
     uart->info->inter_en = 0U;
 
     uart->info->flags = UART_FLAG_INITIALIZED;
-#if CONFIG_PM && PM_UART_WAKEUP
+#if CONFIG_PM && CONFIG_PM_UART_WAKEUP
     pm_peripheral_register(&uart_pm_dev);
 #endif
 
@@ -1194,7 +1194,7 @@ static void UART_IRQ_Handler(UART_RESOURCES *uart)
 	if ((uart->info->cb_event) && (event != 0U)) {
 		uart->info->cb_event(event, uart->info->workspace);
 	}
-#if CONFIG_PM && PM_UART_WAKEUP
+#if CONFIG_PM && CONFIG_PM_UART_WAKEUP
 	uart_pm_info.state = UART_PM_STATE_BUSY;
 	uart_pm_info.active_time = SysTimer_GetLoadValue();
 #endif
@@ -1277,7 +1277,7 @@ static void UART2_IRQ_Handler(void)
     UART_IRQ_Handler(&uart2_resources);
 }
 
-#if CONFIG_PM && PM_UART_WAKEUP
+#if CONFIG_PM && CONFIG_PM_UART_WAKEUP
 _PM_RAM_TEXT static int32_t UART_check_idle(pm_mode_t mode)
 {
     int32_t idle = 1;

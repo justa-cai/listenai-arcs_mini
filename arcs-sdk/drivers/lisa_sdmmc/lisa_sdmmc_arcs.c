@@ -392,4 +392,5 @@ LISA_DEVICE_REGISTER(sdmmc0,                       /* 设备名称 */
                      &sdmmc0_priv,                  /* 私有数据指针 */
                      NULL,                         /* 用户数据 */
                      arcs_sdmmc0_init,              /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,      /* 级别 */
                      CONFIG_LISA_SDMMC_INIT_PRIORITY); /* 优先级 */

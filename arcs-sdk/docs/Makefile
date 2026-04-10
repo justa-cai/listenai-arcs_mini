@@ -35,3 +35,4 @@ clean:
 	@rm -rf zh/CHANGELOG.md
 	@rm -rf zh/tools
 	@rm -rf zh/demos
+	@rm -rf zh/system

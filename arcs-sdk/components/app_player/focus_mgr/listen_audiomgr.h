@@ -94,4 +94,12 @@ const char *listen_audiomgr_get_channel_name(listen_audiomgr_t *handle, int id);
  */
 const char *listen_audiomgr_get_state_name(focus_state_e state);
 
+/**
+ * @brief 获取指定通道的当前焦点状态
+ * @param handle 焦点管理器句柄
+ * @param id 通道ID
+ * @return 当前焦点状态，如果通道不存在返回 FOCUS_NONE
+ */
+focus_state_e listen_audiomgr_get_channel_state(listen_audiomgr_t *handle, int id);
+
 #endif

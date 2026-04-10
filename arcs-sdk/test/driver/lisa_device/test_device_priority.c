@@ -16,30 +16,30 @@
  * ======================================== */
 
 /* 注册不同优先级的测试设备 */
-LISA_DEVICE_REGISTER(test_priority_critical, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_CRITICAL);
+LISA_DEVICE_REGISTER(test_priority_critical, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_CRITICAL);
 
-LISA_DEVICE_REGISTER(test_priority_high, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(test_priority_high, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);
 
-LISA_DEVICE_REGISTER(test_priority_normal, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_priority_normal, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
-LISA_DEVICE_REGISTER(test_priority_low, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_LOW);
+LISA_DEVICE_REGISTER(test_priority_low, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_LOW);
 
-LISA_DEVICE_REGISTER(test_priority_lowest, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_LOWEST);
+LISA_DEVICE_REGISTER(test_priority_lowest, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_LOWEST);
 
 /* 自定义优先级 */
-LISA_DEVICE_REGISTER(test_priority_custom_5, NULL, NULL, NULL, 
-                     test_mock_init_success, 5);
+LISA_DEVICE_REGISTER(test_priority_custom_5, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, 5);
 
-LISA_DEVICE_REGISTER(test_priority_custom_25, NULL, NULL, NULL, 
-                     test_mock_init_success, 25);
+LISA_DEVICE_REGISTER(test_priority_custom_25, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, 25);
 
-LISA_DEVICE_REGISTER(test_priority_custom_75, NULL, NULL, NULL, 
-                     test_mock_init_success, 75);
+LISA_DEVICE_REGISTER(test_priority_custom_75, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, 75);
 
 /* ========================================
  * 测试用例

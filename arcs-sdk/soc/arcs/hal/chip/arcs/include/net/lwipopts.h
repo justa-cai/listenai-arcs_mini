@@ -33,8 +33,9 @@
 #define LWIP_HDR_LWIPOPTS_H__
 
 #include <stdint.h>
+#include "log_print.h"
 
-#define lwip_printf
+#define lwip_printf CLOGV//tfp_printf
 #ifndef ASSERT_ERR
 #define ASSERT_ERR( x ) configASSERT( x )
 #endif
@@ -60,6 +61,7 @@ uint16_t fhost_ip_chksum(const void *dataptr, int len);
 
 #define LWIP_CHKSUM_ALGORITHM         3
 #if defined(CFG_AMP_IPC_TCPIP) && defined(CFG_AMP_IPC_MASTER)
+extern uint16_t net_ip_chksum(const void *dataptr, int len);
 #define LWIP_CHKSUM                   net_ip_chksum
 
 #define LWIP_FUNC_ATTR                 //__attribute__ ((section (".ramcode")))
@@ -106,7 +108,11 @@ uint16_t fhost_ip_chksum(const void *dataptr, int len);
 #define MAC_RXQ_DEPTH                 8
 #define MAC_TXQ_DEPTH                 8
 #define TCP_MSS                       1460
-#define TCP_WND                       (2 * MAC_RXQ_DEPTH * TCP_MSS)
+#ifdef CFG_SHORT_TCP_WND
+#define TCP_WND                       (12 * TCP_MSS)
+#else
+#define TCP_WND                       (20 * TCP_MSS)
+#endif
 
 #define TCP_SND_BUF                   (4 * MAC_TXQ_DEPTH * TCP_MSS)
 
@@ -323,5 +329,9 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
  * be lowered down to 1 second (RFC 6298)
  */
 #define LWIP_TCP_RTO_TIME               1000
+
+#if CONFIG_LWIP_HOOK_NETCONN_EXTERNAL_RESOLVE
+#define LWIP_HOOK_NETCONN_EXTERNAL_RESOLVE lwip_custom_dns_resolve
+#endif
 
 #endif /* LWIP_HDR_LWIPOPTS_H__ */

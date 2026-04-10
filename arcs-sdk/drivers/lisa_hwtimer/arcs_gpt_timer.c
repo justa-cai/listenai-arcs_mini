@@ -513,4 +513,4 @@ static int arcs_gpt_timer_init(void)
 
 
 LISA_DEVICE_REGISTER(gpt_timer, &gpt_timer_api, &gpt_timer_priv, NULL, arcs_gpt_timer_init,
-                     LISA_DEVICE_PRIORITY_NORMAL);
+                     LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);

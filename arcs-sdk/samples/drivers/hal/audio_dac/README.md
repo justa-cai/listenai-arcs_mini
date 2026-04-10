@@ -23,17 +23,10 @@
 
 ### 1. 构建项目
 
-在示例目录下执行构建脚本：
+在 SDK 根目录执行构建命令：
 
 ```bash
-cd samples/drivers/audio_dac
-./build.sh
-```
-
-或者在 SDK 根目录执行：
-
-```bash
-./build.sh -S samples/drivers/audio_dac -C
+./build.sh -S samples/drivers/hal/audio_dac
 ```
 
 构建成功后，会在 `build` 目录下生成 CP 核固件 `arcs.bin`。
@@ -72,9 +65,6 @@ CONFIG_BACK_TRACE=y                   # 使能堆栈回溯
 CONFIG_MODULE_HEAP=y                  # 使能模块堆内存
 CONFIG_PSRAM_HEAP_SIZE=0x3b0000      # PSRAM堆大小
 CONFIG_BOOT=n                         # 禁用启动配置
-
-CONFIG_MEM_CONFIG=n                   # 禁用默认内存配置
-CONFIG_MEM_CONFIG_USE_CUSTOM_FILE=y  # 使用自定义内存配置
 
 CONFIG_BOOT_HART=n                    # 禁用HART启动
 
@@ -266,7 +256,6 @@ Hello, world! Audio DAC
    - 使用 ICStream 进行核间数据传输
 
 3. **内存配置**：
-   - 使用自定义内存配置文件 `memap.h`（`CONFIG_MEM_CONFIG_USE_CUSTOM_FILE=y`）
    - PSRAM 堆大小配置为 3.7MB（`CONFIG_PSRAM_HEAP_SIZE=0x3b0000`）
 
 4. **音频数据格式**：

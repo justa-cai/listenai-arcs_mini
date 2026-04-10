@@ -139,8 +139,13 @@ static int app_algo_keyword_and_kid_extract(const uint8_t *const in, uint8_t *ou
 						cJSON *key_json = cJSON_GetObjectItem(rlt0_json, "keyword");
 						cJSON *kid_json = cJSON_GetObjectItem(rlt0_json, "iresid");
 						cJSON *threshlod_json = cJSON_GetObjectItem(rlt0_json, "ncm");
-						if (key_json && threshlod_json) {
-							char *proc_keyword = __remove_digits_and_special(key_json->valuestring);
+                        cJSON *intent_json = cJSON_GetObjectItem(rlt0_json, "intent");
+                        /*兼容旧的版本协议*/
+                        if(intent_json == NULL){
+                            intent_json = cJSON_GetObjectItem(rlt0_json, "intentStr");
+                        }
+						if (key_json && threshlod_json && intent_json) {
+							char *proc_keyword = __remove_digits_and_special(intent_json->valuestring);
 							if (proc_keyword) {
 								ret = 0;
 								const int kw_len = strlen(proc_keyword);
@@ -546,7 +551,18 @@ static void wakeup_out_stream_to_cloud(uint8_t *data, int len)
         for (int i = 0; i < UAS_REC_FRM_SAMPS; i++) {
             rec_buf[i] = uac_rec[i][3];
         }
-    
+
+        /* Apply +6dB gain (x2) to clean audio before sending to cloud ASR */
+        for (int i = 0; i < UAS_REC_FRM_SAMPS; i++) {
+            int32_t sample = (int32_t)rec_buf[i] << 1;
+            if (sample > SHRT_MAX) {
+                sample = SHRT_MAX;
+            } else if (sample < SHRT_MIN) {
+                sample = SHRT_MIN;
+            }
+            rec_buf[i] = (short)sample;
+        }
+
         voice_cloud_chat_send_audio((uint8_t *)rec_buf, LS_RECORD_ONE_CHNNEL_SIZE);
     }
 }
@@ -744,8 +760,17 @@ int app_wakeup_stop(void)
 #endif
 
 int app_wakeup_sensitivity_level_set(app_wakeup_sensitivity_level_e level){
+
+    static const int level_remap[] = {
+        [APP_WAKEUP_SENSITIVITY_LEVEL_0] = ACOMP_WAKEUP_THRESHOLD_LEVEL_1,
+        [APP_WAKEUP_SENSITIVITY_LEVEL_1] = ACOMP_WAKEUP_THRESHOLD_LEVEL_2,
+        [APP_WAKEUP_SENSITIVITY_LEVEL_2] = ACOMP_WAKEUP_THRESHOLD_LEVEL_3,
+        [APP_WAKEUP_SENSITIVITY_LEVEL_3] = ACOMP_WAKEUP_THRESHOLD_LEVEL_4,
+        [APP_WAKEUP_SENSITIVITY_LEVEL_4] = ACOMP_WAKEUP_THRESHOLD_LEVEL_5,
+    };
     
     s_sensitivity_level = level;
+    acomp_wakeup_set_threshold(level_remap[level]);
     LISA_LOGI(TAG,"app_wakeup_sensitivity_level_set %d",level);
 }
 

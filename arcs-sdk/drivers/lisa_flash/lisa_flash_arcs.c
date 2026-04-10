@@ -25,6 +25,10 @@
 #define LOG_TAG "lisa_flash_arcs"
 #include <lisa_log.h>
 
+#if CONFIG_DUAL_FLASH
+#include "IOMuxManager.h"
+#endif
+
 /* ========================================================================
  * Flash 常量定义
  * ======================================================================== */
@@ -56,10 +60,12 @@ typedef struct {
     bool initialized;                   /* 初始化标志 */
     lisa_flash_parameters_t parameters; /* Flash 参数 */
     lisa_flash_pages_layout_t layout;   /* 页面布局（均匀扇区，只需一个布局段） */
+    uint8_t idx;
 } lisa_flash_priv_t;
 
 /* ===== Flash 设备静态实例 ===== */
 static lisa_flash_priv_t flash0_priv;
+static lisa_flash_priv_t flash1_priv;
 
 /* ===== 辅助宏定义 ===== */
 #define DEVICE_LOCK(priv)                                                                                              \
@@ -77,6 +83,11 @@ static lisa_flash_priv_t flash0_priv;
     } while (0)
 
 /* ===== 内部辅助函数 ===== */
+
+static inline void boundary_set_flash0(uint32_t start, uint32_t size)
+{
+    outw(0x47600054, ((size >> 12) << 16) | start);
+}
 
 /**
  * @brief 检查数据指针是否位于 Flash 物理地址区域
@@ -115,12 +126,16 @@ static size_t calculate_flash_size_from_id(uint32_t device_id)
  *
  * @return Flash 容量(字节)，失败则返回 0
  */
-static size_t get_flash_size_dynamic(void)
+static size_t get_flash_size_dynamic_by_idx(uint8_t idx)
 {
     uint32_t jedec_id = 0;
 
     /* 使用 RDID (0x9F) 命令读取完整的 JEDEC ID */
+#if CONFIG_DUAL_FLASH
+    int ret = flash_if_read_jedec_id_by_idx(&jedec_id, idx);
+#else
     int ret = flash_if_read_jedec_id(&jedec_id);
+#endif
     if (ret != 0) {
         LISA_LOGE(LOG_TAG, "Failed to read JEDEC ID: %d, using default size", ret);
         return 0;
@@ -379,6 +394,24 @@ static int arcs_flash_erase(lisa_device_t *dev, size_t offset, size_t size)
     return LISA_DEVICE_OK;
 }
 
+static int arcs_flash_sr_read(lisa_device_t *dev, uint32_t id, uint32_t *value)
+{
+    lisa_flash_priv_t *priv = (lisa_flash_priv_t *)dev->priv_data;
+
+    flash_if_sr_read(priv->idx, id, value);
+
+    return 0;
+}
+
+static int arcs_flash_sr_write(lisa_device_t *dev, uint32_t id, uint32_t value)
+{
+    lisa_flash_priv_t *priv = (lisa_flash_priv_t *)dev->priv_data;
+
+    flash_if_sr_write(priv->idx, id, value);
+
+    return 0;
+}
+
 /**
  * @brief 获取 Flash 参数
  *
@@ -433,6 +466,8 @@ static const lisa_flash_api_t arcs_flash_api = {
     .read = arcs_flash_read,
     .write = arcs_flash_write,
     .erase = arcs_flash_erase,
+    .sr_read = arcs_flash_sr_read,
+    .sr_write = arcs_flash_sr_write,
     .get_parameters = arcs_flash_get_parameters,
     .page_layout = arcs_flash_page_layout,
 };
@@ -450,6 +485,13 @@ static int arcs_flash0_init(void)
         LISA_LOGE(LOG_TAG, "Failed to create mutex");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
+
+#ifdef CONFIG_DUAL_FLASH
+    IOMuxManager_PinConfigure(CONFIG_DUAL_FLASH_CS_PAD, CONFIG_DUAL_FLASH_CS_PIN, CONFIG_DUAL_FLASH_CS_FUNC);
+    uint32_t dat = inw(0x47700000);
+    dat &= ~(1UL << 17);
+    outw(0x47700000, dat); // disable delay line
+#endif
 
     /* 配置 HAL Flash 设备参数 */
     hal_flash_dev.base_addr = CONFIG_LISA_FLASH_ARCS_CONTROLLER_BASE_ADDR;
@@ -484,23 +526,85 @@ static int arcs_flash0_init(void)
     /* 填充页面布局（SPI Flash 通常是均匀的扇区布局） */
     flash0_priv.layout.pages_size = LISA_FLASH_SECTOR_SIZE; /* 扇区大小: 4KB */
 
+    size_t total_size = 0;
     /* 动态获取 Flash 总容量（通过读取 Flash ID） */
-    size_t total_size = get_flash_size_dynamic();
+    size_t flash0_size = get_flash_size_dynamic_by_idx(0);
+    total_size += flash0_size;
+    LOGI("flash 0 size: %d", flash0_size);
+
+#ifdef CONFIG_DUAL_FLASH
+    size_t flash1_size = get_flash_size_dynamic_by_idx(1);
+    total_size += flash1_size;
+    LOGI("flash 1 size: %d", flash1_size);
+#endif
+
     flash0_priv.layout.pages_count = total_size / flash0_priv.layout.pages_size; /* 扇区数量 */
-
     flash0_priv.initialized = true;
+    flash0_priv.idx = 0;
 
-    LISA_LOGD(LOG_TAG, "Flash initialized successfully (layout: %zu pages × %zu bytes, total: %zu bytes)",
+#ifdef CONFIG_DUAL_FLASH
+    boundary_set_flash0(0, flash0_size);
+#endif
+
+    LISA_LOGI(LOG_TAG, "Flash0 initialized successfully (layout: %zu pages × %zu bytes, total: %zu bytes)",
               flash0_priv.layout.pages_count, flash0_priv.layout.pages_size,
               flash0_priv.layout.pages_count * flash0_priv.layout.pages_size);
 
     return LISA_DEVICE_OK;
 }
 
-/* ===== 设备注册 ===== */
+#ifdef CONFIG_DUAL_FLASH
+static int arcs_flash1_init(void)
+{
+    memset(&flash1_priv, 0, sizeof(flash1_priv));
+
+    /* 创建互斥锁 */
+    flash1_priv.mutex = lisa_mutex_create();
+    if (!flash1_priv.mutex) {
+        LISA_LOGE(LOG_TAG, "Failed to create mutex");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    /* 填充 Flash 参数（仅写操作相关的基本参数） */
+    flash1_priv.parameters.write_block_size = LISA_FLASH_WRITE_BLOCK_SIZE;
+    flash1_priv.parameters.caps.no_explicit_erase = false; /* SPI Flash 需要显式擦除 */
+    flash1_priv.parameters.erase_value = 0xFF;             /* Flash 擦除后的值 */
+
+    /* 填充页面布局（SPI Flash 通常是均匀的扇区布局） */
+    flash1_priv.layout.pages_size = LISA_FLASH_SECTOR_SIZE; /* 扇区大小: 4KB */
+
+    size_t total_size = 0;
+    /* 动态获取 Flash 总容量（通过读取 Flash ID） */
+    size_t flash1_size = get_flash_size_dynamic_by_idx(1);
+    total_size += flash1_size;
+
+    flash1_priv.layout.pages_count = total_size / flash1_priv.layout.pages_size; /* 扇区数量 */
+    flash1_priv.initialized = true;
+    flash1_priv.idx = 1;
+
+    LISA_LOGI(LOG_TAG, "Flash1 initialized successfully (layout: %zu pages × %zu bytes, total: %zu bytes)",
+              flash1_priv.layout.pages_count, flash1_priv.layout.pages_size,
+              flash1_priv.layout.pages_count * flash1_priv.layout.pages_size);
+
+    return LISA_DEVICE_OK;
+}
+#endif
+
 LISA_DEVICE_REGISTER(flash0,                           /* 设备名称 */
                      &arcs_flash_api,                  /* API 指针 */
                      &flash0_priv,                     /* 私有数据指针 */
                      NULL,                             /* 用户数据 */
                      arcs_flash0_init,                 /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,         /* 级别 */
                      CONFIG_LISA_FLASH_INIT_PRIORITY); /* 优先级 */
+
+#ifdef CONFIG_DUAL_FLASH
+
+LISA_DEVICE_REGISTER(flash1,                               /* 设备名称 */
+                     &arcs_flash_api,                      /* API 指针 */
+                     &flash1_priv,                         /* 私有数据指针 */
+                     NULL,                                 /* 用户数据 */
+                     arcs_flash1_init,                     /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,             /* 级别 */
+                     CONFIG_LISA_FLASH_INIT_PRIORITY + 1); /* 优先级 */
+#endif

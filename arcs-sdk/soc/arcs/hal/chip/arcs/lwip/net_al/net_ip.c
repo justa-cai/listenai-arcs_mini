@@ -19,6 +19,7 @@
  */
 #include "ls_err.h"
 #include "ls_wifi_type.h"
+#include "wifi_api.h"
 
 #include "log_print.h"
 #include "ls_event.h"
@@ -218,13 +219,16 @@ err_out:
 
 int ls_dhcpc_start(int vif_idx)
 {
+    int ret = LS_OK;
     CLOGI("vif[%d] start dhcp...", vif_idx);
 
     if(vif_idx >= WLIF_IDX_MAX)
          vif_idx = 0;
 
-    net_dhcpc_start(vif_idx);
+    ret = net_dhcpc_start(vif_idx);
+    return ret;
 }
+
 
 /**
  ****************************************************************************************

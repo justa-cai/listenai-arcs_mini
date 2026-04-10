@@ -347,7 +347,7 @@ LISA_GPIO_INPUT | LISA_GPIO_PULL_UP
 #include "lisa_xxx.h"  // 必须包含头文件
 
 // 获取设备
-lisa_device_t *dev = lisa_device_get_by_name("xxx");
+lisa_device_t *dev = lisa_device_get("xxx");
 if (!dev) {  // 必须有错误处理
     return -1;
 }
@@ -616,7 +616,7 @@ int lisa_xxx_xxx();
 #include "lisa_xxx.h"
 
 // 1. 获取设备
-lisa_device_t *dev = lisa_device_get_by_name("xxx");
+lisa_device_t *dev = lisa_device_get("xxx");
 if (!dev) {
     return -1;
 }

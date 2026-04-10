@@ -20,6 +20,7 @@
 #include "atcmd_hash.h"
 #include "lwip/ip_addr.h"
 #include "net_ip.h"
+#include "rtos_al.h"
 
 #ifndef MAC2STR
 #define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
@@ -846,22 +847,22 @@ int atcmd_sta_auto_conn(void)
     uint8_t sta_auto_conn_en;
     uint8_t ssid[WIFI_SSID_LEN + 1] = {0};
     uint8_t pwd[WIFI_PASSWORD_LEN + 1] = {0};
-    size_t len;
+    uint32_t len;
     int ret;
     wifi_connect_cfg_t sta_config = {0};
 
     len = NVDS_LEN_WIFI_STA_AUTOCONN;
-    ret = nvds_get(NVDS_TAG_WIFI_STA_AUTOCONN, &len, &sta_auto_conn_en);
+    ret = nvds_get(NVDS_TAG_WIFI_STA_AUTOCONN, (size_t *)&len, &sta_auto_conn_en);
     if (ret == NVDS_OK && sta_auto_conn_en == 1)
     {
         len = WIFI_SSID_LEN;
-        ret = nvds_get(NVDS_TAG_WIFI_STA_SSID, &len, ssid);
+        ret = nvds_get(NVDS_TAG_WIFI_STA_SSID, (size_t *)&len, ssid);
         if (ret == NVDS_OK && len <= WIFI_SSID_LEN)
         {
             memcpy(sta_config.ssid, ssid, len);
 
             len = WIFI_PASSWORD_LEN;
-            ret = nvds_get(NVDS_TAG_WIFI_STA_PWD, &len, pwd);
+            ret = nvds_get(NVDS_TAG_WIFI_STA_PWD, (size_t *)&len, pwd);
             if (ret == NVDS_OK)
             {
                 if (len > WIFI_PASSWORD_LEN)
@@ -1334,7 +1335,7 @@ int atcmd_cwsniffer(int type, char *params)
 const atcmd_item_t atcmd_wifi_table[] =
 {
     ///???
-    {atcmd_cwlap, "AT+CWLAP",
+    {{atcmd_cwlap, "AT+CWLAP",
                   "AT+CWLAP : default scan without parameter specified\r\n"
                   "AT+CWLAP=[<ssid>],[<bssid>],[<channel>]"
                   " : use this cmd to do scan\r\n"
@@ -1343,9 +1344,9 @@ const atcmd_item_t atcmd_wifi_table[] =
                   "<channel> 1 ~ 14\r\n"
                   "the rsp is scaned ap info, format is as below:"
                   "+CWLAP:(<ecn>,<ssid>,<rssi>,<mac>,<channel>,<bgn>,<wps>)\r\n"
-                  "<enc> refers to wifi_security_e\r\n"},
+                  "<enc> refers to wifi_security_e\r\n"}, },
     ///????
-    {atcmd_cwjap, "AT+CWJAP",
+    {{atcmd_cwjap, "AT+CWJAP",
                   "AT+CWJAP=<ssid>,[<pwd>],[<bssid>],[<dhcp_mode>],[<ip>],[<mask>],[<gw>]"
                   " : use this cmd to connect AP\r\n"
                   "<ssid> format example: \"test_ap\"\r\n"
@@ -1357,11 +1358,11 @@ const atcmd_item_t atcmd_wifi_table[] =
                   "<gw> format example: 192.168.1.1, valid only when dhcp_mode is 1\r\n"
                   "AT+CWJAP?"
                   " : use this command to get infor of connected AP, rsp is as below:\r\n"
-                  "+CWJAP:<is_connected>,<ssid>,<bssid>,<channel>,<rssi>,<aid>,<ip>\r\n"},
+                  "+CWJAP:<is_connected>,<ssid>,<bssid>,<channel>,<rssi>,<aid>,<ip>\r\n"}, },
     ///????
-    {atcmd_cwqap, "AT+CWQAP", "disconnect connected AP\r\n"},
+    {{atcmd_cwqap, "AT+CWQAP", "disconnect connected AP\r\n"}, },
     ///?????softAP??
-    {atcmd_cwsap, "AT+CWSAP",
+    {{atcmd_cwsap, "AT+CWSAP",
                   "AT+CWSAP=<ssid>,[<pwd>],[<channel>],[<security>]"
                   " : use this cmd to start softap mode\r\n"
                   "<ssid> format example: \"test_ap\"\r\n"
@@ -1370,55 +1371,55 @@ const atcmd_item_t atcmd_wifi_table[] =
                   "<security>: 1/3/4(1:OPEN, 3:WPA, 4:WPA2), if not set, can determine automatically\r\n"
                   "AT+CWSAP?"
                   " : use this command to get infor of started softap:\r\n"
-                  "+CWSAP:<ssid>,<pwd>,<bssid>,<channel>,<security>\r\n"},
+                  "+CWSAP:<ssid>,<pwd>,<bssid>,<channel>,<security>\r\n"}, },
     ///???softAP??
-    {atcmd_cwcap, "AT+CWCAP", "close softap mode\r\n"},
+    {{atcmd_cwcap, "AT+CWCAP", "close softap mode\r\n"}, },
     ///????AT+CWLAP????????????????<print mask>[,<rssi filter>][,<authmode mask>]
-    {atcmd_cwlapopt, "AT+CWLAPOPT", "set scan result filter"},
+    {{atcmd_cwlapopt, "AT+CWLAPOPT", "set scan result filter"}, },
     ///???softAP?????????????????station???
-    {atcmd_cwlif, "AT+CWLIF", "get connected sta info in softap mode, format is as below:\r\n"
-                  "+CWLIF:<mac>,<ip>\r\n"},
+    {{atcmd_cwlif, "AT+CWLIF", "get connected sta info in softap mode, format is as below:\r\n"
+                  "+CWLIF:<mac>,<ip>\r\n"}, },
 
     ///????station??????????AP
-    {atcmd_cwautoconn, "AT+CWAUTOCONN", "set dev to auto connect AP after dev power on:\r\n"
-                       "AT+CWAUTOCONN=<enable>\r\n"},
+    {{atcmd_cwautoconn, "AT+CWAUTOCONN", "set dev to auto connect AP after dev power on:\r\n"
+                       "AT+CWAUTOCONN=<enable>\r\n"}, },
     ///????õô?? Wi-Fi ??
-    {atcmd_cwmode, "AT+CWMODE", "AT+CWMODE?: get WIFI mode\r\n"
-                   "<mode> refers to wifi_mode_e\r\n"},
+    {{atcmd_cwmode, "AT+CWMODE", "AT+CWMODE?: get WIFI mode\r\n"
+                   "<mode> refers to wifi_mode_e\r\n"}, },
     ///??? Wi-Fi ???????¨¢?interval_second:?????????repeat_count??????????
-    {atcmd_cwreconncfg, "AT+CWRECONNCFG", "set the Wi-Fi reconnection configuration\r\n"
-                        "AT+CWRECONNCFG=<interval_second>,<repeat_count>\r\n"},
+    {{atcmd_cwreconncfg, "AT+CWRECONNCFG", "set the Wi-Fi reconnection configuration\r\n"
+                        "AT+CWRECONNCFG=<interval_second>,<repeat_count>\r\n"}, },
     ///???????station????IP???,AT+CIPSTA=<"ip">[,<"gateway">,<"netmask">]
-    {atcmd_cipsta, "AT+CIPSTA", "AT+CIPSTA?: get station ip\r\n <ip> ip addr\r\n"},
+    {{atcmd_cipsta, "AT+CIPSTA", "AT+CIPSTA?: get station ip\r\n <ip> ip addr\r\n"}, },
     ///???/???? Wi-Fi ???????
-    {atcmd_cwcountry, "AT+CWCOUNTRY", "AT+CWCOUNTRY?: wifi get country\r\n"
-                   "<country code> wifi set country: US/EU/CN/JP\r\n"},
+    {{atcmd_cwcountry, "AT+CWCOUNTRY", "AT+CWCOUNTRY?: wifi get country\r\n"
+                   "<country code> wifi set country: US/EU/CN/JP\r\n"}, },
     ///???/????MAC???
-    {atcmd_cipstamac, "AT+CIPSTAMAC", "AT+CIPSTAMAC?: get station mac address\r\n"
-                   "<mac> mac addr\r\n"},
+    {{atcmd_cipstamac, "AT+CIPSTAMAC", "AT+CIPSTAMAC?: get station mac address\r\n"
+                   "<mac> mac addr\r\n"}, },
     ///??????station????channel
-    {atcmd_cwchan, "AT+CWCHAN", "AT+CWCHAN?: get current operating channel\r\n"},
+    {{atcmd_cwchan, "AT+CWCHAN", "AT+CWCHAN?: get current operating channel\r\n"}, },
     ///???????????AP??rssi?
-    {atcmd_cwrssi, "AT+CWRSSI", "AT+CWRSSI?: get sta mode rssi strength in connection state\r\n"},
+    {{atcmd_cwrssi, "AT+CWRSSI", "AT+CWRSSI?: get sta mode rssi strength in connection state\r\n"}, },
     ///??????station link???????,resp:<ssid>,<link_state>,<aid>,<channel>,<rssi>,<bssid>
-    {atcmd_cwstate, "AT+CWSTATE", "AT+CWSTATE?: get sta link status\r\n"},
+    {{atcmd_cwstate, "AT+CWSTATE", "AT+CWSTATE?: get sta link status\r\n"}, },
     ///????wifi????????,???????????AP????????
-    {atcmd_cwrate, "AT+CWRATE", "<rate>: refer rate define in wifi_phy_rate_e\r\n"
+    {{atcmd_cwrate, "AT+CWRATE", "<rate>: refer rate define in wifi_phy_rate_e\r\n"
                     "auto rate 0xff \r\n"
                     "11B 1Mbps ~ 11Mbps long preamble : 0x0 ~ 0x3 \r\n"
                     "11B 2Mbps ~ 11Mbps short preamble : 0x5 ~ 0x7 \r\n"
                     "11G 6Mbps ~ 54Mbps  : 0x10 ~ 0x17 \r\n"
                     "MCS0 ~ MCS9 (Long GI or 11ax 1.6 us GI) : 0x20 ~ 0x29\r\n"
                     "MCS0 ~ MCS9 (Short GI or 11ax 0.8 us GI) : 0x30 ~ 0x39\r\n"
-                    "MCS0 ~ MCS9 ( 11ax 3.2 us GI) : 0x40 ~ 0x49\r\n"},
+                    "MCS0 ~ MCS9 ( 11ax 3.2 us GI) : 0x40 ~ 0x49\r\n"}, },
     ///????wifi????power save????on??off?????,???????SYS_PSM=1
-    {atcmd_cwpw, "AT+CWPW", "AT+CWPW=<on/off>: on/off wifi powersave\r\n"},
+    {{atcmd_cwpw, "AT+CWPW", "AT+CWPW=<on/off>: on/off wifi powersave\r\n"}, },
     ///????/??? wifi listen interval
-    {atcmd_cwlsinterval, "AT+CWLSINTERVAL", "AT+CWLSINTERVAL?,AT+CWLSINTERVAL=<value>,max value should less than 20\r\n"},
+    {{atcmd_cwlsinterval, "AT+CWLSINTERVAL", "AT+CWLSINTERVAL?,AT+CWLSINTERVAL=<value>,max value should less than 20\r\n"}, },
     ///????802.11?
-    {atcmd_cwsend80211, "AT+CWSEND80211", "AT+CWSEND80211 wifi send 802.11 packet\r\n"},
+    {{atcmd_cwsend80211, "AT+CWSEND80211", "AT+CWSEND80211 wifi send 802.11 packet\r\n"}, },
     ///???/??? sniffer??
-    {atcmd_cwsniffer, "AT+CWSNIFFER", "AT+CWSNIFFER=<on/off>,[<channel>: 1~13]\r\n"},
+    {{atcmd_cwsniffer, "AT+CWSNIFFER", "AT+CWSNIFFER=<on/off>,[<channel>: 1~13]\r\n"}, },
 };
 
 void atcmd_wifi_register(void)

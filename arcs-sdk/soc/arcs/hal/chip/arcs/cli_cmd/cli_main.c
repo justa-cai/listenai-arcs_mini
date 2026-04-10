@@ -11,9 +11,11 @@
  */
 
 #include "cli_main.h"
+#ifdef CLI_TYPE_WF
 #include "cli_wifi.h"
 #include "cli_net.h"
 #include "ls_misc.h"
+#endif
 #if CFG_MEMDUMP
 #include "memdump.h"
 #endif
@@ -30,20 +32,38 @@
 #include "flash_if.h"
 #include "nvs_priv.h"
 #include "nv_config.h"
+#ifdef CLI_TYPE_WF
 #include "wifi_api.h"
+#endif
 #if CONFIG_PM
 #include "pm_impl.h"
 #include "vrtc.h"
 #endif
+#if CONFIG_DEEP_SLEEP
+#include "PowerManager.h"
+#endif
+
 #if CFG_WIFI_MFG
-ls_err_t wifi_mfg_exec(char * params, int32_t params_len);
+extern ls_err_t wifi_mfg_exec(char *params, int32_t params_len);
 #endif
 
 static const struct cli_cmd cli_main_commands[];
 extern void logDbg_enable_set(uint8_t logD_on_off);
-extern ls_err_t wifi_ls_mac_version(uint8_t *ver, uint32_t size);
 cli_print_fn_t cli_print_func = logDbg;
-ls_nv_selfcali_cfg_t otp_config = {0};
+
+#if CONFIG_GPIO_ADC_TEST
+extern int cli_gpio_loop_test(char *params);
+extern int cli_dac2adc_test(char *params);
+extern int cli_adc2dac_test(char *params);
+extern int cli_gpio_in(char *params);
+extern int cli_gpio_in_get(char *params);
+extern int cli_gpio_out(char *params);
+extern int cli_gpio_out_write(char *params);
+#endif
+
+#ifdef CFG_ATCMD
+extern void atcmd_handler(char* command, int len);
+#endif
 /**
  ****************************************************************************************
  * @brief Extract token from parameter list
@@ -58,6 +78,9 @@ ls_nv_selfcali_cfg_t otp_config = {0};
  ****************************************************************************************
  */
 static char utils_sep_char;
+
+#ifdef CLI_TYPE_WF
+
 char *utils_next_token(char **params)
 {
     char *str, *ptr = *params, *next = NULL;
@@ -243,10 +266,10 @@ int utils_cli_parse_ip4(char *str, uint32_t *ip, uint32_t *mask)
     return 0;
 }
 
-static int cli_memdump(void *param)
+static int cli_memdump(char *param)
 {
 #if CFG_MEMDUMP
-    CLI_LOG("uart dump begin, waiting to run script...\r\n");
+    CLOG("uart dump begin, waiting to run script...\n");
     memdump_process(MDUMP_PATH_UART);
 
     return CLI_SUCCESS;
@@ -259,7 +282,7 @@ static int cli_get_chip_temp(char *param)
 {
     int32_t temp = 0;
     temp = ls_get_cur_temp();
-    CLI_LOG("get temperature %d \r\n", temp);
+    CLOG("get temperature %d \n", temp);
 
     return CLI_SUCCESS;
 
@@ -275,20 +298,43 @@ static int cli_temp_por_update(char *param)
 static int cli_write_efuse(char *params)
 {
     char *ptr = params, *next = params, *end;
-    uint32_t addr, val;
+    uint32_t addr, val, org_val;
+    bool bit_or = false;
 
     if (!(ptr = utils_next_token(&next))) {
         return CLI_SHOW_USAGE;
     }
     addr = atoi(ptr);
-    if(((addr != 11 && addr != 14 && addr != 15) && addr < 64) || addr > 127) {
-        CLI_LOGE(": Addr:%d not in user defined region\r\n", addr);
+    if(((addr != 11 && addr != 14 && addr != 15) && addr < 80) || addr > 127) {
+        CLI_LOGE(": Addr:%d not in user defined region\n", addr);
         return CLI_SHOW_USAGE;
     }
     if (!(ptr = utils_next_token(&next))) {
         return CLI_SHOW_USAGE;
     }
     val = strtol(ptr, &end, 16);
+
+    if ((ptr = utils_next_token(&next))) {
+        if (!strcmp("-f", ptr))
+            bit_or = true;
+    }
+
+   CLI_LOG("To write Efuse addr:%d val:0x%x\n", addr, val);
+
+   if (ls_efuse_read_word(addr, &org_val)) {
+       CLI_LOGE("Read efuse %d fail\n", addr);
+       return CLI_ERROR;
+   }
+
+    if (org_val) {
+        if (!bit_or) {
+            CLI_LOGE(" efuse %d = 0x%x not empty, if still need to write, please add -f in cmd tail to force write , the write val would be (val | org_val) = 0x%x\n", addr, org_val, org_val|val);
+            return CLI_ERROR;
+        } else {
+            val |= org_val;
+            CLI_LOG("*** To write Efuse addr:%d new val:0x%x ***\n", addr, val);
+        }
+   }
 
     ls_efuse_write_word(addr, val);
 
@@ -307,7 +353,7 @@ static int cli_read_efuse(char *params)
     }
     addr = (uint8_t)atoi(ptr);
     if (addr > 127) {
-        CLI_LOGE(": Addr:%d not in user defined region\r\n", addr);
+        CLI_LOGE(": Addr:%d not in user defined region\n", addr);
         return CLI_SHOW_USAGE;
     }
 
@@ -315,10 +361,117 @@ static int cli_read_efuse(char *params)
     if (ret)
         return CLI_ERROR;
 
-    CLI_LOGI(": Efuse read addr:%d val:0x%x\r\n", addr, val);
+    CLI_LOG("Efuse read addr:%d val:0x%x\n", addr, val);
 
     return CLI_SUCCESS;
 }
+
+static int cli_efuse_block_write(char *params)
+{
+    char *ptr = params, *next = params, *end;
+    uint32_t addr, org_val[8], val[8], len;
+    uint8_t *pos = NULL, i;
+    bool bit_or = false;
+
+    if (!(ptr = utils_next_token(&next))) {
+        return CLI_SHOW_USAGE;
+    }
+    addr = atoi(ptr);
+    if(((addr != 11 && addr != 14 && addr != 15) && addr < 80) || addr > 127) {
+        CLI_LOGE(": Addr:%d not in user defined region\n", addr);
+        return CLI_SHOW_USAGE;
+    }
+
+    if (!(ptr = utils_next_token(&next))) {
+        return CLI_SHOW_USAGE;
+    }
+    len = (uint8_t)atoi(ptr);
+    if (len > 8 || addr + len > 127) {
+        CLI_LOGE(": exceed max block size (8 words) or addr + len > 127\n");
+        return CLI_SHOW_USAGE;
+    }
+
+    CLI_LOG("To write Efuse addr:%d val:\n", addr);
+
+    pos = (uint8_t *)val;
+    for (i=0; i < len *4; i++) {
+        if (!(ptr = utils_next_token(&next))) {
+            CLI_LOGE(": expect %d input value,but only get %d \n", len*4, i);
+            return CLI_SHOW_USAGE;
+        }
+        *pos = strtol(ptr, &end, 16);
+         pos ++;
+    }
+
+    pos = (uint8_t *)val;
+    for (i=0; i < len; i++) {
+        pos = (uint8_t *)&val[i];
+        CLI_LOG("0x%02x 0x%02lx 0x%02lx 0x%02lx ", *pos, *(pos + 1),  *(pos + 2),  *(pos + 3));
+    }
+    if ((ptr = utils_next_token(&next))) {
+        if (!strcmp("-f", ptr))
+            bit_or = true;
+    }
+
+    for (i = 0; i < len; i++) {
+        if (ls_efuse_read_word(addr + i, &org_val[i])) {
+            CLI_LOGE("Read efuse %d fail\n", addr);
+            return CLI_ERROR;
+        }
+        if (org_val[i]) {
+            if (!bit_or) {
+                CLI_LOGE(" efuse %d = 0x%x not empty, if still need to write, please add -f in cmd tail to force write , the write val would be (val | org_val) = 0x%x\n", addr+i, org_val[i], org_val[i]|val[i]);
+                return CLI_ERROR;
+            } else {
+                val[i] |= org_val[i];
+                CLI_LOG("*** To write Efuse addr:%d new val:0x%x ***\n", addr + i, val[i]);
+            }
+        }
+    }
+
+    for (i = 0; i < len; i++) {
+        ls_efuse_write_word(addr + i, val[i]);
+    }
+
+    return CLI_SUCCESS;
+}
+
+static int cli_efuse_block_read(char *params)
+{
+    char *ptr = params, *next = params;
+    uint8_t addr, len, i, val[4];
+    int8_t ret;
+
+    if (!(ptr = utils_next_token(&next))) {
+        return CLI_SHOW_USAGE;
+    }
+    addr = (uint8_t)atoi(ptr);
+    if (addr > 127) {
+        CLI_LOGE(": Addr:%d not in user defined region\n", addr);
+        return CLI_SHOW_USAGE;
+    }
+    if (!(ptr = utils_next_token(&next))) {
+        return CLI_SHOW_USAGE;
+    }
+
+    len = (uint8_t)atoi(ptr);
+    if (len > 8 || addr + len > 127) {
+        CLI_LOGE(": exceed max block size (8 words) or addr + len > 127 \n");
+        return CLI_SHOW_USAGE;
+    }
+
+    CLI_LOG("Efuse read addr:%d val:\n", addr);
+
+    for (i = 0; i < len; i++) {
+        ret = ls_efuse_read_word(addr + i, (uint32_t *)val);
+        if (ret)
+        return CLI_ERROR;
+        CLI_LOG("0x%02lx 0x%02lx 0x%02lx 0x%02lx \n", val[0], val[1], val[2], val[3] );
+    }
+
+    return CLI_SUCCESS;
+}
+
 
 #define DEFAULT_LINE_LENGTH_BYTES    16
 /*
@@ -368,7 +521,7 @@ int32_t cli_mem_dump(uint32_t addr, int32_t width, uint32_t count, uint32_t line
     {
         thislinelen = cli_mem_hexdump_line(addr, width, count, linelen,
                        buf, sizeof(buf));
-        CLI_LOG("%s\r\n", buf);
+        CLI_LOGI("%s\r\n", buf);
 
         /* update references */
         addr  += thislinelen * width;
@@ -448,16 +601,16 @@ static int cli_mem(char *params)
 
 static int cli_log_enable(char *params)
 {
-    // char *ptr = params, *next = params;
-    // uint8_t val = 0;
+    char *ptr = params, *next = params;
+    uint8_t val = 0;
 
-    // if (!(ptr = utils_next_token(&next))) {
-    //     return CLI_SHOW_USAGE;
-    // }
-    // val = (uint8_t)atoi(ptr);
-    // logDbg_enable_set(!val);
+    if (!(ptr = utils_next_token(&next))) {
+        return CLI_SHOW_USAGE;
+    }
+    val = (uint8_t)atoi(ptr);
+    logDbg_enable_set(!val);
 
-    return CLI_ERROR;
+    return CLI_SUCCESS;
 }
 
 static int cli_log_level_set(char *params)
@@ -487,15 +640,15 @@ static int cli_rtos_info(char *params)
     used = total - free;
     max_used = total - max_used;
 
-    CLI_LOGI("RTOS HEAP:free=%d used=%d max_used=%d/%d\r\n", free, used, max_used, total);
+    CLI_LOGI("RTOS HEAP:free=%d used=%d max_used=%d/%d\n", free, used, max_used, total);
 
     task_info = rtos_malloc(512);
     if (task_info)
     {
         vTaskList(task_info);
-        CLI_LOGI("task_info(len:%d):\r\n%s\r\n%", strlen(task_info),task_info);
-        rtos_get_cpu_usage(task_info, 512);
-        CLI_LOGI("\nCPU usage:\n%s\t\t%s\t\t%s\r\n%s", "Task", "Time", "%CPU", task_info);
+        CLI_LOGI("task_info(len:%d):\n%s\n%", strlen((char *)task_info),task_info);
+        rtos_get_cpu_usage((char *)task_info, 512);
+        CLI_LOGI("\nCPU usage:\n%s\t\t%s\t\t%s\n%s", "Task", "Time", "%CPU", task_info);
         /*memset(task_info, 0 , 512);
         rtos_get_cpu_usage1(task_info, 512);
         CLI_LOGI("\nCPU usage:\n%s\t\t%s\t\t%s\n%s", "Task", "Time", "%CPU", task_info);
@@ -521,11 +674,9 @@ int cli_version(char *params)
     if (!version)
         return CLI_ERROR;
     memset(version, 0, VERSION_STR_SIZE);
-#if defined(CLI_TYPE_WF)
     wifi_ls_mac_version(version, VERSION_STR_SIZE);
-#endif
 #if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1)
-    if ((version >= PSRAM_BASE_ADDRESS) && DCachePresent())
+    if (((uint32_t)version >= PSRAM_BASE_ADDRESS) && DCachePresent())
     {
         vPortEnterCritical();
         HAL_InvalidateDCache_by_Addr((uint32_t *)version, VERSION_STR_SIZE);
@@ -538,64 +689,110 @@ int cli_version(char *params)
     return CLI_SUCCESS;
 }
 #if CONFIG_PM
-static int cli_sys_pm(char *params)
+static int cli_light_sleep(char *params)
 {
-    char *ptr, *next = params;
-    pm_config_t config = {.mode = PM_MODE_ACTIVE};
+    char *ptr = NULL, *next = params;
+    uint32_t val;
+    pm_config_t config = {.mode = PM_MODE_LIGHT_SLEEP, .keep_alive = true};
 
-    if (!(ptr = utils_next_token(&next))) {
-        return CLI_SHOW_USAGE;
+    if (!(ptr = utils_next_token(&next)))
+        goto END;
+
+    if (!strcmp(ptr, "off"))
+    {
+        config.mode = PM_MODE_ACTIVE;
+        goto END;
     }
 
-    if (!strcmp(ptr, "status"))
+    while (ptr != NULL)
     {
-        uint64_t time1;
-        uint32_t time_h, time_l;
-
-        time1 = vrtc_get_time_us();
-        time_l = time1;
-        time_h = time1>>32;
-        logDbg("vrtc: %d-%d\n", time_h, time_l);
-    }
-    else
-    {
-        do
+        if (ptr[0] == '-')
         {
-            if (ptr[0] == '-')
+            switch (ptr[1])
             {
-                switch (ptr[1])
-                {
-                    case ('m'):
-                        ptr = utils_next_token(&next);
-                        if (!ptr)
-                            return CLI_SHOW_USAGE;
-                        if (!strcmp(ptr, "active"))
-                            config.mode = PM_MODE_ACTIVE;
-                        else if (!strcmp(ptr, "light"))
-                            config.mode = PM_MODE_LIGHT_SLEEP;
-                        else if (!strcmp(ptr, "deep"))
-                            config.mode = PM_MODE_DEEP_SLEEP;
-                        else
-                            return CLI_SHOW_USAGE;
-                        break;
-                    case ('t'):
-                        break;
-                    case ('w'):
-                        break;
-                    case ('p'):
-                        if (!(ptr = utils_next_token(&next)))
-                            return CLI_SHOW_USAGE;
-                        config.clock_level = (uint8_t)atoi(ptr);
-                        break;
-                    default:
+                case ('k'):
+                    if (!(ptr = utils_next_token(&next)))
                         return CLI_SHOW_USAGE;
-                }
+                    if (!strcmp(ptr, "0"))
+                        config.keep_alive = false;
+                    else
+                        config.keep_alive = true;
+                    break;
+                case ('f'):
+                    if (!(ptr = utils_next_token(&next)))
+                        return CLI_SHOW_USAGE;
+                    if (!strcmp(ptr, "0"))
+                        config.auto_mode = false;
+                    else
+                        config.auto_mode = true;
+                    break;
+                case ('d'):
+                    if (!(ptr = utils_next_token(&next)))
+                        return CLI_SHOW_USAGE;
+                    val = atoi(ptr);
+                    #if CONFIG_PM_DEBUG
+                    if (val < PM_DBG_MAX)
+                        config.dbg_level = val;
+                    #endif
+                    break;
+                case ('g'):
+                    if (!(ptr = utils_next_token(&next)))
+                        return CLI_SHOW_USAGE;
+                    val = atoi(ptr);
+                    if (val < PM_GPIO_PIN_MAX)
+                        config.gpio_pin_mask = 1 << val;
+                    break;
+                case ('p'):
+                    if (!(ptr = utils_next_token(&next)))
+                        return CLI_SHOW_USAGE;
+                    config.clock_level = (uint8_t)atoi(ptr);
+                    break;
+                default:
+                    return CLI_SHOW_USAGE;
             }
-        } while ((ptr = utils_next_token(&next)));
-        pm_set_config(&config);
-    }
+        }
+        ptr = utils_next_token(&next);
+    };
+
+END:
+    pm_set_config(&config);
 
     return CLI_SUCCESS;
+}
+#endif
+#if CONFIG_DEEP_SLEEP
+static int cli_deep_sleep(char *params)
+{
+    char *ptr = NULL, *next = params;
+    uint32_t val;
+
+    while ((ptr = utils_next_token(&next)))
+    {
+        if (ptr[0] == '-')
+        {
+            switch (ptr[1])
+            {
+                case ('g'):
+                    if (!(ptr = utils_next_token(&next)))
+                        return CLI_SHOW_USAGE;
+                    break;
+                default:
+                    return CLI_SHOW_USAGE;
+            }
+        }
+    };
+    vPortEnterCritical();
+    #if (BOOT_HARTID == 0)
+    HAL_PMU_PreConfigSleepTrigger(PMU_SLEEP_CMD_BY_AP);
+    #else
+    HAL_PMU_PreConfigSleepTrigger(PMU_SLEEP_CMD_BY_CP);
+    #endif
+
+    log_flush();
+    HAL_PMU_EnterDeepSleepMode(PMU_SLEEPMODE_MODE2, PMU_DEEPSLEEPENTRY_WFI);
+    vPortExitCritical();
+    logDbg("Failed to enter deep sleep\n");
+    while (1);
 }
 #endif
 #ifdef CFG_AMP_IPC
@@ -739,6 +936,7 @@ int cli_ipc_slave_test(char *params)
 }
 #endif
 #ifdef CFG_IPC_PRINT
+extern void ipc_dbg_enable(int32_t enable);
 int cli_ipc_dbg(char *params)
 {
     char *token, *next = params;
@@ -763,10 +961,11 @@ static int cli_help(char *params)
 {
     uint8_t i = 0;
     char buf[] = "wifi?";
+    char bt_help[] = "bt?";
 
     for (; cli_main_commands[i].exec != NULL; i++)
     {
-        CLI_LOG(" - %s %s\r\n", cli_main_commands[i].name, cli_main_commands[i].params);
+        CLOG(" - %s %s\n", cli_main_commands[i].name, cli_main_commands[i].params);
     }
     /* wifi cli cmd */
 
@@ -775,7 +974,7 @@ static int cli_help(char *params)
 #endif
 
 #if defined(CLI_TYPE_BT)
-    bt_cmd_handler("bt?", 4);
+    bt_cmd_handler(bt_help, 4);
 #endif
     return CLI_SUCCESS;
 }
@@ -960,8 +1159,8 @@ static int cli_check_otp(char *params)
         CLI_LOGI("NV fix zone magic (%x) mismatch, skip it!\n", hdr->magic);
         goto failed;
     }
-    calc_crc = crc32_sw(calc_crc, (uint8_t *)(hdr), (sizeof(*hdr) - 4));
-    calc_crc = crc32_sw(calc_crc, (uint8_t *)(hdr + 1), hdr->length);
+    calc_crc = crc32(calc_crc, (uint8_t *)(hdr), (sizeof(*hdr) - 4));
+    calc_crc = crc32(calc_crc, (uint8_t *)(hdr + 1), hdr->length);
     if (calc_crc != hdr->crc32) {
         CLI_LOGI("NV fix zone crc (%x) check failed, expect (%x) skip it!\n", hdr->crc32, calc_crc);
         goto failed;
@@ -1010,6 +1209,19 @@ int cli_dpd_track(char *params)
     return CLI_SUCCESS;
 }
 
+static int cli_set_temp_thr(char *params)
+{
+    char *token, *next = params;
+    uint32_t thr = 0;
+
+    token = utils_next_token(&next);
+    if (token == NULL)
+        return CLI_SHOW_USAGE;
+    thr = (uint32_t)strtoul(token, NULL, 0);
+    ls_set_temp_thr(thr);
+    return CLI_SUCCESS;
+}
+
 static const struct cli_cmd cli_main_commands[] =
 {
     {cli_help, "help", ""},
@@ -1053,10 +1265,12 @@ static const struct cli_cmd cli_main_commands[] =
 #endif
     {cli_dpd_track,  "dpd_track", "[on|off] on:enable dpd track, off:disable dpd track"},
 #if CONFIG_PM
-    {cli_sys_pm,    "sys_pm",  "[-m active|light|deep] [-w <wakeup source: rtc|gpio|uart|timer|all>] [-t <timer value(ms)>] [-r <retention bits>] [-p <gpio pin number>]\n"
-                               "          status"
+    {cli_light_sleep,    "light_sleep",  "[off] [-t <timer value(ms)>] [-r <retention bits>] [-g <gpio pin number>]\n"
     },
 #endif
+#endif
+#if CONFIG_DEEP_SLEEP
+    {cli_deep_sleep,    "deep_sleep", ""},
 #endif
     {cli_mem,    "mem", "[-b] [-w] [-l] r/w addr [len/value]"},
 #if CFG_WIFI_MFG
@@ -1066,12 +1280,40 @@ static const struct cli_cmd cli_main_commands[] =
 #ifndef CFG_AMP_IPC
     {cli_get_chip_temp,    "temp",		 "get chip temperature"},
     {cli_temp_por_update,    "temp_por",	   "temp por update for testing"},
-    {cli_write_efuse,    "efuse_write",	 "<addr in word (64-127) (decimal)> <value in hex>"},
-    {cli_read_efuse,    "efuse_read",		"<addr in word (0-127) (decimal)>"},
+    {cli_set_temp_thr,    "temp_thr",	   "[temp_degree] 10-60℃ set temperature compensation threshold for por update \r\n"},
+    {cli_write_efuse,    "efuse_write",	 "<addr in word (80-127) (decimal)> <value in hex> [-f (optional)] \r\n"
+    "            [-f]: if the efuse is not empty, and still need to write, should add -f in cmd tail. the new value = value | original val \r\n"},
+    {cli_read_efuse,    "efuse_read",		"<addr in word (0-127) (decimal)>\r\n"
+    "            Tips: efuse read/write unit is one word (4 bytes), addr 80 means efuse byte offset 320, addr 81 means efuse byte offset 324 \r\n"},
+    {cli_efuse_block_write,    "efuse_block_write",	 "<addr in word (80-127) (decimal)> <len (length of words, decimal, max 8)> <value0 (1byte hex)> <value1> ... <value>" "[-f (optional)]\r\n"
+    "            [-f]: if the efuse is not empty, and still need to write, should add -f in cmd tail. the new value = value | original val\r\n"},
+    {cli_efuse_block_read,    "efuse_block_read",    "<addr in word (0-127) (decimal)>" "<len (length of words, decimal, max 8)>\r\n"},
+#endif
+#if CONFIG_GPIO_ADC_TEST
+    {cli_gpio_loop_test,    "gpio_loop_test",  "[in_port] <val>" "[in_pin] <val>" "[out_port] <val>" "[out_pin] <val> \r\n"
+    "            gpio port val 0: GPIOA 1:GPIOB> pin val GPIOA 0~31 (in some case GPIO A 0/1/8/9 would be occupied by jtag), GPIOB 0~9 \r\n"
+    "            example: gpio_test in_port 0 in_pin 4 out_port 0 out_pin 5"},
+    {cli_gpio_in,    "gpio_in_cfg",  "[port] <val>" "[pin] <val>"  "\r\n"
+    "            gpio port val 0: GPIOA 1:GPIOB> pin val GPIOA 0~31 (in some case GPIO A 0/1/8/9 would be occupied by jtag), GPIOB 0~9 \r\n"
+    "            example: gpio_in_cfg port 0 pin 4"},
+    {cli_gpio_in_get,     "gpio_in_get",    "get gpio input value \r\n"
+    "            example: 1. config gpio pin as input: gpio_in_cfg port 0 pin 4 \r\n"
+    "                     2. after input signal to this pin, get gpio input val: gpio_in_get \r\n"},
+    {cli_gpio_out,    "gpio_out_cfg",  "[port] <val>" "[pin] <val>"  "[val] <0/1>\r\n"
+    "            gpio port val 0: GPIOA 1:GPIOB> pin val GPIOA 0~31 (in some case GPIO A 0/1/8/9 would be occupied by jtag), GPIOB 0~9 \r\n"
+    "            example: gpio_out_cfg port 0 pin 5"},
+    {cli_gpio_out_write,     "gpio_output",    "<val 0/1 gpio output value> \r\n"
+    "            example: 1. config gpio pin as output: gpio_out_cfg port 0 pin 5 val 1 \r\n"
+    "                     2. set output val again: gpio_output 0 \r\n"},
+    {cli_dac2adc_test,     "dac2adc_test",    "<val (0:adc0 1:adc1)>  <delay (option, unit ms, defaut 1000ms)>"
+     "           dac2adc loop test dac <---> adc0 or dac <---> adc1 \r\n"},
+    {cli_adc2dac_test,     "adc2dac_test",    "<val (0:adc0 1:adc1)> "
+     "           adc2dac loop test adc0 <---> dac or adc1 <---> dac \r\n"},
 #endif
     /* could add other cli cmd below */
     {NULL, "", ""}
 };
+#endif
 
 uint32_t cli_cmd_handler(char* command, int len)
 {
@@ -1106,7 +1348,7 @@ uint32_t cli_cmd_handler(char* command, int len)
         /* Add default response */
         if (res == CLI_SHOW_USAGE)
         {
-            CLI_LOG("Usage:\r\n%s %s\r\n",
+            CLI_LOG("Usage:\n%s %s\n",
                         cmd->name, cmd->params);
         }
     }
@@ -1123,28 +1365,28 @@ void set_cli_print_func(cli_print_fn_t new_func)
     cli_print_func = new_func;
 }
 
-extern uint32_t fhost_cli_handler(char* command, int len);
 int32_t cli_shell_process(char *command, int32_t len, int32_t (*func)(uint8_t*, int32_t))
 {
-    uint32_t res = 0;
+    uint32_t res = CLI_UNKNOWN_CMD;
 
     if (!memcmp(command, "wifi", 4))
     {
-#if defined(CLI_TYPE_WF)
+#ifdef CLI_TYPE_WF
         res = wifi_cmd_handler(command, len);
 #endif
     }
 #ifndef WIFI_RAM_ATE
-#if defined(CLI_TYPE_BT)
     else if (!memcmp(command, "bt", 2) || !memcmp(command, "ble", 3))
     {
+#ifdef CLI_TYPE_BT
         res = bt_cmd_handler(command, len);
-    }
 #endif
+    }
 #ifdef CFG_ATCMD
     else if (!memcmp(command, "AT", 2))
     {
         atcmd_handler(command, len);
+        res = CLI_SUCCESS;
     }
 #endif
 #endif

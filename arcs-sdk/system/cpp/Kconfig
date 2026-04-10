@@ -1,0 +1,27 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "C++ Support"
+
+config LINK_CPP_RUNTIME_SECTIONS
+	bool "link cpp runtime sections"
+	default y
+	help
+		Link the C++ runtime sections
+
+config CPP_INIT_DEFERRED
+	bool "Defer cpp_init() to application code"
+	depends on LINK_CPP_RUNTIME_SECTIONS
+	help
+		When disabled (default), cpp_init() is called automatically during
+		entry() before the RTOS scheduler starts.
+
+		When enabled, cpp_init() is NOT called in entry(). You must call
+		cpp_init() manually in your application code. This allows time-critical
+		tasks (e.g. camera startup) to run before C++ global constructors.
+
+config CPP_EXCEPTIONS
+	bool "Enable C++ exceptions"
+	default y
+
+endmenu

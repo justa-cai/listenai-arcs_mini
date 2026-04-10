@@ -399,6 +399,7 @@ static void lsc_reconnect_thread(void *param)
 
 				if (lsc_if_got_token() == false) {
 					LISA_NLOGE("lsc auth faild !");
+					continue;
 				}
 			}
 			ret = lsc->conn->connect(lsc->auth_token);

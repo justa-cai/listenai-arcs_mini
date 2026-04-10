@@ -21,24 +21,24 @@ CFLAGS    += -I $(TOPDIR)/chip/$(CHIP)/bsp \
 			 -I $(TOPDIR)/chip/$(CHIP)/include/register \
 			 -I $(TOPDIR)/modules/nvs/include \
 			 -I $(TOPDIR)/include/NMSIS/Core/Include \
+			 -I $(TOPDIR)/include/NMSIS/DSP/Include \
              -I $(TOPDIR)/include/bsp
+
+ifneq ($(strip $(CONFIG_USE_SMP)),)
+AFLAGS    += -DSMP_CPU_CNT=2
+CFLAGS    += -DSMP_CPU_CNT=2
+LDFLAGS   += -Wl,-defsym=__SMP_CPU_CNT=2
+
+AFLAGS    += -DconfigNUMBER_OF_CORES=2
+endif
 
 # rtos module customization
 ifeq ($(CFG_RTOS),1)
 
 CFLAGS    += -DCFG_RTOS
 
-ifeq ($(CFG_RTOS_SMP),1)
-AFLAGS    += -DSMP_CPU_CNT=2
-CFLAGS    += -DSMP_CPU_CNT=2
-LDFLAGS   += -Wl,-defsym=__SMP_CPU_CNT=2
-
-AFLAGS    += -DconfigNUMBER_OF_CORES=2
-# CFLAGS    += -DconfigNUMBER_OF_CORES=2
-endif
-
 ifeq ($(CONFIG_RTOS_AL),1)
-
+CFLAGS   += -DCONFIG_RTOS_AL
 $(info "using rtos_al")
 
 # rtos module customization -TARGET.
@@ -216,6 +216,11 @@ endif
 ifeq ($(CFG_ATCMD), 1)
 CFLAGS += -DCFG_ATCMD
 endif
+
+ifeq ($(CONFIG_ARCS_HAL_AT_CMD_BT_HCI_MODE), 1)
+CFLAGS += -DCONFIG_ARCS_HAL_AT_CMD_BT_HCI_MODE=1
+endif
+
 ifeq ($(BT_WIFI_COEX), 1)
 CFLAGS += -DBT_WIFI_COEX
 endif
@@ -329,4 +334,24 @@ ifeq ("$(strip $(CONFIG_PM))", "1")
 ifeq ("$(strip $(CONFIG_PM_CLOSE_AP))", "1")
 CFLAGS += -DCONFIG_PM_CLOSE_AP=1
 endif
+
+ifeq ("$(strip $(CONFIG_PM_KEEP_ALIVE))", "1")
+CFLAGS += -DCONFIG_PM_KEEP_ALIVE=1
+endif
+
+ifeq ("$(strip $(CONFIG_PM_UART_WAKEUP))", "1")
+CFLAGS += -DCONFIG_PM_UART_WAKEUP=1
+endif
+ifeq ("$(strip $(CONFIG_PM_DEBUG))", "1")
+CFLAGS += -DCONFIG_PM_DEBUG=1
+endif
+
+endif
+
+ifeq ("$(strip $(CONFIG_DEEP_SLEEP))", "1")
+CFLAGS += -DCONFIG_DEEP_SLEEP=1
+endif
+
+ifeq ("$(strip $(CONFIG_GPIO_ADC_TEST))", "1")
+CFLAGS += -DCONFIG_GPIO_ADC_TEST=1
 endif

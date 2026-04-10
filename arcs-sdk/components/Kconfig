@@ -1,9 +1,11 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 # Components Configuration
 # This file includes all component Kconfig files
 menu "component"
 
 rsource "acomp/Kconfig"
-rsource "core_spinlock/Kconfig"
 rsource "dirent/Kconfig"
 rsource "exclib/Kconfig"
 rsource "ipclsf/Kconfig"
@@ -11,21 +13,20 @@ rsource "irq_proxy/Kconfig"
 rsource "lis_algo/Kconfig"
 rsource "lite_adc/Kconfig"
 rsource "lite_dac/Kconfig"
-rsource "ringbuf/Kconfig"
 rsource "simple_box/Kconfig"
 rsource "tinyusb-appclass/Kconfig"
 rsource "lisa_sntp/Kconfig"
 rsource "lisa_evt_pub/Kconfig"
 rsource "lisa_shell/Kconfig"
-rsource "sys_heap/Kconfig"
-rsource "lisa_os/Kconfig"
 rsource "lisa_http/Kconfig"
 rsource "lisa_websocket/Kconfig"
 rsource "lisa_kv/Kconfig"
-rsource "lisa_log/Kconfig"
 rsource "lisa_wifi/Kconfig"
 rsource "lisa_bluetooth/Kconfig"
-rsource "work_queue/Kconfig"
 rsource "app_player/Kconfig"
+rsource "lisa_modem/Kconfig"
+rsource "lisa_net/Kconfig"
+rsource "httpdns/Kconfig"
+rsource "lisa_bt_audio_framework/Kconfig"
 
 endmenu

@@ -359,4 +359,4 @@ static int bus_sw_spi_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(cmd_bus_sw_spi, &sw_spi_cmd_bus_api, &sw_spi_priv, NULL, bus_sw_spi_init, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(cmd_bus_sw_spi, &sw_spi_cmd_bus_api, &sw_spi_priv, NULL, bus_sw_spi_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);

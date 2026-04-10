@@ -57,8 +57,6 @@ static cJSON *brightness_control_list(const char *name)
         return NULL;
     }
 
-    mcp_tool_info_add_property(tool, "text", "用户输入的关于亮度调节的意图", "string", true);
-
     cJSON *intent_property = cJSON_CreateObject();
     cJSON_AddStringToObject(intent_property, "type", "string");
     cJSON_AddStringToObject(intent_property, "description",
@@ -95,28 +93,21 @@ static cJSON *brightness_control_call(const char *id, const char *name, cJSON *a
 {
     (void)id;
 
-    const cJSON *text_json = mcp_tool_call_args_get(args, "text");
     const cJSON *intent_json = mcp_tool_call_args_get(args, "intent");
     const cJSON *value_json = mcp_tool_call_args_get(args, "value");
     const cJSON *unit_json = mcp_tool_call_args_get(args, "unit");
 
-    if (!text_json || !cJSON_IsString(text_json)) {
-        LOGE("text parameter not found or invalid");
-        return brightness_result(name, "text 参数缺失或格式错误。", true);
-    }
 
     if (!intent_json || !cJSON_IsString(intent_json)) {
         LOGE("intent parameter not found or invalid");
         return brightness_result(name, "intent 参数缺失或格式错误。", true);
     }
 
-    const char *text = text_json->valuestring;
     const char *intent = intent_json->valuestring;
     const char *value = value_json && cJSON_IsString(value_json) ? value_json->valuestring : NULL;
     const char *unit = unit_json && cJSON_IsString(unit_json) ? unit_json->valuestring : "";
 
-    LOGI("Brightness control - text: %s, intent: %s, value: %s, unit: %s",
-         text, intent, value ? value : "null", unit);
+    LOGI("Brightness control , intent: %s, value: %s, unit: %s", intent, value ? value : "null", unit);
 
     if (strcmp(intent, "set") == 0) {
         if (value) {

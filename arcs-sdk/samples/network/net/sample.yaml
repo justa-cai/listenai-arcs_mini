@@ -1,0 +1,3 @@
+tests:
+  samples.net:
+    build_only: true

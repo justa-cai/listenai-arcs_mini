@@ -42,7 +42,7 @@ void lisa_ui_toast_show(const char *txt)
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_align(toast_obj, LV_ALIGN_BOTTOM_MID, 0, -40);
+    lv_obj_align(toast_obj, LV_ALIGN_CENTER, 0, 0);
 
     toast_timer = lv_timer_create(toast_hide_cb, 2000, NULL);
 }

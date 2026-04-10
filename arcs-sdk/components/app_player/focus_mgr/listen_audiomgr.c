@@ -278,3 +278,19 @@ void listen_audiomgr_release_channel(listen_audiomgr_t *handle, int id)
         _set_channel_focus(handle, handle->background_id, FOREGROUND, id);
     }
 }
+
+focus_state_e listen_audiomgr_get_channel_state(listen_audiomgr_t *handle, int id)
+{
+    if (handle == NULL) {
+        LISA_LOGE(TAG, "handle is NULL");
+        return FOCUS_NONE;
+    }
+
+    focus_channel_t *channel = _get_channel_by_id(handle, id);
+    if (channel == NULL) {
+        LISA_LOGD(TAG, "Channel id %d not found", id);
+        return FOCUS_NONE;
+    }
+
+    return channel->state;
+}

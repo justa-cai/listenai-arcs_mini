@@ -1,0 +1,62 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if ACOMP_XTTS
+
+	config ACOMP_XTTS_RES_CNCN_DICT_EMMC_ADDR
+		hex "XTTS CN dict eMMC address"
+		default 0x5f00000
+
+	config ACOMP_XTTS_RES_CNCN_DICT_SIZE
+		int "XTTS CN dict size (bytes)"
+		default 3166858
+
+	config ACOMP_XTTS_RES_ENUS_DICT_EMMC_ADDR
+		hex "XTTS EN dict eMMC address"
+		default 0x6400000
+
+	config ACOMP_XTTS_RES_ENUS_DICT_SIZE
+		int "XTTS EN dict size (bytes)"
+		default 2470275
+
+	config ACOMP_XTTS_RES_CRF_EMMC_ADDR
+		hex "XTTS CRF eMMC address"
+		default 0x6900000
+
+	config ACOMP_XTTS_RES_CRF_SIZE
+		int "XTTS CRF size (bytes)"
+		default 7791842
+
+	config ACOMP_XTTS_RES_REAR_EMMC_ADDR
+		hex "XTTS rear model eMMC address"
+		default 0x7d00000
+
+	config ACOMP_XTTS_RES_REAR_SIZE
+		int "XTTS rear model size (bytes)"
+		default 4273824
+
+	config ACOMP_XTTS_RES_REAR_NHV_EMMC_ADDR
+		hex "XTTS rear NHV eMMC address"
+		default 0x8200000
+
+	config ACOMP_XTTS_RES_REAR_NHV_SIZE
+		int "XTTS rear NHV size (bytes)"
+		default 284992
+
+	config ACOMP_XTTS_RES_ROLE_RESID
+		int "XTTS role resource ID in flash resmgr"
+		default 5
+
+	config ACOMP_XTTS_RES_FRONT_RESID
+		int "XTTS front resource ID in flash resmgr"
+		default 6
+
+	config ACOMP_XTTS_STREAM_BUFFER_SIZE
+		int "XTTS stream buffer size"
+		default 8192
+
+	config ACOMP_XTTS_STREAM_NUM_DESCS
+		int "XTTS stream descriptor count"
+		default 32
+
+endif

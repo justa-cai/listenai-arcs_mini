@@ -181,6 +181,7 @@ void start_auto_connect(void)
     // 启动自动连接
     wifi_mgr_autoconn_config_t autoconn_cfg = {
         .interval_ms = 2000,  // 2 秒重试间隔
+        .max_interval_ms = 60000, // 退避上限 60 秒，0 表示使用默认上限策略
     };
     wifi_mgr_auto_connect_start(&autoconn_cfg);
 }
@@ -271,7 +272,7 @@ WiFi Manager 的自动连接功能具有以下特性：
 
 1. **初始化顺序**：必须先调用 `wifi_mgr_init()` 再使用其他功能
 2. **STA 模式**：大部分功能需要先调用 `wifi_mgr_sta_enable()` 启用 STA 模式
-3. **异步模式**：当前版本的 `asynchronous` 参数必须为 `false`
+3. **异步模式**：支持异步/同步两种模式。`asynchronous=true` 为非阻塞请求，`false` 为阻塞请求（直到超时或结果返回）
 4. **线程安全**：WiFi Manager 内部使用互斥锁保护，可以在多线程环境中使用
 5. **存储限制**：存储的 AP 数量受限于存储后端的容量
 6. **回调上下文**：事件回调在 WiFi Manager 的内部线程中执行，不要在回调中执行耗时操作

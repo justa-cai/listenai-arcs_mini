@@ -22,6 +22,7 @@ struct model_voice_cb {
     void (*on_tts_stoped)(void *arg);
     void (*on_tts_playing)(void *arg);
     void (*on_emoji)(void *arg, const char *emoji_name);
+    void (*on_oneshot_emoji)(void *arg, const char *emoji_name);
     void (*on_mcp_emoji)(void *arg, const char *emoji_name);
     void (*on_mcp_loading)(void *arg, bool is_loading, const char *loading_text);
     void (*on_connected)(void *arg);
@@ -61,6 +62,7 @@ model_voice_wakeup_mode_t model_voice_wakeup_mode_get(void);
 int model_voice_wakeup_mode_set(model_voice_wakeup_mode_t mode);
 const char *model_voice_wakeup_mode_name_get(model_voice_wakeup_mode_t mode);
 int model_voice_img_recognition(uint8_t *rgb565, uint32_t len, int width, int height);
+int model_voice_oneshot_emoji_post(const char *emoji_name);
 
 uint32_t model_voice_standby_text_count_get(void);
 uint32_t model_voice_standby_text_interval_ms_get(void);

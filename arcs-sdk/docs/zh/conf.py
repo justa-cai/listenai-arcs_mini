@@ -80,6 +80,8 @@ external_content_contents = [
     (SDK_BASE, "boards/**/*.md"),
     (SDK_BASE, "components/**/*.rst"),
     (SDK_BASE, "components/**/*.md"),
+    (SDK_BASE, "system/**/*.md"),
+    (SDK_BASE, "system/**/*.rst"),
     (SDK_BASE, "samples/**/*.rst"),
     (SDK_BASE, "samples/**/*.md"),
     (SDK_BASE, "demos/**/*.rst"),
@@ -129,16 +131,33 @@ html_split_index = True
 html_show_sphinx = False
 
 # Version switcher configuration
+def get_version_from_git():
+    """尝试从 Git tag 或环境变量获取当前版本"""
+    try:
+        # 优先从环境变量获取（CI/CD 设置）
+        ci_tag = os.environ.get('CI_COMMIT_TAG')
+        if ci_tag:
+            return ci_tag
+        
+        # 从 Git 命令获取
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--exact-match', 'HEAD'],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            cwd=SDK_BASE
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except:
+        pass
+    return 'latest'
+
 html_context = {
-    # 当前版本
-    'current_version': 'latest',
-    # 版本列表
-    'versions': [
-        ('latest', 'https://docs2.listenai.com/arcs-sdk/latest/zh/html/index.html'),
-        ('v0.1.0', 'https://docs2.listenai.com/arcs-sdk/v0.1.0/zh/html/index.html'),
-        ('v0.1.1', 'https://docs2.listenai.com/arcs-sdk/v0.1.1/zh/html/index.html'),
-        ('v0.1.2', 'https://docs2.listenai.com/arcs-sdk/v0.1.2/zh/html/index.html'),
-    ],
+    # 当前版本（从环境变量或 Git tag 自动检测，默认 'latest'）
+    'current_version': get_version_from_git(),
+    # 版本列表不再硬编码，由前端 JavaScript 从 OSS JSON 文件动态加载
+    'versions': [],  # 保留空列表以保持兼容性
     # 显示版本警告横幅(可选)
     'display_github': False,
 }
@@ -155,7 +174,6 @@ html_js_files = [
 ]
 
 suppress_warnings = ['toc.excluded',
-                    'toc.not_readable',
                     'toc.not_included',  # 允许 sample_build.rst、sample_flash.rst 等被 include 的文件不在 toctree 中
                     'toc.secnum','toc.circular','epub.duplicated_toc_entry','autosectionlabel.*',
                     'app.add_source_parser',
@@ -186,34 +204,26 @@ def setup(app):
     """Sphinx setup hook to add custom HTML for version switcher"""
     def add_version_switcher(app, pagename, templatename, context, doctree):
         """Add version switcher HTML to every page"""
-        versions = context.get('versions', [])
-        current_version = context.get('current_version', '')
-
-        if versions:
-            version_html = '''
+        current_version = context.get('current_version', 'latest')
+        
+        # 生成最小化的版本切换器 HTML（版本列表由 JS 从 OSS JSON 动态加载）
+        version_html = f'''
 <div class="rst-versions" data-toggle="rst-versions" role="note">
   <span class="rst-current-version" data-toggle="rst-current-version">
     <span class="fa fa-book"> 文档版本 </span>
-    <span class="current-version-label">v: {}</span>
+    <span class="current-version-label">{current_version}</span>
     <span class="fa fa-caret-down"></span>
   </span>
   <div class="rst-other-versions">
     <dl>
       <dt>版本</dt>
-'''.format(current_version)
-
-            for version_name, version_url in versions:
-                if version_name == current_version:
-                    version_html += f'      <dd><strong>{version_name}</strong></dd>\n'
-                else:
-                    version_html += f'      <dd><a href="{version_url}">{version_name}</a></dd>\n'
-
-            version_html += '''    </dl>
+      <!-- 版本列表由 version-switcher.js 从 OSS JSON 文件动态加载 -->
+    </dl>
   </div>
 </div>
 '''
-            context['version_switcher_html'] = version_html
-
+        context['version_switcher_html'] = version_html
+    
     app.connect('html-page-context', add_version_switcher)
 
 

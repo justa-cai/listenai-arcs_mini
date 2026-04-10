@@ -1,0 +1,7 @@
+tests:
+  samples.drivers.lisa_i2s.slave_rx:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "LISA I2S SLAVE RX Example"

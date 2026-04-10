@@ -11,3 +11,8 @@ int32_t pm_peripheral_register(pm_peripheral_dev_t *pm_dev)
 {
     return 0;
 }
+
+uint64_t pm_get_startup_time(void)
+{
+    return 0;
+}

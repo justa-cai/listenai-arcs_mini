@@ -18,8 +18,6 @@ static cJSON *volume_control_list(const char *name)
         return NULL;
     }
 
-    mcp_tool_info_add_property(tool, "text", "用户输入的关于音量调节的意图", "string", true);
-
     cJSON *intent_property = cJSON_CreateObject();
     cJSON_AddStringToObject(intent_property, "type", "string");
     cJSON_AddStringToObject(intent_property, "description",
@@ -51,28 +49,22 @@ static cJSON *volume_control_list(const char *name)
 
 static cJSON *volume_control_call(const char *id, const char *name, cJSON *args)
 {
-    const cJSON *text_json = mcp_tool_call_args_get(args, "text");
+
     const cJSON *intent_json = mcp_tool_call_args_get(args, "intent");
     const cJSON *value_json = mcp_tool_call_args_get(args, "value");
     const cJSON *unit_json = mcp_tool_call_args_get(args, "unit");
-
-    if (!text_json || !cJSON_IsString(text_json)) {
-        LOGE("text parameter not found or invalid");
-        return NULL;
-    }
 
     if (!intent_json || !cJSON_IsString(intent_json)) {
         LOGE("intent parameter not found or invalid");
         return NULL;
     }
 
-    const char *text = text_json->valuestring;
     const char *intent = intent_json->valuestring;
     const char *value = value_json && cJSON_IsString(value_json) ? value_json->valuestring : NULL;
     const char *unit = unit_json && cJSON_IsString(unit_json) ? unit_json->valuestring : "";
 
-    LOGI("Volume control - text: %s, intent: %s, value: %s, unit: %s",
-         text, intent, value ? value : "null", unit);
+    LOGI("Volume control: intent=%s, value=%s, unit=%s",
+         intent, value ? value : "null", unit);
 
     if (strcmp(intent, "set") == 0) {
         if (value) {
@@ -90,17 +82,17 @@ static cJSON *volume_control_call(const char *id, const char *name, cJSON *args)
     } else if (strcmp(intent, "adjustUp") == 0) {
         int adjust_step = 10;
         if (value) {
-            adjust_step = atoi(value);
+            // adjust_step = atoi(value);
             if (adjust_step <= 0) adjust_step = 10;
         }
-        service_volume_adjust(adjust_step);
+        service_volume_adjust(adjust_step * atoi(value));
     } else if (strcmp(intent, "adjustDown") == 0) {
         int adjust_step = 10;
         if (value) {
-            adjust_step = atoi(value);
+            // adjust_step = atoi(value);
             if (adjust_step <= 0) adjust_step = 10;
         }
-        service_volume_adjust(-adjust_step);
+        service_volume_adjust(-adjust_step * atoi(value));
     }
 
     cJSON *result = mcp_tool_call_result_create(name);
@@ -112,6 +104,41 @@ static cJSON *volume_control_call(const char *id, const char *name, cJSON *args)
     cJSON *content_item = cJSON_CreateObject();
     cJSON_AddStringToObject(content_item, "type", "text");
     cJSON_AddStringToObject(content_item, "text", "已完成操作");
+    cJSON_AddItemToArray(content_array, content_item);
+    cJSON_AddItemToObject(result, "content", content_array);
+    cJSON_AddBoolToObject(result, "isError", false);
+
+    return result;
+}
+
+static cJSON *volume_get_list(const char *name)
+{
+    cJSON *tool = mcp_tool_list_info_create_default(name, "获取当前音量。");
+    if (!tool) {
+        return NULL;
+    }
+
+    return tool;
+}
+
+static cJSON *volume_get_call(const char *id, const char *name, cJSON *args)
+{
+    int current_vol = service_volume_get();
+
+    LOGI("Get volume: %d", current_vol);
+
+    cJSON *result = mcp_tool_call_result_create(name);
+    if (!result) {
+        return NULL;
+    }
+
+    char volume_text[64];
+    snprintf(volume_text, sizeof(volume_text), "当前音量为 %d", current_vol);
+
+    cJSON *content_array = cJSON_CreateArray();
+    cJSON *content_item = cJSON_CreateObject();
+    cJSON_AddStringToObject(content_item, "type", "text");
+    cJSON_AddStringToObject(content_item, "text", volume_text);
     cJSON_AddItemToArray(content_array, content_item);
     cJSON_AddItemToObject(result, "content", content_array);
     cJSON_AddBoolToObject(result, "isError", false);

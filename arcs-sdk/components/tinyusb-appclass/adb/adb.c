@@ -10,11 +10,11 @@
 #include "queue.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 static SemaphoreHandle_t adb_msg_send_lock = NULL;
-static SemaphoreHandle_t adb_recv_sem = NULL;
 static QueueHandle_t adb_rx_queue = NULL;
-static QueueHandle_t adb_tx_queue = NULL;
+static uint32_t adb_remote_max_payload = MAX_PAYLOAD;
 
 struct adb_recv_msg {
 	uint8_t *data;
@@ -32,20 +32,6 @@ static uint32_t adb_check_calc(const uint8_t *data, int len)
 	return sum;
 }
 
-static void adb_tx_queue_write(uint8_t *data, uint32_t len)
-{
-	// struct adb_split sp = {0};
-	// sp.len = len;
-	// sp.spilt = ADB_MALLOC(sp.len);
-	// if (sp.spilt == NULL) {
-	// 	ADB_LOGE("ADB_MALLOC error\n");
-	// 	return;
-	// }
-	// memcpy(sp.spilt, data, len);
-	// xQueueSend(adb_tx_queue, &sp, portMAX_DELAY);
-	adb_dev_send(data, len);
-}
-
 static void adb_tx_msg(uint8_t *msg, uint32_t len)
 {
 #define BULK_PACKET_SIZE (TUD_OPT_HIGH_SPEED ? 512 : 64)
@@ -53,12 +39,12 @@ static void adb_tx_msg(uint8_t *msg, uint32_t len)
 
     n = len / BULK_PACKET_SIZE;
     while (n--) {
-        adb_tx_queue_write(msg, BULK_PACKET_SIZE);
+        adb_dev_send(msg, BULK_PACKET_SIZE);
         msg += BULK_PACKET_SIZE;
     }
     n = len % BULK_PACKET_SIZE;
     if (n) {
-        adb_tx_queue_write(msg, n);
+        adb_dev_send(msg, n);
     }
 }
 
@@ -179,6 +165,21 @@ static void adb_packet_received_cb(adb_packet_t *p)
 	case A_CNXN: {
 		ADB_LOGI("adb connecting, remote info, version:%x, max payload:%d\n", p->msg.arg0,
 			p->msg.arg1);
+
+		/* negotiate max payload size */
+		adb_remote_max_payload = p->msg.arg1;
+		if (adb_remote_max_payload > MAX_PAYLOAD) {
+			adb_remote_max_payload = MAX_PAYLOAD;
+		}
+
+		/* log remote features if present */
+		if (p->msg.data_length > 0) {
+			const char *features = strstr((const char *)p->data, "features=");
+			if (features != NULL) {
+				ADB_LOGI("remote features: %s\n", features);
+			}
+		}
+
 		adb_connect();
 		adb_packet_free(p);
 	} break;
@@ -226,10 +227,10 @@ static void adb_packet_received_cb(adb_packet_t *p)
 		}
 
 		if (adb_service_write(local_id, remote_id, p) != 0) {
-			adb_packet_free(p);
+			/* packet already freed by service write handler */
 			adb_close(local_id, remote_id);
 		} else {
-			/* adb packet will be freed in each adb service */
+			/* packet already freed by service write handler */
 			adb_ready(local_id, remote_id);
 		}
 	} break;
@@ -268,16 +269,6 @@ static bool adb_packet_validate(adb_packet_t *p)
 	return true;
 }
 
-static void adb_tx_task(void *arg)
-{
-	struct adb_split sp = {0};
-
-	while (1) {
-		xQueueReceive(adb_tx_queue, &sp, portMAX_DELAY);
-		adb_dev_send(sp.spilt, sp.len);
-	}
-}
-
 static void adb_rx_task(void *arg)
 {
 	struct adb_recv_msg msg;
@@ -314,7 +305,7 @@ static void adb_rx_task(void *arg)
             }
         }
 
-        if (__builtin_expect(adb_packet_validate(packet), 0)) {
+        if (__builtin_expect(adb_packet_validate(packet), 1)) {
             adb_packet_received_cb(packet);
         }
     }
@@ -324,6 +315,10 @@ static void adb_recv_handle(uint8_t *buf, uint32_t len)
 {
 	struct adb_recv_msg msg;
 
+	if (adb_rx_queue == NULL) {
+		return;
+	}
+
 	msg.data = ADB_MALLOC(len);
 	if (msg.data == NULL) {
 		ADB_LOGE("adb_recv_handle, malloc error\n");
@@ -332,41 +327,47 @@ static void adb_recv_handle(uint8_t *buf, uint32_t len)
 
 	msg.len = len;
 	memcpy(msg.data, buf, len);
-	if (xQueueSend(adb_rx_queue, &msg, portMAX_DELAY) != pdPASS) {
-		ADB_LOGE("adb_recv_handle, queue send error\n");
+	if (xQueueSend(adb_rx_queue, &msg, 0) != pdPASS) {
+		ADB_LOGW("adb_recv_handle, queue full, dropping packet\n");
 		ADB_FREE(msg.data);
+	}
+}
+
+void adb_reset(void)
+{
+	ADB_LOGI("adb reset\n");
+
+	adb_remote_max_payload = MAX_PAYLOAD;
+	adb_service_close_all();
+
+	/* drain rx queue */
+	if (adb_rx_queue != NULL) {
+		struct adb_recv_msg msg;
+		while (xQueueReceive(adb_rx_queue, &msg, 0) == pdPASS) {
+			ADB_FREE(msg.data);
+		}
 	}
 }
 
 void adb_init(void)
 {
-	adb_dev_recv_cb_set(adb_recv_handle);
-
 	adb_rx_queue = xQueueCreate(50, sizeof(struct adb_recv_msg));
 	if (adb_rx_queue == NULL) {
 		ADB_LOGE("adb recv queue create failed\n");
 		return;
 	}
 
-	adb_tx_queue = xQueueCreate(10, sizeof(struct adb_split));
-	if (adb_tx_queue == NULL) {
-		ADB_LOGE("adb tx queue create failed\n");
+	adb_msg_send_lock = xSemaphoreCreateMutex();
+	if (adb_msg_send_lock == NULL) {
+		ADB_LOGE("adb mutex create failed\n");
 		return;
 	}
-
-	adb_msg_send_lock = xSemaphoreCreateMutex();
-    if (adb_msg_send_lock == NULL) {
-        ADB_LOGE("adb mutex create failed\n");
-		return;
-    }
 
 	if (xTaskCreate(adb_rx_task, "adb_rx", 1024 * 2, NULL, CONFIG_ADB_TASK_PRIORITY, NULL) != pdPASS) {
 		ADB_LOGE("adb task create failed\n");
 		return;
 	}
 
-	if (xTaskCreate(adb_tx_task, "adb_tx", 1024 * 2, NULL, CONFIG_ADB_TASK_PRIORITY, NULL) != pdPASS) {
-		ADB_LOGE("adb task create failed\n");
-		return;
-	}
+	/* register callback last, after all infrastructure is ready */
+	adb_dev_recv_cb_set(adb_recv_handle);
 }

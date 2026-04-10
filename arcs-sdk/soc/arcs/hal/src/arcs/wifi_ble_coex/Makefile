@@ -8,17 +8,18 @@ export APP_PATH=arcs/wifi_ble_coex
 
 SHRINK ?= 0
 
+BT_MODE = ble
 include default.config
 include $(TOPDIR)/src/${CHIP}/general.mk
 
-MODULES +=  profiles  #bsp driver debug wcnd patch nvs std
+MODULES +=  profiles  bt_hal #bsp driver debug wcnd patch nvs std
 
 #libraries depend: eg. LIBS = -lbsp -ldrv -lrtos
-LIBS    +=  -lprf  -lbtos#-lbsp -lpatch -lnvs -lwcnd  -lstd
+LIBS	+=  -lprf  -lbtos -lbt_hal #-lbsp -lpatch -lnvs -lwcnd  -lstd
 
 
 ifeq ($(INNER), 0)
-EXTLIBS += -L./lib -lble -lbt_base -lstack  #-lbt
+#EXTLIBS +=  -lble -lbt_base -lstack  #-lbt   -L.$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)
 else
 LIBS    += -lstack #-lble -lbt_base  -lbt
 MODULES += bt
@@ -53,6 +54,7 @@ CFLAGS += -I $(TOPDIR)/modules/profiles/ota/otas/api  \
 		-I $(TOPDIR)/chip/${CHIP}/btos/task/api \
 		-I $(TOPDIR)/chip/${CHIP}/atcmd \
 		-I $(TOPDIR)/chip/${CHIP}/include/bt \
+		-I $(TOPDIR)/chip/${CHIP}/bt_hal \
 		-I ./api		\
 		-I ./task/api	\
 		-I ./if/bt_if	\
@@ -153,7 +155,7 @@ export RFCALI_BT_EN
 CFLAGS += -DRFCALI_BT_EN=$(RFCALI_BT_EN)
 CFG_DPD_LUNA=0
 export CFG_DPD_LUNA
-CFG_RF_SELFCALI_FROM_NV=1
+CFG_RF_SELFCALI_FROM_NV=0
 export CFG_RF_SELFCALI_FROM_NV
 CFG_RF_SELFCALI_WRITE_TO_NV=0
 export CFG_RF_SELFCALI_WRITE_TO_NV
@@ -191,6 +193,9 @@ export CONFIG_EXT_RAM
 endif
 CONFIG_RTOS_AL = 1
 export CONFIG_RTOS_AL
+
+CFG_SHORT_TCP_WND = 1
+export CFG_SHORT_TCP_WND
 
 CFG_NVS=1
 export CFG_NVS

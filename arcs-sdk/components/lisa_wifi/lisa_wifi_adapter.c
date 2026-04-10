@@ -22,11 +22,10 @@
 #define ADC_CHANNEL_TEMP    7         // 内部温度传感器通道
 #define ADC_DEVICE          "adc0"
 
-int ls_read_temp_voltage(int count, float *vout)
+int ls_read_temp_voltage(float *vout)
 {
     int ret = 0;
     uint16_t temp_raw = 0;
-    count = count;
 
     /* 获取ADC设备 */
     lisa_device_t *adc_dev = lisa_device_get(ADC_DEVICE);

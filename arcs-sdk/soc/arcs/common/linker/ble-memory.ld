@@ -1,0 +1,2 @@
+/* Bluetooth RAM region */
+    BTRAM(rwxa)  : ORIGIN = CONFIG_MEM_BTRAM_BASE, LENGTH = CONFIG_MEM_BTRAM_SIZE

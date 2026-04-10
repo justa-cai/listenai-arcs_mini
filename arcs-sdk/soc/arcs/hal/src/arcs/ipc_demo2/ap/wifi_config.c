@@ -44,6 +44,14 @@
  * LOCAL FUNCTION DECLARATIONS
  ****************************************************************************************
  */
+static void wifi_mgmt_frame_process_example(uint8_t *frame, uint32_t len, void *arg)
+{
+    struct wifi_mac_hdr *hdr;
+
+    //hdr = (struct wifi_mac_hdr *)frame;
+    //CLOGV("frame type %x len %d \n", hdr->fctl, len);
+    // customer_cb(frame, len, arg, other para);
+}
 
 /*
  * MAIN FUNCTION
@@ -54,11 +62,13 @@
 
 struct wifi_ops ops = {
     .get_mac = ls_get_wifi_mac,
-    .temp_update = ls_temp_por_update,
+    .get_temp = ls_read_temp_voltage,
 };
 
 void ls_wifi_init(void)
 {
+    wifi_mgmt_frame_cb_register(wifi_mgmt_frame_process_example, NULL);
+
     wifi_ops_register(&ops);
     wifi_init();
 }

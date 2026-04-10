@@ -66,3 +66,22 @@ int8_t ls_get_mac_customized(uint8_t mac_addr[6])
     return (int8_t)resp.hdr.status;
 }
 
+int32_t netcfg_wifi_connect_ipc(const char *ssid, const char *pwd)
+{
+    mrpc_netcfg_wifi_connect_req_t req;
+    mrpc_netcfg_wifi_connect_resp_t resp;
+
+    if (sizeof(mrpc_netcfg_wifi_connect_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    memset(&req, 0, sizeof(req));
+    req.hdr.id = MRPC_MSG_ID_NETCFG_WIFI_CONNECT;
+    strncpy(req.ssid, ssid, MRPC_NETCFG_SSID_MAX_LEN - 1);
+    strncpy(req.pwd, pwd, MRPC_NETCFG_PWD_MAX_LEN - 1);
+
+    if (mrpc_msg_send(&req, sizeof(mrpc_netcfg_wifi_connect_req_t), &resp))
+        return LS_FAIL;
+
+    return resp.hdr.status;
+}
+

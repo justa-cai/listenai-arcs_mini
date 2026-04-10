@@ -1,5 +1,6 @@
 #include "unity.h"
 #include "wifi_manager/wifi_manager.h"
+#include "wifi_manager/priv/wifi_manager_autoconn_internal.h"
 #include "wifi_manager_os_ops.h"
 #include "wifi_manager_mem_ops.h"
 
@@ -78,6 +79,14 @@ static void test_wifi_manager_deinit_should_not_call_ops_while_locked(void);
 static void test_wifi_manager_scan_done_event_null_data_should_not_crash(void);
 static void test_wifi_manager_scan_failed_event_null_data_should_report_error(void);
 static void test_wifi_manager_event_after_deinit_should_be_ignored(void);
+static void test_autoconnect_should_skip_invalid_bssid_from_scan(void);
+static void test_autoconn_next_interval_should_keep_base_during_warmup_no_candidate(void);
+static void test_autoconn_next_interval_should_backoff_after_warmup_no_candidate(void);
+static void test_autoconn_next_interval_should_backoff_on_connect_fail(void);
+static void test_autoconn_next_interval_should_reset_on_success(void);
+static void test_autoconn_next_interval_should_respect_custom_cap(void);
+static void test_autoconn_next_interval_should_allow_cap_above_builtin_limit(void);
+static void test_autoconn_next_interval_should_clamp_to_base_when_cap_below_base(void);
 
 static int custom_wifi_mgr_init(void)
 {
@@ -1441,6 +1450,89 @@ void test_wifi_storage_save_ap_should_reject_empty_ssid(void)
     TEST_ASSERT_EQUAL(0, wifi_storage_save_ap_fake.call_count);
 }
 
+// Custom fake for scan with invalid BSSID
+// Note: custom_fake is necessary here because we need to fill a complex array
+// with 3 APs having different BSSID formats (valid, too short, wrong separator)
+static int custom_wifi_scan_ap_with_invalid_bssid(wifi_mgr_wifi_scan_info_t *ap_info, uint32_t size, uint32_t timeout)
+{
+    (void)timeout;
+    if (size < 3) {
+        return 0;
+    }
+    
+    // Valid BSSID
+    strcpy(ap_info[0].ssid, "ValidAP1");
+    strcpy(ap_info[0].bssid, "aa:bb:cc:dd:ee:ff");
+    ap_info[0].rssi = -30;
+    
+    // Invalid BSSID - wrong length
+    strcpy(ap_info[1].ssid, "InvalidAP1");
+    strcpy(ap_info[1].bssid, "aa:bb:cc:dd:ee");  // Too short
+    ap_info[1].rssi = -40;
+    
+    // Invalid BSSID - wrong format
+    strcpy(ap_info[2].ssid, "InvalidAP2");
+    strcpy(ap_info[2].bssid, "aa-bb-cc-dd-ee-ff");  // Wrong separator
+    ap_info[2].rssi = -50;
+    
+    return 3;
+}
+
+// Custom storage search for invalid BSSID test
+// Note: custom_fake is necessary to return ValidAP1 (not AutoSSID from existing fake)
+static int custom_wifi_storage_search_for_invalid_bssid_test(wifi_storage_ctx_t *ctx, wifi_mgr_sta_config_t **matched_list,
+                                                              wifi_mgr_storage_search_mode_t search_modes, void *target)
+{
+    (void)ctx;
+    (void)search_modes;
+    (void)target;
+    
+    // Return ValidAP1 as saved
+    *matched_list = mock_mem_ops_get()->calloc(1, sizeof(wifi_mgr_sta_config_t));
+    strcpy((*matched_list)[0].ssid, "ValidAP1");
+    strcpy((*matched_list)[0].bssid, "aa:bb:cc:dd:ee:ff");
+    strcpy((*matched_list)[0].pwd, "password");
+    (*matched_list)[0].pmk_valid = 1;
+    
+    return 1;
+}
+
+// Custom connect fake that succeeds and captures parameters
+// Note: custom_fake is necessary to (1) return success and (2) capture sta_config for verification
+static int custom_wifi_sta_connect_success(wifi_mgr_sta_config_t *sta_config, uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+    memcpy(&s_last_autoconn_cfg, sta_config, sizeof(wifi_mgr_sta_config_t));
+    return 0;  // Success
+}
+
+void test_autoconnect_should_skip_invalid_bssid_from_scan(void)
+{
+    mock_wifi_scan_ap_fake.custom_fake = custom_wifi_scan_ap_with_invalid_bssid;
+    wifi_storage_search_ap_fake.custom_fake = custom_wifi_storage_search_for_invalid_bssid_test;
+    mock_wifi_sta_connect_fake.custom_fake = custom_wifi_sta_connect_success;
+    s_sta_connect_calls = 0;
+    
+    // Start auto connect
+    wifi_mgr_autoconn_config_t autoconn_cfg = {
+        .interval_ms = 5000,  // Long interval to prevent multiple attempts
+    };
+    wifi_mgr_auto_connect_start(&autoconn_cfg);
+    
+    // Wait for auto connect to process once
+    usleep(150000);  // 150ms
+    
+    // Stop auto connect to prevent further attempts
+    wifi_mgr_auto_connect_stop();
+    usleep(50000);  // 50ms to let stop take effect
+    
+    // Should only try to connect to the valid AP (ValidAP1)
+    // Invalid BSSIDs should be skipped
+    TEST_ASSERT_EQUAL(1, mock_wifi_sta_connect_fake.call_count);
+    TEST_ASSERT_EQUAL_STRING("ValidAP1", s_last_autoconn_cfg.ssid);
+    TEST_ASSERT_EQUAL_STRING("aa:bb:cc:dd:ee:ff", s_last_autoconn_cfg.bssid);
+}
+
 void test_wifi_manager_init_storage_fail_should_cleanup_resources(void)
 {
     wifi_mgr_deinit();
@@ -1540,6 +1632,62 @@ void test_wifi_manager_storage_search_ap_internal_fail(void)
     TEST_ASSERT_EQUAL(-ENOMEM, ret);
 }
 
+void test_autoconn_next_interval_should_keep_base_during_warmup_no_candidate(void)
+{
+    uint32_t next = wifi_mgr_autoconn_next_interval_ms(1000, 1000, 1,
+                                                       WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE,
+                                                       0);
+    TEST_ASSERT_EQUAL_UINT32(1000, next);
+}
+
+void test_autoconn_next_interval_should_backoff_after_warmup_no_candidate(void)
+{
+    uint32_t next = wifi_mgr_autoconn_next_interval_ms(1000, 1000, 4,
+                                                       WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE,
+                                                       0);
+    TEST_ASSERT_EQUAL_UINT32(2000, next);
+}
+
+void test_autoconn_next_interval_should_backoff_on_connect_fail(void)
+{
+    uint32_t next = wifi_mgr_autoconn_next_interval_ms(1000, 1000, 0,
+                                                       WIFI_MGR_AUTOCONN_CYCLE_CONNECT_FAIL,
+                                                       0);
+    TEST_ASSERT_EQUAL_UINT32(2000, next);
+}
+
+void test_autoconn_next_interval_should_reset_on_success(void)
+{
+    uint32_t next = wifi_mgr_autoconn_next_interval_ms(1000, 8000, 7,
+                                                       WIFI_MGR_AUTOCONN_CYCLE_SUCCESS,
+                                                       0);
+    TEST_ASSERT_EQUAL_UINT32(1000, next);
+}
+
+void test_autoconn_next_interval_should_respect_custom_cap(void)
+{
+    uint32_t next = wifi_mgr_autoconn_next_interval_ms(5000, 40000, 7,
+                                                       WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE,
+                                                       60000);
+    TEST_ASSERT_EQUAL_UINT32(60000, next);
+}
+
+void test_autoconn_next_interval_should_allow_cap_above_builtin_limit(void)
+{
+    uint32_t next = wifi_mgr_autoconn_next_interval_ms(1000, 32000, 7,
+                                                       WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE,
+                                                       120000);
+    TEST_ASSERT_EQUAL_UINT32(64000, next);
+}
+
+void test_autoconn_next_interval_should_clamp_to_base_when_cap_below_base(void)
+{
+    uint32_t next = wifi_mgr_autoconn_next_interval_ms(5000, 5000, 4,
+                                                       WIFI_MGR_AUTOCONN_CYCLE_NO_CANDIDATE,
+                                                       1000);
+    TEST_ASSERT_EQUAL_UINT32(5000, next);
+}
+
 int main(void)
 {
     
@@ -1559,6 +1707,13 @@ int main(void)
     RUN_TEST(test_wifi_manager_auto_connect_when_sta_disabled_should_not_scan);
     RUN_TEST(test_wifi_manager_auto_connect_when_sta_enabled_should_scan);
     RUN_TEST(test_wifi_manager_autoconn_retry_without_pmk_on_handshake_timeout);
+    RUN_TEST(test_autoconn_next_interval_should_keep_base_during_warmup_no_candidate);
+    RUN_TEST(test_autoconn_next_interval_should_backoff_after_warmup_no_candidate);
+    RUN_TEST(test_autoconn_next_interval_should_backoff_on_connect_fail);
+    RUN_TEST(test_autoconn_next_interval_should_reset_on_success);
+    RUN_TEST(test_autoconn_next_interval_should_respect_custom_cap);
+    RUN_TEST(test_autoconn_next_interval_should_allow_cap_above_builtin_limit);
+    RUN_TEST(test_autoconn_next_interval_should_clamp_to_base_when_cap_below_base);
     
     // scan test cases
     RUN_TEST(test_wifi_manager_scan_sync_mode);
@@ -1597,6 +1752,7 @@ int main(void)
     RUN_TEST(test_wifi_manager_auto_connect_start_queue_push_fail_should_free_payload);
     RUN_TEST(test_wifi_manager_deinit_should_remove_callback_and_deinit);
     RUN_TEST(test_wifi_storage_save_ap_should_reject_empty_ssid);
+    RUN_TEST(test_autoconnect_should_skip_invalid_bssid_from_scan);
     RUN_TEST(test_wifi_manager_init_storage_fail_should_cleanup_resources);
     RUN_TEST(test_wifi_manager_init_should_fail_when_wifi_ops_init_fails);
     RUN_TEST(test_wifi_manager_init_should_fail_when_add_callback_fails);

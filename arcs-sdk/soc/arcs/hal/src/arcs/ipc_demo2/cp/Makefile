@@ -142,6 +142,9 @@ CFG_AMP_IPC_MRPC_SERVER_NVS = 0
 CFG_NVS = 0
 endif
 
+CONFIG_PM_KEEP_ALIVE := 1
+export CONFIG_PM_KEEP_ALIVE
+
 ext1 : # don't do this except TapeOut
 	$(TOPDIR)/tools/mkhdr.sh $(TGTOUT)/$(TARGET).bin
 	mkdir -p $(TOPDIR)/chip/$(CHIP)/ap_host

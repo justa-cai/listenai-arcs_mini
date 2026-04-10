@@ -10,8 +10,7 @@
 #define CONFIG_DHCPS_KEPT_CLIENT_INFO
 
 #define DHCP_POOL_START          100
-#define DHCP_POOL_END            200
-
+#define DHCP_POOL_END            132
 #define DHCPS_MAX_CLIENT_NUM     (DHCP_POOL_END-DHCP_POOL_START+1)
 
 #define IS_USE_FIXED_IP         0

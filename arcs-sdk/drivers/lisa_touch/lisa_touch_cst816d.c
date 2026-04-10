@@ -26,8 +26,14 @@
 /* CST816D I2C 地址 */
 #define CST816D_I2C_SLAVE_ADDRESS  0x15
 
-/* CST816D 寄存器定义 */
-#define CST816D_TOUCH_INFO_REG     0xD000
+/* CST816D 寄存器定义（单字节地址） */
+#define CST816D_REG_TOUCH_DATA     0x00    /* 触摸数据起始寄存器 */
+#define CST816D_REG_CHIP_ID        0xAA    /* 芯片ID寄存器 */
+
+/* 触摸事件标志（XH寄存器高4位） */
+#define CST816D_EVENT_PRESS_DOWN   0x00
+#define CST816D_EVENT_LIFT_UP      0x01
+#define CST816D_EVENT_CONTACT      0x02
 
 /* CST816D 触摸能力 */
 #define CST816D_MAX_X              240
@@ -64,6 +70,7 @@ typedef struct {
     bool enabled;                                   /* 使能标志 */
     TaskHandle_t read_task_handle;                  /* I2C 读取任务句柄（用于中断模式） */
     bool interrupt_mode_active;                     /* 中断模式是否激活 */
+    uint8_t chip_id;                                /* 芯片ID */
 } lisa_touch_cst816d_priv_t;
 
 /* ===== CST816D 设备静态实例 ===== */
@@ -75,20 +82,20 @@ static lisa_touch_cst816d_priv_t touch_cst816d_priv;
 static int cst816d_touch_read_event_internal(lisa_touch_cst816d_priv_t *priv, lisa_touch_event_t *event);
 
 /**
- * @brief 读取 CST816D 寄存器
+ * @brief 读取 CST816D 寄存器（单字节寄存器地址）
  */
-static int cst816d_read_reg(lisa_device_t *i2c_dev, uint16_t reg, uint8_t *data, uint32_t len)
+static int cst816d_read_reg(lisa_device_t *i2c_dev, uint8_t reg, uint8_t *data, uint32_t len)
 {
     if (!i2c_dev || !data || len == 0) {
         return LISA_DEVICE_ERR_INVALID;
     }
     
-    /* 准备寄存器地址（小端序：低字节在前） */
-    uint8_t reg_buf[2] = {(uint8_t)(reg & 0xFF), (uint8_t)((reg >> 8) & 0xFF)};
+    /* CST816D 使用单字节寄存器地址 */
+    uint8_t reg_buf = reg;
     
     /* 构造 I2C 消息：先写寄存器地址，再读数据 */
     lisa_i2c_msg_t msgs[2] = {
-        {.addr = CST816D_I2C_SLAVE_ADDRESS, .flags = LISA_I2C_FLAG_NONE, .len = sizeof(reg_buf), .buf = reg_buf},
+        {.addr = CST816D_I2C_SLAVE_ADDRESS, .flags = LISA_I2C_FLAG_NONE, .len = sizeof(reg_buf), .buf = &reg_buf},
         {.addr = CST816D_I2C_SLAVE_ADDRESS, .flags = LISA_I2C_FLAG_READ, .len = len, .buf = data}
     };
     
@@ -202,6 +209,15 @@ static int cst816d_touch_get_capabilities(lisa_device_t *dev, lisa_touch_capabil
 
 /**
  * @brief 内部读取触摸事件函数（供任务和 API 调用）
+ *
+ * CST816D 寄存器布局（从 0x00 开始，共 7 字节）：
+ *   [0]: GestureID  手势ID
+ *   [1]: 保留
+ *   [2]: FingerNum  触摸点数量（低4位）
+ *   [3]: XH         事件标志（高4位）+ X坐标高4位（低4位）
+ *   [4]: XL         X坐标低8位
+ *   [5]: YH         触摸ID（高4位）+ Y坐标高4位（低4位）
+ *   [6]: YL         Y坐标低8位
  */
 static int cst816d_touch_read_event_internal(lisa_touch_cst816d_priv_t *priv, lisa_touch_event_t *event)
 {
@@ -215,29 +231,41 @@ static int cst816d_touch_read_event_internal(lisa_touch_cst816d_priv_t *priv, li
     
     DEVICE_LOCK(priv);
     
-    /* 读取触摸信息寄存器（6字节） */
-    uint8_t read_buf[6] = {0};
-    int ret = cst816d_read_reg(priv->i2c_dev, CST816D_TOUCH_INFO_REG, read_buf, sizeof(read_buf));
+    /* 从寄存器 0x00 开始读取 7 字节触摸数据 */
+    uint8_t read_buf[7] = {0};
+    int ret = cst816d_read_reg(priv->i2c_dev, CST816D_REG_TOUCH_DATA, read_buf, sizeof(read_buf));
     if (ret != LISA_DEVICE_OK) {
         DEVICE_UNLOCK(priv);
         return ret;
     }
     
-    /* 解析触摸状态和坐标 */
-    bool pressed = (read_buf[0] != 0);
-    uint16_t x = ((read_buf[2] & 0x0F) << 8) | read_buf[3];
-    uint16_t y = ((read_buf[4] & 0x0F) << 8) | read_buf[5];
+    /* 解析触摸点数量 */
+    uint8_t point_num = read_buf[2] & 0x0F;
     
     /* 填充事件结构体 */
     memset(event, 0, sizeof(lisa_touch_event_t));
-    if (pressed) {
-        event->type = LISA_TOUCH_EVENT_PRESS;
-        event->point_count = 1;
-        event->points[0].id = 0;
-        event->points[0].x = x;
-        event->points[0].y = y;
-        event->points[0].state = LISA_TOUCH_POINT_PRESSED;
-        LISA_LOGD(LOG_TAG, "Touch: x=%d, y=%d", x, y);
+    
+    if (point_num > 0) {
+        /* 解析坐标 */
+        uint16_t x = ((read_buf[3] & 0x0F) << 8) | read_buf[4];
+        uint16_t y = ((read_buf[5] & 0x0F) << 8) | read_buf[6];
+        
+        /* 解析事件标志（XH 高4位）*/
+        bool pressed =  ((read_buf[3] >> 4) == CST816D_EVENT_LIFT_UP) ? false : true;
+        
+        if (pressed) {
+            event->type = LISA_TOUCH_POINT_PRESSED;
+            event->point_count = 1;
+            event->points[0].id = 0;
+            event->points[0].x = x;
+            event->points[0].y = y;
+            event->points[0].state = LISA_TOUCH_POINT_PRESSED;
+        } else {
+            event->type = LISA_TOUCH_EVENT_RELEASE;
+            event->point_count = 0;
+        }
+        
+        LISA_LOGD(LOG_TAG, "Touch: press=%d, point_num=%d, x=%d, y=%d", pressed, point_num, x, y);
     } else {
         event->type = LISA_TOUCH_EVENT_RELEASE;
         event->point_count = 0;
@@ -368,6 +396,16 @@ static int cst816d_touch_attach_bus(lisa_device_t *dev, const lisa_touch_bus_con
         LISA_LOGI(LOG_TAG, "CST816D interrupt pin configured");
     }
     
+    /* 读取芯片ID */
+    uint8_t chip_id = 0;
+    ret = cst816d_read_reg(priv->i2c_dev, CST816D_REG_CHIP_ID, &chip_id, sizeof(chip_id));
+    if (ret == LISA_DEVICE_OK) {
+        priv->chip_id = chip_id;
+        LISA_LOGI(LOG_TAG, "CST816D chip id=0x%x", chip_id);
+    } else {
+        LISA_LOGW(LOG_TAG, "Failed to read chip id: %d", ret);
+    }
+    
     DEVICE_UNLOCK(priv);
     
     LISA_LOGI(LOG_TAG, "CST816D touch bus attached successfully");
@@ -453,6 +491,42 @@ static int cst816d_touch_set_int_mode(lisa_device_t *dev, lisa_touch_int_mode_t 
     return ret;
 }
 
+/**
+ * @brief 读取芯片ID
+ */
+static int cst816d_touch_read_chip_id(lisa_device_t *dev, uint32_t *chip_id)
+{
+    if (!lisa_device_is_initialized(dev) || !chip_id) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    
+    lisa_touch_cst816d_priv_t *priv = (lisa_touch_cst816d_priv_t *)dev->priv_data;
+    
+    /* 如果已经读取过芯片ID，直接返回缓存值 */
+    if (priv->chip_id != 0) {
+        *chip_id = priv->chip_id;
+        return LISA_DEVICE_OK;
+    }
+    
+    /* 尝试从芯片读取ID */
+    if (!priv->i2c_dev || !lisa_device_ready(priv->i2c_dev)) {
+        return LISA_DEVICE_ERR_NOT_READY;
+    }
+    
+    DEVICE_LOCK(priv);
+    
+    uint8_t id = 0;
+    int ret = cst816d_read_reg(priv->i2c_dev, CST816D_REG_CHIP_ID, &id, sizeof(id));
+    if (ret == LISA_DEVICE_OK) {
+        priv->chip_id = id;
+        *chip_id = id;
+        LISA_LOGI(LOG_TAG, "CST816D chip id=0x%x", id);
+    }
+    
+    DEVICE_UNLOCK(priv);
+    return ret;
+}
+
 /* ===== CST816D Touch API 实例 ===== */
 static const lisa_touch_api_t cst816d_touch_api = {
     .get_capabilities = cst816d_touch_get_capabilities,
@@ -462,6 +536,7 @@ static const lisa_touch_api_t cst816d_touch_api = {
     .attach_bus = cst816d_touch_attach_bus,
     .set_callback = cst816d_touch_set_callback,
     .set_int_mode = cst816d_touch_set_int_mode,
+    .read_chip_id = cst816d_touch_read_chip_id,
 };
 
 /* ===== 设备初始化函数 ===== */
@@ -489,4 +564,5 @@ LISA_DEVICE_REGISTER(touch_cst816d,                  /* 设备名称 */
                      &touch_cst816d_priv,            /* 私有数据指针 */
                      NULL,                           /* 用户数据 */
                      lisa_touch_cst816d_init,        /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,       /* 级别 */
                      LISA_DEVICE_PRIORITY_NORMAL);   /* 优先级 */

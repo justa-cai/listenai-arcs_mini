@@ -43,7 +43,7 @@ void test_seek_valid_position(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -71,7 +71,7 @@ void test_seek_zero_position(void)
     TEST_ASSERT_TRUE_MESSAGE(1, "Seek to 0 should not crash");
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -134,7 +134,7 @@ void test_get_position_valid_player(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -198,7 +198,7 @@ void test_get_duration_valid_player(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 

@@ -391,4 +391,4 @@ static int arcs_dual_timer_init(void)
 }
 
 LISA_DEVICE_REGISTER(dual_timer, &dual_timer_api, &dual_timer_priv, NULL, arcs_dual_timer_init,
-                     LISA_DEVICE_PRIORITY_NORMAL);
+                     LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);

@@ -22,11 +22,11 @@ typedef struct {
 static test_get_api_t test_get_api = {.value = 42};
 
 /* 注册测试设备 */
-LISA_DEVICE_REGISTER(test_get_device1, &test_get_api, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_get_device1, &test_get_api, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
-LISA_DEVICE_REGISTER(test_get_device2, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_get_device2, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
 /* ========================================
  * 测试用例

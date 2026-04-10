@@ -17,7 +17,6 @@
 
 #include "log_print.h"
 #include "ls_event.h"
-#include "sys_arch.h"
 
 #ifdef __cplusplus
 extern "C" {

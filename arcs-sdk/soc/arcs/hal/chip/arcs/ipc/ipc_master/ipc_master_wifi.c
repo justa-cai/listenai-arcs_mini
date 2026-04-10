@@ -215,7 +215,7 @@ int32_t ipc_master_wifi_init(void)
 #ifdef TASK_CREATE_STATIC
     static rtos_stack_type ipc_wifi_init_task_stack_buf[IPC_INIT_WIFI_TASK_STACK_SIZE];
     static rtos_static_task_tcb ipc_wifi_init_task_control;
-    rtos_task_create_static(ipc_wifi_init_task, "wifi_init", INIT_WIFI_TASK, IPC_INIT_WIFI_TASK_STACK_SIZE, NULL,
+    rtos_task_create_static(ipc_master_wifi_init_task, "wifi_init", INIT_WIFI_TASK, IPC_INIT_WIFI_TASK_STACK_SIZE, NULL,
                            IPC_INIT_WIFI_TASK_PRIORITY, NULL, ipc_wifi_init_task_stack_buf, &ipc_wifi_init_task_control);
 #else
     rtos_task_create(ipc_master_wifi_init_task, "wifi_init", INIT_WIFI_TASK, IPC_INIT_WIFI_TASK_STACK_SIZE, NULL,

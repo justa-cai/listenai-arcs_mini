@@ -345,6 +345,16 @@ static void voice_cloud_emoji_received(void *unused, uint32_t msg_id, void *data
     });
 }
 
+static void voice_cloud_oneshot_emoji_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    char *emoji = (char *)data;
+    LISA_UI_INVOKE_UI_ARG_PTR(emoji, len, {
+        if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_oneshot_emoji) {
+            model_voice_ctx.cbs->on_oneshot_emoji(model_voice_ctx.arg, _invoke_emoji);
+        }
+    });
+}
+
 static void voice_cloud_mcp_emoji_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     char *emoji = (char *)data;
@@ -740,6 +750,7 @@ int model_voice_init(void)
     voice_msg_sub(VOICE_MSG_CLOUD_CONNECTED, voice_cloud_connected, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_DISCONNECTED, voice_cloud_disconnected, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_EMOJI, voice_cloud_emoji_received, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_ONESHOT_EMOJI, voice_cloud_oneshot_emoji_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_EMOJI, voice_cloud_mcp_emoji_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_LOADING, voice_cloud_mcp_loading_received, NULL);
 
@@ -991,5 +1002,21 @@ int model_voice_img_recognition(uint8_t *rgb565, uint32_t len, int width, int he
     return 0;
 #else
     return -5;
+#endif
+}
+
+int model_voice_oneshot_emoji_post(const char *emoji_name)
+{
+    if (!emoji_name || emoji_name[0] == '\0') {
+        return -1;
+    }
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    return voice_msg_pub(VOICE_MSG_CLOUD_ONESHOT_EMOJI, (void *)emoji_name, strlen(emoji_name) + 1);
+#else
+    if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_oneshot_emoji) {
+        model_voice_ctx.cbs->on_oneshot_emoji(model_voice_ctx.arg, emoji_name);
+    }
+    return 0;
 #endif
 }

@@ -17,10 +17,13 @@ BEGIN SERVER_INCLUDE_FILE
 #include "ls_err.h"
 #include "ls_wifi_type.h"
 #include "wifi_api.h"
+#include "rf_cali.h"
 #include "ipc.h"
 #include "mrpc.h"
 #include "mrpc_wifi_api_msg.h"
 #include "mrpc_wifi_api_server.h"
+
+extern ls_err_t wifi_mfg_exec(char *params, int32_t params_len);
 
 END
 
@@ -61,8 +64,6 @@ ls_err_t wifi_sta_scanlist_dump(direct wifi_scan_result_t *results, int tgt_num,
 ls_err_t wifi_get_scan_result(in wifi_scan_result_t **scan_results, in int8_t *cnt);
 
 ls_err_t wifi_get_sta_scanlist_nums(in int *ap_num);
-
-ls_err_t wifi_get_ipv4_addr(in uint32_t *addr, in uint32_t *mask, in uint32_t *gw, in uint32_t *dns);
 
 ls_err_t wifi_get_ap_rssi(in int *rssi);
 

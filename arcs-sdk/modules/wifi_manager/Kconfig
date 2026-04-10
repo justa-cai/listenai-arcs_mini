@@ -11,8 +11,6 @@ config WIFI_MANAGER
 if WIFI_MANAGER
     choice
         prompt "wifi manager selection"
-        default WIFI_MANAGER_MEM_HEAP_CAPS
-
     config WIFI_MANAGER_MEM_HEAP_CAPS
         bool "heap caps"
 
@@ -35,7 +33,7 @@ if WIFI_MANAGER
 
         config WIFI_MANAGER_WIFI_TYPE_AP
             bool "ap"
-            
+
     endchoice
 
     choice
@@ -49,12 +47,6 @@ if WIFI_MANAGER
 endif
 
 if WIFI_MANAGER
-	config WIFI_MANAGER_MEM_HEAP_CAPS
-		bool
-		default y
-		help
-			Use heap_caps memory management from ESP-IDF.
-
 	config WIFI_MGR_NVS_PARTITION_OFFSET
 		hex "WiFi manager NVS partition offset"
 		default 0xFF4000

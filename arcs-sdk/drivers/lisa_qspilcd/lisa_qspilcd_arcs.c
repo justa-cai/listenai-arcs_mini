@@ -358,4 +358,4 @@ static int arcs_qspilcd_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(qspilcd0, &arcs_qspilcd_api, &qspilcd_priv, NULL, arcs_qspilcd_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(qspilcd0, &arcs_qspilcd_api, &qspilcd_priv, NULL, arcs_qspilcd_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);

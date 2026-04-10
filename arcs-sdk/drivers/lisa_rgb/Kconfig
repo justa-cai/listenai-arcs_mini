@@ -3,10 +3,9 @@
 
 config LISA_RGB_DEVICE
 	bool "Enable LISA RGB LCD driver"
-	default n
 	help
-	  Enable LISA RGB (parallel) LCD device driver.
-	  This driver provides a unified interface for RGB parallel LCD panels.
+			Enable LISA RGB (parallel) LCD device driver.
+			This driver provides a unified interface for RGB parallel LCD panels.
 
 if LISA_RGB_DEVICE
 
@@ -15,7 +14,7 @@ config LISA_RGB_GPDMA_CH
 	default 1
 	range 0 5
 	help
-	  GPDMA channel number used for RGB framebuffer transfer.
-	  Make sure this channel is not used by other peripherals.
+			GPDMA channel number used for RGB framebuffer transfer.
+			Make sure this channel is not used by other peripherals.
 
 endif # LISA_RGB_DEVICE

@@ -335,7 +335,7 @@ int acomp_fd_remove_callback(fd_event_cb_t cb)
         return ACOMP_ERR_INVALID_STATE;
     }
 
-    ret = gcl_cb_list_remove(fd_handle->event_callbacks, cb);
+    ret = gcl_cb_list_remove_callback(fd_handle->event_callbacks, cb);
     LISA_LOGI(TAG, "acomp fd remove callback exit");
     return ret;
 }

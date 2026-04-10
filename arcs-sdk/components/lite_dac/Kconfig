@@ -1,23 +1,23 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 menu "dac configuration"
 
 config LITE_DAC
-    bool "DAC support"
-    default n
+	bool "DAC support"
 
 config LITE_DAC_PROXY
-    bool "DAC proxy support"
-    default n
+	bool "DAC proxy support"
 
 if LITE_DAC
 
 config DAC_ECHO_ENABLE
-    bool "DAC echo enable"
-    default n
+	bool "DAC echo enable"
 
 config ECHO_RECV_CNTS
-    int "DAC echo receive cnts"
-    depends on DAC_ECHO_ENABLE
-    default 25
+	int "DAC echo receive cnts"
+	depends on DAC_ECHO_ENABLE
+	default 25
 
 endif
 endmenu

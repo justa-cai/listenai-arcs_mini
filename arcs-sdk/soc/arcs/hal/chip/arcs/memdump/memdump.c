@@ -187,7 +187,7 @@ static uint16_t calculate_checksum(uint16_t *data, uint16_t byte_length)
 
 static bool verify_command_checksum(uint8_t *data, uint16_t length, uint16_t checksum)
 {
-    uint16_t calculated_checksum = calculate_checksum(data, length);
+    uint16_t calculated_checksum = calculate_checksum((uint16_t *)data, length);
     return calculated_checksum == checksum;
 }
 
@@ -219,7 +219,7 @@ static int32_t memory_dump_daemon(void *res)
                     uart_send_msg_poll(uart, &dump_data[i], bundle);
                 }
 
-                uint16_t calculated_checksum = calculate_checksum(dump_data, (length >> 1));
+                uint16_t calculated_checksum = calculate_checksum((uint16_t *)dump_data, (length >> 1));
                 uart_send_msg_poll(uart, &calculated_checksum, 2);
             }
         }
@@ -234,7 +234,7 @@ _EXT_RAM static int flash_write_mem_dump(MDUMP_ENTRY *entry)
     ret = flash_erase(&mdump_flash, entry->dst, entry->len);
     if(ret != 0)
         CLOGD("Failed to erase flash, ret = %d\n", ret);
-    ret = flash_write(&mdump_flash, entry->dst, entry->src, entry->len);
+    ret = flash_write(&mdump_flash, entry->dst, (const void *)entry->src, entry->len);
     if(ret != 0)
         CLOGD("Failed to write flash, ret = %d\n", ret);
     flash_write_protection_set(&mdump_flash, true);
@@ -243,7 +243,7 @@ _EXT_RAM static int flash_write_mem_dump(MDUMP_ENTRY *entry)
     return ret;
 }
 
-static int flash_mem_dump_all()
+static void flash_mem_dump_all(void)
 {
     int i;
     int num = sizeof(mdump_table)/sizeof(MDUMP_ENTRY);
@@ -284,6 +284,7 @@ int32_t memdump_process(MDUMP_PATH path)
         default:
              break;
     }
+    return 0;
 }
 
 /// @} MEMDUMP

@@ -30,6 +30,13 @@ uint8_t model_common_brightness_get(void);
 int model_common_brightness_set(uint8_t brightness);
 
 /**
+ * @brief Temporarily apply brightness level without persisting user settings
+ * @param brightness Brightness level (0-100)
+ * @return 0 on success, -1 on error
+ */
+int model_common_brightness_set_temp(uint8_t brightness);
+
+/**
  * @brief Initialize common model
  * @return 0 on success, -1 on error
  */

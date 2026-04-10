@@ -191,25 +191,6 @@ ls_err_t wifi_get_sta_scanlist_nums(int * ap_num)
     return (ls_err_t)resp.hdr.status;
 }
 
-ls_err_t wifi_get_ipv4_addr(uint32_t * addr, uint32_t * mask, uint32_t * gw, uint32_t * dns)
-{
-    mrpc_wifi_get_ipv4_addr_req_t req;
-    mrpc_wifi_get_ipv4_addr_resp_t resp;
-
-    if (sizeof(mrpc_wifi_get_ipv4_addr_req_t) > IPC_MSG_BUFFER_SIZE)
-        return LS_FAIL;
-
-    req.hdr.id = MRPC_MSG_ID_WIFI_GET_IPV4_ADDR;
-    if (mrpc_msg_send(&req, sizeof(mrpc_wifi_get_ipv4_addr_req_t), &resp))
-        return LS_FAIL;
-    *addr = resp.addr;
-    *mask = resp.mask;
-    *gw = resp.gw;
-    *dns = resp.dns;
-
-    return (ls_err_t)resp.hdr.status;
-}
-
 ls_err_t wifi_get_ap_rssi(int * rssi)
 {
     mrpc_wifi_get_ap_rssi_req_t req;

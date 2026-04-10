@@ -191,9 +191,9 @@ struct _noPollConn {
 	noPollRead       receive;
 
 	/**
-	 * @internal Current connection receive function.
+	 * @internal Current connection send function.
 	 */
-	noPollRead       send;
+	noPollRead       nopoll_send;
 
 	/**
 	 * @internal The connection role.

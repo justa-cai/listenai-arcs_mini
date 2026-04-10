@@ -139,6 +139,8 @@
 // Device ID
 #define PSRAM_MR2_DEVICE_ID_OFFSET          (0x3)
 #define PSRAM_MR2_DEVICE_ID_MASK            (0x3)
+#define PSRAM_MR2_DEVICE_ID_64Mb            (0x2)
+#define PSRAM_MR2_DEVICE_ID_128Mb           (0x3)
 
 // TODO In 128Mb the good die use 3bit
 // bit 5-7 MR2[7:5]
@@ -146,6 +148,9 @@
 #define PSRAM_MR2_GOOD_DIE_OFFSET           (0x7)
 #define PSRAM_MR2_GOOD_DIE_MASK             (0x1)
 #define PSRAM_MR2_GOOD_DIE                  (0x1)
+#define PSRAM_MR2_GOOD_DIE_128Mb_OFFSET     (0x5)
+#define PSRAM_MR2_GOOD_DIE_128Mb_MASK       (0x7)
+#define PSRAM_MR2_GOOD_DIE_128Mb            (0x6)
 
 //******************MR3 [R]
 // bit 4-5 MR3[5:4]
@@ -889,17 +894,11 @@ int32_t PSRAM_Initialize(uint32_t* read_delay, uint32_t* write_delay, uint8_t se
     {
         uint8_t mr_r_value_m1 = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR1.all & 0xff);
         uint8_t mr_r_value_m2 = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR2.all & 0xff);
-        uint8_t mr_r_value_m3 = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR3.all & 0xff);
 
-        if (((mr_r_value_m2 >> PSRAM_MR2_GOOD_DIE_OFFSET) & PSRAM_MR2_GOOD_DIE_MASK) == PSRAM_MR2_GOOD_DIE){
-            PSRAM_LOG("\n\n\nGOOD DIE\n\n\n");
-        } else {
-            PSRAM_LOGE("\n\n\nBAD DIE\n\n\n");
-            return -1;
-        }
+        uint8_t vender_id = ((mr_r_value_m1 >> PSRAM_MR1_VENDOR_ID_OFFSET) & PSRAM_MR1_VENDOR_ID_MASK);
+        uint8_t dev_id = ((mr_r_value_m2 >> PSRAM_MR2_DEVICE_ID_OFFSET) & PSRAM_MR2_DEVICE_ID_MASK);
 
-        PSRAM_LOG("Vendor ID: 0x%x;     Dev ID: 0x%x", ((mr_r_value_m1 >> PSRAM_MR1_VENDOR_ID_OFFSET) & PSRAM_MR1_VENDOR_ID_MASK),\
-                ((mr_r_value_m2 >> PSRAM_MR2_DEVICE_ID_OFFSET) & PSRAM_MR2_DEVICE_ID_MASK));
+        PSRAM_LOG("Vendor ID: 0x%x;     Dev ID: 0x%x", vender_id, dev_id);
 
         density = (mr_r_value_m2 >> PSRAM_MR2_DENSITY_MAP_OFFSET) & PSRAM_MR2_DENSITY_MAP_MASK;
         if (density == PSRAM_MEM_32Mb_DENSITY_MAP){
@@ -912,6 +911,28 @@ int32_t PSRAM_Initialize(uint32_t* read_delay, uint32_t* write_delay, uint8_t se
             PSRAM_LOG("PSRAM Density -> 256M bit");
         } else if (density == PSRAM_MEM_512Mb_DENSITY_MAP){
             PSRAM_LOG("PSRAM Density -> 512M bit");
+        }
+
+        if (dev_id == PSRAM_MR2_DEVICE_ID_128Mb){
+            uint8_t gdie = (mr_r_value_m2 >> PSRAM_MR2_GOOD_DIE_128Mb_OFFSET) & PSRAM_MR2_GOOD_DIE_128Mb_MASK;
+            if (gdie == PSRAM_MR2_GOOD_DIE_128Mb){
+                PSRAM_LOG("\n\n\nGOOD DIE\n\n\n");
+            } else {
+                PSRAM_LOGE("\n\n\nBAD DIE\n\n\n");
+                return -1;
+            }
+
+        } else if (dev_id == PSRAM_MR2_DEVICE_ID_64Mb){
+            if (((mr_r_value_m2 >> PSRAM_MR2_GOOD_DIE_OFFSET) & PSRAM_MR2_GOOD_DIE_MASK) == PSRAM_MR2_GOOD_DIE){
+                PSRAM_LOG("\n\n\nGOOD DIE\n\n\n");
+            } else {
+                PSRAM_LOGE("\n\n\nBAD DIE\n\n\n");
+                return -1;
+            }
+            
+        } else {
+            PSRAM_LOGE("PSRAM Device ID Error!");
+            return -1;
         }
     }
 
@@ -1397,4 +1418,179 @@ void PSRAM_EnterSleepMode(_psram_sleep_mode_t sleep_mode){
         PSRAM_LOGE("PSRAM sleep mode error");
         return;
     }
+}
+
+// Note: This function is only used for XCCELA protocol PSRAM, and it's only be used for re-initialize
+void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
+    IP_SYSCTRL->REG_SW_RESET_CP2.bit.PSRAM_CTRL_RESET = 0x1;
+
+    // Enable PSRAM controller clock
+    __HAL_CRM_PSRAM_CLK_ENABLE();
+    // Get PSRAM controller clock
+    uint32_t psram_clock = CRM_GetPsramFreq();
+    PSRAM_LOG("PSRAM REINIT at %d", psram_clock);
+
+    // MR RD SEQ ID
+    IP_PSRAM_CTRL->REG_SEQSEL.bit.MR_RD_SEQ_ID = PSRAM_MR_RD_SEQ_ID;
+    IP_PSRAM_CTRL->REG_S2LUT0.bit.S2_INSTR0 = PSRAM_INSTR_MARCO(PSRAM_INSTR_CMD, PSRAM_MR_RD_CMD);
+    IP_PSRAM_CTRL->REG_S2LUT0.bit.S2_INSTR1 = PSRAM_INSTR_MARCO(PSRAM_INSTR_ADDR, 0x1);
+    IP_PSRAM_CTRL->REG_S2LUT1.bit.S2_INSTR2 = PSRAM_INSTR_MARCO(PSRAM_INSTR_READ, 0x4);
+
+    // MR WR SEQ ID
+    IP_PSRAM_CTRL->REG_SEQSEL.bit.MR_WR_SEQ_ID = PSRAM_MR_WR_SEQ_ID;
+    IP_PSRAM_CTRL->REG_S3LUT0.bit.S3_INSTR0 = PSRAM_INSTR_MARCO(PSRAM_INSTR_CMD, PSRAM_MR_WR_CMD);
+    IP_PSRAM_CTRL->REG_S3LUT0.bit.S3_INSTR1 = PSRAM_INSTR_MARCO(PSRAM_INSTR_ADDR, 0x1);
+    IP_PSRAM_CTRL->REG_S3LUT1.bit.S3_INSTR2 = PSRAM_INSTR_MARCO(PSRAM_INSTR_MRWRDATA, 0x0);
+
+    IP_PSRAM_CTRL->REG_S5LUT0.all = PSRAM_INSTR_MARCO(PSRAM_INSTR_CEBLP, 12);
+
+    // MR RESET
+    IP_PSRAM_CTRL->REG_S6LUT0.bit.S6_INSTR0 = PSRAM_INSTR_MARCO(PSRAM_INSTR_CMD, 0xFF);
+    IP_PSRAM_CTRL->REG_S6LUT0.bit.S6_INSTR1 = PSRAM_INSTR_MARCO(PSRAM_INSTR_DUMMY, 2);
+
+    // TCEM configure
+    {
+        uint32_t tcem_para = 0;
+        tcem_para = (uint32_t)(((psram_clock / __INNER_MICROSEC_LOW) * PSRAM_TCEM_REFRESH_TIME) / __INNER_MICROSEC_HIGH);
+        IP_PSRAM_CTRL->REG_TIMCFG.bit.TCEM_CFG = tcem_para;
+        PSRAM_LOG("PSRAM TCEM parameter: %d", tcem_para);
+    }
+    // TCPH configure
+    {
+        uint32_t tcph_para = 4;
+        if (psram_clock <= 200000000){
+            tcph_para = 4;
+        } else if (psram_clock <= 250000000){
+            tcph_para = 8;
+        }
+        IP_PSRAM_CTRL->REG_TIMCFG.bit.TCPH_CFG = 8;
+        PSRAM_LOG("PSRAM TCPH parameter: %d", tcph_para);
+    }
+
+    // DLL lock program start ####################################################
+    {
+        uint8_t rdata = 0;
+
+        IP_PSRAM_CTRL->REG_DLLEN.bit.DLL_BYPASS = 0x0;
+        IP_PSRAM_CTRL->REG_DLLEN.bit.PHASE_DETECT_SEL = 0x1;
+        IP_PSRAM_CTRL->REG_DLLEN.bit.DLL_EN =1;
+        IP_PSRAM_CTRL->REG_DLLRST.all = 1;
+        PSRAM_LOG("Wait PSRAM DLL done\n\n\n");
+        do{
+          rdata = IP_PSRAM_CTRL->REG_LOCKDONE.all;
+        }while(rdata != 1);
+        PSRAM_LOG("DLL lock!!!");
+        // The PSRAM DLL measures how many internal fixed delay cells are required for one clock cycle of a PSRAM.
+        // If a whole clock cycle is measured, 1/4 can be obtained by dividing the delay cell by 4.
+        // If the clock cycle is too large, only half a cycle can be measured, therefore the HALF_CLOCK_MODE is set, adopting a 1/2 bit coefficient.
+        uint32_t div = IP_PSRAM_CTRL->REG_DLLOBSVR0.bit.HALF_CLOCK_MODE;
+        if (div){
+            div = 2;
+        } else{
+            div = 4;
+        }
+        PSRAM_LOG("DLL lock value: %d, lock div: %d", IP_PSRAM_CTRL->REG_DLLOBSVR0.bit.DLL_LOCK_VALUE, div);
+
+        // resync DLL (0x28)
+        IP_PSRAM_CTRL->REG_DLLRESYNC.bit.DLL_RESYNC = 0x1;
+    }
+
+    // Exit sleep mode
+    {
+        uint32_t hclk = CRM_GetHclkFreq();
+        IP_PSRAM_CTRL->REG_CUSTEXE.all = PSRAM_EXE_SLEEP_MODE_SEQ_ID;
+        uint32_t timeout = 30 * (hclk / 24000000);
+        while(timeout--);
+    }
+
+    PSRAM_LOG("PSRAM EXIT SLEEP MODE");
+    CLOG_FLUSH();
+
+    IP_PSRAM_CTRL->REG_RDWRCTRL.bit.RD_LOOKUP_TX_BUF = 0;
+    IP_PSRAM_CTRL->REG_DEVDEF.bit.DEV_TYPE = PSRAM_DEV_TYPE_XCELLA; // Set type to xcella
+    IP_PSRAM_CTRL->REG_DEVDEF.bit.DEV_PAGE_SIZE = PSRAM_DEV_PAGE_SIZE_1K;
+
+    // AHB RD SEQ ID
+    IP_PSRAM_CTRL->REG_SEQSEL.bit.AHB_RD_SEQ_ID = PSRAM_AHB_RD_SEQ_ID;
+    IP_PSRAM_CTRL->REG_S0LUT0.bit.S0_INSTR0 = PSRAM_INSTR_MARCO(PSRAM_INSTR_CMD, PSRAM_AHB_RD_CMD); // CMD
+    IP_PSRAM_CTRL->REG_S0LUT0.bit.S0_INSTR1 = PSRAM_INSTR_MARCO(PSRAM_INSTR_ADDR, 0x1);  // ADDR
+    IP_PSRAM_CTRL->REG_S0LUT1.bit.S0_INSTR2 = PSRAM_INSTR_MARCO(PSRAM_INSTR_READ, 0x0);  // READ
+
+    uint32_t density = PSRAM_MEM_64Mb_DENSITY_MAP;
+    {
+        uint8_t mr_r_value_m2 = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR2.all & 0xff);
+
+        density = (mr_r_value_m2 >> PSRAM_MR2_DENSITY_MAP_OFFSET) & PSRAM_MR2_DENSITY_MAP_MASK;
+
+    }
+
+    uint8_t write_dummy = 0;
+
+    if (psram_clock <= 66000000) // 66Mhz
+    {
+        write_dummy = 1;
+    }
+
+    else if (psram_clock <= 109000000) // 109Mhz
+    {
+        write_dummy = 2;
+    }
+
+    else if (psram_clock <= 133000000) // 133Mhz
+    {
+        write_dummy = 3;
+    }
+
+    else if (psram_clock <= 166000000) // 166Mhz
+    {
+        write_dummy = 4;
+    }
+
+    else if (psram_clock <= 200000000){ // 200Mhz
+        write_dummy = 5;
+    }
+
+    else{
+        if (density == PSRAM_MEM_128Mb_DENSITY_MAP) {
+            if (psram_clock <= 225000000){ // 225Mhz
+                write_dummy = 6;
+            }
+
+            else if (psram_clock <= 250000000){ // 250Mhz
+                write_dummy = 7;
+            }
+        } else if (density == PSRAM_MEM_64Mb_DENSITY_MAP) {
+            if (psram_clock <= 250000000){ // 250Mhz
+                write_dummy = 6;
+            }
+        }
+    }
+
+    // AHB WR SEQ ID
+    IP_PSRAM_CTRL->REG_SEQSEL.bit.AHB_WR_SEQ_ID = PSRAM_AHB_WR_SEQ_ID;
+    IP_PSRAM_CTRL->REG_S1LUT0.bit.S1_INSTR0 = PSRAM_INSTR_MARCO(PSRAM_INSTR_CMD, PSRAM_AHB_WR_CMD);
+    IP_PSRAM_CTRL->REG_S1LUT0.bit.S1_INSTR1 = PSRAM_INSTR_MARCO(PSRAM_INSTR_ADDR, 0x1);
+    IP_PSRAM_CTRL->REG_S1LUT1.bit.S1_INSTR2 = PSRAM_INSTR_MARCO(PSRAM_INSTR_DUMMY, write_dummy);
+    IP_PSRAM_CTRL->REG_S1LUT1.bit.S1_INSTR3 = PSRAM_INSTR_MARCO(PSRAM_INSTR_WRITE, 0x0);
+
+    IP_PSRAM_CTRL->REG_DLLDELAY.bit.RDLVL_DELAY = read_delay;
+    IP_PSRAM_CTRL->REG_DLLDELAY.bit.WRLVL_DELAY = write_delay;
+
+    // resync DLL (0x28)
+    IP_PSRAM_CTRL->REG_DLLRESYNC.bit.DLL_RESYNC = 0x1;
+
+    uint8_t mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR0.all & 0xff);
+    PSRAM_LOG("MR0: 0x%x", mr_r_value);
+    mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR1.all & 0xff);
+    PSRAM_LOG("MR1: 0x%x", mr_r_value);
+    mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR2.all & 0xff);
+    PSRAM_LOG("MR2: 0x%x", mr_r_value);
+    mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR3.all & 0xff);
+    PSRAM_LOG("MR3: 0x%x", mr_r_value);
+    mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR4.all & 0xff);
+    PSRAM_LOG("MR4: 0x%x", mr_r_value);
+    mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR6.all & 0xff);
+    PSRAM_LOG("MR6: 0x%x", mr_r_value);
+    mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR8.all & 0xff);
+    PSRAM_LOG("MR8: 0x%x", mr_r_value);
 }

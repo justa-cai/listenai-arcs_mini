@@ -35,6 +35,12 @@ PIO 模式下 CPU 直接参与数据搬移，传输完成后函数返回，无�
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 **终端输出：**

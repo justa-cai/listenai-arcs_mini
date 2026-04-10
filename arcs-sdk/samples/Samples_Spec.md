@@ -44,7 +44,7 @@
 | 类型 | 路径 | 特征 | 代表示例 |
 |------|------|------|----------|
 | **设备驱动** | `samples/drivers/devices/` | 使用 LISA 设备 API，需硬件连接说明 | lisa_gpio, lisa_uart |
-| **组件模块** | `samples/modules/` | 系统组件/中间件，可能无硬件依赖 | sys_heap, lisa_shell |
+| **组件模块** | `samples/subsys/`、`samples/security/`、`samples/libraries/` 和 `samples/media/` | 系统组件/中间件，可能无硬件依赖 | sys_heap, lisa_shell |
 | **网络示例** | `samples/network/` | 网络协议/通信，需环境配置 | http, wifi_manager |
 | **HAL 驱动** | `samples/drivers/hal/` | 底层硬件抽象层，需硬件连接 | gpio, uart, spi |
 
@@ -389,13 +389,13 @@ This example shows... (使用英文)
 ## 编译
 
 ​```bash
-./build.sh -C -DBOARD=arcs_evb
+./build.sh -C -S samples/<category>/<sample_name> -DBOARD=arcs_evb
 ​```
 
 ## 烧录
 
 ​```bash
-./build.sh -F
+./build.sh -F -S samples/<category>/<sample_name>
 ​```
 ```
 
@@ -715,7 +715,7 @@ while (1) {
 - 配置说明（Kconfig 配置）
 - 使用场景（应用场景）
 
-**示例:** [modules/sys_heap](samples/modules/sys_heap/), [modules/lisa_shell](samples/modules/lisa_shell/)
+**示例:** [modules/sys_heap](samples/subsys/sys_heap/), [modules/lisa_shell](samples/subsys/lisa_shell/)
 
 ### Network（网络示例）
 
@@ -1531,8 +1531,8 @@ LISA GPIO 基础输出示例
   - [samples/drivers/devices/lisa_uart/send_async_dma/README.md](samples/drivers/devices/lisa_uart/send_async_dma/README.md)
 
 - **Modules (Markdown)**:
-  - [samples/modules/sys_heap/README.md](samples/modules/sys_heap/README.md)
-  - [samples/modules/lisa_shell/README.md](samples/modules/lisa_shell/README.md)
+  - [samples/subsys/sys_heap/README.md](samples/subsys/sys_heap/README.md)
+  - [samples/subsys/lisa_shell/README.md](samples/subsys/lisa_shell/README.md)
 
 - **Network (Markdown)**:
   - [samples/network/http/README.md](samples/network/http/README.md)

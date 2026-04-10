@@ -7,7 +7,7 @@ if(CONFIG_LISA_AUDIO_DEVICE)
 
 listenai_library_named(lisa_audio_device)
 
-if(CONFIG_PORT_ARCS)
+if(CONFIG_SOC_ARCS)
     listenai_library_sources(
         lisa_audio_arcs.c
         port/arcs/lisa_audio_record.c

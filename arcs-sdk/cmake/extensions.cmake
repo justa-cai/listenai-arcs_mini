@@ -1,5 +1,9 @@
 add_library(listenai_interface INTERFACE "")
 
+macro(listenai_ex_sections _sections)
+    set(LISTENAI_EX_SECTIONS ${_sections})
+endmacro()
+
 # 简介: 定义一个名称为`_name`的静态库
 # 参数:
 # + _name 指定该静态库的名称
@@ -213,12 +217,24 @@ endfunction()
 # 参数:
 # + target_name 目标
 macro(listenai_generate_bin target_name)
-    add_custom_command(
-        TARGET ${target_name} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E echo "-- Genarating file: ${target_name}.bin"
-        COMMAND ${CMAKE_OBJCOPY} -S -O binary ${target_name} ${target_name}.bin
-        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    )
+    if(LISTENAI_EX_SECTIONS)
+        # 如果定义了 LISTENAI_EX_SECTIONS，分别生成两个bin文件
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E echo "-- Genarating file: ${target_name}.bin"
+            COMMAND ${CMAKE_OBJCOPY} -S -R ${LISTENAI_EX_SECTIONS} -O binary ${target_name} ${target_name}.bin
+            COMMAND ${CMAKE_OBJCOPY} -S -j ${LISTENAI_EX_SECTIONS} -O binary ${target_name} ${target_name}_flash2.bin
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+    else()
+        # 如果没有定义 LISTENAI_EX_SECTIONS，只生成一个bin文件
+        add_custom_command(
+            TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E echo "-- Genarating file: ${target_name}.bin"
+            COMMAND ${CMAKE_OBJCOPY} -S -O binary ${target_name} ${target_name}.bin
+            WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+        )
+    endif()
 endmacro()
 
 # 简介: 为目标生成hex文件
@@ -363,7 +379,290 @@ macro(listenai_generate_boot_header target_name)
     add_dependencies(mkhdr ${target_name})
 endmacro()
 
+# ---------------------------------------------------------------------------
+# Linker script fragment injection (SLOT-based, inspired by Zephyr)
+# ---------------------------------------------------------------------------
+# Components register MEMORY regions, SECTION fragments, and scatter table
+# entries via these macros. At configure time, sorted snippets-*.ld files
+# are generated containing #include directives. system.ld #includes these
+# at predefined slot positions.
+#
+# Available SLOTs:
+#   MEMORY          - inside MEMORY{} block
+#   ALIASES         - REGION_ALIAS declarations after MEMORY{}
+#   SECTIONS_START  - top of SECTIONS{}, for early NOLOAD (e.g. WiFi RAM)
+#   COMPONENTS      - after PSRAM core sections, for component section groups
+#   ROM             - before .text, for component ROM sections
+#   RAM             - before .data, for component RAM AT>ROM sections
+#   POST_DATA       - after .data, for late NOLOAD (e.g. IPC)
+#   SECTIONS_END    - end of SECTIONS{}, for tail sections (e.g. bt_heap)
+#
+# SORT_KEY 层级命名约定（字典序排列，确保多源注入的可预测排序）:
+#   "10-soc"       - SoC 层片段 (soc/${CHIP}/linker/)
+#   "20-board"     - Board 层片段 (boards/${BOARD}/linker/)
+#   "30-component" - SDK 组件片段 (components/)
+#   "50-app"       - 应用层片段
+#   "default"      - 未指定时的默认值
+# ---------------------------------------------------------------------------
+
+# Register a MEMORY region fragment.
+# Usage:
+#   listenai_add_linker_memory(FILE <path> [SORT_KEY <key>])
+macro(listenai_add_linker_memory)
+    cmake_parse_arguments(_LM "" "FILE;SORT_KEY" "" ${ARGN})
+    if(NOT _LM_FILE)
+        message(FATAL_ERROR "listenai_add_linker_memory: FILE is required")
+    endif()
+    if(NOT _LM_SORT_KEY)
+        set(_LM_SORT_KEY "default")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY LISTENAI_SNIPPETS_memory "${_LM_SORT_KEY}|${_LM_FILE}")
+endmacro()
+
+# Register a SECTION fragment at a named SLOT position.
+# Usage:
+#   listenai_add_linker_section(FILE <path> SLOT <slot> [SORT_KEY <key>])
+macro(listenai_add_linker_section)
+    cmake_parse_arguments(_LS "" "FILE;SLOT;SORT_KEY" "" ${ARGN})
+    if(NOT _LS_FILE)
+        message(FATAL_ERROR "listenai_add_linker_section: FILE is required")
+    endif()
+    if(NOT _LS_SLOT)
+        message(FATAL_ERROR "listenai_add_linker_section: SLOT is required")
+    endif()
+    if(NOT _LS_SORT_KEY)
+        set(_LS_SORT_KEY "default")
+    endif()
+    string(TOLOWER "${_LS_SLOT}" _slot_lower)
+    set_property(GLOBAL APPEND PROPERTY LISTENAI_SNIPPETS_${_slot_lower} "${_LS_SORT_KEY}|${_LS_FILE}")
+endmacro()
+
+# Register scatter table entries.
+# Usage:
+#   listenai_add_linker_scatter(SCATLOAD <section_name>)
+#   listenai_add_linker_scatter(SCATZERO <section_name>)
+macro(listenai_add_linker_scatter)
+    cmake_parse_arguments(_LSC "" "SCATLOAD;SCATZERO" "" ${ARGN})
+    if(_LSC_SCATLOAD)
+        set_property(GLOBAL APPEND PROPERTY LISTENAI_SCATTER_LOAD "${_LSC_SCATLOAD}")
+    endif()
+    if(_LSC_SCATZERO)
+        set_property(GLOBAL APPEND PROPERTY LISTENAI_SCATTER_ZERO "${_LSC_SCATZERO}")
+    endif()
+endmacro()
+
+# ---------------------------------------------------------------------------
+# Code relocation API
+# ---------------------------------------------------------------------------
+# Relocate library, file, or named sections to a target memory region.
+# Usage:
+#   listenai_code_relocate(LIBRARY <lib_name> LOCATION <location>)
+#   listenai_code_relocate(FILES <file1> [file2 ...] LOCATION <location>)
+#   listenai_code_relocate(SECTIONS <sec1> [sec2 ...] LOCATION <location>)
+#
+# LIBRARY:  library name as passed to listenai_library_named() (without lib prefix)
+# FILES:    source file names (basename only, e.g. "dsp_core.c")
+# SECTIONS: input section names (e.g. ".pm.ramcode", "._wf_critical")
+#           Each name auto-expands to: <name> <name>.*
+#           SECTIONS mode requires a granular LOCATION (not aggregate).
+# LOCATION: one of PSRAM, PSRAM_TEXT, PSRAM_RODATA, PSRAM_DATA, PSRAM_BSS,
+#           SRAM, SRAM_TEXT, SRAM_RODATA, SRAM_DATA, SRAM_BSS,
+#           ITCM, DTCM
+#
+# Aggregate locations expand:
+#   PSRAM -> PSRAM_TEXT + PSRAM_RODATA + PSRAM_DATA + PSRAM_BSS
+#   SRAM  -> SRAM_TEXT + SRAM_RODATA + SRAM_DATA + SRAM_BSS
+#   DTCM  -> DTCM_DATA + DTCM_BSS  (mapped to .dtcm + .dtcm.bss)
+# ---------------------------------------------------------------------------
+function(listenai_code_relocate)
+    cmake_parse_arguments(_CR "" "LIBRARY;LOCATION" "FILES;SECTIONS" ${ARGN})
+
+    if(NOT _CR_LOCATION)
+        message(FATAL_ERROR "listenai_code_relocate: LOCATION is required")
+    endif()
+
+    # --- SECTIONS mode: collect named sections into a target ---
+    if(_CR_SECTIONS)
+        if(_CR_LIBRARY OR _CR_FILES)
+            message(FATAL_ERROR "listenai_code_relocate: SECTIONS cannot be combined with LIBRARY or FILES")
+        endif()
+        # Map LOCATION to the single relocate target property
+        string(TOLOWER "${_CR_LOCATION}" _loc_lower)
+        set(_target "")
+        foreach(_candidate
+            sram_text sram_rodata sram_data sram_bss
+            itcm dtcm_data dtcm_bss
+            psram_text psram_rodata psram_data psram_bss)
+            if(_loc_lower STREQUAL "${_candidate}")
+                set(_target "${_candidate}")
+                break()
+            endif()
+        endforeach()
+        if(NOT _target)
+            message(FATAL_ERROR "listenai_code_relocate: SECTIONS mode requires a granular LOCATION, got '${_CR_LOCATION}'")
+        endif()
+        # Build entry: * (<sec1> <sec1>.* <sec2> <sec2>.* ...)
+        set(_patterns "")
+        foreach(_sec ${_CR_SECTIONS})
+            string(APPEND _patterns "${_sec} ${_sec}.* ")
+        endforeach()
+        string(STRIP "${_patterns}" _patterns)
+        set_property(GLOBAL APPEND PROPERTY
+            LISTENAI_RELOCATE_${_target} "* (${_patterns})")
+        return()
+    endif()
+
+    if(NOT _CR_LIBRARY AND NOT _CR_FILES)
+        message(FATAL_ERROR "listenai_code_relocate: LIBRARY, FILES, or SECTIONS is required")
+    endif()
+    if(_CR_LIBRARY AND _CR_FILES)
+        message(FATAL_ERROR "listenai_code_relocate: LIBRARY and FILES are mutually exclusive")
+    endif()
+
+    # --- Expand aggregate locations to granular targets ---
+    set(_targets)
+    if(_CR_LOCATION STREQUAL "PSRAM")
+        list(APPEND _targets psram_text psram_rodata psram_data psram_bss)
+    elseif(_CR_LOCATION STREQUAL "SRAM")
+        list(APPEND _targets sram_text sram_rodata sram_data sram_bss)
+    elseif(_CR_LOCATION STREQUAL "DTCM")
+        list(APPEND _targets dtcm_data dtcm_bss)
+    elseif(_CR_LOCATION STREQUAL "PSRAM_TEXT")
+        list(APPEND _targets psram_text)
+    elseif(_CR_LOCATION STREQUAL "PSRAM_RODATA")
+        list(APPEND _targets psram_rodata)
+    elseif(_CR_LOCATION STREQUAL "PSRAM_DATA")
+        list(APPEND _targets psram_data)
+    elseif(_CR_LOCATION STREQUAL "PSRAM_BSS")
+        list(APPEND _targets psram_bss)
+    elseif(_CR_LOCATION STREQUAL "SRAM_TEXT")
+        list(APPEND _targets sram_text)
+    elseif(_CR_LOCATION STREQUAL "SRAM_RODATA")
+        list(APPEND _targets sram_rodata)
+    elseif(_CR_LOCATION STREQUAL "SRAM_DATA")
+        list(APPEND _targets sram_data)
+    elseif(_CR_LOCATION STREQUAL "SRAM_BSS")
+        list(APPEND _targets sram_bss)
+    elseif(_CR_LOCATION STREQUAL "ITCM")
+        list(APPEND _targets itcm)
+    else()
+        message(FATAL_ERROR "listenai_code_relocate: unknown LOCATION '${_CR_LOCATION}'")
+    endif()
+
+    # --- Build the wildcard prefix (archive or object file) ---
+    if(_CR_LIBRARY)
+        # Library pattern: *lib<name>.a:*
+        set(_prefix "*lib${_CR_LIBRARY}.a:*")
+    endif()
+
+    # --- Map each target to its input section patterns and register ---
+    foreach(_target ${_targets})
+        # Determine input section patterns for this target
+        if(_target MATCHES "text$" OR _target STREQUAL "itcm")
+            set(_sections "(.text .text.* .stext .stext.*)")
+        elseif(_target MATCHES "rodata$")
+            set(_sections "(.rodata .rodata.* .srodata .srodata.*)")
+        elseif(_target MATCHES "_data$" OR _target STREQUAL "dtcm_data")
+            set(_sections "(.data .data.* .sdata .sdata.*)")
+        elseif(_target MATCHES "bss$")
+            set(_sections "(.bss .bss.* .sbss .sbss.* COMMON)")
+        else()
+            message(FATAL_ERROR "listenai_code_relocate: internal error - unknown target '${_target}'")
+        endif()
+
+        if(_CR_LIBRARY)
+            set_property(GLOBAL APPEND PROPERTY
+                LISTENAI_RELOCATE_${_target} "${_prefix}${_sections}")
+        else()
+            # File-level: one entry per file
+            foreach(_file ${_CR_FILES})
+                get_filename_component(_basename "${_file}" NAME)
+                # Match both .c.obj and .c.o patterns
+                set_property(GLOBAL APPEND PROPERTY
+                    LISTENAI_RELOCATE_${_target}
+                    "*${_basename}*${_sections}")
+            endforeach()
+        endif()
+    endforeach()
+endfunction()
+
+# Generate all snippets-*.ld files from collected fragments.
+# Each snippet file contains sorted #include directives so that
+# error messages reference original source files and line numbers.
+# Called internally by listenai_set_linker_script().
+function(listenai_generate_linker_snippets)
+    set(_gen_dir "${CMAKE_BINARY_DIR}/generated")
+    file(MAKE_DIRECTORY "${_gen_dir}")
+
+    # All slot names (property suffix → output filename)
+    set(_slots
+        memory aliases
+        sections_start components rom post_text ram post_data sections_end
+    )
+
+    foreach(_slot ${_slots})
+        get_property(_entries GLOBAL PROPERTY LISTENAI_SNIPPETS_${_slot})
+        set(_output "${_gen_dir}/snippets-${_slot}.ld")
+        if(_entries)
+            # Sort entries by SORT_KEY (format: "key|filepath")
+            list(SORT _entries)
+            set(_content "/* Auto-generated snippets for: ${_slot} */\n")
+            foreach(_entry ${_entries})
+                string(REPLACE "|" ";" _parts "${_entry}")
+                list(GET _parts 0 _key)
+                list(GET _parts 1 _file)
+                string(APPEND _content "/* Sort key: \"${_key}\" */#include \"${_file}\"\n")
+            endforeach()
+            file(WRITE "${_output}" "${_content}")
+        else()
+            file(WRITE "${_output}" "/* No fragments for: ${_slot} */\n")
+        endif()
+    endforeach()
+
+    # Code relocation snippet files
+    set(_relocate_targets
+        psram_text psram_rodata psram_data psram_bss
+        sram_text sram_rodata sram_data sram_bss
+        itcm dtcm_data dtcm_bss
+    )
+    foreach(_target ${_relocate_targets})
+        get_property(_entries GLOBAL PROPERTY LISTENAI_RELOCATE_${_target})
+        string(REPLACE "_" "-" _fname "${_target}")
+        set(_output "${_gen_dir}/snippets-relocate-${_fname}.ld")
+        if(_entries)
+            set(_content "/* Auto-generated code relocation entries for: ${_target} */\n")
+            foreach(_entry ${_entries})
+                string(APPEND _content "        ${_entry}\n")
+            endforeach()
+            file(WRITE "${_output}" "${_content}")
+        else()
+            file(WRITE "${_output}" "/* No relocations for: ${_target} */\n")
+        endif()
+    endforeach()
+
+    # Scatter copy table entries
+    get_property(_scatload GLOBAL PROPERTY LISTENAI_SCATTER_LOAD)
+    set(_content "/* Auto-generated scatter copy entries */\n")
+    foreach(_s ${_scatload})
+        string(APPEND _content "            SCATLOAD(${_s})\n")
+    endforeach()
+    file(WRITE "${_gen_dir}/snippets-scatload.ld" "${_content}")
+
+    # Scatter zero table entries
+    get_property(_scatzero GLOBAL PROPERTY LISTENAI_SCATTER_ZERO)
+    set(_content "/* Auto-generated scatter zero entries */\n")
+    foreach(_s ${_scatzero})
+        string(APPEND _content "            SCATZERO(${_s})\n")
+    endforeach()
+    file(WRITE "${_gen_dir}/snippets-scatzero.ld" "${_content}")
+endfunction()
+
 macro(listenai_set_linker_script linker_script)
+    # Defer snippet generation until all add_subdirectory() calls complete,
+    # so that components/drivers can register their linker fragments
+    cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR}
+        CALL listenai_generate_linker_snippets)
+
     get_property(LISTENAI_LINK_SCRIPTS_PROPERTY GLOBAL PROPERTY LISTENAI_LINK_SCRIPTS)
     get_property(INCLUDE_DIRS TARGET listenai_interface PROPERTY INTERFACE_INCLUDE_DIRECTORIES)
     get_property(LISTENAI_IF_DEFINITIONS TARGET listenai_interface PROPERTY INTERFACE_COMPILE_DEFINITIONS)
@@ -372,6 +671,8 @@ macro(listenai_set_linker_script linker_script)
     foreach(dir ${INCLUDE_DIRS})
         list(APPEND INCLUDE_FLAGS "-I${dir}")
     endforeach()
+    # Add build directory so #include "generated/sections_*.ld" resolves
+    list(APPEND INCLUDE_FLAGS "-I${CMAKE_BINARY_DIR}")
 
     set(LISTENAI_IF_DEFINITIONS_FLAGS "")
     foreach(flag ${LISTENAI_IF_DEFINITIONS})
@@ -406,7 +707,23 @@ macro(listenai_set_linker_script linker_script)
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
 
-    add_dependencies(${LISTENAI_EXECUTABLE_NAME} generate_linker_script)
+    # Verify no MEMORY region overlaps in the generated linker script
+    get_property(_overlap_wl GLOBAL PROPERTY LISTENAI_MEMORY_OVERLAP_WHITELIST)
+    set(_overlap_wl_flag "")
+    if(_overlap_wl)
+        string(REPLACE ";" "\\;" _overlap_wl_escaped "${_overlap_wl}")
+        set(_overlap_wl_flag "-DOVERLAP_WHITELIST=${_overlap_wl_escaped}")
+    endif()
+    add_custom_target(check_linker_memory_overlap
+        COMMAND ${CMAKE_COMMAND}
+            -DLINKER_SCRIPT=${CMAKE_BINARY_DIR}/linker.ld
+            ${_overlap_wl_flag}
+            -P ${ARCS_SDK_BASE}/cmake/check_memory_overlap.cmake
+        DEPENDS generate_linker_script
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    )
+
+    add_dependencies(${LISTENAI_EXECUTABLE_NAME} check_linker_memory_overlap)
     target_link_options(${LISTENAI_EXECUTABLE_NAME} PRIVATE "-T${CMAKE_BINARY_DIR}/linker.ld")
 endmacro()
 

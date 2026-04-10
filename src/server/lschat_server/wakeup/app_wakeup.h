@@ -13,9 +13,11 @@ struct wakeup_algo_resources {
 };
 
 typedef enum{
-    APP_WAKEUP_SENSITIVITY_LEVEL_0 = 0, /*low*/
-    APP_WAKEUP_SENSITIVITY_LEVEL_1,     /*medium*/
-    APP_WAKEUP_SENSITIVITY_LEVEL_2      /*high*/
+    APP_WAKEUP_SENSITIVITY_LEVEL_0 = 0, /*极易唤醒*/
+    APP_WAKEUP_SENSITIVITY_LEVEL_1,     /*易唤醒*/
+    APP_WAKEUP_SENSITIVITY_LEVEL_2,      /*默认档位*/
+    APP_WAKEUP_SENSITIVITY_LEVEL_3,      /*难唤醒*/
+    APP_WAKEUP_SENSITIVITY_LEVEL_4,      /*极难唤醒*/
 }app_wakeup_sensitivity_level_e;
 
 int app_wakeup_init(struct wakeup_algo_resources *res);

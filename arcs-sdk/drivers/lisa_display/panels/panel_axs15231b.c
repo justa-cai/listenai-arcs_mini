@@ -159,4 +159,4 @@ int panel_axs15231b_device_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_axs15231b_driver, NULL, NULL, &panel_axs15231b_device_init, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_axs15231b_driver, NULL, NULL, &panel_axs15231b_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);

@@ -1,0 +1,12 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+osource "$ARCS_BASE/Kconfig"
+
+config VADDR_REMAP_FW_VARIANT_NAME
+	string "vaddr remap firmware variant name"
+	default "AP"
+
+config VADDR_REMAP_FW_FLASH_OFFSET
+	hex "vaddr remap firmware flash offset"
+	default 0x20000

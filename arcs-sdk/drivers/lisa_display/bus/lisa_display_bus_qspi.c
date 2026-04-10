@@ -138,4 +138,4 @@ static int bus_qspi_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(panel_bus_qspi, &display_bus_qspi_api, &display_bus_qspi_priv, NULL, bus_qspi_init, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(panel_bus_qspi, &display_bus_qspi_api, &display_bus_qspi_priv, NULL, bus_qspi_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);

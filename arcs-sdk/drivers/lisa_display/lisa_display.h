@@ -237,6 +237,11 @@ typedef struct {
     lisa_device_t *te_gpio;                         /* TE信号的GPIO设备（可选）*/
     uint32_t te_pin;                                /* TE引脚号 */
     lisa_display_backlight_t backlight;             /* 背光控制配置，type=NONE 表示无背光 */
+    /* 可选：在 attach 时传入面板初始化参数（二进制序列），格式由具体 panel 驱动解释
+     * Layout convention used by existing drivers: repeated entries of [cmd, len, data...]
+     */
+    const void *panel_init_params;
+    size_t panel_init_params_len;
 } lisa_display_config_t;
 
 /**

@@ -13,8 +13,9 @@ usage() {
     echo "  -h, --help             显示此帮助信息"
     echo "  -r, --release          以 Release 模式构建 (移除 DEBUG_PATH 信息)"
     echo "  -w, --warnings-as-errors 将警告视为错误"
-    echo "  -v, --verbose          显示详细的编译命令 (ninja -v)"
-    echo "  -d, --debug            启用调试模式 (ninja -d explain + 错误诊断)"
+    echo "  -c, --config <file>    指定配置文件 (默认: prj.conf)"
+    echo "  -v, --verbose          显示详细的编译命令 (Ninja: -v, Makefile: VERBOSE=1)"
+    echo "  -d, --debug            启用调试模式 (仅 Ninja: -d explain)"
     echo "  -G, --generator <type> 指定构建工具 (Ninja 或 Makefile, 默认: Ninja)"
     echo "  -D<var>=<value>        传递 CMake 变量 (可多次使用)"
     echo ""
@@ -39,50 +40,94 @@ RELEASE=false
 VERBOSE=false
 DEBUG=false
 GENERATOR="Ninja"
-ARCS_BASE_DIR_NAME="arcs-sdk"
-ARCS_DEV_TOOLS_DIR_NAME="listenai-dev-tools"
-ARCS_DEV_TOOL_TOOLCHAIN_DIR_NAME="gcc"
-ARCS_DEV_TOOL_LISTENAI_TOOLS_DIR_NAME="listenai-tools"
+CONFIG_FILE="prj.conf"
+DEV_TOOLS_DIR_NAME="listenai-dev-tools"
+DEV_TOOL_TOOLCHAIN_DIR_NAME="gcc"
+DEV_TOOL_LISTENAI_TOOLS_DIR_NAME="listenai-tools"
 
+# 自动查找 SDK 根目录（通过 cmake/listenai-cmake-config.cmake 标志文件识别）
 find_arcs_base() {
-    local current_dir=$(cd "$(dirname "$0")" && pwd)
-    local dir_name="$ARCS_BASE_DIR_NAME"
+    local current_dir="$SCRIPT_DIR"
 
     while [ "$current_dir" != "/" ]; do
-        if [ -d "$current_dir/$dir_name" ]; then
-            echo "Found ARCS_BASE: $current_dir/$dir_name"
-            export ARCS_BASE="$current_dir/$dir_name"
+        # 检查当前目录本身是否是 SDK 根目录
+        if [ -f "$current_dir/cmake/listenai-cmake-config.cmake" ]; then
+            echo "Found ARCS_BASE: $current_dir"
+            export ARCS_BASE="$current_dir"
             return 0
         fi
+
+        # 检查当前目录的子目录中是否包含 SDK
+        for subdir in "$current_dir"/*/; do
+            if [ -f "${subdir}cmake/listenai-cmake-config.cmake" ]; then
+                local resolved
+                resolved=$(cd "$subdir" && pwd)
+                echo "Found ARCS_BASE: $resolved"
+                export ARCS_BASE="$resolved"
+                return 0
+            fi
+        done
+
         current_dir=$(dirname "$current_dir")
     done
 
-    echo "ARCS_BASE not found, Please add ARCS_BASE environment variable or set ARCS_BASE_DIR_NAME to the correct directory."
-    echo "Current Target ARCS_BASE directory name: $ARCS_BASE_DIR_NAME."
+    echo "Error: ARCS_BASE not found. Please set ARCS_BASE environment variable to the SDK root directory."
     exit 1
 }
 
 find_dev_tools() {
-    local current_dir=$(cd "$(dirname "$0")" && pwd)
-    local dir_name="$ARCS_DEV_TOOLS_DIR_NAME"
+    local current_dir="$SCRIPT_DIR"
+    local dir_name="$DEV_TOOLS_DIR_NAME"
+
+    # 优先检查 ~/.listenai（env.sh 默认安装路径）
+    if [ -d "${HOME}/.listenai" ]; then
+        local home_tools="${HOME}/.listenai"
+        if [ -d "$home_tools/$DEV_TOOL_LISTENAI_TOOLS_DIR_NAME" ]; then
+            echo "Found LISTENAI_TOOLS_PATH: $home_tools/$DEV_TOOL_LISTENAI_TOOLS_DIR_NAME"
+            export LISTENAI_TOOLS_PATH="$home_tools/$DEV_TOOL_LISTENAI_TOOLS_DIR_NAME"
+        fi
+        if [ -d "$home_tools/$DEV_TOOL_TOOLCHAIN_DIR_NAME" ]; then
+            echo "Found NUCLEI_TOOLCHAIN_PATH: $home_tools/$DEV_TOOL_TOOLCHAIN_DIR_NAME"
+            export NUCLEI_TOOLCHAIN_PATH="$home_tools/$DEV_TOOL_TOOLCHAIN_DIR_NAME"
+        fi
+        return 0
+    fi
 
     echo "trying to find $dir_name in parent directories..."
 
     while [ "$current_dir" != "/" ]; do
         if [ -d "$current_dir/$dir_name" ]; then
             echo "Found $dir_name: $current_dir/$dir_name"
-            if [ -d "$current_dir/$dir_name/$ARCS_DEV_TOOL_LISTENAI_TOOLS_DIR_NAME" ]; then
-                echo "Found LISTENAI_TOOLS_PATH: $current_dir/$dir_name/$ARCS_DEV_TOOL_LISTENAI_TOOLS_DIR_NAME"
-                export LISTENAI_TOOLS_PATH="$current_dir/$dir_name/$ARCS_DEV_TOOL_LISTENAI_TOOLS_DIR_NAME"
+            if [ -d "$current_dir/$dir_name/$DEV_TOOL_LISTENAI_TOOLS_DIR_NAME" ]; then
+                echo "Found LISTENAI_TOOLS_PATH: $current_dir/$dir_name/$DEV_TOOL_LISTENAI_TOOLS_DIR_NAME"
+                export LISTENAI_TOOLS_PATH="$current_dir/$dir_name/$DEV_TOOL_LISTENAI_TOOLS_DIR_NAME"
             fi
-            if [ -d "$current_dir/$dir_name/$ARCS_DEV_TOOL_TOOLCHAIN_DIR_NAME" ]; then
-                echo "Found NUCLEI_TOOLCHAIN_PATH: $current_dir/$dir_name/$ARCS_DEV_TOOL_TOOLCHAIN_DIR_NAME"
-                export NUCLEI_TOOLCHAIN_PATH="$current_dir/$dir_name/$ARCS_DEV_TOOL_TOOLCHAIN_DIR_NAME"
+            if [ -d "$current_dir/$dir_name/$DEV_TOOL_TOOLCHAIN_DIR_NAME" ]; then
+                echo "Found NUCLEI_TOOLCHAIN_PATH: $current_dir/$dir_name/$DEV_TOOL_TOOLCHAIN_DIR_NAME"
+                export NUCLEI_TOOLCHAIN_PATH="$current_dir/$dir_name/$DEV_TOOL_TOOLCHAIN_DIR_NAME"
             fi
             return 0
         fi
         current_dir=$(dirname "$current_dir")
     done
+}
+
+resolve_config_path() {
+    case "$CONFIG_FILE" in
+        /*)
+            echo "$CONFIG_FILE"
+            ;;
+        *)
+            echo "$PROJECT_PATH/$CONFIG_FILE"
+            ;;
+    esac
+}
+
+resolve_project_path() {
+    if ! PROJECT_PATH=$(cd "$PROJECT_PATH" 2>/dev/null && pwd); then
+        echo "错误: 项目源码路径不存在: $PROJECT_PATH"
+        exit 1
+    fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -100,11 +145,23 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -j|--jobs)
+      if [ -z "$2" ] || [[ "$2" == -* ]]; then
+          echo "错误: -j/--jobs 需要一个数值参数"
+          exit 1
+      fi
+      if ! [[ "$2" =~ ^[0-9]+$ ]] || [ "$2" -eq 0 ]; then
+          echo "错误: -j/--jobs 参数必须是正整数，收到: $2"
+          exit 1
+      fi
       JOBS="$2"
       shift 2
       ;;
     -j*)
       JOBS="${1#-j}"
+      if ! [[ "$JOBS" =~ ^[0-9]+$ ]] || [ "$JOBS" -eq 0 ]; then
+          echo "错误: -j 参数必须是正整数，收到: $JOBS"
+          exit 1
+      fi
       shift 1
       ;;
     -C|--Clean)
@@ -125,7 +182,18 @@ while [[ $# -gt 0 ]]; do
       shift 1
       ;;
     -G|--generator)
-      GENERATOR="$2"
+      if [ -z "$2" ] || [[ "$2" == -* ]]; then
+          echo "错误: -G/--generator 需要一个参数 (Ninja 或 Makefile)"
+          exit 1
+      fi
+      case "$2" in
+          Ninja|ninja)       GENERATOR="Ninja" ;;
+          Makefile|makefile|"Unix Makefiles") GENERATOR="Makefile" ;;
+          *)
+              echo "错误: 不支持的生成器类型: $2 (支持: Ninja, Makefile)"
+              exit 1
+              ;;
+      esac
       shift 2
       ;;
     -h|--help)
@@ -134,6 +202,14 @@ while [[ $# -gt 0 ]]; do
     -r|--release)
       RELEASE=true
       shift 1
+      ;;
+    -c|--config)
+      if [ -z "$2" ] || [[ "$2" == -* ]]; then
+          echo "错误: -c/--config 需要一个配置文件参数"
+          exit 1
+      fi
+      CONFIG_FILE="$2"
+      shift 2
       ;;
     -D*)
       CMAKE_VARS+=("$1")
@@ -146,9 +222,19 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+resolve_project_path
+
+CONFIG_PATH=$(resolve_config_path)
+
+if [ ! -f "$CONFIG_PATH" ]; then
+    echo "错误: 配置文件 $CONFIG_FILE 不存在"
+    exit 1
+fi
+
 echo "Source: $PROJECT_PATH"
 echo "Target: $TARGET"
 echo "Clean : $CLEAN"
+echo "Config: $CONFIG_PATH"
 
 if [ -z "$LISTENAI_TOOLS_PATH" ] || [ -z "$NUCLEI_TOOLCHAIN_PATH" ]; then
     find_dev_tools
@@ -182,13 +268,13 @@ else
 fi
 
 
-# 配置环境变量 ARCS_BASE
+# 配置环境变量 ARCS_BASE（自动查找 SDK 根目录）
 if [ -z "$ARCS_BASE" ]; then
     find_arcs_base
 fi
 
 if [ "$CLEAN" = true ]; then
-    rm -rf $OUTPUT
+    rm -rf "$OUTPUT"
 fi
 
 # Initialize CMAKE_VARS array if it doesn't exist
@@ -207,6 +293,8 @@ if [ "$RELEASE" = true ]; then
     echo "Release mode enabled (-DENABLE_DEBUG_PATH=OFF)"
 fi
 
+CMAKE_VARS+=("-DCONFIG_DEFAULT=$CONFIG_PATH")
+
 if [ "$CMAKE_GENERATOR" = "Ninja" ]; then
     $CMAKE_PROGRAM -B "$OUTPUT" -G "$CMAKE_GENERATOR" -S "$PROJECT_PATH" \
         -DCMAKE_MAKE_PROGRAM="$BUILD_PROGRAM" \
@@ -216,34 +304,41 @@ else
         "${CMAKE_VARS[@]}"
 fi
 
-# Prepare ninja debug flags
-NINJA_DEBUG_FLAGS=""
-if [ "$DEBUG" = true ]; then
-    NINJA_DEBUG_FLAGS="-d explain"
-    echo "Debug mode enabled (ninja $NINJA_DEBUG_FLAGS)"
-fi
-
-# Build with optional verbose/debug flags
-set +e  # 临时允许命令失败
-
-if [ "$VERBOSE" = true ]; then
-    echo "Verbose mode enabled (ninja -v)"
-    if [ -z "$TARGET" ]; then
-        $CMAKE_PROGRAM --build "$OUTPUT" -j${JOBS} -- -v $NINJA_DEBUG_FLAGS
-        BUILD_EXIT_CODE=$?
-    else
-        $CMAKE_PROGRAM --build "$OUTPUT" --target "$TARGET" -j${JOBS} -- -v $NINJA_DEBUG_FLAGS
-        BUILD_EXIT_CODE=$?
+# Prepare build tool flags (区分 Ninja 和 Makefile)
+BUILD_TOOL_FLAGS=""
+if [ "$CMAKE_GENERATOR" = "Ninja" ]; then
+    if [ "$DEBUG" = true ]; then
+        BUILD_TOOL_FLAGS="-d explain"
+        echo "Debug mode enabled (ninja -d explain)"
+    fi
+    if [ "$VERBOSE" = true ]; then
+        BUILD_TOOL_FLAGS="-v $BUILD_TOOL_FLAGS"
+        echo "Verbose mode enabled (ninja -v)"
     fi
 else
-    if [ -z "$TARGET" ]; then
-        $CMAKE_PROGRAM --build "$OUTPUT" -j${JOBS} -- $NINJA_DEBUG_FLAGS
-        BUILD_EXIT_CODE=$?
-    else
-        $CMAKE_PROGRAM --build "$OUTPUT" --target "$TARGET" -j${JOBS} -- $NINJA_DEBUG_FLAGS
-        BUILD_EXIT_CODE=$?
+    # Makefile 模式：使用 VERBOSE=1 实现详细输出
+    if [ "$DEBUG" = true ]; then
+        echo "注意: -d/--debug 的 explain 功能仅在 Ninja 生成器下可用，Makefile 模式已忽略"
+    fi
+    if [ "$VERBOSE" = true ]; then
+        BUILD_TOOL_FLAGS="VERBOSE=1"
+        echo "Verbose mode enabled (make VERBOSE=1)"
     fi
 fi
+
+# Build
+set +e  # 临时允许构建命令失败
+
+BUILD_CMD=("$CMAKE_PROGRAM" --build "$OUTPUT" -j"${JOBS}")
+if [ -n "$TARGET" ]; then
+    BUILD_CMD+=(--target "$TARGET")
+fi
+if [ -n "$BUILD_TOOL_FLAGS" ]; then
+    BUILD_CMD+=(-- $BUILD_TOOL_FLAGS)
+fi
+
+"${BUILD_CMD[@]}"
+BUILD_EXIT_CODE=$?
 
 set -e  # 恢复严格模式
 if [ "${BUILD_EXIT_CODE:-0}" -ne 0 ]; then

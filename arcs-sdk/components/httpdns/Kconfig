@@ -1,0 +1,27 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "HTTPDNS"
+
+config HTTPDNS
+	bool "Enable HTTPDNS support"
+	imply LWIP_HOOK_NETCONN_EXTERNAL_RESOLVE
+	help
+			Enable HTTP-based DNS resolution to bypass DNS pollution.
+
+choice HTTPDNS_PROVIDER
+	prompt "HTTPDNS Provider"
+	default HTTPDNS_USE_ALIYUN
+	depends on HTTPDNS
+
+config HTTPDNS_USE_ALIYUN
+	bool "Aliyun HTTPDNS"
+	imply CJSON
+	help
+			Use Aliyun HTTPDNS service.
+
+endchoice
+
+orsource "kconfig.httpdns.aliyun"
+
+endmenu

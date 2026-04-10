@@ -1,0 +1,7 @@
+tests:
+  samples.drivers.lisa_i2s.master_tx:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "LISA I2S Master TX Example"

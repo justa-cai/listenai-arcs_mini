@@ -22,10 +22,17 @@
  * DEFINES
  ****************************************************************************************
  */
+#define XO_LOW_TEMP  0
+#define XO_HIGH_TEMP 1
+#define XO_HYSTERSIS_THRESHOLD 95
+#define XO_HYSTERSIS_DELTA 3
+#define XO_HIGH_THR (XO_HYSTERSIS_THRESHOLD + XO_HYSTERSIS_DELTA)
+#define XO_LOW_THR (XO_HYSTERSIS_THRESHOLD - XO_HYSTERSIS_DELTA)
 
 
 float tcal = 25.8+0.5; // room_temp + heat_res (25.00 Deg/W) * chip_power (0.05W)
 float vptat_cal = 0.70819921875;
+uint32_t pa_bias_ref = 0;
 
 /*
  * STRUCTURE DEFINITIONS
@@ -37,6 +44,8 @@ float vptat_cal = 0.70819921875;
  * GLOBAL VARIABLE DEFINITIONS
  ****************************************************************************************
  */
+static uint32_t hysteresis_threshold = TEMP_THRESHOLD;
+uint8_t last_xo_cali_status = XO_LOW_TEMP;
  #if 0
 static float GPADC_read_temp_voltage(int count)
 {
@@ -120,8 +129,19 @@ static float GPADC_read_temp_voltage(int count)
 }
 #endif
 
+static void ls_get_efuse_pa_bias(void)
+{
+    uint32_t ref = 0;
 
-void ls_read_efuse_temp_para(void)
+    if (ls_efuse_read_word(11, &ref))
+    {
+        CLOGW("read efuse pa bias fail \r\n");
+    }
+    ref = (ref & 0xF000000) >> 24;
+    pa_bias_ref = ref;
+}
+
+static void ls_read_efuse_temp_para(void)
 {
     uint32_t vptat_val = 0;
     uint32_t tcal_val = 0;
@@ -147,6 +167,17 @@ void ls_read_efuse_temp_para(void)
     }
 }
 
+void ls_get_efuse_para(void)
+{
+    ls_read_efuse_temp_para();
+    ls_get_efuse_pa_bias();
+}
+
+void ls_set_temp_thr(uint32_t thr)
+{
+    hysteresis_threshold = thr;
+}
+
 int32_t ls_get_cur_temp(void)
 {
     float vptat = 0.0;
@@ -157,29 +188,43 @@ int32_t ls_get_cur_temp(void)
     return (int32_t)die_temp;
 }
 
+int32_t ls_calc_temp(float vptat)
+{
+    float die_temp = 0.0;
+
+    die_temp = tcal + (tcal + 273.15) / vptat_cal * (vptat - vptat_cal);
+
+    return (int32_t)die_temp;
+}
+
+void ls_adj_xo(int32_t temp)
+{
+    if (temp >= XO_HIGH_THR && last_xo_cali_status == XO_LOW_TEMP) {
+        int8_t xo_cap = IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG;
+        IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG = xo_cap + 3;
+        last_xo_cali_status = XO_HIGH_TEMP;
+        CLOGI("Update xo_cap:%d since high temp:%d\n", IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG, temp);
+    }
+    else if (temp < XO_LOW_THR && last_xo_cali_status == XO_HIGH_TEMP) {
+        int8_t xo_cap = IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG;
+        IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG = xo_cap - 3;
+        last_xo_cali_status = XO_LOW_TEMP;
+        CLOGI("Update xo_cap:%d since low temp:%d\n", IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG, temp);
+    }
+}
+
+#if RF_BOARD_VER == 2 //Taoyun
 bool ls_temp_por_update(void)
 {
     int32_t temp = 0;
     static int32_t last_temp = -273;
-    uint32_t ref;
+    uint32_t ref = pa_bias_ref;
     bool need_cali = false;
-
-    if (ls_efuse_read_word(11, &ref))
-    {
-        CLOGE("read efuse 11 fail \r\n");
-        return last_temp;
-    }
-
-    // TODO: Generate EFUSE fields from excel
-    ref = (ref & 0xF000000) >> 24;
-
-    volatile int32_t delay_count = 100000;
-    while(delay_count--);
 
     temp = ls_get_cur_temp();
     //CLOGD("temp %d\n", temp);
 
-    if (abs(temp - last_temp) >= HYSTERESIS_THRESHOLD)
+    if (abs(temp - last_temp) >= TEMP_THRESHOLD)
     {
         need_cali = rf_por_temp_config(temp, ref);
         last_temp = temp;
@@ -190,15 +235,72 @@ bool ls_temp_por_update(void)
 
 void ls_temp_default_por(void)
 {
-    int32_t temp = 26;
-    uint32_t ref = 5; // refer to PA_BIASL_WF_OFDM = 5*1.3 = 7
+    int32_t temp = 36; // default chip die temp = envionment temp 26 + 10 degree
+    uint32_t ref = pa_bias_ref;
 
-    if (ls_efuse_read_word(11, &ref))
-    {
-        CLOGW("read efuse 11 fail \r\n");
-    }
-    ref = (ref & 0xF000000) >> 24;
     rf_por_temp_config(temp, ref);
+}
+
+#else
+bool ls_temp_por_update(void)
+{
+    int32_t temp = 0;
+    static int32_t last_temp = -273;
+    bool need_cali = false;
+
+    temp = ls_get_cur_temp();
+    //CLOGD("temp %d\n", temp);
+
+    if (abs(temp - last_temp) >= hysteresis_threshold)
+    {
+        rf_por_temp_config(temp);
+        last_temp = temp;
+        need_cali = true;
+    }
+    ls_adj_xo(temp);
+    return need_cali;
+}
+
+void ls_temp_default_por(void)
+{
+    uint32_t ref = pa_bias_ref;
+
+    rf_pa_bias_config(ref, TEMP_NORMAL);
+    rf_por_temp_config(TEMP_NORMAL+10); //chip die temperature = environmental temperature + 10℃
+}
+#endif
+
+bool ls_temp_rf_por_config(int32_t temp, bool realtime)
+{
+    static int32_t last_temp = TEMP_NORMAL;
+    uint32_t ref = pa_bias_ref;
+    bool need_cali = false;
+
+    if (realtime) {
+        #if RF_BOARD_VER == 2
+        rf_por_temp_config(temp, ref);
+        #else
+        rf_por_temp_config(temp);
+        #endif
+    } else {
+        if (abs(temp - last_temp) >= hysteresis_threshold)
+        {
+            #if RF_BOARD_VER == 2
+            need_cali = rf_por_temp_config(temp, ref);
+            #else
+            need_cali = rf_por_temp_config(temp);
+            #endif
+            last_temp = temp;
+            if (hysteresis_threshold >= 30)
+                need_cali = true;
+        }
+    }
+
+    #if RF_BOARD_VER != 2
+    ls_adj_xo(temp);
+    #endif
+
+    return need_cali;
 }
 
 int8_t ls_get_wifi_mac(uint8_t mac_addr[6])

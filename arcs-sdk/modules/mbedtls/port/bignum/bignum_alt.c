@@ -128,7 +128,9 @@ static int csk_mpi_exp_mod_parameter_check(mbedtls_mpi *X, const mbedtls_mpi *A,
     CSK_CRYPTO_CHECK_RET(E != NULL, MBEDTLS_ERR_MPI_BAD_INPUT_DATA);
     CSK_CRYPTO_CHECK_RET(N != NULL, MBEDTLS_ERR_MPI_BAD_INPUT_DATA);
 
-    (void)prec_RR;
+    if (prec_RR == NULL) {
+        return 0;
+    }
 
     if (mbedtls_mpi_cmp_int(N, 0) <= 0 || (N->p[0] & 1) == 0) {
         return MBEDTLS_ERR_MPI_BAD_INPUT_DATA;

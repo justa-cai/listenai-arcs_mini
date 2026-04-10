@@ -52,7 +52,7 @@
 #include "lisa_thread.h"
 #include "lisa_mem.h"
 #include "tone.h"
-#include "player_mgr.h"
+#include "voice_msg.h"
 static char *TAG = "netcfg_ble";
 
 extern void HAL_PMU_Chip_Software_Reset_Enable(void);
@@ -80,13 +80,8 @@ static void ble_notify_thread(void *param)
         LOGI("netcfg_bles_profile_set_cb notify status:0x%04X, ret:%d", status, notify_ret);
         
         if (status == NETCFG_BLE_SUCCESS) {
-#ifdef CONFIG_BOARD_ARCS_MINI
-            LOGI("BLE config success, playing tone 72");
-            player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_72), 0);
-#else // !CONFIG_BOARD_ARCS_MINI
-            LOGI("BLE config success, playing tone 10");
-            player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_10), 0);
-#endif // CONFIG_BOARD_ARCS_MINI
+            LOGI("BLE config success");
+            voice_msg_pub(VOICE_MSG_BLE_CONNECT_DONE, NULL, 0);
         }
         
         lisa_mem_free(notify_param);

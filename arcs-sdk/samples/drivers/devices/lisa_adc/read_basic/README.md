@@ -22,6 +22,12 @@
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 ```
@@ -44,6 +50,14 @@
 - **测量范围**: 0-3.6V
 - **电压计算**: 使用 `LISA_ADC_RAW_TO_MV(raw_value, 3600, 10)` 宏转换
 - **计算公式**: voltage(mV) = (raw_value × 3600) / 1024
+
+## 核心 API
+
+| API | 说明 |
+|-----|------|
+| `lisa_device_get()` | 获取 ADC 设备 |
+| `lisa_adc_channel_setup()` | 配置 ADC 通道参数（参考电压、分辨率） |
+| `lisa_adc_read()` | 读取 ADC 通道原始值 |
 
 ## 关键代码
 

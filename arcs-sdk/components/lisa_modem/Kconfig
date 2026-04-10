@@ -1,0 +1,8 @@
+config LISA_MODEM
+	bool "Enable 4G Module Support"
+	default n
+	select RINGBUF
+	help
+	  Enable support for ML307 4G module.
+	  This includes AT commands, TCP/UDP communication,
+	  and modem control functionality.

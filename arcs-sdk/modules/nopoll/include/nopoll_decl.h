@@ -223,10 +223,6 @@
 #include "lwip/netdb.h"
 #include "lwip/def.h"
 
-#ifdef send
-#undef send
-#endif
-
 #define NOPOLL_EINTR			EINTR
 #define NOPOLL_EWOULDBLOCK		EWOULDBLOCK
 #define NOPOLL_EINPROGRESS		EINPROGRESS

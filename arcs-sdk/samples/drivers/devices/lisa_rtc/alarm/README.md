@@ -22,6 +22,12 @@
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 ```
@@ -47,9 +53,42 @@ Alarm test completed!
 - **闹钟时间**: 12:00:10 (10秒后)
 - **闹钟匹配**: 支持年/月/日/时/分/秒多级匹配
 
+## 核心 API
+
+| API | 说明 |
+|-----|------|
+| `lisa_device_get()` | 获取 RTC 设备 |
+| `lisa_rtc_set_time()` | 设置 RTC 时间 |
+| `lisa_rtc_get_time()` | 读取 RTC 当前时间 |
+| `lisa_rtc_set_alarm()` | 设置闹钟时间 |
+| `lisa_rtc_set_callback()` | 注册闹钟事件回调函数 |
+| `lisa_rtc_alarm_enable()` | 使能闹钟 |
+
+## 关键代码
+
+```c
+/* 获取 RTC 设备 */
+lisa_device_t *rtc_dev = lisa_device_get("rtc0");
+
+/* 设置当前时间 */
+lisa_rtc_time_t time = {
+    .year = 25, .month = 1, .day = 15,
+    .hour = 12, .minute = 0, .second = 0,
+};
+lisa_rtc_set_time(rtc_dev, &time);
+
+/* 设置闹钟（10秒后） */
+lisa_rtc_alarm_t alarm = {
+    .hour = 12, .minute = 0, .second = 10,
+};
+lisa_rtc_set_alarm(rtc_dev, 0, &alarm);
+lisa_rtc_set_callback(rtc_dev, alarm_callback, NULL);
+lisa_rtc_alarm_enable(rtc_dev, 0);
+```
+
 ## 注意事项
 
-1. **闹钟匹配**: ⚠️ **ARCS CALENDAR 闹钟需要所有字段都匹配**
+1. **闹钟匹配**: **ARCS CALENDAR 闹钟需要所有字段都匹配**
    - 必须设置完整的年/月/日/时/分/秒
    - **不支持忽略字段**（即使设为 0 也会参与匹配）
    - 如果只想在每天某个时间触发，需要每天重新设置闹钟

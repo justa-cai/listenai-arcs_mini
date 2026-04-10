@@ -1,5 +1,11 @@
 menu "alarm"
 
+config ALARM_TEXT_MAX_LEN
+    int "Alarm text max length"
+    default 384
+    help
+        Maximum buffer size, in bytes, reserved for alarm reminder text.
+
 config ALARM_RING_DURATION_MS
     int "Alarm ring stop timeout (ms)"
     default 60000

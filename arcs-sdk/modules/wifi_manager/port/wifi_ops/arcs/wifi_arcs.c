@@ -312,17 +312,20 @@ int arcs_wifi_sta_connect(wifi_mgr_wifi_sta_config_t *sta_config, uint32_t timeo
         ret = -EIO;
     }
     uxBits = xEventGroupWaitBits(wifi_events, GROUP_EVENTS_WIFI_STA_CONNECT_FINISH | GROUP_EVENTS_WIFI_STA_CONNECT_FAILED, true, false, pdMS_TO_TICKS(timeout_ms));
-    if(uxBits & GROUP_EVENTS_WIFI_STA_CONNECT_FAILED) {
+    if (uxBits & GROUP_EVENTS_WIFI_STA_CONNECT_FAILED) {
         ret = -EIO;
-    }
-    else if (!(uxBits & GROUP_EVENTS_WIFI_STA_CONNECT_FINISH)) {
+    } else if (!(uxBits & GROUP_EVENTS_WIFI_STA_CONNECT_FINISH)) {
         ret = -ETIMEDOUT;
+    } else if (!s_sta_connected) {
+        LISA_LOGW(TAG, "connected then immediately disconnected, treat as failure");
+        ret = -ECONNRESET;
     }
 
 _cleanup:
     if(pcfg != NULL){
         PLATFORM_MEM_FREE(pcfg);
     }
+    LISA_LOGI(TAG, "arcs_wifi_sta_connect return: %d", ret);
     return ret;
 }
 

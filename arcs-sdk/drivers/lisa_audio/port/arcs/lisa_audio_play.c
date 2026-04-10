@@ -14,18 +14,20 @@
 #include "Driver_Common.h"
 #include "dma.h"
 #include "cache.h"
-#include "Driver_GPIO.h"
 #include "IOMuxManager.h"
 #include "systick.h"
 #include "lisa_mem.h"
+#ifdef CONFIG_LISA_AUDIO_PLAY_PA_ENABLE
+#include "lisa_gpio.h"
+#endif
 
 /* Must be defined in lisa_audio_arcs.c */
 extern int audio_submit_event_from_isr(internal_audio_event_t *event);
 
-/* DMA 通道定义 */
-#define GPDMA_DAC0_CHN  (2)
+/* DMA 通道定义 (通过 Kconfig 配置) */
+#define GPDMA_DAC0_CHN  CONFIG_LISA_AUDIO_PLAY_DMA_CHN
 #ifdef CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE
-#define GPDMA_ECHO_CHN        (3)
+#define GPDMA_ECHO_CHN        CONFIG_LISA_AUDIO_PLAY_ECHO_DMA_CHN
 #define ECHO_BUFFER_COUNT     CONFIG_LISA_AUDIO_RECORD_BUFFER_COUNT
 #define ECHO_BUFFER_SAMPLES   CONFIG_LISA_AUDIO_RECORD_BUFFER_SAMPLES
 #endif
@@ -34,16 +36,21 @@ extern int audio_submit_event_from_isr(internal_audio_event_t *event);
 #ifdef CONFIG_LISA_AUDIO_PLAY_PA_ENABLE
 #if CONFIG_LISA_AUDIO_PLAY_PA_PAD == 0
 #define PA_GPIO_PAD     CSK_IOMUX_PAD_A
-#define PA_GPIO_DEV     GPIOA()
 #else
 #define PA_GPIO_PAD     CSK_IOMUX_PAD_B
-#define PA_GPIO_DEV     GPIOB()
 #endif
 
 #define PA_PIN_NUM      CONFIG_LISA_AUDIO_PLAY_PA_PIN
-#define PA_GPIO_PIN     (1 << PA_PIN_NUM)
 #define PA_PULSE_COUNT  CONFIG_LISA_AUDIO_PLAY_PA_PULSE_COUNT
 #define PA_PULSE_US     CONFIG_LISA_AUDIO_PLAY_PA_PULSE_US
+#if CONFIG_LISA_AUDIO_PLAY_PA_PAD == 0
+#define PA_GPIO_DEV_NAME "gpioa"
+#else
+#define PA_GPIO_DEV_NAME "gpiob"
+#endif
+
+static bool pa_initialized = false;
+static lisa_device_t *pa_gpio_dev = NULL;
 #endif
 
 /* Play 事件标志 */
@@ -91,33 +98,42 @@ static uint32_t play_get_osr_for_rate(lisa_audio_rate_t rate)
 #ifdef CONFIG_LISA_AUDIO_PLAY_PA_ENABLE
 static void play_pa_control(bool enable)
 {
-    static bool pa_initialized = false;
-
     /* 初始化GPIO(仅一次) */
     if (!pa_initialized) {
         IOMuxManager_PinConfigure(PA_GPIO_PAD, PA_PIN_NUM, CSK_IOMUX_FUNC_DEFAULT);
-        GPIO_Initialize(PA_GPIO_DEV, NULL, NULL);
-        GPIO_Control(PA_GPIO_DEV, CSK_GPIO_DEBOUNCE_DISABLE, PA_GPIO_PIN);
-        GPIO_SetDir(PA_GPIO_DEV, PA_GPIO_PIN, CSK_GPIO_DIR_OUTPUT);
+        pa_gpio_dev = lisa_device_get(PA_GPIO_DEV_NAME);
+        if (!pa_gpio_dev) {
+            LOGE("PA GPIO device not found: %s", PA_GPIO_DEV_NAME);
+            return;
+        }
+        if (lisa_gpio_configure(pa_gpio_dev,
+                                PA_PIN_NUM,
+                                LISA_GPIO_OUTPUT | LISA_GPIO_OUTPUT_INIT_LOW) != LISA_DEVICE_OK) {
+            LOGE("PA GPIO configure failed: dev=%s pin=%d", PA_GPIO_DEV_NAME, PA_PIN_NUM);
+            return;
+        }
         pa_initialized = true;
+    }
+    if (!pa_gpio_dev) {
+        return;
     }
 
     if (enable) {
         /* PA使能:发送脉冲序列(如果配置) */
         if (PA_PULSE_COUNT > 0) {
             for (volatile int i = 0; i < PA_PULSE_COUNT; i++) {
-                GPIO_PinWrite(PA_GPIO_DEV, PA_GPIO_PIN, 0);
+                lisa_gpio_write_pin(pa_gpio_dev, PA_PIN_NUM, LISA_GPIO_LOW);
                 SysTick_Delay_Us(PA_PULSE_US);
-                GPIO_PinWrite(PA_GPIO_DEV, PA_GPIO_PIN, 1);
+                lisa_gpio_write_pin(pa_gpio_dev, PA_PIN_NUM, LISA_GPIO_HIGH);
                 SysTick_Delay_Us(PA_PULSE_US);
             }
         } else {
             /* 无脉冲模式:直接拉高 */
-            GPIO_PinWrite(PA_GPIO_DEV, PA_GPIO_PIN, 1);
+            lisa_gpio_write_pin(pa_gpio_dev, PA_PIN_NUM, LISA_GPIO_HIGH);
         }
     } else {
         /* PA关闭:拉低并延迟 */
-        GPIO_PinWrite(PA_GPIO_DEV, PA_GPIO_PIN, 0);
+        lisa_gpio_write_pin(pa_gpio_dev, PA_PIN_NUM, LISA_GPIO_LOW);
         SysTick_Delay_Us(PA_PULSE_US);
     }
 }
@@ -272,6 +288,12 @@ int arcs_audio_play_config(lisa_audio_play_priv_t *priv, const lisa_audio_play_c
     int ret = 0;
 
     if (!config) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    /* 播放启动后不允许重新配置 */
+    if (priv->state != PLAY_STATE_IDLE) {
+        LOGE("Cannot reconfigure play after start");
         return LISA_DEVICE_ERR_INVALID;
     }
 

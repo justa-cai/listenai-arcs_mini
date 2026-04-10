@@ -1,0 +1,26 @@
+tests:
+  samples.drivers.vaddr_remap.ap:
+    programmer: arcs
+    runner: uart
+    build_extra_args: "-c prj.conf"
+    images:
+      - file: "vaddr_remap_loader.bin"
+        address: "0x0"
+      - file: "fw_a/vaddr_remap_fw_a.bin"
+        address: "0x20000"
+    log_analyzer:
+      type: "regex"
+      pattern: "Firmware AP running!"
+
+  samples.drivers.vaddr_remap.cp:
+    programmer: arcs
+    runner: uart
+    build_extra_args: "-c prj_jump_to_cp.conf"
+    images:
+      - file: "vaddr_remap_loader.bin"
+        address: "0x0"
+      - file: "fw_a/vaddr_remap_fw_a.bin"
+        address: "0x20000"
+    log_analyzer:
+      type: "regex"
+      pattern: "Firmware CP running!"

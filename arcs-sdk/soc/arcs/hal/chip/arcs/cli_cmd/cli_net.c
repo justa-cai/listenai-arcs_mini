@@ -14,7 +14,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
-#include "arcs_ap.h"
 #include "rtos_al.h"
 #include "net_al.h"
 #include "cli_main.h"
@@ -35,7 +34,11 @@ struct net_task_msg_id
 };
 
 /// Length of @ref task_handle_msg_id
+#if defined(CONFIG_PM) && CONFIG_PM
 #define NET_TASK_HANDLE_LEN 5
+#else
+#define NET_TASK_HANDLE_LEN 4
+#endif
 /// Array of message IDs associated to RTOS task handles.
 static struct net_task_msg_id task_handle_msg_id[NET_TASK_HANDLE_LEN];
 static uint32_t net_cli_seq = 0;

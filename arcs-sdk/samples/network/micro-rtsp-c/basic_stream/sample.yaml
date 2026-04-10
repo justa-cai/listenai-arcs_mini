@@ -1,0 +1,3 @@
+tests:
+  samples.micro-rtsp-c-basic_stream:
+    build_only: true

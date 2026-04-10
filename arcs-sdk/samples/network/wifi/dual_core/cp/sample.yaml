@@ -1,0 +1,3 @@
+tests:
+  samples.network.wifi.dual_core.cp:
+    build_only: true

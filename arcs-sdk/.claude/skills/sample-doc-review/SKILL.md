@@ -12,7 +12,7 @@ description: 使用 Samples_Spec.md 规范对示例文档进行全面审查，�
 直接在对话中使用以下任一方式触发：
 
 ```
-审查 samples/modules/sys_heap/README.md
+审查 samples/subsys/sys_heap/README.md
 检查 lisa_gpio 示例文档
 审查 sys_heap
 ```
@@ -40,7 +40,7 @@ description: 使用 Samples_Spec.md 规范对示例文档进行全面审查，�
 - 读取目标 README.md 文件
 - 根据路径自动识别示例类型：
   - `samples/drivers/devices/` → Devices
-  - `samples/modules/` → Modules
+  - `samples/subsys/` → Modules
   - `samples/network/` → Network
   - `samples/drivers/hal/` → HAL
 
@@ -129,7 +129,7 @@ description: 使用 Samples_Spec.md 规范对示例文档进行全面审查，�
 ### 示例 1: 审查指定路径
 
 ```
-用户：审查 samples/modules/sys_heap/README.md
+用户：审查 samples/subsys/sys_heap/README.md
 AI：[读取规范] → [读取文档] → [识别类型: Modules] → [执行检查] → [生成报告]
 ```
 
@@ -137,7 +137,7 @@ AI：[读取规范] → [读取文档] → [识别类型: Modules] → [执行�
 
 ```
 用户：审查 sys_heap 示例文档
-AI：找到文档：samples/modules/sys_heap/README.md
+AI：找到文档：samples/subsys/sys_heap/README.md
     类型：Modules
     [开始审查...]
 ```

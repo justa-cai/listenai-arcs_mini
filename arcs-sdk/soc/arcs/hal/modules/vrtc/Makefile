@@ -24,6 +24,11 @@ CFLAGS = -I$(TOPDIR)/include/debug \
 		 -I$(TOPDIR)/include/bsp \
 		 -I$(TOPDIR)/modules/driver/private_include \
 		 -I$(TOPDIR)/chip/${CHIP}/driver/private_include \
-		 -I$(TOPDIR)/chip/${CHIP}/bsp
+		 -I$(TOPDIR)/chip/${CHIP}/bsp \
+		 -I$(TOPDIR)/chip/${CHIP}/include/utils \
+		 -I$(TOPDIR)/chip/${CHIP}/include/ipc \
+		 -I$(TOPDIR)/chip/${CHIP}/ipc/ipc_core \
+		 -I$(TOPDIR)/chip/${CHIP}/ic_lock
+
 
 include $(TOPDIR)/rules.mk

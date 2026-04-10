@@ -1,0 +1,2 @@
+/* WiFi RAM region (isolated from SRAM) */
+    WIFI_RAM(rwx) : ORIGIN = CONFIG_MEM_WFRAM_BASE, LENGTH = CONFIG_MEM_WFRAM_SIZE

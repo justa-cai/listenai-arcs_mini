@@ -15,6 +15,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /**
  * @brief 电池状态
@@ -30,10 +31,25 @@ typedef enum {
 void battery_init(void);
 
 /**
- * @brief 获取电池电量(百分比)
+ * @brief 获取原始电池电量百分比 (无平滑/去抖)
  *
+ * @return 0-100
  */
-uint8_t battery_get_pct(void);
+uint8_t battery_get_pct_raw(void);
+
+/**
+ * @brief 获取滤波后的电池电压 (mV)
+ *
+ * @return 电压值，单位 mV
+ */
+uint16_t battery_get_voltage_mv(void);
+
+/**
+ * @brief 获取 USB 插入的稳定状态 (带去抖)
+ *
+ * @return true 表示已稳定插入
+ */
+bool battery_usb_plugged_stable_get(void);
 
 /**
  * @brief 获取电池状态

@@ -16,9 +16,9 @@ static void voice_platform_ready(void *unused, uint32_t msg_id, void *data, uint
 {
     LOGI("network probe ready");
 
-    app_datas_init();
+    
 
-    ls_wifi_mgr_init();
+    // ls_wifi_mgr_init();
 }
 
 static void do_voice_cloud_connect(void)

@@ -475,9 +475,9 @@ static int arcs_gpiob_init(void)
 /* ===== 设备注册 ===== */
 
 #if CONFIG_LISA_GPIOA
-LISA_DEVICE_REGISTER(gpioa, &arcs_gpio_api, &gpioa_priv, NULL, arcs_gpioa_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(gpioa, &arcs_gpio_api, &gpioa_priv, NULL, arcs_gpioa_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 #endif
 
 #if CONFIG_LISA_GPIOB
-LISA_DEVICE_REGISTER(gpiob, &arcs_gpio_api, &gpiob_priv, NULL, arcs_gpiob_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(gpiob, &arcs_gpio_api, &gpiob_priv, NULL, arcs_gpiob_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 #endif

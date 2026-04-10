@@ -408,6 +408,11 @@ uint8_t dac_pi_po_play(aud_dac_out_cfg_t *dac_cfg)
 
     // audio clip comes from static array of prepared audio data, 16Khz,16bit,stereo...
 
+    if(dac_env.buf_pi == NULL || dac_env.buf_po == NULL)
+    {
+        return  CSK_DRIVER_ERROR;
+    }
+
     data = (const uint32_t *)(dac_cfg->play_buf);
     sample_byte = dac_cfg->play_len;
     if(dac_cfg->ch == 2 && dac_cfg->out_bits == 16)
@@ -416,7 +421,7 @@ uint8_t dac_pi_po_play(aud_dac_out_cfg_t *dac_cfg)
     }
     else
     {
-    	ret = CSK_DRIVER_ERROR;
+    	return CSK_DRIVER_ERROR;
     }
 
     //CLOGI("play_buf:0x%x,sample_byte:%d,play_len:%d,pipo:%d", data,sample_byte, dac_cfg->play_len, dac_env.pi_po_handle);

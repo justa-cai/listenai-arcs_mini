@@ -1,0 +1,33 @@
+menu "SEGGER RTT Support"
+
+config SUPPORT_SEGGER_RTT
+    bool "Enable SEGGER RTT support"
+    default n
+    help
+        Enable SEGGER RTT support
+
+if SUPPORT_SEGGER_RTT
+
+config SEGGER_RTT_MODE_DEFAULT
+    int "SEGGER RTT Default Mode"
+    default 2
+    help
+        Default mode for SEGGER RTT buffer 0.
+        0: SEGGER_RTT_MODE_NO_BLOCK_SKIP - Skip all data if buffer full
+        1: SEGGER_RTT_MODE_NO_BLOCK_TRIM - Trim data to fit buffer
+        2: SEGGER_RTT_MODE_BLOCK_IF_FIFO_FULL - Block until buffer has space (Recommended)
+
+config SEGGER_RTT_BUFFER_SIZE_UP
+    int "SEGGER RTT Up Buffer Size"
+    default 1024
+    help
+        Size of the SEGGER RTT Up buffer (target to host).
+
+config SEGGER_RTT_BUFFER_SIZE_DOWN
+    int "SEGGER RTT Down Buffer Size"
+    default 16
+    help
+        Size of the SEGGER RTT Down buffer (host to target).
+
+endif
+endmenu

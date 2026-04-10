@@ -1,0 +1,48 @@
+# 使用 LLVM 作为基础格式化风格
+BasedOnStyle: LLVM
+# 允许在宏定义之间对齐，即使它们之间有注释。
+AlignConsecutiveMacros: AcrossComments
+# 不允许短块（如 if、else、for 等语句）在单行中编写，强制每个语句都在新的一行
+AllowShortBlocksOnASingleLine: Never
+# 不允许短的 case 标签在单行中
+AllowShortCaseLabelsOnASingleLine: false
+# 不允许短枚举在单行中
+AllowShortEnumsOnASingleLine: false
+# 不允许短函数在单行中
+AllowShortFunctionsOnASingleLine: None
+# 不允许短的 if 语句在单行中
+AllowShortIfStatementsOnASingleLine: false
+# 不允许短的循环语句在单行中
+AllowShortLoopsOnASingleLine: false
+
+AttributeMacros:
+  - __aligned
+  - __deprecated
+  - __packed
+  - __printf_like
+  - __syscall
+  - __syscall_always_inline
+  - __subsystem
+
+# 在位域的冒号后面添加空格
+BitFieldColonSpacing: After
+# 在 Linux 风格中，打开的括号应该放在行尾
+BreakBeforeBraces: Linux
+# 每行的最大字符数限制为 120
+ColumnLimit: 120
+# 构造函数初始化列表的缩进宽度为 4 个空格
+ConstructorInitializerIndentWidth: 4
+# 续行的缩进宽度为 4 个空格
+ContinuationIndentWidth: 4
+# case 标签不进行缩进，保持与 switch 语句对齐
+IndentCaseLabels: false
+# 代码缩进宽度为 4 个空格
+IndentWidth: 4
+# 在控制语句（如 if、for 等）中，强制使用括号，即使语句只有一行
+InsertBraces: true
+# 在控制语句的左括号前添加空格，但对于控制宏不添加
+SpaceBeforeParens: ControlStatementsExceptControlMacros
+# 不对包含的头文件进行排序
+SortIncludes: Never
+# 不使用制表符，所有缩进都使用空格
+UseTab: Never

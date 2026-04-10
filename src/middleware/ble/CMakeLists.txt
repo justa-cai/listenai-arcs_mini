@@ -6,5 +6,4 @@ listenai_include_directories(
 
 listenai_library_sources(
     app_ble_common.c
-    app_net_cfg.c
 )

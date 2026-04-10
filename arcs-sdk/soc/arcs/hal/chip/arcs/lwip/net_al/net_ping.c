@@ -25,6 +25,7 @@
 #include "net_ping.h"
 #include "net_tg_al.h"
 #include "cli_main.h"
+#include "cli_net.h"
 
 /*
  * GLOBAL VARIABLES

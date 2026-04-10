@@ -150,7 +150,7 @@ void test_set_volume_before_play(void)
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -181,7 +181,7 @@ void test_set_volume_during_play(void)
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -216,7 +216,7 @@ void test_set_volume_when_paused(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 

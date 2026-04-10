@@ -17,7 +17,9 @@ SSRCS	=
 
 #includings and flags
 CFLAGS = -I $(TOPDIR)/modules/segger_rtt/include \
-         -I./
+         -I $(TOPDIR)/modules/rtos/include \
+         -I $(TOPDIR)/modules/rtos/portable/riscv_nuclei\non_secure \
+         -I ./
 
 #CMTID = $(shell git rev-parse --short HEAD 2>/dev/null)
 #CFLAGS += -DLIB_NM=\"$(LIB)\" -DCMT_ID=\"$(SDK_VER)\($(CMTID)\)\"

@@ -1,0 +1,3 @@
+tests:
+  samples.wifi_httpdns:
+    build_only: true

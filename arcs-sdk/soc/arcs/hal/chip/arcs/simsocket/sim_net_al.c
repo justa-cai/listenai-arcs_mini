@@ -32,6 +32,7 @@
 #include "wlif.h"
 #include "ipc.h"
 #include "ipc_utils.h"
+#include "log_print.h"
 
 #define NX_NB_L2_FILTER 2
 
@@ -635,7 +636,7 @@ int net_l2_socket_create(net_if_t *net_if, uint16_t ethertype)
 
     /* Note: we create DGRAM socket here but in practice we don't care, net_eth_receive
        will use the socket as a L2 raw socket */
-    filter->sock = socket(PF_INET, SOCK_DGRAM, 0);
+    filter->sock = lwip_socket(PF_INET, SOCK_DGRAM, 0);
     if (filter->sock < 0)
         return -1;
 
@@ -655,7 +656,7 @@ int net_l2_socket_delete(int sock)
             (l2_filter[i].sock == sock))
         {
             l2_filter[i].net_if = NULL;
-            close(l2_filter[i].sock);
+            lwip_close(l2_filter[i].sock);
             l2_filter[i].sock = -1;
             rtos_mutex_unlock(l2_filter[i].l2_filter_mutex);
             return 0;
@@ -849,15 +850,6 @@ bool net_ip_task_avail(void)
     return false;
 }
 
-void net_dhcps_start(struct netif * netif)
-{
-
-}
-
-void net_dhcps_stop(void)
-{
-
-}
 
 void net_wifi_init_done(void)
 {

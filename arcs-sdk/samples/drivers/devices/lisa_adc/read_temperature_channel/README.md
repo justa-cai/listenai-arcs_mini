@@ -24,6 +24,12 @@
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 ```
@@ -46,6 +52,14 @@
 - **校准温度**: 29.8℃（示例值，需根据实际环境调整）
 - **校准电压**: 0.73125V（示例值，需根据实际测量调整）
 - **温度计算公式**: `temperature = temp_cal + (temp_cal + 273.15) / voltage_cal × (voltage - voltage_cal)`
+
+## 核心 API
+
+| API | 说明 |
+|-----|------|
+| `lisa_device_get()` | 获取 ADC 设备 |
+| `lisa_adc_channel_setup()` | 配置 ADC 通道参数（参考电压、分辨率） |
+| `lisa_adc_read()` | 读取 ADC 通道原始值 |
 
 ## 关键代码
 

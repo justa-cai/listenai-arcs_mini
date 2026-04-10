@@ -14,11 +14,14 @@
 #include "lisa_ui.h"
 #include "lisa_ui_invoke.h"
 #include "lisa_ui_nav_scr_ids.h"
+#include "lisa_ui_toast.h"
+#include "sysutils.h"
 
 #ifdef LISA_UI_PLATFORM_ARCS
 #include "voice_msg.h"
 #include "service_alarm.h"
 #include "app_datas.h"
+#include "alarm_handler.h"
 
 #define ALARM_TRIGGER_NAV_DELAY_MS 200
 #endif
@@ -36,9 +39,33 @@ typedef struct {
     uint32_t alarm_count;
 } alarm_model_ctx_t;
 
-static alarm_model_ctx_t g_alarm_ctx = {0};
+static alarm_model_ctx_t g_alarm_ctx __psram_bss__ = {0};
 
 #ifdef LISA_UI_PLATFORM_ARCS
+static void model_alarm_set_event_text(const char *text)
+{
+    if (!text) {
+        g_alarm_ctx.event_text[0] = '\0';
+        return;
+    }
+
+    strncpy(g_alarm_ctx.event_text, text, sizeof(g_alarm_ctx.event_text) - 1);
+    g_alarm_ctx.event_text[sizeof(g_alarm_ctx.event_text) - 1] = '\0';
+}
+
+static void alarm_action_result_toast_ui_worker(void *arg, uint32_t len)
+{
+    if (!arg || len == 0) {
+        return;
+    }
+
+    if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
+        return;
+    }
+
+    lisa_ui_toast_show((const char *)arg);
+}
+
 static void alarm_trigger_nav_ui_worker(void *arg, uint32_t len)
 {
     if (!arg || len < sizeof(struct service_alarm)) {
@@ -48,15 +75,19 @@ static void alarm_trigger_nav_ui_worker(void *arg, uint32_t len)
 
     const struct service_alarm *alarm = (const struct service_alarm *)arg;
 
-    LISA_UI_LOGI("Model: Alarm triggered - timestamp: %llu", alarm->timestamp);
+    LISA_UI_LOGI("Model: Alarm triggered - timestamp: %llu, text: %s", alarm->timestamp, alarm->text);
     g_alarm_ctx.data.timestamp = alarm->timestamp;
+    strncpy(g_alarm_ctx.data.text, (const char *)alarm->text, sizeof(g_alarm_ctx.data.text) - 1);
+    g_alarm_ctx.data.text[sizeof(g_alarm_ctx.data.text) - 1] = '\0';
     g_alarm_ctx.event_text[0] = '\0';
     g_alarm_ctx.initialized = true;
     g_alarm_ctx.is_ringing = true;
 
     int top_id = lisa_ui_nav_scr_get_top_id();
     if (top_id == LISA_UI_NAV_SCR_ID_ALARM_RING) {
-        LISA_UI_LOGI("Already on alarm ring page, skipping navigation");
+        LISA_UI_LOGI("Already on alarm ring page, sending UI update message");
+        // 通知闹钟响铃页面更新UI显示
+        voice_msg_pub(VOICE_MSG_ALARM_RING_UPDATE, NULL, 0);
         return;
     }
 
@@ -75,6 +106,11 @@ static void on_alarm_create_event(void *unused, uint32_t msg_id, void *data, uin
     (void)msg_id;
     (void)user_data;
 
+    if (!data || len < sizeof(struct service_alarm)) {
+        LISA_UI_LOGE("Model: invalid alarm create payload");
+        return;
+    }
+
     struct service_alarm *alarm = (struct service_alarm *)data;
 
     LISA_UI_LOGI("Model: Alarm created - timestamp: %llu", alarm->timestamp);
@@ -83,14 +119,42 @@ static void on_alarm_create_event(void *unused, uint32_t msg_id, void *data, uin
 
     LISA_UI_INVOKE_UI_ARG_PTR(alarm, sizeof(struct service_alarm), {
         g_alarm_ctx.data.timestamp = _invoke_alarm->timestamp;
+        strncpy(g_alarm_ctx.data.text, (const char *)_invoke_alarm->text, sizeof(g_alarm_ctx.data.text) - 1);
+        g_alarm_ctx.data.text[sizeof(g_alarm_ctx.data.text) - 1] = '\0';
         g_alarm_ctx.event_text[0] = '\0';
         g_alarm_ctx.initialized = true;
 
-        if (lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_ALARM_SUCCESS) {
-            LISA_UI_LOGI("Already on alarm success page, skipping navigation");
+        if (lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_ALARM_SUCCESS || lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_ALARM_RING) {
+            LISA_UI_LOGI("Already on alarm success or ring page, skipping navigation");
             return;
         }
         lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_ALARM_SUCCESS);
+    });
+}
+
+static void on_alarm_next_scheduled_event(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (!data || len < sizeof(struct service_alarm)) {
+        LISA_UI_LOGE("Model: invalid alarm next scheduled payload");
+        return;
+    }
+
+    struct service_alarm *alarm = (struct service_alarm *)data;
+
+    LISA_UI_LOGI("Model: Alarm next scheduled - timestamp: %llu", alarm->timestamp);
+
+    g_alarm_ctx.alarm_count++;
+
+    LISA_UI_INVOKE_UI_ARG_PTR(alarm, sizeof(struct service_alarm), {
+        g_alarm_ctx.data.timestamp = _invoke_alarm->timestamp;
+        strncpy(g_alarm_ctx.data.text, (const char *)_invoke_alarm->text, sizeof(g_alarm_ctx.data.text) - 1);
+        g_alarm_ctx.data.text[sizeof(g_alarm_ctx.data.text) - 1] = '\0';
+        g_alarm_ctx.event_text[0] = '\0';
+        g_alarm_ctx.initialized = true;
     });
 }
 
@@ -120,6 +184,43 @@ static void on_alarm_query_event(void *unused, uint32_t msg_id, void *data, uint
     g_alarm_ctx.alarm_count = *(uint32_t *)data;
 }
 
+static void on_alarm_action_result_event(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (!data || len < sizeof(voice_msg_alarm_action_result_t)) {
+        return;
+    }
+
+    const voice_msg_alarm_action_result_t *result = (const voice_msg_alarm_action_result_t *)data;
+
+    switch ((voice_msg_alarm_action_result_type_t)result->type) {
+        case VOICE_MSG_ALARM_ACTION_RESULT_SNOOZE:
+            model_alarm_set_event_text("稍后提醒您~");
+            break;
+        case VOICE_MSG_ALARM_ACTION_RESULT_DELETE:
+        case VOICE_MSG_ALARM_ACTION_RESULT_NEXT:
+            model_alarm_set_event_text("闹钟关闭成功!");
+            break;
+        default:
+            return;
+    }
+
+    if (g_alarm_ctx.event_text[0] != '\0' &&
+        lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_HOME) {
+        if (lisa_ui_invoke_ui_delayed(alarm_action_result_toast_ui_worker,
+                                      g_alarm_ctx.event_text,
+                                      strlen(g_alarm_ctx.event_text) + 1,
+                                      0) != 0) {
+            LISA_UI_LOGE("Model: failed to schedule alarm action toast");
+        } else {
+            g_alarm_ctx.event_text[0] = '\0';
+        }
+    }
+}
+
 static void on_alarm_trigger_event(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     (void)unused;
@@ -145,8 +246,6 @@ static void on_alarm_trigger_event(void *unused, uint32_t msg_id, void *data, ui
         LISA_UI_LOGE("Model: Failed to get app_datas!");
     }
 
-    /* Alarm page switch can race with MCP session UI transition; stop MCP first. */
-    voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
 
     if (lisa_ui_invoke_ui_delayed(alarm_trigger_nav_ui_worker, alarm, sizeof(struct service_alarm),
                                   ALARM_TRIGGER_NAV_DELAY_MS) != 0) {
@@ -167,9 +266,11 @@ int model_alarm_init(void)
 
 #ifdef LISA_UI_PLATFORM_ARCS
     voice_msg_sub(VOICE_MSG_ALARM_CREATE, on_alarm_create_event, NULL);
+    voice_msg_sub(VOICE_MSG_ALARM_NEXT_SCHEDULED, on_alarm_next_scheduled_event, NULL);
     voice_msg_sub(VOICE_MSG_ALARM_DELETE, on_alarm_delete_event, NULL);
     voice_msg_sub(VOICE_MSG_ALARM_QUERY, on_alarm_query_event, NULL);
     voice_msg_sub(VOICE_MSG_ALARM_TRIGGER, on_alarm_trigger_event, NULL);
+    voice_msg_sub(VOICE_MSG_ALARM_ACTION_RESULT, on_alarm_action_result_event, NULL);
 
     uint32_t cnt = 0;
     struct service_alarm *service_alarms = service_alarm_get_all(&cnt);
@@ -216,6 +317,24 @@ int model_alarm_get_data(alarm_data_t *data)
 const char *model_alarm_get_event_text(void)
 {
     return g_alarm_ctx.event_text;
+}
+
+bool model_alarm_take_event_text(char *buf, size_t buf_size)
+{
+    if (!buf || buf_size == 0) {
+        return false;
+    }
+
+    if (g_alarm_ctx.event_text[0] == '\0') {
+        buf[0] = '\0';
+        return false;
+    }
+
+    strncpy(buf, g_alarm_ctx.event_text, buf_size - 1);
+    buf[buf_size - 1] = '\0';
+    g_alarm_ctx.event_text[0] = '\0';
+
+    return true;
 }
 
 int model_alarm_get_time_info(uint64_t timestamp, alarm_time_info_t *info)
@@ -328,5 +447,15 @@ alarm_data_t *model_alarm_get_all(uint32_t *cnt)
 #else
     *cnt = 0;
     return NULL;
+#endif
+}
+
+int model_alarm_get_snooze_remaining_count(void)
+{
+#ifdef LISA_UI_PLATFORM_ARCS
+    extern int alarm_handler_get_snooze_remaining_count(void);
+    return alarm_handler_get_snooze_remaining_count();
+#else
+    return -1;
 #endif
 }

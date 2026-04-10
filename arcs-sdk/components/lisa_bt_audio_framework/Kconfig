@@ -1,0 +1,201 @@
+# SPDX-License-Identifier: Apache-2.0
+# BT Audio Framework Kconfig
+
+menu "Bluetooth Audio Framework"
+
+config LISA_BT_AUDIO_FRAMEWORK
+	bool "Enable Bluetooth Audio Framework"
+	help
+		Enable Bluetooth Audio Framework for A2DP/HFP audio processing.
+		Supports Sink (receiver) and Source (transmitter) roles.
+
+if LISA_BT_AUDIO_FRAMEWORK
+
+choice LISA_BT_AUDIO_INTERFACE
+	prompt "Audio Interface"
+	default LISA_BT_AUDIO_INTERFACE_VIRTUAL if BT_CLASSIC_ROLE_SOURCE
+	default LISA_BT_AUDIO_INTERFACE_LOCAL
+	help
+		Select the audio interface implementation for the framework.
+		Can be used independently or with Bluetooth audio scenarios.
+
+config LISA_BT_AUDIO_INTERFACE_LOCAL
+	bool "Local Audio (Physical Hardware)"
+	help
+		🎧 Local physical audio hardware (lisa_audio driver)
+		Playback: PCM data → DAC → Speaker
+		Capture: Microphone → ADC → PCM data
+
+		Use cases:
+		- Sink mode: Bluetooth RX → Decode → Speaker
+		- Source mode: Mic → Encode → Bluetooth TX
+		- Standalone: Audio loopback, recording, playback testing
+
+		Requires: lisa_audio driver, DAC/ADC hardware
+
+config LISA_BT_AUDIO_INTERFACE_VIRTUAL
+	bool "Virtual Audio (Bluetooth Only)"
+	help
+		📱 Virtual audio interface for Bluetooth transmission
+		No physical audio hardware, data flows through Bluetooth only
+
+		Use cases:
+		- Source mode: App data → Encode → Bluetooth TX
+		- Audio streaming without local playback
+
+		Requires: Bluetooth audio adapter
+
+config LISA_BT_AUDIO_INTERFACE_NULL
+	bool "Null Audio (Testing)"
+	help
+		🔇 Null audio interface for testing
+		All audio data discarded (playback) or zeroed (capture)
+
+		Use cases:
+		- Framework testing without hardware
+		- Performance testing
+		- CI/CD automated testing
+
+endchoice
+
+config LISA_BT_AUDIO_MAX_SESSIONS
+	int "Maximum Audio Sessions"
+	default 4
+	help
+		Maximum number of concurrent audio sessions
+
+config LISA_BT_AUDIO_WORK_BUFFER_TIME_MS
+	int "Audio Work Buffer Time (milliseconds)"
+	default 64
+	help
+		Duration of audio data that work buffers can hold.
+		Work buffers are used for encode/decode operations.
+		Actual size = sample_rate × channels × bytes_per_sample × time_ms / 1000
+		Examples:
+		- 64ms @ 16kHz mono 16bit = 4096 bytes
+		- 64ms @ 48kHz stereo 16bit = 12288 bytes
+
+config LISA_BT_AUDIO_HW_BUFFER_COUNT
+	int "Hardware DMA Buffer Count"
+	default 3
+	help
+		Number of DMA buffers used by hardware audio driver.
+
+menu "Ring Buffer Configuration"
+
+config LISA_BT_AUDIO_ENCODED_RINGBUF_SIZE
+	int "Encoded Data Ring Buffer Size (KB)"
+	default 2
+	help
+		Encoded data (SBC/AAC/LDAC) ring buffer size in KB.
+		Used to absorb Bluetooth transmission jitter.
+
+config LISA_BT_AUDIO_PCM_RINGBUF_TIME_MS_DOWNLINK
+	int "PCM Ring Buffer Time for Playback (milliseconds)"
+	default 3000
+	help
+		Duration of PCM audio data that playback ring buffer can hold.
+		Decouples decode and playback threads.
+		Actual size = sample_rate × channels × bytes_per_sample × time_ms / 1000
+		Examples:
+		- 300ms @ 16kHz mono 16bit = 9600 bytes
+		- 300ms @ 48kHz stereo 16bit = 57600 bytes
+
+config LISA_BT_AUDIO_PCM_RINGBUF_TIME_MS_UPLINK
+	int "PCM Ring Buffer Time for Capture (milliseconds)"
+	default 300
+	help
+		Duration of PCM audio data that capture ring buffer can hold.
+		Buffers recording data for encoding.
+		Actual size = sample_rate × channels × bytes_per_sample × time_ms / 1000
+		Examples:
+		- 300ms @ 16kHz mono 16bit = 9600 bytes
+		- 300ms @ 48kHz stereo 16bit = 57600 bytes
+
+endmenu
+
+menu "Thread Configuration"
+
+config LISA_BT_AUDIO_DECODE_TASK_STACK_SIZE
+	int "Decode Task Stack Size (bytes)"
+	default 2048
+	help
+		Stack size for decode task.
+
+config LISA_BT_AUDIO_DECODE_TASK_PRIORITY
+	int "Decode Task Priority"
+	default 9
+	help
+		Decode task priority (higher value = higher priority).
+		Should be lower than playback to prevent ringbuf overflow.
+
+config LISA_BT_AUDIO_PLAYBACK_TASK_STACK_SIZE
+	int "Playback Task Stack Size (bytes)"
+	default 2048
+	help
+		Stack size for playback task.
+
+config LISA_BT_AUDIO_PLAYBACK_TASK_PRIORITY
+	int "Playback Task Priority"
+	default 10
+	help
+		Playback task priority (higher value = higher priority).
+		Should be HIGHER than decode to ensure timely PCM consumption.
+
+config LISA_BT_AUDIO_ENCODE_TASK_STACK_SIZE
+	int "Encode Task Stack Size (bytes)"
+	default 2048
+	help
+		Stack size for encode task.
+
+config LISA_BT_AUDIO_ENCODE_TASK_PRIORITY
+	int "Encode Task Priority"
+	default 9
+	help
+		Encode task priority (higher value = higher priority)
+
+endmenu
+
+menu "Prefill Configuration"
+
+config LISA_BT_AUDIO_ENCODED_PREFILL_SIZE
+	int "Encoded Data Prefill Size (KB)"
+	default 2
+	help
+		Encoded data prefill size before starting decode.
+		Ensures smooth startup for all codec types.
+
+config LISA_BT_AUDIO_PCM_PREFILL_TIME_MS
+	int "PCM Prefill Time (milliseconds)"
+	default 200
+	help
+		Duration of PCM data to prefill before starting playback.
+		Prevents initial stuttering at playback start.
+		Actual size = sample_rate × channels × bytes_per_sample × time_ms / 1000
+		Examples:
+		- 60ms @ 16kHz mono 16bit = 1920 bytes
+		- 60ms @ 48kHz stereo 16bit = 11520 bytes
+
+endmenu
+
+menu "Debug Configuration"
+
+config LISA_BT_AUDIO_DEBUG
+	bool "Enable Debug Logs"
+	help
+		Enable detailed debug logs for performance analysis.
+		Shows playback write blocking time, buffer watermarks, etc.
+		May impact performance, use only for debugging.
+endmenu
+
+config LISA_BT_AUDIO_ADAPTER
+	bool "Enable BT Audio Adapter"
+	default y
+	depends on LISA_BT_AUDIO_FRAMEWORK
+	help
+		Enable bt_audio_adapter for integration with Bluetooth stack.
+		The adapter bridges Bluetooth callbacks to the framework's session API.
+
+endif
+
+endmenu

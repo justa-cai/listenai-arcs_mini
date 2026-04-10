@@ -1,11 +1,12 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 menu "lis algo"
 
 config LIS_ALGO
-    bool "lis algo"
-    default n
+	bool "lis algo"
 
 config LIS_ALGO_WORDSEG
-    bool "lis algo"
-    default n
+	bool "lis algo"
 
 endmenu

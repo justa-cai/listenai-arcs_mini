@@ -33,7 +33,7 @@ void test_play_valid_url(void)
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -89,7 +89,7 @@ void test_play_ex_with_valid_options(void)
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -115,7 +115,7 @@ void test_play_ex_with_throw_time(void)
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -141,7 +141,7 @@ void test_play_ex_with_throw_low_energy(void)
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -200,7 +200,7 @@ void test_play_twice(void)
     TEST_ASSERT_EQUAL(APP_PLAYER_OK, ret1);
 
     wait_ms(TEST_WAIT_MEDIUM_MS);
-    app_player_stop_sync(player);
+    app_player_stop(player);
 
     /* 第二次播放 */
     printf("  [Test] Second play\n");
@@ -208,7 +208,7 @@ void test_play_twice(void)
     printf("  [Test] Second play returns: %s\n", error_to_string(ret2));
 
     wait_ms(TEST_WAIT_MEDIUM_MS);
-    app_player_stop_sync(player);
+    app_player_stop(player);
     
     /* 清理 */
     app_player_destroy(player);

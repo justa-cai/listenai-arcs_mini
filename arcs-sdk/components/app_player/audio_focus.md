@@ -39,7 +39,6 @@
 
 | 策略 | 说明 | 使用场景 |
 |------|------|---------|
-| `APP_PLAYER_FOCUS_LOSS_IGNORE` | 忽略焦点变化，继续播放 | 特殊场景，需始终播放 |
 | `APP_PLAYER_FOCUS_LOSS_PAUSE` | 暂停播放（可自动恢复） | 音乐播放被提示音打断 |
 | `APP_PLAYER_FOCUS_LOSS_STOP` | 停止播放（不可自动恢复） | 提示音播放结束 |
 | `APP_PLAYER_FOCUS_LOSS_DUCK` | 降低音量（暂不支持） | 保留，未来实现 |
@@ -453,6 +452,30 @@ tts 播放完成：
 结果：tts: NONE, music: NONE (music 已被完全停止，不会自动恢复)
 ```
 
+**场景 4：播放器正在播放时，再次播放该播放器**
+
+```
+初始状态：
+  music: FOREGROUND (正在播放音频A)
+
+执行：app_player_play(music, 音频B)
+
+内部处理：
+  1. 检测到 music 处于活跃状态 (PLAYING/PREPARED/PAUSED)
+  2. 自动停止当前播放 (关闭PA + 同步停止)
+  3. 清除焦点暂停标志
+  4. 申请音频焦点 (焦点状态保持 FOREGROUND，by_which=music 自身)
+  5. 播放新音频B
+
+结果：
+  music: FOREGROUND (播放音频B)
+
+说明：
+  - 这确保了每次播放都从干净的状态开始
+  - 避免了在 preparing 状态时重复调用导致的状态混乱
+  - 焦点回调中会跳过自触发的策略执行 (by_which == player)
+```
+
 ## API 参考
 
 ### 焦点相关数据结构
@@ -467,8 +490,7 @@ typedef enum {
 
 // 焦点丢失策略
 typedef enum {
-    APP_PLAYER_FOCUS_LOSS_IGNORE = 0,  // 忽略焦点变化
-    APP_PLAYER_FOCUS_LOSS_PAUSE,       // 暂停播放（可恢复）
+    APP_PLAYER_FOCUS_LOSS_PAUSE = 0,   // 暂停播放（可恢复）
     APP_PLAYER_FOCUS_LOSS_STOP,        // 停止播放（不可恢复）
     APP_PLAYER_FOCUS_LOSS_DUCK,        // 降低音量（暂不支持）
 } app_player_focus_loss_policy_t;

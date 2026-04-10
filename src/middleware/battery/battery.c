@@ -1,18 +1,16 @@
 #include <stdint.h>
 #include <stdbool.h>
-#include <stdlib.h> // 添加abs函数需要的头文件
 
 #include "arcs_ap.h"
 #include "lisa_log.h"
-#include "lisa_mutex.h"
 
 #include "battery.h"
+#include "battery_ui.h"
 #include "power/power_manager.h"
-#include "lisa_timer.h"
 #include "board.h"
 #include "lisa_gpio.h"
 #include "lisa_adc.h"
-#include "voice_msg.h"
+#include "sysutils.h"
 
 #define TAG "battery"
 
@@ -25,26 +23,47 @@
 #define VBAT_MIN_VOLTAGE                (3500) /* 锂电池理论最小电压 */
 #define VBAT_PARTIAL_VOLTAGE_PERCENTAGE (40)   /* 硬件电池分压2/5, 百分比为40 */
 
-#define VBAT_SAMPLE_PRIOD (1000)
+/* 低电压关机保护：连续低于截止电压 N 次（1次=1s）才关机 */
+#define LOW_VOLTAGE_SHUTDOWN_CONFIRM_TICKS (5)
+
+/* USB 插拔去抖：连续 N 次采样一致才认为状态变化（1次=1s） */
+#define USB_PLUGGED_DEBOUNCE_TICKS (3)
 
 /* 低于该电压认为未接入电池，单位mV */
 #define VBAT_PRESENT_THRESHOLD (2000)
 
-// 电压滤波相关定义
-#define VOLTAGE_FILTER_WINDOW_SIZE  5
-#define PERCENTAGE_CHANGE_THRESHOLD 10 // 电量百分比变化阈值
+#define VOLTAGE_FILTER_WINDOW_SIZE 5
 
-static lisa_device_t *bat_adc_dev = NULL;
-static lisa_device_t *charge_det_dev = NULL;
-
-lisa_timer_t *battery_timer = NULL;
+static lisa_device_t *bat_adc_dev __psram_bss__ = NULL;
+static lisa_device_t *charge_det_dev __psram_bss__ = NULL;
 
 // 移动平均滤波器变量
-static uint16_t voltage_history[VOLTAGE_FILTER_WINDOW_SIZE] = {0};
-static uint8_t voltage_index = 0;
-static bool voltage_buffer_full = false;
-static uint16_t last_vbat_voltage_mv = 0;
-static uint16_t last_vbat_detect_mv = 0;
+static uint16_t voltage_history[VOLTAGE_FILTER_WINDOW_SIZE] __psram_bss__ = {0};
+static uint8_t voltage_index __psram_bss__ = 0;
+static bool voltage_buffer_full __psram_bss__ = false;
+static uint8_t low_voltage_shutdown_cnt __psram_bss__ = 0;
+
+bool battery_usb_plugged_stable_get(void)
+{
+    static bool raw_last __psram_bss__ = false;
+    static bool stable_state __psram_bss__ = false;
+    static uint8_t stable_cnt __psram_bss__ = 0;
+
+    bool raw_now = power_is_usb_plugged();
+
+    if (raw_now != raw_last) {
+        raw_last = raw_now;
+        stable_cnt = 0;
+    } else if (stable_cnt < USB_PLUGGED_DEBOUNCE_TICKS) {
+        stable_cnt++;
+    }
+
+    if (stable_cnt >= USB_PLUGGED_DEBOUNCE_TICKS) {
+        stable_state = raw_now;
+    }
+
+    return stable_state;
+}
 
 // 电池电压百分比查找表 (按10%步进，从0%到100%)
 // 请根据实际电池特性填充对应的电压值 (单位: mV)
@@ -55,35 +74,37 @@ static uint16_t last_vbat_detect_mv = 0;
 // 3. 确保测量时电池处于静置状态（非充放电状态）
 // 4. 多次测量取平均值以提高准确性
 //
+// 数据来源：240032-7-6/7/8 实测恒流放电（155mA）曲线，3组取平均值
+// 截止电压约 3.0V，满电开路电压约 4.20V（155mA 负载下测量值）
 static const uint16_t battery_voltage_table_discharge[11] = {
-    3300, // 0%  - 最低工作电压，系统关机电压
-    3783, // 10%
-    3843, // 20%
-    3870, // 30%
-    3885, // 40%
-    3919, // 50%
-    3973, // 60%
-    4024, // 70%
-    4085, // 80%
-    4179, // 90%
-    4199  // 100%
+    3010, // 0%  - 实测截止电压（约3.0V）
+    3440, // 10%
+    3576, // 20%
+    3719, // 30%
+    3781, // 40%
+    3820, // 50%
+    3860, // 60%
+    3925, // 70%
+    3973, // 80%
+    4013, // 90%
+    4160  // 100% - 满电端电压（155mA 负载）
 };
 
 // 充电电压百分比查找表 (按10%步进，从0%到100%)
-// 由于充电时端电压会被抬高，建议使用单独的充电曲线。
-// 以下为基于实测的初始值，可根据实际电池/充电IC进一步校准。
+// 数据来源：240032-7-6/7/8 实测恒流恒压充电（500mA CC / 4.2V CV）曲线，3组取平均值
+// 说明：CC 阶段端电压上升较快（0%→10% 区间）；CV 阶段（10%→100%）电压在 4.04~4.20V 缓慢上升
 static const uint16_t battery_voltage_table_charge[11] = {
-    3700, // 0%
-    4000, // 10%
-    4040, // 20%
-    4070, // 30%
-    4090, // 40%
-    4110, // 50%
-    4125, // 60%
-    4138, // 70%
-    4145, // 80%
-    4185, // 90%
-    4210  // 100%
+    3257, // 0%  - 充电起始端电压（近空电池，500mA 充电开始）
+    3677, // 10%
+    3757, // 20%
+    3850, // 30%
+    3943, // 40%
+    4002, // 50%
+    4039, // 60%
+    4071, // 70%
+    4103, // 80%
+    4150, // 90%
+    4200  // 100% - CV 截止电压
 };
 
 /**
@@ -177,71 +198,23 @@ static void battery_sample_pin_init(void)
     lisa_gpio_configure(charge_det_dev, CHARGE_DET_PIN, LISA_GPIO_INPUT);
 }
 
-static voice_msg_battery_status_t battery_status_to_msg(battery_status_t status)
-{
-    switch (status) {
-    case BATTERY_STATUS_NO_BATTERY:
-        return VOICE_MSG_BATTERY_STATUS_NO_BATTERY;
-    case BATTERY_STATUS_NOT_CONNECT:
-        return VOICE_MSG_BATTERY_STATUS_NOT_CONNECT;
-    case BATTERY_STATUS_CHARGING:
-        return VOICE_MSG_BATTERY_STATUS_CHARGING;
-    case BATTERY_STATUS_CHARGE_DONE:
-        return VOICE_MSG_BATTERY_STATUS_CHARGE_DONE;
-    case BATTERY_STATUS_UNKNOWN:
-    default:
-        return VOICE_MSG_BATTERY_STATUS_UNKNOWN;
-    }
-}
-
-static void battery_voltage_sample_cb(struct lisa_timer *timer)
-{
-    uint8_t raw_percentage = battery_get_pct();
-    static uint8_t last_percentage = 0xFF;
-    battery_status_t status = battery_get_status();
-    static uint8_t last_status = 0xFF;
-
-    voice_msg_battery_info_t msg = {
-        .level = raw_percentage,
-        .status = battery_status_to_msg(status),
-    };
-
-    if (raw_percentage != last_percentage || status != last_status) {
-        voice_msg_pub(VOICE_MSG_POWER_BATTERY_UPDATE, &msg, sizeof(msg));
-        last_percentage = raw_percentage;
-        last_status = status;
-    }
-
-    LISA_LOGD(TAG, "Battery: raw=%d%%, status=%d", raw_percentage, status);
-
-    lisa_timer_start(battery_timer);
-}
-
 void battery_init(void)
 {
-    static bool init_flag = false;
+    static bool init_flag __psram_bss__ = false;
 
     if (init_flag) {
         return;
     }
 
     battery_sample_pin_init();
-
-    battery_timer = lisa_timer_create(VBAT_SAMPLE_PRIOD, battery_voltage_sample_cb, NULL);
-    if (battery_timer) {
-        lisa_timer_start(battery_timer);
-    } else {
-        LISA_LOGE(TAG, "Failed to create battery sample timer");
-    }
+    battery_ui_init();
 
     init_flag = true;
-
-    return;
 }
 
-static uint16_t battery_get_voltage(void)
+uint16_t battery_get_voltage_mv(void)
 {
-    static bool last_usb_plugged = false;
+    static bool last_usb_plugged __psram_bss__ = false;
     bool usb_plugged;
     uint16_t adc_raw_value;
     uint16_t adc_real_voltage;
@@ -254,7 +227,7 @@ static uint16_t battery_get_voltage(void)
     /* remove Hardware voltage division  */
     vbat_real_voltage = (uint16_t)(adc_real_voltage * 100 / VBAT_PARTIAL_VOLTAGE_PERCENTAGE);
 
-    usb_plugged = power_is_usb_plugged();
+    usb_plugged = battery_usb_plugged_stable_get();
     if (usb_plugged != last_usb_plugged) {
         // 充电状态变化时，重置滤波，避免电压跳变被均值拖尾
         voltage_filter_reset(vbat_real_voltage);
@@ -271,24 +244,39 @@ static uint16_t battery_get_voltage(void)
     return filtered_voltage;
 }
 
-uint8_t battery_get_pct(void)
+uint8_t battery_get_pct_raw(void)
 {
     uint16_t filtered_voltage;
     uint8_t vbat_voltage_percentage;
+    bool usb_plugged;
+    uint16_t discharge_cutoff_voltage = battery_voltage_table_discharge[0];
 
-    filtered_voltage = battery_get_voltage();
-    // 电压范围限制
-    if (filtered_voltage < VBAT_MIN_VOLTAGE) {
-        filtered_voltage = VBAT_MIN_VOLTAGE;
-        if (!power_is_usb_plugged()) {
+    filtered_voltage = battery_get_voltage_mv();
+    usb_plugged = battery_usb_plugged_stable_get();
+
+    // 低电压关机保护（仅在未插 USB 时生效，且需要连续确认）
+    if (!usb_plugged && filtered_voltage < discharge_cutoff_voltage) {
+        if (low_voltage_shutdown_cnt < LOW_VOLTAGE_SHUTDOWN_CONFIRM_TICKS) {
+            low_voltage_shutdown_cnt++;
+        }
+        if (low_voltage_shutdown_cnt >= LOW_VOLTAGE_SHUTDOWN_CONFIRM_TICKS) {
+            LISA_LOGW(TAG, "Battery too low (%dmV < %dmV), shutdown", filtered_voltage, discharge_cutoff_voltage);
             power_shutdown();
         }
     } else if (filtered_voltage > VBAT_MAX_VOLTAGE) {
         filtered_voltage = VBAT_MAX_VOLTAGE;
+        low_voltage_shutdown_cnt = 0;
+    } else {
+        low_voltage_shutdown_cnt = 0;
+    }
+
+    // 电压下限钳位到曲线 0% 点，避免出现低于曲线范围时的异常跳变
+    if (filtered_voltage < discharge_cutoff_voltage) {
+        filtered_voltage = discharge_cutoff_voltage;
     }
 
     /* 使用查找表获取电池电压百分比 */
-    if (power_is_usb_plugged()){
+    if (usb_plugged){
         vbat_voltage_percentage = voltage_to_percentage_by_table(filtered_voltage, battery_voltage_table_charge);
     } else {
         vbat_voltage_percentage = voltage_to_percentage_by_table(filtered_voltage, battery_voltage_table_discharge);
@@ -299,11 +287,11 @@ uint8_t battery_get_pct(void)
 
 battery_status_t battery_get_status(void)
 {
-    static uint8_t s_discharge_static_cnt = 0; // 解决电脑供电时,充电状态不稳定的问题
+    static uint8_t s_discharge_static_cnt __psram_bss__ = 0; // 解决电脑供电时,充电状态不稳定的问题
     battery_status_t ret = 0;
     uint16_t filtered_voltage;
 
-    filtered_voltage = battery_get_voltage();
+    filtered_voltage = battery_get_voltage_mv();
 
     if (filtered_voltage < VBAT_PRESENT_THRESHOLD) {
         s_discharge_static_cnt = 0;
@@ -313,7 +301,9 @@ battery_status_t battery_get_status(void)
         ret = BATTERY_STATUS_NOT_CONNECT;
     }
 
-    if (power_is_usb_plugged()) {
+    bool usb_plugged = battery_usb_plugged_stable_get();
+
+    if (usb_plugged) {
         if (s_discharge_static_cnt < 3) {
             s_discharge_static_cnt++;
         }else{
@@ -323,8 +313,8 @@ battery_status_t battery_get_status(void)
         s_discharge_static_cnt = 0;
     }
 
-    const uint16_t *table = power_is_usb_plugged() ? battery_voltage_table_discharge : battery_voltage_table_charge;
-    if (voltage_to_percentage_by_table(filtered_voltage, table) >= 98) {
+    const uint16_t *table = usb_plugged ? battery_voltage_table_charge : battery_voltage_table_discharge;
+    if (usb_plugged && voltage_to_percentage_by_table(filtered_voltage, table) >= 98) {
         ret = BATTERY_STATUS_CHARGE_DONE;
     }
     

@@ -1,10 +1,11 @@
 
 config ARCS_HAL_WCND
     bool "Enable ARCS HAL WCND"
-    depends on WIFI
+    depends on WIFI || BLE || BT
     default n
     help
-        Enable WCND (Wireless Controller Network) support
+        Enable WCND (Wireless Controller Network) support.
+        Required by WiFi, BLE and BT for shared RF hardware initialization.
 
 if ARCS_HAL_WCND
     choice

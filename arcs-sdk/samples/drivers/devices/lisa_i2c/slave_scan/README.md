@@ -26,6 +26,12 @@
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 **终端输出：**
@@ -68,6 +74,27 @@ I2C bus scan finished
 CONFIG_LISA_DEVICE=y      # 使能 LISA 设备框架
 CONFIG_LISA_I2C=y         # 使能 I2C 驱动
 CONFIG_LISA_I2C0=y        # 使能 I2C0 控制器
+```
+
+## 关键代码
+
+```c
+/* 配置 I2C 标准速率 */
+lisa_i2c_configure(i2c_dev, LISA_I2C_SPEED_STANDARD | LISA_I2C_MODE_MASTER);
+
+/* 扫描 I2C 总线 */
+for (uint8_t addr = 0x01; addr <= 0x7F; addr++) {
+    lisa_i2c_msg_t msg = {
+        .addr = addr,
+        .flags = 0,
+        .len = 0,
+        .buf = NULL,
+    };
+    int ret = lisa_i2c_transfer(i2c_dev, &msg, 1);
+    if (ret == LISA_DEVICE_OK) {
+        printf("Found I2C device at address: 0x%02X\n", addr);
+    }
+}
 ```
 
 ## 注意事项

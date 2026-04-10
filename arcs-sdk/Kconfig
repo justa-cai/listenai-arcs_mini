@@ -1,12 +1,14 @@
-menu "Arcs SDK"
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
 
-rsource "startup/Kconfig"
+menu "LISTENAI SDK"
+
+rsource "system/Kconfig"
 rsource "soc/Kconfig"
 rsource "components/Kconfig"
 rsource "drivers/Kconfig"
 rsource "boards/Kconfig"
 rsource "modules/Kconfig"
 rsource "cmake/Kconfig"
-rsource "boards/Kconfig"
 
 endmenu

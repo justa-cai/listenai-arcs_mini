@@ -40,7 +40,8 @@ static lisa_device_t *g_wdt_dev = NULL;
  */
 void wdt_timeout_callback(void *user_data)
 {
-    printf("WDT callback triggered - Resetting\n");
+    (void)user_data;
+    printf("WDT callback triggered\n");
 }
 
 int main(int argc, char **argv)

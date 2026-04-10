@@ -9,7 +9,8 @@
 #include "voice_msg.h"
 #include "app_datas.h"
 #include "voice_cloud.h"
-#include "player_mgr.h"
+#include "app_player.h"
+#include "voice_player_comm.h"
 #include "tone.h"
 #include "kv.h"
 #include "lisa_kv.h"
@@ -46,8 +47,8 @@ static void voice_idle_exit_timer_cb(TimerHandle_t xTimer)
 
     LOGI("voice idle exit timeout reached, trigger mcp chat exit");
     voice_cloud_chat_stop();
+    app_player_play(tone_player, app_tone_get_url(TONE_ID_72));
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
-    player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_72), 0);
 }
 
 static void voice_idle_exit_timer_init(void)
@@ -174,7 +175,7 @@ static void voice_cloud_session_finished(void *unused, uint32_t msg_id, void *da
     s_voice_cloud_session_running = false;
     voice_idle_exit_timer_stop();
 
-    // player_mgr_focus_release(AIP);
+    // app_player focus is managed automatically
 }
 
 static void voice_cloud_mcp_chat_exit(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -206,6 +207,7 @@ int voice_cloud_evt_init(void)
     voice_msg_sub(VOICE_MSG_PLAYER_TTS_STOPED, voice_cloud_tts_stoped, NULL);
 
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, voice_cloud_mcp_chat_exit, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, voice_cloud_mcp_chat_exit, NULL);
 
     return 0;
 }

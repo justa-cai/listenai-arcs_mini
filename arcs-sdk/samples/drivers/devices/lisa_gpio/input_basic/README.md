@@ -23,6 +23,12 @@
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 ```
@@ -72,3 +78,9 @@ LISA_LOGI(LOG_TAG, "PA%d level: %s", INPUT_PIN,
 - **`LISA_GPIO_HIGH`**: 高电平（通常为 1）
 - **`LISA_GPIO_LOW`**: 低电平（通常为 0）
 - **负数**: 读取失败，返回错误码
+
+## 注意事项
+
+1. **引脚模式**：输入模式下引脚为高阻态，建议启用上拉或下拉电阻避免浮空
+2. **读取返回值**：`lisa_gpio_read_pin()` 返回 `LISA_GPIO_HIGH` 或 `LISA_GPIO_LOW`，负数表示错误
+3. **电压兼容**：确认外部信号电压与芯片 IO 电压兼容，避免超过额定电压

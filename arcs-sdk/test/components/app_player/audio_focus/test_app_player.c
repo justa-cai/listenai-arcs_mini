@@ -15,7 +15,6 @@
 #include <stdio.h>
 #include "net_connect.h"
 #include "app_player.h"
-#include "app_tone.h"
 #include "lisa_gpio.h"
 #include "IOMuxManager.h"
 
@@ -76,8 +75,6 @@ static int pa_control_callback(int onoff)
 int main(void)
 {
     int ret;
-
-    app_tone_init(0x30200000);
 
     /* 连接网络 */
     net_connect();

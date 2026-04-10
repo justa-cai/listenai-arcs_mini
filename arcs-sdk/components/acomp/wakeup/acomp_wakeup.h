@@ -49,12 +49,11 @@ typedef enum {
 
 /*门限等级定义*/
 typedef enum {
-    ACOMP_WAKEUP_THRESHOLD_LEVEL_1 = 1,  /*门限等级1（最低，极易唤醒）*/
-    ACOMP_WAKEUP_THRESHOLD_LEVEL_2 = 2,  /*门限等级2（易唤醒）*/
-    ACOMP_WAKEUP_THRESHOLD_LEVEL_3 = 3,  /*门限等级3（默认档位）*/
-    ACOMP_WAKEUP_THRESHOLD_LEVEL_4 = 4,  /*门限等级4（难唤醒）*/
-    ACOMP_WAKEUP_THRESHOLD_LEVEL_5 = 5,  /*门限等级5（极难唤醒）*/
-    ACOMP_WAKEUP_THRESHOLD_LEVEL_6 = 6,  /*门限等级6（最高，禁用唤醒）*/
+    ACOMP_WAKEUP_THRESHOLD_LEVEL_1 = 0,  /*门限等级1（最低，极易唤醒）*/
+    ACOMP_WAKEUP_THRESHOLD_LEVEL_2 = 1,  /*门限等级2（易唤醒）*/
+    ACOMP_WAKEUP_THRESHOLD_LEVEL_3 = 2,  /*门限等级3（默认档位）*/
+    ACOMP_WAKEUP_THRESHOLD_LEVEL_4 = 3,  /*门限等级4（难唤醒）*/
+    ACOMP_WAKEUP_THRESHOLD_LEVEL_5 = 4,  /*门限等级5（极难唤醒）*/
 } acomp_wakeup_threshold_level_e;
 
 #ifdef CONFIG_ACOMP_WAKEUP_ALGORITHM_TYPE_DUAL_MIC
@@ -190,7 +189,7 @@ extern int acomp_wakeup_set_algo_mode(acomp_wakeup_algo_mode_e mode);
  *
  * @note 该函数必须在调用 acomp_wakeup_start() 之后设置才能生效
  *
- * @param level[in] 门限等级,参考 acomp_wakeup_threshold_level_e (1-6)
+ * @param level[in] 门限等级,参考 acomp_wakeup_threshold_level_e (1-5)
  *                  等级1最容易唤醒,等级6最难唤醒
  *
  * @return ACOMP_ERR_OK : 成功

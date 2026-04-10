@@ -1,0 +1,9 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_LS2663
+
+config MEM_PSRAM_SIZE
+	default 0x00800000    # 8MB
+
+endif # SOC_LS2663

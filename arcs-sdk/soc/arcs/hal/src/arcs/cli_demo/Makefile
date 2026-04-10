@@ -197,6 +197,12 @@ CFLAGS += -DTX_BUF_COPY
 endif
 export TX_BUF_COPY
 
+RX_DYNAMIC_HOSTBUF ?= off
+ifeq ($(RX_DYNAMIC_HOSTBUF), on)
+CFLAGS += -DRX_DYNAMIC_HOSTBUF
+endif
+export RX_DYNAMIC_HOSTBUF
+
 include $(TOPDIR)/src/${CHIP}/general_pre.mk
 
 ifeq ($(IC_BOARD), 1)

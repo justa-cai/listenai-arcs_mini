@@ -268,7 +268,7 @@ static void net_iperf_print_header(const struct net_iperf_settings *iperf_settin
 #if defined(CFG_AMP_IPC_TCPIP) && defined(CFG_AMP_IPC_MASTER)
         net_if_t *n = wlif_get_default_if();
 #else
-        net_if_t *n = fhost_get_net_if();
+        net_if_t *n = net_if_get(WIFI_VIF_DEFAULT_IDX);
 #endif
         uint32_t ip;
 
@@ -1303,7 +1303,7 @@ static void net_iperf_udp_recv_cb(void *arg, struct udp_pcb *pcb, struct pbuf *p
 #if defined(CFG_AMP_IPC_TCPIP) && defined(CFG_AMP_IPC_MASTER)
         net_if_t *n = wlif_get_default_if();
 #else
-        net_if_t *n = fhost_get_net_if();
+        net_if_t *n = net_if_get(WIFI_VIF_DEFAULT_IDX);
 #endif
         uint32_t ip;
 
@@ -1386,7 +1386,7 @@ static err_t net_iperf_pcb_config(void *pcb, struct net_iperf_stream *stream)
 #if defined(CFG_AMP_IPC_TCPIP) && defined(CFG_AMP_IPC_MASTER)
         net_if_t *n = wlif_get_default_if();
 #else
-        net_if_t *n = fhost_get_net_if();
+        net_if_t *n = net_if_get(WIFI_VIF_DEFAULT_IDX);
 #endif
         uint32_t mask;
 

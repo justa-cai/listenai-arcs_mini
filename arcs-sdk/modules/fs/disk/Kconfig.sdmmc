@@ -19,7 +19,7 @@ config DISK_SDMMC_VOLUME_NAME
 
 config DISK_SDMMC_START_SECTOR_NUMBER
 	int "SDMMC disk start sector number"
-	default 0x0
+	default 0
 	help
 	  The starting sector number of the file system in the SD/MMC device.
 config DISK_SDMMC_ACCESS_BUFFER_ALIGN_ENABLE

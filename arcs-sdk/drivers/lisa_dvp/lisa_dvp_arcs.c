@@ -375,4 +375,4 @@ static int arcs_dvp_init(void)
 }
 
 /* 注册 DVP 设备 */
-LISA_DEVICE_REGISTER(dvp0, &arcs_dvp_api, &dvp_priv, NULL, arcs_dvp_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(dvp0, &arcs_dvp_api, &dvp_priv, NULL, arcs_dvp_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);

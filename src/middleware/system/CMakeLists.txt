@@ -1,4 +1,4 @@
-listenai_library_named(system)
+listenai_library_named(app_system)
 
 listenai_library_sources(
     c_datetime.c

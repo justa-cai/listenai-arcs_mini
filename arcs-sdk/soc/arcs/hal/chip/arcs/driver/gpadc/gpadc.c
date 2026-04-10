@@ -106,9 +106,11 @@ gpadc_irq_handler(GPADC_RESOURCES* hgpadc){
 			while(hgpadc->reg->REG_ADC_IRSR0.bit.EOC_ERR_IRSR == 1){
 				hgpadc->reg->REG_ADC_IRSR0.bit.EOC_ERR_IRSR = 1;
 			}
-			hgpadc->info->cmp_event(CSK_GPADC_EOC_ERROR, (void*)hgpadc->user_param);
+			if (hgpadc->info->cmp_event)
+				hgpadc->info->cmp_event(CSK_GPADC_EOC_ERROR, (void*)hgpadc->user_param);
 		}else{
-			hgpadc->info->cmp_event(CSK_GPADC_COMPLETE, (void*)hgpadc->user_param);
+			if (hgpadc->info->cmp_event)
+				hgpadc->info->cmp_event(CSK_GPADC_COMPLETE, (void*)hgpadc->user_param);
 		}
 
 	}

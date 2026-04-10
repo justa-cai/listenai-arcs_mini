@@ -59,10 +59,10 @@ typedef enum
  */
 static const struct cli_cmd cli_bt_commands[];
 
-#if BT_WIFI_COEX
+//#if BT_WIFI_COEX
 extern void lsip_reset(void);
 extern void hci_event_notify_reg(void *notify);
-#endif
+//#endif
 
 typedef struct {
     uint8_t (*func)(char *params);
@@ -182,15 +182,49 @@ uint8_t parse_params(char *params, const char *keys[], const uint8_t types[], co
 }
 
 
-void bt_not_support(void)
+int bt_reset(char *params)
 {
-    CLOGI("bt_not_support, open BT_WIFI_COEX");
-}
-void ble_not_support(void)
-{
-    CLOGI("ble_not_support, open BT_WIFI_COEX");
+    int res = CLI_SUCCESS;
+
+#ifdef CFG_AMP_IPC
+    lsip_reset_api();
+#else
+    lsip_reset();
+#endif 
+
+    return res;
 }
 
+
+int ble_test_tone_start(char *params)
+{
+    uint8_t channel = 5, power = 5;
+    const char *keys[] = {"-c", "-p"};
+    const char *fmts[] = {"%i", "%i"};
+    const uint8_t types[] = {TYPE_UINT8, TYPE_UINT8};
+    void *values[] = {&channel, &power};
+    uint8_t result = parse_params(params, keys, types, fmts, values, 2);
+    if (result != CLI_SUCCESS)
+    {
+        return result;
+    }
+    CLOGI("TESTTONESTART: channel=%d, power=%d", channel, power);
+
+    atcmd_rf_test_tone_start_send(channel, power);
+    return CLI_SUCCESS;
+
+}
+
+int ble_test_tone_stop(char *params)
+{
+    CLOGI("TESTTONESTOP: no params");
+
+    atcmd_rf_test_tone_stop_send();
+    return CLI_SUCCESS;
+}
+
+
+#if (BLE_EMB_PRESENT)
 /* BLE Commands */
 int ble_init(char *params)
 {
@@ -205,13 +239,8 @@ int ble_init(char *params)
         return result;
     }
     CLOGI("BLEINIT: init=%d", init);
-#ifdef BT_WIFI_COEX
     atcmd_ble_init_send(init);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
 
 }
 
@@ -228,14 +257,8 @@ int ble_name(char *params)
         return result;
     }
     CLOGI("BLENAME: name=%s", name);
-#ifdef BT_WIFI_COEX
     atcmd_blename_send(name);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_scan_param(char *params)
@@ -252,14 +275,9 @@ int ble_scan_param(char *params)
     }
     CLOGI("BLESCANPARAM: scan_type=%d, scan_filt_policy=%d, scan_intv=%d, scan_window=%d",
           config.scan_type, config.scan_filt_policy, config.scan_intv, config.scan_window);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_scan_param_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_scan(char *params)
@@ -283,7 +301,7 @@ int ble_scan(char *params)
         return CLI_INVALID_PARAM;
     }
 
-#ifdef BT_WIFI_COEX
+
     if (config.filter_type == 1 && mac_str[0])
     {
         extern struct out_bd_addr ble_scan_filter_bd_addr;
@@ -292,11 +310,6 @@ int ble_scan(char *params)
     }
     atcmd_ble_scan_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_scan_rsp_data(char *params)
@@ -315,14 +328,9 @@ int ble_scan_rsp_data(char *params)
     CLOGI("BLESCANRSPDATA: type=%d, data_len=%d, data=%s",
           config.type, config.data_len, data_str);
     memcpy(config.rsp_data.data, data_str, SCAN_RSP_DATA_LEN);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_scan_rsp_data_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_adv_param(char *params)
@@ -345,14 +353,9 @@ int ble_adv_param(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_adv_param_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_adv_data(char *params)
@@ -375,14 +378,9 @@ int ble_adv_data(char *params)
         return CLI_INVALID_PARAM;
     }
     memcpy(config.data.data, data_str, ADV_DATA_LEN);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_adv_data_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_adv_start(char *params)
@@ -398,14 +396,9 @@ int ble_adv_start(char *params)
         return result;
     }
     CLOGI("BLEADVSTART: adv_en=%d", config.adv_en);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_adv_start_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_adv_stop(char *params)
@@ -421,14 +414,9 @@ int ble_adv_stop(char *params)
         return result;
     }
     CLOGI("BLEADVSTOP: adv_en=%d", config.adv_en);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_adv_stop_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_conn(char *params)
@@ -450,14 +438,8 @@ int ble_conn(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
     atcmd_ble_conn_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_conn_update(char *params)
@@ -481,14 +463,8 @@ int ble_conn_update(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
     atcmd_ble_conn_update_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_disconn(char *params)
@@ -511,14 +487,9 @@ int ble_disconn(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_disconn_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_data_len(char *params)
@@ -539,14 +510,9 @@ int ble_data_len(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_data_len_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_sec_param(char *params)
@@ -563,14 +529,9 @@ int ble_sec_param(char *params)
     }
     CLOGI("BLESECPARAM: auth_req=%d, iocap=%d, key_size=%d, init_key=%d, rsp_key=%d",
           config.auth_req, config.iocap, config.key_size, config.init_key, config.rsp_key);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_sec_param_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_enc(char *params)
@@ -590,26 +551,15 @@ int ble_enc(char *params)
     if (config.conn_index > 10 || config.sec_act > 4) {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_enc_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_enc_dev(char *params)
 {
     CLOGI("BLEENCDEV: no params");
-#ifdef BT_WIFI_COEX
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_key_reply(char *params)
@@ -631,17 +581,12 @@ int ble_key_reply(char *params)
         return CLI_INVALID_PARAM;
     }
     memcpy(config.key.ltk, key_str, KEY_LEN);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_key_reply_send(&config);
     return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
-int ble_enc_clear(char *params)
+int ble_bt_enc_clear(char *params)
 {
     ble_enc_clear_t config = {.type = 1, .bd_addr=0x123456123456};
     char mac_str[18] = {0};
@@ -659,14 +604,9 @@ int ble_enc_clear(char *params)
     if (mac_str[0] && bt_parse_mac_addr(mac_str, config.bd_addr.addr)) {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
-    atcmd_ble_enc_clear_send(&config);
-    return CLI_SUCCESS;
-#else
-    ble_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
 
+    atcmd_ble_bt_enc_clear_send(&config);
+    return CLI_SUCCESS;
 }
 
 int ble_non_signal_tx(char *params)
@@ -683,14 +623,9 @@ int ble_non_signal_tx(char *params)
     }
     CLOGI("BLENONSIGNALTX: channel=%d, data_len=%d, payload=%d, phy=%d, fhss=%d",
           channel, data_len, payload, phy, fhss);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_nonsignal_tx_send(channel, data_len, payload, phy, fhss);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_non_signal_rx(char *params)
@@ -707,44 +642,49 @@ int ble_non_signal_rx(char *params)
     }
     CLOGI("BLENONSIGNALRX: channel=%d, phy=%d, mod_idx=%d, infinite_rx_mode=%d",
           channel, phy, mod_idx, infinite_rx_mode);
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_nonsignal_rx_send(channel, phy, mod_idx, infinite_rx_mode);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int ble_non_signal_end(char *params)
 {
     CLOGI("BLENONSIGNALEND: no params");
-#ifdef BT_WIFI_COEX
+
     atcmd_ble_nonsignal_end_send();
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
-int bt_reset(char *params)
+/* Host Commands */
+int ble_h_adv_start(char *params)
 {
-    int res = CLI_SUCCESS;
-#ifdef BT_WIFI_COEX
-#ifdef CFG_AMP_IPC
-    lsip_reset_api();
-#else
-    lsip_reset();
-#endif 
-#endif
+    uint8_t mode = 1;
+    const char *keys[] = {"-m"};
+    const char *fmts[] = {"%i"};
+    const uint8_t types[] = {TYPE_UINT8};
+    void *values[] = {&mode};
+    uint8_t result = parse_params(params, keys, types, fmts, values, 1);
+    if (result != CLI_SUCCESS)
+    {
+        return result;
+    }
+    CLOGI("ADVSTART: mode=%d", mode);
 
-    return res;
+    atcmd_hble_adv_start_send(mode);
+    return CLI_SUCCESS;
 }
 
+int ble_h_adv_stop(char *params)
+{
+    CLOGI("ADVSTOP: no params");
 
+    atcmd_hble_adv_stop_send();
+    return CLI_SUCCESS;
+}
+
+#endif
+
+#if (BT_EMB_PRESENT)
 /* Classic Bluetooth Commands */
 int bt_inquiry(char *params)
 {
@@ -765,14 +705,9 @@ int bt_inquiry(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_bt_inquiry_send(&config);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int bt_scan(char *params)
@@ -788,14 +723,9 @@ int bt_scan(char *params)
         return result;
     }
     CLOGI("BTSCAN: enable=%d", enable);
-#ifdef BT_WIFI_COEX
+
     atcmd_bt_scan_send(enable);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int bt_dutmode(char *params)
@@ -811,14 +741,9 @@ int bt_dutmode(char *params)
         return result;
     }
     CLOGI("BTDUTMODE: enable=%d", enable);
-#ifdef BT_WIFI_COEX
+
     atcmd_bt_dutmode_send(enable);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int bt_conn(char *params)
@@ -840,14 +765,9 @@ int bt_conn(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_bt_conn_send(&config);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int bt_disconn(char *params)
@@ -869,14 +789,9 @@ int bt_disconn(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_bt_disconn_send(&config);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int bt_non_signal_tx(char *params)
@@ -897,14 +812,9 @@ int bt_non_signal_tx(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_bt_non_signal_tx_send(&config);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int bt_non_signal_rx(char *params)
@@ -925,112 +835,27 @@ int bt_non_signal_rx(char *params)
     {
         return CLI_INVALID_PARAM;
     }
-#ifdef BT_WIFI_COEX
+
     atcmd_bt_non_signal_rx_send(&config);
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
 
 int bt_non_signal_disable(char *params)
 {
-        CLOGI("BTNONSIGNALDISABLE: no params");
-#ifdef BT_WIFI_COEX
-        atcmd_bt_non_signal_disable_send();
-        return CLI_SUCCESS;
-#else
-        bt_not_support();
-        return CLI_UNKNOWN_CMD;
-#endif
+    CLOGI("BTNONSIGNALDISABLE: no params");
+
+    atcmd_bt_non_signal_disable_send();
+    return CLI_SUCCESS;
 }
 
 int bt_non_signal_rx_get_data(char *params)
 {
     CLOGI("BTNONSIGNALRXGETDATA: no params");
-#ifdef BT_WIFI_COEX
+
     atcmd_bt_non_signal_rx_get_data_send();
     return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
 }
-
-/* Host Commands */
-int ble_h_adv_start(char *params)
-{
-    uint8_t mode = 1;
-    const char *keys[] = {"-m"};
-    const char *fmts[] = {"%i"};
-    const uint8_t types[] = {TYPE_UINT8};
-    void *values[] = {&mode};
-    uint8_t result = parse_params(params, keys, types, fmts, values, 1);
-    if (result != CLI_SUCCESS)
-    {
-        return result;
-    }
-    CLOGI("ADVSTART: mode=%d", mode);
-#ifdef BT_WIFI_COEX
-    atcmd_hble_adv_start_send(mode);
-    return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
 #endif
-
-}
-
-int ble_h_adv_stop(char *params)
-{
-    CLOGI("ADVSTOP: no params");
-#ifdef BT_WIFI_COEX
-    atcmd_hble_adv_stop_send();
-    return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-}
-
-int ble_test_tone_start(char *params)
-{
-    uint8_t channel = 5, power = 5;
-    const char *keys[] = {"-c", "-p"};
-    const char *fmts[] = {"%i", "%i"};
-    const uint8_t types[] = {TYPE_UINT8, TYPE_UINT8};
-    void *values[] = {&channel, &power};
-    uint8_t result = parse_params(params, keys, types, fmts, values, 2);
-    if (result != CLI_SUCCESS)
-    {
-        return result;
-    }
-    CLOGI("TESTTONESTART: channel=%d, power=%d", channel, power);
-#ifdef BT_WIFI_COEX
-    atcmd_rf_test_tone_start_send(channel, power);
-    return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
-}
-
-int ble_test_tone_stop(char *params)
-{
-    CLOGI("TESTTONESTOP: no params");
-#ifdef BT_WIFI_COEX
-    atcmd_rf_test_tone_stop_send();
-    return CLI_SUCCESS;
-#else
-    bt_not_support();
-    return CLI_UNKNOWN_CMD;
-#endif
-
-}
 
 static int bt_cli_help(char *params)
 {
@@ -1056,6 +881,10 @@ static const struct cli_cmd cli_bt_commands[] =
     {bt_cli_help,          "bt?",                   ""},
     ///bt
     {bt_reset,             "bt_reset",              ":reset bt"},
+    // test tone
+    {ble_test_tone_start,   "bletesttonestart",       "testtonestart [-c <channel>] [-p <power>]\r\n : RF test tone start, <channel>: channel, <power>: power, defaults 0\r\n"},
+    {ble_test_tone_stop,    "bletesttonestop",        "testtonestop\r\n : RF stop test tone\r\n"},
+    #if (BLE_EMB_PRESENT)
     // bt controller
     {ble_init,        "bleinit",              "bleinit [-i <init>]\r\n : BLE init, <init>: 0=disable, 1=enable, default 0\r\n"},
     {ble_name,        "blename",              "blename [-n <name>]\r\n : Set BLE name, <name>: string (max 31 chars), default empty\r\n"},
@@ -1109,8 +938,8 @@ static const struct cli_cmd cli_bt_commands[] =
     {ble_key_reply,    "blekeyreply",          "blekeyreply [-c <conn_index>] [-k <key>]\r\n"
                                                    " : BLE key reply, <conn_index>: 0-10, <key>: string (max 16 chars), defaults 0\r\n"},
     {ble_enc_dev,      "bleencdev",            "bleencdev\r\n : BLE enc dev (query only)\r\n"},
-    {ble_enc_clear,    "bleencclear",          "bleencclear [-t <type>] [-m <mac>]\r\n"
-                                                   " : BLE enc clear, <type>: address type, <mac>: xx:xx:xx:xx:xx:xx (0=clear all), defaults 0\r\n"},
+    {ble_bt_enc_clear, "blebtencclear",          "blebtencclear [-t <type>] [-m <mac>]\r\n"
+                                                   " : BLE Bt enc clear, <type>: address type, <mac>: xx:xx:xx:xx:xx:xx (0=clear all ble 0x80=clear all bt), defaults 0\r\n"},
     {ble_non_signal_tx, "blenonsignaltx",       "blenonsignaltx [-c <channel>] [-l <data_len>] [-p <payload>] [-h <phy>] [-f fhss]\r\n"
                                                    " : BLE nonsignal tx, <channel>: 0x00-0x27, <data_len>: 0x00-0xFF, <payload>: 0x00-0x08, <phy>: 1=1M 2=2M 3=coded, defaults 0\r\n"
                          "                       <tx_channel>: tx channel,     range: 0x00~0x27\r\n"
@@ -1132,6 +961,11 @@ static const struct cli_cmd cli_bt_commands[] =
                          "                       <mod_idx>: 0: standard 1: stable\r\n"
                          "                       <infinite_rx_mode>: 1: inifinate rx mode 0: normal rx mode"},
     {ble_non_signal_end, "blenonsignalend",     "blenonsignalend\r\n : End BLE nonsignal test, response: <nb_pkt_recv>\r\n"},
+    // bt host
+    {ble_h_adv_start,    "blehadvstart",         "blehostadvstart [-m <mode>]\r\n : Host adv start, <mode>: mode, default 0\r\n"},
+    {ble_h_adv_stop,     "blehadvstop",          "blehostadvstart\r\n : Host adv stop, response: <status>\r\n"},
+    #endif
+    #if (BT_EMB_PRESENT)
     {bt_inquiry,       "btinquiry",           "btinquiry [-l <lap>] [-i <inq_len>] [-n <nb_rsp>]\r\n"
                                                    " : BT inquiry, <lap>: 0x9E8B00-0x9E8B3F (default 0x9E8B33), <inq_len>: 0x01-0x30 (default 8), <nb_rsp>: 0x00-0xFF (default 0)\r\n"
                                                    "Response: +BTINQUIRY:<addr>,<class_of_dev>,<page_scan_req_mode>,<clk_offset>\r\n"},
@@ -1178,12 +1012,7 @@ static const struct cli_cmd cli_bt_commands[] =
                            "                <infinite_rx_mode>: 1: inifinate rx mode 0: normal rx mode"},
     {bt_non_signal_disable, "btnonsignaldisable",     "btnonsignaldisable\r\n : Disable BT nonsignal test\r\n"},
     {bt_non_signal_rx_get_data, "btnonsignalrxgetdata", "btnonsignalrxgetdata\r\n : Get BT nonsignal rx data, response: <total_packets>,<error_packets>,<total_bits>,<error_bits>\r\n"},
-    // test tone
-    {ble_test_tone_start,   "bletesttonestart",       "testtonestart [-c <channel>] [-p <power>]\r\n : RF test tone start, <channel>: channel, <power>: power, defaults 0\r\n"},
-    {ble_test_tone_stop,    "bletesttonestop",        "testtonestop\r\n : RF stop test tone\r\n"},
-    // bt host
-    {ble_h_adv_start,    "blehadvstart",         "blehostadvstart [-m <mode>]\r\n : Host adv start, <mode>: mode, default 0\r\n"},
-    {ble_h_adv_stop,     "blehadvstop",          "blehostadvstart\r\n : Host adv stop, response: <status>\r\n"},
+    #endif
     {NULL, "", ""}
 };
 
@@ -1194,13 +1023,13 @@ uint32_t bt_cmd_handler(char* command, int len)
     char *param;
     const struct cli_cmd *cmd;
 
-#if BT_WIFI_COEX
+//#if BT_WIFI_COEX
 #ifdef CFG_AMP_IPC
     //hci_event_notify_reg_api(ls_event_post);
 #else
     hci_event_notify_reg(ls_event_post);
 #endif
-#endif
+//#endif
 
     param = strchr(command, ' ');
     if (param)

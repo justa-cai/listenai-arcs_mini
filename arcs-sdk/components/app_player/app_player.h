@@ -55,8 +55,7 @@ typedef enum {
  * @brief 焦点丢失策略
  */
 typedef enum {
-    APP_PLAYER_FOCUS_LOSS_IGNORE = 0,  /**< 忽略焦点变化，继续播放 */
-    APP_PLAYER_FOCUS_LOSS_PAUSE,       /**< 暂停播放（可自动恢复） */
+    APP_PLAYER_FOCUS_LOSS_PAUSE = 0,   /**< 暂停播放（可自动恢复） */
     APP_PLAYER_FOCUS_LOSS_STOP,        /**< 停止播放（不可自动恢复） */
     APP_PLAYER_FOCUS_LOSS_DUCK,        /**< 降低音量（暂不支持） */
 } app_player_focus_loss_policy_t;
@@ -207,49 +206,37 @@ int app_player_play(app_player_t *player, const char *url);
 int app_player_play_ex(app_player_t *player, const app_player_play_opt_t *opt);
 
 /**
- * @brief   停止播放（异步）
+ * @brief   停止播放（同步）
  * @param   player 播放器实例
  * @return  APP_PLAYER_OK 成功，其他表示错误
  * @warning 流式播放模式下不支持此操作
+ * @note    同步接口，等待停止完成后返回
  */
 int app_player_stop(app_player_t *player);
 
 /**
- * @brief   停止播放（同步，等待停止完成）
+ * @brief   暂停播放（同步）
  * @param   player 播放器实例
  * @return  APP_PLAYER_OK 成功，其他表示错误
  * @warning 流式播放模式下不支持此操作
- */
-int app_player_stop_sync(app_player_t *player);
-
-/**
- * @brief   暂停播放
- * @param   player 播放器实例
- * @return  APP_PLAYER_OK 成功，其他表示错误
- * @warning 流式播放模式下不支持此操作
+ * @note    同步接口，等待暂停完成后返回
  */
 int app_player_pause(app_player_t *player);
 
 /**
- * @brief   恢复播放（异步）
+ * @brief   恢复播放（同步）
  * @param   player 播放器实例
  * @return  APP_PLAYER_OK 成功，其他表示错误
  * @warning 流式播放模式下不支持此操作
+ * @note    同步接口，等待恢复完成后返回
  */
 int app_player_resume(app_player_t *player);
 
 /**
- * @brief   恢复播放（同步，等待恢复完成）
+ * @brief   重置播放器到初始状态（同步）
  * @param   player 播放器实例
  * @return  APP_PLAYER_OK 成功，其他表示错误
- * @warning 流式播放模式下不支持此操作
- */
-int app_player_resume_sync(app_player_t *player);
-
-/**
- * @brief   重置播放器到初始状态
- * @param   player 播放器实例
- * @return  APP_PLAYER_OK 成功，其他表示错误
+ * @note    同步接口，等待重置完成后返回
  */
 int app_player_reset(app_player_t *player);
 
@@ -392,8 +379,8 @@ int app_player_register_focus_cb(app_player_t *player,
  * @code
  * // 修改 MUSIC 播放器的焦点行为
  * app_player_focus_behavior_t new_behavior = {
- *     .on_background = APP_PLAYER_FOCUS_LOSS_IGNORE,  // 后景继续播放
- *     .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,    // 完全失焦停止
+ *     .on_background = APP_PLAYER_FOCUS_LOSS_PAUSE,  // 后景暂停播放
+ *     .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,   // 完全失焦停止
  * };
  * app_player_set_focus_behavior(g_music_player, &new_behavior);
  * @endcode

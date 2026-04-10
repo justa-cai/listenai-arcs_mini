@@ -1,4 +1,4 @@
-# LISA Audio 录音后播放示例（单声道 + 回采信号可选）
+# LISA Audio 录音后播放示例
 
 ## 功能说明
 
@@ -32,10 +32,16 @@
 5. 配置 `lisa_audio_play_config()`，根据录得的样本数调用 `lisa_audio_play_write()` 写入数据
 6. 使用 `lisa_audio_play_flush()` 等待播放完成，最后释放资源
 
-## 编译运行
+## 编译
 
-```bash
-./build.sh -C -DBOARD=arcs_evb -S samples/drivers/devices/lisa_audio/record_playback
+```{eval-rst}
+.. include:: /sample_build.rst
+```
+
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
 ## 预期输出
@@ -93,6 +99,31 @@
 | `lisa_audio_play_config()` / `lisa_audio_play_start()` | 配置并启动播放 |
 | `lisa_audio_play_write()` | 把录音样本写入播放队列 |
 | `lisa_audio_play_flush()` / `lisa_audio_play_stop()` | 等待播放完成并停止 |
+
+## 关键代码
+
+```c
+/* 获取音频设备 */
+lisa_device_t *audio_dev = lisa_device_get("audio0");
+
+/* 注册统一回调 */
+lisa_audio_register_callback(audio_dev, audio_callback, NULL);
+
+/* 配置并启动录音 */
+lisa_audio_record_config(audio_dev, &record_cfg);
+lisa_audio_record_start(audio_dev);
+
+/* 配置并启动播放 */
+lisa_audio_play_config(audio_dev, &play_cfg);
+lisa_audio_play_start(audio_dev);
+
+/* 写入录音数据到播放队列 */
+lisa_audio_play_write(audio_dev, audio_buffer, sample_count);
+
+/* 等待播放完成 */
+lisa_audio_play_flush(audio_dev);
+lisa_audio_play_stop(audio_dev);
+```
 
 ## 配置说明
 

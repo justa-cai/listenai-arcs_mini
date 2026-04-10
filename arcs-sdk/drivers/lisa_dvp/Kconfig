@@ -1,5 +1,7 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 menuconfig LISA_DVP_DEVICE
-    bool "LISA DVP driver"
-    default n
-    help
-        Enable LISA DVP driver.
+	bool "LISA DVP driver"
+	help
+		Enable LISA DVP driver.

@@ -20,7 +20,7 @@
 #define  BT_STACK_PRESENT     1
 //# classic profile
 #define  BT_MUSIC_PRESENT     1
-#define  BT_CALL_PRESENT      0
+#define  BT_CALL_PRESENT      1
 //# ble profile
 #define  BLE_GAF_PRESENT      0
 #define  SMP_PRESENT          1

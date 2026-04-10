@@ -1,0 +1,69 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+# LISA I2S Driver Configuration
+
+config LISA_I2S_DEVICE
+	bool "Enable LISA I2S Device Driver"
+	help
+		Enable LISA I2S device driver support.
+
+if LISA_I2S_DEVICE
+
+config LISA_I2S0
+	bool "Enable I2S0"
+	help
+		Enable I2S0 device.
+
+config LISA_I2S1
+	bool "Enable I2S1"
+	help
+		Enable I2S1 device.
+
+config LISA_I2S_ECHO
+	bool "Enable I2S echo"
+	help
+		Enable I2S echo.
+
+config LISA_I2S_BLOCK_COUNT
+	int "I2S inner block count"
+	default 4
+	help
+		I2S inner block count.
+
+config LISA_I2S_PIPO
+	bool "Enable I2S PIPO mode"
+	help
+		Enable I2S PIPO mode.
+
+config LISA_I2S0_RX_DMA_CHANNEL
+	int "I2S0 RX GPDMA channel"
+	default 0
+	help
+		I2S0 RX GPDMA channel.
+
+config LISA_I2S0_TX_DMA_CHANNEL
+	int "I2S0 TX GPDMA channel"
+	default 1
+	help
+		I2S0 TX GPDMA channel.
+
+config LISA_I2S1_RX_DMA_CHANNEL
+	int "I2S1 RX GPDMA channel"
+	default 2
+	help
+		I2S1 RX GPDMA channel.
+
+config LISA_I2S1_TX_DMA_CHANNEL
+	int "I2S1 TX GPDMA channel"
+	default 3
+	help
+		I2S1 TX GPDMA channel.
+
+config LISA_I2S_ECHO_DMA_CHANNEL
+	int "I2S ECHO GPDMA channel"
+	default 4
+	help
+		I2S ECHO GPDMA channel.
+
+endif # LISA_I2S_DEVICE

@@ -91,6 +91,7 @@ CFLAGS +=  -I $(TOPDIR)/include/CMSIS \
           -I $(TOPDIR)/chip/${CHIP}/bsp/ \
           -I $(TOPDIR)/chip/${CHIP}/driver/spi \
           -I $(TOPDIR)/chip/${CHIP}/atcmd/ \
+          -I $(TOPDIR)/chip/${CHIP}/bt_hal/ \
           -I $(TOPDIR)/chip/${CHIP}/cli_cmd/ \
           -I $(TOPDIR)/chip/${CHIP}/btos/ \
           -I $(TOPDIR)/chip/${CHIP}/btos/task/api/ \

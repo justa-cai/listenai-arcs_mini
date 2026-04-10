@@ -16,11 +16,11 @@
  * ======================================== */
 
 /* 注册不同初始化状态的测试设备 */
-LISA_DEVICE_REGISTER(test_state_success, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_state_success, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
-LISA_DEVICE_REGISTER(test_state_fail, NULL, NULL, NULL, 
-                     test_mock_init_fail, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_state_fail, NULL, NULL, NULL,
+                     test_mock_init_fail, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
 /* ========================================
  * 测试用例

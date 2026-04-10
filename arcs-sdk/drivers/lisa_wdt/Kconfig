@@ -5,11 +5,10 @@
 
 menuconfig LISA_WDT
 	bool "Enable LISA WDT Driver"
-	default n
 	depends on LISA_DEVICE
 	help
-	  Enable LISA Watchdog Timer device driver based on lisa_device framework.
-	  Provides unified interface for various watchdog timer controllers.
+			Enable LISA Watchdog Timer device driver based on lisa_device framework.
+			Provides unified interface for various watchdog timer controllers.
 
 if LISA_WDT
 

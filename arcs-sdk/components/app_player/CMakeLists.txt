@@ -18,7 +18,6 @@ endif()
 listenai_include_directories(.)
 
 add_subdirectory(player)
-add_subdirectory(tone)
 
 if (CONFIG_APP_PLAYER_AUDIO_FOCUS)
     add_subdirectory(focus_mgr)

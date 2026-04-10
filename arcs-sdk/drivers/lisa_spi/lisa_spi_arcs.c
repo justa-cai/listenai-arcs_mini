@@ -127,9 +127,10 @@ static int arcs_spi_configure(lisa_device_t *dev, const lisa_spi_config_t *confi
 
     CONFIG_LOCK(priv);
 
-    /* 检查是否需要释放旧的DMA通道 */
-    bool old_tx_is_dma = (priv->current_config.tx_transfer_mode == LISA_SPI_DMA_TRANSFER);
-    bool old_rx_is_dma = (priv->current_config.rx_transfer_mode == LISA_SPI_DMA_TRANSFER);
+    /* 检查是否需要释放旧的DMA通道 (仅当已配置过时) */
+    bool has_old_config = (priv->current_config.frequency != 0);
+    bool old_tx_is_dma = has_old_config && (priv->current_config.tx_transfer_mode == LISA_SPI_DMA_TRANSFER);
+    bool old_rx_is_dma = has_old_config && (priv->current_config.rx_transfer_mode == LISA_SPI_DMA_TRANSFER);
     bool new_tx_is_dma = (config->tx_transfer_mode == LISA_SPI_DMA_TRANSFER);
     bool new_rx_is_dma = (config->rx_transfer_mode == LISA_SPI_DMA_TRANSFER);
 
@@ -137,7 +138,7 @@ static int arcs_spi_configure(lisa_device_t *dev, const lisa_spi_config_t *confi
     if (old_tx_is_dma && !new_tx_is_dma) {
         dma_channel_unreserve(priv->current_config.tx_dma_channel);
     }
-    
+
     if (old_rx_is_dma && !new_rx_is_dma) {
         dma_channel_unreserve(priv->current_config.rx_dma_channel);
     }
@@ -508,11 +509,11 @@ static int arcs_spi2_init(void)
 
  /* ===== 设备注册 ===== */
 #ifdef CONFIG_LISA_SPI0
-LISA_DEVICE_REGISTER(spi0, &arcs_spi_api, &spi0_priv, NULL, arcs_spi0_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(spi0, &arcs_spi_api, &spi0_priv, NULL, arcs_spi0_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 #endif
 #ifdef CONFIG_LISA_SPI1
-LISA_DEVICE_REGISTER(spi1, &arcs_spi_api, &spi1_priv, NULL, arcs_spi1_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(spi1, &arcs_spi_api, &spi1_priv, NULL, arcs_spi1_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 #endif
 #ifdef CONFIG_LISA_SPI2
-LISA_DEVICE_REGISTER(spi2, &arcs_spi_api, &spi2_priv, NULL, arcs_spi2_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(spi2, &arcs_spi_api, &spi2_priv, NULL, arcs_spi2_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 #endif

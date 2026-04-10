@@ -82,6 +82,28 @@ typedef struct
 typedef struct
 {
     struct mrpc_req_msg hdr;
+} mrpc_ld_bd_addr_get_api_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+    struct out_bd_addr bd_addr;
+} mrpc_ld_bd_addr_get_api_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
+} mrpc_bt_stack_if_get_env_api_req_t;
+
+typedef struct
+{
+    struct mrpc_resp_msg hdr;
+    void * env;
+} mrpc_bt_stack_if_get_env_api_resp_t;
+
+typedef struct
+{
+    struct mrpc_req_msg hdr;
     uint32_t size;
 } mrpc_btos_malloc_api_req_t;
 

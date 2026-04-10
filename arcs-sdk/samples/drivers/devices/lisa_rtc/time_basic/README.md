@@ -20,6 +20,12 @@
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 ```
@@ -39,6 +45,32 @@ Current time: 2025-01-15 12:30:03
 - **设备名称**: rtc0
 - **初始时间**: 2025-01-15 Wednesday 12:30:00
 - **读取间隔**: 1秒
+
+## 核心 API
+
+| API | 说明 |
+|-----|------|
+| `lisa_device_get()` | 获取 RTC 设备 |
+| `lisa_rtc_set_time()` | 设置 RTC 时间 |
+| `lisa_rtc_get_time()` | 读取 RTC 当前时间 |
+
+## 关键代码
+
+```c
+/* 获取 RTC 设备 */
+lisa_device_t *rtc_dev = lisa_device_get("rtc0");
+
+/* 设置时间 */
+lisa_rtc_time_t time = {
+    .year = 25, .month = 1, .day = 15,
+    .hour = 12, .minute = 30, .second = 0,
+};
+lisa_rtc_set_time(rtc_dev, &time);
+
+/* 读取时间 */
+lisa_rtc_time_t current;
+lisa_rtc_get_time(rtc_dev, &current);
+```
 
 ## 注意事项
 

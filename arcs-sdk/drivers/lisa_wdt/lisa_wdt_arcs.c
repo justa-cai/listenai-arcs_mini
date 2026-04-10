@@ -38,6 +38,7 @@
 /* ===== WDT 时钟频率定义 ===== */
 #define WDT_CLK_32K_HZ  32000UL  /* 32K 时钟频率 (Hz) */
 #define WDT_CLK_APB_HZ  PCLKFREQ()  /* APB 时钟频率 (Hz)，运行时获取 */
+#define WDT_WRITE_UNLOCK_KEY 0x5AA5U
 
 /* ===== WDT 设备私有数据 ===== */
 typedef struct {
@@ -52,6 +53,12 @@ typedef struct {
     hal_driver_wdt_rst_time rst_time;     /* 复位时间配置 */
     uint32_t configured_timeout_ms;       /* 已配置的超时时间（毫秒）*/
 } lisa_wdt_priv_t;
+
+/* 仅使用 HAL 资源结构的前两个字段（与 HAL 内部定义保持一致） */
+typedef struct {
+    WDT_RegDef *reg;
+    uint32_t irq_num;
+} lisa_wdt_hal_res_t;
 
 /* ===== WDT 设备静态实例 ===== */
 static lisa_wdt_priv_t wdt0_priv;
@@ -75,7 +82,29 @@ static void wdt_hal_irq_callback(void *workspace)
     /* 更新状态为已超时（在中断上下文中，直接赋值是安全的） */
     priv->state = LISA_WDT_STATE_EXPIRED;
 
-    LISA_LOGW(LOG_TAG, "[IRQ] WDT interrupt triggered! State updated to EXPIRED");
+    /*
+     * 在 LISA 层直接控制寄存器来收敛中断：
+     * 1) 清除 WDT 控制寄存器中的 INTEN，避免超时中断重复进入
+     * 2) 清除 ECLIC pending，防止当前中断残留再次调度
+     * 保留 EN/RSTEN，不影响后续复位阶段。
+     */
+    lisa_wdt_hal_res_t *hal_res = (lisa_wdt_hal_res_t *)priv->hal_handler;
+    if (hal_res && hal_res->reg) {
+        uint32_t ctrl = hal_res->reg->REG_CTRL.all;
+
+        hal_res->reg->REG_WREN.all = WDT_WRITE_UNLOCK_KEY;
+        hal_res->reg->REG_CTRL.all = (ctrl & ~WDT_CTRL_INTEN_Msk);
+
+        /*
+         * 尝试按 W1C 语义清中断状态位；若硬件为只读则该写入会被忽略。
+         * 无论是否支持 W1C，后续都会清 ECLIC pending。
+         */
+        hal_res->reg->REG_ST.all = WDT_ST_INTEXPIRED_Msk;
+        (void)hal_res->reg->REG_ST.all;
+        clear_IRQ(hal_res->irq_num);
+    } else {
+        LISA_LOGE(LOG_TAG, "[IRQ] WDT resources unavailable, failed to mask interrupt");
+    }
 
     /* 调用用户回调函数 */
     if (priv->callback) {
@@ -557,4 +586,5 @@ LISA_DEVICE_REGISTER(wdt0,                        /* 设备名称 */
                      &wdt0_priv,                  /* 私有数据指针 */
                      NULL,                        /* 用户数据 */
                      arcs_wdt0_init,              /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
                      LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */

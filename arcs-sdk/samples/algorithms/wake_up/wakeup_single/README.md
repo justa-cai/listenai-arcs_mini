@@ -31,7 +31,7 @@
 .. include:: /sample_build.rst
 ```
 
-### 烧录固件
+## 烧录
 
 ```bash
 # 烧录 AP 核固件（Boot Core）
@@ -408,7 +408,7 @@ static void wakeup_out_task(void *pvParameters)
 
 在 `prj.conf` 中配置算法资源地址和大小:
 
-```
+```kconfig
 CONFIG_ACOMP_WAKEUP_ALGORITHM_TYPE_DUAL_MIC=n
 CONFIG_ACOMP_WAKEUP_RES_CAE_ESR_MLP_ADDRESS=0x30200000
 CONFIG_ACOMP_WAKEUP_RES_CAE_ESR_MLP_LENGTH=1431296
@@ -418,7 +418,7 @@ CONFIG_ACOMP_WAKEUP_RES_AI_WRAP_LENGTH=763
 
 ### 堆内存配置
 
-```
+```kconfig
 CONFIG_HEAP_SIZE=0x10000           /* 内部 SRAM 堆 64KB */
 CONFIG_PSRAM_HEAP_SIZE=0x700000    /* PSRAM 堆 7MB */
 ```

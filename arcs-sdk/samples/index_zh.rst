@@ -8,9 +8,10 @@
 
     helloworld/README.rst
     drivers/devices/index_zh
-    modules/index_zh
-    network/index_zh
     bluetooth/index_zh
+    network/index_zh
     algorithms/index_zh
-    cpp/index_zh
-
+    media/index_zh
+    subsys/index_zh
+    security/index_zh
+    libraries/index_zh

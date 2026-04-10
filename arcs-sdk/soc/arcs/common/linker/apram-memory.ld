@@ -1,0 +1,4 @@
+/* Algorithm RAM region */
+#if CONFIG_MEM_APRAM_SIZE > 0
+    APRAM(rwx) : ORIGIN = CONFIG_MEM_APRAM_BASE, LENGTH = CONFIG_MEM_APRAM_SIZE
+#endif

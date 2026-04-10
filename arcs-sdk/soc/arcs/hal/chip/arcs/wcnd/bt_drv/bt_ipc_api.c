@@ -23,6 +23,7 @@
 #include "btos_al.h"
 #include "bt_ipc_api.h"
 #include "atcmd_bt_if.h"
+#include "bt_api.h"
 
 #include "log_print.h"
 
@@ -111,7 +112,7 @@ ls_err_t btos_send_app_evt_api(btos_task_id task_id, uint16_t msg_id, void *msg_
 
     CLOGD("btos_send_app_evt_api:0x%x", msg_id);
 
-#ifdef CFG_AMP_IPC
+#ifdef CFG_AMP_IPC_MRPC_CLIENT_BT
     btos_malloc_api(&(app_event.msg_body), sizeof(btos_msg_t)+msg_body_len);
 #else
     app_event.msg_body = btos_malloc(sizeof(btos_msg_t) + msg_body_len);
@@ -144,6 +145,23 @@ ls_err_t llm_get_local_pub_addr_api(struct out_bd_addr *bd_addr)
 {
     llm_get_local_pub_addr(bd_addr->addr);
 
+    return LS_OK;
+}
+
+extern void ld_bd_addr_get(uint8_t *addr);
+ls_err_t ld_bd_addr_get_api(struct out_bd_addr *bd_addr)
+{
+    #if(BT_EMB_PRESENT)
+    ld_bd_addr_get(bd_addr->addr);
+    #endif
+
+    return LS_OK;
+}
+
+extern uint8_t *bt_stack_if_get_env(void);
+ls_err_t bt_stack_if_get_env_api(void **env)
+{
+    *env = (void*)bt_stack_if_get_env();
     return LS_OK;
 }
 

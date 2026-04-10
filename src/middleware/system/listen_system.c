@@ -7,7 +7,7 @@
 #include "c_datetime.h"
 #include "lisa_thread.h"
 #include "lisa_typedef.h"
-#include "listen_wifi.h"
+// #include "listen_wifi.h"
 #include "listen_system.h"
 #include "Driver_CALENDAR.h"
 #include "user_sntp.h"

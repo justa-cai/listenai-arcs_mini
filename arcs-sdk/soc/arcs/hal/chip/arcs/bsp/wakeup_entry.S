@@ -149,8 +149,8 @@ __idle_save:
 .type __idle_restore, @function
 __idle_restore:
     la a0, __stack_store_repo
-    la sp, _sp
-    csrw mscratch, sp
+    la t0, _sp
+    csrw mscratch, t0
     lw sp, 0(a0)
     lw ra,0(sp)
     lw tp,4(sp)

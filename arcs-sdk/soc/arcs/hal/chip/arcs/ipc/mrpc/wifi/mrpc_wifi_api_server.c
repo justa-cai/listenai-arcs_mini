@@ -15,10 +15,12 @@
 #include "ls_err.h"
 #include "ls_wifi_type.h"
 #include "wifi_api.h"
+#include "rf_cali.h"
 #include "ipc.h"
 #include "mrpc.h"
 #include "mrpc_wifi_api_msg.h"
 #include "mrpc_wifi_api_server.h"
+extern ls_err_t wifi_mfg_exec(char *params, int32_t params_len);
 
 static void mrpc_wifi_init(void *msg, struct mrpc_resp_msg *resp_msg)
 {
@@ -162,18 +164,6 @@ static void mrpc_wifi_get_sta_scanlist_nums(void *msg, struct mrpc_resp_msg *res
     memset(resp, 0, sizeof(mrpc_wifi_get_sta_scanlist_nums_resp_t));
     resp_msg->len = sizeof(mrpc_wifi_get_sta_scanlist_nums_resp_t);
     resp_msg->status = wifi_get_sta_scanlist_nums(&resp->ap_num);
-}
-
-static void mrpc_wifi_get_ipv4_addr(void *msg, struct mrpc_resp_msg *resp_msg)
-{
-    mrpc_wifi_get_ipv4_addr_req_t *req;
-    mrpc_wifi_get_ipv4_addr_resp_t *resp;
-
-    req = (mrpc_wifi_get_ipv4_addr_req_t*)msg;
-    resp = (mrpc_wifi_get_ipv4_addr_resp_t*)resp_msg;
-    memset(resp, 0, sizeof(mrpc_wifi_get_ipv4_addr_resp_t));
-    resp_msg->len = sizeof(mrpc_wifi_get_ipv4_addr_resp_t);
-    resp_msg->status = wifi_get_ipv4_addr(&resp->addr, &resp->mask, &resp->gw, &resp->dns);
 }
 
 static void mrpc_wifi_get_ap_rssi(void *msg, struct mrpc_resp_msg *resp_msg)
@@ -806,7 +796,6 @@ mrpc_msg_handler_t mrpc_msg_wifi_handlers[MRPC_MSG_ID_WIFI_MAX - MRPC_MSG_ID_WIF
     mrpc_wifi_sta_scanlist_dump,  /*MRPC_MSG_ID_WIFI_STA_SCANLIST_DUMP*/
     mrpc_wifi_get_scan_result,  /*MRPC_MSG_ID_WIFI_GET_SCAN_RESULT*/
     mrpc_wifi_get_sta_scanlist_nums,  /*MRPC_MSG_ID_WIFI_GET_STA_SCANLIST_NUMS*/
-    mrpc_wifi_get_ipv4_addr,  /*MRPC_MSG_ID_WIFI_GET_IPV4_ADDR*/
     mrpc_wifi_get_ap_rssi,  /*MRPC_MSG_ID_WIFI_GET_AP_RSSI*/
     mrpc_wifi_sta_aid_get,  /*MRPC_MSG_ID_WIFI_STA_AID_GET*/
     mrpc_wifi_get_channel,  /*MRPC_MSG_ID_WIFI_GET_CHANNEL*/

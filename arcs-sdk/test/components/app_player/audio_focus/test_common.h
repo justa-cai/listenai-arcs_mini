@@ -9,7 +9,6 @@
 #define TEST_COMMON_H
 
 #include "app_player.h"
-#include "tone.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,7 +27,7 @@ extern "C" {
 /** ALARM播放器URL */
 #define TEST_ALARM_URL "https://iflyos-external.oss-cn-shanghai.aliyuncs.com/public/duomotai/player_test_url/tts.mp3"
 
-/** TONE播放器使用本地音频文件，通过app_tone_get_url(TONE_ID_0)获取 */
+/** TONE播放器使用mem://协议从Flash读取音频，地址见test_common.c配置 */
 
 /* ========================================
  * 场景播放器名称定义

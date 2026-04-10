@@ -387,6 +387,42 @@ _EXT_RAM int flash_status_register_set(FLASH_DEV *dev, unsigned char reg_addr, c
     return ret;
 }
 
+_EXT_RAM int flash_status_register_set_by_idx(uint8_t idx, FLASH_DEV *dev, unsigned char reg_addr,
+                                              const uint32_t data_in, uint32_t *data_out)
+{
+#ifdef CONFIG_DUAL_FLASH
+    if (idx == 0) {
+        flash_dualflash_enable_excl(0);
+    } else if (idx == 1) {
+        flash_dualflash_enable_excl(1);
+    }
+#endif
+    int r = flash_status_register_set(dev, reg_addr, data_in, data_out);
+
+#ifdef CONFIG_DUAL_FLASH
+    flash_dualflash_enable_both();
+#endif
+
+    return r;
+}
+
+_EXT_RAM int flash_status_register_get_by_idx(uint8_t idx, FLASH_DEV *dev, unsigned char reg_addr, uint32_t *data_out)
+{
+#ifdef CONFIG_DUAL_FLASH
+    if (idx == 0) {
+        flash_dualflash_enable_excl(0);
+    } else if (idx == 1) {
+        flash_dualflash_enable_excl(1);
+    }
+#endif
+    int r = flash_status_register_get(dev, reg_addr, data_out);
+#ifdef CONFIG_DUAL_FLASH
+    flash_dualflash_enable_both();
+#endif
+
+    return r;
+}
+
 _EXT_RAM int flash_write_protection_set(FLASH_DEV *dev, bool enable)
 {
     int ret = -1;
@@ -466,6 +502,24 @@ _EXT_RAM int flash_read_jedec_id(FLASH_DEV *dev, uint32_t *jedec_id)
 
     return ret;
 }
+
+#ifdef CONFIG_DUAL_FLASH
+_EXT_RAM int flash_read_jedec_id_by_idx(FLASH_DEV *dev, uint32_t *jedec_id, uint8_t idx)
+{
+    int r;
+
+    if (idx == 0) {
+        flash_dualflash_enable_excl(0);
+    } else if (idx == 1) {
+        flash_dualflash_enable_excl(1);
+    }
+
+    r = flash_read_jedec_id(dev, jedec_id);
+    flash_dualflash_enable_both();
+
+    return r;
+}
+#endif
 
 _EXT_RAM unsigned int spirom_prepare_cmd(unsigned int cmd, unsigned int addr)
 {

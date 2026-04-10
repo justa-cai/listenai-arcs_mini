@@ -1,39 +1,48 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
 
 menu "algo components"
 
 config ACOMP
-    bool "algo components"
-    default n
+	bool "algo components"
 
 config ACOMP_MASTER
-    bool "algo components master"
-    default y
+	bool "algo components master"
+	default y
 
 if ACOMP
-    config ACOMP_WSP
-        bool "algo component word spell"
-        default n
+	config ACOMP_WSP
+		bool "algo component word spell"
 
-    config ACOMP_WAKEUP
-        bool "algo component wakeup"
-        default n
-    
-    config ACOMP_LOGGER
-        bool "algo component logger"
-        default n
+	config ACOMP_WAKEUP
+		bool "algo component wakeup"
 
-    config ACOMP_FD
-        bool "algo component face detection"
-        default n
+	config ACOMP_LOGGER
+		bool "algo component logger"
 
+	config ACOMP_FD
+		bool "algo component face detection"
+
+	config ACOMP_CV
+		bool "algo component cv"
+
+	config ACOMP_XTTS
+		bool "algo component xtts"
+
+	config ACOMP_TRANSLATION
+		bool "algo component translation"
+
+rsource "resmgr/Kconfig"
 rsource "wakeup/Kconfig"
 rsource "fd/Kconfig"
+rsource "cv/Kconfig"
+rsource "xtts/Kconfig"
+rsource "translation/Kconfig"
 endif
 
 if ACOMP_LOGGER
-    rsource "logger/Kconfig"
+	rsource "logger/Kconfig"
 endif
 
 rsource "Kconfig.res"
 endmenu
-

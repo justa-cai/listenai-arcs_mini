@@ -1,0 +1,7 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config RINGBUF
+	bool "Enable RINGBUF"
+	help
+		Enable RINGBUF

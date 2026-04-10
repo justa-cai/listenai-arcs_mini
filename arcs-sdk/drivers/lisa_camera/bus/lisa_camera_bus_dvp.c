@@ -65,7 +65,7 @@ static void dvp_event_callback(lisa_dvp_event_t event, void *user_data)
         return;
     }
 
-    LOGI("%s: event:%d", __func__, event);
+    LOGD("%s: event:%d", __func__, event);
     lisa_camera_fb_t *completed_fb = NULL;
     lisa_camera_fb_t *next_fb = NULL;
 
@@ -84,7 +84,6 @@ static void dvp_event_callback(lisa_dvp_event_t event, void *user_data)
             } else {
                 /* 没有空闲缓冲区,复用当前 Ping 缓冲区继续接收,丢弃本帧数据 */
                 LOGW("No free fb for ping reload, reuse current buffer and drop frame");
-                lisa_dvp_reload_pingpong(priv->dvp_dev, priv->ping_fb->buf);
                 completed_fb = NULL;  /* 不通知上层,丢弃本帧 */
             }
         }
@@ -103,7 +102,6 @@ static void dvp_event_callback(lisa_dvp_event_t event, void *user_data)
             } else {
                 /* 没有空闲缓冲区,复用当前 Pong 缓冲区继续接收,丢弃本帧数据 */
                 LOGW("No free fb for pong reload, reuse current buffer and drop frame");
-                lisa_dvp_reload_pingpong(priv->dvp_dev, priv->pong_fb->buf);
                 completed_fb = NULL;  /* 不通知上层,丢弃本帧 */
             }
         }
@@ -292,4 +290,4 @@ static int camera_bus_dvp_init(void)
 {
     return 0;
 }
-LISA_DEVICE_REGISTER(camera_bus, &lisa_camera_bus_dvp_if, &camera_bus_dvp_priv, NULL, camera_bus_dvp_init, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(camera_bus, &lisa_camera_bus_dvp_if, &camera_bus_dvp_priv, NULL, camera_bus_dvp_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);

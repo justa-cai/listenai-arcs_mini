@@ -591,7 +591,7 @@ void test_stream_stop_not_supported(void)
 
     /* 尝试同步停止 - 应该返回不支持 */
     printf("  [Test] Attempting to stop_sync during stream mode (should fail)\n");
-    ret = app_player_stop_sync(player);
+    ret = app_player_stop(player);
     printf("  [Test] stop_sync returns: %s\n", error_to_string(ret));
     TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_ERR_NOT_SUPPORTED, ret,
                               "stop_sync should not be supported in stream mode");
@@ -668,7 +668,7 @@ void test_stream_then_url_playback(void)
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 清理 - 现在可以使用 stop，因为已经退出流式模式 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 

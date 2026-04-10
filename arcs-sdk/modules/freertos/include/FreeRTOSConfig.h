@@ -83,7 +83,11 @@ your application. */
 #define configSYSTICK_CLOCK_HZ                  1000000 // 1MHz
 #define configUSE_PREEMPTION                    1
 #define configUSE_PORT_OPTIMISED_TASK_SELECTION 0
+#if defined(CONFIG_PM) && (CONFIG_PM==1)
+#define configUSE_TICKLESS_IDLE                 2
+#else
 #define configUSE_TICKLESS_IDLE                 0
+#endif
 #define configCPU_CLOCK_HZ                      SystemCoreClock
 #define configRTC_CLOCK_HZ                      32768
 #define configTICK_RATE_HZ                      ( ( TickType_t ) 1000)

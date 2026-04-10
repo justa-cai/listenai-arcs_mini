@@ -108,7 +108,7 @@ typedef void (*cb_fhost_tx)(uint32_t frame_id, bool acknowledged, void *arg);
 typedef struct net_if_call_fun_t
 {
     void (*net_init_done_cb)(void);
-    int (*tx_start_fn)(net_if_t *net_if, net_buf_tx_t *net_buf,
+    int (*tx_start_fn)(net_if_t *net_if, void *net_buf,
                           cb_fhost_tx cfm_cb, void *cfm_cb_arg);
     int32_t (*tx_start_from_ipc)(void *param);
     void (*rx_push_from_ipc)(void *net_buf);
@@ -578,8 +578,6 @@ net_if_t *net_if_get(int wifi_idx);
 int16_t net_if_to_idx(net_if_t *net_if);
 bool net_ip_task_avail(void);
 void net_tx_cfm(uint32_t frame_id, bool acknowledged, void *arg);
-void net_dhcps_start(struct netif * netif);
-void net_dhcps_stop(void);
 void net_wifi_init_done(void);
 ls_err_t lwip_pbuf_alloc(const struct pbuf ** pbuf, pbuf_layer layer, u16_t length, pbuf_type type);
 ls_err_t lwip_pbuf_free(struct pbuf *p, uint8_t *count);

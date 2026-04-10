@@ -34,6 +34,47 @@ SDMMC 需要配置以下引脚（参考 `boards/arcs_evb` 配置）：
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
+## 预期输出
+
+**终端输出：**
+```
+I/sdmmc_sample     [1034:42:44.159 1 main] LISA SDMMC Driver Example
+I/sdmmc_init      [1034:42:44.249 1 main] Card initialized successfully (Fixed/eMMC)
+I/lisa_sdmmc_arcs  [1034:42:44.249 1 main] SDMMC device initialized successfully
+I/sdmmc_sample     [1034:42:44.249 1 main] Disk Info:
+I/sdmmc_sample     [1034:42:44.249 1 main]   Sector count: 15728639
+I/sdmmc_sample     [1034:42:44.249 1 main]   Sector size:  512 bytes
+I/sdmmc_sample     [1034:42:44.250 1 main]   Total size:   7679 MB
+I/sdmmc_sample     [1034:42:44.254 1 main] Write sector 2048 OK
+I/sdmmc_sample     [1034:42:44.255 1 main] Read sector 2048 OK
+I/sdmmc_sample     [1034:42:44.255 1 main] LISA SDMMC Sample OK
+```
+
+输出说明：
+- 第 1 行：示例启动
+- 第 2-3 行：成功探测并初始化 eMMC 卡
+- 第 4-7 行：显示磁盘容量信息（15728639 个扇区 × 512 字节 ≈ 7679 MB）
+- 第 8-9 行：成功完成扇区 2048 的写入和读取验证
+- 第 10 行：示例运行成功
+
+## 核心 API
+
+| API | 说明 |
+|-----|------|
+| `lisa_device_get()` | 通过名称获取 SDMMC 设备 |
+| `lisa_sdmmc_probe()` | 探测 SD/MMC 卡并初始化 |
+| `lisa_sdmmc_status()` | 查询磁盘就绪状态 |
+| `lisa_sdmmc_get_sector_count()` | 获取扇区总数 |
+| `lisa_sdmmc_get_sector_size()` | 获取扇区大小 |
+| `lisa_sdmmc_write()` | 写入扇区数据 |
+| `lisa_sdmmc_read()` | 读取扇区数据 |
+
 ## 关键代码
 
 ```c
@@ -76,40 +117,6 @@ if (memcmp(buffer, test_data, sizeof(test_data)) == 0) {
 }
 ```
 
-## 预期输出
-
-**终端输出：**
-```
-I/sdmmc_sample     [1034:42:44.159 1 main] LISA SDMMC Driver Example
-I/sdmmc_init      [1034:42:44.249 1 main] Card initialized successfully (Fixed/eMMC)
-I/lisa_sdmmc_arcs  [1034:42:44.249 1 main] SDMMC device initialized successfully
-I/sdmmc_sample     [1034:42:44.249 1 main] Disk Info:
-I/sdmmc_sample     [1034:42:44.249 1 main]   Sector count: 15728639
-I/sdmmc_sample     [1034:42:44.249 1 main]   Sector size:  512 bytes
-I/sdmmc_sample     [1034:42:44.250 1 main]   Total size:   7679 MB
-I/sdmmc_sample     [1034:42:44.254 1 main] Write sector 2048 OK
-I/sdmmc_sample     [1034:42:44.255 1 main] Read sector 2048 OK
-I/sdmmc_sample     [1034:42:44.255 1 main] LISA SDMMC Sample OK
-```
-
-输出说明：
-- 第 1 行：示例启动
-- 第 2-3 行：成功探测并初始化 eMMC 卡
-- 第 4-7 行：显示磁盘容量信息（15728639 个扇区 × 512 字节 ≈ 7679 MB）
-- 第 8-9 行：成功完成扇区 2048 的写入和读取验证
-- 第 10 行：示例运行成功
-
-## 核心 API
-
-| API | 说明 |
-|-----|------|
-| `lisa_device_get()` | 通过名称获取 SDMMC 设备 |
-| `lisa_sdmmc_probe()` | 探测 SD/MMC 卡并初始化 |
-| `lisa_sdmmc_status()` | 查询磁盘就绪状态 |
-| `lisa_sdmmc_get_sector_count()` | 获取扇区总数 |
-| `lisa_sdmmc_get_sector_size()` | 获取扇区大小 |
-| `lisa_sdmmc_write()` | 写入扇区数据 |
-| `lisa_sdmmc_read()` | 读取扇区数据 |
 
 ## 注意事项
 

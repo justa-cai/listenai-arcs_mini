@@ -2,6 +2,7 @@ SET(ARCS_HAL_LIB_PATH ${CMAKE_CURRENT_SOURCE_DIR}/)
 
 listenai_library_named(arcs-hal)
 
+add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/bsp)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/driver)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/vrtc)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/event)
@@ -19,11 +20,13 @@ add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/ic_lock)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/utils)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/pm_impl)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/mbedtls)
+add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/bt_hal)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/nvs)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/btos)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/profiles)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/audio)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/codec)
+add_subdirectory(${ARCS_HAL_LIB_PATH}/modules/segger_rtt)
 
 ##部分依赖组件头文件！！！
 listenai_include_directories(

@@ -519,4 +519,5 @@ LISA_DEVICE_REGISTER(touch_st77921,
                      &touch_st77921_priv,
                      NULL,
                      lisa_touch_st77921_init,
+                     LISA_DEVICE_LEVEL_NORMAL,
                      LISA_DEVICE_PRIORITY_NORMAL);

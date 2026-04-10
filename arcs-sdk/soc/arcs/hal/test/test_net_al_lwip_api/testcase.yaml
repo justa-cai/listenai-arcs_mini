@@ -1,0 +1,5 @@
+tests:
+  test.net_al_lwip_api:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"

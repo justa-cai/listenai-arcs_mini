@@ -1,0 +1,218 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_ARCS
+	bool
+
+if SOC_ARCS
+
+config SOC_HAS_NPU
+	bool "SoC has NPU"
+	help
+		SoC 集成 NPU（神经网络处理单元）。
+		由具体型号的 defconfig 自动设置，无需手动开启。
+
+config MEM_CONFIG
+	bool
+	default y
+
+menu "Memory Layout"
+
+config MEM_INTERRUPT_STACK_SIZE
+	hex "interrupt stack size"
+	default 0x1000
+
+config MEM_HEAP_SIZE
+	int "heap size (bytes)"
+	default 512
+
+menu "SRAM"
+config MEM_SRAM_BASE
+	hex "base address"
+	default 0x20049000 if ARCS_AP_CORE
+	default 0x20010000
+	help
+		SoC SRAM 起始地址。AP/CP 核心使用不同的 SRAM 窗口。
+		双核内存分区场景可在 prj.conf 中覆盖。
+
+config MEM_SRAM_SIZE
+	hex "size"
+	default 0x0000F800 if ARCS_AP_CORE
+	default 0x00030000
+	help
+		SoC SRAM 大小。
+		CP 默认 192KB（0x20010000-0x20040000）。
+		AP 默认 62KB（0x20049000-0x20058800）。
+		双核分区时可按核心调整。
+endmenu
+
+menu "PSRAM"
+config MEM_PSRAM_BASE
+	hex "base address"
+	default 0x28000000
+	help
+		外部 PSRAM 起始地址，由芯片硬件决定。
+		仅双核内存分区场景可覆盖。
+
+config MEM_PSRAM_SIZE
+	hex "size"
+	default 0x00800000 if !SOC_SERIES_LS26XX
+	help
+		外部 PSRAM 大小。双核分区时可按核心调整。
+		设为 0 表示该核心不使用 PSRAM。
+		选择了 LS26xx 具体型号时，由型号 defconfig 覆盖此默认值。
+endmenu
+
+menu "Flash"
+config MEM_FLASH_BASE
+	hex "base address"
+	default 0x30000000
+	help
+		Flash 映射起始地址，由芯片硬件决定。
+		仅双核内��分区场景可覆盖。
+
+config MEM_FLASH_SIZE
+	hex "size"
+	default 0x00800000
+	help
+		Flash 可用大小。双核分区时可按核心调整。
+endmenu
+
+menu "Local Memory (TCM)"
+config MEM_ILM_BASE
+	hex "ILM base address"
+	default 0x00080000 if ARCS_AP_CORE
+	default 0x00280000 if ARCS_CP_CORE
+	help
+		指令紧耦合内存起始地址，由芯片硬件决定，AP/CP 核心各有独立地址。
+		通常无需覆盖。
+
+config MEM_ILM_SIZE
+	hex "ILM size"
+	default 0x00004000
+
+config MEM_DLM_BASE
+	hex "DLM base address"
+	default 0x00100000 if ARCS_AP_CORE
+	default 0x00300000 if ARCS_CP_CORE
+	help
+		数据紧耦合内存起始地址，由芯片硬件决定，AP/CP 核心各有独立地址。
+		通常无需覆盖。
+
+config MEM_DLM_SIZE
+	hex "DLM size"
+	default 0x00002000
+endmenu
+
+menu "LUNA RAM"
+config MEM_LUNA_BASE
+	hex "base address"
+	default 0x200B0000
+	help
+		LUNA 核专属 SRAM 起始地址，由芯片硬件决定。通常无需覆盖。
+
+config MEM_LUNA_SIZE
+	hex "size"
+	default 0x00006000
+
+config MEM_LUNA_SHARED_BASE
+	hex "shared memory base address"
+	default 0x20042000
+	help
+		LUNA 共享内存起始地址，必须在 0x20040000 起始的 64KB 区域内。
+		双核分区时需在 prj.conf 中根据内存分区覆盖。
+
+config MEM_LUNA_SHARED_SIZE
+	hex "shared memory size"
+	default 0x00007000
+	help
+		LUNA 共享内存大小。设为 0 可禁用 LUNA 共享内存区域。
+endmenu
+
+menu "Bluetooth RAM"
+config MEM_BTRAM_BASE
+	hex "base address"
+	default 0x200C0000
+	help
+		蓝牙 RAM 起始地址，由芯片硬件决定。通常无需覆盖。
+
+config MEM_BTRAM_SIZE
+	hex "size"
+	default 0x00006000
+endmenu
+
+menu "IPC Shared Memory"
+config MEM_IPC_ISOLATED
+	bool "Isolated IPC RAM region"
+	default y
+
+config MEM_IPC_BASE
+	hex "base address"
+	default 0x20040000
+	depends on MEM_IPC_ISOLATED
+	help
+		IPC 共享内存起始地址。位于 CP SRAM 之后（0x20040000）。
+		通常无需覆盖。
+
+config MEM_IPC_SIZE
+	hex "size"
+	default 0x00002000
+	depends on MEM_IPC_ISOLATED
+endmenu
+
+menu "Algorithm RAM"
+config MEM_APRAM_BASE
+	hex "base address"
+	default 0x20058800
+	help
+		算法专用 SRAM 起始地址。
+		双核分区时需在 prj.conf 中根据内存布局覆盖。
+
+config MEM_APRAM_SIZE
+	hex "size"
+	default 0x00057800
+	help
+		算法专用 SRAM 大小（默认 350KB）。设为 0 表示不使用。
+		不同项目可按需调整，注意避免与其他 SRAM 区域重叠。
+endmenu
+
+menu "WiFi Memory"
+config MEM_WFRAM_BASE
+	hex "WiFi RAM base address"
+	default 0x20000000
+	help
+		WiFi RAM 起始地址，由芯片硬件决定。通常无需覆盖。
+
+config MEM_WFRAM_SIZE
+	hex "WiFi RAM size"
+	default 0x00000000 if ARCS_AP_CORE
+	default 0x00010000
+	help
+		WiFi RAM 大小。AP 核默认不使用独立 WiFi RAM（size=0）。
+		CP 核默认 64KB。
+
+config MEM_WIFI_CALIBRATION_SIZE
+	hex "WiFi calibration data size"
+	default 0x4000 if ARCS_AP_CORE
+	default 0x0000
+	help
+		WiFi 校准数据预留大小。双核场景下仅 AP 核需要（负责 WiFi 初始化）。
+		单核场景如需 WiFi 校准，可在 prj.conf 中覆盖。
+
+config MEM_WIFI_TRACE_SIZE
+	hex "WiFi trace data size"
+	default 0x2000 if ARCS_AP_CORE
+	default 0x0000
+	help
+		WiFi 跟踪数据预留大小。双核场景下仅 AP 核需要。
+		单核场景如需 WiFi 跟踪，可在 prj.conf 中覆盖。
+
+endmenu
+
+endmenu # Memory Layout
+
+rsource "hal/Kconfig"
+rsource "common/startup/Kconfig"
+endif # SOC_ARCS
+
+rsource "ls26xx/Kconfig"

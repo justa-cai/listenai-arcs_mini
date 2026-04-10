@@ -23,7 +23,11 @@
  ****************************************************************************************
  */
 /// Maximum number of ping streams
+#if defined(CONFIG_PM) && CONFIG_PM
+#define NET_PING_MAX_STREAMS 1
+#else
 #define NET_PING_MAX_STREAMS 3
+#endif
 /// Profile ID for ping command
 #define NET_PROF_PING 7
 

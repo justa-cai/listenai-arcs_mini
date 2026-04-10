@@ -28,4 +28,7 @@ if (DEFINED CONFIG_SDK_MODULE_LVGL8)
         listenai_library_sources(${DEMO_SOURCES})
     endif()
 
+    # Relocate LVGL8 code to PSRAM to save Flash space
+    listenai_code_relocate(LIBRARY modules_lvgl8 LOCATION PSRAM_TEXT)
+
 endif()
