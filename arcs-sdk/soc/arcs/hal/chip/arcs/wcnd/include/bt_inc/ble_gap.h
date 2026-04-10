@@ -524,6 +524,52 @@ enum gap_exit_latency_type
     GAP_EXIT_LATENCY_ALL      = 0xff,
 };
 
+/// Bond event type.
+/*@TRACE*/
+enum gap_bond_encrypt_info
+{
+    /// Pairing Finished information
+    GAP_PAIRING_SUCCEED,
+    /// Pairing Failed information
+    GAP_PAIRING_FAILED,
+
+    /// Used to retrieve pairing Temporary Key
+    GAP_TK_EXCH,
+    /// Used for Identity Resolving Key exchange
+    GAP_IRK_EXCH,
+    /// Used for Connection Signature Resolving Key exchange
+    GAP_CSRK_EXCH,
+    /// Used for Long Term Key exchange
+    GAP_LTK_EXCH,
+    /// Used for classic bt link key exchange
+    GAP_LK_EXCH,
+
+    /// Bond Pairing request issue, Repeated attempt
+    GAP_REPEATED_ATTEMPT,
+
+    /// Out of Band - exchange of confirm and rand.
+    GAP_OOB_EXCH,
+
+    /// Numeric Comparison - Exchange of Numeric Value -
+    GAP_NC_EXCH,
+
+    /// Link encrypted.
+    GAP_LINK_ENCRYPTED,
+
+    /// link encrypt request info.
+    GAP_LINK_ENCRYPT_REQ,
+
+    /// bt link auth req
+    GAP_BT_LINK_AUTH_REQ,
+};
+/// BT Discovery Types
+enum bt_gapm_disc_type
+{
+    /// General discovery
+    BT_GAPM_DISC_TYPE_GEN_DISC = 0,
+    /// Limited discovery
+    BT_GAPM_DISC_TYPE_LIM_DISC,
+};
 
 typedef struct ble_gap_cfg
 {
@@ -1142,6 +1188,16 @@ void ble_gap_per_sync_stop();
  */
 void ble_gap_set_loc_pub_addr(uint8_t *addr);
 
+
+/**
+ * gap add rpa to list addr.
+ *
+ * @param None.
+ *
+ * @return None.
+ */
+uint8_t ble_gap_add_paired_rpa_to_rlist(void);
+
 #if (BT_STACK_PRESENT)
 /**
  * Enable gap bt stack
@@ -1165,14 +1221,13 @@ void bt_gap_discover_create(uint8_t own_addr_type);
 /**
  * Enable gap bt discover start
  *
- * @param actv_idx               active idx
  * @param disc_mode              discover mode
  * @param max_count              max count
  * @param get_name               get name flag
  *
  * @return None.
  */
-void bt_gap_discover_start(uint8_t actv_idx, uint8_t disc_mode, uint8_t max_count, bool get_name);
+void bt_gap_discover_start(uint8_t disc_mode, uint8_t max_count, bool get_name);
 
 /**
  * Enable gap bt connect
@@ -1184,8 +1239,16 @@ void bt_gap_discover_start(uint8_t actv_idx, uint8_t disc_mode, uint8_t max_coun
  *
  * @return None.
  */
-
 void bt_gap_connect(gap_bdaddr_t addr, uint8_t type, uint16_t clk_off, uint8_t page_scan_rep_mode);
+
+/**
+ * Stop gap bt connect
+ *
+ * @param None.
+ *
+ * @return None.
+ */
+void bt_gap_connect_cancel(void);
 
 /**
  * Bt scan enable

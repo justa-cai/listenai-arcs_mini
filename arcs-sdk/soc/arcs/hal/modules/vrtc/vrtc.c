@@ -17,127 +17,134 @@
 #include "Driver_AON_TIMER.h"
 #include "ClockManager.h"
 #include "arcs_ap.h"
+#include "rtos_al.h"
+#include "vrtc.h"
+#include "amp_shared.h"
+#ifdef CFG_AMP_IPC
+#include "ipc_utils.h"
+#include "ic_spinlock.h"
+#endif
+#include "PowerManager.h"
+#include "pm_impl.h"
 
-#define VRTC_PERIOD_DEFAULT     20
+#define VRTC_TIMER_VALUE_MASK          (0xFFFFFF)
+#define VRTC_TIMEOUT                   (20) /*s*/
+#define VRTC_CALI_PERIOD               2//(VRTC_TIMEOUT - 2) /*s*/
+#define VRTC_DEFAULT_VAL               (VRTC_TIMEOUT * 32768)
+#define VRTC_FREQ_SHIFT                10
+#define VRTC_CLOCK_DRIFT               0 /*drfit(us) per second*/
 
-#define VRTC_PERIOD_CAL         20
 
-#define VRTC_MODE_DEFAULT       0
-#define VRTC_MODE_TIMER         1
 
-#define VRTC_UPDATE_MARGIN 1
+#ifndef CFG_AMP_IPC
 
-#define GLOBAL_INT_DISABLE() vPortEnterCritical()
-#define GLOBAL_INT_RESTORE() vPortExitCritical()
+#define VRTC_SPIN_LOCK(lock)
+#define VRTC_SPIN_UNLOCK(lock)
+#define VRTC_SPIN_LOCK_IRQSAVE(lock)
+#define VRTC_SPIN_UNLOCK_IRQSAVE(lock)
 
-struct vrtc_info
+#else
+
+#define VRTC_SPIN_LOCK(lock)                     ic_spin_lock(lock)
+#define VRTC_SPIN_UNLOCK(lock)                   ic_spin_unlock(lock)
+#define VRTC_SPIN_LOCK_IRQSAVE(lock)             ic_spin_lock_irqsave(lock)
+#define VRTC_SPIN_UNLOCK_IRQSAVE(lock)           ic_spin_unlock_irqsave(lock)
+
+#endif
+
+#define VRTC_DEBUG  0
+
+#if VRTC_DEBUG
+#define vrtc_dbg(fmt, ...)    logDbg(fmt, ##__VA_ARGS__)
+#define vrtc_err(fmt, ...)    logDbg(fmt, ##__VA_ARGS__)
+#else
+#define vrtc_dbg(fmt, ...)
+#define vrtc_err(fmt, ...)    logDbg(fmt, ##__VA_ARGS__)
+#endif
+
+#define VRTC_START_CALI() do {\
+                            IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_START = 0x1;\
+                          } while(0)
+
+#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+
+struct vrtc_timer
 {
+    int16_t id;
+    int16_t next;
     uint32_t sec;
     uint32_t usec;
-    uint32_t origin_period;
-    uint32_t current_period;
-    uint32_t last_cal_time;
-    uint32_t mode;
-    uint32_t freq;
     void (*handler) (void);
 };
 
-struct vrtc_info vrtc_env;
+struct vrtc_reg_info reg_info;
 
 static void *time_handle = NULL;
-int32_t vrtc_get_time(int32_t origin, uint32_t *sec, uint32_t *usec);
+static struct vrtc_timer vrtc_timer_pool[VRTC_TIMER_IDX_MAX];
+static struct vrtc_timer *vrtc_current_timer = NULL;
+static uint32_t vrtc_last_rccal_result = 0;
 
-extern void vPortEnterCritical(void);
-extern void vPortExitCritical(void);
+#endif
+volatile struct vrtc_reg_info *vrtc_reg;
 
-static void vrtc_calc_time(uint32_t value, uint32_t *sec, uint32_t *usec)
+
+static void vrtc_update_time(uint32_t value, int32_t compensation)
 {
-    uint32_t freq;
-    uint64_t tmp = value;
+    vrtc_reg->sec  += value / vrtc_reg->freq;
+    vrtc_reg->usec += (((value % vrtc_reg->freq) * vrtc_reg->freq_fact) >> VRTC_FREQ_SHIFT) + compensation;
 
-    freq  = vrtc_env.freq;
-    *sec  = value / freq;
-    tmp   = (tmp % freq) * 1000000 / freq;
-    *usec = (uint32_t)tmp;
-}
-
-static void vrtc_cal_rcclk(void)
-{
-    uint32_t freq;
-
-    if ((vrtc_env.sec - vrtc_env.last_cal_time) >= VRTC_PERIOD_CAL)
+    if (vrtc_reg->usec >= 1000000)
     {
-        freq = CRM_GetSrcFreq(CRM_IpSrcAon32kClk);
-        if (freq != vrtc_env.freq)
-            vrtc_env.freq = freq;
-        vrtc_env.last_cal_time = vrtc_env.sec;
+        vrtc_reg->sec  += vrtc_reg->usec / 1000000;
+        vrtc_reg->usec %= 1000000;
     }
 }
 
-static void vrtc_update_time(uint32_t value)
+_PM_TEXT_TEXT int32_t vrtc_get_time(int32_t origin, uint32_t *sec, uint32_t *usec)
 {
-    uint32_t freq;
-    uint64_t tmp = value;
+    uint32_t val;
+#if VRTC_DEBUG
+    uint32_t raw, wrap = 0;
+#endif
+    (void)origin;
+    VRTC_SPIN_LOCK_IRQSAVE(IC_SPIN_LOCK_TYPE_VRTC);
+    val = IP_AON_TIMER->REG_OSTIMER_CURVAL.all;
+#if VRTC_DEBUG
+    raw = val;
+#endif
 
-    freq = vrtc_env.freq;
-    vrtc_env.sec += value / freq;
-    tmp = (tmp % freq) * 1000000 / freq;
-    vrtc_env.usec += (uint32_t)tmp;
-    if (vrtc_env.usec >= 1000000)
+    if (!(IP_AON_TIMER->REG_OS_TIMER_IRQ_CAUSE.bit.OSTIMER_STATUS))
     {
-        vrtc_env.sec  += vrtc_env.usec / 1000000;
-        vrtc_env.usec %= 1000000;
+        val = vrtc_reg->period - val;
+    }
+    else /*wrap*/
+    {
+        val = vrtc_reg->period + (vrtc_reg->period - IP_AON_TIMER->REG_OSTIMER_CURVAL.all);
+        #if VRTC_DEBUG
+        wrap = 1;
+        #endif
     }
 
-    vrtc_cal_rcclk();
-}
-
-static void vrtc_isr(uint32_t event, void* workspace)
-{
-    uint32_t val = 0;
-
-    switch (vrtc_env.mode)
-    {
-        case VRTC_MODE_TIMER:
-            AON_TIMER_ReadTimerCount(time_handle, &val);
-            AON_TIMER_SetTimerPeriodByCount(time_handle, vrtc_env.origin_period);
-            if (val >= vrtc_env.current_period - 1)/*Maybe wrap*/
-                vrtc_update_time(vrtc_env.current_period + (vrtc_env.current_period - val + 1 + VRTC_UPDATE_MARGIN));
-            else
-                vrtc_update_time(vrtc_env.current_period - val + VRTC_UPDATE_MARGIN);
-
-            vrtc_env.mode = VRTC_MODE_DEFAULT;
-            vrtc_env.current_period = vrtc_env.origin_period;
-            if (vrtc_env.handler)
-                vrtc_env.handler();
-
-            break;
-        default:
-            vrtc_update_time(vrtc_env.origin_period);
-            break;
-    }
-}
-
-int32_t vrtc_get_time(int32_t origin, uint32_t *sec, uint32_t *usec)
-{
-    uint32_t  secl = 0, usecl = 0, val = 0;
-
-    AON_TIMER_ReadTimerCount(time_handle, &val);
-    vrtc_calc_time((vrtc_env.current_period - val), &secl, &usecl);
-
-    *usec = vrtc_env.usec + usecl;
-    *sec  = vrtc_env.sec + secl;
+    *sec  = vrtc_reg->sec + val / vrtc_reg->freq;
+    *usec = vrtc_reg->usec + (((val % vrtc_reg->freq) * vrtc_reg->freq_fact) >> VRTC_FREQ_SHIFT) + (VRTC_CLOCK_DRIFT * val / vrtc_reg->freq);
+    VRTC_SPIN_UNLOCK_IRQSAVE(IC_SPIN_LOCK_TYPE_VRTC);
 
     if (*usec >= 1000000)
     {
         *sec  += *usec / 1000000;
         *usec %= 1000000;
     }
-
+#if VRTC_DEBUG
+    if (wrap)
+        vrtc_dbg("Get: wrap ");
+    else
+        vrtc_dbg("Get: ok ");
+    vrtc_dbg("val %d(%d) time %d.%06d period %d f %d\n", val, raw, *sec, *usec, vrtc_reg->period, vrtc_reg->freq);
+#endif
     return 0;
 }
 
-uint64_t vrtc_get_time_us(void)
+_PM_TEXT_TEXT uint64_t vrtc_get_time_us(void)
 {
     uint32_t sec, usec;
     uint64_t time;
@@ -148,50 +155,320 @@ uint64_t vrtc_get_time_us(void)
     return time;
 }
 
-int32_t vrtc_set_timer(uint32_t duration, void (*handler) (void))
+uint32_t vrtc_get_freq(void)
 {
-    uint32_t freq, period, val = 0;
-
-    freq = vrtc_env.freq;
-
-    /*105us*/
-    period = vrtc_env.freq * duration / 1000000 - 1;
-    GLOBAL_INT_DISABLE();
-    AON_TIMER_ReadTimerCount(time_handle, &val);
-    AON_TIMER_SetTimerPeriodByCount(time_handle, period);
-    GLOBAL_INT_RESTORE();
-
-    /*29us29us*/
-    if (val >= vrtc_env.current_period - 1)/*Maybe wrap*/
-        vrtc_update_time(vrtc_env.current_period + (vrtc_env.current_period - val + 1) + VRTC_UPDATE_MARGIN);
-    else
-        vrtc_update_time(vrtc_env.current_period - val + VRTC_UPDATE_MARGIN);
-
-    vrtc_env.current_period = period;
-    vrtc_env.mode    = VRTC_MODE_TIMER;
-    vrtc_env.handler = handler;
-
-    return 0;
+    return vrtc_reg->freq;
 }
 
-int32_t vrtc_init(void)
+#if VRTC_DEBUG
+static volatile uint32_t start_time, raw_time, timer_begin;
+static volatile union CORE_IOMUX_REG_PAD_GPIOB_00 *ptr = (union CORE_IOMUX_REG_PAD_GPIOB_00*)(0x48100000UL + (6<<2));
+#endif
+
+#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+static void vrtc_rccali_irq_handle(void)
 {
     uint32_t freq;
 
-    time_handle = AON_TIMER();
+    IP_AON_CTRL->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_CLR = 1;
+    freq = (IC_BOARD_XTAL_FREQ << IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_LENGTH) / IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_RESULT;
+    vrtc_reg->freq = (vrtc_reg->freq + freq) >> 1;
+    vrtc_reg->freq_fact = (1000000 << VRTC_FREQ_SHIFT) / vrtc_reg->freq;
+    freq = (IC_BOARD_XTAL_FREQ / 1000000);
+    IP_AON_CTRL->REG_AON_WF_CTRL2.bit.CFG_SW_RCCAL_VALUE_US = (IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_RESULT << (20 - IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_LENGTH)) / freq;
+}
 
-    memset(&vrtc_env, 0, sizeof(struct vrtc_info));
-    freq = CRM_GetSrcFreq(CRM_IpSrcAon32kClk);
-    vrtc_env.origin_period  = freq * VRTC_PERIOD_DEFAULT;
-    vrtc_env.current_period = vrtc_env.origin_period;
-    vrtc_env.mode = VRTC_MODE_DEFAULT;
-    vrtc_env.freq = freq;
+static void vrtc_isr(uint32_t event, void* workspace)
+{
+#if VRTC_DEBUG
+    uint64_t time1;
+    uint32_t time_h, time_l, data;
+    uint32_t val = IP_AON_TIMER->REG_OSTIMER_CURVAL.all;
+    volatile uint32_t time_now = rtos_get_sys_us();
+    uint32_t n, t;
+#endif
+    //VRTC_START_CALI();
+    VRTC_SPIN_LOCK(IC_SPIN_LOCK_TYPE_VRTC);
+    vrtc_update_time(vrtc_reg->period, (VRTC_CLOCK_DRIFT * vrtc_reg->period / vrtc_reg->freq));
+#if VRTC_DEBUG
+#if 0
+    if (start_time == 0)
+    {
+        start_time = time_now;
+        vrtc_reg->sec = 0;
+        vrtc_reg->usec = 0;
+    }
+    else
+    {
+        raw_time = vrtc_reg->sec*1000000 + vrtc_reg->usec - (VRTC_CLOCK_DRIFT * vrtc_reg->period / vrtc_reg->freq);
+    }
 
-    AON_TIMER_Initialize(time_handle, vrtc_isr, NULL);
-    AON_TIMER_PowerControl(time_handle, CSK_POWER_FULL);
-    AON_TIMER_Control(time_handle, HAL_AON_TIMER_MODE_Repeat | HAL_AON_TIMER_INTERRUPT_Enabled | HAL_AON_TIMER_CLK_SEL_Rc32k);
-    AON_TIMER_SetTimerPeriodByCount(time_handle, vrtc_env.origin_period);
-    AON_TIMER_StartTimer(time_handle);
+    time_now -= start_time;
+#else
+    raw_time = vrtc_reg->sec*1000000 + vrtc_reg->usec - (VRTC_CLOCK_DRIFT * vrtc_reg->period / vrtc_reg->freq);
+#endif
+#endif
+    if (vrtc_current_timer != NULL)
+    {
+        if (vrtc_current_timer->next != -1)
+        {
+            uint32_t period;
+            uint64_t usec1, usec2;
+            struct vrtc_timer *timer;
+
+            timer = &vrtc_timer_pool[vrtc_current_timer->next];
+            usec1 = (uint64_t)vrtc_reg->sec * 1000000 + vrtc_reg->usec;
+            usec2 = (uint64_t)timer->sec * 1000000 + timer->usec;
+            if (usec2 > (usec1 + 100))
+            {
+                period = (uint32_t)(usec2 - usec1);
+                period = ((uint64_t)(vrtc_reg->freq) * period) / 1000000;
+                AON_TIMER_SetTimerPeriodByCount(time_handle, period - 1);
+                vrtc_reg->period = period;
+
+                if (vrtc_current_timer->handler)
+                    vrtc_current_timer->handler();
+
+                vrtc_dbg("%s cb next perid %d\n", __func__, period);
+            }
+            else
+            {
+                AON_TIMER_SetTimerPeriodByCount(time_handle, VRTC_DEFAULT_VAL);
+
+                if (vrtc_current_timer->handler)
+                    vrtc_current_timer->handler();
+                if (timer->handler)
+                    timer->handler();
+                vrtc_dbg("%s overflow %d %d.%06d\n", __func__, vrtc_current_timer->next, timer->sec, timer->usec);
+
+                goto PERM_TIMER;
+            }
+            vrtc_current_timer = timer;
+            VRTC_SPIN_UNLOCK(IC_SPIN_LOCK_TYPE_VRTC);
+            #if VRTC_DEBUG
+            ptr->bit.PAD_GPIOB_00_OUT_REG = 1;
+            #endif
+            return;
+        }
+        else
+        {
+            AON_TIMER_SetTimerPeriodByCount(time_handle, VRTC_DEFAULT_VAL);
+
+            if (vrtc_current_timer && vrtc_current_timer->handler)
+                vrtc_current_timer->handler();
+            vrtc_dbg("%s last timer\n", __func__);
+        }
+    }
+
+PERM_TIMER:
+#if VRTC_DEBUG
+    data = vrtc_reg->period;
+#endif
+    vrtc_reg->period   = VRTC_DEFAULT_VAL;
+    vrtc_current_timer = NULL;
+#if VRTC_DEBUG
+    n = IP_AON_TIMER->REG_OSTIMER_CURVAL.all;
+    t = IP_AON_TIMER->REG_OSTIMER_CTRL.all;
+#endif
+    VRTC_SPIN_UNLOCK(IC_SPIN_LOCK_TYPE_VRTC);
+
+#if VRTC_DEBUG
+    vrtc_dbg("\nISR: val %x period %d def %d reg %d 0x%x\n", val, data, VRTC_DEFAULT_VAL, n, t);
+
+    time1 = (uint64_t)vrtc_reg->sec * 1000000 + vrtc_reg->usec;
+
+    time_l = time1;
+    time_h = 0;
+    vrtc_dbg("     vrtc: %d-%d ", time_h, time_l);
+    time_l = time_now;
+    time_h = 0;
+    vrtc_dbg("mtime: %d-%d ", time_h, time_l);
+    vrtc_dbg("gap: %d ", time_now - timer_begin);
+
+    time_l = time_now - time1;
+    vrtc_dbg("delta: %d %d\n\n", time_l, (time_now - raw_time));
+#endif
+}
+#if defined(CFG_AMP_IPC_SLAVE)
+static void vrtc_isr_ipc_cb(void)
+{
+    ipc_send_notify(IPC_EVT_VRTC_ALERT);
+    vrtc_dbg("ISR: ipc\n");
+}
+#endif
+
+int32_t vrtc_set_timer(int32_t timer_idx, uint32_t duration_us, void (*handler) (void))
+{
+    uint32_t tick = 0, sec, usec;
+    struct vrtc_timer *next_timer;
+
+    if ((timer_idx < 0) || (timer_idx >= VRTC_TIMER_IDX_MAX))
+        return -1;
+#if VRTC_DEBUG
+    timer_begin = rtos_get_sys_us() - start_time;
+#endif
+    if ((duration_us > 100) && (timer_idx < VRTC_TIMER_IDX_MAX))
+    {
+        VRTC_SPIN_LOCK_IRQSAVE(IC_SPIN_LOCK_TYPE_VRTC);
+        tick = IP_AON_TIMER->REG_OSTIMER_CURVAL.all;
+        if (!(IP_AON_TIMER->REG_OS_TIMER_IRQ_CAUSE.bit.OSTIMER_STATUS))
+        {
+            tick = vrtc_reg->period - tick;
+        }
+        else
+        {
+            tick = vrtc_reg->period + (vrtc_reg->period - IP_AON_TIMER->REG_OSTIMER_CURVAL.all);
+        }
+        sec  = vrtc_reg->sec + tick / vrtc_reg->freq + duration_us / 1000000;
+        usec = vrtc_reg->usec + (((tick % vrtc_reg->freq) * vrtc_reg->freq_fact) >> VRTC_FREQ_SHIFT) + (VRTC_CLOCK_DRIFT * tick / vrtc_reg->freq) + duration_us % 1000000;
+
+        if (usec >= 1000000)
+        {
+            sec  += usec / 1000000;
+            usec %= 1000000;
+        }
+        next_timer = &vrtc_timer_pool[timer_idx];
+        next_timer->sec     = sec;
+        next_timer->usec    = usec;
+        next_timer->handler = handler;
+
+        if ((vrtc_current_timer) && ((vrtc_current_timer->id != timer_idx) || (vrtc_current_timer->next != -1)))
+        {
+            struct vrtc_timer *timer;
+
+            timer = &vrtc_timer_pool[VRTC_TIMER_IDX_LOCAL + VRTC_TIMER_IDX_IPC - timer_idx];
+            if ((timer->sec < sec) || ((timer->sec == sec) && (timer->usec < usec)))
+                next_timer = timer;
+        }
+
+        if ((vrtc_current_timer != next_timer) || (vrtc_current_timer->id == timer_idx))
+        {
+            uint64_t usec1, usec2;
+
+            tick = IP_AON_TIMER->REG_OSTIMER_CURVAL.all;
+            if (!(IP_AON_TIMER->REG_OS_TIMER_IRQ_CAUSE.bit.OSTIMER_STATUS))
+            {
+                vrtc_update_time(vrtc_reg->period - tick, (VRTC_CLOCK_DRIFT * vrtc_reg->period / vrtc_reg->freq));
+            }
+            else
+            {
+                IP_AON_TIMER->REG_OS_TIMER_IRQ_CLR.all = 0x1;
+                vrtc_update_time(vrtc_reg->period + (vrtc_reg->period - IP_AON_TIMER->REG_OSTIMER_CURVAL.all), (VRTC_CLOCK_DRIFT * (vrtc_reg->period - tick) / vrtc_reg->freq));
+            }
+            usec1 = (uint64_t)vrtc_reg->sec * 1000000 + vrtc_reg->usec;
+            usec2 = (uint64_t)next_timer->sec * 1000000 + next_timer->usec;
+            if (usec2 >= usec1)
+            {
+                tick = (uint32_t)(usec2 - usec1);
+                tick = ((uint64_t)(vrtc_reg->freq) * tick) / 1000000;
+                AON_TIMER_SetTimerPeriodByCount(time_handle, (uint32_t)tick - 1);
+                vrtc_reg->period = (uint32_t)tick;
+                if (vrtc_current_timer && vrtc_current_timer != next_timer)
+                {
+                    next_timer->next = vrtc_current_timer->id;
+                    vrtc_current_timer->next = -1;
+                    vrtc_current_timer = next_timer;
+                }
+                else if (vrtc_current_timer == NULL)
+                {
+                    next_timer->next   = -1;
+                    vrtc_current_timer = next_timer;
+                }
+                vrtc_dbg("Set:Active\n");
+            }
+            else
+            {
+                vrtc_err("Set VRTC: invalid timer %d.%06d cur:%d.%06d\n", next_timer->sec, next_timer->usec, vrtc_reg->sec, vrtc_reg->usec);
+            }
+        }
+        else
+        {
+            vrtc_current_timer->next = timer_idx;
+            vrtc_timer_pool[timer_idx].next = -1;
+        }
+        VRTC_SPIN_UNLOCK_IRQSAVE(IC_SPIN_LOCK_TYPE_VRTC);
+#if VRTC_DEBUG
+        if (next_timer == &vrtc_timer_pool[timer_idx])
+            vrtc_err("Set: head\n");
+        else
+            vrtc_err("Set: tail\n");
+#endif
+    }
+    else
+    {
+        if (handler)
+            handler();
+    }
+    vrtc_dbg("Set: id %d tick %d dur %d mtime %d rtc %d.%06d\n", timer_idx, (uint32_t)tick, duration_us, timer_begin, vrtc_reg->sec, vrtc_reg->usec);
 
     return 0;
 }
+#if defined(CFG_AMP_IPC_SLAVE)
+int32_t vrtc_set_timer_from_ipc(void)
+{
+    vrtc_set_timer(VRTC_TIMER_IDX_IPC, vrtc_reg->timeout_req, vrtc_isr_ipc_cb);
+
+    return 0;
+}
+#endif
+#else
+int32_t vrtc_set_timer(int32_t timer_idx, uint32_t duration_us, void (*handler) (void))
+{
+    vrtc_reg->timeout_req = duration_us - 32;
+    ipc_send_notify(IPC_EVT_VRTC_SET);
+
+    return 0;
+}
+#endif
+
+int32_t vrtc_init(void)
+{
+#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+    int32_t i;
+    volatile struct vrtc_timer *timer;
+#endif
+#if !defined(CFG_AMP_IPC)
+    memset(&reg_info, 0, sizeof(struct vrtc_reg_info));
+    vrtc_reg = &reg_info;
+#else
+    vrtc_reg = &(ipc_get_shared_info()->vtc_reg);
+#endif
+
+#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+    for (i = 0; i < VRTC_TIMER_IDX_MAX; i++)
+    {
+        timer = &vrtc_timer_pool[i];
+        timer->id    = i;
+        timer->next  = -1;
+        timer->sec   = 0;
+        timer->usec  = 0;
+        timer->handler = NULL;
+    }
+
+    HAL_CRM_SetRc32kCaliStart();
+    vrtc_reg->freq = CRM_GetSrcFreq(CRM_IpSrcAon32kClk);
+    vrtc_reg->freq_fact   = (1000000 << VRTC_FREQ_SHIFT) / vrtc_reg->freq;
+    vrtc_reg->timeout_req = 0;
+    vrtc_reg->sec    = 0;
+    vrtc_reg->usec   = 0;
+    vrtc_reg->period = VRTC_DEFAULT_VAL;
+
+    vrtc_dbg("vrtc_init: freq %d fact %d\n", vrtc_reg->freq, vrtc_reg->freq_fact);
+
+    time_handle = AON_TIMER();
+    AON_TIMER_Initialize(time_handle, vrtc_isr, NULL);
+    AON_TIMER_PowerControl(time_handle, CSK_POWER_FULL);
+    AON_TIMER_Control(time_handle, HAL_AON_TIMER_MODE_Repeat | HAL_AON_TIMER_INTERRUPT_Enabled | HAL_AON_TIMER_CLK_SEL_Rc32k);
+    AON_TIMER_SetTimerPeriodByCount(time_handle, VRTC_DEFAULT_VAL);
+    AON_TIMER_StartTimer(time_handle);
+
+    IP_AON_CTRL->REG_AON_WF_CTRL2.bit.CFG_SW_RCCAL_VALUE_US = (IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_RESULT << (20 - IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_LENGTH)) / (IC_BOARD_XTAL_FREQ / 1000000);
+    IP_AON_CTRL->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_CLR = 1;
+    register_ISR(IRQ_RCCAL_DONE_VECTOR, vrtc_rccali_irq_handle, NULL);
+    enable_IRQ(IRQ_RCCAL_DONE_VECTOR);
+    IP_AON_CTRL->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_MASK = 0x1;
+#endif
+
+    return 0;
+}
+

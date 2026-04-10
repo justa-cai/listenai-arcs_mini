@@ -42,11 +42,10 @@ Keysense 是模拟按键接口，共 2 个通道，具有以下特性：
 
 ### 1. 构建项目
 
-在示例目录下执行构建脚本：
+在 SDK 根目录执行构建命令：
 
 ```bash
-cd samples/drivers/keysense
-./build.sh
+./build.sh -S samples/drivers/hal/keysense
 ```
 
 构建成功后，会在 `build` 目录下生成 `arcs.bin` 文件。

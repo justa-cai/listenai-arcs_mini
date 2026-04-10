@@ -133,6 +133,32 @@ if(CONFIG_ARCS_HAL_IPC)
         )
     endif()
 
+    # BT MRPC Server (AP core, where BLE stack runs)
+    if(CONFIG_ARCS_HAL_IPC_MRPC_SERVER_BT)
+        listenai_compile_definitions(
+            CFG_AMP_IPC_MRPC_SERVER_BT=1
+        )
+        listenai_library_sources(
+            mrpc/bt/mrpc_bt_api_server.c
+        )
+        listenai_include_directories(
+            ../../../chip/${CHIP}/ipc/mrpc/bt
+        )
+    endif()
+
+    # BT MRPC Client (CP core, calls BLE remotely)
+    if(CONFIG_ARCS_HAL_IPC_MRPC_CLIENT_BT)
+        listenai_compile_definitions(
+            CFG_AMP_IPC_MRPC_CLIENT_BT=1
+        )
+        listenai_library_sources(
+            mrpc/bt/mrpc_bt_api_client.c
+        )
+        listenai_include_directories(
+            ../../../chip/${CHIP}/ipc/mrpc/bt
+        )
+    endif()
+
     if(CONFIG_ARCS_HAL_IPC_MRPC_SERVER_NVS)
         listenai_compile_definitions(
             CFG_AMP_IPC_MRPC_SERVER_NVS=1

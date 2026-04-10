@@ -138,20 +138,6 @@ typedef struct
 typedef struct
 {
     struct mrpc_req_msg hdr;
-} mrpc_wifi_get_ipv4_addr_req_t;
-
-typedef struct
-{
-    struct mrpc_resp_msg hdr;
-    uint32_t addr;
-    uint32_t mask;
-    uint32_t gw;
-    uint32_t dns;
-} mrpc_wifi_get_ipv4_addr_resp_t;
-
-typedef struct
-{
-    struct mrpc_req_msg hdr;
 } mrpc_wifi_get_ap_rssi_req_t;
 
 typedef struct

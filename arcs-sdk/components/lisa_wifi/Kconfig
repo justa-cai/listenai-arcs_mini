@@ -27,7 +27,6 @@ menuconfig LISA_WIFI
 	select ARCS_HAL_IPC_MRPC_CLIENT_UTILS_M2S if (WIFI_LWIP_DIFF_CORE && LWIP)
 	select ARCS_HAL_UTILS if (WIFI_LWIP_DIFF_CORE && LWIP)
 	select LWIP_TX_BUF_COPY if (WIFI_LWIP_DIFF_CORE && LWIP)
-	default n
 	help
 		Enable LISA WiFi component for using WiFi easier.
 
@@ -37,19 +36,19 @@ config LISA_WIFI_CB_TASK_STACK_SIZE
 	int "WiFi callback task stack byte size"
 	default 4096
 	help
-	  Stack byte size for the WiFi callback task.
+			Stack byte size for the WiFi callback task.
 
 config LISA_WIFI_CB_TASK_PRIORITY
 	int "WiFi callback task priority"
 	default 5
 	help
-	  Priority for the WiFi callback task.
-	  Lower values indicate higher priority.
+			Priority for the WiFi callback task.
+			Lower values indicate higher priority.
 
 config LISA_WIFI_CB_QUEUE_LEN
 	int "WiFi callback queue length"
 	default 4
 	help
-	  Queue length for WiFi callback events.
+			Queue length for WiFi callback events.
 
 endif # LISA_WIFI

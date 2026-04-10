@@ -303,7 +303,7 @@ LISA WiFi 会根据配置模式自动选择所需的依赖模块：
 
 完整的示例代码请参考：
 
-- 单核模式：`samples/network/wifi_single_core`
-- 双核模式 AP 核：`samples/network/wifi_dual_core/ap`
-- 双核模式 CP 核：`samples/network/wifi_dual_core/cp`
+- 单核模式：`samples/network/wifi/single_core`
+- 双核模式 AP 核：`samples/network/wifi/dual_core/ap`
+- 双核模式 CP 核：`samples/network/wifi/dual_core/cp`
 

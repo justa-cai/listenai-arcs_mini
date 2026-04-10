@@ -26,24 +26,26 @@
 
 ### 1. 构建 AP 核固件
 
-在 AP 子目录下执行构建脚本：
+在 SDK 根目录执行构建命令：
 
 ```bash
-cd samples/drivers/ic_mutex/shared_variable/ap
-./build.sh
+./build.sh -S samples/drivers/hal/ic_mutex/shared_variable/ap
 ```
 
 构建成功后，会在 `ap/build` 目录下生成 `arcs.bin` 文件。
+
+### 3. 烧录 AP 核固件
 
 ```shell
 cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/ap.bin -C arcs
 ```
 
-在 CP 子目录下执行构建脚本：
+### 2. 构建 CP 核固件
+
+在 SDK 根目录执行构建命令：
 
 ```bash
-cd samples/drivers/ic_mutex/shared_variable/cp
-./build.sh
+./build.sh -S samples/drivers/hal/ic_mutex/shared_variable/cp
 ```
 
 构建成功后，会在 `cp/build` 目录下生成 `arcs.bin` 文件。

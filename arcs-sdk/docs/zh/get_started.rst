@@ -14,42 +14,41 @@
 环境搭建
 ========
 
+安装系统依赖
+----------------
+
+.. code-block:: shell
+
+   sudo apt update
+   sudo apt install -y wget bzip2 python3 git
+
 自动搭建（推荐）
 ----------------
 
-1. **下载开发工具包**
+在 SDK 根目录下执行：
 
-   在 SDK 根目录下运行脚本：
+.. code-block:: shell
+
+   source env.sh
+
+该命令会自动完成以下操作：
+
+- 检测工具链环境变量，已有有效配置则直接使用，不覆盖
+- 工具链缺失时自动查找或下载安装
+- 设置环境变量（``NUCLEI_TOOLCHAIN_PATH``、``LISTENAI_TOOLS_PATH``、``PATH``）
+- 检测子模块状态，有异常时提示修复命令
+
+已就绪的环境 source 后秒完成，可重复执行。
+
+.. tip::
+   可使用子命令进行专项排查：
 
    .. code-block:: shell
 
-      ./prepare_listenai_tools.sh
-
-2. **下载工具链**
-
-   运行脚本下载工具链：
-
-   .. code-block:: shell
-
-      ./prepare_toolchain.sh
-
-3. **设置环境变量**
-
-   .. code-block:: shell
-
-      # 设置工具链路径
-      export NUCLEI_TOOLCHAIN_PATH=/path/to/toolchain
-
-      # 设置 ListenAI 工具包路径
-      export LISTENAI_TOOLS_PATH=/path/to/listenai-tools
-
-   .. warning::
-      **必须使用绝对路径！** 环境变量的路径必须是绝对路径（如 ``/home/user/toolchain``），不能使用相对路径（如 ``./toolchain`` 或 ``../toolchain``），否则会导致编译失败。
-
-   其中：
-
-   - ``NUCLEI_TOOLCHAIN_PATH`` 指向解压后的工具链路径（绝对路径）
-   - ``LISTENAI_TOOLS_PATH`` 指向解压后的 ListenAI 工具包路径（绝对路径）
+      source env.sh check              # 仅检测环境状态
+      source env.sh setup              # 仅安装工具链
+      source env.sh submodule sync     # 仅同步子模块
+      source env.sh info               # 查看版本信息
 
 手动搭建
 --------
@@ -62,27 +61,40 @@
 
    - `Linux 工具链下载地址 <http://listenai-firmware-delivery.oss-cn-beijing.aliyuncs.com/ARCS/tools/toolchain/linux-amd64/nuclei_riscv_newlibc_prebuilt_linux64_2025.02.tar.bz2>`_
 
+   也可使用 SDK 内置脚本：
+
+   .. code-block:: shell
+
+      bash tools/scripts/prepare_toolchain.sh
+
 2. **下载 ListenAI 开发工具包**
 
    - `Linux 开发工具包下载地址 <http://listenai-firmware-delivery.oss-cn-beijing.aliyuncs.com/ARCS/tools/dev-tools/linux-amd64/v0.0.1/listenai-tools.tar.gz>`_
+
+   也可使用 SDK 内置脚本：
+
+   .. code-block:: shell
+
+      bash tools/scripts/prepare_listenai_tools.sh
 
 3. **设置环境变量**
 
    .. code-block:: shell
 
       # 设置工具链路径
-      export NUCLEI_TOOLCHAIN_PATH=/path/to/toolchain
+      export NUCLEI_TOOLCHAIN_PATH=$HOME/.listenai/gcc
 
       # 设置 ListenAI 工具包路径
-      export LISTENAI_TOOLS_PATH=/path/to/listenai-tools
+      export LISTENAI_TOOLS_PATH=$HOME/.listenai/listenai-tools
 
    .. warning::
-      **必须使用绝对路径！** 环境变量的路径必须是绝对路径（如 ``/home/user/toolchain``），不能使用相对路径（如 ``./toolchain`` 或 ``../toolchain``），否则会导致编译失败。
+      **必须使用绝对路径！** 环境变量的路径必须是绝对路径（如 ``/home/user/.listenai/gcc``），不能使用相对路径（如 ``./toolchain`` 或 ``../toolchain``），否则会导致编译失败。
+      ``$HOME`` 会由 shell 自动展开为用户主目录的绝对路径；请勿在 IDE 配置等非 shell 环境中使用 ``~``，它不会被自动展开。
 
    其中：
 
-   - ``NUCLEI_TOOLCHAIN_PATH`` 指向解压后的工具链路径（绝对路径）
-   - ``LISTENAI_TOOLS_PATH`` 指向解压后的 ListenAI 工具包路径（绝对路径）
+   - ``NUCLEI_TOOLCHAIN_PATH`` 指向 ``$HOME/.listenai/gcc``\ （工具链安装目录）
+   - ``LISTENAI_TOOLS_PATH`` 指向 ``$HOME/.listenai/listenai-tools``\ （开发工具包安装目录）
 
 .. _quick_start:
 
@@ -213,5 +225,4 @@
 
    .. code-block:: shell
 
-      echo $NUCLEI_TOOLCHAIN_PATH
-      echo $LISTENAI_TOOLS_PATH
+      source env.sh check

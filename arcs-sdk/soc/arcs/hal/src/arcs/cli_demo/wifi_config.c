@@ -82,12 +82,12 @@ static void wifi_error_status_info(uint16_t erro, uint16_t status_code, uint16_t
             break;
         case WIFI_ERROR_DEAUTH_BY_AP:
             CLOGI("Receive deauth from AP, reason code %d \n",reason_code);
-            if (reason_code == 15)
+            if (reason_code == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT)
                 CLOGI("May password wrong \n");
             break;
         case WIFI_ERROR_DEAUTH_BY_LOCAL:
             CLOGI("wifi disconnect by local, reason code %d \n", reason_code);
-            if (reason_code == 15)
+            if (reason_code == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT)
                 CLOGI("May password wrong \n");
             break;
         default:
@@ -273,7 +273,7 @@ static void wifi_mgmt_frame_process_example(uint8_t *frame, uint32_t len, void *
 struct wifi_ops ops = {
    // .fw_log_level = 3,
     .get_mac = ls_get_wifi_mac,
-    .temp_update = ls_temp_por_update,
+    .get_temp = ls_read_temp_voltage,
 };
 
 

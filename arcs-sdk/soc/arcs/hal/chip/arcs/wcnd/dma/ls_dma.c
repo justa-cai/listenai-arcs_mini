@@ -34,9 +34,11 @@
 #include "ble_drv.h"
 
 
-
+#if (BQB_TEST_EN)
+#define LS_DMA_EN           (0)
+#else
 #define LS_DMA_EN           (1)
-
+#endif
 /**
  ****************************************************************************************
  * FUNCTION INTERFACE

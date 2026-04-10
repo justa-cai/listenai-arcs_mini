@@ -266,7 +266,7 @@ static void repeated_play_task(void *params)
         wait_ms(200 + (i * 50));
 
         /* 停止 */
-        ret = app_player_stop_sync(player);
+        ret = app_player_stop(player);
         if (ret != APP_PLAYER_OK) {
             LOGE("[TASK-%s] Stop failed: %s", name, error_to_string(ret));
             increment_error_count();
@@ -316,7 +316,7 @@ static void play_stop_stress_task(void *params)
 
         wait_ms(50);
 
-        ret = app_player_stop_sync(player);
+        ret = app_player_stop(player);
         if (ret != APP_PLAYER_OK && ret != APP_PLAYER_ERR_INVALID_STATE) {
             increment_error_count();
         }
@@ -366,14 +366,14 @@ static void mixed_operations_task(void *params)
         wait_ms(200);
 
         /* 恢复 */
-        ret = app_player_resume_sync(player);
+        ret = app_player_resume(player);
         if (ret != APP_PLAYER_OK && ret != APP_PLAYER_ERR_INVALID_STATE) {
             increment_error_count();
         }
         wait_ms(300);
 
         /* 停止 */
-        ret = app_player_stop_sync(player);
+        ret = app_player_stop(player);
         if (ret != APP_PLAYER_OK) {
             increment_error_count();
         }
@@ -655,9 +655,14 @@ void test_dynamic_behavior_change_safety(void)
     clear_events();
     reset_error_count();
 
+    /* 保存原始配置 */
+    app_player_focus_behavior_t original_behavior;
+    int ret = app_player_get_focus_behavior(g_music_player, &original_behavior);
+    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_OK, ret, "Get original behavior should succeed");
+
     /* MUSIC 开始播放 */
     LOGI("Start MUSIC playing");
-    int ret = app_player_play(g_music_player, TEST_MUSIC_URL);
+    ret = app_player_play(g_music_player, TEST_MUSIC_URL);
     TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_OK, ret, "MUSIC play should succeed");
     wait_ms(1000);
 
@@ -671,7 +676,7 @@ void test_dynamic_behavior_change_safety(void)
             behavior.on_background = APP_PLAYER_FOCUS_LOSS_PAUSE;
             behavior.on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP;
         } else {
-            behavior.on_background = APP_PLAYER_FOCUS_LOSS_IGNORE;
+            behavior.on_background = APP_PLAYER_FOCUS_LOSS_STOP;
             behavior.on_focus_lost = APP_PLAYER_FOCUS_LOSS_PAUSE;
         }
 
@@ -686,7 +691,7 @@ void test_dynamic_behavior_change_safety(void)
         wait_ms(300);
 
         /* TTS 停止 */
-        ret = app_player_stop_sync(g_tts_player);
+        ret = app_player_stop(g_tts_player);
         wait_ms(200);
 
         /* 验证 MUSIC 状态 */
@@ -695,7 +700,7 @@ void test_dynamic_behavior_change_safety(void)
 
         /* 如果被暂停，恢复播放 */
         if (music_state == APP_PLAYER_STATE_PAUSED) {
-            app_player_resume_sync(g_music_player);
+            app_player_resume(g_music_player);
         } else if (music_state == APP_PLAYER_STATE_STOPPED || music_state == APP_PLAYER_STATE_IDLE) {
             app_player_play(g_music_player, TEST_MUSIC_URL);
         }
@@ -710,8 +715,12 @@ void test_dynamic_behavior_change_safety(void)
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_music_player);
-    app_player_stop_sync(g_tts_player);
+    app_player_stop(g_music_player);
+    app_player_stop(g_tts_player);
+
+    /* 恢复原始配置 */
+    LOGI("Restoring original behavior");
+    app_player_set_focus_behavior(g_music_player, &original_behavior);
 
     LOGI("=== Test completed ===\n");
 }
@@ -758,14 +767,14 @@ void test_dynamic_callback_change_safety(void)
         wait_ms(300);
 
         /* TTS 停止 */
-        app_player_stop_sync(g_tts_player);
+        app_player_stop(g_tts_player);
         wait_ms(300);
 
         /* 恢复 MUSIC */
         app_player_state_t state = app_player_get_state(g_music_player);
         if (state != APP_PLAYER_STATE_PLAYING) {
             if (state == APP_PLAYER_STATE_PAUSED) {
-                app_player_resume_sync(g_music_player);
+                app_player_resume(g_music_player);
             } else {
                 app_player_play(g_music_player, TEST_MUSIC_URL);
             }
@@ -780,7 +789,7 @@ void test_dynamic_callback_change_safety(void)
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_music_player);
+    app_player_stop(g_music_player);
 
     LOGI("=== Test completed ===\n");
 }

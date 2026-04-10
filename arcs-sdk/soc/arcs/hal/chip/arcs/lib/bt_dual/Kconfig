@@ -1,0 +1,10 @@
+menuconfig BT_DUAL
+    bool "BT Dual Support"
+    default n
+    select BLE
+    select ARCS_HAL_WCND
+    select RTOS_AL
+    select ARCS_HAL_BTOS
+    select BLE_PROFILE_DISS
+    help
+        Enable BT Dual(BLE + Bluetooth Classic) support

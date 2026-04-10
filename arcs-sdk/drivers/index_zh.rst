@@ -24,6 +24,7 @@ ARCS SDK 设备驱动基于 LISA 轻量级设备框架，提供统一的设备�
     lisa_wdt/README.md
     lisa_audio/README.md
     lisa_i2c/README.md
+    lisa_i2s/README.md
     lisa_touch/README.md
     lisa_dvp/README.md
     lisa_camera/README.md

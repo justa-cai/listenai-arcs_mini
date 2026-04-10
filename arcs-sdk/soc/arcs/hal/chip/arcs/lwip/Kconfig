@@ -106,4 +106,8 @@ config LWIP_DHCP_IP_ADDR_KV_KEY
         The key name used to store DHCP IP address in LISA KV storage.
         Default is "lwip.dhcp_ip_addr".
 
+config LWIP_HOOK_NETCONN_EXTERNAL_RESOLVE
+    bool "lwip dns custom hook"
+    default n
+
 endif # LWIP

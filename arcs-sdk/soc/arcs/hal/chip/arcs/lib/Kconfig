@@ -1,0 +1,3 @@
+rsource "wifi/Kconfig"
+rsource "ble/Kconfig"
+rsource "bt_dual/Kconfig"

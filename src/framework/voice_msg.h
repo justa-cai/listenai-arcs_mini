@@ -173,9 +173,11 @@ enum {
     VOICE_MSG_CLOUD_RECOGNIZED_COMMAND_WITH_TIMER,/*定时控制命令*/
     VOICE_MSG_CLOUD_VAD,
     VOICE_MSG_CLOUD_EMOJI,
+    VOICE_MSG_CLOUD_ONESHOT_EMOJI,
     VOICE_MSG_CLOUD_MCP_EMOJI,
     VOICE_MSG_CLOUD_MCP_LOADING,
     VOICE_MSG_CLOUD_MCP_CHAT_EXIT,
+    VOICE_MSG_CLOUD_SESSION_INTERRUPT,
     VOICE_MSG_CLOUD_MCP_IMAGE_RECOGNITION, /* char * */
     VOICE_MSG_CLOUD_MCP_IMAGE_URL,         /* char * */
     VOICE_MSG_CLOUD_ROLE_SETTING_QRCODE,
@@ -201,8 +203,12 @@ enum {
     VOICE_MSG_ALARM_START = VOICE_MSG_ID(VOICE_DOMAIN_ALARM, 0),
     VOICE_MSG_ALARM_TRIGGER,
     VOICE_MSG_ALARM_CREATE,
+    VOICE_MSG_ALARM_NEXT_SCHEDULED,
     VOICE_MSG_ALARM_DELETE,
     VOICE_MSG_ALARM_QUERY,
+    VOICE_MSG_ALARM_RING_UPDATE,  // 通知闹钟响铃页面更新UI
+    VOICE_MSG_ALARM_ACTION_RESULT,
+    VOICE_MSG_ALARM_PROCESS_NEXT,  // 处理闹钟后续操作（删除/创建下一个）
     VOICE_MSG_ALARM_MAX,
 
     /*命令词处理事件*/
@@ -225,6 +231,16 @@ enum {
 struct voice_msg_wakeup {
     char keyword[64];
 };
+
+typedef enum {
+    VOICE_MSG_ALARM_ACTION_RESULT_SNOOZE = 0,
+    VOICE_MSG_ALARM_ACTION_RESULT_DELETE,
+    VOICE_MSG_ALARM_ACTION_RESULT_NEXT,
+} voice_msg_alarm_action_result_type_t;
+
+typedef struct {
+    uint32_t type;
+} voice_msg_alarm_action_result_t;
 
 typedef void (*voice_msg_cb_t)(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data);
 

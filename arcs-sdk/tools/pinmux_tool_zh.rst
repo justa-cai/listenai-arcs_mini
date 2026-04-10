@@ -21,6 +21,7 @@ LISA Pinmux Tool 提供以下主要功能：
 
 - **可视化引脚配置**：通过图形界面直观地配置芯片引脚功能
 - **外设映射管理**：支持配置多种外设（UART、I2C、SPI、PWM、GPIO、DVP、SDIO 等）的引脚映射
+- **GPIO 设备名宏生成**：当别名引脚属于 GPIOA/GPIOB 时，同步生成 :code:`<别名>_DEVICE_NAME`（值为 :code:`"gpioa"` 或 :code:`"gpiob"`），便于按别名直接获取GPIO 设备  
 - **引脚别名定义**：为常用引脚定义有意义的别名，提高代码可读性
 - **代码自动生成**：一键生成符合 ARCS SDK 规范的 pinmux.h 和 pinmux.c 文件
 - **项目管理**：支持创建、保存、导入和导出配置项目
@@ -46,7 +47,7 @@ LISA Pinmux Tool 提供以下主要功能：
 
    .. raw:: html
 
-      <video width="100%" controls loop muted style="max-width: 800px; margin: 20px auto; display: block;">
+      <video width="100%" controls loop muted playsinline preload="auto" data-seamless-loop="1" data-loop-start="0.5" style="max-width: 800px; margin: 20px auto; display: block;">
         <source src="../_static/pinmux_tool_create_project_PlanA.mp4" type="video/mp4">
         您的浏览器不支持视频标签。
       </video>
@@ -64,7 +65,7 @@ LISA Pinmux Tool 提供以下主要功能：
 
    .. raw:: html
 
-      <video width="100%" controls loop muted style="max-width: 800px; margin: 20px auto; display: block;">
+      <video width="100%" controls loop muted playsinline preload="auto" data-seamless-loop="1" data-loop-start="0.5" style="max-width: 800px; margin: 20px auto; display: block;">
         <source src="../_static/pinmux_tool_create_project_PlanB.mp4" type="video/mp4">
         您的浏览器不支持视频标签。
       </video>
@@ -101,7 +102,7 @@ LISA Pinmux Tool 提供以下主要功能：
 
 .. raw:: html
 
-   <video width="100%" controls loop muted style="max-width: 800px; margin: 20px auto; display: block;">
+   <video width="100%" controls loop muted playsinline preload="auto" data-seamless-loop="1" data-loop-start="0.5" style="max-width: 800px; margin: 20px auto; display: block;">
      <source src="../_static/pinmux_tool_sidebar_driver.mp4" type="video/mp4">
      您的浏览器不支持视频标签。
    </video>
@@ -113,7 +114,7 @@ LISA Pinmux Tool 提供以下主要功能：
 
 .. raw:: html
 
-   <video width="100%" controls loop muted style="max-width: 800px; margin: 20px auto; display: block;">
+   <video width="100%" controls loop muted playsinline preload="auto" data-seamless-loop="1" data-loop-start="0.5" style="max-width: 800px; margin: 20px auto; display: block;">
      <source src="../_static/pinmux_tool_sidebar_pin.mp4" type="video/mp4">
      您的浏览器不支持视频标签。
    </video>
@@ -125,7 +126,7 @@ LISA Pinmux Tool 提供以下主要功能：
 
 .. raw:: html
 
-   <video width="100%" controls loop muted style="max-width: 800px; margin: 20px auto; display: block;">
+   <video width="100%" controls loop muted playsinline preload="auto" data-seamless-loop="1" data-loop-start="0.5" style="max-width: 800px; margin: 20px auto; display: block;">
      <source src="../_static/pinmux_tool_interactive_config.mp4" type="video/mp4">
      您的浏览器不支持视频标签。
    </video>
@@ -137,7 +138,7 @@ LISA Pinmux Tool 提供以下主要功能：
 ------------
 .. raw:: html
 
-   <video width="100%" controls loop muted style="max-width: 800px; margin: 20px auto; display: block;">
+   <video width="100%" controls loop muted playsinline preload="auto" data-seamless-loop="1" data-loop-start="0.5" style="max-width: 800px; margin: 20px auto; display: block;">
      <source src="../_static/pinmux_tool_export.mp4" type="video/mp4">
      您的浏览器不支持视频标签。
    </video>
@@ -185,6 +186,7 @@ pinmux.h 文件内容
 生成的头文件包含以下内容：
 
 - **引脚别名宏定义**：所有在工具中定义的引脚别名都会被生成为宏定义
+- **GPIO 设备名宏定义**：当某个引脚别名被配置为 GPIOA/GPIOB 引脚时，会额外生成 :code:`<别名>_DEVICE_NAME`，用于标识其所属 GPIO 设备（值为 :code:`"gpioa"` 或 :code:`"gpiob"`）
 - **外设 pinmux 函数声明**：所有外设的引脚复用函数声明
 
 示例：
@@ -204,6 +206,16 @@ pinmux.h 文件内容
    #define LED_PIN 9
    #define CAMERA_PWDN_PIN 7
    #define LCD_CD_PIN 0
+
+   // GPIO device name aliases
+   #define LCD_PWM_DEVICE_NAME "gpioa"
+   #define LCD_RST_DEVICE_NAME "gpioa"
+   #define TP_INT_DEVICE_NAME  "gpioa"
+   #define TP_RST_DEVICE_NAME  "gpioa"
+   #define PA_EN_DEVICE_NAME   "gpioa"
+   #define LCD_TE_DEVICE_NAME  "gpiob"
+   #define LED_DEVICE_NAME     "gpiob"
+
 
    // Function declarations
    void lisa_adc_pinmux();
@@ -252,6 +264,22 @@ pinmux.c 文件内容
 ----------
 
 **使用引脚别名**：在代码中使用工具中定义的引脚别名（如 ``LCD_RST_PIN``、``LED_PIN``），而不是直接使用数字，可以提高代码可读性和可维护性。
+
+**使用 GPIO 设备名宏**：当引脚别名属于 GPIOA/GPIOB 时，优先使用 :code:`<别名>_DEVICE_NAME` 获取对应 GPIO 设备，避免在业务代码里硬编码 :code:`"gpioa"` 或 :code:`"gpiob"`。
+
+示例：
+
+.. code-block:: c
+
+   #include "lisa_device.h"
+   #include "lisa_gpio.h"
+   #include "pinmux.h"
+
+   void configure_tp_int(void)
+   {
+       lisa_device_t *gpio = lisa_device_get_by_name(TP_INT_DEVICE_NAME);
+       lisa_gpio_configure(gpio, TP_INT_PIN, LISA_GPIO_INPUT | LISA_GPIO_PULL_UP);
+   }
 
 **自定义 pinmux 函数**：由于生成的函数都使用 ``weak`` 属性，您可以在自己的代码中重新实现这些函数以覆盖默认配置。自定义实现不需要 ``weak`` 属性，链接器会自动选择非 weak 的实现。
 

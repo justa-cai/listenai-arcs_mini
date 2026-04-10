@@ -73,6 +73,8 @@ typedef struct {
     int (*read)(lisa_device_t *dev, size_t offset, void *data, size_t len);
     int (*write)(lisa_device_t *dev, size_t offset, const void *data, size_t len);
     int (*erase)(lisa_device_t *dev, size_t offset, size_t size);
+    int (*sr_read)(lisa_device_t *dev, uint32_t id, uint32_t *value);
+    int (*sr_write)(lisa_device_t *dev, uint32_t id, uint32_t value);
     const lisa_flash_parameters_t *(*get_parameters)(lisa_device_t *dev);
     const lisa_flash_pages_layout_t *(*page_layout)(lisa_device_t *dev, size_t *layout_size);
 } lisa_flash_api_t;
@@ -160,6 +162,61 @@ static inline int lisa_flash_erase(lisa_device_t *dev, size_t offset, size_t siz
     }
     lisa_flash_api_t *api = (lisa_flash_api_t *)dev->api;
     return api->erase ? api->erase(dev, offset, size) : LISA_DEVICE_ERR_NOT_SUPPORT;
+}
+
+/**
+ * @brief 读取 Flash 状态寄存器
+ *
+ * 读取指定 ID 的状态寄存器值。
+ *
+ * @param dev Flash 设备指针
+ * @param id 状态寄存器 ID
+ * @param value 输出参数，返回寄存器值
+ *
+ * @return 0 成功
+ * @return LISA_DEVICE_ERR_INVALID 参数无效
+ * @return LISA_DEVICE_ERR_NOT_SUPPORT 不支持该操作
+ * @return LISA_DEVICE_ERR_IO IO错误
+ * @return <0 其他错误
+ *
+ * @note 设备必须已初始化
+ * @note 状态寄存器 ID 的定义由具体驱动实现决定
+ */
+static inline int lisa_flash_sr_read(lisa_device_t *dev, uint32_t id, uint32_t *value)
+{
+    if (!dev || !dev->api || !value) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_flash_api_t *api = (lisa_flash_api_t *)dev->api;
+    return api->sr_read ? api->sr_read(dev, id, value) : LISA_DEVICE_ERR_NOT_SUPPORT;
+}
+
+/**
+ * @brief 写入 Flash 状态寄存器
+ *
+ * 向指定 ID 的状态寄存器写入值。
+ *
+ * @param dev Flash 设备指针
+ * @param id 状态寄存器 ID
+ * @param value 要写入的寄存器值
+ *
+ * @return 0 成功
+ * @return LISA_DEVICE_ERR_INVALID 参数无效
+ * @return LISA_DEVICE_ERR_NOT_SUPPORT 不支持该操作
+ * @return LISA_DEVICE_ERR_IO IO错误
+ * @return <0 其他错误
+ *
+ * @note 设备必须已初始化
+ * @note 状态寄存器 ID 的定义由具体驱动实现决定
+ * @note 写入状态寄存器可能影响 Flash 的保护状态或其他配置
+ */
+static inline int lisa_flash_sr_write(lisa_device_t *dev, uint32_t id, uint32_t value)
+{
+    if (!dev || !dev->api) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_flash_api_t *api = (lisa_flash_api_t *)dev->api;
+    return api->sr_write ? api->sr_write(dev, id, value) : LISA_DEVICE_ERR_NOT_SUPPORT;
 }
 
 /**

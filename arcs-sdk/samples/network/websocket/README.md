@@ -104,15 +104,20 @@ ip addr show | grep "inet "
 
 查找类似 `192.168.x.x` 的局域网地址。
 
-## 编译运行
+## 示例内容
 
-### 编译
+1. 连接 WiFi 并获取 IP 地址
+2. 建立 WebSocket 连接到服务器
+3. 循环发送测试消息并接收服务器响应
+4. 断开连接并清理资源
+
+## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
 
-### 烧录
+## 烧录
 
 ```{eval-rst}
 .. include:: /sample_flash.rst

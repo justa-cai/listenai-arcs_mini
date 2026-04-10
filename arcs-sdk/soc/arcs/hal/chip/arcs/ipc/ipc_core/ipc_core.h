@@ -36,7 +36,7 @@
 
 #ifdef IPC_DEBUG
 
-#define ipc_info(fmt, ...)   logDbg(fmt, ##__VA_ARGS__)
+#define ipc_info(fmt, ...)   //logDbg(fmt, ##__VA_ARGS__)
 #define ipc_dbg(fmt, ...)    logDbg(fmt, ##__VA_ARGS__)
 #define ipc_err(fmt, ...)    logDbg(fmt, ##__VA_ARGS__)
 #else

@@ -229,6 +229,7 @@ static int lisa_camera_bus_spi_init(lisa_device_t *dev, const lisa_camera_bus_co
         LOGE("SPI_Control ADV_ATTR failed %d", ret);
         return ret;
     }
+    LOGI("camera_bus_init: unreserve DMA ch=%d after init", attr.rx_dmach_rsvd);
     dma_channel_unreserve(attr.rx_dmach_rsvd);
 
     if (spi_config->cs_gpio) {
@@ -275,7 +276,13 @@ static int lisa_camera_bus_spi_start_capture(lisa_device_t *dev, lisa_camera_fra
         .flags = SPI_ATTR_RX_DMACH_RSVD,
         .rx_dmach_rsvd = priv->dma_channel,
     };
-    SPI_Control(priv->spi_dev, CSK_SPI_SET_ADV_ATTR, (uint32_t)&attr);
+    LOGI("start_capture: reserve DMA ch=%d", priv->dma_channel);
+    ret = SPI_Control(priv->spi_dev, CSK_SPI_SET_ADV_ATTR, (uint32_t)&attr);
+    if (ret != CSK_DRIVER_OK) {
+        LOGE("start_capture: SPI_Control SET_ADV_ATTR failed %d, dma_ch=%d", ret, priv->dma_channel);
+        priv->stop_flag = 1;
+        return ret;
+    }
 
     if (priv->cs_gpio_dev) {
         /* NOCS 模式: 使用 SPI_Receive_NEnd 并启用 GPIO 中断 */
@@ -336,4 +343,4 @@ static int camera_bus_spi_init(void)
 {
     return 0;
 }
-LISA_DEVICE_REGISTER(camera_bus, &lisa_camera_bus_spi_if, &camera_bus_spi_priv, NULL, camera_bus_spi_init, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(camera_bus, &lisa_camera_bus_spi_if, &camera_bus_spi_priv, NULL, camera_bus_spi_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);

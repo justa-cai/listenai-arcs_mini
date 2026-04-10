@@ -4,6 +4,7 @@ listenai_library_named(battery)
 
 listenai_library_sources(
     battery.c
+    battery_ui.c
 )
 
 listenai_include_directories(

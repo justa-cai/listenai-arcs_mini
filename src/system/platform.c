@@ -5,12 +5,12 @@
 #include "chip.h"
 #include "nvs.h"
 #include "voice_msg.h"
-#include "pa_manager.h"
 #include "evs_utils.h"
-#include "lite_dac.h"
 #include "remote_logger.h"
 #include "ipc_master.h"
 #include "app_wakeup.h"
+#include "voice_player_comm.h"
+#include "lisa_bluetooth.h"
 
 #if CONFIG_FILE_SYSTEM
 #include "lsfs.h"
@@ -24,11 +24,10 @@
 #define SDMMC_DEVICE      "SD:"
 #define SDMMC_MOUNT_POINT "/"SDMMC_DEVICE
 
-#include "player_mgr.h"
 #define TAG "platform"
 #include "lisa_log.h"
 
-#if CONFIG_4G_MODULE
+#if CONFIG_LISA_MODEM
 #include "ml307_modem.h"
 #endif
 
@@ -95,61 +94,9 @@ int arcs_nvs_init(void)
 }
 #endif
 
-static player_config_t s_player_configs[] = {
-	{
-		.id = AIP,
-		.name = "AIP",
-		.priority = 30,
-		.capture_ids = {AIP, TTS, LOCAL},
-		.capture_count = 3,
-		.fg_action = PLAY_ACTION_RECOGNIZE,
-		.bg_action = PLAY_ACTION_RECOGNIZE_END,
-		.none_action = PLAY_ACTION_RECOGNIZE_END,
-	},
-	{
-		.id = TTS,
-		.name = "TTS",
-		.priority = 10,
-		.capture_ids = {AIP, ALERT},
-		.capture_count = 2,
-		.fg_action = PLAY_ACTION_PLAY,
-		.bg_action = PLAY_ACTION_STOP,
-		.none_action = PLAY_ACTION_STOP,
-	},
-	{
-		.id = ALERT,
-		.name = "ALERT",
-		.priority = 40,
-		.capture_ids = {AIP, TTS, LOCAL},
-		.capture_count = 3,
-		.fg_action = PLAY_ACTION_PLAY,
-		.bg_action = PLAY_ACTION_STOP,
-		.none_action = PLAY_ACTION_STOP,
-	},
-	{
-		.id = CONTENT,
-		.name = "CONTENT",
-		.priority = 50,
-		.capture_ids = {AIP, ALERT, LOCAL},
-		.capture_count = 3,
-		.fg_action = PLAY_ACTION_PLAY,
-		.bg_action = PLAY_ACTION_PAUSE,
-		.none_action = PLAY_ACTION_STOP,
-	},
-	{
-		.id = LOCAL,
-		.name = "LOCAL",
-		.priority = 10,
-		.capture_ids = {AIP},
-		.capture_count = 1,
-		.fg_action = PLAY_ACTION_PLAY,
-		.bg_action = PLAY_ACTION_STOP,
-		.none_action = PLAY_ACTION_STOP,
-	},	
-};
-
 static int voice_platform_init(void)
 {
+    LISA_LOGI(TAG,"Solution build time: %s %s", __DATE__, __TIME__);
     struct ipc_master_cb_tag ipc_cb = {
         .wifi_tx_data_cfm   = NULL,
         .wifi_rx_data       = NULL,
@@ -182,6 +129,9 @@ static int voice_platform_init(void)
 #ifdef CONFIG_FILE_SYSTEM
     lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
     disk_init(NULL);
+#if CONFIG_LVFS_POSIX_API
+    lvfs_init();
+#endif
     lsfs_init();
 
     if (lsfs_mount(&sdmmc_mnt) != 0) {
@@ -200,6 +150,7 @@ static int voice_platform_init(void)
 
     // Check if KV storage is already initialized (e.g., from factory reset)
     lisa_kv_init();
+    app_datas_init();
     user_usb_start();
     /* USB-MSC模式下, 不运行应用程序, 只支持USB文件传输 */
     if (app_usb_msc_enabled()) {
@@ -210,17 +161,24 @@ static int voice_platform_init(void)
         }
     }
     arcs_nvs_init();
+    #if CONFIG_SAL_USING_POSIX
+     /* Initialize network device subsystem */
+    netdev_init();
 
-    #if CONFIG_4G_MODULE
-    lisa_4g_module_init(AT_4G_UART_DEVICE);
+    /* Initialize Socket Abstraction Layer */
+    sal_init();
+    #endif
+    
+    #if CONFIG_LISA_MODEM
+    lisa_modem_module_init(AT_4G_UART_DEVICE);
     #endif
 
     if (ipc_ready) {
-        // Wifi预初始化
-        ls_wifi_init(NULL);
-        ls_wifi_pre_init(NULL);
+        sys_wifi_init();
         LISA_LOGI(TAG, "BLE init start\n");
-        lisa_bluetooth_init();
+        lisa_bluetooth_init(NULL);
+        extern void app_ble_netcfg_init(void);
+        app_ble_netcfg_init();
         LISA_LOGI(TAG, "BLE init end\n");
     } else {
         LISA_LOGW(TAG, "IPC not ready, skip WiFi and BLE init");
@@ -349,13 +307,7 @@ static int voice_platform_init(void)
 #endif // CONFIG_BOARD_ARCS_MINI
 
     LISA_LOGI(TAG, "tone init end");
-    pa_manager_pre_init();
-    pa_manager_init(PA_MGR_NONE);
-    // lite_dac_init();
-    // dac_aud_t aud = {.rate=16000};
-    // lite_dac_ctrl(ADAC_CTRL_AUD_CFG, &aud);
-    // lite_dac_ctrl(ADAC_CTRL_START, NULL);
-    player_mgr_init(s_player_configs, sizeof(s_player_configs) / sizeof(s_player_configs[0]));
+    voice_player_platform_init();
     if (ipc_ready) {
         network_probe_init();
     }

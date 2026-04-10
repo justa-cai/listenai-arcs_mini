@@ -126,6 +126,38 @@ ls_err_t llm_get_local_pub_addr_api(struct out_bd_addr * bd_addr)
     return (ls_err_t)resp.hdr.status;
 }
 
+ls_err_t ld_bd_addr_get_api(struct out_bd_addr * bd_addr)
+{
+    mrpc_ld_bd_addr_get_api_req_t req;
+    mrpc_ld_bd_addr_get_api_resp_t resp;
+
+    if (sizeof(mrpc_ld_bd_addr_get_api_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_LD_BD_ADDR_GET_API;
+    if (mrpc_msg_send(&req, sizeof(mrpc_ld_bd_addr_get_api_req_t), &resp))
+        return LS_FAIL;
+    *bd_addr = resp.bd_addr;
+
+    return (ls_err_t)resp.hdr.status;
+}
+
+ls_err_t bt_stack_if_get_env_api(void ** env)
+{
+    mrpc_bt_stack_if_get_env_api_req_t req;
+    mrpc_bt_stack_if_get_env_api_resp_t resp;
+
+    if (sizeof(mrpc_bt_stack_if_get_env_api_req_t) > IPC_MSG_BUFFER_SIZE)
+        return LS_FAIL;
+
+    req.hdr.id = MRPC_MSG_ID_BT_STACK_IF_GET_ENV_API;
+    if (mrpc_msg_send(&req, sizeof(mrpc_bt_stack_if_get_env_api_req_t), &resp))
+        return LS_FAIL;
+    *env = resp.env;
+
+    return (ls_err_t)resp.hdr.status;
+}
+
 ls_err_t btos_malloc_api(void ** buffer_ptr, uint32_t size)
 {
     mrpc_btos_malloc_api_req_t req;

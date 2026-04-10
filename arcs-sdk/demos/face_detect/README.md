@@ -79,7 +79,7 @@
 ## 编译运行
 
 ```bash
-./build.sh -C -DBOARD=arcs_evb
+./build.sh -C -S demos/face_detect -DBOARD=arcs_evb
 ```
 
 ## 烧录固件

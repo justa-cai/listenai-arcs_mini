@@ -22,17 +22,10 @@
 
 ### 1. 构建项目
 
-在示例目录下执行构建脚本：
+在 SDK 根目录执行构建命令：
 
 ```bash
-cd samples/drivers/cmu
-./build.sh
-```
-
-或者在 SDK 根目录执行：
-
-```bash
-./build.sh -S samples/drivers/cmu -C
+./build.sh -S samples/drivers/hal/cmu
 ```
 
 ```shell

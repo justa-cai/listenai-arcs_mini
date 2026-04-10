@@ -43,6 +43,11 @@
 #define READ8_F(addr_oft) (*(volatile uint8_t *)(FLASH_NV_BASE_ADDR+addr_oft))
 #define ARRAY_SIZE(arr)              (sizeof(arr) / sizeof((arr)[0]))
 
+#define TEMP_BOTTOM (-35)
+#define TEMP_STEP (10)
+#define TEMP_REG_NUM 2
+#define TEMP_LDO_THRESH (-20)
+
 extern uint8_t wf_power_offset_en;
 
 static void rf_set_wf_ppa_gain(uint8_t index, uint8_t ppa_val);
@@ -199,9 +204,9 @@ void rf_por_config(uint8_t rf_ver)
     IP_RFIF->REG_RX_LOGIC59.bit.REG_RF_RX_LNA_HG_IB_WF_6 = 9; // ltnie@2024-11-14
     IP_RFIF->REG_RX_LOGIC59.bit.REG_RF_RX_LNA_HG_IB_WF_7 = 9; // ltnie@2024-11-14
     IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASH_WF_DSSS = 9; // fkxiong@2024-11-14
-    IP_RFIF->REG_TX_REG1.bit.RF_TX_PPA_IN_ATT_RES = 2; // fkxiong@2024-11-18
-    IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_OFDM = 30; // fkxiong@2024-11-18
-    IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_DSSS = 30; // fkxiong@2024-11-18
+    IP_RFIF->REG_TX_REG1.bit.RF_TX_PPA_IN_ATT_RES = 0; // leifeng@2025-12-25
+    IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_OFDM = 0; // leifeng@2025-12-25
+    IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_DSSS = 0; // leifeng@2025-12-25
     IP_RFIF->REG_TX_LOGIC14.bit.REG_RF_TX_ABB_TIA_RFB_WF_18 = 5; // leifeng@2025-01-21
     IP_RFIF->REG_TX_LOGIC14.bit.REG_RF_TX_ABB_TIA_RFB_WF_17 = 5; // leifeng@2025-01-21
     IP_RFIF->REG_TX_LOGIC14.bit.REG_RF_TX_ABB_TIA_RFB_WF_16 = 5; // leifeng@2025-01-21
@@ -354,6 +359,20 @@ void rf_load_mfg_cali_goldden()
     IP_RFIF->REG_TX_LOGIC11.bit.REG_RF_TX_PA_CAP_SW_WF_2_OFDM = 20;
     IP_RFIF->REG_TX_LOGIC11.bit.REG_RF_TX_PA_CAP_SW_WF_2_DSSS = 20;
     IP_RFIF->REG_TX_LOGIC10.bit.REG_RF_TX_PA_CAP_SW_BT_2 = 20;
+    IP_RFIF->REG_TX_REG1.bit.RF_TX_PPA_IN_ATT_RES = 2;
+    IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_OFDM = 30;
+    IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_DSSS = 30;
+#elif RF_BOARD_VER == 4 // Aopu module
+    IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG = 7;
+    IP_RFIF->REG_TX_LOGIC0.bit.REG_RF_TX_PPA_CAP_SW_WF_0_OFDM = 13;
+    IP_RFIF->REG_TX_LOGIC0.bit.REG_RF_TX_PPA_CAP_SW_WF_1_OFDM = 12;
+    IP_RFIF->REG_TX_LOGIC0.bit.REG_RF_TX_PPA_CAP_SW_WF_2_OFDM = 10;
+    IP_RFIF->REG_TX_LOGIC0.bit.REG_RF_TX_PPA_CAP_SW_WF_0_DSSS = 13;
+    IP_RFIF->REG_TX_LOGIC0.bit.REG_RF_TX_PPA_CAP_SW_WF_1_DSSS = 12;
+    IP_RFIF->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_CAP_SW_WF_2_DSSS = 10;
+    IP_RFIF->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_CAP_SW_BT_0 = 13;
+    IP_RFIF->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_CAP_SW_BT_1 = 12;
+    IP_RFIF->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_CAP_SW_BT_2 = 10;
 #endif
 }
 
@@ -638,7 +657,8 @@ void rf_war_config(void)
 #endif
 }
 
-const static uint32_t temp_reg_map[TEMP_INTV_NUM][TEMP_REG_NUM] =
+#if RF_BOARD_VER == 2 //Taoyun
+const static uint32_t temp_reg_map[][TEMP_REG_NUM] =
 {
     /* (-oo, -35) */ {30, 7},
     /* [-35, -25) */ {30, 7},
@@ -656,6 +676,40 @@ const static uint32_t temp_reg_map[TEMP_INTV_NUM][TEMP_REG_NUM] =
     /* [+85, +95) */ {15, 0},
     /* [+95, +oo) */ {15, 0},
 };
+#else
+const static uint32_t temp_reg_map[][TEMP_REG_NUM] =
+{
+    /* (-oo,  -35)  */ {0, 7},
+    /* [-35,  -25)  */ {0, 6},
+    /* [-25,  -15)  */ {0, 5},
+    /* [-15,  -05)  */ {0, 4},
+    /* [-05,  +05)  */ {0, 3},
+    /* [+05,  +15)  */ {0, 2},
+    /* [+15,  +25)  */ {0, 1},
+    /* [+25,  +35)  */ {0, 0},
+    /* [+35,  +45)  */ {0, 0},
+    /* [+45,  +55)  */ {2, 0},
+    /* [+55,  +65)  */ {4, 0},
+    /* [+65,  +75)  */ {6, 0},
+    /* [+75,  +85)  */ {8, 0},
+    /* [+85,  +95)  */ {10, 0},
+    /* [+95,  +105) */ {12, 0},
+    /* [+105, +115) */ {14, 0},
+    /* [+115, +oo)  */ {15, 0}
+};
+#endif
+
+static inline uint32_t temp2idx(int32_t temp)
+{
+    uint32_t max_idx = sizeof(temp_reg_map) / sizeof(temp_reg_map[0]) - 1;
+    if (temp < (int32_t)TEMP_BOTTOM) {
+        return 0;
+    } else if (temp >= (int32_t)TEMP_BOTTOM + (int32_t)(max_idx - 1) * (int32_t)TEMP_STEP) {
+        return max_idx;
+    } else {
+        return ((temp - TEMP_BOTTOM) / TEMP_STEP + 1);
+    }
+}
 
 // Calculate bias register values based on temperature and reference
 void calculate_bias_values(int temp, int ref, int *hd, int *ho, int *ld, int *lo) {
@@ -718,7 +772,7 @@ void calculate_interpolated_values(int32_t temp, int32_t ref, int32_t *hd, int32
     *hd = (*hd < 0) ? 0 : (*hd > 15 ? 15 : *hd);
 }
 
-/* Reserve API here for temp PoR configuration */
+#if RF_BOARD_VER == 2 //Taoyun
 bool rf_por_temp_config(int32_t temp, uint32_t ref)
 {
     bool ret = false;
@@ -757,6 +811,64 @@ bool rf_por_temp_config(int32_t temp, uint32_t ref)
 #endif
     return ret;
 }
+#else
+/* Reserve API here for temp PoR configuration */
+bool rf_por_temp_config(int32_t temp)
+{
+    bool ret = false;
+    int8_t power_offset = 0;
+    int8_t tbl_idx = temp2idx(temp);
+
+    if (temp >= TEMP_NORMAL + 10) {
+        IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_DSSS = temp_reg_map[tbl_idx][0];
+        IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_OFDM = temp_reg_map[tbl_idx][0];
+    } else {
+        IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_DSSS = temp_reg_map[temp2idx(TEMP_NORMAL)][0];
+        IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_OFDM = temp_reg_map[temp2idx(TEMP_NORMAL)][0];
+    }
+
+#if RF_BOARD_VER == 2
+    power_offset = wf_power_offset_reg[RFIF->REG_CTRL0.bit.WF_CHANNEL];
+#endif
+    if (wf_power_offset_en)
+        power_offset = wf_power_offset_fake_reg[RFIF->REG_CTRL0.bit.WF_CHANNEL];
+    if (tbl_idx < 7)
+        power_offset -= temp_reg_map[tbl_idx][1]; //(7 - tbl_idx);
+    IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = power_offset;
+    if (temp < TEMP_LDO_THRESH) {
+        IP_RFIF->REG_SX_REG0.bit.RF_SX_LDO_OUT = 5;
+    } else {
+        IP_RFIF->REG_SX_REG0.bit.RF_SX_LDO_OUT = 4;
+    }
+    CLOGI("Die temp:%d, idx:%d, power_offset:%d, dac_trim:%d\n",\
+        temp,\
+        tbl_idx,\
+        IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET,\
+        IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_DSSS
+        );
+    return ret;
+}
+
+void rf_pa_bias_config(uint32_t ref, int32_t temp)
+{
+    int32_t hd, ho, ld, lo;
+
+    if (!ref) {
+        CLOGW("PA BIAS REF not programmed in efuse :%d\n", ref);
+        ref = DEF_BIASL_WF;
+    }
+    CLOGV("Die temp:%d, PA bias ref:%d\n", temp, ref);
+    calculate_interpolated_values(temp, ref, &hd, &ho, &ld, &lo);
+    CLOGV("HD:%d, HO:%d, LD:%d, LO:%d\n", hd, ho, ld, lo);
+    IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASL_WF_DSSS = ld;
+    IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASL_WF_OFDM = ld;
+    IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASH_WF_DSSS = hd;
+    IP_RFIF->REG_TX_LOGIC9.bit.REG_RF_TX_PA_BIASH_WF_OFDM = hd;
+    IP_RFIF->REG_TX_REG1.bit.RF_TX_PA_BIASL_BT = lo;
+    IP_RFIF->REG_TX_REG1.bit.RF_TX_PA_BIASH_BT = ho;
+        return;
+}
+#endif
 
 #define BT_CRM_CLKGATEPHYFCTRL0_ADDR   0x4B400010
 #define BT_MACBYP_CLKEN_ADDR           0x4B90000C
@@ -798,16 +910,13 @@ void rf_init()
     rf_load_nv_config();
     rf_delay_config(CRM_GetCmn_peri_pclkFreq());
     rf_war_config();
-    #if defined(WCN_TYPE_WF)
-    //update efuse for temperature cali
-    ls_read_efuse_temp_para();
-    ls_temp_default_por(); //default 26 temp por
-    #endif
+#if defined(WCN_TYPE_WF)
+    /* Get parameters from efuse */
+    ls_get_efuse_para();
+    ls_temp_default_por(); /* default 26C temperature POR */
     wf_clk_init();
     wf_soc_init();
-
-#if defined(WCN_TYPE_WF)
-    /* update efuse calibrate data */
+    /* Update efuse calibration data */
     nv_fixzone_load_rf_config();
 #endif
 #if defined(WCN_TYPE_BT)
@@ -1077,6 +1186,10 @@ RF_OPS rf_ops = {
     .suspend = rf_suspend,
     .resume  = rf_resume,
     .update_cal_addr = rf_update_cal_addr,
+    #if defined(WCN_TYPE_WF)
+    .calc_temp = ls_calc_temp,
+    .temp_rf_por_config = ls_temp_rf_por_config,
+    #endif
 };
 
 RF_ENTRY rf_entry = {
@@ -1134,7 +1247,7 @@ uint8_t ls_rf_get_wf_abb_gain(uint8_t index)
     return (rf_entry.ops->get_wf_abb_gain(index));
 }
 
-void ls_rf_set_wf_dig_gain(uint8_t index, uint8_t dig_val)
+void ls_rf_set_wf_dig_gain(uint8_t index, uint16_t dig_val)
 {
     rf_entry.ops->set_wf_dig_gain(index, dig_val);
 }

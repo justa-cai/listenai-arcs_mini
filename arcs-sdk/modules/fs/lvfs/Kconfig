@@ -42,6 +42,7 @@ config LVFS_POSIX_API_ALIAS
       default n
       depends on LVFS_POSIX_API
       help
+        Enable POSIX-like file system API alias support.
 
 config LVFS_POSIX_RESERVE_FD
       int "POSIX-like file system API reserve fd"

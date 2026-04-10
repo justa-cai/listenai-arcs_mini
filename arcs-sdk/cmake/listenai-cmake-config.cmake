@@ -102,6 +102,15 @@ if(DEFINED BOARD)
     endif()
 endif()
 
+# CHIP（SoC 选择）：命令行 -DCHIP=xxx 最高优先级覆盖
+# 否则在 Kconfig 解析后从 CONFIG_SOC_* 推导
+if(DEFINED CHIP)
+    message(STATUS "CHIP=${CHIP} (from command line)")
+    set(_chip_from_cli TRUE)
+else()
+    set(_chip_from_cli FALSE)
+endif()
+
 # 设置板型 Kconfig 路径环境变量
 # 如果找到板型，设置为板型的 Kconfig 文件路径
 # 如果未找到，设置为不存在的路径，让 osource 静默跳过（避免 Kconfig 解析错误）
@@ -115,8 +124,32 @@ endif()
 include(${LISTENAI_CMAKE_PATH}/kconfig.cmake)
 include(${LISTENAI_CMAKE_PATH}/extensions.cmake)
 
-if (NOT DEFINED CHIP)
-    set(CHIP arcs)
+# Post-Kconfig: 从 CONFIG_SOC_* 推导 CHIP
+if(NOT _chip_from_cli)
+    file(GLOB _soc_dirs LIST_DIRECTORIES true "${ARCS_SDK_BASE}/soc/*")
+    foreach(_soc_dir ${_soc_dirs})
+        if(IS_DIRECTORY "${_soc_dir}" AND EXISTS "${_soc_dir}/soc.cmake")
+            unset(SOC_KCONFIG_SYMBOL)
+            unset(SOC_CHIP_NAME)
+            include("${_soc_dir}/soc.cmake")
+            if(DEFINED SOC_KCONFIG_SYMBOL AND DEFINED SOC_CHIP_NAME
+               AND CONFIG_${SOC_KCONFIG_SYMBOL})
+                set(CHIP "${SOC_CHIP_NAME}")
+                if(DEFINED SOC_ARCH)
+                    set(ARCH "${SOC_ARCH}")
+                endif()
+                message(STATUS "CHIP=${CHIP} ARCH=${ARCH} (from CONFIG_${SOC_KCONFIG_SYMBOL} via soc.cmake)")
+                break()
+            endif()
+        endif()
+    endforeach()
+
+    if(NOT DEFINED CHIP)
+        message(FATAL_ERROR
+            "CHIP could not be determined. "
+            "Ensure board Kconfig uses 'select SOC_<name>' "
+            "or pass -DCHIP=<soc> on the command line.")
+    endif()
 endif()
 
 include(${LISTENAI_CMAKE_PATH}/${CHIP}-chip.cmake)

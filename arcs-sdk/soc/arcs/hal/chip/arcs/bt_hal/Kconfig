@@ -1,0 +1,5 @@
+if BLE || BT
+config ARCS_HAL_BT_HAL
+    bool "BT HAL"
+    default y
+endif

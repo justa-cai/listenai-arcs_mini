@@ -54,7 +54,7 @@ int lisa_gpio_disable_irq(lisa_device_t *dev, uint32_t pin);
 #include "lisa_gpio.h"
 
 // 获取 GPIOA 设备
-lisa_device_t *gpioa = lisa_device_get_by_name("gpioa");
+lisa_device_t *gpioa = lisa_device_get("gpioa");
 if (!gpioa) {
     return -1;
 }

@@ -487,4 +487,5 @@ LISA_DEVICE_REGISTER(rtc0,                        /* 设备名称 */
                      &rtc0_priv,                  /* 私有数据指针 */
                      NULL,                        /* 用户数据 */
                      arcs_rtc0_init,              /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
                      LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */

@@ -26,6 +26,15 @@ extern "C" {
  */
 
 /**
+ * @brief Core 层回调类型
+ * @param player 播放器实例
+ * @param evt lisa_player 原始事件
+ * @param should_notify_user 是否需要通知用户（false表示内部事件，如PREPARED）
+ * @note 此回调在 core 层处理完播放器状态后调用，用于通知上层处理 PA、焦点等
+ */
+typedef void (*app_player_core_callback_t)(app_player_t *player, PlayerEvt evt, bool should_notify_user);
+
+/**
  * @brief 核心层：播放音频
  * @param player 播放器实例
  * @param url 音频 URL
@@ -47,15 +56,16 @@ int app_player_core_play(app_player_t *player, const char *url, int throw_time);
 int app_player_core_play_stream(app_player_t *player, uint32_t sample_rate, uint8_t channels, uint8_t bits);
 
 /**
- * @brief 核心层：暂停播放
+ * @brief 核心层：同步暂停播放
  * @param player 播放器实例
  * @return 0 成功，负数失败
+ * @note 同步暂停，阻塞等待操作完成
  * @note 不操作焦点，不操作 PA，线程安全
  */
 int app_player_core_pause(app_player_t *player);
 
 /**
- * @brief 核心层：恢复播放
+ * @brief 核心层：恢复播放（异步）
  * @param player 播放器实例
  * @return 0 成功，负数失败
  * @note 不操作焦点，不操作 PA，线程安全
@@ -63,9 +73,19 @@ int app_player_core_pause(app_player_t *player);
 int app_player_core_resume(app_player_t *player);
 
 /**
- * @brief 核心层：停止播放
+ * @brief 核心层：同步恢复播放
  * @param player 播放器实例
  * @return 0 成功，负数失败
+ * @note 同步恢复，阻塞等待操作完成
+ * @note 不操作焦点，不操作 PA，线程安全
+ */
+int app_player_core_resume_sync(app_player_t *player);
+
+/**
+ * @brief 核心层：停止播放（异步）
+ * @param player 播放器实例
+ * @return 0 成功，负数失败
+ * @note 异步停止，立即返回，停止完成后会收到STOPPED事件
  * @note 不操作焦点，不操作 PA，线程安全
  */
 int app_player_core_stop(app_player_t *player);
@@ -74,6 +94,7 @@ int app_player_core_stop(app_player_t *player);
  * @brief 核心层：同步停止播放
  * @param player 播放器实例
  * @return 0 成功，负数失败
+ * @note 同步停止，阻塞等待操作完成
  * @note 不操作焦点，不操作 PA，线程安全
  */
 int app_player_core_stop_sync(app_player_t *player);
@@ -87,6 +108,15 @@ int app_player_core_stop_sync(app_player_t *player);
  * @return 实际写入的字节数，负数表示错误
  */
 int app_player_core_stream_write(app_player_t *player, const uint8_t *data, size_t size, uint32_t timeout_ms);
+
+/**
+ * @brief 初始化 core 层，设置回调链
+ * @param player 播放器实例
+ * @param upper_callback 上层回调函数（用于 PA、焦点等处理）
+ * @return 0 成功，负数失败
+ * @note 此函数会设置 lisa_player 的回调，将其接管到 core 层
+ */
+int app_player_core_init(app_player_t *player, app_player_core_callback_t upper_callback);
 
 /**
  * @brief 检查并处理 preparing 状态

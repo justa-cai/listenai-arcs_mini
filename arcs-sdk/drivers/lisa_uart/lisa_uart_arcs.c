@@ -26,6 +26,8 @@
 
 #define LOG_TAG "lisa_uart_arcs"
 #include <lisa_log.h>
+/* 早期初始化阶段（PRE_SYSTEM_INIT）日志不可用，静默处理 */
+#define UART_INIT_LOGE(tag, fmt, ...) LISA_LOGE(tag, fmt, ##__VA_ARGS__)
 
 /* DMA 缓冲区对齐检查宏 */
 #define IS_DMA_BUFFER_ALIGNED(buf, len) \
@@ -615,21 +617,14 @@ static int arcs_uart_configure(lisa_device_t *dev, const lisa_uart_config_t *con
     /* 默认使能发送 */
     UART_Control(priv->hal_handler, CSK_UART_CONTROL_TX, 1);
 
-    /* 创建发送和接收信号量（如果尚未创建） */
+    /* 创建发送和接收信号量（如果尚未创建）
+     * 早期初始化阶段（heap 不可用）跳过信号量创建，poll_out 不依赖信号量 */
     if (!priv->tx_sem) {
         priv->tx_sem = lisa_semaphore_create(1);
-        if (!priv->tx_sem) {
-            LISA_LOGE(LOG_TAG, "Failed to create tx semaphore");
-            return LISA_DEVICE_ERR_NO_MEM;
-        }
     }
 
     if (!priv->rx_sem) {
         priv->rx_sem = lisa_semaphore_create(1);
-        if (!priv->rx_sem) {
-            LISA_LOGE(LOG_TAG, "Failed to create rx semaphore");
-            return LISA_DEVICE_ERR_NO_MEM;
-        }
     }
 
     /* 配置循环接收缓冲区 */
@@ -647,11 +642,10 @@ static int arcs_uart_configure(lisa_device_t *dev, const lisa_uart_config_t *con
             priv->rx_circ_buf = NULL;
         }
 
-        /* 分配新缓冲区 */
+        /* 分配新缓冲区（早期阶段 heap 不可用时跳过，后续可重新 configure） */
         priv->rx_circ_buf = uart_rx_circular_buf_alloc(&config->rx_buf_config);
         if (!priv->rx_circ_buf) {
-            LISA_LOGE(LOG_TAG, "Failed to allocate rx circular buffers");
-            return LISA_DEVICE_ERR_NO_MEM;
+            LISA_LOGW(LOG_TAG, "Failed to allocate rx circular buffers, rx disabled");
         }
     }
 
@@ -1258,19 +1252,19 @@ static int arcs_uart0_init(void)
     /* 获取 HAL UART0 句柄 */
     uart0_priv.hal_handler = UART0();
     if (!uart0_priv.hal_handler) {
-        LISA_LOGE(LOG_TAG, "Failed to get UART0 handler");
+        UART_INIT_LOGE(LOG_TAG, "Failed to get UART0 handler");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
     /* 初始化 HAL UART，注册事件回调 */
     if (UART_Initialize(uart0_priv.hal_handler, uart_hal_event_callback, &uart0_priv) != CSK_DRIVER_OK) {
-        LISA_LOGE(LOG_TAG, "Failed to initialize UART0");
+        UART_INIT_LOGE(LOG_TAG, "Failed to initialize UART0");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
     /* 上电 */
     if (UART_PowerControl(uart0_priv.hal_handler, CSK_POWER_FULL) != CSK_DRIVER_OK) {
-        LISA_LOGE(LOG_TAG, "Failed to power on UART0");
+        UART_INIT_LOGE(LOG_TAG, "Failed to power on UART0");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
@@ -1289,19 +1283,19 @@ static int arcs_uart1_init(void)
     /* 获取 HAL UART1 句柄 */
     uart1_priv.hal_handler = UART1();
     if (!uart1_priv.hal_handler) {
-        LISA_LOGE(LOG_TAG, "Failed to get UART1 handler");
+        UART_INIT_LOGE(LOG_TAG, "Failed to get UART1 handler");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
     /* 初始化 HAL UART，注册事件回调 */
     if (UART_Initialize(uart1_priv.hal_handler, uart_hal_event_callback, &uart1_priv) != CSK_DRIVER_OK) {
-        LISA_LOGE(LOG_TAG, "Failed to initialize UART1");
+        UART_INIT_LOGE(LOG_TAG, "Failed to initialize UART1");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
     /* 上电 */
     if (UART_PowerControl(uart1_priv.hal_handler, CSK_POWER_FULL) != CSK_DRIVER_OK) {
-        LISA_LOGE(LOG_TAG, "Failed to power on UART1");
+        UART_INIT_LOGE(LOG_TAG, "Failed to power on UART1");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
@@ -1320,19 +1314,19 @@ static int arcs_uart2_init(void)
     /* 获取 HAL UART2 句柄 */
     uart2_priv.hal_handler = UART2();
     if (!uart2_priv.hal_handler) {
-        LISA_LOGE(LOG_TAG, "Failed to get UART2 handler");
+        UART_INIT_LOGE(LOG_TAG, "Failed to get UART2 handler");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
     /* 初始化 HAL UART，注册事件回调 */
     if (UART_Initialize(uart2_priv.hal_handler, uart_hal_event_callback, &uart2_priv) != CSK_DRIVER_OK) {
-        LISA_LOGE(LOG_TAG, "Failed to initialize UART2");
+        UART_INIT_LOGE(LOG_TAG, "Failed to initialize UART2");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
     /* 上电 */
     if (UART_PowerControl(uart2_priv.hal_handler, CSK_POWER_FULL) != CSK_DRIVER_OK) {
-        LISA_LOGE(LOG_TAG, "Failed to power on UART2");
+        UART_INIT_LOGE(LOG_TAG, "Failed to power on UART2");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
@@ -1361,13 +1355,21 @@ static const lisa_uart_api_t arcs_uart_api = {
 };
 
 /* ===== 设备注册 ===== */
-/* 注意:不要轻易修改设备名称(uart0/uart1/uart2),终端(console)会依赖这些名称 */
+/* 当 console UART 后端启用时，所有 UART 使用 EARLY 级别以支持早期初始化 */
+#ifdef CONFIG_CONSOLE_UART_EARLY_INIT
+#define UART_INIT_LEVEL  LISA_DEVICE_LEVEL_EARLY
+#define UART_INIT_PRIO   LISA_DEVICE_PRIORITY_CRITICAL
+#else
+#define UART_INIT_LEVEL  LISA_DEVICE_LEVEL_NORMAL
+#define UART_INIT_PRIO   LISA_DEVICE_PRIORITY_NORMAL
+#endif
+
 #ifdef CONFIG_LISA_UART0
-LISA_DEVICE_REGISTER(uart0, &arcs_uart_api, &uart0_priv, NULL, arcs_uart0_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(uart0, &arcs_uart_api, &uart0_priv, NULL, arcs_uart0_init, UART_INIT_LEVEL, UART_INIT_PRIO);
 #endif
 #ifdef CONFIG_LISA_UART1
-LISA_DEVICE_REGISTER(uart1, &arcs_uart_api, &uart1_priv, NULL, arcs_uart1_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(uart1, &arcs_uart_api, &uart1_priv, NULL, arcs_uart1_init, UART_INIT_LEVEL, UART_INIT_PRIO);
 #endif
 #ifdef CONFIG_LISA_UART2
-LISA_DEVICE_REGISTER(uart2, &arcs_uart_api, &uart2_priv, NULL, arcs_uart2_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(uart2, &arcs_uart_api, &uart2_priv, NULL, arcs_uart2_init, UART_INIT_LEVEL, UART_INIT_PRIO);
 #endif

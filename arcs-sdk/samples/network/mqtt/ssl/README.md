@@ -2,7 +2,7 @@
 
 本示例演示如何在 ARCS 平台上使用 coreMQTT 库通过 SSL/TLS 加密连接到 MQTT broker。
 
-## 功能特性
+## 功能说明
 
 - 使用 mbedTLS 实现 SSL/TLS 加密连接
 - 支持安全的 MQTT 通信(端口 8883)
@@ -11,7 +11,7 @@
 - 完整的 SSL/TLS 握手流程
 - 非阻塞 I/O 操作
 
-## 硬件要求
+## 硬件连接
 
 - ARCS 开发板
 - SD 卡(用于文件系统)
@@ -69,24 +69,28 @@ ret = mbedtls_x509_crt_parse(&pNetworkContext->cacert,
 mbedtls_ssl_conf_ca_chain(&pNetworkContext->conf, &pNetworkContext->cacert, NULL);
 ```
 
+## 示例步骤
+
+1. 自动连接到配置的 WiFi 网络
+2. 建立到 MQTT broker 的 SSL/TLS 加密连接
+3. 通过 SSL 通道建立 MQTT 连接
+4. 订阅指定的 MQTT 主题
+5. 发布测试消息
+6. 持续监听和处理接收的消息
+
 ## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
 
-## 运行效果
+## 烧录
 
-程序启动后,将依次执行以下步骤:
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
 
-1. **WiFi 连接**: 自动连接到配置的 WiFi 网络
-2. **SSL/TLS 连接**: 建立到 MQTT broker 的加密连接
-3. **MQTT 连接**: 通过 SSL 通道建立 MQTT 连接
-4. **订阅主题**: 订阅指定的 MQTT 主题
-5. **发布消息**: 发布测试消息
-6. **接收消息**: 持续监听和处理接收的消息
-
-### 预期日志输出
+## 预期输出
 
 ```
 [mqtt-ssl-test] MQTT SSL/TLS Test Starting...

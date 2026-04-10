@@ -4,106 +4,199 @@
 # SPDX-License-Identifier: Apache-2.0
 
 menuconfig LISA_BLUETOOTH
-    bool "Enable Lisa Bluetooth"
-    default n
-    help
-        Enable Lisa Bluetooth component.
+	bool "Enable Lisa Bluetooth"
+	select SDK_MODULE_MBEDTLS
+	help
+		Enable Lisa Bluetooth component.
 
 if LISA_BLUETOOTH
 
-    config LISA_BLUETOOTH_DEVICE_NAME
-        string "Bluetooth device name"
-        default "ARCS"
-        help
-            Device name used for BLE advertising / BT classic.
+	config LISA_BLUETOOTH_DEVICE_NAME
+		string "Bluetooth device name"
+		default "ARCS"
+		help
+			Device name used for BLE advertising / BT classic.
 
-    config LISA_BLUETOOTH_CLASSIC
-        bool "Enable Lisa Bluetooth Classic"
-        default n
-        help
-            Enable Lisa Bluetooth Classic component.
+	config LISA_BLUETOOTH_CLASSIC
+		bool "Enable Lisa Bluetooth Classic"
+		help
+			Enable Lisa Bluetooth Classic component.
 
-    if LISA_BLUETOOTH_CLASSIC
-        config LISA_BLUETOOTH_CLASSIC_HFP
-            bool "Enable Lisa Bluetooth Classic HFP"
-            default n
-            help
-                Enable Lisa Bluetooth Classic HFP component.
+	if LISA_BLUETOOTH_CLASSIC
+		config LISA_BLUETOOTH_CLASSIC_HFP
+			bool "Enable Lisa Bluetooth Classic HFP"
+			help
+				Enable Lisa Bluetooth Classic HFP component.
 
-        config LISA_BLUETOOTH_CLASSIC_AUDIO
-            bool "Enable Lisa Bluetooth Classic Audio"
-            default n
-            select LISA_BLUETOOTH_BLE  # Have to enable BLE for now 
-            select BT_AUDIO
-            select BT_MUSIC
-            select AUDIO_CODEC
-            help
-                Enable Lisa Bluetooth Classic Audio component.
+		config LISA_BLUETOOTH_CLASSIC_AUDIO
+			bool "Enable Lisa Bluetooth Classic Audio"
+			select LISA_BLUETOOTH_BLE  # Have to enable BLE for now
+			select BT_AUDIO
+			select BT_MUSIC
+			select ARCS_HAL_BT_MUSIC
+			select ARCS_HAL_BT_LEA
+			select AUDIO_CODEC
+			select LISA_BT_AUDIO_FRAMEWORK
+			help
+				Enable Lisa Bluetooth Classic Audio component.
 
-        if LISA_BLUETOOTH_CLASSIC_AUDIO
+		if LISA_BLUETOOTH_CLASSIC_AUDIO
 
-            config LISA_BLUETOOTH_AUD_TASK_STACK_SIZE
-                int "Bluetooth audio task stack size(x4 bytes)"
-                default 512
-                help
-                    AUD task stack size in words. Default matches wifi_bt_demo.
+			choice
+				prompt "BT Classic Audio Role"
+				default BT_CLASSIC_ROLE_SINK
+				help
+					Select the Bluetooth classic audio role.
 
-            config LISA_BLUETOOTH_AUD_TASK_PRIORITY
-                int "Bluetooth audio task priority"
-                default LISA_BLUETOOTH_TASK_PRIORITY
-                help
-                    AUD task priority. Default follows Bluetooth task priority.
+			config BT_CLASSIC_ROLE_SINK
+				bool "Sink Mode (Receiver)"
+				help
+					Device acts as audio sink (e.g., Bluetooth headset, speaker).
+					Receives audio from remote device and plays locally.
 
-            config LISA_BLUETOOTH_AUD_PRO_TASK_STACK_SIZE
-                int "Bluetooth audio process task stack size(x4 bytes)"
-                default 1536
-                help
-                    AUD_PRO task stack size in words. Default matches wifi_bt_demo.
+					Audio Framework: Auto-selects Local Audio interface
 
-            config LISA_BLUETOOTH_AUD_PRO_TASK_PRIORITY
-                int "Bluetooth audio process task priority"
-                default LISA_BLUETOOTH_TASK_PRIORITY
-                help
-                    AUD_PRO task priority. Default follows Bluetooth task priority.
+			config BT_CLASSIC_ROLE_SOURCE
+				bool "Source Mode (Sender)"
+				help
+					Device acts as audio source (e.g., smartphone, tablet).
+					Captures local audio and sends to remote device.
 
-        endif # LISA_BLUETOOTH_CLASSIC_AUDIO
-    endif # LISA_BLUETOOTH_CLASSIC
+					Audio Framework: Auto-selects Virtual Audio interface
+
+			endchoice
+
+			config LISA_BLUETOOTH_AUD_TASK_STACK_SIZE
+				int "Bluetooth audio task stack size(x4 bytes)"
+				default 2048
+				help
+					AUD task stack size in words. Default matches wifi_bt_demo.
+
+			config LISA_BLUETOOTH_AUD_TASK_PRIORITY
+				int "Bluetooth audio task priority"
+				default LISA_BLUETOOTH_TASK_PRIORITY
+				help
+					AUD task priority. Default follows Bluetooth task priority.
+
+			config LISA_BLUETOOTH_AUD_PRO_TASK_STACK_SIZE
+				int "Bluetooth audio process task stack size(x4 bytes)"
+				default 1536
+				help
+					AUD_PRO task stack size in words. Default matches wifi_bt_demo.
+
+			config LISA_BLUETOOTH_AUD_PRO_TASK_PRIORITY
+				int "Bluetooth audio process task priority"
+				default LISA_BLUETOOTH_TASK_PRIORITY
+				help
+					AUD_PRO task priority. Default follows Bluetooth task priority.
+
+		endif # LISA_BLUETOOTH_CLASSIC_AUDIO
+	endif # LISA_BLUETOOTH_CLASSIC
 
 config LISA_BLUETOOTH_BLE
-    bool "Enable Lisa Bluetooth BLE"
-    default y
-    select BLE
-    help
-        Enable Lisa Bluetooth BLE component.
+	bool "Enable Lisa Bluetooth BLE"
+	help
+		Enable Lisa Bluetooth BLE capability for the current image.
+
+config LISA_BLUETOOTH_BLE_NETCFG
+	bool "Enable Lisa Bluetooth BLE netcfg"
+	depends on LISA_BLUETOOTH_BLE
+	help
+		Enable BLE-based network configuration support for the current
+		image. The local Bluetooth stack image builds the netcfg server,
+		while the IPC caller image only keeps the netcfg API bridge.
+
+choice LISA_BLUETOOTH_ROLE
+	prompt "Bluetooth role for this image"
+	depends on LISA_BLUETOOTH_BLE
+	default LISA_BLUETOOTH_ROLE_LOCAL
+	help
+		Select the Bluetooth responsibility of the current image.
+
+config LISA_BLUETOOTH_ROLE_LOCAL
+	bool "Local Bluetooth"
+	help
+		Build and run the local Bluetooth stack in this image.
+
+config LISA_BLUETOOTH_ROLE_IPC_CALLER
+	bool "Bluetooth IPC caller"
+	depends on ARCS_HAL_IPC
+	help
+		Send Bluetooth task/API requests to the peer image through IPC.
+
+config LISA_BLUETOOTH_ROLE_IPC_RECEIVER
+	bool "Bluetooth IPC receiver"
+	depends on ARCS_HAL_IPC
+	help
+		Receive Bluetooth task/API requests from the peer image and run
+		the local Bluetooth stack in this image.
+
+endchoice
+
+config LISA_BLUETOOTH_BUILD_LOCAL_STACK
+	bool
+	default y if LISA_BLUETOOTH_BLE && (LISA_BLUETOOTH_ROLE_LOCAL || LISA_BLUETOOTH_ROLE_IPC_RECEIVER)
+	select BLE
+	select ARCS_HAL_AT_CMD
+
+config LISA_BLUETOOTH_BUILD_HOGPD_PROFILE
+	bool
+	default y if LISA_BLUETOOTH_BUILD_LOCAL_STACK
+	select BLE_PROFILE_HOGPD
+
+config LISA_BLUETOOTH_BUILD_BASS_PROFILE
+	bool
+	default y if LISA_BLUETOOTH_BUILD_LOCAL_STACK
+	select BLE_PROFILE_BASS
+
+config LISA_BLUETOOTH_BUILD_NETCFG_BLE_SERVER
+	bool
+	default y if LISA_BLUETOOTH_BLE_NETCFG && LISA_BLUETOOTH_BUILD_LOCAL_STACK
+	select BLE_PROFILE_NETCFG_BLES
+
+config LISA_BLUETOOTH_CUSTOM_NETCFG
+	bool "Use application-provided netcfg callback instead of the default"
+	default n
+
+config LISA_BLUETOOTH_BUILD_IPC_CLIENT
+	bool
+	depends on ARCS_HAL_IPC
+	default y if LISA_BLUETOOTH_BLE && LISA_BLUETOOTH_ROLE_IPC_CALLER
+	select ARCS_HAL_IPC_MRPC_CLIENT_BT
+
+config LISA_BLUETOOTH_BUILD_IPC_SERVER
+	bool
+	depends on ARCS_HAL_IPC
+	default y if LISA_BLUETOOTH_BLE && LISA_BLUETOOTH_ROLE_IPC_RECEIVER
+	select ARCS_HAL_IPC_MRPC_SERVER_BT
 
 config LISA_BLUETOOTH_WHITE_LIST_ADD
-    bool "Enable BLE white list add"
-    default y
-    help
-        If enabled, add discovered devices to BLE white list.
+	bool "Enable BLE white list add"
+	default y
+	help
+		If enabled, add discovered devices to BLE white list.
 
 config LISA_BLUETOOTH_RESOVLE_LIST_ADD
-    bool "Enable BLE resolve list add"
-    default y
-    help
-        If enabled, add devices to BLE resolve list (RAL).
+	bool "Enable BLE resolve list add"
+	default y
+	help
+		If enabled, add devices to BLE resolve list (RAL).
 
 config LISA_BLUETOOTH_NVDS
-    bool "Enable Lisa Bluetooth NVDS"
-    default n
-    help
-        Enable Lisa Bluetooth NVDS component.
+	bool "Enable Lisa Bluetooth NVDS"
+	help
+		Enable Lisa Bluetooth NVDS component.
 
 config LISA_BLUETOOTH_TASK_STACK_SIZE
-    int "Bluetooth task stack size(x4 bytes)"
-    default 2048
-    help
-        Bluetooth task stack size in words.
+	int "Bluetooth task stack size(x4 bytes)"
+	default 2048
+	help
+		Bluetooth task stack size in words.
 
 config LISA_BLUETOOTH_TASK_PRIORITY
-    int "Bluetooth task priority"
-    default 9
-    help
-        Bluetooth task priority.
+	int "Bluetooth task priority"
+	default 9
+	help
+		Bluetooth task priority.
 
 endif # LISA_BLUETOOTH

@@ -77,7 +77,7 @@ int lisa_audio_ioctl(lisa_device_t *dev, uint8_t cmd, void *arg);
 #include "lisa_audio.h"
 
 // 获取 Audio0 设备
-lisa_device_t *audio0 = lisa_device_get_by_name("audio0");
+lisa_device_t *audio0 = lisa_device_get("audio0");
 if (!audio0) {
     return -1;
 }

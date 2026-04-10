@@ -20,7 +20,7 @@
 
 #define TAG "APP_PLAYER"
 
-#define APP_PLAYER_VOL_MIN (1)
+#define APP_PLAYER_VOL_MIN (0)
 #define APP_PLAYER_VOL_MAX (100)
 
 // 注意：互斥锁宏和数据结构已移到 app_player_internal.h
@@ -97,7 +97,7 @@ static int __register_player_instance(app_player_t *player)
     s_player_list_head = node;
     PLAYER_MUTEX_UNLOCK(s_player_list_lock);
 
-    LISA_LOGD(TAG, "Instance registered: id=%u", player->id);
+    LISA_LOGI(TAG, "Instance registered: id=%u", player->id);
     return 0;
 }
 
@@ -119,7 +119,7 @@ static void __unregister_player_instance(app_player_t *player)
             player_instance_node_t *to_free = *curr;
             *curr = (*curr)->next;
             lisa_mem_free(to_free);
-            LISA_LOGD(TAG, "Instance unregistered: id=%u", player->id);
+            LISA_LOGI(TAG, "Instance unregistered: id=%u", player->id);
             break;
         }
         curr = &((*curr)->next);
@@ -129,11 +129,11 @@ static void __unregister_player_instance(app_player_t *player)
 }
 
 /**
- * @brief 根据ID查找播放器实例
+ * @brief 根据ID查找播放器实例（导出给 core 层使用）
  * @param id 播放器ID
  * @return 播放器实例指针，未找到返回NULL
  */
-static app_player_t *__find_player_by_id(uint32_t id)
+app_player_t *__find_player_by_id(uint32_t id)
 {
     if (!s_player_list_lock) {
         return NULL;
@@ -391,105 +391,65 @@ static void __callback_thread_func(void *arg)
 // __audio_focus_change_bridge 已移到 app_player_focus.c
 
 /**
- * @brief lisa_player回调处理函数（中间层，快速返回）
- * @param evt lisa_player事件
- * @param arg1 参数1
- * @param arg2 参数2（保留）
- * @param id 播放器ID
- * @return 0成功，负数失败
+ * @brief App 层回调处理函数（从 Core 层回调而来）
+ * @param player 播放器实例
+ * @param evt lisa_player 原始事件
+ * @param should_notify_user 是否需要通知用户
  *
- * @note 关键逻辑：
- * 1. PREPARED事件：根据标志决定是否自动播放
- * 2. 播放结束事件：关闭PA
- * 3. ERROR事件：自动reset播放器
- * 4. 中断标志处理：唤醒等待的preparing信号量
+ * @note App 层职责：
+ * 1. PA 管理（功放控制）- 基于引用计数机制
+ * 2. 音频焦点管理
+ * 3. 事件转换和通知用户
+ *
+ * @note PA控制策略（方案3）：
+ * - 只在事件回调中控制PA，不在play/pause/stop接口中控制
+ * - PLAYING事件：开PA（引用计数+1）
+ * - PAUSED/STOPPED/COMPLETE/ERROR事件：关PA（引用计数-1）
+ * - 配合PA管理器的引用计数，避免多实例互相干扰
  */
-static int __lisa_player_callback_handler(PlayerEvt evt, int arg1, int arg2, int id)
+static void __app_player_upper_callback_handler(app_player_t *player, PlayerEvt evt, bool should_notify_user)
 {
-    // 通过ID查找实例
-    app_player_t *player = __find_player_by_id(id);
     if (!player) {
-        LISA_LOGE(TAG, "Callback: player not found for id=%d", id);
-        return -1;
+        return;
     }
 
-    LISA_LOGI(TAG, "Player[%d] %s evt=%d", id, player->name, evt);
+    LISA_LOGI(TAG, "App callback: Player[%d] %s evt=%d, notify_user=%d",
+              player->id, player->name, evt, should_notify_user);
 
-    // 标志：是否忽略自动播放
-    bool ignore_play = false;
-
-    // 清除preparing标志
-    player->is_preparing = false;
-
-    // 如果正在等待中断，唤醒信号量
-    if (player->wait_prepare_intercepted) {
-        ignore_play = true;
-        lisa_semaphore_give(player->preparing_sem);
-    }
-
-    // 特殊事件处理（同步执行，快速返回）
+    // === App 层职责 1: PA 管理（基于实际播放状态，使用标志避免重复控制）===
     switch (evt) {
-        case PLAYER_EVT_PREPARED: {
-            if (!ignore_play) {
-                if (!player->pause_preparing) {
-                    // 自动开始播放
-                    if (lisa_player_play(player->hld) == PLAYER_OP_FAIL) {
-                        LISA_LOGE(TAG, "Auto play failed: %s", player->name);
-                        // 播放失败，通知错误事件
-                        __enqueue_callback_event(player, APP_PLAYER_EVENT_ERROR);
-                        return 0;
-                    }
-                } else {
-                    // 准备时被暂停，直接通知暂停事件
-                    LISA_LOGD(TAG, "Player %s has pause when preparing", player->name);
-                    __enqueue_callback_event(player, APP_PLAYER_EVENT_PAUSED);
-                    return 0;
-                }
+        case PLAYER_EVT_PLAYING: {
+            // 真正开始播放时才开启PA
+            if (!player->pa_is_on) {
+                LISA_LOGI(TAG, "Player[%d] %s: PLAYING -> PA ON", player->id, player->name);
+                pa_manager_control(1, 0);
+                player->pa_is_on = true;
+            } else {
+                LISA_LOGI(TAG, "Player[%d] %s: PLAYING but PA already on, skip", player->id, player->name);
             }
-            // PREPARED事件不通知用户（因为会自动触发PLAYING）
-            return 0;
+            break;
         }
 
         case PLAYER_EVT_PAUSED:
         case PLAYER_EVT_STOPED:
         case PLAYER_EVT_PLAYBACK_COMPLETE:
         case PLAYER_EVT_ERROR: {
-            // 特殊情况：Stop后立即来Error，不需要再关闭PA
-            if (player->last_evt == PLAYER_EVT_STOPED && evt == PLAYER_EVT_ERROR) {
-                LISA_LOGD(TAG, "Player %s: skip PA off after stop+error", player->name);
+            // 播放结束、暂停、错误时关闭PA（延迟关闭，避免频繁开关）
+            // 只有当PA确实被此实例打开时才关闭
+            if (player->pa_is_on) {
+                // 特殊情况：Stop后立即来Error，不需要再关闭PA
+                if (player->last_evt == PLAYER_EVT_STOPED && evt == PLAYER_EVT_ERROR) {
+                    LISA_LOGI(TAG, "Player[%d] %s: skip PA off after stop+error", player->id, player->name);
+                } else {
+                    LISA_LOGI(TAG, "Player[%d] %s: evt=%d -> PA OFF (delayed %dms)",
+                              player->id, player->name, evt, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
+                    pa_manager_control(0, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
+                    player->pa_is_on = false;
+                }
             } else {
-                // 播放结束，延迟关闭PA
-                pa_manager_control(0, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
+                LISA_LOGI(TAG, "Player[%d] %s: evt=%d but PA not on, skip PA off",
+                          player->id, player->name, evt);
             }
-
-#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
-            // 播放完成、停止、错误或用户主动暂停时释放焦点
-            // 注意：被焦点管理器暂停时(user_initiated_stop=false)不释放焦点，以便后续自动恢复
-            bool user_initiated = app_player_focus_is_user_initiated(player);
-            if (evt == PLAYER_EVT_STOPED || evt == PLAYER_EVT_PLAYBACK_COMPLETE ||
-                evt == PLAYER_EVT_ERROR || (evt == PLAYER_EVT_PAUSED && user_initiated)) {
-                LISA_LOGD(TAG, "Releasing audio focus for player %s (evt=%d, user_initiated=%d)",
-                         player->name, evt, user_initiated);
-                bool is_user_initiated = user_initiated;
-                app_player_focus_release(player, is_user_initiated);
-                // 释放后清除用户主动标志
-                app_player_focus_set_user_initiated(player, false);
-            }
-#endif
-
-            // ERROR事件需要自动reset
-            if (evt == PLAYER_EVT_ERROR) {
-                LISA_LOGW(TAG, "Player %s error, auto reset", player->name);
-                lisa_player_reset(player->hld);
-            }
-
-            // fall through，继续处理
-            break;
-        }
-
-        case PLAYER_EVT_PLAYING: {
-            // 播放中，确保PA开启
-            pa_manager_control(1, 0);
             break;
         }
 
@@ -497,14 +457,39 @@ static int __lisa_player_callback_handler(PlayerEvt evt, int arg1, int arg2, int
             break;
     }
 
-    // 更新内部状态
-    player->last_evt = evt;
+    // === App 层职责 2: 音频焦点管理 ===
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    switch (evt) {
+        case PLAYER_EVT_PAUSED:
+        case PLAYER_EVT_STOPED:
+        case PLAYER_EVT_PLAYBACK_COMPLETE:
+        case PLAYER_EVT_ERROR: {
+            // 播放完成、停止、错误或用户主动暂停/停止时释放焦点
+            // 注意：URL切换场景下的STOP(user_initiated_stop=false)不释放焦点，避免其他播放器短暂恢复
+            bool user_initiated = app_player_focus_is_user_initiated(player);
+            if (evt == PLAYER_EVT_PLAYBACK_COMPLETE || evt == PLAYER_EVT_ERROR ||
+                ((evt == PLAYER_EVT_PAUSED || evt == PLAYER_EVT_STOPED) && user_initiated)) {
+                LISA_LOGI(TAG, "Releasing audio focus for player %s (evt=%d, user_initiated=%d)",
+                         player->name, evt, user_initiated);
+                app_player_focus_release(player, user_initiated);
+                // 释放后清除用户主动标志
+                app_player_focus_set_user_initiated(player, false);
+            } else if (evt == PLAYER_EVT_STOPED && !user_initiated) {
+                LISA_LOGI(TAG, "Player %s stopped for URL switch, keeping focus", player->name);
+            }
+            break;
+        }
 
-    // 转换事件并加入队列（异步通知用户）
-    app_player_event_t app_evt = __convert_player_evt_to_app_event(evt);
-    __enqueue_callback_event(player, app_evt);
+        default:
+            break;
+    }
+#endif
 
-    return 0;
+    // === App 层职责 3: 事件转换和通知用户 ===
+    if (should_notify_user) {
+        app_player_event_t app_evt = __convert_player_evt_to_app_event(evt);
+        __enqueue_callback_event(player, app_evt);
+    }
 }
 
 /**
@@ -573,11 +558,19 @@ app_player_t *app_player_create(const char *name)
     }
     player->cb_map.callback = NULL;
     player->cb_map.user_data = NULL;
+    player->core_upper_callback = NULL;
 
     // 创建准备信号量
     player->preparing_sem = lisa_semaphore_create(1);
     if (!player->preparing_sem) {
-        LISA_LOGE(TAG, "Create failed: semaphore create failed");
+        LISA_LOGE(TAG, "Create failed: preparing semaphore create failed");
+        goto _err;
+    }
+
+    // 创建暂停信号量
+    player->pause_sem = lisa_semaphore_create(1);
+    if (!player->pause_sem) {
+        LISA_LOGE(TAG, "Create failed: pause semaphore create failed");
         goto _err;
     }
 
@@ -588,6 +581,7 @@ app_player_t *app_player_create(const char *name)
     player->wait_prepare_intercepted = false;
     player->pause_preparing = false;
     player->is_stream_mode = false;
+    player->pa_is_on = false;  // 初始状态：未使用PA
 
     // 初始化音量范围
     player->vol_min = APP_PLAYER_VOL_MIN;
@@ -606,6 +600,8 @@ app_player_t *app_player_create(const char *name)
     player->paused_by_focus = false;
     app_player_focus_set_user_initiated(player, false);
     player->last_focus_state = APP_PLAYER_FOCUS_NONE;
+    player->pending_url = NULL;
+    player->pending_throw_time = 0;
     // behavior 将在注册焦点通道时从配置中复制
 #endif
 
@@ -649,9 +645,9 @@ app_player_t *app_player_create(const char *name)
         goto _err;
     }
 
-    // 注册lisa_player回调
-    if (lisa_player_set_callback(player->hld, __lisa_player_callback_handler) != PLAYER_OK) {
-        LISA_LOGE(TAG, "Create failed: set lisa_player callback failed");
+    // 初始化 core 层，设置回调链
+    if (app_player_core_init(player, __app_player_upper_callback_handler) != 0) {
+        LISA_LOGE(TAG, "Create failed: app_player_core_init failed");
         player->cb_queue->running = false;
         lisa_semaphore_give(player->cb_queue->sem); // 唤醒线程退出
         player->cb_thread = NULL;
@@ -699,6 +695,10 @@ _err:
 
     if (player->preparing_sem) {
         lisa_semaphore_delete(player->preparing_sem);
+    }
+
+    if (player->pause_sem) {
+        lisa_semaphore_delete(player->pause_sem);
     }
 
     if (player->cb_map.lock) {
@@ -756,7 +756,7 @@ int app_player_register_callback(app_player_t *player, app_player_event_cb_t eve
 
     PLAYER_MUTEX_UNLOCK(player->cb_map.lock);
 
-    LISA_LOGD(TAG, "Callback registered successfully: %s (cb=%p, user_data=%p)",
+    LISA_LOGI(TAG, "Callback registered successfully: %s (cb=%p, user_data=%p)",
               player->name, event_cb, user_data);
 
     return APP_PLAYER_OK;
@@ -796,23 +796,64 @@ int app_player_play_ex(app_player_t *player, const app_player_play_opt_t *opt)
     PLAYER_MUTEX_LOCK(player->operation_lock, LISA_OS_WAIT_FOREVER);
 
 #ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    // 检查当前播放状态，如果已经在播放/准备中，先停止
+    PlayerState lisa_state = lisa_player_get_state(player->hld);
+    if (lisa_state == PLAYER_ST_PLAYING || lisa_state == PLAYER_ST_PREPARED ||
+        lisa_state == PLAYER_ST_READY_TO_PLAY || lisa_state == PLAYER_ST_PAUSED) {
+        LISA_LOGI(TAG, "Player %s already active (state=%d), stopping before new play",
+                  player->name, lisa_state);
+
+        // 同步停止播放器（PA控制由事件回调处理）
+        int stop_ret = app_player_core_stop_sync(player);
+        if (stop_ret != 0) {
+            LISA_LOGW(TAG, "Player %s stop before replay failed: %d, continuing anyway",
+                      player->name, stop_ret);
+        }
+    }
+
     // 清除焦点暂停标志（用户主动播放）
     app_player_focus_set_paused_by_focus(player, false);
 
     // 申请音频焦点（如果已注册焦点通道）
     app_player_focus_acquire(player);
+
+    // 检查焦点申请结果：如果不是前景焦点，则不继续播放
+    // 焦点回调是同步执行的，所以这里可以立即检查结果
+    app_player_focus_state_t focus_state = app_player_focus_get_state(player);
+    if (focus_state != APP_PLAYER_FOCUS_FOREGROUND) {
+        LISA_LOGI(TAG, "Play cancelled: %s not in FOREGROUND (current state: %d)",
+                  player->name, focus_state);
+        // 保存待播放URL，等待焦点恢复时自动播放
+        if (player->pending_url) {
+            lisa_mem_free(player->pending_url);
+        }
+        player->pending_url = lisa_mem_alloc(strlen(opt->url) + 1);
+        if (player->pending_url) {
+            strcpy(player->pending_url, opt->url);
+            player->pending_throw_time = opt->throw_time_ms;
+            LISA_LOGI(TAG, "Saved pending URL for %s: %s", player->name, opt->url);
+        }
+        PLAYER_MUTEX_UNLOCK(player->operation_lock);
+        return APP_PLAYER_OK;
+    }
 #endif
 
-    // 开启 PA
-    pa_manager_control(1, 0);
-
-    // 调用 core 层播放（纯播放控制）
+    // 调用 core 层播放（PA控制由PLAYING事件回调处理）
     int ret = app_player_core_play(player, opt->url, opt->throw_time_ms);
     if (ret != 0) {
         LISA_LOGE(TAG, "Play failed: app_player_core_play error %d", ret);
         PLAYER_MUTEX_UNLOCK(player->operation_lock);
         return APP_PLAYER_ERR_IO;
     }
+
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    // 播放成功，清除待播放URL（如果有）
+    if (player->pending_url) {
+        lisa_mem_free(player->pending_url);
+        player->pending_url = NULL;
+        player->pending_throw_time = 0;
+    }
+#endif
 
     LISA_LOGI(TAG, "Play started: %s", player->name);
     PLAYER_MUTEX_UNLOCK(player->operation_lock);
@@ -847,10 +888,10 @@ int app_player_play(app_player_t *player, const char *url)
 }
 
 /**
- * @brief   停止播放（异步）
+ * @brief   停止播放（同步）
  * @param   player 播放器实例
  * @return  APP_PLAYER_OK 成功，其他表示错误
- * @note    异步停止，立即返回，停止完成后会收到STOPPED事件
+ * @note    同步停止，等待停止完成后返回
  */
 int app_player_stop(app_player_t *player)
 {
@@ -874,62 +915,14 @@ int app_player_stop(app_player_t *player)
     app_player_focus_set_user_initiated(player, true);
 #endif
 
-    // 关闭PA
-    pa_manager_control(0, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
-
-    // 调用 core 层停止（纯播放控制）
-    int ret = app_player_core_stop(player);
-    if (ret != 0) {
-        LISA_LOGE(TAG, "Stop failed: app_player_core_stop error %d", ret);
-        PLAYER_MUTEX_UNLOCK(player->operation_lock);
-        return APP_PLAYER_ERR_INVALID_STATE;
-    }
-
-    PLAYER_MUTEX_UNLOCK(player->operation_lock);
-
-#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
-    // 用户主动停止，释放焦点（在锁外执行）
-    app_player_focus_release(player, true);
-#endif
-
-    return APP_PLAYER_OK;
-}
-
-/**
- * @brief   停止播放（同步，等待停止完成）
- * @param   player 播放器实例
- * @return  APP_PLAYER_OK 成功，其他表示错误
- * @note    同步停止，等待停止完成后返回
- */
-int app_player_stop_sync(app_player_t *player)
-{
-    if (!player) {
-        LISA_LOGE(TAG, "Stop sync failed: player is NULL");
-        return APP_PLAYER_ERR_INVALID_PARAM;
-    }
-
-    // 流式播放模式下不支持 stop 操作
-    if (player->is_stream_mode) {
-        LISA_LOGE(TAG, "Stop sync failed: not supported in stream mode");
-        return APP_PLAYER_ERR_NOT_SUPPORTED;
-    }
-
-    LISA_LOGI(TAG, "Stop sync: %s", player->name);
-
-    PLAYER_MUTEX_LOCK(player->operation_lock, LISA_OS_WAIT_FOREVER);
-
-#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
-    // 标记为用户主动stop，后续焦点释放时跳过策略执行
-    app_player_focus_set_user_initiated(player, true);
-#endif
-
-    // 关闭PA
-    pa_manager_control(0, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
-
     // 调用 core 层同步停止（纯播放控制）
     int ret = app_player_core_stop_sync(player);
     if (ret != 0) {
-        LISA_LOGE(TAG, "%s Stop sync failed: app_player_core_stop_sync error %d", player->name, ret);
+        LISA_LOGE(TAG, "%s Stop failed: app_player_core_stop_sync error %d", player->name, ret);
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+        // 失败时清除标志，避免残留
+        app_player_focus_set_user_initiated(player, false);
+#endif
         PLAYER_MUTEX_UNLOCK(player->operation_lock);
         return APP_PLAYER_ERR_INVALID_STATE;
     }
@@ -941,13 +934,16 @@ int app_player_stop_sync(app_player_t *player)
     app_player_focus_release(player, true);
 #endif
 
+    // PA控制由STOPPED事件回调处理
+
     return APP_PLAYER_OK;
 }
 
 /**
- * @brief   暂停播放
+ * @brief   暂停播放（同步）
  * @param   player 播放器实例
  * @return  APP_PLAYER_OK 成功，其他表示错误
+ * @note    同步接口，等待暂停完成后返回
  * @note    如果正在准备阶段，则设置pause_preparing标志，准备完成后不会自动播放
  */
 int app_player_pause(app_player_t *player)
@@ -963,10 +959,16 @@ int app_player_pause(app_player_t *player)
         return APP_PLAYER_ERR_NOT_SUPPORTED;
     }
 
-    // 检查当前状态，如果已经是PAUSED，无需重复pause
+    // 检查当前状态
     PlayerState state = lisa_player_get_state(player->hld);
     if (state == PLAYER_ST_PAUSED) {
-        LISA_LOGI(TAG, "Pause: %s already paused, skip", player->name);
+        LISA_LOGI(TAG, "Pause: %s already paused", player->name);
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+        // 即使已经暂停，也要标记用户主动操作，避免焦点恢复时自动播放
+        app_player_focus_set_user_initiated(player, true);
+        // 用户主动暂停，释放焦点
+        app_player_focus_release(player, true);
+#endif
         return APP_PLAYER_OK;
     }
 
@@ -979,13 +981,14 @@ int app_player_pause(app_player_t *player)
     app_player_focus_set_user_initiated(player, true);
 #endif
 
-    // 关闭PA
-    pa_manager_control(0, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
-
-    // 调用 core 层暂停（纯播放控制）
+    // 调用 core 层暂停（PA控制由PAUSED事件回调处理）
     int ret = app_player_core_pause(player);
     if (ret != 0) {
         LISA_LOGE(TAG, "Pause failed: app_player_core_pause error %d", ret);
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+        // 失败时清除标志，避免残留
+        app_player_focus_set_user_initiated(player, false);
+#endif
         PLAYER_MUTEX_UNLOCK(player->operation_lock);
         return APP_PLAYER_ERR_INVALID_STATE;
     }
@@ -1001,9 +1004,10 @@ int app_player_pause(app_player_t *player)
 }
 
 /**
- * @brief   恢复播放（异步）
+ * @brief   恢复播放（同步）
  * @param   player 播放器实例
  * @return  APP_PLAYER_OK 成功，其他表示错误
+ * @note    同步接口，等待恢复完成后返回
  * @note    如果在准备阶段被暂停，则清除pause_preparing标志并开始播放
  */
 int app_player_resume(app_player_t *player)
@@ -1024,18 +1028,28 @@ int app_player_resume(app_player_t *player)
 #ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
     // 用户主动恢复，申请焦点
     app_player_focus_acquire(player);
+
+    // 检查焦点申请结果：如果不是前景焦点，则不继续恢复
+    app_player_focus_state_t focus_state = app_player_focus_get_state(player);
+    if (focus_state != APP_PLAYER_FOCUS_FOREGROUND) {
+        LISA_LOGI(TAG, "Resume cancelled: %s not in FOREGROUND (current state: %d)",
+                  player->name, focus_state);
+        // 设置 paused_by_focus 标志，等待焦点恢复时自动播放
+        app_player_focus_set_paused_by_focus(player, true);
+        return APP_PLAYER_OK;
+    }
+
+    // 获得焦点，清除标志
     app_player_focus_set_paused_by_focus(player, false);
 #endif
 
     PLAYER_MUTEX_LOCK(player->operation_lock, LISA_OS_WAIT_FOREVER);
 
-    // 开启PA
-    pa_manager_control(1, 0);
-
-    // 调用 core 层恢复（纯播放控制）
-    int ret = app_player_core_resume(player);
+    // 调用 core 层接口，由 core 层统一处理 pause_preparing 逻辑和 lisa_player 调用
+    // PA控制由PLAYING事件回调处理
+    int ret = app_player_core_resume_sync(player);
     if (ret != 0) {
-        LISA_LOGE(TAG, "Resume failed: app_player_core_resume error %d", ret);
+        LISA_LOGE(TAG, "Resume failed: app_player_core_resume_sync error %d", ret);
         PLAYER_MUTEX_UNLOCK(player->operation_lock);
         return APP_PLAYER_ERR_INVALID_STATE;
     }
@@ -1045,64 +1059,10 @@ int app_player_resume(app_player_t *player)
 }
 
 /**
- * @brief   恢复播放（同步，等待恢复完成）
+ * @brief   重置播放器到初始状态（同步）
  * @param   player 播放器实例
  * @return  APP_PLAYER_OK 成功，其他表示错误
- * @note    同步版本，等待恢复完成后返回
- */
-int app_player_resume_sync(app_player_t *player)
-{
-    if (!player) {
-        LISA_LOGE(TAG, "Resume sync failed: player is NULL");
-        return APP_PLAYER_ERR_INVALID_PARAM;
-    }
-
-    // 流式播放模式下不支持 resume 操作
-    if (player->is_stream_mode) {
-        LISA_LOGE(TAG, "Resume sync failed: not supported in stream mode");
-        return APP_PLAYER_ERR_NOT_SUPPORTED;
-    }
-
-    LISA_LOGI(TAG, "Resume sync: %s", player->name);
-
-    PLAYER_MUTEX_LOCK(player->operation_lock, LISA_OS_WAIT_FOREVER);
-
-#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
-    // 清除焦点暂停标志（用户主动恢复）
-    player->paused_by_focus = false;
-#endif
-
-    // 开启PA
-    pa_manager_control(1, 0);
-
-    // 如果是在准备阶段被暂停的，清除pause_preparing标志并开始播放
-    if (player->pause_preparing) {
-        LISA_LOGD(TAG, "Player %s was paused during preparing, start playing", player->name);
-        player->pause_preparing = false;
-        PlayerErr ret = lisa_player_play(player->hld);
-        if (ret != PLAYER_OK) {
-            LISA_LOGE(TAG, "Resume sync failed: lisa_player_play error %d", ret);
-            PLAYER_MUTEX_UNLOCK(player->operation_lock);
-            return APP_PLAYER_ERR_INVALID_STATE;
-        }
-    } else {
-        // 否则调用底层的同步恢复接口
-        PlayerErr ret = lisa_player_resume_sync(player->hld);
-        if (ret != PLAYER_OK) {
-            LISA_LOGE(TAG, "Resume sync failed: lisa_player_resume_sync error %d", ret);
-            PLAYER_MUTEX_UNLOCK(player->operation_lock);
-            return APP_PLAYER_ERR_INVALID_STATE;
-        }
-    }
-
-    PLAYER_MUTEX_UNLOCK(player->operation_lock);
-    return APP_PLAYER_OK;
-}
-
-/**
- * @brief   重置播放器到初始状态
- * @param   player 播放器实例
- * @return  APP_PLAYER_OK 成功，其他表示错误
+ * @note    同步接口，等待重置完成后返回
  * @note    重置后播放器回到IDLE状态，清除所有播放相关的标志和状态
  */
 int app_player_reset(app_player_t *player)
@@ -1116,6 +1076,11 @@ int app_player_reset(app_player_t *player)
 
     LISA_LOGI(TAG, "Reset: %s", player->name);
 
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    // 标记为用户主动reset，后续焦点释放时跳过策略执行
+    app_player_focus_set_user_initiated(player, true);
+#endif
+
     // 清除准备中标志
     player->is_preparing = false;
     player->wait_prepare_intercepted = false;
@@ -1125,6 +1090,10 @@ int app_player_reset(app_player_t *player)
     PlayerErr ret = lisa_player_reset(player->hld);
     if (ret != PLAYER_OK) {
         LISA_LOGE(TAG, "Reset failed: lisa_player_reset error %d", ret);
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+        // 失败时清除标志，避免残留
+        app_player_focus_set_user_initiated(player, false);
+#endif
         PLAYER_MUTEX_UNLOCK(player->operation_lock);
         return APP_PLAYER_ERR_INVALID_STATE;
     }
@@ -1133,9 +1102,15 @@ int app_player_reset(app_player_t *player)
     player->state = APP_PLAYER_STATE_IDLE;
     player->last_evt = PLAYER_EVT_INIT;
 
-    LISA_LOGD(TAG, "Player %s reset to IDLE state", player->name);
+    LISA_LOGI(TAG, "Player %s reset to IDLE state", player->name);
 
     PLAYER_MUTEX_UNLOCK(player->operation_lock);
+
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    // 用户主动reset，释放焦点（在锁外执行）
+    app_player_focus_release(player, true);
+#endif
+
     return APP_PLAYER_OK;
 }
 
@@ -1378,14 +1353,19 @@ int app_player_play_stream(app_player_t *player, uint32_t sample_rate, uint8_t c
 
     // 申请音频焦点（如果已注册焦点通道）
     app_player_focus_acquire(player);
+
+    // 检查焦点申请结果：如果不是前景焦点，则不继续播放
+    app_player_focus_state_t focus_state = app_player_focus_get_state(player);
+    if (focus_state != APP_PLAYER_FOCUS_FOREGROUND) {
+        LISA_LOGI(TAG, "Play stream cancelled: %s not in FOREGROUND (current state: %d)",
+                  player->name, focus_state);
+        return APP_PLAYER_OK;
+    }
 #endif
 
     PLAYER_MUTEX_LOCK(player->operation_lock, LISA_OS_WAIT_FOREVER);
 
-    // 开启PA
-    pa_manager_control(1, 0);
-
-    // 调用 core 层流式播放（纯播放控制）
+    // 调用 core 层流式播放（PA控制由PLAYING事件回调处理）
     int ret = app_player_core_play_stream(player, sample_rate, channels, bits);
     if (ret != 0) {
         LISA_LOGE(TAG, "Play stream failed: app_player_core_play_stream error %d", ret);
@@ -1419,6 +1399,8 @@ int app_player_write_stream(app_player_t *player, const uint8_t *data, uint32_t 
         return APP_PLAYER_ERR_INVALID_PARAM;
     }
 
+    LISA_LOGI(TAG, "Write stream: %s, size=%u, timeout=%u", player->name, size, timeout_ms);
+
     PLAYER_MUTEX_LOCK(player->operation_lock, LISA_OS_WAIT_FOREVER);
 
     // 调用 core 层写入流数据（纯播放控制）
@@ -1429,7 +1411,7 @@ int app_player_write_stream(app_player_t *player, const uint8_t *data, uint32_t 
         return APP_PLAYER_ERR_IO;
     }
 
-    LISA_LOGD(TAG, "Stream data written: %d bytes", ret);
+    LISA_LOGI(TAG, "Stream data written: %d bytes", ret);
     PLAYER_MUTEX_UNLOCK(player->operation_lock);
     return ret;
 }
@@ -1506,7 +1488,7 @@ int app_player_register_focus_cb(app_player_t *player,
     player->focus_user_data = user_data;
     PLAYER_MUTEX_UNLOCK(player->focus_cb_lock);
 
-    LISA_LOGD(TAG, "Focus callback registered successfully: %s (cb=%p, user_data=%p)",
+    LISA_LOGI(TAG, "Focus callback registered successfully: %s (cb=%p, user_data=%p)",
               player->name, on_focus_change, user_data);
 
     return APP_PLAYER_OK;
@@ -1579,6 +1561,12 @@ int app_player_destroy(app_player_t *player)
         player->preparing_sem = NULL;
     }
 
+    // 销毁暂停信号量
+    if (player->pause_sem) {
+        lisa_semaphore_delete(player->pause_sem);
+        player->pause_sem = NULL;
+    }
+
     // 销毁回调管理锁
     if (player->cb_map.lock) {
         PLAYER_MUTEX_DELETE(player->cb_map.lock);
@@ -1586,6 +1574,12 @@ int app_player_destroy(app_player_t *player)
     }
 
 #ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    // 释放待播放URL
+    if (player->pending_url) {
+        lisa_mem_free(player->pending_url);
+        player->pending_url = NULL;
+    }
+
     // 销毁焦点回调锁
     if (player->focus_cb_lock) {
         PLAYER_MUTEX_DELETE(player->focus_cb_lock);

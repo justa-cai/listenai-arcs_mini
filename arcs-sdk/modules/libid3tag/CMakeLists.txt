@@ -1,4 +1,4 @@
-if ((DEFINED CONFIG_ZLIB OR DEFINED CONFIG_ZLIB_NG) AND (DEFINED CONFIG_SDK_MODULE_ID3TAG))
+if ((DEFINED CONFIG_ZLIB OR DEFINED CONFIG_ZLIB_NG) AND (DEFINED CONFIG_SDK_MODULE_LIBID3TAG))
   cmake_minimum_required(VERSION 3.13)
   # project(id3tag VERSION 0.16.3)
   set(CMAKE_PROJECT_VERSION "0.16.3")
@@ -46,9 +46,7 @@ if ((DEFINED CONFIG_ZLIB OR DEFINED CONFIG_ZLIB_NG) AND (DEFINED CONFIG_SDK_MODU
       ${SOURCES}
   )
 
-  if(DEFINED LISTENAI_CMAKE_PATH)
   listenai_link_libraries(${LIBRARY_NAME})
-  endif()
 
   configure_file(${CMAKE_CURRENT_SOURCE_DIR}/id3tag.h.in ${CMAKE_CURRENT_BINARY_DIR}/id3tag.h @ONLY)
   target_include_directories(id3tag PUBLIC
@@ -142,7 +140,7 @@ if ((DEFINED CONFIG_ZLIB OR DEFINED CONFIG_ZLIB_NG) AND (DEFINED CONFIG_SDK_MODU
 
   if (CONFIG_ZLIB)
     target_include_directories(id3tag PRIVATE
-      $ENV{ARCS_BASE}/../modules/zlib/include
+      $ENV{ARCS_BASE}/modules/zlib/include
     )
   endif()
   if (CONFIG_ZLIB_NG)

@@ -14,7 +14,7 @@ typedef struct{
 
 typedef struct{
     voice_msg_cloud_mcp_context_t context;
-    char command[32];
+    char command[64];
 }voice_msg_cloud_recognized_command_t;
 
 typedef struct{

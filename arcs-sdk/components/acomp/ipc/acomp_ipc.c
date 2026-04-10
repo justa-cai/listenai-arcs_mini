@@ -40,10 +40,12 @@ typedef struct {
     sys_dlist_t cb_list;
     sys_dlist_t dev_info_list;
     SemaphoreHandle_t reply_sem;
+    SemaphoreHandle_t send_mutex;  // 保护 acomp_ipc_build_frame_send_sync 避免重入
 
 } acomp_ipc_handle_t;
 
 acomp_ipc_handle_t *ipc_handle = NULL;
+static int acomp_ipc_build_frame_send_async(int dev_index, int cmd, int acomp_cmd, uint8_t flags, void *data, uint16_t len);
 
 static int32_t acomp_ipc_callback_wrap(ic_message_handle_info_t *handle_info, ic_message_msg_info_t *msg)
 {
@@ -89,7 +91,7 @@ static int32_t acomp_ipc_callback_wrap(ic_message_handle_info_t *handle_info, ic
     }
 
     if (ipc_msg->hdr.hdr.req_reply) {
-        acomp_ipc_build_frame_send_sync(ipc_msg->dev_index, ACOMP_CONTEXT_IPC_GLB_REPLY, 0, 0, 0, 0);
+        acomp_ipc_build_frame_send_async(ipc_msg->dev_index, ACOMP_CONTEXT_IPC_GLB_REPLY, 0, 0, 0, 0);
     }
 
     return 0;
@@ -112,6 +114,14 @@ int acomp_ipc_init(void)
     sys_dlist_init(&ipc_handle->cb_list);
     sys_dlist_init(&ipc_handle->dev_info_list);
     ipc_handle->reply_sem = xSemaphoreCreateBinary();
+    ipc_handle->send_mutex = xSemaphoreCreateMutex();  // 创建互斥锁保护发送函数
+
+    if (ipc_handle->send_mutex == NULL) {
+        LISA_LOGE(TAG, "Failed to create send mutex");
+        psram_free(ipc_handle);
+        ipc_handle = NULL;
+        return -ACOMP_ERR_NO_MEM;
+    }
 
     ic_message_register_by_id(IC_MESSAGE_ID_ACOMP, acomp_ipc_callback_wrap, ipc_handle);
 
@@ -168,6 +178,12 @@ int acomp_ipc_build_frame_send_sync(int dev_index, int cmd, int acomp_cmd, uint8
     uint8_t *pdata;
     int ret = 0;
 
+    // 加锁：防止多任务并发调用导致信号量混乱
+    if (xSemaphoreTake(ipc_handle->send_mutex, portMAX_DELAY) != pdTRUE) {
+        LISA_LOGE(TAG, "Failed to acquire send mutex");
+        return -ACOMP_ERR_BUSY;
+    }
+
     ipc_msg.hdr.glb_cmd = cmd;
     ipc_msg.dev_index = dev_index;
     ipc_msg.acomp_cmd = acomp_cmd;
@@ -192,8 +208,39 @@ int acomp_ipc_build_frame_send_sync(int dev_index, int cmd, int acomp_cmd, uint8
         }
     }
 
+    // 解锁：无论成功还是失败都要解锁
+    xSemaphoreGive(ipc_handle->send_mutex);
+
     return ret;
 }
+
+
+
+static int acomp_ipc_build_frame_send_async(int dev_index, int cmd, int acomp_cmd, uint8_t flags, void *data, uint16_t len)
+{
+    acomp_ipc_message_t ipc_msg;
+    uint8_t *pdata;
+    int ret = 0;
+
+    ipc_msg.hdr.glb_cmd = cmd;
+    ipc_msg.dev_index = dev_index;
+    ipc_msg.acomp_cmd = acomp_cmd;
+    ipc_msg.req.flags = flags;
+    ipc_msg.len = len;
+    ipc_msg.address = (uint32_t)data;
+
+    if ((data != NULL) && (len > 0)) {
+        ASSERT(!(((uint32_t)data % CACHE_LINE_SIZE) && (len % CACHE_LINE_SIZE)),
+               "comp ipc buffer not aligned cache line(32)");
+        HAL_FlushDCache_by_Addr((void *)data, len);
+    }
+    pdata = (uint8_t *)&ipc_msg;
+    ic_message_msg_send_by_id(IC_MESSAGE_ID_ACOMP, IC_MESSAGE_MSG_TYPE_CMD, (uint8_t *)&ipc_msg,
+                              sizeof(acomp_ipc_message_t));
+
+    return ret;
+}
+
 
 int acomp_ipc_get_dev_index(const char *name)
 {

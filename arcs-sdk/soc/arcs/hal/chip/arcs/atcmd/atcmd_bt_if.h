@@ -164,6 +164,27 @@
 #define MAX_EXT_ADV_DATA_LENGTH 1650 // Extended adv max len 1650 bytes
 
 
+/// Initiating Properties
+enum gapm_init_prop
+{
+    /// Scan connectable advertisements on the LE 1M PHY. Connection parameters for the LE 1M PHY are provided
+    GAPM_INIT_PROP_1M_BIT       = (1 << 0),
+    /// Connection parameters for the LE 2M PHY are provided
+    GAPM_INIT_PROP_2M_BIT       = (1 << 1),
+    /// Scan connectable advertisements on the LE Coded PHY. Connection parameters for the LE Coded PHY are provided
+    GAPM_INIT_PROP_CODED_BIT    = (1 << 2),
+};
+
+
+/// BT Discovery Types
+enum gapm_disc_type
+{
+    /// General discovery
+    GAPM_DISC_TYPE_GEN_DISC = 0,
+    /// Limited discovery
+    GAPM_DISC_TYPE_LIM_DISC,
+};
+
 /**
  * Test mode transmit power level in dBm HCI:7.8.122
  *   -127 - Lowest transmit power level
@@ -265,6 +286,10 @@ enum bt_at_msg_id
     BT_AT_RF_TEST_TONE_STOP_CMD                                 = BT_AT_CMD_ID(TEST, 0x10),
     /// BT HCI TEST MODE
     BT_AT_BT_HCI_TEST_CMD                                       = BT_AT_CMD_ID(TEST, 0x11),
+
+    BT_AT_BT_SET_TX_POWER_CMD                                   = BT_AT_CMD_ID(TEST, 0x12),
+
+    BT_AT_BT_SET_EVT_FILTER_CMD                                 = BT_AT_CMD_ID(TEST, 0x13),
 };
 
 
@@ -386,6 +411,21 @@ typedef struct rf_test_tone_start_cmd
     uint8_t power;
 }rf_test_tone_start_cmd_t;
 
+typedef struct bt_set_evt_filter_cmd
+{
+    ///filter type
+    uint8_t filter_type;
+    ///filter condition type
+    uint8_t filter_con_type;
+    ///condition
+    uint8_t con[7];
+
+}bt_set_evt_filter_cmd_t;
+
+typedef struct rf_set_tx_power_cmd
+{
+    uint8_t power;
+}rf_set_tx_power_cmd_t;
 
 typedef struct
 {
@@ -741,7 +781,7 @@ uint8_t atcmd_ble_data_len_send(ble_data_len_t *params);
 uint8_t atcmd_ble_sec_param_send(ble_sec_param_t *params);
 uint8_t atcmd_ble_enc_send(ble_enc_t *params);
 uint8_t atcmd_ble_key_reply_send(ble_key_reply_t *params);
-uint8_t atcmd_ble_enc_clear_send(ble_enc_clear_t *params);
+uint8_t atcmd_ble_bt_enc_clear_send(ble_enc_clear_t *params);
 
 uint8_t atcmd_bt_inquiry_send(bt_inq_t *params);
 uint8_t atcmd_bt_conn_send(bt_conn_t *params);

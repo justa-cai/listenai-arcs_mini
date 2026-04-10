@@ -7,12 +7,6 @@ VERSION := "Build on: $(HOSTNAME)\r\nRelease version: $(DATE)"
 
 VERSION_FILE := sw_version.h
 
-ifeq (,$(wildcard $(VERSION_FILE)))
-$(shell touch $(VERSION_FILE))
-endif
-
-$(shell echo "#define $(APP_NAME)_VERSION \"$(VERSION)\"" > $(VERSION_FILE))
-
 #lib or target you want to build: eg. LIB=libmisc.a  or TARGET=wlan
 LIB		= libshell.a
 TARGET	=
@@ -46,3 +40,8 @@ CFLAGS = -I$(TOPDIR)/include/debug \
 #	@touch version.c
 
 include $(TOPDIR)/rules.mk
+
+$(VERSION_FILE):
+	@echo "#define $(APP_NAME)_VERSION \"$(VERSION)\"" > $(VERSION_FILE)
+
+$(OBJS): $(VERSION_FILE)

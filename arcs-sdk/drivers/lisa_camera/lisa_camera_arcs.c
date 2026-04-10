@@ -30,6 +30,9 @@
 #if CONFIG_LISA_CAMERA_SENSOR_BF3901
 #include "bf3901.h"
 #endif
+#if CONFIG_LISA_CAMERA_SENSOR_TC6036
+#include "tc6036.h"
+#endif
 
 #define MAX_BUF_NUM         5
 
@@ -93,6 +96,9 @@ static const sensor_func_t camera_sensors[] = {
 #endif
 #if CONFIG_LISA_CAMERA_SENSOR_OV9655
     {CAMERA_OV9655, ov9655_detect, ov9655_init},
+#endif
+#if CONFIG_LISA_CAMERA_SENSOR_TC6036
+    {CAMERA_TC6036, tc6036_detect, tc6036_init},
 #endif
 };
 
@@ -1113,4 +1119,4 @@ static int lisa_camera_device_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(camera, &arcs_camera_api, &arcs_camera_priv, NULL, lisa_camera_device_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(camera, &arcs_camera_api, &arcs_camera_priv, NULL, lisa_camera_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);

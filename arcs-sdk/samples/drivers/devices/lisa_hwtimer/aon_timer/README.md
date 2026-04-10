@@ -1,86 +1,32 @@
-# LISA AON HWTIMER 基础示例
+# LISA HWTIMER AON Timer 周期定时示例
 
-本示例演示 AON Timer 低功耗周期定时功能，每 1 秒触发一次回调。
+## 功能说明
 
-## 硬件特性
+本示例演示 AON Timer 低功耗周期定时功能，每 1 秒触发一次回调，支持 RC32K 和 XO32K 两种时钟源。
 
-- **通道数量**: 1个通道（通道0）
-- **计数器位数**: 24位计数器
-- **时钟源**:
-  - **RC32K**: 内部RC振荡器，频率动态获取（典型值约32768Hz，实际存在较大偏差）
-  - **XO32K**: 需要外接32K晶振，典型值32768Hz，精度高
-- **分频**: 不支持分频，频率由时钟源决定
-- **低功耗**: 支持低功耗模式运行
+## 硬件连接
 
-## 配置说明
+无需外部连接。AON Timer 为芯片内部外设，默认使用内部 RC32K 时钟源；如需使用 XO32K 时钟源，需要外接 32K 晶振。
 
-在 [prj.conf](prj.conf) 中启用以下配置:
+## 示例步骤
 
-```kconfig
-CONFIG_LISA_DEVICE=y
-CONFIG_LISA_HWTIMER_DEVICE=y
-CONFIG_LISA_HWTIMER_ARCS_AON_TIMER=y
-```
-
-### 时钟源配置
-
-默认使用内部 RC32K 时钟源（`CONFIG_LISA_HWTIMER_ARCS_AON_TIMER_CLK_RC32K=y`）：
-- 无需外部晶振硬件
-- 功耗更低
-- 频率通过 `lisa_hwtimer_get_capabilities()` 动态获取
-- 精度较低，有偏差
-
-可选配置使用外部 XO32K 时钟源（需要外接32K晶振硬件）:
-
-```kconfig
-CONFIG_LISA_HWTIMER_ARCS_AON_TIMER_CLK_XO32K=y
-```
-
-
-## 关键代码
-
-```c
-// 1. 获取设备
-lisa_device_t *hwtimer_dev = lisa_device_get("aon_timer");
-if (!lisa_device_ready(hwtimer_dev)) {
-    // 设备未就绪，处理错误
-    return -1;
-}
-
-// 2. 获取设备能力（查询实际频率）
-lisa_hwtimer_capabilities_t caps;
-int ret = lisa_hwtimer_get_capabilities(hwtimer_dev, &caps);
-// RC32K: 通过CRM动态获取实际频率（可能与32768Hz有偏差）
-// XO32K: 固定32768Hz
-
-// 3. 设置频率
-ret = lisa_hwtimer_set_frequency(hwtimer_dev, 0, caps.max_freq_hz);
-
-// 4. 注册回调（在中断上下文执行）
-ret = lisa_hwtimer_set_callback(hwtimer_dev, 0, timer_callback, NULL);
-
-// 5. 启动周期定时器（1秒 = caps.max_freq_hz / caps.max_freq_hz）
-uint32_t count = caps.max_freq_hz;
-ret = lisa_hwtimer_start(hwtimer_dev, 0, count, LISA_HWTIMER_MODE_PERIODIC);
-```
-
-### 定时周期计算
-
-```
-周期(秒) = COUNT / 频率(Hz)
-```
-
-**本示例**: `1秒 = caps.max_freq_hz / caps.max_freq_hz`
-
-**其他示例**:
-- 500ms: `count = caps.max_freq_hz / 2`
-- 100ms: `count = caps.max_freq_hz / 10`
-- 10ms: `count = caps.max_freq_hz / 100`
+1. 获取 `aon_timer` 设备并检查设备就绪状态
+2. 查询设备能力，获取定时器通道数和频率范围
+3. 设置定时器频率为时钟源最大频率
+4. 注册定时器中断回调函数
+5. 启动周期定时器，设置周期为 1 秒
+6. 定时器每 1 秒触发一次回调，打印递增计数
 
 ## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
+```
+
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
 ## 预期输出
@@ -97,15 +43,48 @@ Timer triggered: 3
 ...
 ```
 
-定时器每 1 秒触发一次，打印递增计数。
+## 核心 API
+
+| API | 说明 |
+|-----|------|
+| `lisa_device_get()` | 获取定时器设备 |
+| `lisa_hwtimer_get_capabilities()` | 查询定时器能力（通道数、频率范围） |
+| `lisa_hwtimer_set_frequency()` | 设置定时器频率 |
+| `lisa_hwtimer_set_callback()` | 注册定时器中断回调函数 |
+| `lisa_hwtimer_start()` | 启动定时器（支持单次和周期模式） |
+
+## 关键代码
+
+```c
+/* 获取设备 */
+lisa_device_t *hwtimer_dev = lisa_device_get("aon_timer");
+
+/* 查询实际频率 */
+lisa_hwtimer_capabilities_t caps;
+lisa_hwtimer_get_capabilities(hwtimer_dev, &caps);
+
+/* 设置频率 */
+lisa_hwtimer_set_frequency(hwtimer_dev, 0, caps.max_freq_hz);
+
+/* 注册回调 */
+lisa_hwtimer_set_callback(hwtimer_dev, 0, timer_callback, NULL);
+
+/* 启动周期定时器（1秒） */
+lisa_hwtimer_start(hwtimer_dev, 0, caps.max_freq_hz, LISA_HWTIMER_MODE_PERIODIC);
+```
+
+## 配置说明
+
+```kconfig
+CONFIG_LISA_DEVICE=y
+CONFIG_LISA_HWTIMER_DEVICE=y
+CONFIG_LISA_HWTIMER_ARCS_AON_TIMER=y
+# 可选：使用外部 XO32K 时钟源（需要外接32K晶振）
+# CONFIG_LISA_HWTIMER_ARCS_AON_TIMER_CLK_XO32K=y
+```
 
 ## 注意事项
 
-1. **时钟源精度**:
-   - 使用 RC32K 时实际频率可能与标称值有偏差，建议通过 `get_capabilities` 查询实际频率
-   - 需要精确计时场景建议使用 XO32K 时钟源
-
-2. **回调执行上下文**: 定时器回调在中断上下文中执行，应保持简短快速，避免阻塞操作
-
-3. **功耗考虑**: AON Timer 支持低功耗模式，适合长时间定时和低功耗应用场景
-
+1. **时钟源精度**：使用 RC32K 时实际频率可能与标称值有偏差，建议通过 `lisa_hwtimer_get_capabilities()` 查询实际频率
+2. **回调上下文**：定时器回调在中断上下文中执行，应保持简短快速，避免阻塞操作
+3. **低功耗**：AON Timer 支持低功耗模式运行，适合长时间定时和低功耗应用场景

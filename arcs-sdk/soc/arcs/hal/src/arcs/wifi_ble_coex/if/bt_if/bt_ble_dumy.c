@@ -25,7 +25,7 @@
 #include "ble_gap.h"
 #include "ble_prf.h"
 
-#include "bt_stack_if.h"
+#include "bt_stack_cfg.h"
 #include "bt_ble_if.h"
 #include "bt_app_if.h"
 

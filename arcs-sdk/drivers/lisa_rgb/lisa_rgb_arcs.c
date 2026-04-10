@@ -611,4 +611,4 @@ int lisa_rgb0_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(rgb0, &arcs_rgb_api, &rgb_priv, NULL, &lisa_rgb0_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(rgb0, &arcs_rgb_api, &rgb_priv, NULL, &lisa_rgb0_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);

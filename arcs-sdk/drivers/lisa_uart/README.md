@@ -104,7 +104,7 @@ void lisa_uart1_pinmux()
 #include "lisa_uart.h"
 
 // 获取 UART0 设备
-lisa_device_t *uart0 = lisa_device_get_by_name("uart0");
+lisa_device_t *uart0 = lisa_device_get("uart0");
 if (!uart0) {
     return -1;
 }
@@ -150,7 +150,7 @@ config.rx_buf_config.buffer_size = 512;
 lisa_uart_configure(uart0, &config);
 
 // 另一个设备使用不同的通道，避免冲突
-lisa_device_t *uart1 = lisa_device_get_by_name("uart1");
+lisa_device_t *uart1 = lisa_device_get("uart1");
 lisa_uart_config_t config1 = LISA_UART_CONFIG_DMA();
 config1.dma_tx_channel = 2;               // 指定 TX 使用 DMA 通道 2
 config1.dma_rx_channel = 3;               // 指定 RX 使用 DMA 通道 3

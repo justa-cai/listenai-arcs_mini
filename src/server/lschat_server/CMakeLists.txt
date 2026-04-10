@@ -9,6 +9,7 @@ listenai_library_sources(
     mcp_tool_play_ctrl.c
     voice_cloud.c
     voice_img_upload.c
+    mcp_tool_version_info.c
 )
 
 add_subdirectory(wakeup)

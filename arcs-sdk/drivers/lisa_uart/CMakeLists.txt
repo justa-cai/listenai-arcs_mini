@@ -7,9 +7,7 @@ if(CONFIG_LISA_UART_DEVICE)
 
 listenai_library_named(lisa_uart_device)
 
-listenai_library_sources(
-    lisa_uart_arcs.c     # ARCS 平台适配层
-)
+listenai_library_sources_ifdef(CONFIG_SOC_ARCS  lisa_uart_arcs.c)
 
 listenai_include_directories(.)
 

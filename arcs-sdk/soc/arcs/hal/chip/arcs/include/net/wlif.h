@@ -380,35 +380,11 @@ struct wlif_tx_desc_tag_partial
     /// TX SW descriptor passed to MAC
 };
 
-__INLINE net_if_t *wlif_get_if(uint8_t vif_idx)
-{
-    ASSERT_ERR(vif_idx < WLIF_IDX_MAX);
-    return (netif_env.vif[vif_idx].netif);
-}
+net_if_t *wlif_get_if(uint8_t vif_idx);
 
-__INLINE struct vif_info_tag *wlif_get_vif(uint8_t vif_idx)
-{
-    struct vif_info_tag *mac_vif = &netif_env.vif[vif_idx].mac_vif;
+struct vif_info_tag *wlif_get_vif(uint8_t vif_idx);
 
-    // Sanity check - Currently we consider that when this function is called there shall
-    // be a MAC VIF attached to the FHOST VIF. If in the future this has to change then
-    // this assertion will be removed
-    ASSERT_ERR(mac_vif != NULL);
-
-    return mac_vif;
-}
-
-__INLINE struct vif_info_tag *wlif_get_mac_vif(uint8_t vif_idx)
-{
-    struct vif_info_tag *mac_vif = &netif_env.vif[vif_idx].mac_vif;
-
-    // Sanity check - Currently we consider that when this function is called there shall
-    // be a MAC VIF attached to the FHOST VIF. If in the future this has to change then
-    // this assertion will be removed
-    ASSERT_ERR(mac_vif != NULL);
-
-    return mac_vif;
-}
+struct vif_info_tag *wlif_get_mac_vif(uint8_t vif_idx);
 
 
 int32_t wlif_init(void);

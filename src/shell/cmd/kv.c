@@ -11,7 +11,7 @@
 #include "stdio.h"
 #include "stdlib.h"
 #include "limits.h"
-#include "alarm_store.h"
+#include "alarm_nvs.h"
 #include "kv_user.h"
 #include "voice_msg.h"
 #include "apps/llm/models/model_voice.h"
@@ -158,39 +158,30 @@ static int kv_cmd_get(int argc, char **argv)
             } else {
                 shellPrint(shellGetCurrent(), "flash get %s len:%d\n", key, blob_len);
 
-                /* Special handling: user.alarm.list is a uint64 list of alarm timestamps */
-                if (!strcmp(key, "user.alarm_list") || !strcmp(key, "user.alarm.keys")) {
-                    int cnt = blob_len / (int)sizeof(uint64_t);
-                    uint64_t *ts = (uint64_t *)blob;
+                /* Special handling: user.alarm_list is a cloud_id list */
+                if (!strcmp(key, "user.alarm_list")) {
+                    int cnt = blob_len / (int)sizeof(alarm_list_item_t);
+                    alarm_list_item_t *items = (alarm_list_item_t *)blob;
                     for (int i = 0; i < cnt; i++) {
-                        shellPrint(shellGetCurrent(), "  alarm[%d]: %llu\n", i, (unsigned long long)ts[i]);
+                        shellPrint(shellGetCurrent(), "  alarm[%d]: cloud_id= %llu\n", i,
+                                   (unsigned long long)items[i].cloud_id);
                     }
+                } else if (blob_len == sizeof(alarm_object_t)) {
+                    // Try to print as alarm_object_t if size matches
+                    alarm_object_t *obj = (alarm_object_t *)blob;
+                    alarm_obj_print(obj);
                 } else {
-                    // Try to print as alarm_obj_nvs_t if size matches
-                    if (blob_len >= sizeof(alarm_obj_nvs_t)) {
-                        alarm_obj_nvs_t *hdr = (alarm_obj_nvs_t *)blob;
-                        size_t text_len = hdr->text_len;
-                        if (blob_len >= sizeof(alarm_obj_nvs_t) + text_len) {
-                            alarm_object_t obj;
-                            extern void alarm_object_from_nvs(const alarm_obj_nvs_t *hdr, const uint8_t *text, size_t text_len, uint64_t alarm_id, alarm_object_t *out_alarm);
-                            alarm_object_from_nvs(hdr, blob + sizeof(alarm_obj_nvs_t), text_len, 0, &obj);
-                            alarm_obj_print(&obj);
-                        } else {
-                            shellPrint(shellGetCurrent(), "[alarm_obj_nvs_t blob too short for text] \n");
-                        }
-                    } else {
-                        /* Generic hex dump in chunks to avoid oversized prints */
-                        for (int i = 0; i < blob_len; i++) {
-                            shellPrint(shellGetCurrent(), "%02hhx", blob[i]);
-                            if ((i + 1) % 32 == 0) {
-                                shellPrint(shellGetCurrent(), "\n");
-                            } else if ((i + 1) % 2 == 0) {
-                                shellPrint(shellGetCurrent(), " ");
-                            }
-                        }
-                        shellPrint(shellGetCurrent(), "\n");
-                    }
-                }
+    /* Generic hex dump in chunks to avoid oversized prints */
+    for (int i = 0; i < blob_len; i++) {
+        shellPrint(shellGetCurrent(), "%02hhx", blob[i]);
+        if ((i + 1) % 32 == 0) {
+            shellPrint(shellGetCurrent(), "\n");
+        } else if ((i + 1) % 2 == 0) {
+            shellPrint(shellGetCurrent(), " ");
+        }
+    }
+    shellPrint(shellGetCurrent(), "\n");
+}
             }
             if (blob) {
                 lisa_mem_free(blob);

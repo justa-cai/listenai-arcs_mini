@@ -1,0 +1,6 @@
+#ifndef LWIP_PROT_IANA_H
+#define LWIP_PROT_IANA_H
+
+#define LWIP_IANA_HWTYPE_ETHERNET 1
+
+#endif

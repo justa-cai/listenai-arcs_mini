@@ -20,9 +20,9 @@
 /* Must be defined in lisa_audio_arcs.c */
 extern int audio_submit_event_from_isr(internal_audio_event_t *event);
 
-/* DMA 通道定义 */
-#define GPDMA_ADC0_CHN  (1)
-#define GPDMA_ADC1_CHN  (3)
+/* DMA 通道定义 (通过 Kconfig 配置) */
+#define GPDMA_ADC0_CHN  CONFIG_LISA_AUDIO_RECORD_DMA_CHN_LEFT
+#define GPDMA_ADC1_CHN  CONFIG_LISA_AUDIO_RECORD_DMA_CHN_RIGHT
 
 /* 前向声明 */
 static void record_event_callback(uint32_t event, uint32_t user);

@@ -54,7 +54,7 @@
  */
 
 #define PLF_UART_FOR_BT      0 // bt communication used uart0,  should close shell log.
-#define PLF_UART2_FOR_BT     1
+#define PLF_UART2_FOR_BT     0 //bt communication used uart1,   should close shell log.
 
 
 /**

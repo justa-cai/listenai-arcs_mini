@@ -44,7 +44,7 @@ void test_pause_playing_player(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -114,7 +114,7 @@ void test_resume_paused_player(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -140,7 +140,7 @@ void test_resume_sync_paused_player(void)
 
         /* 同步恢复 */
         printf("  [Test] Resuming player (sync)\n");
-        ret = app_player_resume_sync(player);
+        ret = app_player_resume(player);
         printf("  [Test] Resume sync returns: %s\n", error_to_string(ret));
 
         if (ret == APP_PLAYER_OK) {
@@ -151,7 +151,7 @@ void test_resume_sync_paused_player(void)
     }
 
     /* 清理 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
     app_player_destroy(player);
 }
 
@@ -212,7 +212,7 @@ void test_stop_sync_playing_player(void)
 
     /* 同步停止 */
     printf("  [Test] Stopping player (sync)\n");
-    ret = app_player_stop_sync(player);
+    ret = app_player_stop(player);
     printf("  [Test] Stop sync returns: %s\n", error_to_string(ret));
     TEST_ASSERT_EQUAL(APP_PLAYER_OK, ret);
 
@@ -252,7 +252,7 @@ void test_reset_player(void)
     wait_ms(TEST_WAIT_LONG_MS);
     
     /* 停止播放 */
-    ret = app_player_stop_sync(player);
+    ret = app_player_stop(player);
     TEST_ASSERT_EQUAL(APP_PLAYER_OK, ret);
 
     /* 重置 */

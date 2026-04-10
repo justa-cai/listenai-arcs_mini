@@ -21,6 +21,7 @@
 
 #ifdef LISA_UI_PLATFORM_ARCS
 #include "voice_msg.h"
+#include "service_alarm.h"
 #endif
 
 #ifndef CONFIG_ALARM_RING_AUTO_RETURN_MS
@@ -32,9 +33,53 @@ struct alarm_ring_nav_scr_data {
     lv_obj_t *view;
     lv_timer_t *auto_return;
     bool iat_has_valid_text;
+    bool snooze_enabled;            // 是否开启了 snooze
+    uint8_t snooze_remaining_count; // 剩余提醒次数
+};
+
+struct alarm_ring_toast_ui_data {
+    struct alarm_ring_nav_scr_data *scr_data;
+    char text[64];
 };
 
 #ifdef LISA_UI_PLATFORM_ARCS
+static void format_alarm_time(const alarm_time_info_t *info, char *time_str, size_t time_size, 
+                              char *date_str, size_t date_size)
+{
+    snprintf(time_str, time_size, "%02d:%02d", info->hour, info->minute);
+    
+    const char *weekdays[] = {"周日", "周一", "周二", "周三", "周四", "周五", "周六"};
+    const char *suffix = "";
+    if (info->is_today) {
+        suffix = "(今天)";
+    } else if (info->is_tomorrow) {
+        suffix = "(明天)";
+    }
+    
+    snprintf(date_str, date_size, "%d月%d日 %s%s", 
+            info->month, info->day, weekdays[info->weekday], suffix);
+}
+
+static void format_alarm_create_toast(const alarm_time_info_t *info, char *toast_str, size_t toast_size)
+{
+    if (!info || !toast_str || toast_size == 0) {
+        return;
+    }
+
+    if (info->is_today) {
+        snprintf(toast_str, toast_size, "已添加今天 %02d:%02d 的闹钟", info->hour, info->minute);
+        return;
+    }
+
+    if (info->is_tomorrow) {
+        snprintf(toast_str, toast_size, "已添加明天 %02d:%02d 的闹钟", info->hour, info->minute);
+        return;
+    }
+
+    snprintf(toast_str, toast_size, "已添加%d月%d日%02d:%02d的闹钟",
+             info->month, info->day, info->hour, info->minute);
+}
+
 static void alarm_ring_auto_return_restart(struct alarm_ring_nav_scr_data *scr_data, const char *reason)
 {
     if (!scr_data || !scr_data->auto_return) {
@@ -90,11 +135,23 @@ static void alarm_ring_on_button_change(void *unused, uint32_t msg_id, void *dat
 {
     (void)unused;
     (void)msg_id;
-    (void)data;
-    (void)len;
     (void)user_data;
 
-    LISA_UI_LOGI("Alarm ring: button change, navigating to home");
+    if (!data || len < sizeof(voice_msg_button_evt_t)) {
+        return;
+    }
+
+    const voice_msg_button_evt_t *evt = (const voice_msg_button_evt_t *)data;
+    if (evt->button_id != 0) {
+        return;
+    }
+
+    if (evt->action != VOICE_MSG_BUTTON_ACTION_CLICK &&
+        evt->action != VOICE_MSG_BUTTON_ACTION_LONG_HOLD) {
+        return;
+    }
+
+    LISA_UI_LOGI("Alarm ring: button action=%d, navigating to home", evt->action);
     lisa_ui_invoke_ui_delayed(alarm_ring_nav_home_ui, NULL, 0, 0);
 }
 
@@ -142,24 +199,107 @@ static void alarm_ring_on_alarm_trigger(void *unused, uint32_t msg_id, void *dat
         alarm_ring_auto_return_restart(_invoke_scr_data, "alarm_trigger");
     });
 }
-#endif
 
-static void format_alarm_time(const alarm_time_info_t *info, char *time_str, size_t time_size, 
-                              char *date_str, size_t date_size)
+static void alarm_ring_on_alarm_create(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
-    snprintf(time_str, time_size, "%02d:%02d", info->hour, info->minute);
-    
-    const char *weekdays[] = {"周日", "周一", "周二", "周三", "周四", "周五", "周六"};
-    const char *suffix = "";
-    if (info->is_today) {
-        suffix = "(今天)";
-    } else if (info->is_tomorrow) {
-        suffix = "(明天)";
+    (void)unused;
+    (void)msg_id;
+    (void)len;
+
+    struct alarm_ring_nav_scr_data *scr_data = (struct alarm_ring_nav_scr_data *)user_data;
+    struct service_alarm *alarm = (struct service_alarm *)data;
+    if (!scr_data || !alarm) {
+        return;
     }
-    
-    snprintf(date_str, date_size, "%d月%d日 %s%s", 
-            info->month, info->day, weekdays[info->weekday], suffix);
+
+    alarm_time_info_t time_info;
+    if (model_alarm_get_time_info(alarm->timestamp, &time_info) != 0) {
+        LISA_UI_LOGW("Alarm ring: failed to get created alarm time info");
+        return;
+    }
+
+    struct alarm_ring_toast_ui_data ui_data = {
+        .scr_data = scr_data,
+    };
+    format_alarm_create_toast(&time_info, ui_data.text, sizeof(ui_data.text));
+
+    LISA_UI_INVOKE_UI_ARG_BASE(ui_data, {
+        if (!_invoke_ui_data.scr_data || !_invoke_ui_data.scr_data->view) {
+            return;
+        }
+
+        if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_ALARM_RING) {
+            return;
+        }
+
+        alarm_ring_view_show_toast(_invoke_ui_data.scr_data->view, _invoke_ui_data.text);
+        LISA_UI_LOGI("Alarm ring: show create toast: %s", _invoke_ui_data.text);
+    });
 }
+
+static void update_alarm_ring_ui(struct alarm_ring_nav_scr_data *scr_data)
+{
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+    alarm_data_t alarm_data;
+    if (model_alarm_get_data(&alarm_data) == 0) {
+        alarm_time_info_t time_info;
+        if (model_alarm_get_time_info(alarm_data.timestamp, &time_info) == 0) {
+            char time_str[16];
+            char date_str[32];
+            format_alarm_time(&time_info, time_str, sizeof(time_str), date_str, sizeof(date_str));
+
+            alarm_ring_view_set_time(scr_data->view, time_str);
+            alarm_ring_view_set_date(scr_data->view, date_str);
+            alarm_ring_view_set_text(scr_data->view, alarm_data.text);
+
+            // 获取 snooze 剩余次数并缓存到 scr_data
+            int remaining = model_alarm_get_snooze_remaining_count();
+            if (remaining > 0) {
+                // 有snooze且还有剩余次数，显示"稍后提醒"hint
+                scr_data->snooze_enabled = true;
+                scr_data->snooze_remaining_count = (uint8_t)remaining;
+                alarm_ring_view_set_hint(scr_data->view, "单击: 稍后提醒\n长按: 关闭闹钟");
+                LISA_UI_LOGI("Alarm ring UI - snooze enabled, remaining %d times", remaining);
+            } else {
+                // 没有snooze或已达到最大次数，显示"关闭闹钟"hint
+                scr_data->snooze_enabled = false;
+                scr_data->snooze_remaining_count = 0;
+                alarm_ring_view_set_hint(scr_data->view, "单击: 关闭闹钟");
+                LISA_UI_LOGI("Alarm ring UI - snooze disabled or last snooze");
+            }
+
+            LISA_UI_LOGI("Alarm ring UI - time: %s, date: %s, text: %s", time_str, date_str, alarm_data.text);
+        } else {
+            LISA_UI_LOGW("Failed to get time info");
+        }
+    } else {
+        LISA_UI_LOGW("No alarm data available");
+    }
+}
+
+static void alarm_ring_on_ui_update(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)data;
+    (void)len;
+
+    struct alarm_ring_nav_scr_data *scr_data = (struct alarm_ring_nav_scr_data *)user_data;
+    if (!scr_data) {
+        return;
+    }
+
+    LISA_UI_INVOKE_UI_ARG_BASE(scr_data, {
+        LISA_UI_LOGI("Alarm ring: received UI update message");
+        // g_alarm_ctx.data 已在 alarm_trigger_nav_ui_worker 中更新
+        // 现在更新UI显示
+        update_alarm_ring_ui(_invoke_scr_data);
+    });
+}
+#endif
 
 static void stop_btn_event_cb(lv_event_t *e)
 {
@@ -196,26 +336,10 @@ static int alarm_ring_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **dat
         lisa_ui_free(scr_data);
         return -1;
     }
-    
-    alarm_data_t alarm_data;
-    if (model_alarm_get_data(&alarm_data) == 0) {
-        alarm_time_info_t time_info;
-        if (model_alarm_get_time_info(alarm_data.timestamp, &time_info) == 0) {
-            char time_str[16];
-            char date_str[32];
-            format_alarm_time(&time_info, time_str, sizeof(time_str), date_str, sizeof(date_str));
-            
-            alarm_ring_view_set_time(scr_data->view, time_str);
-            alarm_ring_view_set_date(scr_data->view, date_str);
-            
-            LISA_UI_LOGI("Alarm ring page - time: %s, date: %s", time_str, date_str);
-        } else {
-            LISA_UI_LOGW("Failed to get time info");
-        }
-    } else {
-        LISA_UI_LOGW("No alarm data available, using default");
-    }
-    
+
+    // 初始化UI显示闹钟信息
+    update_alarm_ring_ui(scr_data);
+
     alarm_ring_view_set_stop_cb(scr_data->view, stop_btn_event_cb, NULL);
 
     scr_data->auto_return = lv_timer_create(alarm_ring_auto_return_cb, ALARM_RING_AUTO_RETURN_MS, NULL);
@@ -229,6 +353,8 @@ static int alarm_ring_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **dat
 
 #ifdef LISA_UI_PLATFORM_ARCS
     voice_msg_sub(VOICE_MSG_ALARM_TRIGGER, alarm_ring_on_alarm_trigger, scr_data);
+    voice_msg_sub(VOICE_MSG_ALARM_CREATE, alarm_ring_on_alarm_create, scr_data);
+    voice_msg_sub(VOICE_MSG_ALARM_RING_UPDATE, alarm_ring_on_ui_update, scr_data);
     voice_msg_sub(VOICE_MSG_WAKEUP_KEYWORD, alarm_ring_on_wakeup, scr_data);
     voice_msg_sub(VOICE_MSG_WAKEUP_COMMAND, alarm_ring_on_wakeup, scr_data);
     voice_msg_sub(VOICE_MSG_BUTTON_CHANGE, alarm_ring_on_button_change, scr_data);
@@ -293,6 +419,8 @@ static int alarm_ring_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *dat
         voice_msg_unsub(VOICE_MSG_CLOUD_IAT_UPDATE, alarm_ring_on_iat);
         voice_msg_unsub(VOICE_MSG_CLOUD_IAT_END, alarm_ring_on_iat);
         voice_msg_unsub(VOICE_MSG_ALARM_TRIGGER, alarm_ring_on_alarm_trigger);
+        voice_msg_unsub(VOICE_MSG_ALARM_CREATE, alarm_ring_on_alarm_create);
+        voice_msg_unsub(VOICE_MSG_ALARM_RING_UPDATE, alarm_ring_on_ui_update);
 #endif
 
         if (scr_data->auto_return) {

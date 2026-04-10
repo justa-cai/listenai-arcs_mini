@@ -168,4 +168,4 @@ int panel_st7701s_device_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_st7701s_driver, NULL, NULL, &panel_st7701s_device_init, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_st7701s_driver, NULL, NULL, &panel_st7701s_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);

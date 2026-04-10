@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include <time.h>
-#include "alarm_store.h"
+#include "alarm_nvs.h"
 
 /**
  * @brief 计算循环闹钟的下一次触发时间，并更新 alarm 的年月日/时分秒
@@ -28,10 +28,27 @@ int listenai_date_transition(const char *type, const char *date_name, char *out_
 /**
  * @brief 查询指定日期是否工作日
  *
- * @param date_name 日期（格式 "MM-DD"）
+ * @param date_name 日期（格式 "YYYY-MM-DD"，如 "2026-03-22"）
  * @param out_is_work_day 输出是否工作日
  * @return 0 成功；非 0 失败
  */
 int listenai_date_is_workday(const char *date_name, bool *out_is_work_day);
+
+/**
+ * @brief 计算循环闹钟的首次触发日期
+ *
+ * 根据触发类型，从当前时间开始计算最近的符合条件的日期，
+ * 并更新 alarm 中的 year/month/day 字段。
+ *
+ * @param alarm 闹钟对象（需已设置 hour/minute/second 和 trigger.type）
+ * @param day_of_week 周几 (1-7)，WEEKLY 类型使用，-1 表示不使用
+ * @param day_of_month 每月几号 (1-31)，MONTHLY 类型使用，-1 表示不使用
+ * @param month_of_year 每年几月 (1-12)，YEARLY 类型使用，-1 表示不使用
+ * @return 0 成功，非 0 失败
+ */
+int alarm_calc_first_trigger(alarm_object_t *alarm,
+                              int day_of_week,
+                              int day_of_month,
+                              int month_of_year);
 
 #endif

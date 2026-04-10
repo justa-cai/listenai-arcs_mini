@@ -60,6 +60,8 @@ static bool callback_return_false(app_player_t *player,
 
 /**
  * @brief 返回 true 的回调（完全接管处理）
+ *
+ * 当进入 BACKGROUND 状态时，执行自定义的停止操作而不是默认的暂停
  */
 static bool callback_return_true(app_player_t *player,
                                   app_player_focus_state_t state,
@@ -77,9 +79,9 @@ static bool callback_return_true(app_player_t *player,
     g_music_cb_record.call_count++;
 
     if (state == APP_PLAYER_FOCUS_BACKGROUND) {
-        // 自定义处理：降低音量而不是暂停
-        LOGI("[CB-TRUE] Custom action: reducing volume to 30%%");
-        app_player_set_volume(player, 30);
+        // 自定义处理：停止播放而不是暂停
+        LOGI("[CB-TRUE] Custom action: stop playback");
+        app_player_stop(player);
         return true;  // 接管处理，阻止默认的 PAUSE
     }
 
@@ -219,8 +221,8 @@ void test_callback_return_false_uses_default_policy(void)
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_tts_player);
-    app_player_stop_sync(g_music_player);
+    app_player_stop(g_tts_player);
+    app_player_stop(g_music_player);
 
     LOGI("=== Test completed ===\n");
 }
@@ -233,7 +235,7 @@ void test_callback_return_false_uses_default_policy(void)
  * 2. MUSIC 播放中
  * 3. TTS 抢占焦点
  * 4. 验证回调被调用并返回 true
- * 5. 验证 MUSIC 不执行默认的 PAUSE 策略，仍在播放
+ * 5. 验证 MUSIC 不执行默认的 PAUSE 策略，而是执行自定义的 STOP 操作
  */
 void test_callback_return_true_overrides_default(void)
 {
@@ -261,22 +263,26 @@ void test_callback_return_true_overrides_default(void)
 
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
-    /* 验证回调被调用 */
+    /* 验证回调被调用了多次（BACKGROUND -> NONE，因为stop会释放焦点） */
     TEST_ASSERT_TRUE_MESSAGE(g_music_cb_record.called,
                              "Focus callback should be called");
-    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_FOCUS_BACKGROUND, g_music_cb_record.state,
-                              "Callback should receive BACKGROUND state");
+    TEST_ASSERT_GREATER_OR_EQUAL_MESSAGE(2, g_music_cb_record.call_count,
+                                         "Callback should be called at least twice (BACKGROUND + NONE)");
 
-    /* 验证 MUSIC 没有被暂停（回调返回 true 接管了处理） */
+    /* 验证最终焦点状态是 NONE（因为 stop 释放了焦点） */
+    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_FOCUS_NONE, g_music_cb_record.state,
+                              "Final focus state should be NONE (stopped and released focus)");
+
+    /* 验证 MUSIC 被停止（回调返回 true 接管了处理并调用了 stop） */
     app_player_state_t music_state = app_player_get_state(g_music_player);
     LOGI("MUSIC state after callback (return true): %s", state_to_string(music_state));
-    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_STATE_PLAYING, music_state,
-                              "MUSIC should still be PLAYING (callback took over)");
+    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_STATE_STOPPED, music_state,
+                              "MUSIC should be STOPPED (callback took over and stopped playback)");
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_tts_player);
-    app_player_stop_sync(g_music_player);
+    app_player_stop(g_tts_player);
+    app_player_stop(g_music_player);
 
     LOGI("=== Test completed ===\n");
 }
@@ -326,8 +332,8 @@ void test_callback_user_data_passed_correctly(void)
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_tts_player);
-    app_player_stop_sync(g_music_player);
+    app_player_stop(g_tts_player);
+    app_player_stop(g_music_player);
 
     LOGI("=== Test completed ===\n");
 }
@@ -377,7 +383,7 @@ void test_callback_can_be_changed_dynamically(void)
 
     /* 步骤4: 停止TTS，MUSIC 恢复 */
     LOGI("Step 4: Stop TTS, MUSIC resumes");
-    app_player_stop_sync(g_tts_player);
+    app_player_stop(g_tts_player);
     wait_ms(TEST_WAIT_MEDIUM_MS);
     wait_for_player_state(g_music_player, APP_PLAYER_STATE_PLAYING, 3000);
 
@@ -395,17 +401,19 @@ void test_callback_can_be_changed_dynamically(void)
 
     TEST_ASSERT_TRUE_MESSAGE(g_music_cb_record.called,
                              "Second callback should be called");
+    TEST_ASSERT_GREATER_OR_EQUAL_MESSAGE(2, g_music_cb_record.call_count,
+                                         "Callback should be called at least twice (BACKGROUND + NONE)");
 
-    /* 验证 MUSIC 没有被暂停（第二个回调返回true） */
+    /* 验证 MUSIC 被停止（第二个回调返回true并调用了stop） */
     music_state = app_player_get_state(g_music_player);
     LOGI("MUSIC state after second callback: %s", state_to_string(music_state));
-    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_STATE_PLAYING, music_state,
-                              "MUSIC should still be playing (second callback returned true)");
+    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_STATE_STOPPED, music_state,
+                              "MUSIC should be stopped (second callback returned true and stopped playback)");
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_tts_player);
-    app_player_stop_sync(g_music_player);
+    app_player_stop(g_tts_player);
+    app_player_stop(g_music_player);
 
     LOGI("=== Test completed ===\n");
 }
@@ -452,7 +460,7 @@ void test_callback_conditional_override(void)
     /* 步骤3: TTS 停止（MUSIC 恢复到 FOREGROUND） */
     LOGI("Step 3: Stop TTS (MUSIC -> FOREGROUND)");
     clear_callback_records();
-    app_player_stop_sync(g_tts_player);
+    app_player_stop(g_tts_player);
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 验证回调被调用并接管了 FOREGROUND 处理 */
@@ -464,7 +472,7 @@ void test_callback_conditional_override(void)
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_music_player);
+    app_player_stop(g_music_player);
 
     LOGI("=== Test completed ===\n");
 }
@@ -517,8 +525,8 @@ void test_multiple_players_with_callbacks(void)
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_tts_player);
-    app_player_stop_sync(g_music_player);
+    app_player_stop(g_tts_player);
+    app_player_stop(g_music_player);
 
     LOGI("=== Test completed ===\n");
 }

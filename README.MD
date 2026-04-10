@@ -173,7 +173,7 @@ A: 1. 检查是否烧录了所有必要分区
 
 ## 参考文档
 
-- [ARCS SDK 文档](arcs-sdk/README.MD)
+- [ARCS SDK 文档](arcs-sdk/README.md)
 - [ebus 模块文档](modules/ebus/readme.md)
 - [lschat 模块文档](modules/lschat/README.MD)
 

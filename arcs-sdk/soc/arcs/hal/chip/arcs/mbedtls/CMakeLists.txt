@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.19)
 
 if(CONFIG_ARCS_HAL_MBEDTLS)
     # 设置mbedtls版本目录

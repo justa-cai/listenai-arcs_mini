@@ -1,46 +1,32 @@
-# LISA GPT HWTIMER 基础示例
+# LISA HWTIMER GPT Timer 周期定时示例
 
-本示例演示 GPT Timer 周期定时功能,每 500ms 触发一次回调。
+## 功能说明
 
-## 硬件特性
+本示例演示 GPT Timer 周期定时功能，配置 100MHz 基准时钟，每 500ms 触发一次回调。
 
-- 8个独立通道,32位计数器
-- 基准时钟: 100MHz
-- 频率范围: 781.25kHz ~ 100MHz
-- 支持单次和周期触发模式
+## 硬件连接
 
-## 配置说明
+无需外部连接。GPT Timer 为芯片内部外设，具有 8 个独立通道和 32 位计数器。
 
-在 [prj.conf](prj.conf) 中启用以下配置:
+## 示例步骤
 
-```kconfig
-CONFIG_LISA_DEVICE=y
-CONFIG_LISA_HWTIMER_DEVICE=y
-CONFIG_LISA_HWTIMER_ARCS_GPT_TIMER=y
-```
-
-## 关键代码
-
-```c
-// 1. 获取设备
-lisa_device_t *hwtimer_dev = lisa_device_get("gpt_timer");
-
-// 2. 设置频率为 100MHz
-lisa_hwtimer_set_frequency(hwtimer_dev, 0, 100000000);
-
-// 3. 注册回调 (在中断上下文执行)
-lisa_hwtimer_set_callback(hwtimer_dev, 0, timer_callback, NULL);
-
-// 4. 启动周期定时器 (500ms = 50000000 / 100000000)
-lisa_hwtimer_start(hwtimer_dev, 0, 50000000, LISA_HWTIMER_MODE_PERIODIC);
-```
-
-**定时周期计算**: `周期(秒) = COUNT / 频率(Hz)`
+1. 获取 `gpt_timer` 设备并检查设备就绪状态
+2. 查询设备能力，获取定时器通道数和频率范围
+3. 设置定时器频率为 100MHz
+4. 注册定时器中断回调函数
+5. 启动周期定时器，设置周期为 500ms
+6. 定时器每 500ms 触发一次回调，打印递增计数
 
 ## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
+```
+
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
 ## 预期输出
@@ -54,5 +40,34 @@ Timer triggered: 2
 ...
 ```
 
-定时器每 500ms 触发一次,打印递增计数。
+## 核心 API
 
+| API | 说明 |
+|-----|------|
+| `lisa_device_get()` | 获取定时器设备 |
+| `lisa_hwtimer_get_capabilities()` | 查询定时器能力（通道数、频率范围） |
+| `lisa_hwtimer_set_frequency()` | 设置定时器频率 |
+| `lisa_hwtimer_set_callback()` | 注册定时器中断回调函数 |
+| `lisa_hwtimer_start()` | 启动定时器（支持单次和周期模式） |
+
+## 关键代码
+
+```c
+/* 获取设备 */
+lisa_device_t *hwtimer_dev = lisa_device_get("gpt_timer");
+
+/* 设置频率为 100MHz */
+lisa_hwtimer_set_frequency(hwtimer_dev, 0, 100000000);
+
+/* 注册回调 */
+lisa_hwtimer_set_callback(hwtimer_dev, 0, timer_callback, NULL);
+
+/* 启动周期定时器（500ms = 50000000 / 100000000） */
+lisa_hwtimer_start(hwtimer_dev, 0, 50000000, LISA_HWTIMER_MODE_PERIODIC);
+```
+
+## 注意事项
+
+1. **定时周期计算**：周期(秒) = COUNT / 频率(Hz)，例如 500ms = 50000000 / 100000000
+2. **回调上下文**：定时器回调在中断上下文中执行，应保持简短快速
+3. **通道独立**：8 个通道可独立配置不同的频率和周期

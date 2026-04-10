@@ -184,8 +184,7 @@ void lv_port_disp_init(lisa_device_t *display_dev)
 
 	lisa_display_get_capabilities(lv_display_device, &caps);
 
-	lisa_display_blanking_off(lv_display_device);
-	lisa_display_set_brightness(lv_display_device, 50);
+	lisa_display_blanking_on(lv_display_device);
 
 	/*-----------------------------
 	 * Create a buffer for drawing

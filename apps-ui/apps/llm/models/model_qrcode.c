@@ -17,6 +17,7 @@
 
 #ifdef LISA_UI_PLATFORM_ARCS
 #include "bt_app_if.h"
+#include "bt_app_hal.h"
 #include "lisa_thread.h"
 #include "HTTPCUsr_api.h"
 #include "voice_msg.h"
@@ -584,9 +585,14 @@ int model_qrcode_get_config_data(qrcode_data_t *data)
 
     data->status = QR_STATUS_CONNECTED;
     if (g_qrcode_ctx.role_setting_qrcode_img_raw == NULL) {
-        data->top_text = "二维码加载中, 请稍后";
+        // 云端二维码未加载时，显示配网二维码作为备选
+        LISA_UI_LOGI("Role setting qrcode not ready, fallback to BLE config qrcode");
+        data->top_text = "云端二维码加载失败\n请使用微信扫码配网";
         data->bottom_text = "";
-        data->qr_image = NULL;
+        data->qr_image = &ble_qr;
+#ifdef LISA_UI_PLATFORM_ARCS
+        app_ble_adv_start(0, BLE_ADV_GEN);
+#endif
         return 0;
     }
 

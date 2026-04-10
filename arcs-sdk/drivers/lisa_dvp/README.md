@@ -84,7 +84,7 @@ void dvp_callback(lisa_dvp_event_t event, void *user_data)
 int main(void)
 {
     // 1. 获取 DVP 设备
-    lisa_device_t *dvp_dev = lisa_device_get_by_name(LISA_DVP0_NAME);
+    lisa_device_t *dvp_dev = lisa_device_get(LISA_DVP0_NAME);
     if (!dvp_dev) {
         return -1;
     }
@@ -164,7 +164,7 @@ void dvp_pingpong_callback(lisa_dvp_event_t event, void *user_data)
 int main(void)
 {
     // 1. 获取 DVP 设备
-    lisa_device_t *dvp_dev = lisa_device_get_by_name(LISA_DVP0_NAME);
+    lisa_device_t *dvp_dev = lisa_device_get(LISA_DVP0_NAME);
     if (!dvp_dev) {
         return -1;
     }
@@ -230,7 +230,7 @@ void dvp_gray_callback(lisa_dvp_event_t event, void *user_data)
 
 int main(void)
 {
-    lisa_device_t *dvp_dev = lisa_device_get_by_name(LISA_DVP0_NAME);
+    lisa_device_t *dvp_dev = lisa_device_get(LISA_DVP0_NAME);
     if (!dvp_dev) {
         return -1;
     }

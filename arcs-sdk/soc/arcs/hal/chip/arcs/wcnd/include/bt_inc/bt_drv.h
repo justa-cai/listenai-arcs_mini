@@ -21,6 +21,15 @@
  * DEFINES
  *****************************************************************************************
  */
+#define BQB_TEST_BT_EN  (0)
+#define BQB_TEST_LE_EN  (0)
+#define BQB_TEST_EN     (BQB_TEST_BT_EN || BQB_TEST_LE_EN)
+
+#define BQB_LL_ENC_ADV_BI_01_C      (0) // also use to ADV/BI02 INI/BI01 PER/BI01 SCN/BI01 SCN/BI02
+
+// LL/DDI/ADV
+#define BQB_LL_DDI_ADV_BV_106_C     (1) // always on
+
 
 //#define IP_BT_CTRL                  ((BT_CTRL_TOP_RegDef *) BT_CTRL_BASE)
 #define IP_BTMODEM                  ((BT_MODEM_RegDef *)BT_MODEM_BASE)

@@ -87,13 +87,13 @@ enum cli_err_id
 enum
 {
     /// Priority of the CLI task
-    CLI_TASK_PRIORITY = RTOS_TASK_PRIORITY(9),
+    CLI_TASK_PRIORITY = RTOS_TASK_PRIORITY(8),
     /// Priority of the TG send task
     CLI_TG_SEND_PRIORITY = RTOS_TASK_PRIORITY(7),
     /// Priority of the Ping send task
     CLI_PING_SEND_PRIORITY = RTOS_TASK_PRIORITY(7),
     /// Priority of the IPERF task
-    CLI_IPERF_PRIORITY = RTOS_TASK_PRIORITY(7),
+    CLI_IPERF_PRIORITY = RTOS_TASK_PRIORITY(9),
     /// Priority of the DOORBELL task
     CLI_DOORBELL_PRIORITY = RTOS_TASK_PRIORITY(9),
 };

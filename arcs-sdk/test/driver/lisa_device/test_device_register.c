@@ -29,11 +29,11 @@ static int test_priv_data_1 = 100;
 static int test_priv_data_2 = 200;
 
 /* 注册测试设备 */
-LISA_DEVICE_REGISTER(test_reg_device1, &test_api_1, &test_priv_data_1, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_reg_device1, &test_api_1, &test_priv_data_1, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
-LISA_DEVICE_REGISTER(test_reg_device2, &test_api_2, &test_priv_data_2, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(test_reg_device2, &test_api_2, &test_priv_data_2, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);
 
 /* ========================================
  * 测试用例

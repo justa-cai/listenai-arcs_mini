@@ -50,6 +50,8 @@ static int __find_focus_config_index_by_name(const char *name)
  * @param player 播放器实例
  * @param policy 焦点丢失策略
  * @return 0成功，负数失败
+ *
+ * @note PA控制由事件回调处理，此处不直接控制PA
  */
 static int __execute_focus_loss_policy(app_player_t *player, app_player_focus_loss_policy_t policy)
 {
@@ -62,8 +64,7 @@ static int __execute_focus_loss_policy(app_player_t *player, app_player_focus_lo
             LISA_LOGI(TAG, "Player %s: executing PAUSE policy", player->name);
             player->paused_by_focus = true;
 
-            // 使用核心层暂停，不操作焦点
-            pa_manager_control(0, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
+            // 使用核心层暂停，不操作焦点（PA控制由PAUSED事件回调处理）
             app_player_core_pause(player);
             break;
 
@@ -71,9 +72,8 @@ static int __execute_focus_loss_policy(app_player_t *player, app_player_focus_lo
             LISA_LOGI(TAG, "Player %s: executing STOP policy", player->name);
             player->paused_by_focus = false;  // STOP后不可恢复
 
-            // 使用核心层停止，不操作焦点
-            pa_manager_control(0, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
-            app_player_core_stop(player);
+            // 使用核心层同步停止，确保操作完成，不操作焦点（PA控制由STOPPED事件回调处理）
+            app_player_core_stop_sync(player);
             break;
 
         case APP_PLAYER_FOCUS_LOSS_DUCK:
@@ -81,9 +81,8 @@ static int __execute_focus_loss_policy(app_player_t *player, app_player_focus_lo
             // TODO: 实现音量降低逻辑
             break;
 
-        case APP_PLAYER_FOCUS_LOSS_IGNORE:
         default:
-            LISA_LOGD(TAG, "Player %s: ignoring focus loss", player->name);
+            LISA_LOGW(TAG, "Player %s: unknown focus loss policy %d", player->name, policy);
             break;
     }
 
@@ -151,14 +150,25 @@ static void __audio_focus_change_bridge(focus_state_e state, int by_which_id, vo
             LISA_LOGI(TAG, "Player %s: skip focus policy (self-triggered focus change)", player->name);
             // 播放器自身触发的焦点变化，说明已完成相应控制
         } else if (app_state == APP_PLAYER_FOCUS_FOREGROUND) {
-            // 获得焦点：检查是否需要自动恢复
-            if (player->paused_by_focus) {
+            // 获得焦点：检查是否需要自动恢复或播放待播放内容
+            if (player->pending_url) {
+                // 有待播放URL，执行播放
+                LISA_LOGI(TAG, "Player %s: auto-playing pending URL: %s", player->name, player->pending_url);
+                char *url = player->pending_url;
+                uint32_t throw_time = player->pending_throw_time;
+                player->pending_url = NULL;
+                player->pending_throw_time = 0;
+                player->paused_by_focus = false;
+
+                // 使用核心层播放（PA控制由PLAYING事件回调处理）
+                app_player_core_play(player, url, throw_time);
+                lisa_mem_free(url);
+            } else if (player->paused_by_focus) {
                 LISA_LOGI(TAG, "Player %s: auto-resuming from focus pause", player->name);
                 player->paused_by_focus = false;
 
-                // 使用核心层恢复，不操作焦点
-                pa_manager_control(1, 0);
-                app_player_core_resume(player);
+                // 使用核心层同步恢复，确保操作完成，不操作焦点（PA控制由PLAYING事件回调处理）
+                app_player_core_resume_sync(player);
             }
         } else if (app_state == APP_PLAYER_FOCUS_BACKGROUND) {
             // 变为后景：执行 on_background 策略
@@ -168,7 +178,7 @@ static void __audio_focus_change_bridge(focus_state_e state, int by_which_id, vo
             __execute_focus_loss_policy(player, player->behavior.on_focus_lost);
         }
     } else {
-        LISA_LOGD(TAG, "Player %s: focus change handled by user callback", player->name);
+        LISA_LOGI(TAG, "Player %s: focus change handled by user callback", player->name);
     }
 
     // 更新上一次焦点状态
@@ -230,14 +240,14 @@ int app_player_focus_register(app_player_t *player, const char *name)
     }
 
     if (!s_audio_focus_mgr || !s_focus_configs || s_focus_config_count <= 0) {
-        LISA_LOGD(TAG, "Focus manager not initialized, skip registration for %s", name);
+        LISA_LOGI(TAG, "Focus manager not initialized, skip registration for %s", name);
         return 0;
     }
 
     // 查找与播放器名称匹配的焦点配置
     int focus_index = __find_focus_config_index_by_name(name);
     if (focus_index < 0) {
-        LISA_LOGD(TAG, "No focus config found for player %s", name);
+        LISA_LOGI(TAG, "No focus config found for player %s", name);
         return 0;
     }
 
@@ -302,7 +312,7 @@ int app_player_focus_unregister(app_player_t *player)
     }
 
     if (s_audio_focus_mgr && player->focus_channel_id >= 0) {
-        LISA_LOGD(TAG, "Releasing focus for player %s before destroy", player->name);
+        LISA_LOGI(TAG, "Releasing focus for player %s before destroy", player->name);
         listen_audiomgr_release_channel(s_audio_focus_mgr, player->focus_channel_id);
         player->focus_channel_id = -1;
     }
@@ -320,7 +330,7 @@ int app_player_focus_acquire(app_player_t *player)
     }
 
     if (s_audio_focus_mgr && player->focus_channel_id >= 0) {
-        LISA_LOGD(TAG, "Acquiring audio focus for player %s", player->name);
+        LISA_LOGI(TAG, "Acquiring audio focus for player %s", player->name);
         listen_audiomgr_acquire_channel(s_audio_focus_mgr, player->focus_channel_id);
         return 0;
     }
@@ -338,7 +348,7 @@ int app_player_focus_release(app_player_t *player, bool is_user_initiated)
     }
 
     if (s_audio_focus_mgr && player->focus_channel_id >= 0) {
-        LISA_LOGD(TAG, "Releasing audio focus for player %s (user_initiated=%d)",
+        LISA_LOGI(TAG, "Releasing audio focus for player %s (user_initiated=%d)",
                  player->name, is_user_initiated);
         listen_audiomgr_release_channel(s_audio_focus_mgr, player->focus_channel_id);
 
@@ -465,4 +475,33 @@ int app_player_get_focus_behavior(app_player_t *player,
     PLAYER_MUTEX_UNLOCK(player->focus_cb_lock);
 
     return 0;
+}
+
+/**
+ * @brief 获取播放器当前的焦点状态
+ */
+app_player_focus_state_t app_player_focus_get_state(app_player_t *player)
+{
+    if (!player) {
+        return APP_PLAYER_FOCUS_NONE;
+    }
+
+    // 如果焦点管理器未初始化或播放器未注册焦点通道，返回 NONE
+    if (!s_audio_focus_mgr || player->focus_channel_id < 0) {
+        return APP_PLAYER_FOCUS_NONE;
+    }
+
+    // 从底层焦点管理器获取状态
+    focus_state_e state = listen_audiomgr_get_channel_state(s_audio_focus_mgr, player->focus_channel_id);
+
+    // 转换为 app_player 的焦点状态枚举
+    switch (state) {
+        case FOREGROUND:
+            return APP_PLAYER_FOCUS_FOREGROUND;
+        case BACKGROUND:
+            return APP_PLAYER_FOCUS_BACKGROUND;
+        case FOCUS_NONE:
+        default:
+            return APP_PLAYER_FOCUS_NONE;
+    }
 }

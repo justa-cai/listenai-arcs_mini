@@ -14,12 +14,16 @@ extern "C" {
 #include "lisa_ui_llm_base.h"
 #include <stdint.h>
 
+#ifndef CONFIG_ALARM_TEXT_MAX_LEN
+#define CONFIG_ALARM_TEXT_MAX_LEN 384
+#endif
+
 /**
  * @brief Alarm item structure for display
  */
 typedef struct {
     uint64_t timestamp;
-    char text[128];
+    char text[CONFIG_ALARM_TEXT_MAX_LEN];
 } alarm_item_t;
 
 extern const lv_obj_class_t lisa_ui_setting_clock_view_class;

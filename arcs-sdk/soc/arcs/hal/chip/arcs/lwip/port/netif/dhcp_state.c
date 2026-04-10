@@ -12,16 +12,16 @@
 // limitations under the License.
 
 #include <stdio.h>
+#include <stdbool.h>
 #include "lwip/opt.h"
 #include "lwip/dhcp.h"
 #include "lwip/netif.h"
-#include <stdbool.h>
-#include "netif/dhcp_state.h"
 #include "nvs.h"
 #include "nvds_tag_def.h"
 
 #include "lwip/prot/iana.h"
 #include "lwip/prot/dhcp.h"
+#include "netif/dhcp_state.h"
 
 static uint32_t restored_ip_addr = 0;
 

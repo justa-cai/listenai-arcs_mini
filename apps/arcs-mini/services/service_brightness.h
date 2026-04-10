@@ -5,6 +5,7 @@
 
 void service_brightness_init(void);
 void service_brightness_set(int brightness);
+void service_brightness_set_temp(int brightness);
 int service_brightness_get(void);
 
 #endif

@@ -220,8 +220,8 @@ make zh                      # 构建中文文档
 
 ### 示例构建测试
 ```bash
-cd arcs-sdk/samples/<category>/<sample_name>
-./build.sh                   # 构建示例
+cd arcs-sdk
+./build.sh -S samples/<category>/<sample_name>   # 构建示例
 # 检查构建是否成功
 ```
 

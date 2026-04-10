@@ -593,20 +593,19 @@ menu "Symmetric Ciphers"
             if absolutely necessary.
 
     choice MBEDTLS_RC4_MODE
-        prompt "RC4 Stream Cipher (legacy, insecure)"
-        default MBEDTLS_RC4_DISABLED
+        bool "RC4 Stream Cipher (legacy, insecure)"
         help
             ARCFOUR (RC4) stream cipher can be disabled entirely, enabled but not
             added to default ciphersuites, or enabled completely.
 
             Please consider the security implications before enabling RC4.
 
-            config MBEDTLS_RC4_DISABLED
-                bool "Disabled"
-            config MBEDTLS_RC4_ENABLED_NO_DEFAULT
-                bool "Enabled, not in default ciphersuites"
-            config MBEDTLS_RC4_ENABLED
-                bool "Enabled"
+        config MBEDTLS_RC4_DISABLED
+            bool "Disabled"
+        config MBEDTLS_RC4_ENABLED_NO_DEFAULT
+            bool "Enabled, not in default ciphersuites"
+        config MBEDTLS_RC4_ENABLED
+            bool "Enabled"
     endchoice
 
     config MBEDTLS_BLOWFISH_C
@@ -823,9 +822,10 @@ config MBEDTLS_ECP_DP_CURVE25519_ENABLED
 
 config MBEDTLS_ECP_DP_CURVE448_ENABLED
     depends on MBEDTLS_ECP_C
-    bool "Enable CURVE448 "
+    bool "Enable CURVE448"
     default n
     help
+        Enable support for CURVE448 Elliptic Curve.
 
 config MBEDTLS_ECP_NIST_OPTIM
     bool "NIST 'modulo p' optimisations"

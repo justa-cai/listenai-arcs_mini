@@ -1397,7 +1397,7 @@ int atcmd_btinquiry(int type, char *params)
         CLOGI("inq_len:%d", config.inq_len);
         CLOGI("nb_rsp :%d", config.nb_rsp);
 
-        #if BT_WIFI_COEX
+        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_inquiry_send(&config);
         #else
         atcmd_bt_not_support();
@@ -1436,7 +1436,7 @@ int atcmd_btscan(int type, char *params)
             return ATCMD_ERROR;
         }
         enable = atoi(params);
-#if BT_WIFI_COEX
+#if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_scan_send(enable);
 #else
         atcmd_bt_not_support();
@@ -1474,11 +1474,11 @@ int atcmd_btdutmode(int type, char *params)
             return ATCMD_ERROR;
         }
         enable = atoi(params);
-    #if BT_WIFI_COEX
+#if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_dutmode_send(enable);
-    #else
+#else
         atcmd_bt_not_support();
-    #endif
+#endif
         return ATCMD_OK;
     }
     else //ATCMD_QUERY
@@ -1517,7 +1517,7 @@ int atcmd_btconn(int type, char *params)
         CLOGI("clk_off           :%d", config.clk_off);
         CLOGI("switch_en         :%d", config.switch_en);
 
-        #if BT_WIFI_COEX
+        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_conn_send(&config);
         #else
         atcmd_bt_not_support();
@@ -1557,7 +1557,7 @@ int atcmd_btdisconn(int type, char *params)
         CLOGI("addr_type:%d", config.addr_type);
         CLOGI("atcmd_btdisconn MAC %02x:%02x:%02x:%02x:%02x:%02x", config.remote_addr.addr[0], config.remote_addr.addr[1], config.remote_addr.addr[2],config.remote_addr.addr[3],config.remote_addr.addr[4],config.remote_addr.addr[5]);
 
-        #if BT_WIFI_COEX
+        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_disconn_send(&config);
         #else
         atcmd_bt_not_support();
@@ -1607,7 +1607,7 @@ int atcmd_btnonsignaltx(int type, char *params)
         CLOGI("tx_power:%d", config.tx_power);
         CLOGI("tx_value:%d", config.tx_value);
 
-        #if BT_WIFI_COEX
+        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_non_signal_tx_send(&config);
         #else
         atcmd_bt_not_support();
@@ -1654,7 +1654,7 @@ int atcmd_btnonsignalrx(int type, char *params)
         CLOGI("infinite_mode:%d", config.infinite_mode);
 
         CLOGI("MAC %02x:%02x:%02x:%02x:%02x:%02x", config.peer_bd_addr.addr[0], config.peer_bd_addr.addr[1], config.peer_bd_addr.addr[2],config.peer_bd_addr.addr[3],config.peer_bd_addr.addr[4],config.peer_bd_addr.addr[5]);
-        #if BT_WIFI_COEX
+        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_non_signal_rx_send(&config);
         #else
         atcmd_bt_not_support();
@@ -1680,7 +1680,7 @@ int atcmd_btnonsignaldisable(int type, char *params)
     }
     else if (type == ATCMD_EXEC)
     {
-        #if BT_WIFI_COEX
+        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_non_signal_disable_send();
         #else
         atcmd_bt_not_support();
@@ -1707,7 +1707,7 @@ int atcmd_btnonsignalrxgetdata(int type, char *params)
     }
     else if (type == ATCMD_EXEC)
     {
-        #if BT_WIFI_COEX
+        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_non_signal_rx_get_data_send();
         #else
         atcmd_bt_not_support();
@@ -1965,7 +1965,11 @@ int atcmd_bthcimode(int type, char *params)
     }
     else if (type == ATCMD_EXEC)
     {
+        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_hci_mode_send();
+        #else
+        atcmd_bt_not_support();
+        #endif
 
         return ATCMD_OK;
     }

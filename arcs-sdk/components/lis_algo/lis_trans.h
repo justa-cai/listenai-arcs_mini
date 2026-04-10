@@ -31,6 +31,10 @@ typedef enum
 void lis_trans_init(void);
 //
 void lis_trans_deinit(void);
+// prepare: cleanup XTTS, then init+prepare+start Translation
+int lis_trans_prepare(void);
+// cleanup: stop+cleanup Translation
+int lis_trans_cleanup(void);
 //启动翻译,支持的文本长度至少512字节
 lis_err_t lis_trans_start(char *txt, uint32_t txt_size, lis_trans_type type);
 

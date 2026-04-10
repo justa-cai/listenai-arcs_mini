@@ -8,19 +8,24 @@ export APP_PATH=arcs/wifi_bt_demo
 
 SHRINK ?= 0
 
+BT_MODE = bt_dual
+
+#CONFIG_DEEP_SLEEP/CONFIG_GPIO_ADC_TEST just for testing
+CONFIG_DEEP_SLEEP = 1
+CONFIG_GPIO_ADC_TEST = 1
 include default.config
 include $(TOPDIR)/src/${CHIP}/general.mk
 
-MODULES +=  profiles  #bsp driver debug wcnd patch nvs std
+MODULES +=  profiles  bt_hal #bsp driver debug wcnd patch nvs std
 
 #libraries depend: eg. LIBS = -lbsp -ldrv -lrtos
-LIBS	+=  -lprf  -lbtos#-lbsp -lpatch -lnvs -lwcnd  -lstd
+LIBS	+=  -lprf  -lbtos -lbt_hal #-lbsp -lpatch -lnvs -lwcnd  -lstd
 
 
 ifeq ($(INNER), 0)
-EXTLIBS += -L./lib -lble -lbt_base -lstack -lbt -lbt_music
+#EXTLIBS +=  -lble -lbt_base -lstack -lbt -lbt_music -lbt_call   -L.$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)
 else
-LIBS    += -lstack -lble -lbt_base -lbt -lbt_music
+LIBS    += -lstack -lble -lbt_base -lbt -lbt_music -lbt_call
 MODULES += bt
 endif
 
@@ -37,8 +42,6 @@ CSRCS	+= 	$(wildcard if/app_if/*.c)
 CSRCS	+= 	$(wildcard task/*.c)
 CPPSRCS	=
 SSRCS	= $(wildcard *.S)
-
-#includings and flags
 
 #CFLAGS += -I $(TOPDIR)/chip/${CHIP}/cli_cmd
 CFLAGS += -I $(TOPDIR)/modules/profiles/ota/otas/api  \
@@ -63,6 +66,7 @@ CFLAGS += -I $(TOPDIR)/modules/profiles/ota/otas/api  \
 		-I $(TOPDIR)/chip/${CHIP}/btos/task/api \
 		-I $(TOPDIR)/chip/${CHIP}/atcmd \
 		-I $(TOPDIR)/chip/${CHIP}/include/bt \
+		-I $(TOPDIR)/chip/${CHIP}/bt_hal \
 		-I ./api		\
 		-I ./task/api	\
 		-I ./if/app_if	\
@@ -124,6 +128,11 @@ export CFG_RTOS
 ifeq ($(CFG_RTOS), 1)
 CFLAGS += -DCFG_RTOS
 endif
+
+CFG_NVS = 1
+export CFG_NVS
+CONFIG_NVS_FLASH_XIP = 1
+export CONFIG_NVS_FLASH_XIP
 
 ifeq ($(SYS_PSM), 1)
 CFLAGS += -DSYS_PSM
@@ -189,6 +198,9 @@ export CONFIG_EXT_RAM
 endif
 CONFIG_RTOS_AL = 1
 export CONFIG_RTOS_AL
+
+CFG_SHORT_TCP_WND = 1
+export CFG_SHORT_TCP_WND
 
 #CFG_NVS=1
 #export CFG_NVS

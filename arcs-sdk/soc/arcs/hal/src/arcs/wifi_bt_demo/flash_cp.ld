@@ -101,6 +101,9 @@ SECTIONS
     LONG (__cp_ilm_text_start__)
     LONG (__cp_ilm_text_end__)
 
+    LONG (_text2_lma)
+    LONG (__text2_start__)
+    LONG (__text2_end__)
     /* add your own "fast" sections here... */
 
     __copy_table_end__ = .;
@@ -126,7 +129,9 @@ SECTIONS
 #if PSRAM_SEC==1 || PERF==1
     *(EXCLUDE_FILE (*liblwip.a *libumacdp.a *liblmacdp.a *libmoduledp.a *libplf.a *librtos.a) .text*)
 #else
-    *(.text .text.*)
+    /**(.text .text.*)*/
+    *(EXCLUDE_FILE (*ld_acl.o *lsip_driver.o *lsbt.o *lsble.o *librtos.a) .text*)
+ 
 #endif
     *(.srodata.cst16)
     *(.srodata.cst8)
@@ -246,6 +251,8 @@ SECTIONS
     __text2_start__ = .;
 #if PSRAM_SEC==1 || PERF==1
     *(EXCLUDE_FILE (*librtos.a) .text*)
+#else
+    librtos.a *(.text*)
 #endif
     . = ALIGN(4);
     __text2_end__ = .;

@@ -364,7 +364,7 @@ int acomp_wakeup_set_threshold(acomp_wakeup_threshold_level_e level)
 {
     LISA_LOGI(TAG, "acomp wakeup set threshold enter, level=%d", level);
 
-    if (level < ACOMP_WAKEUP_THRESHOLD_LEVEL_1 || level > ACOMP_WAKEUP_THRESHOLD_LEVEL_6) {
+    if (level < ACOMP_WAKEUP_THRESHOLD_LEVEL_1 || level > ACOMP_WAKEUP_THRESHOLD_LEVEL_5) {
         LISA_LOGE(TAG, "invalid threshold level: %d", level);
         return ACOMP_ERR_INVALID_ARG;
     }
@@ -400,7 +400,7 @@ int acomp_wakeup_remove_callback(wakeup_event_cb_t cb)
         return ACOMP_ERR_INVALID_STATE;
     }
 
-    ret = gcl_cb_list_remove(wakeup_handle->event_callbacks, cb);
+    ret = gcl_cb_list_remove_callback(wakeup_handle->event_callbacks, cb);
     return ret;
 }
 

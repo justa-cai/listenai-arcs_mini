@@ -66,10 +66,33 @@ file(APPEND ${LISTENAI_MODULES_KCONFIG_FILE} "endmenu\n")
 macro(listenai_kconfig_parse kconfig_root dot_config autoconf_h kconfig_list conf_merge prefix)
     message(STATUS "Parse kconfig: ${${kconfig_root}}, prefix: ${${prefix}}")
 
+    # 检查 kconfig 工具版本，>=1.0.0 时添加 -W 参数
+    if(NOT DEFINED _KCONFIG_TOOL_SUPPORTS_W)
+        execute_process(
+            COMMAND ${LISTENAI_TOOLS_KCONFIG} --version
+            OUTPUT_VARIABLE _KCONFIG_TOOL_VERSION
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _version_result
+        )
+        message(STATUS "Kconfig tool version: ${_KCONFIG_TOOL_VERSION}")
+        string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" _KCONFIG_TOOL_VERSION "${_KCONFIG_TOOL_VERSION}")
+        if(_version_result EQUAL 0 AND _KCONFIG_TOOL_VERSION VERSION_GREATER "1.0.0")
+            set(_KCONFIG_TOOL_SUPPORTS_W TRUE)
+        else()
+            set(_KCONFIG_TOOL_SUPPORTS_W FALSE)
+        endif()
+    endif()
+
+    set(_KCONFIG_EXTRA_ARGS "")
+    if(_KCONFIG_TOOL_SUPPORTS_W AND KCONFIG_WARN_ERROR)
+        set(_KCONFIG_EXTRA_ARGS -W)
+    endif()
+    message(STATUS "Kconfig extra args: ${_KCONFIG_EXTRA_ARGS}")
     set(ENV{CONFIG_} ${${prefix}})
     execute_process(
         COMMAND
         ${LISTENAI_TOOLS_KCONFIG}
+        ${_KCONFIG_EXTRA_ARGS}
         -k ${${kconfig_root}}
         -c ${${dot_config}}
         -H ${${autoconf_h}}
@@ -78,7 +101,7 @@ macro(listenai_kconfig_parse kconfig_root dot_config autoconf_h kconfig_list con
         WORKING_DIRECTORY ${APPLICATION_SOURCE_DIR}
         RESULT_VARIABLE result
     )
-
+    message(info "Kconfig parse return ${result}")
     if (NOT result EQUAL 0)
         message(FATAL_ERROR "Kconfig parse failed, error code: ${result}")
     endif()
@@ -112,7 +135,7 @@ if (LISTENAI_SDK_KCONFIG_PARSE)
     unset(EXTRA_KCONFIG_OPTIONS)
     get_cmake_property(cache_variable_names CACHE_VARIABLES)
     foreach (name ${cache_variable_names})
-      if("${name}" MATCHES "^CONFIG_")
+      if("${name}" MATCHES "^CONFIG_" AND NOT "${name}" STREQUAL "CONFIG_FILES" AND NOT "${name}" STREQUAL "CONFIG_DEFAULT")
         # When a cache variable starts with 'CONFIG_', it is assumed to be
         # a Kconfig symbol assignment from the CMake command line.
         set(EXTRA_KCONFIG_OPTIONS

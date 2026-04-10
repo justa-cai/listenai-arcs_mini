@@ -34,6 +34,9 @@ typedef struct lisa_display_panel {
 
     /* --- 私有数据 --- */
     void *priv_data;
+    /* 来自 attach 的面板初始化参数副本（如果有） */
+    void *init_params;
+    size_t init_params_len;
 
 } lisa_display_panel_t;
 

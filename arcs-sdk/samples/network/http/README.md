@@ -83,15 +83,21 @@ ip addr show | grep "inet "
 
 查找类似 `192.168.x.x` 的局域网地址。
 
-## 编译运行
+## 示例内容
 
-### 编译
+1. 连接 WiFi 并获取 IP 地址
+2. 发送 HTTP GET 请求
+3. 发送 HTTP POST 请求（普通表单数据）
+4. 发送 HTTP POST 请求（Chunked 传输编码）
+5. 接收并显示服务器响应
+
+## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
 
-### 烧录
+## 烧录
 
 ```{eval-rst}
 .. include:: /sample_flash.rst

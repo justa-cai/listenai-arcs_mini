@@ -14,7 +14,6 @@
  */
 
 #include <stdio.h>
-#include <rtos_def.h>
 #include <rtos_al.h>
 #include "sys_arch.h"
 
@@ -28,7 +27,7 @@
 #endif
 
 #if LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX
-static SemaphoreHandle_t sys_arch_protect_mutex;
+static rtos_mutex sys_arch_protect_mutex;
 #endif
 
 uint32_t sys_now(void)
@@ -93,14 +92,14 @@ void sys_sem_signal(rtos_semaphore *pxSemaphore)
 void sys_init(void)
 {
 #if LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX
-    sys_arch_protect_mutex = xSemaphoreCreateMutex();
+    rtos_mutex_create(&sys_arch_protect_mutex);
 #endif
 }
 
 uint32_t sys_arch_protect(void)
 {
 #if LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX
-    xSemaphoreTake(sys_arch_protect_mutex, portMAX_DELAY);
+    rtos_mutex_lock(sys_arch_protect_mutex);
 #else
     taskENTER_CRITICAL();
 #endif
@@ -110,7 +109,7 @@ uint32_t sys_arch_protect(void)
 void sys_arch_unprotect(void)
 {
 #if LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX
-    xSemaphoreGive(sys_arch_protect_mutex);
+    rtos_mutex_unlock(sys_arch_protect_mutex);
 #else
     taskEXIT_CRITICAL();
 #endif

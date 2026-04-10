@@ -5,10 +5,10 @@
 连接日志串口
 
 ## 软件编译
-在本目录下执行下面命令(PC端要求是ubuntu平台)
+在 SDK 根目录执行下面命令(PC端要求是ubuntu平台)
 
 ```shell
-./build.sh
+./build.sh -S test/driver/psram_manager
 ```
 
 ## 固件烧录

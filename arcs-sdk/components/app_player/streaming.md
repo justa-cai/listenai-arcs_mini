@@ -71,8 +71,8 @@ app_player_play_stream -> app_player_write_stream -> app_player_finish_stream
 **流式播放模式下不支持以下操作：**
 - ❌ `app_player_seek()` - 跳转操作
 - ❌ `app_player_pause()` - 暂停操作
-- ❌ `app_player_stop()` / `app_player_stop_sync()` - 停止操作
-- ❌ `app_player_resume()` / `app_player_resume_sync()` - 恢复操作
+- ❌ `app_player_stop()` - 停止操作
+- ❌ `app_player_resume()` - 恢复操作
 
 如果在流式播放模式下调用上述接口，会返回 `APP_PLAYER_ERR_NOT_SUPPORTED` 错误。
 

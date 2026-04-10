@@ -1,4 +1,6 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 config LISA_EVT_PUBLISHER
-    bool "event publisher for lisa"
-    default n
-    select SDK_MODULE_COLLECTIONS_C
+	bool "event publisher for lisa"
+	select SDK_MODULE_COLLECTIONS_C

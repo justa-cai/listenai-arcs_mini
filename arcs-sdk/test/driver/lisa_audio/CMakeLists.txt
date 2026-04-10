@@ -12,4 +12,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     test_lisa_audio.c
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE unity)
+add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/../../common/mock_lisa_gpio mock_lisa_gpio_build)
+
+target_link_libraries(${PROJECT_NAME} PRIVATE unity mock_lisa_gpio)

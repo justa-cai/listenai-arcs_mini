@@ -141,7 +141,7 @@
 
 **内容要求：**
 - 使用代码块展示编译命令
-- 标准命令为 `./build.sh -C -DBOARD=arcs_evb`
+- 标准命令为 `./build.sh -C -S samples/drivers/devices/<device>/<sample_name> -DBOARD=arcs_evb`
 - 如有特殊需求可添加说明
 
 **示例：**
@@ -149,7 +149,7 @@
 ## 编译运行
 
 \`\`\`bash
-./build.sh -C -DBOARD=arcs_evb
+./build.sh -C -S samples/drivers/devices/<device>/<sample_name> -DBOARD=arcs_evb
 \`\`\`
 ```
 
@@ -411,7 +411,7 @@ int ret = lisa_uart_write_async(uart_dev, (uint8_t *)msg, strlen(msg));
 ## 编译运行
 
 \`\`\`bash
-./build.sh -C -DBOARD=arcs_evb
+./build.sh -C -S samples/drivers/devices/<device>/<sample_name> -DBOARD=arcs_evb
 \`\`\`
 
 ## 预期输出
@@ -452,7 +452,7 @@ int ret = lisa_uart_write_async(uart_dev, (uint8_t *)msg, strlen(msg));
 ## 编译运行
 
 \`\`\`bash
-./build.sh -C -DBOARD=arcs_evb
+./build.sh -C -S samples/drivers/devices/<device>/<sample_name> -DBOARD=arcs_evb
 \`\`\`
 
 ## 预期输出

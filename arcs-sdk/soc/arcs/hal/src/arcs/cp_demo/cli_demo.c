@@ -135,7 +135,7 @@ int wifi_event_cb(void *arg, event_module_t event_module,
         break;
         case EVENT_WIFI_STA_CONNECT_FAIL:
         conn_fail_evt = (event_connect_fail_param_t *)event_data;
-        CLOGI("event <%d %d>  connect fail:%d \n", event_module, event_id, conn_fail_evt->reason_code);
+        CLOGI("event <%d %d>  connect fail:%d \n", event_module, event_id, conn_fail_evt->status_code);
         break;
         case EVENT_WIFI_AP_STARTED:
         CLOGI("event <%d %d>  ap_started \n", event_module, event_id);

@@ -1,0 +1,6 @@
+config HTTPDNS_ALIYUN_ACCOUNT_ID
+    string "Aliyun HTTPDNS Account ID"
+    default ""
+    depends on HTTPDNS_USE_ALIYUN
+    help
+      Aliyun HTTPDNS account ID.

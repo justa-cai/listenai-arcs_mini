@@ -476,4 +476,5 @@ LISA_DEVICE_REGISTER(touch_bl6133,
                      &touch_bl6133_priv,
                      NULL,
                      lisa_touch_bl6133_init,
+                     LISA_DEVICE_LEVEL_NORMAL,
                      LISA_DEVICE_PRIORITY_NORMAL);

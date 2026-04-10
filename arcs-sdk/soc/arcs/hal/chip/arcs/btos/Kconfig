@@ -1,6 +1,14 @@
 
+config ARCS_HAL_BTOS_INCLUDE
+    bool "Enable ARCS HAL BTOS headers only"
+    default n
+    help
+        Only expose BTOS header files without compiling source.
+        Used by CP core for IPC type definitions.
+
 config ARCS_HAL_BTOS
     bool "Enable ARCS HAL BTOS"
     default n
+    select ARCS_HAL_BTOS_INCLUDE
     help
         Enable BTOS support

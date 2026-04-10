@@ -5,7 +5,6 @@
 #define TAG "main"
 
 #include "lisa_log.h"
-#include "alarm_aiui.h"
 
 #include "service_led.h"
 #include "service_volume.h"
@@ -14,15 +13,19 @@
 #include "service_camera.h"
 #include "service_alarm.h"
 #include "service_image.h"
+#include "alarm_ring.h"
+#include "alarm.h"
+#include "alarm_handler.h"
 
 #include "voice_msg.h"
 #include "lisa_kv.h"
 #include "wifi_manager/wifi_manager.h"
 #include "app_datas.h"
 #include "tone.h"
-#include "player_mgr.h"
-#include "power/power_manager.h"
+#include "app_player.h"
 #include "pa_manager.h"
+#include "voice_player_comm.h"
+#include "power/power_manager.h"
 #include "lisa_display.h"
 #include "battery/battery.h"
 #include "lisa_ui_nav_scr.h"
@@ -32,7 +35,7 @@ extern uint8_t app_ble_adv_start(uint8_t adv_id, uint8_t adv_type);
 
 void network_reset(void)
 {
-    LOGI("network reset running...");           
+    LOGI("network reset running...");
 #if CONFIG_WIFI_MANAGER
     wifi_mgr_sta_disconnect(true);
     wifi_mgr_sta_config_t list[16] = {0};
@@ -60,13 +63,18 @@ void factory_reset(void)
     network_reset();
     LOGI("factory reset dwone.");
     LOGI("The system will restart after 300ms.");
-    player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_103), 0);
+    app_player_play(tone_player, app_tone_get_url(TONE_ID_103));
     vTaskDelay(2000);
     extern void sys_platform_sw_full_reset(void);
     sys_platform_sw_full_reset();
 }
 
 static void voice_system_network_probe_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    // 这里可以初始化需要网络的服务
+}
+
+static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     service_alarm_init();
 }
@@ -82,9 +90,16 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
     }
 
     switch (evt->action) {
-        case VOICE_MSG_BUTTON_ACTION_CLICK: 
+        case VOICE_MSG_BUTTON_ACTION_CLICK:
         {
-            /* 单击：非主页先回主页；主页则触发按键唤醒 */
+            /* 单击：响铃时稍后提醒；非主页先回主页；主页则触发按键唤醒 */
+            if (alarm_ring_is_active()) {
+                LISA_LOGI(TAG, "Single click: alarm ringing, handle snooze");
+                alarm_handle_snooze();
+                alarm_ring_stop();
+                break;
+            }
+
             if (lisa_ui_nav_scr_get_top_id() != 0) {
                 LISA_LOGI(TAG, "Single click: not on home page, navigating home");
                 lisa_ui_nav_scr_nav_to(0);
@@ -93,7 +108,7 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
                 LISA_LOGI(TAG, "Single click: wakeup trigger");
                 if (model_voice_tts_is_playing()) {
                     LISA_LOGI(TAG, "Single click: TTS playing, stop it");
-                    player_mgr_stop(TTS);
+                    app_player_stop(tts_player);
                     break;
                 }
                 if (model_voice_cloud_is_running()) {
@@ -105,9 +120,8 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
             }
             break;
         }
-        case VOICE_MSG_BUTTON_ACTION_DOUBLE_CLICK: 
+        case VOICE_MSG_BUTTON_ACTION_DOUBLE_CLICK:
         {
-            /* 双击：拍照识图 */
             LISA_LOGI(TAG, "power button double click, image recognition");
             voice_msg_pub(VOICE_MSG_BUTTON_IMAGE_RECOGNITION, NULL, 0);
             break;
@@ -117,9 +131,9 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
             /* 三击：打开信息/二维码页 */
             LISA_LOGI(TAG, "power button triple click, open info page");
             if (voice_cloud_is_connected()) {
-                player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_104), 0);
+                app_player_play(tone_player, app_tone_get_url(TONE_ID_104));
             } else {
-                player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_64), 0);
+                app_player_play(tone_player, app_tone_get_url(TONE_ID_64));
             }
             voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, NULL, 0);
             break;
@@ -131,13 +145,15 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
         }
         case VOICE_MSG_BUTTON_ACTION_QUINTUPLE_CLICK:
         case VOICE_MSG_BUTTON_ACTION_SEXTUPLE_CLICK:
-        case VOICE_MSG_BUTTON_ACTION_SEPTUPLE_CLICK: 
+        case VOICE_MSG_BUTTON_ACTION_SEPTUPLE_CLICK:
         {
             struct app_datas *app_datas = get_app_datas();
             /* 连击 >=5：进入 BLE 配网并打开信息页 */
             LISA_LOGI(TAG, "power button multi click, enter BLE config");
+            service_alarm_deinit();
+            voice_cloud_disconnect();
             if (app_datas != NULL && !app_datas->wifi_connected) {
-                player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_70), 0);
+                app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
             }
             vTaskDelay(pdMS_TO_TICKS(1000));
             network_reset();
@@ -154,6 +170,14 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
         }
         case VOICE_MSG_BUTTON_ACTION_LONG_HOLD:
         {
+            /* 长按：响铃时停止并生成下一个；否则拍照识图 */
+            if (alarm_ring_is_active()) {
+                LISA_LOGI(TAG, "Double click: alarm ringing, stop and generate next");
+                alarm_ring_stop();
+                alarm_handle_stop_and_next();
+                break;
+            }
+            
             /* 长按：关机（USB 供电时忽略）*/
             if (power_is_usb_plugged()) {
                 LISA_LOGI(TAG, "USB connected, ignore long press shutdown");
@@ -166,38 +190,14 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
     }
 }
 
-static void shutdown(void)
-{
-    LISA_LOGI(TAG, "System shutting down...");
-
-    pa_manager_onoff(0);
-
-    lisa_device_t *disp = lisa_device_get("display");
-    lisa_display_blanking_on(disp);
-    lisa_display_set_brightness(disp, 0);
-
-    vTaskDelay(pdMS_TO_TICKS(500));
-}
-
 int main(int argc, char **argv)
 {
     LOGI("Application version: %s-%s", PROJECT_VERSION_STR, PROJECT_VERSION_COMMIT);
 
     boot_watchdog_feed();
 
-    power_config_t power_cfg = {
-        .on_shutdown = shutdown,
-    };
-    power_init(&power_cfg);
-
-    if (!power_wait_settle()) {
-        power_shutdown();
-        return 0;
-    }
-
-    battery_init();
-
     voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_PROBE_SUCCESS, voice_system_network_probe_success, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_CLOUD_AUTH_SUCCESS , voice_cloud_auth_success, NULL);
     voice_msg_sub(VOICE_MSG_BUTTON_CHANGE, button_changed, NULL);
 
     service_led_init();
@@ -215,13 +215,14 @@ int main(int argc, char **argv)
     lisa_ui_init();
 #endif
 
+    battery_init();
 
 #if CONFIG_WIFI_MANAGER
     wifi_mgr_sta_config_t list[8] = {0};
     int count = wifi_mgr_storage_search_ap(list, (int)(sizeof(list) / sizeof(list[0])), SEARCH_ALL, NULL);
     if (count == 0) {
         voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, NULL, 0);
-        player_mgr_play(LOCAL, app_tone_get_url(TONE_ID_70), 0);
+        app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
     } 
 #endif
 

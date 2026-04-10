@@ -23,6 +23,7 @@
 #include "wifi_ota.h"
 #endif
 #include "cache.h"
+#include "pm_impl.h"
 #ifndef MAC2STR
 #define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 #define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"
@@ -88,7 +89,7 @@ static int wifi_cli_get_country_code(char *params)
     {
         CLI_LOGE(" %s \r\n", wifi_err_to_str(ret));
         res = CLI_ERROR;
-    } 
+    }
     else
     {
         CLI_LOG("country code %s \r\n", code);
@@ -251,7 +252,7 @@ static int wifi_cli_scan_params(wifi_scan_params_t *cfg, char *params)
         char option;
 
         if (res || (token[0] != '-') || (token[2] != '\0')) {
-            CLI_LOGE("[%s]: SCAN parameter error \r\n", __func__);
+            CLI_LOGE("[%s]: SCAN parameter error \n", __func__);
             res = CLI_SHOW_USAGE;
             break;
         }
@@ -356,7 +357,7 @@ static int wifi_cli_scan(char *params)
     wifi_sta_scanlist_dump(scan_results, MAX_SCAN_NUM, &nb_res);
 
 #if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1)
-    if ((scan_results >= PSRAM_BASE_ADDRESS) && DCachePresent())
+    if (((uint32_t)scan_results >= PSRAM_BASE_ADDRESS) && DCachePresent())
     {
         vPortEnterCritical();
         HAL_InvalidateDCache_by_Addr((uint32_t*)scan_results, sizeof(wifi_scan_result_t) * MAX_SCAN_NUM);
@@ -369,16 +370,16 @@ static int wifi_cli_scan(char *params)
     {
             CLI_LOG("index[%02d]: channel %02u, bssid %02X:%02X:%02X:%02X:%02X:%02X, rssi %4d, auth %20s SSID %s\n",
                     i,
-                    (wifi_scan_result_t *)(scan_results + i)->channel,
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[0],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[1],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[2],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[3],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[4],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[5],
-                    (wifi_scan_result_t *)(scan_results + i)->rssi,
-                    wifi_sec_to_str((wifi_scan_result_t *)(scan_results + i)->auth),
-                    (wifi_scan_result_t *)(scan_results + i)->ssid);
+                    ((wifi_scan_result_t *)(scan_results + i))->channel,
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[0],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[1],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[2],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[3],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[4],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[5],
+                    ((wifi_scan_result_t *)(scan_results + i))->rssi,
+                    wifi_sec_to_str(((wifi_scan_result_t *)(scan_results + i))->auth),
+                    ((wifi_scan_result_t *)(scan_results + i))->ssid);
     }
 
     rtos_aligned_free(scan_results);
@@ -396,20 +397,20 @@ static int wifi_cli_get_scan_results(char *params)
 
     for (i = 0; i < MAX_AP_SCAN; i++)
     {
-        if ((wifi_scan_result_t *)(scan_results + i)->is_used)
+        if (((wifi_scan_result_t *)(scan_results + i))->is_used)
         {
             CLI_LOG("index[%02d]: channel %02u, bssid %02X:%02X:%02X:%02X:%02X:%02X, rssi %4d, auth %20s SSID %s\n",
                     i,
-                    (wifi_scan_result_t *)(scan_results + i)->channel,
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[0],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[1],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[2],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[3],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[4],
-                    (wifi_scan_result_t *)(scan_results + i)->bssid[5],
-                    (wifi_scan_result_t *)(scan_results + i)->rssi,
-                    wifi_sec_to_str((wifi_scan_result_t *)(scan_results + i)->auth),
-                    (wifi_scan_result_t *)(scan_results + i)->ssid);
+                    ((wifi_scan_result_t *)(scan_results + i))->channel,
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[0],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[1],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[2],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[3],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[4],
+                    ((wifi_scan_result_t *)(scan_results + i))->bssid[5],
+                    ((wifi_scan_result_t *)(scan_results + i))->rssi,
+                    wifi_sec_to_str(((wifi_scan_result_t *)(scan_results + i))->auth),
+                    ((wifi_scan_result_t *)(scan_results + i))->ssid);
         }
     }
 
@@ -445,7 +446,7 @@ static int wifi_cli_connet_params(wifi_connect_cfg_t *cfg, char *params)
         char option;
 
         if (res || (token[0] != '-') || (token[2] != '\0')) {
-            CLI_LOGE("[%s]: connect parameter error \r\n", __func__);
+            CLI_LOGE("[%s]: connect parameter error \n", __func__);
             res = CLI_SHOW_USAGE;
             break;
         }
@@ -570,7 +571,6 @@ static int wifi_cli_connet_params(wifi_connect_cfg_t *cfg, char *params)
             record ++;
             break;
         }
-
         default:
             res = CLI_SHOW_USAGE;
             break;
@@ -596,13 +596,47 @@ static int wifi_cli_connect(char *params)
     int res = CLI_SUCCESS;
     wifi_connect_cfg_t config = {0};
     ls_err_t ret = LS_OK;
+    #if CFG_NVS
+    uint8_t pmk[32];
+    uint8_t pmk_set = 0;
+    uint8_t ssid[WIFI_SSID_LEN + 1] = {0};
+    uint8_t pwd[WIFI_PASSWORD_LEN + 1] = {0};
+    uint32_t len;
+    #endif
 
+    CLI_LOG("Start connect cmd \n");
     ret = wifi_cli_connet_params(&config, params);
     if (ret)
     {
         CLI_LOGD("params error %d \r\n", ret);
         return ret;
     }
+
+    #if 0//CFG_NVS
+    len = NVDS_LEN_WIFI_PMK_SET;
+    ret = nvds_get(NVDS_TAG_WIFI_PMK_SET, (size_t *)&len, &pmk_set);
+    if (ret == NVDS_OK && pmk_set)
+    {
+        // check ssid/pwd if same as last
+        len = WIFI_SSID_LEN;
+        ret = nvds_get(NVDS_TAG_WIFI_STA_SSID, (size_t *)&len, ssid);
+        len = WIFI_PASSWORD_LEN;
+        ret = nvds_get(NVDS_TAG_WIFI_STA_PWD, (size_t *)&len, pwd);
+        len = NVDS_LEN_WIFI_PMK;
+        ret = nvds_get(NVDS_TAG_WIFI_PMK, (size_t *)&len, pmk);
+        if (ret == NVDS_OK && \
+            !strncmp(ssid, config.ssid, WIFI_SSID_LEN) && \
+            !strncmp(pwd, config.key, WIFI_PASSWORD_LEN)) {
+            wifi_set_pmk(pmk);
+        } else {
+            nvds_del(NVDS_TAG_WIFI_PMK);
+            nvds_del(NVDS_TAG_DHCP_IP_ADDR);
+            nvds_del(NVDS_TAG_WIFI_BSSID);
+            nvds_del(NVDS_TAG_WIFI_CHANNEL);
+            nvds_del(NVDS_TAG_WIFI_STA_SSID);
+        }
+    }
+    #endif
 
     ret = wifi_sta_connect(&config);
     if (ret)
@@ -625,14 +659,17 @@ static int wifi_cli_connect(char *params)
         }
 
         #if CFG_NVS
-        nvds_put(NVDS_TAG_WIFI_STA_SSID, NVDS_LEN_WIFI_STA_SSID, config.ssid);
-        if (strlen(config.key))
+        ret = nvds_put(NVDS_TAG_WIFI_STA_SSID, NVDS_LEN_WIFI_STA_SSID, config.ssid);
+        if (ret == NVDS_OK)
         {
-            nvds_put(NVDS_TAG_WIFI_STA_PWD, NVDS_LEN_WIFI_STA_PWD, config.key);
-        }
-        else
-        {
-            nvds_del(NVDS_TAG_WIFI_STA_PWD);
+            if (strlen((char *)config.key))
+            {
+                nvds_put(NVDS_TAG_WIFI_STA_PWD, NVDS_LEN_WIFI_STA_PWD, config.key);
+            }
+            else
+            {
+                nvds_del(NVDS_TAG_WIFI_STA_PWD);
+            }
         }
         #endif
     }
@@ -739,22 +776,35 @@ static int wifi_cli_get_sta_connected_status(char *params)
 static int wifi_cli_powersave(char *params)
 {
     char *ptr, *next = params;
-    int res = CLI_SUCCESS;
+    int res = CLI_SUCCESS, val;
 
     if (!(ptr = utils_next_token(&next))) {
         return CLI_SHOW_USAGE;
     }
 
-    if (!strcmp(ptr, "status"))
-    {
-    }
-    else if (!strcmp(ptr, "on"))
+    if (!strcmp(ptr, "on"))
     {
         wifi_ps_mode_set(WIFI_PS_DEFAULT_TYPE);
+        #if CONFIG_PM && CONFIG_PM_KEEP_ALIVE
+        pm_enable_keep_alive(true);
+        #endif
     }
     else if (!strcmp(ptr, "off"))
     {
         wifi_ps_mode_set(WIFI_PS_MODE_OFF);
+        #if CONFIG_PM && CONFIG_PM_KEEP_ALIVE
+        pm_enable_keep_alive(false);
+        #endif
+    }
+    else if (!strcmp(ptr, "dbg"))
+    {
+        if (!(ptr = utils_next_token(&next)))
+            return CLI_SHOW_USAGE;
+        val = atoi(ptr);
+        #if CONFIG_PM && CONFIG_PM_DEBUG
+        if (val < PM_DBG_MAX)
+            wifi_ps_dbg_level_set(val);
+        #endif
     }
     else
     {
@@ -787,6 +837,7 @@ static int wifi_cli_listen_interval_set(char *params)
     }
     return res;
 }
+
 static int wifi_cli_listen_interval_get(char *params)
 {
     int res = CLI_SUCCESS;
@@ -920,7 +971,7 @@ static int wifi_cli_get_ip_addr(char *params)
     ls_err_t ret;
     struct ip_addr_cfg cfg = {0};
 
-    ls_get_ip(WIFI_VIF_DEFAULT_IDX, &cfg);
+    ret = ls_get_ip(WIFI_VIF_DEFAULT_IDX, &cfg);
 
     if (ret)
     {
@@ -1063,7 +1114,7 @@ static int wifi_cli_start_ap_params(wifi_ap_cfg_params_t *cfg, char *params)
             case 's':
             {
                 size_t ssid_len;
-                
+
                 ssid_len = utils_get_proper_ssid_psk(token, cfg->ssid, WIFI_SSID_LEN);
                 if (!ssid_len || (ssid_len > WIFI_SSID_LEN))
                 {
@@ -1337,15 +1388,15 @@ static int wifi_cli_send_80211_data(char *params)
     {
         return CLI_ERROR;
     }
-    tx_info.len = 128;
+    tx_info.len = sizeof(pkt);
     tx_info.wifi_vif_idx = WIFI_VIF_DEFAULT_IDX;
     memcpy(tx_info.pkt, pkt, tx_info.len);
 
 #if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1)
-    if ((tx_info.pkt >= PSRAM_BASE_ADDRESS) && DCachePresent())
+    if (((uint32_t)tx_info.pkt >= PSRAM_BASE_ADDRESS) && DCachePresent())
     {
         vPortEnterCritical();
-        HAL_FlushDCache_by_Addr((uint32_t*)tx_info.pkt, tx_info.len);
+        HAL_FlushDCache_by_Addr((uint32_t *)tx_info.pkt, tx_info.len);
         vPortExitCritical();
     }
 #endif
@@ -1384,7 +1435,7 @@ static void monitor_cb(wifi_sniffer_frame_info_t *info, void *cb_arg)
     if (info->payload)
     {
        struct wifi_mac_hdr *hdr = (struct wifi_mac_hdr *)info->payload;
-       CLI_LOG("Caputured a frame: len %d ,freq %d \r\n", info->length, info->freq);
+       CLI_LOG("Caputured a frame: len %d ,freq %d \n", info->length, info->freq);
        if (info->length > sizeof(struct wifi_mac_hdr))
        {
            CLI_LOG("\tFC: 0x%x, Seq: %u, len: %u\n",
@@ -1448,8 +1499,8 @@ static int wifi_cli_twt_setup(char *params)
 {
     int res = CLI_SUCCESS;
     ls_err_t ret;
-    uint8_t setup_type, min_twt;
-    uint16_t mantissa;
+    uint8_t setup_type = 0, min_twt = 0;
+    uint16_t mantissa = 0;
     char *token, *next = params;
 
 
@@ -1517,7 +1568,7 @@ static int wifi_cli_pwr_tbl_set(char *params)
     int res = CLI_SUCCESS;
     ls_err_t ret = LS_OK;
     struct pwr_table pwr={0};
-    uint8_t type = 0, i=0, b_cnt, g_cnt, n_cnt, ax_cnt;
+    uint8_t type = 0, i=0, b_cnt = 0, g_cnt = 0, n_cnt = 0, ax_cnt = 0;
     char *token, *next = params, *p = NULL;
 
     while ((token = utils_next_token(&next))) {
@@ -1700,22 +1751,23 @@ int wifi_cli_exec_sta_auto_conn(void)
     uint8_t sta_auto_conn_en = 0;
     uint8_t ssid[WIFI_SSID_LEN + 1] = {0};
     uint8_t pwd[WIFI_PASSWORD_LEN + 1] = {0};
-    size_t len;
+    uint32_t len, chan;
     int ret;
     wifi_connect_cfg_t sta_config = {0};
+    uint8_t pmk[32] = {0};
+    uint8_t pmk_set = 0;
 
     len = NVDS_LEN_WIFI_STA_AUTOCONN;
-    ret = nvds_get(NVDS_TAG_WIFI_STA_AUTOCONN, &len, &sta_auto_conn_en);
+    ret = nvds_get(NVDS_TAG_WIFI_STA_AUTOCONN, (size_t *)&len, &sta_auto_conn_en);
     if (ret == NVDS_OK && sta_auto_conn_en == 1)
     {
         len = WIFI_SSID_LEN;
-        ret = nvds_get(NVDS_TAG_WIFI_STA_SSID, &len, ssid);
+        ret = nvds_get(NVDS_TAG_WIFI_STA_SSID, (size_t *)&len, ssid);
         if (ret == NVDS_OK && len <= WIFI_SSID_LEN)
         {
             memcpy(sta_config.ssid, ssid, len);
-            sta_config.scan_method = FAST_SCAN;
             len = WIFI_PASSWORD_LEN;
-            ret = nvds_get(NVDS_TAG_WIFI_STA_PWD, &len, pwd);
+            ret = nvds_get(NVDS_TAG_WIFI_STA_PWD, (size_t *)&len, pwd);
             if (ret == NVDS_OK)
             {
                 if (len > WIFI_PASSWORD_LEN)
@@ -1724,7 +1776,21 @@ int wifi_cli_exec_sta_auto_conn(void)
                 }
                 memcpy(sta_config.key, pwd, len);
             }
-
+	    len = NVDS_LEN_WIFI_CHANNEL;
+            ret = nvds_get(NVDS_TAG_WIFI_CHANNEL, (size_t *)&len, (uint8_t *)&chan);
+	    if (ret == NVDS_OK)
+            {
+                sta_config.freq[0] = sta_config.freq[1] = 2412 + (chan -1) * 5;
+            }
+            len = NVDS_LEN_WIFI_PMK_SET;
+            nvds_get(NVDS_TAG_WIFI_PMK_SET, (size_t *)&len, &pmk_set);
+            if (pmk_set) {
+                len = NVDS_LEN_WIFI_PMK;
+                nvds_get(NVDS_TAG_WIFI_PMK, (size_t *)&len, pmk);
+                wifi_set_pmk(pmk);
+            }
+            len = NVDS_LEN_WIFI_BSSID;
+            nvds_get(NVDS_TAG_WIFI_BSSID, (size_t *)&len, sta_config.bssid);
             ret = wifi_sta_connect(&sta_config);
             if (ret == LS_OK)
             {
@@ -1785,19 +1851,19 @@ static int wifi_cli_ota(char *params)
 
         switch (token[1]) {
             case ('p'):
-                token = fhost_cli_next_token(&next);
+                token = utils_next_token(&next);
                 if (!token)
                     return CLI_SHOW_USAGE;
                 port = atoi(token);
                 break;
             case ('i'):
-                token = fhost_cli_next_token(&next);
+                token = utils_next_token(&next);
                 if (!token)
                     return CLI_SHOW_USAGE;
                 memcpy(ip_str, token, strlen(token));
                 break;
             case ('f'):
-                token = fhost_cli_next_token(&next);
+                token = utils_next_token(&next);
                 if (!token || (strlen(token) >= sizeof(file_name)))
                     return CLI_SHOW_USAGE;
                 memcpy(file_name, token, strlen(token));
@@ -1822,7 +1888,7 @@ static int wifi_cli_help(char *params)
 
     for (; cli_wifi_commands[i].exec != NULL; i++)
     {
-        CLI_LOG(" - %s %s\r\n", cli_wifi_commands[i].name, cli_wifi_commands[i].params);
+        CLOG(" - %s %s\n", cli_wifi_commands[i].name, cli_wifi_commands[i].params);
     }
 
     return CLI_SUCCESS;
@@ -1842,9 +1908,9 @@ static const struct cli_cmd cli_wifi_commands[] =
     {wifi_cli_disconnect, "wifi_disconnect", ""},
     {wifi_cli_connect, "wifi_connect", "-s <ssid> [-k <pwd>]"
      "[-f <freq>[,freq]] [-b <bssid>]"
-     "[-d <0:dhcp client mode/1:static ip mode>] [-i <static ip>] [-m <static ip mask>] [-g <static ip gateway>] \r\n"
-     "            static ip: -d 1 -i 192.168.1.100 -m 255.255.255.0 -g 192.168.1.1 \r\n"
-     "            example: wifi_connect -s test -k 12345678 \r\n"
+     "[-d <0:dhcp client mode/1:static ip mode>] [-i <static ip>] [-m <static ip mask>] [-g <static ip gateway>]\r\n"
+     "            static ip: -d 1 -i 192.168.1.100 -m 255.255.255.0 -g 192.168.1.1 \n"
+     "            example: wifi_connect -s test -k 12345678 \n"
     },
     {wifi_cli_rate_set, "wifi_set_rate", "<rate vaule>\r\n"
     "            refer rate define in wifi_phy_rate_e \r\n"
@@ -1891,22 +1957,22 @@ static const struct cli_cmd cli_wifi_commands[] =
     "intv=<val> (wake interval unit:ms)  wake=<val> (wake duration, unit: ms, max 255)"},
     {wifi_cli_twt_teardown, "wifi_twt_teardown", ""},
     {wifi_cli_pwr_tbl_set, "wifi_pwr_set", "type=<val> 11b=<p1,p2,p3,p4> 11g=<p1,p2,p3,p4,p5,p6,p7,p8> 11n=<p1,p2,p3,p4,p5,p6,p7,p8> 11ax=<p1,p2,p3,p4,p5,p6,p7,p8,p9,p10>\n"
-     "type: 0 for all channel, 1 for low channel 1, 2 for middle channel 2~10, 3 for high channel 11~13\r\n"
-     "wifi_pwr_set type=0 11b=19,19,19,19 11g=17,17,17,17,17,17,16,16 11n=16,16,16,16,15,15,14,14 11ax=16,16,16,16,16,16,15,15,14,14\r\n"
+     "type: 0 for all channel, 1 for low channel 1, 2 for middle channel 2~10, 3 for high channel 11~13 \n"
+     "wifi_pwr_set type=0 11b=18,18,18,18 11g=17,17,17,17,17,16,16,15 11n=17,17,17,17,16,16,15,15 11ax=17,17,17,16,16,16,14,14,14,14 \n"
     },
-    {wifi_cli_dbg_level_set, "wifi_dbg", "fw_level=<val> fw_mod=<val> wpa=<val>\r\n"
+    {wifi_cli_dbg_level_set, "wifi_dbg", "fw_level=<val> fw_mod=<val> wpa=<val> \n"
      "            fw_level 0~5: none/CRT/ERR/WAR/INFO/VRB \r\n"
      "            fw module (HEX) BIT0 ~ BIT10: KE/DBG/IPC/DMA/MM/TX/RX/PHY/SM/FHOST/ME \r\n"
      "            wpa level 0~5: MSG_EXCESSIVE/MSG_MSGDUMP/MSG_DEBUG/MSG_INFO/MSG_WARNING/MSG_ERROR \r\n"
     },
     {wifi_cli_autoconn, "wifi_autoconn", "<enable>\n"
      "            enable : 1 means enable sta mode auto connect after reboot, 0 means disable sta mode auto connect after reboot\n"},
-    {wifi_cli_wifi_on, "wifi_on", "restart wifi \r\n"},
-    {wifi_cli_wifi_off, "wifi_off", "turn off wifi \r\n"},
+    {wifi_cli_wifi_on, "wifi_on", "restart wifi \n"},
+    {wifi_cli_wifi_off, "wifi_off", "turn off wifi \n"},
 
 #if WIFI_OTA
-    {wifi_cli_ota, "wifi_ota", "-p <port> | -i <ip_addr> | -f <fw>\r\n"
-     "            fw: target fw name, should be less than 32 bytes\r\n"},
+    {wifi_cli_ota, "wifi_ota", "-p <port> | -i <ip_addr> | -f <fw>\n"
+     "            fw: target fw name, should be less than 32 bytes\n"},
 #endif
 #else
     {wifi_cli_help, "wifi?", ""},
@@ -1949,7 +2015,7 @@ uint32_t wifi_cmd_handler(char* command, int len)
         /* Add default response */
         if (res == CLI_SHOW_USAGE)
         {
-            CLI_LOG("Usage:\n%s %s\r\n",
+            CLI_LOG("Usage:\n%s %s\n",
                         cmd->name, cmd->params);
         }
     }

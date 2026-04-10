@@ -11,8 +11,8 @@ extern "C"
 #define OCR_PIC_ONE_SHOT (0)
 #define OCR_PIC_CONTINUE_SHOT (1)
 
-#define OCR_MODE_RIGHT_HAND (0)
-#define OCR_MODE_LEFT_HAND (1)
+// #define OCR_MODE_RIGHT_HAND (0)
+// #define OCR_MODE_LEFT_HAND (1)
 
 #define OCR_SCAN_MODE_SINGLE_LINE (0)
 #define OCR_SCAN_MODE_MULTI_LINE (1)
@@ -90,6 +90,9 @@ typedef enum
     LIS_OCR_MODE_LEFT_HAND
 } lis_ocr_handmode;
 
+/* Phase 1: 纯硬件初始化（camera sensor等），不依赖IPC，可在等AP前调用 */
+lis_err_t lis_ocr_init_hw(void);
+/* Phase 2+3: IPC + stream初始化，需AP已就绪。内部会先确保Phase 1已执行 */
 lis_err_t lis_ocr_init(void);
 void lis_ocr_deinit(void);
 // 获取ocr的状态
@@ -119,7 +122,7 @@ lis_err_t lis_ocr_get_stitched_image(char *buf, int *buf_size); // 非当前业�
 lis_err_t lis_ocr_set_scan_mode(scan_mode_e mode);
 
 // 产测设置灯亮
-lis_err_t lis_ocr_set_scan_led(scan_led_e onoff);
+lis_err_t lis_ocr_set_scan_led(scan_led_e onoff, int level);
 
 //
 lis_err_t lis_ocr_start(void);

@@ -5,11 +5,17 @@ if (DEFINED CONFIG_ARCS_HAL_AT_CMD)
     listenai_library_sources(
         atcmd.c
         atcmd_hash.c
-        atcmd_iperf.c
-        atcmd_lwip.c
-        atcmd_tcpip.c
-        ping.c
     )
+
+    if (CONFIG_WIFI OR CONFIG_LWIP)
+        listenai_library_sources(
+            atcmd_iperf.c
+            atcmd_lwip.c
+            atcmd_tcpip.c
+            ping.c
+        )
+        listenai_compile_definitions(CFG_ATCMD_NET=1)
+    endif()
 
     if (CONFIG_WIFI)
         listenai_library_sources(

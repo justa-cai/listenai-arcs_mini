@@ -2,13 +2,17 @@
 
 本示例展示了如何使用 coreMQTT-Agent 库实现线程安全的 MQTT 客户端应用。
 
-## 功能特性
+## 功能说明
 
 - 基于 coreMQTT-Agent 的线程安全 MQTT 操作
 - 使用 FreeRTOS 队列进行线程间消息传递
 - 支持异步订阅和发布操作
 - 命令完成回调机制
 - 多任务环境下的 MQTT 通信
+
+## 硬件连接
+
+本示例使用芯片内部 WiFi 外设，无需额外接线。
 
 ## coreMQTT-Agent 简介
 
@@ -212,10 +216,24 @@ CONFIG_SDK_MODULE_COREMQTT_AGENT=y
 #define MQTT_CLIENT_ID     "arcs_mqtt_agent_client"  // 客户端 ID
 ```
 
-### 编译
+## 示例内容
+
+1. 初始化文件系统
+2. 连接 WiFi 网络
+3. 连接到 MQTT Broker
+4. 启动 Agent 任务
+5. 订阅主题并定期发布消息
+
+## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
+```
+
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
 ### 配置 WiFi
@@ -233,7 +251,7 @@ kv set wifi_passwd "your_wifi_password"
 reboot
 ```
 
-### 运行效果
+## 预期输出
 
 设备启动后会自动:
 

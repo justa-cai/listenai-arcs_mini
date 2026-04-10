@@ -5,6 +5,7 @@
 #include "stddef.h"
 #include "string.h"
 #include "bt_app_if.h"
+#include "bt_app_hal.h"
 
 static int ble_cmd_help(int argc, char **argv);
 

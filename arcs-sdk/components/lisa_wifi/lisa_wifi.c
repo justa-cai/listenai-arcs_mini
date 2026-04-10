@@ -11,6 +11,7 @@
 #include "ls_crypto.h"
 #include "ls_event.h"
 #include "ls_wifi_type.h"
+#include "ls_utils.h"
 #include "net_def.h"
 #include "ls_misc.h"
 #include "lisa_wifi.h"
@@ -148,12 +149,12 @@ static void wifi_error_status_info(uint16_t erro, uint16_t status_code, uint16_t
             break;
         case WIFI_ERROR_DEAUTH_BY_AP:
             CLOGI("Receive deauth from AP, reason code %d \n",reason_code);
-            if (reason_code == 15)
+            if (reason_code == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT)
                 CLOGI("May password wrong \n");
             break;
         case WIFI_ERROR_DEAUTH_BY_LOCAL:
             CLOGI("wifi disconnect by local, reason code %d \n", reason_code);
-            if (reason_code == 15)
+            if (reason_code == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT)
                 CLOGI("May password wrong \n");
             break;
         default:
@@ -238,7 +239,7 @@ static int single_core_wifi_init(lisa_wifi_ops_t *ops)
 
     struct wifi_ops wifi_ops = {
         .get_mac = ops->custom_mac,
-        .temp_update = ls_temp_por_update,
+        .get_temp = ls_read_temp_voltage,
     };
 
     memset(_sshram, 0, (_eshram - _sshram));
@@ -320,7 +321,7 @@ static int diff_core_wifi_init(void)
 
     struct wifi_ops ops = {
         .get_mac = custom_get_wifi_mac,
-        .temp_update = ls_temp_por_update,
+        .get_temp = ls_read_temp_voltage,
     };
     ls_crypto_init();
 

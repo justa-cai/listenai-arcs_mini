@@ -1,0 +1,7 @@
+tests:
+  samples.linker_script.app_registry:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "All 2 modules initialized"

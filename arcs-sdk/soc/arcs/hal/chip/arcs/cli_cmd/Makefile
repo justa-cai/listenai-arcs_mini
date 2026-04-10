@@ -16,10 +16,17 @@ endif
 exclude_dirs=
 
 #files want to build: eg. CSRCS=a.c  CPPSRCS=b.cpp  SSRCS=c.S
+ifeq ($(strip $(WCN_TYPE)), both)
+CSRCS	= cli_main.c cli_bt.c cli_net.c cli_wifi.c
+else ifeq ($(strip $(WCN_TYPE)), wf)
+CSRCS	= cli_main.c cli_net.c cli_wifi.c
+else ifeq ($(strip $(WCN_TYPE)), bt)
+CSRCS	= cli_main.c cli_bt.c
+endif
 
-CSRCS	= $(shell find . -name "*.c")
-CPPSRCS	=
-SSRCS	=
+ifeq ($(strip $(CONFIG_GPIO_ADC_TEST)), 1)
+CSRCS += cli_gpio.c cli_adc.c
+endif
 
 LWIP_VER := $(LWIP_VER)
 #includings and flags
@@ -56,11 +63,11 @@ CFLAGS += -DWIFI_OTA=$(WIFI_OTA)
 
 #macro ctrl
 ifeq ($(strip $(WCN_TYPE)), both)
-CFLAGS += -DCLI_TYPE_WF
+CFLAGS += -DCLI_TYPE_WF -DCLI_TYPE_BT
 else ifeq ($(strip $(WCN_TYPE)), wf)
 CFLAGS += -DCLI_TYPE_WF
 else ifeq ($(strip $(WCN_TYPE)), bt)
-
+CFLAGS += -DCLI_TYPE_BT
 endif
 
 ifeq ($(WIFI_RAM_ATE), 1)

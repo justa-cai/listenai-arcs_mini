@@ -4,13 +4,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 menuconfig LISA_ADC
-    bool "Enable LISA ADC Driver"
-    default n
-    depends on LISA_DEVICE
-    help
-      Enable the LISA ADC device driver.
+	bool "Enable LISA ADC Driver"
+	depends on LISA_DEVICE
+	help
+			Enable the LISA ADC device driver.
 
 if LISA_ADC
-
 
 endif # LISA_ADC

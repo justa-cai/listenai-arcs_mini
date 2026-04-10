@@ -8,8 +8,4 @@
 
     ../modules/fs/README.md
     lisa_shell/README.md
-    sys_heap/README.md
-    lisa_log/README.md
     lisa_evt_pub/README.md
-    work_queue/README.md
-    app_player/README.rst

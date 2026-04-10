@@ -2,223 +2,208 @@
 #include "lis_tts.h"
 #include "log_print.h"
 #include "task.h"
-#include "queue.h"
 #include "semphr.h"
-#include "cache.h"
+#include "acomp_xtts.h"
 
-#define WAIT_CTRL_ACK (pdMS_TO_TICKS(2000))  // ms
-#define PCM_MAX_RECV_LEN (320 * 10) // 最大的接收buf
-#define TTS_TX_SIZE (10 * 1024)     // tts 文本
+#define WAIT_CTRL_ACK (pdMS_TO_TICKS(2000))
+#define PCM_MAX_RECV_LEN (320 * 10)
+#define TTS_TX_SIZE (10 * 1024)
 
 typedef struct
 {
     uint8_t inited : 1;
-    uint8_t started : 1;
-    int pcm_len;
-    int pcm_back;
-    int comm_json_id;
-    uint32_t handle;
-    QueueHandle_t sync_que;       //
-    SemaphoreHandle_t ctrl_sem;   //
-    SemaphoreHandle_t txt_sem;    // tts文本发送完成信号量
-    SemaphoreHandle_t pcm_rx_sem; // tts pcm
+    SemaphoreHandle_t ctrl_sem;
+    lis_tts_status status;
 } tts_t;
 
 static const char TTS_TAG[] = "tts";
-static tts_t tts;
+static tts_t tts = {
+    .status = -1,
+};
 
-// 增强音量设置[0-10]
-lis_err_t lis_tts_enhance_vol(int32_t vol)
+/* AP XTTS status event values (bitmask) → lis_tts_status mapping */
+#define XTTS_ALGO_EVENT_PCM_BEGIN   (1UL << 0)  /* 0x1 */
+#define XTTS_ALGO_EVENT_PCM_END     (1UL << 2)  /* 0x4 */
+#define XTTS_ALGO_EVENT_PCM_STOP    (1UL << 3)  /* 0x8 */
+
+/* acomp XTTS event callback (non-static, registered by acomp_xtts_do_prepare) */
+void tts_event_cb(uint32_t event, void *event_data, uint32_t event_data_len, void *priv)
 {
-    //char *pjstr;
-    lis_err_t ret = lis_err_ok;
-
-    if (vol < 0 || vol > 10)
-    {
-        ret = lis_err_err;
-        ESP_LOGE(TTS_TAG, "enhance vol=%d, must be in[0-10]", vol);
-        goto RET;
-    }
-    xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
-
-    xSemaphoreGive(tts.ctrl_sem);
-RET:
-    return ret;
-}
-
-// tts合成播放
-lis_err_t lis_tts_start(char *txt, uint32_t txt_size, uint32_t speed, uint32_t vol, uint8_t role)
-{
-    //int ctrl_ack;
-    lis_err_t ret = lis_err_ok;
-    xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
-    func_ack_t ack;
-    func_descriptors_t func = {
-        .func = FUNC_XTTS_START_E,
-        .xtts.buff = txt,
-        .xtts.size = txt_size,
-        .xtts.speed = speed,
-        .xtts.vol = vol,
-        .xtts.role = role,
-    };
-    HAL_FlushDCache_by_Addr((uint32_t *)func.xtts.buff, txt_size);
-    if (lsf_cp2ap_func(tts.handle, (uint8_t *)&func, sizeof(func_descriptors_t),
-                                 (uint8_t *)&ack, sizeof(func_ack_t), WAIT_CTRL_ACK) > 0)
-    {
-        if (ack.status)
-        {
-            ret = lis_err_busy;
-            ESP_LOGE(TTS_TAG, "lis_tts_start fail status: 0x%x", ack.status);
+    if (event & XTTS_CB_EVENT_STATUS) {
+        if (event_data && event_data_len >= sizeof(uint32_t)) {
+            uint32_t raw = *(uint32_t *)event_data;
+            /* Map AP bitmask event to lis_tts_status enum */
+            if (raw == XTTS_ALGO_EVENT_PCM_BEGIN) {
+                tts.status = LIS_TTS_STATE_ING;
+            } else if (raw == XTTS_ALGO_EVENT_PCM_END) {
+                tts.status = LIS_TTS_STATE_TTS_END;
+            } else if (raw == XTTS_ALGO_EVENT_PCM_STOP) {
+                tts.status = LIS_TTS_STATE_EARLY_OVER;
+            }
         }
     }
-    else
-    {
+}
+
+lis_err_t lis_tts_enhance_vol(int32_t vol)
+{
+    lis_err_t ret = lis_err_ok;
+
+    if (vol < 0 || vol > 10) {
+        ESP_LOGE(TTS_TAG, "enhance vol=%d, must be in[0-10]", vol);
+        return lis_err_err;
+    }
+    /* stub - kept as-is, no real implementation */
+    return ret;
+}
+
+uint32_t app_tts_speed = 0;
+void app_misc_set_tts_speed(uint32_t speed)
+{
+    app_tts_speed = speed;
+}
+
+lis_err_t lis_tts_start(char *txt, uint32_t txt_size, uint32_t speed, uint32_t vol, uint8_t role)
+{
+    lis_err_t ret = lis_err_ok;
+    uint32_t actual_speed = (app_tts_speed > 0) ? app_tts_speed : speed;
+
+    xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
+
+    ESP_LOGI(TTS_TAG, "lis_tts_start txt_size:%d, speed:%d, vol:%d, role:%d\n",
+             txt_size, actual_speed, vol, role);
+
+    acomp_xtts_set_speed((int)actual_speed);
+    acomp_xtts_set_volume((int)vol);
+    acomp_xtts_set_role((int)role);
+
+    int rc = acomp_xtts_synth_text(txt, txt_size);
+    if (rc != 0) {
         ret = lis_err_err;
-        ESP_LOGE(TTS_TAG, "lis_tts_start fail");
+        ESP_LOGE(TTS_TAG, "lis_tts_start fail: acomp_xtts_synth_text %d", rc);
     }
 
     xSemaphoreGive(tts.ctrl_sem);
     return ret;
 }
-// 停止tts合成播放
+
 lis_err_t lis_tts_stop(void)
 {
-    //int ctrl_ack;
     lis_err_t ret = lis_err_ok;
     uint32_t now = xTaskGetTickCount();
 
-    // ESP_LOGI(TTS_TAG, "lis_tts_stop 1\n"); //用于测试
     xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
-    func_ack_t ack;
-    func_descriptors_t func = {
-        .func = FUNC_XTTS_STOP_E,
-    };
-    if (lsf_cp2ap_func(tts.handle, (uint8_t *)&func, sizeof(func_descriptors_t),
-                                 (uint8_t *)&ack, sizeof(func_ack_t), WAIT_CTRL_ACK) < 0)
-    {
+
+    int rc = acomp_xtts_stop();
+    if (rc != 0) {
         ret = lis_err_err;
         ESP_LOGE(TTS_TAG, "lis_tts_stop fail");
     }
-    // ESP_LOGI(TTS_TAG, "lis_tts_stop 2\n");//用于测试
+
     xSemaphoreGive(tts.ctrl_sem);
     ESP_LOGI(TTS_TAG, "stop cost:%d", xTaskGetTickCount() - now);
     return ret;
 }
 
+/* TODO: stub - new architecture uses set_speed/volume/role directly */
 lis_err_t lis_tts_set_param(int param, int param_value)
 {
-    lis_err_t ret = lis_err_ok;
-    xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
-    func_ack_t ack;
-    func_descriptors_t func = {
-        .func = FUNC_XTTS_SET_PARAM_E,
-        .xtts.param = param,
-        .xtts.param_value = param_value,
-    };
-    if (lsf_cp2ap_func(tts.handle, (uint8_t *)&func, sizeof(func_descriptors_t),
-                                 (uint8_t *)&ack, sizeof(func_ack_t), WAIT_CTRL_ACK) > 0)
-    {
-        if (ack.status)
-        {
-            ret = lis_err_busy;
-            ESP_LOGE(TTS_TAG, "lis_tts_set_param fail status: 0x%x", ack.status);
-        }
-    }
-    else
-    {
-        ret = lis_err_err;
-        ESP_LOGE(TTS_TAG, "lis_tts_set_param fail");
-    }
-
-    xSemaphoreGive(tts.ctrl_sem);
-    return ret;
+    ESP_LOGW(TTS_TAG, "lis_tts_set_param: stub, use set_speed/volume/role instead");
+    return lis_err_ok;
 }
 
 lis_err_t lis_tts_set_pcm_back(int is_back)
 {
-    lis_err_t ret = lis_err_ok;
-    if (tts.pcm_back == is_back)
-    {
-        goto RET;
-    }
-    xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
-    tts.pcm_back = is_back;
-    xSemaphoreGive(tts.ctrl_sem);
-RET:
-    return ret;
+    /* Kept for API compatibility; no internal pcm_back field used in new arch */
+    return lis_err_ok;
 }
 
 int lis_tts_get_pcm(char *buf, uint32_t buf_size)
 {
-    lis_err_t ret = lis_err_ok;
+    if (NULL == buf) return 0;
 
-    // *buf_size = 0;
-    if (NULL == buf)
-    {
-        return ret;
-    }
-    xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
-    extern int xtts_stream_frame_get(void *data, uint32_t size);
-    ret = xtts_stream_frame_get(buf, buf_size);
-    xSemaphoreGive(tts.ctrl_sem);
-    return ret;
+    uint32_t len = 0;
+    uint16_t idx = 0;
+    void *ptr = acomp_xtts_stream_rx_buffer_get(0, &len, &idx);
+    if (ptr == NULL || len == 0) return 0;
+
+    uint32_t copy_len = len < buf_size ? len : buf_size;
+    memcpy(buf, ptr, copy_len);
+    acomp_xtts_stream_rx_buffer_release(0, idx, len, ptr);
+
+    return (int)copy_len;
 }
 
 lis_err_t lis_tts_clear_pcm(void)
 {
-    lis_err_t ret = lis_err_ok;
-    xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
-    extern int xtts_stream_frame_reset(void);
-    ret = xtts_stream_frame_reset();
-    xSemaphoreGive(tts.ctrl_sem);
-    return ret;
+    uint32_t len = 0;
+    uint16_t idx = 0;
+
+    /* Drain all remaining RX buffers */
+    while (1) {
+        void *ptr = acomp_xtts_stream_rx_buffer_get(0, &len, &idx);
+        if (ptr == NULL || len == 0) break;
+        acomp_xtts_stream_rx_buffer_release(0, idx, len, ptr);
+    }
+    return lis_err_ok;
 }
 
-// 获取tts的状态
+lis_tts_status lis_tts_get_status_local(void)
+{
+    return tts.status;
+}
+
 lis_tts_status lis_tts_get_status(void)
 {
-    lis_tts_status st;
-    xSemaphoreTake(tts.ctrl_sem, portMAX_DELAY);
-    func_ack_t ack;
-    func_descriptors_t func = {
-        .func = FUNC_XTTS_STATUS_E,
-    };
-    if (lsf_cp2ap_func(tts.handle, (uint8_t *)&func, sizeof(func_descriptors_t),
-                                 (uint8_t *)&ack, sizeof(func_ack_t), WAIT_CTRL_ACK) > 0)
-    {
-        st = ack.status;
-    }
-    else
-    {
-        st = LIS_TTS_STATE_ERR;
-        ESP_LOGE(TTS_TAG, "lis_tts_get_status timeout");
-    }
-    // ESP_LOGI(TTS_TAG, "lis_tts_get_status:%d\n", st);
-    xSemaphoreGive(tts.ctrl_sem);
-    return st;
+    return tts.status;
 }
 
 void lis_tts_init(void)
 {
-
-    if (tts.inited)
-    {
+    if (tts.inited) {
         ESP_LOGW(TTS_TAG, "already inited");
         return;
     }
     memset(&tts, 0, sizeof(tts));
 
-    tts.handle = TYPE_TTS;
     tts.ctrl_sem = xSemaphoreCreateBinary();
-
     xSemaphoreGive(tts.ctrl_sem);
+
+    /* acomp_xtts_init() 和 prepare 由 acomp_xtts_do_prepare() 按需调用。
+     * 这里只初始化 lis_tts 内部状态。
+     * callback 在 acomp_xtts_do_prepare() 中注册。 */
+
+    tts.status = -1;
     tts.inited = 1;
-    return;
+    ESP_LOGI(TTS_TAG, "lis_tts_init ok (deferred acomp init)");
+}
+
+/* CV/Translation cleanup for resource sharing (AP PSRAM is shared) */
+extern int acomp_cv_cleanup(void);
+extern int acomp_translation_do_cleanup(void);
+
+int lis_tts_prepare(void)
+{
+    /* Release other algorithm resources to free AP PSRAM for XTTS */
+    ESP_LOGI(TTS_TAG, "cleanup CV/Trans to free AP PSRAM");
+    acomp_cv_cleanup();
+    acomp_translation_do_cleanup();
+
+    return acomp_xtts_do_prepare((xtts_event_cb_t)tts_event_cb, NULL);
+}
+
+int lis_tts_cleanup(void)
+{
+    return acomp_xtts_do_cleanup();
 }
 
 void lis_tts_deinit(void)
 {
-    return;
+    if (!tts.inited) return;
+
+    acomp_xtts_remove_callback(tts_event_cb);
+    acomp_xtts_cleanup();
+    vSemaphoreDelete(tts.ctrl_sem);
+    tts.inited = 0;
 }
 
 void lis_tts_task(void)

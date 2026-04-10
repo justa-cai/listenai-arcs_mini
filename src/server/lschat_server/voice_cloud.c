@@ -18,7 +18,6 @@
 #include "service_image.h"
 
 #include "acomp_wakeup.h"
-#include "listen_wifi.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -362,7 +361,9 @@ static void voice_event_cb(session_voice_event_e evt, void *data, uint32_t size,
         lsc_stream_text_request_thread_async((char *)data, stream_text_cb_handle, NULL, true);
         break;
     case SESSION_VOICE_IAT:
-        voice_msg_pub(VOICE_MSG_CLOUD_IAT_UPDATE, (char *)data, size);
+        if (data != NULL && size > 0 && ((char *)data)[0] != '\0') {
+            voice_msg_pub(VOICE_MSG_CLOUD_IAT_UPDATE, (char *)data, size);
+        }
         break;
     case SESSION_VOICE_IAT_START:
         voice_msg_pub(VOICE_MSG_CLOUD_IAT_START, NULL, 0);
@@ -658,6 +659,24 @@ int voice_cloud_init(struct voice_cloud_connect_config *config)
 
     cloud_init_done = 1;
 
+    return 0;
+}
+
+int voice_cloud_disconnect(void)
+{
+    if (!cloud_init_done) {
+        return 0;
+    }
+
+    // 断开连接并清除 token，触发重新认证
+    // 重连线程会自动使用新账号认证
+    int ret = lsc_disconnect();
+    if (ret != 0) {
+        LOGE("lsc_disconnect failed: %d", ret);
+        return ret;
+    }
+
+    LOGI("voice_cloud_disconnect completed");
     return 0;
 }
 

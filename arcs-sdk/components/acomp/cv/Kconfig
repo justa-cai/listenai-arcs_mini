@@ -1,0 +1,27 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if ACOMP_CV
+
+	config ACOMP_CV_RES_CUTLINE_EMMC_ADDR
+		hex "Cutline model eMMC address"
+		default 0x9b00000
+		help
+			eMMC byte address of the cutline model resource.
+			Used as fallback when the model is not on flash.
+
+	config ACOMP_CV_RES_CUTLINE_SIZE
+		int "Cutline model size (bytes)"
+		default 462320
+
+	config ACOMP_CV_RES_OCR_EMMC_ADDR
+		hex "OCR model eMMC address"
+		default 0xa000000
+		help
+			eMMC byte address of the OCR thinker model resource.
+
+	config ACOMP_CV_RES_OCR_SIZE
+		int "OCR model size (bytes)"
+		default 2289296
+
+endif

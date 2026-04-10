@@ -1,0 +1,14 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Exception & Backtrace"
+
+config BACK_TRACE
+	bool "backtrace support"
+	help
+		Enable the exception back trace
+
+config EXCEPTION_REBOOT_IMMEDIATELY
+	bool "reboot immediately in exception handler"
+
+endmenu

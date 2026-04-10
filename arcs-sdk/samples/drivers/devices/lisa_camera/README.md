@@ -1,4 +1,4 @@
-# LISA Camera 摄像头驱动示例
+# LISA Camera 摄像头捕获示例
 
 ## 功能说明
 
@@ -29,18 +29,6 @@
 | VCC | 电源（通常3.3V或2.8V）| - |
 | GND | 地 | - |
 
-### 支持的摄像头传感器
-
-本驱动支持以下摄像头传感器（通过I2C自动探测）：
-
-| 传感器 | 最大分辨率 | 像素格式 | I2C地址 |
-|--------|-----------|---------|---------|
-| OV2640 | UXGA (1600x1200) | RGB565/YUV422/JPEG | 0x30 |
-| OV3660 | QXGA (2048x1536) | RGB565/YUV422/JPEG | 0x3C |
-| GC0328 | VGA (640x480) | RGB565/YUV422 | 0x21 |
-| GC032A | VGA (640x480) | RGB565/YUV422 | 0x21 |
-| SC030IOT | VGA (640x480) | RGB565/YUV422 | 0x68 |
-
 ## 示例步骤
 
 1. 初始化 `uart1` 设备，配置为 3Mbps 波特率，DMA 传输模式。
@@ -57,6 +45,12 @@
 
 ```{eval-rst}
 .. include:: /sample_build.rst
+```
+
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
 ## 预期输出
@@ -79,30 +73,13 @@ Frame 2 sending...
 
 ## 核心 API
 
-### 设备管理
-
 | API | 说明 |
 |-----|------|
 | `lisa_device_get()` | 获取设备对象 |
 | `lisa_device_ready()` | 检查设备是否就绪 |
-
-### 总线配置
-
-| API | 说明 |
-|-----|------|
-| `lisa_camera_attach_bus()` | 附加DVP/SPI总线接口 |
-
-### 摄像头配置
-
-| API | 说明 |
-|-----|------|
-| `lisa_camera_setup()` | 配置摄像头参数（分辨率、格式等）|
+| `lisa_camera_attach_bus()` | 附加 DVP/SPI 总线接口 |
+| `lisa_camera_setup()` | 配置摄像头参数（分辨率、格式等） |
 | `lisa_camera_get_capabilities()` | 查询摄像头能力 |
-
-### 图像捕获
-
-| API | 说明 |
-|-----|------|
 | `lisa_camera_start()` | 启动摄像头 |
 | `lisa_camera_stop()` | 停止摄像头 |
 | `lisa_camera_capture()` | 捕获一帧图像 |

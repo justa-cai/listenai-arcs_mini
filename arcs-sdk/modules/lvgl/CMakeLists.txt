@@ -14,4 +14,7 @@ if (DEFINED CONFIG_SDK_MODULE_LVGL)
     listenai_include_directories(${SDK_MODULES_LVGL_PATH}/src)
 
     listenai_compile_definitions(LV_CONF_INCLUDE_SIMPLE=1 LV_EX_CONF_INCLUDE_SIMPLE=1 LV_LVGL_H_INCLUDE_SIMPLE=1)
+
+    # Relocate LVGL code to PSRAM to save Flash space
+    listenai_code_relocate(LIBRARY modules_lvgl LOCATION PSRAM_TEXT)
 endif()

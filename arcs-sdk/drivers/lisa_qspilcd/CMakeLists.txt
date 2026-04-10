@@ -6,9 +6,7 @@ if(CONFIG_LISA_QSPILCD_DEVICE)
 
 listenai_library_named(lisa_qspilcd_device)
 
-listenai_library_sources(
-    lisa_qspilcd_arcs.c
-)
+listenai_library_sources_ifdef(CONFIG_SOC_ARCS  lisa_qspilcd_arcs.c)
 
 listenai_include_directories(.)
 

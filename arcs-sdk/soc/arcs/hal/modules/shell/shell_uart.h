@@ -5,8 +5,8 @@
 #define SHELL_UART0              0
 #define SHELL_UART1              1
 
-#define SHELL_UART               CONFIG_SYSLOG_UART_PORT
-#define SHELL_UART_BAUDRATE      CONFIG_SYSLOG_UART_BAUDRATE
+#define SHELL_UART               CONFIG_SHELL_UART
+#define SHELL_UART_BAUDRATE      CONFIG_SHELL_UART_BAUDRATE
 
 
 #define UART0_IO_TX_PAD          (CSK_IOMUX_PAD_A)

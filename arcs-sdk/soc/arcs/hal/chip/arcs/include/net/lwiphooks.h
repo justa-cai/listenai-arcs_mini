@@ -1,6 +1,7 @@
 
 #ifndef _LWIPHOOKS_H_
 #define _LWIPHOOKS_H_
+#include "lwip/prot/dhcp.h"
 
 #define LWIP_HOOK_UNKNOWN_ETH_PROTOCOL  net_eth_receive
 
@@ -20,4 +21,8 @@
  */
 err_t net_eth_receive(struct pbuf *pbuf, struct netif *netif);
 
+void dhcp_append_extra_opts(struct netif *netif, uint8_t state, struct dhcp_msg *msg_out, uint16_t *options_out_len);
+
+#define LWIP_HOOK_DHCP_APPEND_OPTIONS(netif, dhcp, state, msg, msg_type, options_len_ptr) \
+        dhcp_append_extra_opts(netif, state, msg, options_len_ptr);
 #endif /* _LWIPHOOKS_H_ */

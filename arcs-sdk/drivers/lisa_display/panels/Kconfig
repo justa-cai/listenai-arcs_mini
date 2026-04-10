@@ -1,35 +1,39 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 if LISA_DISPLAY_DEVICE
 
 choice
-    prompt "Display Panel Driver"
-    default LISA_DISPLAY_PANEL_ST7789P3
-    help
-        Select the specific display panel driver to be used.
+	prompt "Display Panel Driver"
+	default LISA_DISPLAY_PANEL_ST7789P3
+	help
+		Select the specific display panel driver to be used.
 
 config LISA_DISPLAY_PANEL_ST7789P3
-    bool "ST7789P3 Panel Driver"
-    help
-        Enable driver for ST7789P3 display panel.
+	bool "ST7789P3 Panel Driver"
+	help
+		Enable driver for ST7789P3 display panel.
 
 config LISA_DISPLAY_PANEL_AXS15231B
-    bool "AXS15231B Panel Driver"
-    help
-        Enable driver for AXS15231B display panel.
+	bool "AXS15231B Panel Driver"
+	help
+		Enable driver for AXS15231B display panel.
 
 config LISA_DISPLAY_PANEL_ST7701S
-    bool "ST7701S Panel Driver"
-    help
-        Enable Driver for ST7701S display panel.
+	bool "ST7701S Panel Driver"
+	help
+		Enable Driver for ST7701S display panel.
 
 config LISA_DISPLAY_PANEL_GC9A01
-    bool "GC9A01 Panel Driver"
-    help
-        Enable driver for GC9A01 display panel.
+	bool "GC9A01 Panel Driver"
+	help
+		Enable driver for GC9A01 display panel.
 
 config LISA_DISPLAY_PANEL_GC9D01N
-    bool "GC9D01N Panel Driver"
-    help
-        Enable driver for GC9D01N display panel.
+	bool "GC9D01N Panel Driver"
+	help
+		Enable driver for GC9D01N display panel.
+
 endchoice
 
 rsource "Kconfig.axs15231b"

@@ -1,1 +1,1 @@
-add_subdirectory(arcs/hal)
+add_subdirectory(${CHIP})

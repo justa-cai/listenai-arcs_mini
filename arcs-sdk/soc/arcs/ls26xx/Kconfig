@@ -1,0 +1,53 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_SERIES_LS26XX
+	bool
+	select SOC_ARCS
+
+config SOC_LS2662
+	bool "LS2662L0U"
+	select SOC_SERIES_LS26XX
+	help
+		Dual Core RISC-V 300MHz, 4M PSRAM, no NPU
+
+config SOC_LS2663
+	bool "LS2663L0U"
+	select SOC_SERIES_LS26XX
+	help
+		Dual Core RISC-V 300MHz, 8M PSRAM, no NPU
+
+config SOC_LS2664
+	bool "LS2664L0U"
+	select SOC_SERIES_LS26XX
+	help
+		Dual Core RISC-V 300MHz, 16M PSRAM, no NPU
+
+config SOC_LS2682
+	bool "LS2682L0U"
+	select SOC_SERIES_LS26XX
+	help
+		Dual Core RISC-V 300MHz, 4M PSRAM, NPU 64G ops
+
+config SOC_LS2683
+	bool "LS2683L0U"
+	select SOC_SERIES_LS26XX
+	help
+		Dual Core RISC-V 300MHz, 8M PSRAM, NPU 64G ops
+
+config SOC_LS2684
+	bool "LS2684L0U"
+	select SOC_SERIES_LS26XX
+	help
+		Dual Core RISC-V 300MHz, 16M PSRAM, NPU 64G ops
+
+if SOC_SERIES_LS26XX
+
+rsource "ls2662/Kconfig.defconfig"
+rsource "ls2663/Kconfig.defconfig"
+rsource "ls2664/Kconfig.defconfig"
+rsource "ls2682/Kconfig.defconfig"
+rsource "ls2683/Kconfig.defconfig"
+rsource "ls2684/Kconfig.defconfig"
+
+endif # SOC_SERIES_LS26XX

@@ -1,0 +1,36 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if ACOMP
+
+	menuconfig ACOMP_RESMGR
+		bool "Enable Flash Resource Manager"
+		help
+			Enable flash resource manager for algorithm models.
+			Parses a flash-resident resource header table and provides
+			lookups by resource ID. Shared by cv, xtts, translation.
+
+	if ACOMP_RESMGR
+		config ACOMP_RESMGR_FLASH_ADDR
+			hex "Flash XIP address of resource header"
+			default 0x30420000
+			help
+				Flash XIP base address where the resource header is burned.
+				Must match the respack tool burn address.
+
+		config ACOMP_RESMGR_TAGNAME
+			hex "Resource header tag ID"
+			default 0x594C4649
+			help
+				Expected tag in the resource header (must match respack tool config).
+				Default 0x594C4649 = "IFLY" in little-endian.
+
+		config ACOMP_RESMGR_DATCHK
+			bool "Enable data CRC verify"
+			default y
+			select MODULE_CRC32
+			help
+				Enable CRC32 verification of the resource header.
+	endif
+
+endif

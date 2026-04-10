@@ -14,6 +14,7 @@
 #include "cli_main.h"
 #include "spiflash.h"
 #include "nvs.h"
+#include "nvds_tag_def.h"
 #include "net_al.h"
 #include "net_ip.h"
 #include "flash_if.h"
@@ -40,26 +41,42 @@ int wifi_event_cb(void *arg, event_module_t event_module,
     switch (event_id)
     {
         case EVENT_WIFI_INIT_DONE:
-        CLOGI("event <%d %d>  wifi init done\n", event_module, event_id);
+        CLOGN("event <%d %d>  wifi init done\n", event_module, event_id);
 
         //if sta_autoconn flag and ssid/pwd setted in flash, try to auto connect ap
         if (wifi_cli_exec_sta_auto_conn() == 0)
         {
-            CLOGI("sta mode auto connect\n");
+            CLOGV("sta mode auto connect\n");
             break;
         }
 
         break;
         case EVENT_WIFI_CONNECTED:
         net_if_t *net_if;
-        CLOGI("event <%d %d>  connected \n", event_module, event_id);
+        CLOGN("event <%d %d>  connected \n", event_module, event_id);
         wlif_netif_up(WIFI_VIF_STA_IDX, VIF_STA);
         net_if = net_if_get(WIFI_VIF_STA_IDX);
         if (!net_if->static_ip)
             ls_dhcpc_start(WIFI_VIF_STA_IDX);
         break;
         case EVENT_WIFI_GOT_IP:
-        CLOGI("event <%d %d>  IP obtained \n", event_module, event_id);
+        uint8_t pmk[32];
+        uint8_t pmk_set = 0;
+        uint32_t chan = 0;
+        struct wifi_link_status link_status;
+        CLOGN("event <%d %d>  IP obtained \n", event_module, event_id);
+        #if CFG_NVS
+        if (!wifi_get_pmk(pmk)) {
+            pmk_set = 1;
+            nvds_put(NVDS_TAG_WIFI_PMK, NVDS_LEN_WIFI_PMK, pmk);
+            nvds_put(NVDS_TAG_WIFI_PMK_SET, NVDS_LEN_WIFI_PMK_SET, &pmk_set);
+        }
+        if (!wifi_get_link_status(&link_status)) {
+            chan = link_status.channel;
+            nvds_put(NVDS_TAG_WIFI_CHANNEL, NVDS_LEN_WIFI_CHANNEL, &chan);
+            nvds_put(NVDS_TAG_WIFI_BSSID, NVDS_LEN_WIFI_BSSID, link_status.bssid);
+        }
+        #endif
         break;
         case EVENT_WIFI_STA_DHCP_FAIL:
         CLOGI("event <%d %d>  DHCP FAILED \n", event_module, event_id);
@@ -76,7 +93,7 @@ int wifi_event_cb(void *arg, event_module_t event_module,
         break;
         case EVENT_WIFI_STA_CONNECT_FAIL:
         conn_fail_evt = (event_connect_fail_param_t *)event_data;
-        CLOGI("event <%d %d>  connect fail:%d max retry reach %d \n", event_module, event_id, conn_fail_evt->reason_code, conn_fail_evt->max_retry_reach);
+        CLOGI("event <%d %d>  connect fail:%d max retry reach %d \n", event_module, event_id, conn_fail_evt->status_code, conn_fail_evt->max_retry_reach);
         break;
         case EVENT_WIFI_AP_STARTED:
         CLOGI("event <%d %d>  ap_started \n", event_module, event_id);

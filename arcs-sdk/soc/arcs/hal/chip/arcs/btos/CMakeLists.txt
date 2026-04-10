@@ -1,5 +1,13 @@
 cmake_minimum_required(VERSION 3.10)
 
+# Headers only: expose include directories without compiling source
+if(CONFIG_ARCS_HAL_BTOS_INCLUDE AND NOT CONFIG_ARCS_HAL_BTOS)
+    listenai_include_directories(
+        ${CMAKE_CURRENT_SOURCE_DIR}/
+        ${CMAKE_CURRENT_SOURCE_DIR}/task/api/
+    )
+endif()
+
 if(CONFIG_ARCS_HAL_BTOS)
     # 静态库目标
     listenai_library_named(arcs_hal_btos)

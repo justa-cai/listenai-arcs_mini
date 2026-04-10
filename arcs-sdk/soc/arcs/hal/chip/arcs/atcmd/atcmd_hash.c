@@ -12,6 +12,7 @@
 #include "atcmd_hash.h"
 #include "log_print.h"
 #include "wifi_api.h"
+#include "rtos_al.h"
 
 #define ATC_INDEX_NUM 32
 struct dlist_head atcmd_item_hash_list[ATC_INDEX_NUM];

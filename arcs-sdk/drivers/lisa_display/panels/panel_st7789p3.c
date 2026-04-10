@@ -76,11 +76,23 @@ static int st7789p3_init(lisa_display_panel_t *panel)
     panel_write_cmd_data(panel, LCD_CMD_SLEEP_OUT, 8, NULL, 0);
     lisa_thread_mdelay(120);
 
-    // 发送初始化序列
-    const uint8_t *p = init_sequence;
-    while (p < init_sequence + sizeof(init_sequence)) {
+    // 发送初始化序列：优先使用 attach 时传入的 init_params（若存在），否则使用内置的 init_sequence
+    const uint8_t *seq = (const uint8_t *)panel->init_params;
+    size_t seq_len = panel->init_params_len;
+    if (!seq || seq_len == 0) {
+        seq = init_sequence;
+        seq_len = sizeof(init_sequence);
+    }
+
+    const uint8_t *p = seq;
+    const uint8_t *end = seq + seq_len;
+    while (p + 2 <= end) {
         uint8_t cmd = *p++;
         uint8_t len = *p++;
+        if (p + len > end) {
+            LISA_LOGW(LOG_TAG, "Init sequence truncated for cmd 0x%02x", cmd);
+            break;
+        }
         panel_write_cmd_data(panel, cmd, 8, p, len);
         p += len;
     }
@@ -179,4 +191,4 @@ int panel_st7789p3_device_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_st7789p3_driver, NULL, NULL, &panel_st7789p3_device_init, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_st7789p3_driver, NULL, NULL, &panel_st7789p3_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);

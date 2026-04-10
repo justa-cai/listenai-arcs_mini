@@ -1,5 +1,34 @@
 config ARCS_HAL_PM
     bool "Power Management implementation"
     default n
+    select ARCS_HAL_IC_LOCK
     help
         Power Management implementation
+
+if ARCS_HAL_PM
+
+config ARCS_HAL_PM_UART_WAKEUP
+    bool "PM UART wakeup support"
+    default n
+    help
+        Enable UART as wakeup source from sleep mode.
+
+config ARCS_HAL_PM_CLOSE_AP
+    bool "PM close AP subsystem"
+    default n
+    help
+        Power down AP subsystem during low power mode.
+
+config ARCS_HAL_PM_KEEP_ALIVE
+    bool "PM ARP keep-alive"
+    default n
+    help
+        Enable ARP keep-alive mechanism during sleep.
+
+config ARCS_HAL_PM_DEBUG
+    bool "PM debug mode"
+    default n
+    help
+        Enable PM debug logging and GPIO tracing.
+
+endif # ARCS_HAL_PM

@@ -12,7 +12,9 @@
 #include "atcmd.h"
 #include "ls_event.h"
 #include "log_print.h"
+#if defined(AT_TYPE_WF)
 #include "wifi_api.h"
+#endif
 #include "atcmd_hash.h"
 #include "rtos_al.h"
 
@@ -21,6 +23,9 @@
 #ifdef CFG_AMP_IPC
 #include "bt_ipc_api.h"
 #endif
+
+uint32_t wifi_cmd_handler(char* command, int len);
+uint32_t cli_cmd_handler(char* command, int len);
 
 extern void set_shell_echo(uint8_t enable);
 
@@ -36,123 +41,7 @@ const char *atcmd_res_str[ATCMD_RES_MAX] =
     "UNKNOWN"
 };
 
-#if BT_WIFI_COEX
-extern void hci_event_notify_reg(void *notify);
-#endif
-int atcmd_help(int type, void *params);
-
-void atcmd_handler(char* command, int len)
-{
-    int ret;
-    char *cmd_start;
-    char *param;
-    const atcmd_entry_t *cmd = NULL;
-    int8_t atcmd_type = ATCMD_EXEC;
-
-    cmd_start = strstr(command, "AT");
-    if (!cmd_start)
-    {
-        atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
-        return;
-    }
-#if BT_WIFI_COEX
-#ifdef CFG_AMP_IPC
-    //hci_event_notify_reg_api(ls_event_post);
-#else
-    hci_event_notify_reg(ls_event_post);
-#endif    
-#endif
-
-    param = cmd_start + 2;
-    if (*param == '\0')
-    {
-        atcmd_rspinfor("%s", atcmd_res_str[ATCMD_OK]);
-    }
-    else if (*param == 'E')
-    {
-        param += 1;
-        if (*param == '0' || *param == '1')
-        {
-            ret = atcmd_echo(atcmd_type, param);
-            atcmd_rspinfor("%s", atcmd_res_str[ret]);
-        }
-        else
-        {
-            atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
-        }
-    }
-    else if (*param == '?')
-    {
-        ret = atcmd_help(atcmd_type, param);
-        atcmd_rspinfor("%s", atcmd_res_str[ret]);
-    }
-    else if (*param == '+')
-    {
-        param = strchr(cmd_start, '=');
-        if (param)
-        {
-            *param++ = '\0';
-            if (!strcmp(param, "?"))
-            {
-                atcmd_type = ATCMD_PARAM;
-                //CLOGI("%s %d\n",__func__, __LINE__);
-            }
-            else
-            {
-                atcmd_type = ATCMD_EXEC;
-                //CLOGI("%s %d\n",__func__, __LINE__);
-            }
-        }
-        else
-        {
-            param = strchr(cmd_start, '?');
-            if (param)
-            {
-                *param = '\0';
-                atcmd_type = ATCMD_QUERY;
-                //CLOGI("%s %d\n",__func__, __LINE__);
-            }
-            else
-            {
-                atcmd_type = ATCMD_EXEC;
-                //CLOGI("%s %d\n",__func__, __LINE__);
-            }
-        }
-
-        cmd = (const atcmd_entry_t*)atcmd_item_action(cmd_start);
-
-        if ((cmd != NULL) && (cmd->func))
-        {
-            ret = cmd->func(atcmd_type, param);
-            atcmd_rspinfor("%s", atcmd_res_str[ret]);
-        }
-        else
-        {
-            atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
-        }
-    }
-    else
-    {
-        atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
-    }
-}
-
-int32_t atcmd_shell_process(char *command, int32_t len, int32_t (*func)(uint8_t*, int32_t))
-{
-    uint32_t res = 0;
-    if (!memcmp(command, "AT", 2)) {
-        atcmd_handler(command, len);
-    } else if (!memcmp(command, "soc", 3)) {
-        atcmd_rspinfor("command is %s\n",command);
-        // tcpip_cmd_handler(command, len);
-    } else if (!memcmp(command, "wifi", 4)) {
-        res = wifi_cmd_handler(command, len);
-    } else {
-        res = cli_cmd_handler(command, len);
-    }
-
-    return 0;
-}
+int atcmd_help(int type, char *params);
 
 bool atcmd_char_is_escape_char(char *ptr)
 {
@@ -277,7 +166,7 @@ char *atcmd_next_token(char **params)
     return ptr;
 }
 
-int atcmd_echo(int type, void *params)
+int atcmd_echo(int type, char *params)
 {
     if (!strcmp(params, "0"))
     {
@@ -347,7 +236,7 @@ static void at_rtos_info(void)
 	}
 }
 
-int atcmd_rtos_info(int type, void *params)
+int atcmd_rtos_info(int type, char *params)
 {
     ls_err_t ret;
     uint8_t enable = 0;
@@ -370,9 +259,9 @@ int atcmd_rtos_info(int type, void *params)
 const atcmd_item_t atcmd_local_table[] =
 {
     // common
-    {atcmd_help, "AT?", "get all atcmd help"},
-    {atcmd_echo, "ATE", "ATE1 : enable atcmd echo, ATE0 : disable atcmd echo"},
-    {atcmd_rtos_info, "AT+RTOSINF", "get rtos info"},
+    {{atcmd_help, "AT?", "get all atcmd help"},},
+    {{atcmd_echo, "ATE", "ATE1 : enable atcmd echo, ATE0 : disable atcmd echo"},},
+    {{atcmd_rtos_info, "AT+RTOSINF", "get rtos info"},},
 };
 
 void atcmd_local_register(void)
@@ -389,30 +278,141 @@ void atcmd_local_help(void)
         CLOGI("%s: %s\n", atcmd_local_table[i].atcmd_entry.name, atcmd_local_table[i].atcmd_entry.help);
 }
 
-int atcmd_help(int type, void *params)
+int atcmd_help(int type, char *params)
 {
-#if defined(CLI_TYPE_WF)
+#if defined(AT_TYPE_WF)
     atcmd_wifi_help();
 #endif
     atcmd_local_help();
+#if defined(CFG_ATCMD_NET)
     atcmd_iperf_help();
     atcmd_lwip_help();
-#if BT_WIFI_COEX
+#endif
+#if defined(AT_TYPE_BT)
     atcmd_bt_help();
 #endif
     return ATCMD_OK;
 }
 
+
+void atcmd_handler(char* command, int len)
+{
+    int ret;
+    char *cmd_start;
+    char *param;
+    const atcmd_entry_t *cmd = NULL;
+    int8_t atcmd_type = ATCMD_EXEC;
+
+    cmd_start = strstr(command, "AT");
+    if (!cmd_start)
+    {
+        atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
+        return;
+    }
+
+    param = cmd_start + 2;
+    if (*param == '\0')
+    {
+        atcmd_rspinfor("%s", atcmd_res_str[ATCMD_OK]);
+    }
+    else if (*param == 'E')
+    {
+        param += 1;
+        if (*param == '0' || *param == '1')
+        {
+            ret = atcmd_echo(atcmd_type, param);
+            atcmd_rspinfor("%s", atcmd_res_str[ret]);
+        }
+        else
+        {
+            atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
+        }
+    }
+    else if (*param == '?')
+    {
+        ret = atcmd_help(atcmd_type, param);
+        atcmd_rspinfor("%s", atcmd_res_str[ret]);
+    }
+    else if (*param == '+')
+    {
+        param = strchr(cmd_start, '=');
+        if (param)
+        {
+            *param++ = '\0';
+            if (!strcmp(param, "?"))
+            {
+                atcmd_type = ATCMD_PARAM;
+                //CLOGI("%s %d\n",__func__, __LINE__);
+            }
+            else
+            {
+                atcmd_type = ATCMD_EXEC;
+                //CLOGI("%s %d\n",__func__, __LINE__);
+            }
+        }
+        else
+        {
+            param = strchr(cmd_start, '?');
+            if (param)
+            {
+                *param = '\0';
+                atcmd_type = ATCMD_QUERY;
+                //CLOGI("%s %d\n",__func__, __LINE__);
+            }
+            else
+            {
+                atcmd_type = ATCMD_EXEC;
+                //CLOGI("%s %d\n",__func__, __LINE__);
+            }
+        }
+
+        cmd = (const atcmd_entry_t*)atcmd_item_action(cmd_start);
+
+        if ((cmd != NULL) && (cmd->func))
+        {
+            ret = cmd->func(atcmd_type, param);
+            atcmd_rspinfor("%s", atcmd_res_str[ret]);
+        }
+        else
+        {
+            atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
+        }
+    }
+    else
+    {
+        atcmd_rspinfor("%s", atcmd_res_str[ATCMD_UNKNOWN]);
+    }
+}
+
+int32_t atcmd_shell_process(char *command, int32_t len, int32_t (*func)(uint8_t*, int32_t))
+{
+    uint32_t res = 0;
+    if (!memcmp(command, "AT", 2)) {
+        atcmd_handler(command, len);
+    } else if (!memcmp(command, "soc", 3)) {
+        atcmd_rspinfor("command is %s\n",command);
+        // tcpip_cmd_handler(command, len);
+    } else if (!memcmp(command, "wifi", 4)) {
+        res = wifi_cmd_handler(command, len);
+    } else {
+        res = cli_cmd_handler(command, len);
+    }
+
+    return 0;
+}
+
 void atcmd_init(void)
 {
     atcmd_hash_init();
-#if defined(CLI_TYPE_WF)
+#if defined(AT_TYPE_WF)
     atcmd_wifi_register();
 #endif
     atcmd_local_register();
+#if defined(CFG_ATCMD_NET)
     atcmd_iperf_register();
     atcmd_lwip_register();
-#if BT_WIFI_COEX
+#endif
+#if defined(AT_TYPE_BT)
     atcmd_bt_register();
 #endif
 }

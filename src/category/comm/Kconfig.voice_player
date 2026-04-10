@@ -1,0 +1,10 @@
+menu "Voice Player Configuration"
+
+config PA_DEVICE_NAME
+	string "PA Device Name"
+	default "gpioa"
+	help
+	  Specify the PA (Power Amplifier) device name.
+	  Default is "gpioa".
+
+endmenu

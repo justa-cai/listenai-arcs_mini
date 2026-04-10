@@ -54,7 +54,7 @@
 
 struct wifi_ops ops = {
     .get_mac = ls_get_wifi_mac,
-    .temp_update = ls_temp_por_update,
+    .get_temp = ls_read_temp_voltage,
 };
 
 void ls_wifi_init(void)

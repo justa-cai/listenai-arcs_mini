@@ -10,6 +10,7 @@
  */
 
 #include "lisa_device.h"
+#include "sys_init.h"
 #include <lisa_mutex.h>
 #include <lisa_time.h>
 #include <string.h>
@@ -101,6 +102,78 @@ static int register_device_internal(lisa_device_t *device)
  * 设备管理接口实现
  * ======================================================================== */
 
+static int init_device_entry(lisa_device_registry_entry_t *entry, bool use_timing)
+{
+    if (!entry->device || !entry->init_fn) {
+        return -1;
+    }
+
+    /* 跳过已初始化的设备（由 early_init 处理过的） */
+    if (entry->device->state == LISA_DEVICE_STATE_INITIALIZED ||
+        entry->device->state == LISA_DEVICE_STATE_ERROR) {
+        return -1;
+    }
+
+    /* 先注册设备到管理器（状态为 UNINITIALIZED） */
+    if (register_device_internal(entry->device) != LISA_DEVICE_OK) {
+        return -1;
+    }
+
+    /* 调用初始化函数 */
+    uint64_t start_time = 0;
+    if (use_timing) {
+        start_time = lisa_os_get_tick_ms();
+    }
+
+    int init_ret = entry->init_fn();
+
+    if (use_timing) {
+        uint64_t end_time = lisa_os_get_tick_ms();
+        entry->device->stats.init_timestamp = (uint32_t)end_time;
+        entry->device->stats.init_time = (uint32_t)(end_time - start_time);
+    }
+
+    entry->device->stats.init_result = init_ret;
+
+    if (init_ret == 0) {
+        entry->device->state = LISA_DEVICE_STATE_INITIALIZED;
+    } else {
+        entry->device->state = LISA_DEVICE_STATE_ERROR;
+    }
+
+    return 0;
+}
+
+static bool early_initialized = false;
+
+int lisa_device_early_init(void)
+{
+    if (early_initialized) {
+        return 0;
+    }
+
+    lisa_device_registry_entry_t *entry_start = __lisa_device_registry_start;
+    lisa_device_registry_entry_t *entry_end = __lisa_device_registry_end;
+    size_t count = entry_end - entry_start;
+
+    int registered = 0;
+    for (size_t i = 0; i < count; i++) {
+        lisa_device_registry_entry_t *entry = &entry_start[i];
+
+        /* 仅初始化 EARLY 级别的设备 */
+        if (entry->init_level != LISA_DEVICE_LEVEL_EARLY) {
+            continue;
+        }
+
+        if (init_device_entry(entry, false) == 0) {
+            registered++;
+        }
+    }
+
+    early_initialized = true;
+    return registered;
+}
+
 int lisa_device_init(void)
 {
     if (manager_initialized) {
@@ -116,8 +189,6 @@ int lisa_device_init(void)
 
     lisa_device_registry_entry_t *entry_start = __lisa_device_registry_start;
     lisa_device_registry_entry_t *entry_end = __lisa_device_registry_end;
-
-    /* 计算设备数量 */
     size_t count = entry_end - entry_start;
 
     if (count == 0) {
@@ -125,52 +196,18 @@ int lisa_device_init(void)
         return 0;
     }
 
-    /* 注册所有设备 */
+    /* 注册并初始化剩余设备（跳过已由 early_init 处理的） */
     int registered = 0;
     for (size_t i = 0; i < count; i++) {
         lisa_device_registry_entry_t *entry = &entry_start[i];
 
-        if (!entry->device) {
-            continue;
+        if (init_device_entry(entry, true) == 0) {
+            registered++;
         }
-
-        /* 初始化函数必须存在 */
-        if (!entry->init_fn) {
-            /* 没有初始化函数，不符合规范，跳过 */
-            continue;
-        }
-
-        /* 先注册设备到管理器（状态为 UNINITIALIZED） */
-        if (register_device_internal(entry->device) != LISA_DEVICE_OK) {
-            continue;
-        }
-
-        /* 记录初始化开始时间 */
-        uint64_t start_time = lisa_os_get_tick_ms();
-        /* 调用初始化函数 */
-        int init_ret = entry->init_fn();
-        /* 记录初始化结束时间和耗时 */
-        uint64_t end_time = lisa_os_get_tick_ms();
-        entry->device->stats.init_timestamp = (uint32_t)end_time;
-        entry->device->stats.init_time = (uint32_t)(end_time - start_time);
-
-        /* 记录初始化返回值到统计信息 */
-        entry->device->stats.init_result = init_ret;
-
-        /* 根据返回值设置状态 */
-        if (init_ret == 0) {
-            /* 初始化成功 */
-            entry->device->state = LISA_DEVICE_STATE_INITIALIZED;
-        } else {
-            /* 初始化失败，标记为错误状态 */
-            entry->device->state = LISA_DEVICE_STATE_ERROR;
-        }
-
-        registered++;
     }
 
     manager_initialized = true;
-    return registered;
+    return device_count;
 }
 
 lisa_device_t *lisa_device_get(const char *name)
@@ -265,3 +302,10 @@ int lisa_device_foreach(lisa_device_iterator_cb callback, void *user_data)
 
     return count;
 }
+
+/* ========================================================================
+ * 通过 SYS_INIT 自动注册设备初始化到系统启动流程
+ * ======================================================================== */
+
+SYS_INIT(lisa_device_early_init, SYS_INIT_LEVEL_PRE_SYSTEM_INIT, SYS_INIT_SUB_PRIORITY_EARLY);
+SYS_INIT(lisa_device_init, SYS_INIT_LEVEL_PRE_KERNEL, SYS_INIT_SUB_PRIORITY_FIRST);

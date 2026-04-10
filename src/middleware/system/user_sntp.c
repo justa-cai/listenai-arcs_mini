@@ -9,7 +9,7 @@
 #include "core_sntp_client.h"
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
-#include "listen_wifi.h"
+// #include "listen_wifi.h"
 #include "user_sntp.h"
 
 #include "lisa_log.h"

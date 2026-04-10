@@ -1,67 +1,41 @@
-# LISA DVP 驱动示例 - 普通模式
+# LISA DVP 普通模式捕获示例
 
 ## 功能说明
 
-本示例演示如何使用 LISA DVP 驱动的普通模式捕获图像数据。
+本示例演示如何使用 LISA DVP 驱动的普通模式捕获图像数据，使用单缓冲区进行连续帧捕获。
 
-## 主要功能
+## 硬件连接
 
-- 初始化 DVP 设备并配置采集参数
-- 使用单缓冲区普通模式捕获图像帧
-- 通过回调函数处理接收到的图像数据
-- 在回调中重载缓冲区实现连续捕获
-- 捕获指定帧数后自动停止
+- **PAD_A 10**: HSYNC
+- **PAD_A 11**: VSYNC
+- **PAD_A 12**: PCLK
+- **PAD_A 13-20**: D0-D7（8位数据总线）
+- **PAD_A 26**: MCLK
 
-## 硬件要求
+连接支持 DVP 接口的摄像头模块（如 GC032A）。
 
-- ARCS EVB 开发板
-- 支持 DVP 接口的摄像头模块（如 GC032A）
-- 正确连接 DVP 信号线：
-  - HSYNC (PAD_A 10)
-  - VSYNC (PAD_A 11)
-  - PCLK (PAD_A 12)
-  - D0-D7 (PAD_A 13-20)
-  - MCLK (PAD_A 26)
+## 示例步骤
 
-## 配置说明
+1. 获取 DVP 设备
+2. 配置 DVP 参数（分辨率 640x480、YUV422 格式、信号极性等）
+3. 启用时钟输出（为摄像头提供 25MHz MCLK）
+4. 清空缓冲区，启动 DVP 普通模式捕获
+5. 通过回调函数处理接收到的图像数据，重载缓冲区实现连续捕获
+6. 捕获 10 帧后自动停止
 
-### 图像参数
-
-- **分辨率**: 640x480
-- **格式**: YUV422 (Y0CbY1Cr)
-- **缓冲区大小**: 640 × 480 × 2 = 614,400 字节
-
-### DVP 配置
-
-- **DMA 通道**: 2
-- **数据对齐**: 左对齐
-- **VSYNC 极性**: 上升沿
-- **HSYNC 极性**: 上升沿
-- **PCLK 极性**: 上升沿
-- **MCLK 频率**: 25MHz
-
-### 捕获设置
-
-- **捕获帧数**: 10 帧
-- **模式**: 普通模式（单缓冲区）
-
-## 使用方法
-
-### 1. 编译
+## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
 
-### 2. 烧录
+## 烧录
 
-```bash
-lisa zep flash
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
-### 3. 查看输出
-
-通过串口工具（如 lisa zep monitor）查看日志输出：
+## 预期输出
 
 ```
 ========================================
@@ -89,51 +63,48 @@ Capture completed, total frames: 10
 ========================================
 ```
 
-## 代码说明
+## 核心 API
 
-### 主要流程
+| API | 说明 |
+|-----|------|
+| `lisa_dvp_setup()` | 初始化并配置 DVP 设备 |
+| `lisa_dvp_enable_clockout()` | 启用时钟输出 |
+| `lisa_dvp_start()` | 启动普通模式捕获 |
+| `lisa_dvp_reload()` | 重载缓冲区（在回调中调用） |
+| `lisa_dvp_stop()` | 停止捕获 |
 
-1. **初始化阶段**
-   - 获取 DVP 设备
-   - 配置 DVP 参数（分辨率、格式、信号极性等）
-   - 启用时钟输出（为摄像头提供 MCLK）
+## 关键代码
 
-2. **捕获阶段**
-   - 清空缓冲区
-   - 启动 DVP 捕获
-   - 等待帧数据接收完成
+```c
+/* 配置 DVP 参数 */
+lisa_dvp_config_t config = {
+    .width = 640,
+    .height = 480,
+    .format = LISA_DVP_FORMAT_YUV422,
+    .dma_channel = 2,
+    .vsync_polarity = LISA_DVP_POLARITY_RISING,
+    .hsync_polarity = LISA_DVP_POLARITY_RISING,
+    .pclk_polarity = LISA_DVP_POLARITY_RISING,
+};
+lisa_dvp_setup(dvp_dev, &config, dvp_callback, NULL);
 
-3. **回调处理**
-   - 接收 `LISA_DVP_EVENT_DONE` 事件
-   - 处理接收到的图像数据
-   - 调用 `lisa_dvp_reload()` 重载缓冲区继续捕获
-   - 达到指定帧数后停止捕获
+/* 启动普通模式捕获 */
+lisa_dvp_start(dvp_dev, frame_buffer, sizeof(frame_buffer));
 
-### 关键函数
-
-- `lisa_dvp_setup()` - 初始化并配置 DVP 设备
-- `lisa_dvp_enable_clockout()` - 启用时钟输出
-- `lisa_dvp_start()` - 启动普通模式捕获
-- `lisa_dvp_reload()` - 重载缓冲区（在回调中调用）
-- `lisa_dvp_stop()` - 停止捕获
+/* 回调中重载缓冲区 */
+static void dvp_callback(lisa_dvp_event_t event, void *user_data)
+{
+    if (event == LISA_DVP_EVENT_DONE) {
+        /* 处理帧数据 */
+        lisa_dvp_reload(dvp_dev, frame_buffer, sizeof(frame_buffer));
+    }
+}
+```
 
 ## 注意事项
 
-1. **缓冲区对齐**: 帧缓冲区必须 4 字节对齐
-2. **缓冲区位置**: 帧缓冲区放在 PSRAM 中以节省 SRAM 空间
-3. **缓冲区大小**: 必须足够容纳一帧完整数据
-4. **重载时机**: 必须在回调函数中及时重载缓冲区，否则会停止捕获
-5. **回调上下文**: 回调函数在中断上下文中执行，应避免耗时操作
-6. **信号极性**: DVP 信号极性需根据摄像头规格配置
-
-## 适用场景
-
-- 单帧捕获
-- 低速连续捕获
-- 帧间需要较长处理时间的应用
-- 内存资源受限的场景（只需要一个缓冲区）
-
-## 相关文档
-
-- [LISA DVP 驱动 README](../../../../drivers/lisa_dvp/README.md)
-- [Ping-Pong 模式示例](../pingpong_mode/README.md)
+1. **缓冲区对齐**：帧缓冲区必须 4 字节对齐
+2. **缓冲区位置**：帧缓冲区放在 PSRAM 中以节省 SRAM 空间
+3. **缓冲区大小**：必须足够容纳一帧完整数据（640x480x2 = 614400 字节）
+4. **重载时机**：必须在回调函数中及时重载缓冲区，否则会停止捕获
+5. **回调上下文**：回调函数在中断上下文中执行，应避免耗时操作

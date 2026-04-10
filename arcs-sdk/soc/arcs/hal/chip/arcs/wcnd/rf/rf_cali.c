@@ -15,6 +15,7 @@
  */
 
 
+#include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 #include "log_print.h"
@@ -113,6 +114,10 @@ uint32_t  CALI_MEM_END_ADDR;
 uint32_t CALI_MEM_START_OFFSET;
 uint32_t CALI_MEM_MID_OFFSET;
 uint32_t CALI_MEM_END_OFFSET;
+
+extern int32_t wf_cali_read_hw_power(void);
+extern int32_t wf_cali_read_hw_power_without_dc(void);
+
 
 /*===================================================================================
 *
@@ -575,6 +580,7 @@ fail:
     return -1;
 }
 
+#if RFCALI_WF_EN == 1
 int8_t rf_cali_calc_delta_db(uint32_t uPower)
 {
     int8_t delta_db = -1;
@@ -625,7 +631,9 @@ int8_t rf_cali_self_adj_gain(int8_t pwr_idx)
     CLOGI("final pwr_idx=%d, power=%d, meas_time=%d\n", pwr_idx, uPower, meas_time);
     return 0;
 }
+#endif /* RFCALI_WF_EN: rf_cali_calc_delta_db, rf_cali_self_adj_gain */
 
+#if RFCALI_WF_EN == 1
 __STATIC void rf_cali_txdpd_print_para(uint8_t tbl_idx, int8_t pwr_idx, complexint16 *cParaEst)
 {
         char msg[200], *p_msg=&msg[0];
@@ -920,7 +928,7 @@ __STATIC int8_t rf_cali_txdc(int8_t pwr_idx_dc, uint8_t fb_gain, uint8_t iter_ti
     return 0;
 }
 
-void rf_cali_txdpd_calc_rest_table(complexint16* dpd_para_est_update, complexint16* dpd_para_est_tr, uint8_t pwr_step)
+void rf_cali_txdpd_calc_rest_table(complexint16* dpd_para_est_update, complexint16* dpd_para_est_tr, int8_t pwr_step)
 {
     P_RF_CALI_OPS cali = rf_cali.ops;
     uint16_t gain_off_n2db[4] = {13014,10338,8211,6523};
@@ -937,6 +945,12 @@ void rf_cali_txdpd_calc_rest_table(complexint16* dpd_para_est_update, complexint
         gain_off_n2db[2] = 4115;
         gain_off_n2db[3] = 2597;
     }
+    else if (pwr_step == -2) {
+        gain_off_n2db[0] = 20626;
+        gain_off_n2db[1] = 25967;
+        gain_off_n2db[2] = 32690;
+        gain_off_n2db[3] = 41155;
+    }
     else {
         gain_off_n2db[0] = 16384;
         gain_off_n2db[1] = 16384;
@@ -945,7 +959,7 @@ void rf_cali_txdpd_calc_rest_table(complexint16* dpd_para_est_update, complexint
     }
     for (uint8_t para_idx = 0; para_idx < MAX_PARALEN; para_idx++) {
         if(para_idx%5 != 0) {
-            dpd_para_est_update[para_idx] = ComplexMultiReal16(dpd_para_est_tr+para_idx,gain_off_n2db[para_idx%5-1],14);
+            dpd_para_est_update[para_idx] = ComplexMultiReal16(dpd_para_est_tr+para_idx,(int16_t)(gain_off_n2db[para_idx%5-1]>>1),13);
         }
         else {
             dpd_para_est_update[para_idx] = dpd_para_est_tr[para_idx];
@@ -960,7 +974,7 @@ __STATIC int8_t rf_cali_txdpd_process_rest_tables(complexint16* dpd_para_est_upd
     P_RF_CALI_OPS cali = rf_cali.ops;
 
     for (uint8_t i = 0; i < DPD_REST_TABLE_CNT; i++) {
-        uint8_t pwr_step = 2 << i;
+        int8_t pwr_step = 2 << i;
         int8_t rest_pwr_tssi = dpd_tr_tssi - pwr_step;
         int8_t rest_pred_lut_idx = (int8_t)dpd_tr_lut_idx - i - 1;
         if (rest_pred_lut_idx < 0)
@@ -968,6 +982,33 @@ __STATIC int8_t rf_cali_txdpd_process_rest_tables(complexint16* dpd_para_est_upd
         rf_cali_txdpd_calc_rest_table(dpd_para_est_update, dpd_para_est_tr, pwr_step);
         cali->txdpd_result((uint8_t)rest_pred_lut_idx, dpd_para_est_update);
         rf_cali_txdpd_print_para((uint8_t)rest_pred_lut_idx, rest_pwr_tssi, dpd_para_est_update);
+    }
+    return 0;
+}
+
+__STATIC int8_t rf_cali_txdpd_process_upper_table(complexint16* dpd_para_est_update, complexint16* dpd_para_est_tr, P_RF_CALI_DPD_CFG dpd_tr_table)
+{
+    int8_t dpd_tr_tssi = dpd_tr_table->tssi;
+    uint8_t dpd_tr_lut_idx = dpd_tr_table->pred_lut_idx;
+    P_RF_CALI_OPS cali = rf_cali.ops;
+
+    if (dpd_tr_lut_idx < 5) {
+        int8_t pwr_step = -2;
+        int8_t upper_pwr_tssi = dpd_tr_tssi - pwr_step;
+        uint8_t upper_pred_lut_idx = dpd_tr_lut_idx + 1;
+        int8_t dpd_res = 0;
+
+        rf_cali_txdpd_calc_rest_table(dpd_para_est_update, dpd_para_est_tr, pwr_step);
+    #if defined(CALI_CHECK_RESULT)
+        dpd_res = rf_cali_check_dpd_result(dpd_para_est_update);
+        if (dpd_res) {
+            CLOGW("TXDPD upper table abort since params out of range\n");
+        } else
+    #endif
+        {
+            cali->txdpd_result(upper_pred_lut_idx, dpd_para_est_update);
+            rf_cali_txdpd_print_para(upper_pred_lut_idx, upper_pwr_tssi, dpd_para_est_update);
+        }
     }
     return 0;
 }
@@ -994,6 +1035,7 @@ __STATIC int8_t rf_cali_txdpd(void)
         }
         rf_cali_txdpd_one(dpd_cfg_table[tbl_idx].pred_lut_idx, dpd_cfg_table[tbl_idx].tssi, iter_times, &mix_off_dc, dpd_cfg_table[tbl_idx].tssi, dpd_cfg_table[tbl_idx].tssi, dpd_para_est_tr);
         rf_cali_txdpd_process_rest_tables(dpd_para_est_update, dpd_para_est_tr, &dpd_cfg_table[tbl_idx]);
+        rf_cali_txdpd_process_upper_table(dpd_para_est_update, dpd_para_est_tr, &dpd_cfg_table[tbl_idx]);
     } else {
         for (uint8_t i = 0; i < DPD_COMP_TABLE_CNT; i++)
         {
@@ -1182,6 +1224,7 @@ __STATIC int32_t rf_cali_bootup_proc_wf(void)
 
     return 0;
 }
+#endif /* RFCALI_WF_EN: WiFi calibration functions (txdpd, ppacap, bootup_proc_wf) */
 
 #if defined(RFCALI_BT_EN)
 void rf_cali_rxdcoc_bt()
@@ -1289,6 +1332,7 @@ __STATIC int32_t rf_cali_bootup_proc_bt(void)
 }
 #endif
 
+#if RFCALI_WF_EN == 1
 __STATIC int8_t rf_cali_ppacap_proc(void)
 {
     CLOGI("rf_cali_ppacap_proc\n");
@@ -1305,7 +1349,9 @@ __STATIC int8_t rf_ppacap_update_nv(void)
     uint8_t rec_cap_1 = cali->get_ppa_cap(1);
     uint8_t rec_cap_2 = cali->get_ppa_cap(2);
 
+    #if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
     nv_update_selfcali_ppa_cap_params(&rec_cap_0, &rec_cap_1, &rec_cap_2);
+    #endif
     return 0;
 }
 
@@ -1361,6 +1407,7 @@ __STATIC int32_t rf_cali_runtime_proc(uint32_t log_level)
         cloglvl = saved_cloglvl;
     return 0;
 }
+#endif /* RFCALI_WF_EN: ppacap_proc, ppacap_update_nv, runtime_proc */
 
 int32_t ls_rf_cali_probe(rf_cali_runtime *do_rfcali, void *params)
 {
@@ -1425,7 +1472,7 @@ static void set_rf_params(P_RF_CALI_PARAMS p, uint8_t mode)
 
     if (mode == RFCALI_MODE_WF) {
         p->txiq_iter_times = 10;
-        p->txdpd_tbl_idx = DPD_COMP_TABLE_CNT - 1;
+        p->txdpd_tbl_idx = 2; // Calibrate 16dBm point, other points are calculated by software
         p->txdpd_iter_times = 5;
         p->txdpd_fb_gain = 0xff;
     }
@@ -1489,6 +1536,10 @@ int ls_rf_cali_redo(int8_t ppa_cap)
 
 int32_t ls_rf_cali_proc(void)
 {
+    static bool cali_done = false;
+    if (cali_done)
+        return 0;
+
     int32_t status = 0;
 #if defined(RF_SELF_CALI_FROM_NV)
     int8_t res = 0;
@@ -1508,9 +1559,14 @@ int32_t ls_rf_cali_proc(void)
 #endif
 
 #if (RFCALI_WF_EN == 1) || (RFCALI_BT_EN == 1)
+    /* Shared RF bypass clock -- required by both WiFi and BT calibration */
     wf_macbyp_clken_set(1);
     wf_crm_rcclkforce_setf(1);
+#if RFCALI_WF_EN == 1
+    /* WiFi DFE (NEW_DFE) init -- only needed for WiFi calibration path */
     newriu_init();
+#endif
+#if RFCALI_WF_EN == 1
 #if !defined(RF_SELF_CALI_FROM_NV)
   #if !defined(WIFI_RAM_ATE) && !defined(RF_SELF_CALI_WRITE_TO_NV)
     ls_rf_set_channel(2442);
@@ -1527,6 +1583,7 @@ int32_t ls_rf_cali_proc(void)
     res = rf_selfcali_one_time_proc(1);
 selfcali_bail:
 #endif
+#endif /* RFCALI_WF_EN: runtime calibration */
 #endif
 
 #if RFCALI_BT_EN == 1
@@ -1540,6 +1597,7 @@ selfcali_bail:
 #if defined(RF_SELF_CALI_FROM_NV)
     nv_selfcali_load_config(1);
 #endif
+    cali_done = true;
     return status;
 }
 

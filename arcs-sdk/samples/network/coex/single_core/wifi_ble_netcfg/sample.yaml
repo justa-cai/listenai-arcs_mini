@@ -1,0 +1,7 @@
+tests:
+  samples.network.coex.single_core.wifi_ble_netcfg:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "lisa_wifi_init_done"

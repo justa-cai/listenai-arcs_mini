@@ -1,0 +1,4 @@
+tests:
+  samples.usb.host.cherryusb_video:
+    build_only: true
+

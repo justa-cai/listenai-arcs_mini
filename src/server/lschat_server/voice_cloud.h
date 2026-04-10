@@ -29,6 +29,7 @@ struct voice_cloud_connect_config {
 };
 
 int voice_cloud_connect(struct voice_cloud_connect_config *config);
+int voice_cloud_disconnect(void);
 int voice_cloud_chat_start(struct voice_cloud_chat_config *config);
 int voice_cloud_chat_stop(void);
 int voice_cloud_chat_send_audio(uint8_t *data, int len);

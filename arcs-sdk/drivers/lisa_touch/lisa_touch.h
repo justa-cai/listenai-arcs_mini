@@ -155,6 +155,7 @@ typedef struct {
     int (*attach_bus)(lisa_device_t *dev, const lisa_touch_bus_config_t *bus_config);
     int (*set_callback)(lisa_device_t *dev, lisa_touch_callback_t callback, void *user_data);
     int (*set_int_mode)(lisa_device_t *dev, lisa_touch_int_mode_t mode);
+    int (*read_chip_id)(lisa_device_t *dev, uint32_t *chip_id);
 } lisa_touch_api_t;
 
 /* ========================================================================
@@ -300,6 +301,26 @@ static inline int lisa_touch_set_int_mode(lisa_device_t *dev, lisa_touch_int_mod
     }
     lisa_touch_api_t *api = (lisa_touch_api_t *)dev->api;
     return api->set_int_mode ? api->set_int_mode(dev, mode) : LISA_DEVICE_ERR_NOT_SUPPORT;
+}
+
+/**
+ * @brief 读取触摸芯片ID
+ *
+ * @param dev Touch设备指针
+ * @param chip_id 输出参数，用于接收芯片ID
+ *
+ * @return 0 成功
+ * @return LISA_DEVICE_ERR_INVALID 参数无效
+ * @return LISA_DEVICE_ERR_NOT_SUPPORT 不支持该操作
+ * @return <0 其他错误
+ */
+static inline int lisa_touch_read_chip_id(lisa_device_t *dev, uint32_t *chip_id)
+{
+    if (!dev || !dev->api || !chip_id) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_touch_api_t *api = (lisa_touch_api_t *)dev->api;
+    return api->read_chip_id ? api->read_chip_id(dev, chip_id) : LISA_DEVICE_ERR_NOT_SUPPORT;
 }
 
 /* ========================================================================

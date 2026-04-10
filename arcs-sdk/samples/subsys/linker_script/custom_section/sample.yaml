@@ -1,0 +1,7 @@
+tests:
+  samples.linker_script.custom_section:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Total config entries: 3"

@@ -4,7 +4,7 @@
 #include "cmd.h"
 #include "stddef.h"
 #include "string.h"
-#include "listen_wifi.h"
+// #include "listen_wifi.h"
 #if CONFIG_WIFI_MANAGER
 #include "wifi_manager/wifi_manager.h"
 #endif
@@ -87,32 +87,6 @@ static int wifi_auto_connect(int argc, char **argv)
 }
 #endif
 
-static int wifi_ap_start(int argc, char **argv)
-{
-
-    if (argc < 2) {
-        printf("invalid param index %d\n", argc);
-        return -1;
-    }
-    
-    char *ssid = argv[0];
-    char *pwd = argv[1];
-    // int channel = atoi(argv[2]);
-    // int security = atoi(argv[3]);
-
-    if (ssid == NULL || strlen(ssid) == 0 || pwd == NULL || strlen(pwd) == 0) {
-        printf("wifi ap param error");
-        return -1;
-    }
-
-    int ret = ls_wifi_ap_start(ssid, pwd);
-    if (ret != 0) {
-        printf("wifi ap start error %d", ret);
-        return -1;
-    }
-
-    return 0;
-}
 
 static const struct listen_cmd_t g_wifi_cmds[] = {
     {"connect", wifi_connect, "connect wifi, ex: wifi connect ssid [password]"},
@@ -122,7 +96,6 @@ static const struct listen_cmd_t g_wifi_cmds[] = {
     {"scan", wifi_scan, "scan and list available wifi networks"},
     {"list", wifi_list, "show saved wifi networks"},
 #endif
-    {"ap_start", wifi_ap_start, "start wifi ap, ex: wifi ap_start ssid password channel security"},
     {"help", wifi_cmd_help, "show help"},
 };
 

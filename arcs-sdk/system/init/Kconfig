@@ -1,0 +1,32 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "System Initialization"
+
+config SYS_INIT
+	bool "Enable system initialization framework"
+	default y
+	help
+		Enable the SYS_INIT framework for multi-level system initialization.
+
+		This framework provides 5 initialization levels that match ARCS boot flow:
+
+		- PRE_SYSTEM_INIT:   BEFORE rom_copy_table_load (in soc_pre_init)
+								WARNING: .data NOT copied, .bss NOT zeroed!
+								DO NOT use global variables!
+		- PRE_DEVICES_INIT:  Before lisa_device_init(), in system_entry()
+		- PRE_KERNEL:        Before vTaskStartScheduler(), in system_entry()
+		- POST_KERNEL:       After vTaskStartScheduler(), in main_task
+		- PRE_APPLICATION:   Before main(), in main_task
+
+		Use SYS_INIT macro to register initialization functions at different levels.
+
+		If unsure, say Y.
+
+config SYS_INIT_DEBUG
+	bool "Enable system initialization debug output"
+	depends on SYS_INIT
+	help
+		Enable detailed debug logging for system initialization.
+
+endmenu

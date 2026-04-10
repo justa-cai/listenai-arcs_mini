@@ -50,4 +50,10 @@
     lisa_dvp/pingpong_mode/README.md
     lisa_camera/README.md
     lisa_rgb/rgb_bounce_buffer/README.md
+    lisa_i2s/master_tx/README.md
+    lisa_i2s/master_rx/README.md
+    lisa_i2s/master_rx_tx/README.md
+    lisa_i2s/slave_tx/README.md
+    lisa_i2s/slave_rx/README.md
+    lisa_i2s/slave_rx_tx/README.md
 

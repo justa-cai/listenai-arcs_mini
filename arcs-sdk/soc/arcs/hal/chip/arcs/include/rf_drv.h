@@ -68,6 +68,8 @@ typedef const struct rf_ops {
     int32_t (*suspend)(int32_t rf_mode);
     int32_t (*resume)(int32_t rf_mode);
     void (*update_cal_addr)(uint32_t start, uint32_t end);
+    int32_t (*calc_temp)(float vptat);
+    bool (*temp_rf_por_config)(int32_t temp, bool realtime);
 } RF_OPS, *P_RF_OPS;
 
 typedef struct rf_entry {
@@ -76,24 +78,6 @@ typedef struct rf_entry {
 } RF_ENTRY, *P_RF_ENTRY;
 
 extern RF_ENTRY rf_entry;
-
-#define TEMP_BOTTOM (-35)
-#define TEMP_STEP (10)
-#define TEMP_TOP (95)
-#define TEMP_INTV_NUM ((TEMP_TOP - TEMP_BOTTOM)/TEMP_STEP + 2)
-#define TEMP_REG_NUM 2
-#define TEMP_LDO_THRESH (-20)
-
-static inline uint32_t temp2idx(int32_t temp)
-{
-    if(temp < TEMP_BOTTOM) {
-        return 0;
-    } else if (temp >= TEMP_TOP ) {
-        return TEMP_INTV_NUM - 1;
-    } else {
-        return ((temp - TEMP_BOTTOM)/10 + 1);
-    }
-}
 
 /*
  * FUNCTIONS DECLARATION
@@ -109,8 +93,15 @@ extern uint8_t ls_rf_get_wf_ppa_gain(uint8_t index);
 extern void ls_rf_set_bt_ppa_gain(uint8_t index, uint8_t ppa_val);
 extern uint8_t ls_rf_get_bt_ppa_gain(uint8_t index);
 extern void ls_rf_set_wf_abb_gain(uint8_t index, uint8_t abb_val);
-extern void ls_rf_set_wf_dig_gain(uint8_t index, uint8_t dig_val);
+extern uint8_t ls_rf_get_wf_abb_gain(uint8_t index);
+extern void ls_rf_set_wf_dig_gain(uint8_t index, uint16_t dig_val);
+extern uint16_t ls_rf_get_wf_dig_gain(uint8_t index);
+#if RF_BOARD_VER == 2 //Taoyun
 bool rf_por_temp_config(int32_t temp, uint32_t ref);
+#else
+bool rf_por_temp_config(int32_t temp);
+void rf_pa_bias_config(uint32_t ref, int32_t temp);
+#endif
 int32_t ls_rf_suspend(int32_t rf_mode, int32_t power_off);
 int32_t ls_rf_resume(int32_t rf_mode, int32_t power_off);
 void wf_crm_rcclkforce_setf(uint8_t rcclkforce);

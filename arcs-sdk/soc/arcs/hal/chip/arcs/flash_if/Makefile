@@ -20,5 +20,6 @@ SSRCS	=
 
 #includings and flags
 CFLAGS = -I. \
+         -I $(TOPDIR)/chip/${CHIP}/include/wifi
 
 include $(TOPDIR)/rules.mk

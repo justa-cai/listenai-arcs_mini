@@ -304,4 +304,5 @@ LISA_DEVICE_REGISTER(adc0,                        /* 设备名称 */
                      &adc0_priv,                  /* 私有数据指针 */
                      NULL,                        /* 用户数据 */
                      arcs_adc0_init,              /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
                      LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */

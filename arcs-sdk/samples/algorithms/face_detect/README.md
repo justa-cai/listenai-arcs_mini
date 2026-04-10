@@ -17,13 +17,13 @@
 4. 发送测试图像到人脸识别算法
 5. 接收并处理人脸识别结果(人脸框、姿态角、活体得分等)
 
-## 编译运行
+## 编译
 
-```bash
-./build.sh -C -DBOARD=arcs_evb
+```{eval-rst}
+.. include:: /sample_build.rst
 ```
 
-## 烧录固件
+## 烧录
 
 ### 1. 烧录 AP 核固件(Boot Core)
 
@@ -53,7 +53,7 @@ cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x410000 ./res/algo/face_verify_think
 cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x800000 ./build/arcs.bin
 ```
 
-## CP预期输出
+## 预期输出
 
 ```
 ********Arcs SDK 0.1.1 @ v0.0.1-860-gd85bab268324********
@@ -175,7 +175,7 @@ acomp_fd_stream_tx_buffer_submit(0, buffer, buf_size, desc_idx);
 
 在 `prj.conf` 中配置算法模型在 Flash 中的地址:
 
-```
+```kconfig
 CONFIG_ACOMP_FD_RES_FACE_DETECT_ADDRESS=0x30100000
 CONFIG_ACOMP_FD_RES_FACE_DETECT_LENGTH=450936
 CONFIG_ACOMP_FD_RES_FACE_ALIGN_ADDRESS=0x30170000
@@ -188,13 +188,13 @@ CONFIG_ACOMP_FD_FACE_VERIFY_LENGTH=2953752
 
 ### PSRAM 堆大小配置
 
-```
+```kconfig
 CONFIG_PSRAM_HEAP_SIZE=0x100000
 ```
 
 ## 算法内存占用
 
-双麦算法内存占用如下(粗略统计)， 详细内存分布见`memap.h`文件
+算法内存占用如下(粗略统计)， 详细内存分布见`memap.h`文件
 
 |  MCU核心 |  内存类型 | 大小 | 备注 |
 |---------|----------|----|-----|

@@ -1,12 +1,14 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 menu "tiny usb app class"
 
 config TUSB_APP_CLASS
-    bool "tiny usb app class"
-    default n
-    depends on TINY_USB
+	bool "tiny usb app class"
+	depends on TINY_USB
 
 if TUSB_APP_CLASS
-    rsource "adb/Kconfig"
+	rsource "adb/Kconfig"
 endif
 
 endmenu

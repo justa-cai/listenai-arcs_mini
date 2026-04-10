@@ -38,6 +38,7 @@
 #include "cli_main.h"
 #include "net_al.h"
 #include "net_ip.h"
+#include "nvds_tag_def.h"
 
 /**
  ****************************************************************************************
@@ -91,7 +92,6 @@ int wifi_event_cb(void *arg, event_module_t event_module,
     {
         case EVENT_WIFI_INIT_DONE:
         CLOGI("event <%d %d>  wifi init done\n", event_module, event_id);
-
         //if sta_autoconn flag and ssid/pwd setted in flash, try to auto connect ap
         if (wifi_cli_exec_sta_auto_conn() == 0)
         {
@@ -126,7 +126,7 @@ int wifi_event_cb(void *arg, event_module_t event_module,
         break;
         case EVENT_WIFI_STA_CONNECT_FAIL:
         conn_fail_evt = (event_connect_fail_param_t *)event_data;
-        CLOGI("event <%d %d>  connect fail:%d \n", event_module, event_id, conn_fail_evt->reason_code);
+        CLOGI("event <%d %d>  connect fail:%d \n", event_module, event_id, conn_fail_evt->status_code);
         break;
         case EVENT_WIFI_AP_STARTED:
         CLOGI("event <%d %d>  ap_started \n", event_module, event_id);
@@ -158,7 +158,7 @@ int wifi_event_cb(void *arg, event_module_t event_module,
 
 
 #if CFG_NVS
-#define NVDS_FLASH_ADDRESS   (CMN_FLASH_REGION + 0x180000) //offset 1280KB
+#define NVDS_FLASH_ADDRESS   (CMN_FLASH_REGION + 0x201000)
 #define NVDS_FLASH_SIZE      (0x8000) //32KB
 struct nvs_fs arcs_nvs_fs;
 FLASH_DEV arcs_flash_dev  = {
@@ -174,7 +174,7 @@ FLASH_DEV arcs_flash_dev  = {
 int arcs_nvs_init(void)
 {
     struct flash_pages_info info;
-
+    int ret;
 #ifdef CFG_FLASH_IF
     flash_if_init(&arcs_flash_dev, 0, 0);
 #else
@@ -192,7 +192,13 @@ int arcs_nvs_init(void)
     arcs_nvs_fs.sector_size = info.size;
     arcs_nvs_fs.sector_count = NVDS_FLASH_SIZE/info.size;
 
-    nvds_init(&arcs_nvs_fs);
+    ret = nvds_init(&arcs_nvs_fs);
+    if (ret) {
+        flash_write_protection_set(&arcs_flash_dev, false);
+        flash_erase(&arcs_flash_dev, NVDS_FLASH_ADDRESS, NVDS_FLASH_SIZE);
+        flash_write_protection_set(&arcs_flash_dev, true);
+        nvds_init(&arcs_nvs_fs);
+    }
 
     return 0;
 }
@@ -200,29 +206,46 @@ int arcs_nvs_init(void)
 
 int main(void)
 {
+    memset(_sshram, 0, (_eshram - _sshram));
+
+#if SHRINK==1
+    memset(sram_start, 0, (sram_end - sram_start));
+    memcpy(__text2_start__, _etext, (_etext2 - _etext));
+    memcpy(__text3_start__, _etext2, (_etext3 - _etext2));
+#endif
+    logInit(SHELL_UART0, SHELL_UART0_BAUDRATE);
 #ifdef CFG_ATCMD
     atcmd_init();
 #endif
-    // shell_init(cli_shell_process);
+    shell_init(cli_shell_process);
     //logInit(1, 1000000);
 
 #if CFG_NVS
     arcs_nvs_init();
 #endif
+#if IC_BOARD == 1
+    ls_rf_cali_proc();
+#endif
 
-    ls_wifi_init();
+    ls_crypto_init();
+#ifdef CONFIG_TRACE
+    vTraceEnable(TRC_START);
+#endif
 
     // register event
     ls_event_init();
+    ls_event_register_cb(EVENT_WIFI, EVENT_ID_ALL, wifi_event_cb, NULL);
     ls_event_register_cb(EVENT_BT,   EVENT_ID_ALL, bt_event_cb,   NULL);
 
+    ls_wifi_init();
+
+#ifdef SYS_PSM
+    vrtc_init();
+#endif
 
     bt_demo_init();
 
-    while (true) {
-        vTaskDelay(pdMS_TO_TICKS(3000));
-    }
-
+    rtos_start_scheduler();
     return 0;
 }
 

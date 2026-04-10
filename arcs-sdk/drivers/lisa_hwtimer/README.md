@@ -80,7 +80,7 @@ void timer_timeout_callback(void *user_data)
 }
 
 // 获取 GPT Timer 设备
-lisa_device_t *timer = lisa_device_get_by_name("gpt_timer");
+lisa_device_t *timer = lisa_device_get("gpt_timer");
 if (!timer) {
     return -1;
 }
@@ -126,7 +126,7 @@ lisa_hwtimer_stop(timer, 1);
 
 ```c
 // 获取 AON Timer 设备
-lisa_device_t *aon_timer = lisa_device_get_by_name("aon_timer");
+lisa_device_t *aon_timer = lisa_device_get("aon_timer");
 if (!aon_timer) {
     return -1;
 }

@@ -144,6 +144,9 @@ static int audio_ioctl(lisa_device_t *dev, uint8_t cmd, void *arg)
             lisa_mutex_unlock(priv->mutex);
             return LISA_DEVICE_OK;
 
+        case LISA_AUDIO_IOCTL_PLAY_GET_STATUS:
+            return arcs_audio_play_control(&priv->play, cmd, arg);
+
         default:
             return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
@@ -366,4 +369,5 @@ LISA_DEVICE_REGISTER(audio0,
                      &audio_priv,
                      NULL,
                      audio_init,
+                     LISA_DEVICE_LEVEL_NORMAL,
                      CONFIG_LISA_AUDIO_INIT_PRIORITY);

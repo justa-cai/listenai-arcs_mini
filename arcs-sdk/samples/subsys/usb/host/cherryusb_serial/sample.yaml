@@ -1,0 +1,4 @@
+tests:
+  samples.usb.host.cherryusb_serial:
+    build_only: true
+

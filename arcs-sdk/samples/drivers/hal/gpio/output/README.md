@@ -24,19 +24,10 @@
 
 ### 1. 构建项目
 
-在示例目录下执行构建脚本：
+在 SDK 根目录执行构建命令：
 
 ```bash
-cd samples/drivers/gpio/output
-./build.sh
-```
-
-或者在 SDK 根目录执行：
-
-### cp固件烧录
-
-```shell
-cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/arcs.bin -C arcs
+./build.sh -S samples/drivers/hal/gpio/output
 ```
 
 构建成功后，会在 `build` 目录下生成 `arcs.bin` 文件。

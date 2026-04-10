@@ -1,0 +1,64 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Console"
+
+config CONSOLE
+	bool "Enable console subsystem"
+	default y
+	help
+		Enable the console subsystem for stdout/stderr output.
+
+menu "Console UART Backend"
+	depends on CONSOLE
+
+config CONSOLE_UART_BACKEND
+	bool "Enable UART as console backend"
+	default y
+	select LISA_DEVICE
+	select LISA_UART_DEVICE
+	help
+		Use UART device as the console output backend.
+
+if CONSOLE_UART_BACKEND
+
+config CONSOLE_UART_BAUDRATE
+	int "UART baudrate"
+	default 921600
+
+config CONSOLE_UART_NAME
+	string "UART device name for console"
+	default "uart0"
+	help
+		The lisa_device name of the UART used for console output,
+		e.g. "uart0", "uart1", "uart2".
+		Note: the corresponding LISA_UARTx driver must be enabled.
+
+config CONSOLE_UART0_SELECT
+	bool
+	default y if CONSOLE_UART_NAME = "uart0"
+	select LISA_UART0
+
+config CONSOLE_UART1_SELECT
+	bool
+	default y if CONSOLE_UART_NAME = "uart1"
+	select LISA_UART1
+
+config CONSOLE_UART2_SELECT
+	bool
+	default y if CONSOLE_UART_NAME = "uart2"
+	select LISA_UART2
+
+config CONSOLE_UART_EARLY_INIT
+	bool
+	default y
+	help
+		Hidden config. When console UART backend is enabled,
+		the selected UART device should be initialized at EARLY level
+		so it is available before heap/log init.
+
+endif # CONSOLE_UART_BACKEND
+
+endmenu
+
+endmenu

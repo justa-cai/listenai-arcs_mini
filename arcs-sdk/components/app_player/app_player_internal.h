@@ -91,6 +91,7 @@ struct app_player_s {
     SemaphoreHandle_t core_lock;        /**< 核心层操作互斥锁(保护 core 层函数) */
 
     callback_map_t cb_map;          /**< 回调管理 */
+    void *core_upper_callback;      /**< Core 层的上层回调 (app_player_core_callback_t) */
 
     app_player_state_t state;       /**< 当前状态 */
     PlayerEvt last_evt;             /**< 最后一次事件 */
@@ -98,12 +99,15 @@ struct app_player_s {
     bool is_preparing;              /**< 准备中标志 */
     bool wait_prepare_intercepted;  /**< 等待准备中断标志 */
     bool pause_preparing;           /**< 准备时暂停标志 */
+    bool prepare_error;             /**< 准备过程中发生错误标志 */
     lisa_semaphore_t *preparing_sem; /**< 准备同步信号量 */
+    lisa_semaphore_t *pause_sem;    /**< 暂停同步信号量 */
 
     uint8_t vol_min;                /**< 音量最小值 */
     uint8_t vol_max;                /**< 音量最大值 */
 
     bool is_stream_mode;            /**< 流式播放模式标志 */
+    bool pa_is_on;                  /**< PA使用标志：true=此实例正在使用PA */
 
     callback_queue_t *cb_queue;     /**< 回调事件队列 */
     lisa_thread_t *cb_thread;       /**< 回调处理线程 */
@@ -117,6 +121,8 @@ struct app_player_s {
     bool paused_by_focus;           /**< 是否因焦点策略而暂停 */
     bool user_initiated_stop;       /**< 用户主动调用stop/pause标志(用于跳过焦点策略) */
     app_player_focus_state_t last_focus_state; /**< 上一次焦点状态 */
+    char *pending_url;              /**< 待播放URL（焦点被抢占时保存） */
+    uint32_t pending_throw_time;    /**< 待播放的throw_time参数 */
 #endif
 };
 
@@ -126,6 +132,13 @@ struct app_player_s {
  * @param event 事件类型
  */
 void __enqueue_callback_event(app_player_t *player, app_player_event_t event);
+
+/**
+ * @brief 通过播放器ID查找播放器实例（内部函数，由 core 层调用）
+ * @param id 播放器ID
+ * @return 播放器实例指针，未找到返回 NULL
+ */
+app_player_t *__find_player_by_id(uint32_t id);
 
 /**
  * @brief 通过焦点通道ID查找播放器实例（内部函数，由 focus 层调用）

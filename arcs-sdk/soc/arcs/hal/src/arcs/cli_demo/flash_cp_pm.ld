@@ -27,7 +27,7 @@ ENTRY( _start )
 
 MEMORY
 {
-  flash (rxa!w) : ORIGIN = 0x30010000, LENGTH = 1M
+  flash (rxa!w) : ORIGIN = 0x30010000, LENGTH = 2M
   ilm (rxa!w) : ORIGIN = 0x00280000, LENGTH = 16K
   dlm (wxa!r) : ORIGIN = 0x00300000, LENGTH = 8K
   SHRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 256K
@@ -64,6 +64,7 @@ SECTIONS
   /* shared RAM, put calibration and trace memeory at the beginning */
   SHARED (NOLOAD):
   {
+      *(WIFI_CALI)
 #if CALI_BUF
       _scali = .;
       . += _lcali;
@@ -75,7 +76,7 @@ SECTIONS
       _trace_end = .;
 #endif
       _sshram = . ;
-      *(WIFI_CALI)
+
       *(SHAREDRAMIPC)
       *(SHAREDRAM)
       _eshram = . ;

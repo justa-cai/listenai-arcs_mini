@@ -241,7 +241,7 @@ noPollConn      * __nopoll_listener_new_opts_internal (noPollCtx      * ctx,
 
 	/* configure default handlers */
 	listener->receive   = nopoll_conn_default_receive;
-	listener->send      = nopoll_conn_default_send;
+	listener->nopoll_send = nopoll_conn_default_send;
 
 	/* configure connection options */
 	listener->opts      = opts;
@@ -643,7 +643,7 @@ noPollConn   * nopoll_listener_from_socket (noPollCtx      * ctx,
 
 	/* configure default handlers */
 	listener->receive = nopoll_conn_default_receive;
-	listener->send    = nopoll_conn_default_send;
+	listener->nopoll_send = nopoll_conn_default_send;
 
 	/* register connection into context */
 	if (! nopoll_ctx_register_conn (ctx, listener)) {

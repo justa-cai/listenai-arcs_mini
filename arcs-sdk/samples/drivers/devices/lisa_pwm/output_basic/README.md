@@ -25,6 +25,12 @@ PWM（脉冲宽度调制）信号广泛应用于 LED 调光、电机控制、音
 .. include:: /sample_build.rst
 ```
 
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
 ## 预期输出
 
 **终端输出：**

@@ -1,0 +1,10 @@
+menu "micro-rtsp-c"
+
+config SDK_MODULE_MICRO_RTSP_C
+    bool "enable sdk module micro-rtsp-c"
+    default n
+    help
+      Enable the micro-rtsp-c RTSP server module.
+      This is a C implementation of RTSP server for video streaming.
+
+endmenu

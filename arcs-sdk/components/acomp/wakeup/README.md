@@ -577,7 +577,6 @@ int acomp_wakeup_set_threshold(acomp_wakeup_threshold_level_e level);
   - `ACOMP_WAKEUP_THRESHOLD_LEVEL_3`：默认档位
   - `ACOMP_WAKEUP_THRESHOLD_LEVEL_4`：难唤醒
   - `ACOMP_WAKEUP_THRESHOLD_LEVEL_5`：极难唤醒
-  - `ACOMP_WAKEUP_THRESHOLD_LEVEL_6`：最高，禁用唤醒
 
 **返回值**：
 - `ACOMP_ERR_OK`：成功

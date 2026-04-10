@@ -79,6 +79,8 @@ else ifeq ("${CHIP}", "venusa")
 BUILDTOOL = riscv_nuclei
 else ifeq ("${CHIP}", "spica")
 BUILDTOOL = riscv_nuclei
+else ifeq ("${CHIP}", "nebulaa")
+BUILDTOOL = riscv_nuclei
 else
 $(info "No BUILDTOOL for" $(CHIP) $(TGT))
 endif

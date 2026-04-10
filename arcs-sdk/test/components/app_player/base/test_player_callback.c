@@ -163,7 +163,7 @@ void test_callback_receives_events(void)
            callback_invoked, test_event_to_string(last_event));
 
     /* 停止播放 */
-    app_player_stop_sync(player);
+    app_player_stop(player);
 
     /* 清理 */
     app_player_destroy(player);

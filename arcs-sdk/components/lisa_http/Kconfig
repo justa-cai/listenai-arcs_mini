@@ -1,3 +1,7 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 menuconfig LISA_HTTP
-    bool "lisa http"
-    default n
+	bool "lisa http"
+	help
+		Enable LISA HTTP client library for HTTP/HTTPS requests.

@@ -8,9 +8,21 @@
 #include "test_common.h"
 #include "FreeRTOS.h"
 #include "task.h"
-#include "app_tone.h"
 #include "lisa_gpio.h"
 #include "lisa_device.h"
+#include <stdio.h>
+
+/*
+ * 音频资源配置（用于 TONE 播放器测试）
+ *
+ * 音频文件：res/audio_file/001_network_suc.mp3
+ * 文件大小：4716 字节
+ * Flash地址：0x30200000（默认）
+ *
+ * 测试前请先将音频文件烧录到Flash指定地址！
+ */
+#define TONE_AUDIO_FLASH_ADDR   0x30200000  /* 音频在Flash中的起始地址 */
+#define TONE_AUDIO_SIZE         4716        /* res/audio_file/001_network_suc.mp3 的实际大小 */
 
 /* ========================================
  * 全局播放器实例
@@ -159,6 +171,10 @@ const char* error_to_string(int error)
 
 const char* get_tone_url(void)
 {
-    return app_tone_get_url(TONE_ID_0);
+    /* 使用静态缓冲区存储URL，避免每次调用都分配内存 */
+    static char tone_url[64];
+    snprintf(tone_url, sizeof(tone_url), "mem://addr=%usize=%u",
+             TONE_AUDIO_FLASH_ADDR, TONE_AUDIO_SIZE);
+    return tone_url;
 }
 

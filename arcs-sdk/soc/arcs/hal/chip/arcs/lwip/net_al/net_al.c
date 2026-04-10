@@ -34,7 +34,11 @@
 #include "PSRAMManager.h"
 
 #define NX_NB_L2_FILTER 2
+#ifdef RX_DYNAMIC_HOSTBUF
+#define RX_BUF_COPY 0
+#else
 #define RX_BUF_COPY 1
+#endif
 struct l2_filter_tag
 {
     struct netif *net_if;
@@ -947,13 +951,13 @@ int net_l2_socket_create(net_if_t *net_if, uint16_t ethertype)
 
     /* Note: we create DGRAM socket here but in practice we don't care, net_eth_receive
        will use the socket as a L2 raw socket */
-    filter->sock = socket(PF_INET, SOCK_DGRAM, 0);
+    filter->sock = lwip_socket(PF_INET, SOCK_DGRAM, 0);
     if (filter->sock < 0)
         return -1;
 
-    if (getsockopt(filter->sock, SOL_SOCKET, SO_CONNINFO, &(filter->conn), &len))
+    if (lwip_getsockopt(filter->sock, SOL_SOCKET, SO_CONNINFO, &(filter->conn), &len))
     {
-        close(filter->sock);
+        lwip_close(filter->sock);
         return -1;
     }
     filter->net_if = net_if;
@@ -971,7 +975,7 @@ int net_l2_socket_delete(int sock)
             (l2_filter[i].sock == sock))
         {
             l2_filter[i].net_if = NULL;
-            close(l2_filter[i].sock);
+            lwip_close(l2_filter[i].sock);
             l2_filter[i].sock = -1;
             return 0;
         }
@@ -1134,15 +1138,6 @@ bool net_ip_task_avail(void)
     return true;
 }
 
-void net_dhcps_start(struct netif * netif)
-{
-    dhcps_start(netif);
-}
-
-void net_dhcps_stop(void)
-{
-    dhcps_stop();
-}
 
 void net_wifi_init_done(void)
 {

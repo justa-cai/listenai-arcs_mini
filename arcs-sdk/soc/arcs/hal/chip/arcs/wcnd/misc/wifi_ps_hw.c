@@ -18,9 +18,12 @@
 #include "wifi_ps_hw.h"
 #include "rf_drv.h"
 
+extern void wifi_ps_hw_register(struct wifi_ps_hw_ops *ops);
+
 static int32_t wifi_ps_hw_suspend(uint32_t sleep_time, int32_t power_off)
 {
     ls_rf_suspend(RF_MODE_WIFI, 1);
+
     if (!power_off)
     {
         IP_WIFI_CTRL->REG_WIFI_CTRL_DOZE_WAKE_INT.bit.CFG_PLFDOZEWAKEUPEN   = 1;
@@ -85,9 +88,6 @@ static int32_t wifi_ps_hw_check_idle(void)
 
 static void wifi_ps_hw_set_wakeup(uint32_t time)
 {
-    #ifndef CFG_AMP_IPC
-    time -= 100;
-    #endif
     time = time >> 5;/*In units of 32us*/
     IP_AON_CTRL->REG_AON_WF_WAKEUP_TIME.bit.CFG_CORE_RADIOWAKEUPTIME = time;
 }
@@ -122,7 +122,17 @@ int32_t wifi_ps_hw_init(void)
     IP_AON_CTRL->REG_AON_WF_SLEEP_ONLY_WKUP_IRQ.bit.CFG_WF_LP_ONLY_WKUP_MASK   = 1;
     IP_AON_CTRL->REG_AON_WF_WAKEUP_TIME.bit.CFG_CORE_RADIOWAKEUPTIME = 130;
     IP_AON_CTRL->REG_AON_WF_WAKEUP_TIME.bit.CFG_WF_RADIOWAKEUPTIME   = 64;
-    //IP_AON_CTRL->REG_WAKEUP_ENABLE.bit.ENA_WF_WAKEUP = 1;
+
+#if defined(CONFIG_PM) && defined(PSRAM_HEAP)
+    IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.EN_LDO_VMEM_FORCEDATA = 1;
+    IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.EN_LDO_VMEM_FORCE = 1;
+
+    IP_AON_CTRL->REG_AON_FRC_CTRL1.bit.EN_LDO_PA_FORCEDATA = 1;
+    IP_AON_CTRL->REG_AON_FRC_CTRL1.bit.EN_LDO_PA_FORCE = 1;
+
+    IP_AON_CTRL->REG_AON_FRC_CTRL1.bit.EN_BG_FINE_FORCEDATA = 1;
+    IP_AON_CTRL->REG_AON_FRC_CTRL1.bit.EN_BG_FINE_FORCE = 1;
+#endif
     //IP_AON_CTRL->REG_AON_LDO_VMEM.bit.TUNE_LDOVMEM   = 5;
     //IP_NEW_DFE->REG_AGC_TOP_CFG0.bit.REG_CD_EN = 0;
 

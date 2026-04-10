@@ -2,7 +2,7 @@
 
 本示例演示如何在 ARCS 平台上使用 coreMQTT 库通过 WebSocket Secure 连接到 MQTT broker。
 
-## 功能特性
+## 功能说明
 
 - 使用 lisa_websocket 组件实现 WebSocket Secure 连接
 - 支持 MQTT over WSS (端口 8084)
@@ -12,7 +12,7 @@
 - 事件驱动的 WebSocket 通信
 - 非阻塞 I/O 操作
 
-## 硬件要求
+## 硬件连接
 
 - ARCS 开发板
 - SD 卡(用于文件系统)
@@ -72,24 +72,28 @@ nopoll_conn_opts_ssl_peer_verify(nopoll_opts, nopoll_false);
 
 生产环境建议启用证书验证。
 
+## 示例步骤
+
+1. 自动连接到配置的 WiFi 网络
+2. 建立到 MQTT broker 的加密 WebSocket 连接
+3. 通过 WSS 通道建立 MQTT 连接
+4. 订阅指定的 MQTT 主题
+5. 发布测试消息
+6. 持续监听和处理接收的消息
+
 ## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
 
-## 运行效果
+## 烧录
 
-程序启动后,将依次执行以下步骤:
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
 
-1. **WiFi 连接**: 自动连接到配置的 WiFi 网络
-2. **WebSocket Secure 连接**: 建立到 MQTT broker 的加密 WebSocket 连接
-3. **MQTT 连接**: 通过 WSS 通道建立 MQTT 连接
-4. **订阅主题**: 订阅指定的 MQTT 主题
-5. **发布消息**: 发布测试消息
-6. **接收消息**: 持续监听和处理接收的消息
-
-### 预期日志输出
+## 预期输出
 
 ```
 [mqtt-wss-test] MQTT over WebSocket Secure Test Starting...

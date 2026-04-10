@@ -105,6 +105,14 @@ void app_player_focus_set_paused_by_focus(app_player_t *player, bool paused);
  */
 bool app_player_focus_is_paused_by_focus(app_player_t *player);
 
+/**
+ * @brief 获取播放器当前的焦点状态
+ * @param player 播放器实例
+ * @return 当前焦点状态（FOREGROUND/BACKGROUND/NONE）
+ * @note 如果播放器未注册焦点通道或焦点管理器未初始化，返回 APP_PLAYER_FOCUS_NONE
+ */
+app_player_focus_state_t app_player_focus_get_state(app_player_t *player);
+
 #ifdef __cplusplus
 }
 #endif

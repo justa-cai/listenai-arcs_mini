@@ -10,10 +10,15 @@
 #include "ota.h"
 #include "spiflash.h"
 #include "wifi_ota.h"
+#include "wifi_api.h"
 
 static uint32_t ota_flash_address = 0;
 static int file_length = 0;
 extern void* CRYPTO0_Handler;
+
+
+void send_op_cmd(struct netconn* conn, unsigned short op_cmd,
+        unsigned short block_size, const char* filename);
 
 void wota_sever_clear(struct netconn* conn);
 int receive_data(struct netconn *conn, unsigned char *buffer,

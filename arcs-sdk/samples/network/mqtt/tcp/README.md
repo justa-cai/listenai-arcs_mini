@@ -2,12 +2,16 @@
 
 基于 coreMQTT 库的 MQTT 客户端示例。
 
-## 功能
+## 功能说明
 
 - 连接到 MQTT Broker
 - 订阅主题
 - 发布消息
 - 接收消息
+
+## 硬件连接
+
+本示例使用芯片内部 WiFi 外设，无需额外接线。
 
 ## 配置
 
@@ -26,13 +30,28 @@
 ```
 
 
+## 示例内容
+
+1. 连接 WiFi 网络
+2. 连接 MQTT Broker
+3. 订阅主题
+4. 发布消息
+5. 等待接收消息
+6. 断开连接
+
 ## 编译
 
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
 
-## 运行
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
+```
+
+## 预期输出
 
 烧录固件后，设备会：
 1. 连接 WiFi

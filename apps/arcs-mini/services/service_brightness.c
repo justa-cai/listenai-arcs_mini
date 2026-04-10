@@ -17,7 +17,33 @@
 #define DEFAULT_BRIGHTNESS 70
 
 void service_brightness_set(int brightness);
+void service_brightness_set_temp(int brightness);
 static lisa_device_t *s_display_device = NULL;
+
+static int service_brightness_clamp(int brightness)
+{
+    if (brightness < 0) {
+        return 0;
+    }
+    if (brightness > 100) {
+        return 100;
+    }
+
+    return brightness;
+}
+
+static void service_brightness_apply(int brightness)
+{
+    brightness = service_brightness_clamp(brightness);
+
+    if (s_display_device) {
+        int hw_brightness = brightness;
+        lisa_display_set_brightness(s_display_device, hw_brightness);
+        LOGI("Brightness set to %d (hw: %d)", brightness, hw_brightness);
+    } else {
+        LOGW("Display device not available");
+    }
+}
 
 void service_brightness_init(void)
 {
@@ -76,29 +102,22 @@ void service_brightness_init(void)
         brightness = DEFAULT_BRIGHTNESS;
     }
     lisa_display_blanking_on(s_display_device);
-    service_brightness_set(brightness);
+    service_brightness_set_temp(brightness);
 
     LOGI("Brightness service initialized");
 }
 
 void service_brightness_set(int brightness)
 {
-    if (brightness < 0) {
-        brightness = 0;
-    }
-    if (brightness > 100) {
-        brightness = 100;
-    }
+    brightness = service_brightness_clamp(brightness);
 
     lisa_kv_set_int(KV_KEY_USER_BRIGHTNESS, brightness);
+    service_brightness_apply(brightness);
+}
 
-    if (s_display_device) {
-        int hw_brightness = brightness;
-        lisa_display_set_brightness(s_display_device, hw_brightness);
-        LOGI("Brightness set to %d (hw: %d)", brightness, hw_brightness);
-    } else {
-        LOGW("Display device not available");
-    }
+void service_brightness_set_temp(int brightness)
+{
+    service_brightness_apply(brightness);
 }
 
 int service_brightness_get(void)

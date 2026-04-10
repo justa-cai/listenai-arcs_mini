@@ -149,7 +149,17 @@ ifeq ($(INNER), 1)
 LIBS += -lble -lbt_base #-lbt
 MODULES  += bt
 else
-#EXTLIBS += -lble -lbt_base -L./lib
+#ifeq ($(filter ble_single_mode bt_dual_mode, $(BT_MODE)),)
+ifneq ($(filter ble bt_dual, $(BT_MODE)),)
+ifeq ($(HARD_FLOAT),1)
+BT_EXTLIBS  := $(shell ls $(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilpf32 | sed 's/^lib/-l/; s/\.[^.]*$$//')
+EXTLIBS += $(BT_EXTLIBS) -L$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilpf32
+else
+BT_EXTLIBS  := $(shell ls $(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilp32 | sed 's/^lib/-l/; s/\.[^.]*$$//')
+EXTLIBS += $(BT_EXTLIBS) -L$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilp32
+endif
+endif
+
 endif
 endif
 
@@ -189,8 +199,13 @@ MODULES  += pm_impl
 endif
 
 ifeq ($(LIB_EXT_WIFI_BT), 1)
-EXT_LIBS  := $(shell ls $(TOPDIR)/chip/${CHIP}/lib | sed 's/^lib/-l/; s/\.[^.]*$$//')
-EXTLIBS += $(EXT_LIBS) -L$(TOPDIR)/chip/${CHIP}/lib
+ifeq ($(HARD_FLOAT),1)
+EXT_LIBS  := $(shell ls $(TOPDIR)/chip/${CHIP}/lib/wifi/ilpf32 | sed 's/^lib/-l/; s/\.[^.]*$$//')
+EXTLIBS += $(EXT_LIBS) -L$(TOPDIR)/chip/${CHIP}/lib/wifi/ilpf32
+else
+EXT_LIBS  := $(shell ls $(TOPDIR)/chip/${CHIP}/lib/wifi/ilp32 | sed 's/^lib/-l/; s/\.[^.]*$$//')
+EXTLIBS += $(EXT_LIBS) -L$(TOPDIR)/chip/${CHIP}/lib/wifi/ilp32
+endif
 endif
 
 #includings and flags

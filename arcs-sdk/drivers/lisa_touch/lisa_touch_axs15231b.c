@@ -533,6 +533,7 @@ LISA_DEVICE_REGISTER(touch_axs15231b,              /* 设备名称 */
                      &touch_axs15231b_priv,        /* 私有数据指针 */
                      NULL,                         /* 用户数据 */
                      lisa_touch_axs15231b_init,    /* 初始化函数 */
+                     LISA_DEVICE_LEVEL_NORMAL,     /* 级别 */
                      LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
 
 

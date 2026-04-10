@@ -27,6 +27,7 @@ struct adb_service_handle {
 uint32_t adb_service_open(const uint8_t *name, const uint8_t *args, uint32_t remote_id);
 int adb_service_write(uint32_t local_id, uint32_t remote_id, adb_packet_t *);
 void adb_service_close(uint32_t local_id, uint32_t remote_id);
+void adb_service_close_all(void);
 void adb_service_write_remote(struct adb_service *s, uint8_t *data, int len);
 int adb_service_hd_register(const struct adb_service_handle const *handle);
 #endif

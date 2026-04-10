@@ -1,2 +1,0 @@
-osource "$LISTENAI_MODULES"
-rsource "Kconfig.boot"

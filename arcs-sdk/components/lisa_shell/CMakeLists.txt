@@ -12,4 +12,6 @@ listenai_library_sources(
 )
 listenai_include_directories(.)
 
+# Linker fragments now registered by modules/letter-shell
+
 endif() # CONFIG_LISA_SHELL

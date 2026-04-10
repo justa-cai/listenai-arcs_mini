@@ -44,6 +44,9 @@ enum aud_os_msg_id
     AUD_OS_MEIDA_INFO_EVT                                   = OS_MSG_ID(AUD, 0x04),
 
     AUD_OS_RCV_DATA_EVT                                     = OS_MSG_ID(AUD, 0x10),
+    AUD_OS_A2DP_CONNECTION_UPDATE_EVT                       = OS_MSG_ID(AUD, 0x11),
+    AUD_OS_HFP_CONNECTION_UPDATE_EVT                        = OS_MSG_ID(AUD, 0x12),
+    AUD_OS_A2DP_MEDIA_RSP_EVT                               = OS_MSG_ID(AUD, 0x13),
 };
 
 /*

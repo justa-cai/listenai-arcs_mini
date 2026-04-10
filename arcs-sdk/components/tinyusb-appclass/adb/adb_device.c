@@ -3,6 +3,7 @@
 
 #include "adb_utils.h"
 #include "adb_device.h"
+#include "adb.h"
 #include "tusb.h"
 #include "usbd_pvt.h"
 
@@ -47,6 +48,8 @@ bool adb_dev_deinit(void)
 
 void adb_dev_reset(uint8_t rhport)
 {
+    adb_reset();
+
     /* give initial value */
     xSemaphoreGive(adb_itf.tx_ready_sem);
 }

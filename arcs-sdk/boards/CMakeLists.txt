@@ -97,3 +97,23 @@ endif()
 add_subdirectory(${BOARD_DIR} ${CMAKE_CURRENT_BINARY_DIR}/${BOARD})
 
 message(STATUS "Board loaded successfully: ${BOARD_DIR}")
+
+# 7. 加载板级 linker 片段（可选）
+set(_BOARD_LD_DIR ${BOARD_DIR}/linker)
+if(EXISTS ${_BOARD_LD_DIR})
+    message(STATUS "Board linker fragments: ${_BOARD_LD_DIR}")
+    file(GLOB _board_memory_lds "${_BOARD_LD_DIR}/*-memory.ld")
+    foreach(_f ${_board_memory_lds})
+        listenai_add_linker_memory(FILE ${_f} SORT_KEY "20-board")
+    endforeach()
+
+    file(GLOB _board_alias_lds "${_BOARD_LD_DIR}/*-aliases.ld")
+    foreach(_f ${_board_alias_lds})
+        listenai_add_linker_section(FILE ${_f} SLOT ALIASES SORT_KEY "20-board")
+    endforeach()
+
+    file(GLOB _board_section_lds "${_BOARD_LD_DIR}/*-sections.ld")
+    foreach(_f ${_board_section_lds})
+        listenai_add_linker_section(FILE ${_f} SLOT COMPONENTS SORT_KEY "20-board")
+    endforeach()
+endif()

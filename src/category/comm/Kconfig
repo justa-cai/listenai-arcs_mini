@@ -9,3 +9,4 @@ config ROMFS_IMAGE_SIZE
 
 rsource "Kconfig.rcmd"
 rsource "Kconfig.cloud"
+rsource "Kconfig.voice_player"

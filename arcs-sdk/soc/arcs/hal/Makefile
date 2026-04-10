@@ -15,6 +15,7 @@ all:
 	@if [ -f "src/${CHIP}/${TGT}/Makefile" ]; then make -C src/${CHIP}/${TGT}/ apps ${MKDEFS}  ||exit 1; fi
 	@if [ -f "src/bt/${TGT}/Makefile" ]; then make -C src/bt/${TGT}/ apps ${MKDEFS} ||exit 1; fi
 	@if [ -f "src/drv_demo/${TGT}/Makefile" ]; then make -C src/drv_demo/${TGT}/ apps ${MKDEFS} ||exit 1; fi
+	@if [ -f "${TGT}/Makefile" ]; then make -C ${TGT}/ apps ${MKDEFS} ||exit 1; fi
 
 clean:
 	@if [ 'a$(TGT)' = 'a' ]; then echo TGT not defined, nothind done! && exit 1; fi
@@ -22,6 +23,7 @@ clean:
 	@if [ -f "src/${CHIP}/${TGT}/Makefile" ]; then make -C src/${CHIP}/${TGT}/ clean ${MKDEFS}  ||exit 1; fi
 	@if [ -f "src/bt/${TGT}/Makefile" ]; then make -C src/bt/${TGT}/ clean ${MKDEFS} ||exit 1; fi
 	@if [ -f "src/drv_demo/${TGT}/Makefile" ]; then make -C src/drv_demo/${TGT}/ clean ${MKDEFS} ||exit 1; fi
+	@if [ -f "${TGT}/Makefile" ]; then make -C ${TGT}/ clean ${MKDEFS} ||exit 1; fi
 
 allclean: clean
 	@if [ -f "src/Makefile" ]; then make -C src clean||exit 1; fi

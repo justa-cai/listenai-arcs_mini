@@ -2008,7 +2008,13 @@
  * (only used if you use sockets.c)
  */
 #if !defined LWIP_COMPAT_SOCKETS || defined __DOXYGEN__
-#define LWIP_COMPAT_SOCKETS             1
+#if !CONFIG_SAL_USING_POSIX
+#define LWIP_COMPAT_SOCKETS   1
+#else
+#define LWIP_COMPAT_SOCKETS   0
+#endif
+#define SO_SSL_CONFIG  0xfff5 /*4g ssl配置*/
+
 #endif
 
 /**

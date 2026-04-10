@@ -1,5 +1,5 @@
 guardian-out*/
-build*/
+/build*/
 listenai-tools/
 .vscode
 listenai-dev-tools
@@ -8,3 +8,14 @@ listenai-dev-tools
 .clangd
 .cache/
 .env/
+
+# AI tools & editors
+.agent/
+.agents/
+.augment/
+.claude/*
+!.claude/skills
+.windsurf/
+/skills/
+skills-lock.json
+AGENTS.md

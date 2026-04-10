@@ -28,7 +28,10 @@ typedef struct {
 } wifi_mgr_scan_ap_list_t;
 
 typedef struct {
+    /* Base reconnect interval in milliseconds. 0 means using the module default interval. */
     uint32_t interval_ms;
+    /* Absolute cap for backoff interval in milliseconds. 0 means using built-in multiplier caps. */
+    uint32_t max_interval_ms;
 } wifi_mgr_autoconn_config_t;
 
 typedef enum {
@@ -149,7 +152,7 @@ bool wifi_mgr_sta_is_enable(void);
  * @note This function could only call while WiFi is in Station disconnected status
  *
  * @param sta_config[in/out] Pointer to WiFi Station configuration structure
- * @param asynchronous[in] Asynchronous/synchronous mode (Must be false now since asynchronous is not available)
+ * @param asynchronous[in] Asynchronous/synchronous mode. true: non-blocking request; false: blocking request
  *
  * @return 0 if successful, negative errno code and positive csk_wifi result code on failure.
  */
@@ -184,7 +187,7 @@ int wifi_mgr_sta_remove_connection_cb(wifi_mgr_connection_cb_t connection_cb);
 /**
  * @brief WiFi Station disconnect from a connected AP 
  *
- * @param asynchronous[in] Asynchronous/synchronous mode (Must be false now since asynchronous is not available)
+ * @param asynchronous[in] Asynchronous/synchronous mode. true: non-blocking request; false: blocking request
  *
  * @return 0 if successful, negative errno code and positive csk_wifi result code on failure.
  */
@@ -209,7 +212,7 @@ int wifi_mgr_sta_get_connected_info(wifi_mgr_sta_config_t *sta_info);
  *
  * @param ap_info[out] Pointer to WiFi AP information structure
  * @param size[in] Size of the ap_info array number
- * @param asynchronous[in] Asynchronous/synchronous mode (Must be false now since asynchronous is not available)
+ * @param asynchronous[in] Asynchronous/synchronous mode. true: non-blocking request; false: blocking request
  *
  * @return The number of AP information, negative errno code on failure.
  */

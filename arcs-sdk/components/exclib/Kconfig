@@ -1,6 +1,7 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 config EXCLIB
-    bool "exclib"
-    default n
-    help
-        exclib is a library for extending the Clib
-        
+	bool "exclib"
+	help
+		exclib is a library for extending the Clib

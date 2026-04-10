@@ -19,6 +19,9 @@
 
 #include "lisa_audio.h"
 #include "lisa_device.h"
+#include "mock_lisa_gpio.h"
+
+DEFINE_FFF_GLOBALS;
 
 #define AUDIO_DEVICE_NAME        "audio0"
 
@@ -151,10 +154,27 @@ void setUp(void)
     g_record_only_events = 0;
     g_echo_only_events = 0;
     memset(g_play_buffer, 0, sizeof(g_play_buffer));
+
+#if defined(CONFIG_LISA_AUDIO_PLAY_PA_ENABLE)
+    mock_lisa_gpio_reset();
+#endif
 }
 
 void tearDown(void)
 {
+    /* 清理播放状态，防止测试间状态污染 */
+    (void)lisa_audio_play_stop(g_audio_dev);
+    (void)lisa_audio_play_flush(g_audio_dev);
+
+    /* 重置事件计数 */
+    g_record_events = 0;
+    g_echo_events = 0;
+    g_record_only_events = 0;
+    g_echo_only_events = 0;
+    g_paired_events = 0;
+
+#if defined(CONFIG_LISA_AUDIO_PLAY_PA_ENABLE)
+#endif
 }
 
 void test_audio_get_device(void)
@@ -194,6 +214,28 @@ void test_audio_play_config_start_stop(void)
     TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_play_flush(g_audio_dev));
     TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_play_stop(g_audio_dev));
 }
+
+#if defined(CONFIG_LISA_AUDIO_PLAY_PA_ENABLE)
+void test_audio_play_pa_uses_lisa_gpio_api(void)
+{
+    TEST_ASSERT_NOT_NULL(g_audio_dev);
+
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, audio_configure_play());
+
+    TEST_ASSERT_GREATER_THAN_INT(0, mock_lisa_gpio_configure_fake.call_count);
+    TEST_ASSERT_GREATER_THAN_INT(0, mock_lisa_gpio_write_pin_fake.call_count);
+    TEST_ASSERT_EQUAL_UINT32(CONFIG_LISA_AUDIO_PLAY_PA_PIN, mock_lisa_gpio_configure_fake.arg1_val);
+    TEST_ASSERT_EQUAL_UINT32(LISA_GPIO_OUTPUT | LISA_GPIO_OUTPUT_INIT_LOW,
+                             mock_lisa_gpio_configure_fake.arg2_val);
+    TEST_ASSERT_EQUAL_UINT32(LISA_GPIO_LOW, mock_lisa_gpio_write_pin_fake.arg2_val);
+    TEST_ASSERT_NOT_NULL(mock_lisa_gpio_configure_fake.arg0_val);
+#if CONFIG_LISA_AUDIO_PLAY_PA_PAD == 0
+    TEST_ASSERT_EQUAL_STRING("gpioa", mock_lisa_gpio_configure_fake.arg0_val->name);
+#else
+    TEST_ASSERT_EQUAL_STRING("gpiob", mock_lisa_gpio_configure_fake.arg0_val->name);
+#endif
+}
+#endif
 
 void test_audio_record_reconfig(void)
 {
@@ -272,6 +314,41 @@ void test_audio_record_8k_sample_rate(void)
 
     /* 验证：应该有录音数据 */
     TEST_ASSERT_TRUE_MESSAGE(g_record_events > 0, "8K record callback not triggered");
+}
+
+/**
+ * @brief 测试播放启动后不能重新配置
+ *
+ * 验证：lisa_audio_play_start() 之后调用 lisa_audio_play_config() 应该返回错误
+ */
+void test_audio_play_config_after_start_should_fail(void)
+{
+    TEST_ASSERT_NOT_NULL(g_audio_dev);
+
+    /* 配置播放 */
+    lisa_audio_play_config_t config = {
+        .format = {
+            .sample_rate = SAMPLE_RATE,
+            .channels = LISA_AUDIO_CH_LEFT,
+            .sample_bits = SAMPLE_BITS,
+        },
+        .gain = {
+            .analog_gain = 0,
+            .digital_gain = -12,
+        },
+        .buffer_count = 8,
+        .buffer_samples = 256,
+    };
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_play_config(g_audio_dev, &config));
+
+    /* 启动播放 */
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_play_start(g_audio_dev));
+
+    /* 启动后再次配置应该返回错误 */
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_ERR_INVALID, lisa_audio_play_config(g_audio_dev, &config));
+
+    /* 停止播放 */
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_play_stop(g_audio_dev));
 }
 
 /* ===== 智能分发功能测试 ===== */
@@ -435,6 +512,9 @@ int main(void)
     RUN_TEST(test_audio_register_callback, __LINE__);
     RUN_TEST(test_audio_record_config_start_stop, __LINE__);
     RUN_TEST(test_audio_record_reconfig, __LINE__);
+#if defined(CONFIG_LISA_AUDIO_PLAY_PA_ENABLE)
+    RUN_TEST(test_audio_play_pa_uses_lisa_gpio_api, __LINE__);
+#endif
     RUN_TEST(test_audio_play_config_start_stop, __LINE__);
     RUN_TEST(test_audio_play_reconfig, __LINE__);
     RUN_TEST(test_audio_phase_compensation, __LINE__);
@@ -442,6 +522,7 @@ int main(void)
 
     /* 8K 采样率测试 */
     RUN_TEST(test_audio_record_8k_sample_rate, __LINE__);
+    RUN_TEST(test_audio_play_config_after_start_should_fail, __LINE__);
 
     /* 智能分发功能测试 */
     RUN_TEST(test_audio_dispatch_record_only, __LINE__);

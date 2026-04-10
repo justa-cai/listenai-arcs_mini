@@ -1,8 +1,10 @@
 
 listenai_library_sources(
+    powerup.c
     platform.c
     remote_logger.c
     sys_network_probe.c
+    sys_wifi.c
 )
 
 listenai_include_directories(

@@ -1,0 +1,3 @@
+tests:
+  samples.network.coex.dual_core.wifi_ble_netcfg.ap:
+    build_only: true

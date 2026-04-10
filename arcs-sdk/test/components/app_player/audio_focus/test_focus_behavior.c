@@ -86,73 +86,18 @@ static bool wait_for_player_state(app_player_t *player,
  * ======================================== */
 
 /**
- * @brief 测试1：IGNORE + IGNORE - 完全忽略焦点变化
+ * @brief 测试1：IGNORE + IGNORE - 完全忽略焦点变化（已废弃）
  *
- * 测试场景：
- * 1. 保存 MUSIC 原始配置
- * 2. 修改 MUSIC 为 IGNORE + IGNORE
- * 3. MUSIC 播放中
- * 4. TTS 抢占焦点
- * 5. 验证 MUSIC 仍然在播放（IGNORE 策略）
- * 6. 恢复原始配置
+ * 注意：IGNORE 策略已被移除，因为底层播放器同时只允许一个在播放
+ * 此测试已被禁用
  */
+#if 0
 void test_behavior_ignore_ignore(void)
 {
-    LOGI("=== Test: Behavior IGNORE + IGNORE ===");
-
-    // 保存原始配置
-    app_player_focus_behavior_t original_behavior;
-    int ret = app_player_get_focus_behavior(g_music_player, &original_behavior);
-    TEST_ASSERT_EQUAL_MESSAGE(0, ret, "Get original behavior should succeed");
-    LOGI("Original behavior: on_background=%d, on_focus_lost=%d",
-         original_behavior.on_background, original_behavior.on_focus_lost);
-
-    // 设置 IGNORE + IGNORE 策略
-    app_player_focus_behavior_t test_behavior = {
-        .on_background = APP_PLAYER_FOCUS_LOSS_IGNORE,
-        .on_focus_lost = APP_PLAYER_FOCUS_LOSS_IGNORE,
-    };
-    ret = app_player_set_focus_behavior(g_music_player, &test_behavior);
-    TEST_ASSERT_EQUAL_MESSAGE(0, ret, "Set behavior should succeed");
-
-    clear_focus_events();
-
-    /* 步骤1: MUSIC 开始播放 */
-    LOGI("Step 1: Start playing MUSIC");
-    ret = app_player_play(g_music_player, TEST_MUSIC_URL);
-    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_OK, ret, "MUSIC play should succeed");
-
-    bool playing = wait_for_player_state(g_music_player, APP_PLAYER_STATE_PLAYING, 5000);
-    TEST_ASSERT_TRUE_MESSAGE(playing, "MUSIC should enter PLAYING state");
-
-    /* 步骤2: TTS 抢占焦点 */
-    LOGI("Step 2: TTS preempts MUSIC");
-    clear_focus_events();
-    ret = app_player_play(g_tts_player, TEST_TTS_URL);
-    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_OK, ret, "TTS play should succeed");
-
-    wait_ms(TEST_WAIT_MEDIUM_MS);
-
-    /* 验证 MUSIC 收到焦点变化事件 */
-    TEST_ASSERT_TRUE_MESSAGE(g_music_focus_event.received,
-                             "MUSIC should receive focus change event");
-    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_FOCUS_BACKGROUND, g_music_focus_event.state,
-                              "MUSIC should move to BACKGROUND");
-
-    /* 验证 MUSIC 仍然在播放（IGNORE 策略） */
-    app_player_state_t music_state = app_player_get_state(g_music_player);
-    LOGI("MUSIC state after preemption: %s", state_to_string(music_state));
-    TEST_ASSERT_EQUAL_MESSAGE(APP_PLAYER_STATE_PLAYING, music_state,
-                              "MUSIC should still be PLAYING (IGNORE policy)");
-
-    /* 清理：恢复原始配置 */
-    LOGI("Cleanup: Restoring original behavior");
-    app_player_stop_sync(g_tts_player);
-    app_player_stop_sync(g_music_player);
-    app_player_set_focus_behavior(g_music_player, &original_behavior);
-
-    LOGI("=== Test completed ===\n");
+    LOGI("=== Test: Behavior IGNORE + IGNORE (DEPRECATED) ===");
+    LOGI("IGNORE policy has been removed, test skipped\n");
 }
+#endif
 
 /**
  * @brief 测试2：验证默认 PAUSE 行为
@@ -202,7 +147,7 @@ void test_behavior_default_pause(void)
 
     /* 步骤3: TTS 停止，MUSIC 应自动恢复 */
     LOGI("Step 3: Stop TTS, MUSIC should auto-resume");
-    app_player_stop_sync(g_tts_player);
+    app_player_stop(g_tts_player);
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     music_state = app_player_get_state(g_music_player);
@@ -212,7 +157,7 @@ void test_behavior_default_pause(void)
 
     /* 清理 */
     LOGI("Cleanup");
-    app_player_stop_sync(g_music_player);
+    app_player_stop(g_music_player);
 
     LOGI("=== Test completed ===\n");
 }
@@ -269,7 +214,7 @@ void test_behavior_stop_no_resume(void)
 
     /* 步骤3: TTS 停止 */
     LOGI("Step 3: Stop TTS");
-    app_player_stop_sync(g_tts_player);
+    app_player_stop(g_tts_player);
     wait_ms(TEST_WAIT_MEDIUM_MS);
 
     /* 验证 MUSIC 不会自动恢复 */
@@ -298,7 +243,6 @@ void run_focus_behavior_tests(void)
     // 注册焦点回调
     app_player_register_focus_cb(g_music_player, music_focus_callback, NULL);
 
-    RUN_TEST(test_behavior_ignore_ignore);
     RUN_TEST(test_behavior_default_pause);
     RUN_TEST(test_behavior_stop_no_resume);
 

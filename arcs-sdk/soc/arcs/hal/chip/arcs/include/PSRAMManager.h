@@ -87,4 +87,6 @@ uint32_t PSRAM_GetDensity(void);
 
 void PSRAM_EnterSleepMode(_psram_sleep_mode_t sleep_mode);
 
+void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay);
+
 #endif /* INCLUDE_DRIVER_PSRAMMANAGER_H_ */

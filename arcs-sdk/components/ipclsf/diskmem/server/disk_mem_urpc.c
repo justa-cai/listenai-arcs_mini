@@ -10,6 +10,8 @@
 
 #include "lib_sdc.h"
 #include "drv_sdc.h"
+#include "lisa_sdmmc.h"
+#include "lisa_device.h"
 
 #include "disk_mem.h"
 #include "log_print.h"
@@ -53,6 +55,7 @@ typedef struct disk_mem_context {
 
 disk_mem_context_t disk_mem_ctx;
 static QueueHandle_t disk_mem_msgq;
+static lisa_device_t *disk_mem_sdmmc_dev;
 
 static int disk_mem_init(void)
 {
@@ -68,7 +71,13 @@ static int disk_mem_init(void)
     }
 	disk_mem_ctx.sec_cnt = blk_num;
 	disk_mem_ctx.sec_size = blk_len;
-	
+
+	disk_mem_sdmmc_dev = lisa_device_get("sdmmc0");
+	if (!disk_mem_sdmmc_dev) {
+		CLOGE("disk init: sdmmc0 device not found");
+		return -1;
+	}
+
 	CLOGI("disk init succeeded, sector count:%d, sector size:%d", disk_mem_ctx.sec_cnt,
 		disk_mem_ctx.sec_size);
 
@@ -109,18 +118,14 @@ static int32_t disk_mem_ic_message_handler(ic_message_handle_info_t *handle_info
 
 static inline int disk_memcpy(void *dst, void *src, uint32_t size)
 {
-	int err;
-	uint8_t* data = dst;
 	uint32_t len;
+	uint32_t sector, count;
 
 	len = (size + disk_mem_ctx.sec_size - 1) / disk_mem_ctx.sec_size * disk_mem_ctx.sec_size;
+	sector = DISK_MEM2SEC((uint32_t)src, disk_mem_ctx.sec_size);
+	count = DISK_MEM2SEC(len, disk_mem_ctx.sec_size);
 
-	err = gm_sdc_api_sdcard_sector_read(
-		CONFIG_DISK_MEM_SD_INDEX, 
-		DISK_MEM2SEC((uint32_t)src,disk_mem_ctx.sec_size), 
-		DISK_MEM2SEC((uint32_t)len,disk_mem_ctx.sec_size), 
-		dst);
-	return err;
+	return lisa_sdmmc_read(disk_mem_sdmmc_dev, (uint8_t *)dst, sector, count);
 }
 
 static void disk_mem_urpc_notify_done(disk_mem_msg_t *msg)

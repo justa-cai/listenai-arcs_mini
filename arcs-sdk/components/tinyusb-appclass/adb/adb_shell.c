@@ -30,6 +30,8 @@ struct adb_shell_context {
     StreamBufferHandle_t tx_stream;
     struct adb_service *s;
     TaskHandle_t task;
+    SemaphoreHandle_t exit_sem;
+    volatile bool closing;
 };
 
 static void adb_shell_log_output(const uint8_t *log, uint32_t len, void *data)
@@ -54,6 +56,21 @@ static signed short shell_write(char *data, unsigned short size)
     return size;
 }
 
+static void shell_task_flush_tx(struct adb_shell_context *ctx)
+{
+    size_t len = xStreamBufferBytesAvailable(ctx->tx_stream);
+    if (len > 0) {
+        uint8_t *data = ADB_MALLOC(len);
+        if (data != NULL) {
+            size_t received = xStreamBufferReceive(ctx->tx_stream, data, len, 0);
+            if (received > 0 && !ctx->closing) {
+                adb_service_write_remote(ctx->s, data, received);
+            }
+            ADB_FREE(data);
+        }
+    }
+}
+
 static void shell_task(void *arg)
 {
     struct adb_shell_context *ctx = arg;
@@ -70,28 +87,26 @@ static void shell_task(void *arg)
     lisa_log_backend_add("adb_shell", adb_shell_log_output, NULL);
 
     uint8_t ch;
-    while (1) {
+    while (!ctx->closing) {
         if (xStreamBufferReceive(ctx->rx_stream, &ch, 1, 50) == 1) {
             if (ch == ETX) {
+                /* flush remaining output before closing */
+                shell_task_flush_tx(ctx);
                 adb_close(ctx->s->local_id, ctx->s->remote_id);
+                break;
             } else {
                 shellHandler(&ctx->sh, ch);
             }
         }
 
-        size_t len = xStreamBufferBytesAvailable(ctx->tx_stream);
-        if (len > 0) {
-            uint8_t *data = ADB_MALLOC(len);
-            if (data != NULL) {
-                size_t received = xStreamBufferReceive(ctx->tx_stream, data, len, 0);
-                if (received > 0) {
-                    adb_service_write_remote(ctx->s, data, received);
-                }
-                ADB_FREE(data);
-            }
-        }
-
+        shell_task_flush_tx(ctx);
     }
+
+    ADB_LOGI("adb shell task exit\n");
+    lisa_log_backend_remove("adb_shell");
+    shellRemove(&ctx->sh);
+    xSemaphoreGive(ctx->exit_sem);
+    vTaskDelete(NULL);
 }
 
 static int adb_shell_close(struct adb_service *s)
@@ -100,12 +115,19 @@ static int adb_shell_close(struct adb_service *s)
 
     if (s != NULL && s->data != NULL) {
         struct adb_shell_context *ctx = s->data;
-        lisa_log_backend_remove("adb_shell");
-        vTaskSuspend(ctx->task);
-        vTaskDelete(ctx->task);
+
+        /* signal shell_task to exit and wait for it */
+        ctx->closing = true;
+        if (xSemaphoreTake(ctx->exit_sem, pdMS_TO_TICKS(2000)) != pdTRUE) {
+            ADB_LOGE("shell task exit timeout, force delete\n");
+            vTaskDelete(ctx->task);
+            lisa_log_backend_remove("adb_shell");
+            shellRemove(&ctx->sh);
+        }
+
+        vSemaphoreDelete(ctx->exit_sem);
         vStreamBufferDelete(ctx->rx_stream);
         vStreamBufferDelete(ctx->tx_stream);
-        shellRemove(&ctx->sh);
         ADB_FREE(ctx);
         curr_service = NULL;
         s->data = NULL;
@@ -122,7 +144,7 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
 
     if (curr_service != NULL) {
         ADB_LOGE("adb shell already open, close and reopen\n");
-        adb_shell_close(curr_service);
+        adb_service_close(curr_service->local_id, curr_service->remote_id);
     }
 
     struct adb_shell_context *ctx = ADB_MALLOC(sizeof(struct adb_shell_context));
@@ -139,8 +161,17 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
     s->data = ctx;
     curr_service = s;
 
+    ctx->exit_sem = xSemaphoreCreateBinary();
+    if (ctx->exit_sem == NULL) {
+        ADB_FREE(ctx);
+        ADB_LOGE("shell exit sem create failed\n");
+        curr_service = NULL;
+        return -1;
+    }
+
     ctx->rx_stream = xStreamBufferCreate(CONFIG_ADB_SHELL_BUFFER_SIZE, 1);
     if (ctx->rx_stream == NULL) {
+        vSemaphoreDelete(ctx->exit_sem);
         ADB_FREE(ctx);
         ADB_LOGE("shell rx stream create failed\n");
         curr_service = NULL;
@@ -150,6 +181,7 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
     ctx->tx_stream = xStreamBufferCreate(CONFIG_ADB_SHELL_BUFFER_SIZE, 1);
     if (ctx->tx_stream == NULL) {
         vStreamBufferDelete(ctx->rx_stream);
+        vSemaphoreDelete(ctx->exit_sem);
         ADB_FREE(ctx);
         ADB_LOGE("shell tx stream create failed\n");
         curr_service = NULL;
@@ -160,6 +192,7 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
     if (xReturn != pdPASS) {
         vStreamBufferDelete(ctx->rx_stream);
         vStreamBufferDelete(ctx->tx_stream);
+        vSemaphoreDelete(ctx->exit_sem);
         ADB_FREE(ctx);
         ADB_LOGE("shell task create failed\n");
         curr_service = NULL;
@@ -177,6 +210,7 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
                 vTaskDelete(ctx->task);
                 vStreamBufferDelete(ctx->rx_stream);
                 vStreamBufferDelete(ctx->tx_stream);
+                vSemaphoreDelete(ctx->exit_sem);
                 ADB_FREE(ctx);
                 curr_service = NULL;
                 ADB_LOGE("shell cmd alloc failed\n");
@@ -237,8 +271,8 @@ static int adb_shell_write(struct adb_service *s, adb_packet_t *p)
 
     for (uint32_t i = 0; i < len; i++) {
         if (data[i] == ETX) {
-            adb_service_close(s->local_id, s->remote_id);
-            break;
+            adb_packet_free(p);
+            return -1;
         }
         xStreamBufferSend(ctx->rx_stream, &data[i], 1, portMAX_DELAY);
     }

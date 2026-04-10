@@ -62,20 +62,14 @@ void log_shell_backend_output(const uint8_t *log, uint32_t len, void *data)
 
 int lisa_shell_init(void)
 {
-    #if defined(CONFIG_SYSLOG_UART_DEVICE_UART0)
-        shell_dev = lisa_device_get("uart0");
-    #elif defined(CONFIG_SYSLOG_UART_DEVICE_UART1)
-        shell_dev = lisa_device_get("uart1");
-    #elif defined(CONFIG_SYSLOG_UART_DEVICE_UART2)
-        shell_dev = lisa_device_get("uart2");
-    #endif
+    shell_dev = lisa_device_get(CONFIG_CONSOLE_UART_NAME);
     if (!lisa_device_ready(shell_dev)) {
         LISA_LOGE(LOG_TAG, "UART device not ready");
         return -1;
     }
 
     lisa_uart_config_t config = LISA_UART_CONFIG_DEFAULT();
-    config.baudrate = CONFIG_SYSLOG_UART_BAUDRATE;
+    config.baudrate = CONFIG_CONSOLE_UART_BAUDRATE;
     config.rx_buf_config.buffer_count = 2;
     config.rx_buf_config.buffer_size = CONFIG_LISA_SHELL_RX_BUF_SIZE;
     if (lisa_uart_configure(shell_dev, &config) != 0) {

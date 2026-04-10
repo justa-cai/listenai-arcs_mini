@@ -17,6 +17,13 @@ if ARCS_HAL_MODULE_SHELL
         default 9
         help
             Set the priority of the shell task
+    config SHELL_UART
+        int "ARCS HAL SHELL UART PORT"
+        default 0
+    
+    config SHELL_UART_BAUDRATE
+        int "ARCS HAL SHELL UART BAUDRATE"
+        default 921600
     
 endif
 

@@ -37,12 +37,25 @@ extern "C" {
 #define LISA_DEVICE_ERR_OVERFLOW    -12 /* 溢出错误 */
 #define LISA_DEVICE_ERR_NACK        -13 /* NACK 错误（I2C等总线协议） */
 /* ========================================================================
- * 设备优先级定义
+ * 设备初始化级别定义（与 sys_init.h 保持一致）
+ * ========================================================================
+ *
+ * 定义设备在系统启动流程中的初始化阶段：
+ *
+ * - EARLY:   在 heap/RTOS 之前初始化（无锁、无日志），适用于日志串口等关键设备
+ * - NORMAL:  在 lisa_device_init() 中正常初始化（heap 可用、日志可用）
+ *
+ * ======================================================================== */
+
+#define LISA_DEVICE_LEVEL_EARLY    0  /* 早期初始化 - PRE_SYSTEM_INIT 阶段，无锁无日志 */
+#define LISA_DEVICE_LEVEL_NORMAL   1  /* 正常初始化 - PRE_DEVICES_INIT 阶段 */
+
+/* ========================================================================
+ * 设备优先级定义（同一级别内的子优先级）
  * ========================================================================
  *
  * 优先级范围：0-99（数值越小优先级越高）
- *
- * 推荐使用预定义的优先级常量，如需自定义请确保在 0-99 范围内
+ * 控制同一初始化级别内的设备初始化顺序
  * ======================================================================== */
 
 #define LISA_DEVICE_PRIORITY_CRITICAL 0  /* 最高优先级 - 关键系统设备 */
@@ -98,7 +111,8 @@ typedef struct lisa_device {
 typedef struct {
     lisa_device_t *device; /* 设备指针 */
     int (*init_fn)(void);  /* 可选的初始化函数 */
-    uint32_t priority;     /* 初始化优先级 (数字越小越先初始化) */
+    uint8_t init_level;    /* 初始化级别 (LISA_DEVICE_LEVEL_EARLY/NORMAL) */
+    uint32_t priority;     /* 同级别内子优先级 (数字越小越先初始化，0-99) */
 } lisa_device_registry_entry_t;
 
 /* ===== 段属性定义 ===== */
@@ -112,13 +126,14 @@ typedef struct {
  * @param _priv_data_ptr 私有数据指针
  * @param _user_data_ptr 用户数据指针 (可选，传 NULL)
  * @param _init_fn 初始化函数（必须提供，返回0表示成功）
- * @param _priority 初始化优先级 (数值越小优先级越高，范围：0-99)
+ * @param _level 初始化级别 (LISA_DEVICE_LEVEL_EARLY 或 LISA_DEVICE_LEVEL_NORMAL)
+ * @param _priority 同级别内子优先级 (数值越小优先级越高，范围：0-99)
  *
- * @note 优先级必须在 0-99 范围内，超出范围将导致编译错误
+ * @note EARLY 级别设备在 heap 之前初始化，不能使用日志/mutex
  * @note 推荐使用预定义常量：LISA_DEVICE_PRIORITY_CRITICAL/HIGH/NORMAL/LOW/LOWEST
  *
  */
-#define LISA_DEVICE_REGISTER(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _priority)                     \
+#define LISA_DEVICE_REGISTER(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority)             \
     typedef char __priority_range_check_##_name                                                                        \
         [((_priority) >= LISA_DEVICE_PRIORITY_CRITICAL && (_priority) <= LISA_DEVICE_PRIORITY_LOWEST) ? 1 : -1];       \
     static lisa_device_t __lisa_device_instance_##_name = {                                                            \
@@ -133,6 +148,7 @@ typedef struct {
     static const lisa_device_registry_entry_t __lisa_device_registry_##_name LISA_DEVICE_SECTION(_priority) = {        \
         .device = &__lisa_device_instance_##_name,                                                                     \
         .init_fn = (_init_fn),                                                                                         \
+        .init_level = (_level),                                                                                        \
         .priority = (_priority),                                                                                       \
     }
 
@@ -174,12 +190,23 @@ static inline bool lisa_device_is_initialized(const lisa_device_t *dev)
  * ======================================================================== */
 
 /**
+ * @brief 早期设备初始化（无锁，在 heap/RTOS 之前调用）
+ *
+ * 仅初始化 LISA_DEVICE_LEVEL_EARLY 级别的设备，不创建 mutex，不使用日志系统。
+ * 适用于需要在系统早期就绑定到设备框架的关键设备（如日志串口）。
+ *
+ * @return 成功初始化的设备数量, 负数表示错误
+ * @note 必须在 lisa_device_init() 之前调用
+ */
+int lisa_device_early_init(void);
+
+/**
  * @brief 初始化设备管理器
  *
- * 自动扫描并注册所有通过 LISA_DEVICE_REGISTER 宏定义的设备
+ * 初始化所有 LISA_DEVICE_LEVEL_NORMAL 级别的设备（跳过已由 early_init 处理的）
  *
  * @return 成功注册的设备数量, 负数表示错误
- * @note 应在系统初始化早期调用，在使用任何设备之前
+ * @note 应在 sysheap_init() 之后调用
  */
 int lisa_device_init(void);
 

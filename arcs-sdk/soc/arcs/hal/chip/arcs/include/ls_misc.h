@@ -11,16 +11,22 @@
 #define TEMP_NORMAL (25)
 #define TEMP_LOW (-40)
 #define TEMP_HIGH (85)
-#define HYSTERESIS_THRESHOLD (10)
+#if RF_BOARD_VER == 2 //Taoyun
+#define TEMP_THRESHOLD (10)
+#else
+#define TEMP_THRESHOLD (30)
+#endif
 #define DEF_BIASL_WF (7)
-#define TEMP_SENSE_PERIOD_LONG 30000000 //in us
 
-void ls_read_efuse_temp_para(void);
+void ls_get_efuse_para(void);
 
 int32_t ls_get_cur_temp(void);
-
+void ls_set_temp_thr(uint32_t thr);
 bool ls_temp_por_update(void);
 void ls_temp_default_por(void);
+bool ls_temp_rf_por_config(int32_t temp, bool realtime);
+int32_t ls_calc_temp(float vptat);
+
 
 int8_t ls_efuse_read_word(uint8_t addr, uint32_t *val);
 int ls_efuse_write_word(uint32_t addr, uint32_t val);

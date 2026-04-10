@@ -1,4 +1,4 @@
-# LISA AUDIO 录音与回采信号相位对齐示例（自动校准工具）
+# LISA Audio 录音与回采信号相位对齐示例
 
 ## 功能说明
 
@@ -23,10 +23,16 @@
 5. 执行“测试 3”验证补偿是否把偏移逼近 0 个采样点
 6. 打印结果，包含频率检测、偏移统计以及补偿后的结论
 
-## 编译运行
+## 编译
 
-```bash
-./build.sh -C -DBOARD=arcs_evb -S samples/drivers/devices/lisa_audio/record_echo_alignment
+```{eval-rst}
+.. include:: /sample_build.rst
+```
+
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
 ## 预期输出

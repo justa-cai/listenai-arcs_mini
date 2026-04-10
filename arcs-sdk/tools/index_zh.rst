@@ -10,5 +10,4 @@
 
    burn/README.md
    fatfs_package/README.md
-   tone_tool/README.md
    pinmux_tool_zh

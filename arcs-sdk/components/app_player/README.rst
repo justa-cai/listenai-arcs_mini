@@ -11,7 +11,7 @@ app_player 是一个轻量级的音频播放器模块，支持多种音频源的
 
   - **网络音频文件**：支持 HTTP/HTTPS 协议的网络音频播放
   - **本地文件系统音频**：支持从 FAT32 文件系统（SD 卡）播放音频文件
-  - **本地自定义打包音频**：支持从 Flash 播放预打包的提示音文件
+  - **内存数据播放**：支持从内存直接播放音频数据，URL格式：``mem://addr=<地址>size=<大小>``
   - **PCM 流式播放**：支持实时 PCM 数据流播放
 
 - **多种音频格式**：支持 PCM、MP3、WAV、AAC、M4A 格式
@@ -59,6 +59,10 @@ Kconfig 配置
      - PA 功放关闭延迟时间（毫秒）
      - 1000
      - 0-10000
+   * - ``CONFIG_APP_PLAYER_SEMAPHORE_WAIT_TIMEOUT_MS``
+     - 信号量等待超时时间（毫秒）
+     - 5000
+     - 1000-60000
    * - ``CONFIG_APP_PLAYER_CALLBACK_THREAD_STACK_SIZE``
      - 回调线程栈大小（字节）
      - 4096
@@ -81,19 +85,25 @@ Kconfig 配置
    - 设置为 0 表示立即关闭
    - 推荐保持默认值 1000 ms
 
-2. **回调线程栈大小 ``APP_PLAYER_CALLBACK_THREAD_STACK_SIZE``**
+2. **信号量等待超时 ``APP_PLAYER_SEMAPHORE_WAIT_TIMEOUT_MS``**
+
+   - 用于 `app_player_core` 内部的信号量等待
+   - 包括等待 URL 播放进入 prepared 状态、等待 pause 完成等场景
+   - 默认 5000 ms
+
+3. **回调线程栈大小 ``APP_PLAYER_CALLBACK_THREAD_STACK_SIZE``**
 
    - 事件回调线程的栈空间大小
    - 如果回调函数中有复杂逻辑，可适当增大
    - 默认 4096 字节对大多数场景足够
 
-3. **回调线程优先级 ``APP_PLAYER_CALLBACK_THREAD_PRIORITY``**
+4. **回调线程优先级 ``APP_PLAYER_CALLBACK_THREAD_PRIORITY``**
 
    - 数值越小优先级越高
    - 根据系统中其他任务的优先级进行调整
    - 默认优先级为 5
 
-4. **音频焦点管理 ``APP_PLAYER_AUDIO_FOCUS``（可裁剪）**
+5. **音频焦点管理 ``APP_PLAYER_AUDIO_FOCUS``（可裁剪）**
 
    - 启用后支持多播放器实例的焦点协调
    - 基于优先级自动管理播放状态（前景/背景/无焦点）
@@ -166,10 +176,11 @@ Kconfig 配置
    /* 播放本地文件系统音频 */
    app_player_play(player, "/SD:/music.mp3");
 
-   /* 播放 Flash 提示音（需先初始化提示音系统） */
-   app_tone_init(0x30100000);
-   const char *url = app_tone_get_url(TONE_ID_0);
-   app_player_play(player, url);
+   /* 播放内存中的音频数据
+    * URL格式: mem://addr=<内存地址>size=<数据大小>
+    * 示例: 播放地址为 806355570，大小为 1620 字节的音频数据
+    */
+   app_player_play(player, "mem://addr=806355570size=1620");
 
 4. 播放控制
 -----------
@@ -264,14 +275,10 @@ Kconfig 配置
    * - ``app_player_play_ex()``
      - 高级播放（支持更多选项）
    * - ``app_player_stop()``
-     - 停止播放（异步）
-   * - ``app_player_stop_sync()``
      - 停止播放（同步）
    * - ``app_player_pause()``
-     - 暂停播放
+     - 暂停播放（同步）
    * - ``app_player_resume()``
-     - 恢复播放（异步）
-   * - ``app_player_resume_sync()``
      - 恢复播放（同步）
    * - ``app_player_seek()``
      - 跳转到指定位置
@@ -284,7 +291,7 @@ Kconfig 配置
    * - ``app_player_get_duration()``
      - 获取音频总时长
    * - ``app_player_reset()``
-     - 重置播放器到初始状态
+     - 重置播放器到初始状态（同步）
 
 注意事项
 ::::::::
@@ -304,9 +311,15 @@ Kconfig 配置
    - **采样率**：16 kHz（推荐）。播放器内部支持重采样，可处理其他采样率，但为了最佳性能建议使用 16 kHz。
    - **格式**：支持 PCM、MP3、WAV、AAC、M4A。
 
-5. **同步 vs 异步**：``stop_sync()`` 和 ``resume_sync()`` 会阻塞等待操作完成，适合需要确保状态切换完成的场景。
-6. **音量范围**：音量值范围是 1-100。
-7. **资源清理**：使用完毕后记得调用 ``app_player_destroy()`` 释放资源。
+5. **内存音频播放**：
+
+   - 使用 ``mem://addr=<地址>size=<大小>`` 格式的 URL 可以直接播放内存中的音频数据。
+   - 地址为内存中音频数据的起始地址（十进制），大小为数据字节数。
+   - 适用于 Flash 中预置的音频资源或动态生成的音频数据。
+
+6. **同步 vs 异步**：``stop_sync()`` 和 ``resume_sync()`` 会阻塞等待操作完成，适合需要确保状态切换完成的场景。
+7. **音量范围**：音量值范围是 1-100。
+8. **资源清理**：使用完毕后记得调用 ``app_player_destroy()`` 释放资源。
 
 错误码
 ::::::
@@ -340,11 +353,10 @@ Kconfig 配置
 
    audio_focus.md
    streaming.md
-   local_tone.md
 
 示例代码
 ::::::::
 
 完整示例代码请参考：
 
-- ``samples/modules/app_player/`` —— 演示用例。
+- ``samples/media/app_player/`` —— 演示用例。

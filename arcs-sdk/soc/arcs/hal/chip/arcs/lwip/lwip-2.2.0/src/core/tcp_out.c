@@ -324,6 +324,8 @@ tcp_write_checks(struct tcp_pcb *pcb, u16_t len)
   if (len > pcb->snd_buf) {
     LWIP_DEBUGF(TCP_OUTPUT_DEBUG | LWIP_DBG_LEVEL_SEVERE, ("tcp_write: too much data (len=%"U16_F" > snd_buf=%"TCPWNDSIZE_F")\n",
                 len, pcb->snd_buf));
+    LWIP_DEBUGF(TCP_OUTPUT_DEBUG | LWIP_DBG_LEVEL_SEVERE, ("tcp_write: snd_buf=%"TCPWNDSIZE_F", snd_wnd=%"TCPWNDSIZE_F", rcv_wnd=%"U16_F", queuelen=%"TCPWNDSIZE_F"\n",
+                pcb->snd_buf, pcb->snd_wnd, pcb->rcv_ann_wnd, pcb->snd_queuelen));
     tcp_set_flags(pcb, TF_NAGLEMEMERR);
     return ERR_MEM;
   }
@@ -336,6 +338,8 @@ tcp_write_checks(struct tcp_pcb *pcb, u16_t len)
   if (pcb->snd_queuelen >= LWIP_MIN(TCP_SND_QUEUELEN, (TCP_SNDQUEUELEN_OVERFLOW + 1))) {
     LWIP_DEBUGF(TCP_OUTPUT_DEBUG | LWIP_DBG_LEVEL_SEVERE, ("tcp_write: too long queue %"U16_F" (max %"U16_F")\n",
                 pcb->snd_queuelen, (u16_t)TCP_SND_QUEUELEN));
+    LWIP_DEBUGF(TCP_OUTPUT_DEBUG | LWIP_DBG_LEVEL_SEVERE, ("tcp_write: snd_buf=%"TCPWNDSIZE_F", snd_wnd=%"TCPWNDSIZE_F", rcv_wnd=%"U16_F"\n",
+                pcb->snd_buf, pcb->snd_wnd, pcb->rcv_ann_wnd));
     TCP_STATS_INC(tcp.memerr);
     tcp_set_flags(pcb, TF_NAGLEMEMERR);
     return ERR_MEM;

@@ -24,49 +24,6 @@
  ****************************************************************************************
  */
 #define BLE_VOICE_SIMULATOR  (0)
-
-typedef struct ble_gen_adv
-{
-    /// user adv data length, if 0, use adv gen data.
-    uint8_t  user_data_len;
-    /// user adv data.
-    uint8_t  *user_data;
-    /// scan rsp data length.
-    uint8_t  rsp_data_len;
-    /// scan rsp data.
-    uint8_t  *rsp_data;
-}ble_gen_adv_t;
-
-typedef struct ble_dir_adv
-{
-    uint8_t  peer_addr[6];
-}ble_dir_adv_t;
-
-typedef struct ble_adv_cfg
-{
-    /// adv number,max BLE_ACTIVITY_ADV_MAX.
-    uint8_t  adv_id;
-    /// adv type, @see enum gapm_adv_type.
-    uint8_t  adv_type;
-    /// adv discover mode, @see enum gapm_adv_disc_mode.
-    uint8_t  disc_mode;
-    /// adv flags, @see enum gap_adv_filter_policy.
-    uint8_t  adv_filter;
-    /// adv flags, @see enum gapm_adv_flag.
-    uint16_t flags;
-    /// min interval,1:625us,Must be greater than 20ms.
-    uint16_t intv_min;
-    /// max interval,1:625us,Must be greater than 20ms.
-    uint16_t intv_max;
-
-    union
-    {
-        ble_gen_adv_t gen_adv;
-        ble_dir_adv_t dir_adv;
-    } adv_param;
-
-} ble_adv_cfg_t;
-
 /*
  * ENUMERATIONS
  ****************************************************************************************
@@ -90,6 +47,7 @@ void bt_stack_ble_scan_start(uint8_t scan_id, uint8_t type, uint8_t phy, uint16_
 void bt_stack_ble_scan_stop(uint8_t scan_id);
 void bt_stack_ble_pre_sync_start(uint8_t type, gap_per_adv_bdaddr_t *adv_addr, uint8_t report_en, uint8_t past_conidx,uint16_t time_out);
 void bt_stack_ble_pre_sync_stop(void);
+void bt_stack_ble_conn_update(uint8_t conidx, uint16_t conn_intv_min, uint16_t conn_intv_max, uint16_t latency, uint16_t super_to);
 
 /// @} BT STACK
 #endif // BT_BLE_IF_H_

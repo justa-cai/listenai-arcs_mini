@@ -4,6 +4,10 @@
 
 `cskburn` 是用于 ARCS 芯片的固件烧录工具，支持通过串口烧录固件到 Flash 或 eMMC/T卡 存储器。
 
+**工具位置：** 本工具随 `arcs-sdk` 仓库一起提供，位于 `tools/burn/` 目录下：
+- Linux/macOS：`tools/burn/cskburn`
+- Windows：`tools/burn/cskburn.exe`
+
 ## 基本语法
 
 ```bash

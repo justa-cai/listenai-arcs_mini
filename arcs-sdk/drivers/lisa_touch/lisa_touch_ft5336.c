@@ -460,4 +460,5 @@ LISA_DEVICE_REGISTER(touch_ft5336,
                      &touch_ft5336_priv,
                      NULL,
                      lisa_touch_ft5336_init,
+                     LISA_DEVICE_LEVEL_NORMAL,
                      LISA_DEVICE_PRIORITY_NORMAL);

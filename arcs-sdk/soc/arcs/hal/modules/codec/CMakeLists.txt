@@ -86,7 +86,7 @@ if (DEFINED CONFIG_AUDIO_CODEC)
             lc3/basic_op/enh40.c
             lc3/basic_op/enhUL32.c
         )
-        target_include_directories(codec PRIVATE
+        listenai_include_directories(codec
             lc3
             lc3/basic_op
         )
@@ -103,7 +103,7 @@ if (DEFINED CONFIG_AUDIO_CODEC)
             sbc/sbc_primitives_mmx.c
             sbc/sbc_primitives_neon.c
         )
-        target_include_directories(codec PRIVATE
+        listenai_include_directories(codec
             sbc
         )
     endif()
@@ -116,7 +116,7 @@ if (DEFINED CONFIG_AUDIO_CODEC)
             msbc/msbc_primitives.c
             msbc/src.c
         )
-        target_include_directories(codec PRIVATE
+        listenai_include_directories(codec
             msbc
         )
     endif()

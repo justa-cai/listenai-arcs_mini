@@ -24,17 +24,10 @@
 
 ### 1. 构建项目
 
-在示例目录下执行构建脚本：
+在 SDK 根目录执行构建命令：
 
 ```bash
-cd samples/drivers/audio_adc
-./build.sh
-```
-
-或者在 SDK 根目录执行：
-
-```bash
-./build.sh -S samples/drivers/audio_adc -C
+./build.sh -S samples/drivers/hal/audio_adc
 ```
 
 构建成功后，会在 `build` 目录下生成 CP 核固件 `arcs.bin`。
@@ -83,9 +76,6 @@ CONFIG_BACK_TRACE=y                   # 使能堆栈回溯
 CONFIG_MODULE_HEAP=y                  # 使能模块堆内存
 CONFIG_PSRAM_HEAP_SIZE=0x3b0000      # PSRAM堆大小
 CONFIG_BOOT=n                         # 禁用启动配置
-
-CONFIG_MEM_CONFIG=n                   # 禁用默认内存配置
-CONFIG_MEM_CONFIG_USE_CUSTOM_FILE=y  # 使用自定义内存配置
 
 CONFIG_BOOT_HART=n                    # 禁用HART启动
 

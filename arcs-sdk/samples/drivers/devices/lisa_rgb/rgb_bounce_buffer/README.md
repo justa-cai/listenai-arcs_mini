@@ -28,13 +28,8 @@
 
 ## 使用场景
 
-适用于需要高分辨率、流畅显示效果的应用场景，如：
-- 彩色图形用户界面 (GUI)
-- 视频播放和图片浏览
-- 实时数据可视化
-- 动画和过渡效果
+目前由于ARCSD的PSRAM带宽影响以及GPDMA CMD FIFO深度太大，RGB的大屏(验证480x480)显示仅仅能进行纯色刷新显示，无法进行复杂的UI渲染。
 
-Bounce Buffer 模式特别适合内存受限的嵌入式系统，通过 DMA 分块传输大帧缓冲区，降低内部 SRAM 需求。
 
 ## 示例步骤
 
@@ -49,6 +44,12 @@ Bounce Buffer 模式特别适合内存受限的嵌入式系统，通过 DMA 分�
 
 ```{eval-rst}
 .. include:: /sample_build.rst
+```
+
+## 烧录
+
+```{eval-rst}
+.. include:: /sample_flash.rst
 ```
 
 ## 预期输出

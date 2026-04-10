@@ -23,8 +23,12 @@ typedef enum
 
 // init
 void lis_tts_init(void);
-// init
+// deinit
 void lis_tts_deinit(void);
+// prepare: cleanup CV/Trans, then init+prepare+start XTTS
+int lis_tts_prepare(void);
+// cleanup: stop+cleanup XTTS
+int lis_tts_cleanup(void);
 // 增强音量设置[0-10]
 lis_err_t lis_tts_enhance_vol(int32_t vol);
 // 启动tts,并将和应用相关项在此通过参数传入，参数可设置范围需提供

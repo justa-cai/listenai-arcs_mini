@@ -105,4 +105,12 @@ ifeq ($(TX_BUF_COPY), 1)
 CFLAGS += -DTX_BUF_COPY
 endif
 
+ifeq ($(RX_DYNAMIC_HOSTBUF), on)
+CFLAGS += -DRX_DYNAMIC_HOSTBUF
+endif
+
+ifeq ($(CFG_SHORT_TCP_WND), 1)
+CFLAGS += -DCFG_SHORT_TCP_WND
+endif
+
 include $(TOPDIR)/rules.mk

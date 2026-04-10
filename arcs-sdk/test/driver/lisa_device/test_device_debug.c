@@ -19,11 +19,11 @@
  * 测试用设备定义
  * ======================================== */
 
-LISA_DEVICE_REGISTER(test_debug_device1, NULL, NULL, NULL, 
-                     test_mock_init_success, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_debug_device1, NULL, NULL, NULL,
+                     test_mock_init_success, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
-LISA_DEVICE_REGISTER(test_debug_device2, NULL, NULL, NULL, 
-                     test_mock_init_fail, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(test_debug_device2, NULL, NULL, NULL,
+                     test_mock_init_fail, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
 /* ========================================
  * 测试用例

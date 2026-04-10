@@ -1,5 +1,171 @@
 # Change Log
 
+## [0.1.4] - 2026-03-13
+
+- All changes since 0.1.3
+
+### Added:
+  - bluetooth:
+    - 增加 BLE 协议栈初始化完成回调机制
+    - 增加 BLE connected/disconnected 回调
+    - 增加 BLE pairing callback 验证示例
+    - 增加 bond indication 和 key request 回调
+    - 支持自定义 BLE 广播数据
+    - 支持 IPC 双核 BLE 配网
+    - 支持 BT Source（A2DP/HFP）
+    - 增加 classic/a2dp_sink 和 classic/hfp_source 示例
+  - components/lisa_bt_audio_framework: 新增蓝牙音频框架模块及示例
+  - components/bt_source: 增加音量设置接口
+  - drivers/lisa_camera: 新增 TC6036 sensor 支持
+  - drivers/lisa_flash: 支持双 FLASH
+  - drivers/lisa_audio: 支持 CONFIG 配置选择 MIC0/MIC1 引脚初始化
+  - build: 更新 cmake 子仓库，添加 SLOT-based linker injection API
+  - ci:
+    - 添加 AI 代码审查到 MR 流水线
+    - 添加 Kconfig 格式规范 CI 检查
+    - 添加分支新鲜度检查，确保 MR 分支与目标分支保持同步
+  - env: 新增 env.sh 一键开发环境配置脚本，支持工具链检测安装、子模块同步、环境变量设置
+  - linker:
+    - MEMORY 区域地址重叠构建时检测
+    - 支持板级 linker 片段目录
+  - multi-soc: 完成多 SoC 平台改造（Board→SoC Kconfig 绑定、驱动平台守卫、CHIP 参数化）
+  - usb: CherryUSB 添加 Kconfig 支持
+  - samples:
+    - 新增 CherryUSB Host Video (UVC Bulk) 示例，支持 MJPEG 解码 LCD 显示
+    - 新增 CherryUSB Host Serial 示例
+    - 新增 WiFi + BLE 单核/双核配网示例
+    - 新增 WiFi + HTTPDNS 示例
+    - 新增链接脚本特性示例（code_relocate/section_attribute/custom_section/app_registry）
+
+### Changed:
+  - build:
+    - 恢复 ARCS_BASE 自动查找，支持 SDK 作为子目录使用
+    - 同步 build.sh 到所有项目目录
+    - Kconfig 警告检查改为 cmake 变量控制
+  - linker:
+    - system.ld 标准化重构，段定义外迁至各组件片段（WiFi/BLE/IPC/Shell/LUNA/C++ runtime/LVGL 等）
+    - system.ld 提升至 startup/common/ 作为通用模板
+    - HEAP_SIZE 从硬编码改为 Kconfig 参数化
+    - PSRAM/ILM/DLM/ITCM/DTCM 段添加条件编译守卫
+    - 移除 flash 驱动 EXCLUDE_FILE 和 mapi.o 硬编码
+  - soc:
+    - 统一内存 Kconfig 定义，拆分 LUNA 共享/专属内存配置
+    - 对齐 Kconfig 内存默认值与 memap.h，支持 AP/CP 条件配置
+    - SOC_ARCS 定义移至父仓库，避免变更 HAL 子仓库
+    - memory Kconfig 从 startup 迁移到 soc/Kconfig
+    - SoC Kconfig 配置下沉至对应 soc 路径
+    - SoC linker 逻辑下沉至芯片目录
+    - 移除 MEM_WFRAM_ISOLATED 配置，固定 WiFi RAM 隔离模式
+    - 将 APRAM/LUNA 内存区域注册到链接脚本
+  - device: 为 lisa_device 添加 init_level 分级初始化机制，所有驱动适配新增 init_level 参数
+  - log: 日志后端重构，移除 sys_uart 后端，新增 console 后端
+  - startup: 将 startup 代码拆分为 soc/arcs/startup 和 system
+  - system: 系统基础设施模块从 components 迁移至 system
+  - kconfig: 全面规范化 Kconfig 文件格式
+  - samples: 重组 samples 子目录结构（modules 拆分为 media/subsys/security/libraries，BLE 示例归入 peripheral）
+  - docs:
+    - 组件文档重组为系统/服务/网络/媒体/算法五分类
+    - 一级目录整理，散落指南归入 build_and_debug/
+    - 统一 107 个示例文档结构，符合 Samples_Spec.md 规范
+    - 新增构建系统指南和链接脚本指南文档
+  - drivers: 移除驱动 Kconfig 中 SOC_HAS_* 能力守卫
+  - ci: 用 !reference 消除重复脚本，doc 镜像升级至 0.4.0
+  - lisa_audio: 修改 gpdma 为 Kconfig 配置
+  - lisa_bluetooth: 解耦 BLE netcfg 与 WiFi 依赖
+  - lisa_kv: 调整 kconfig 依赖
+  - cst816d: 优化触摸报点
+  - lvgl7: 默认初始化关闭屏显和亮度设置
+  - 整理根目录，辅助脚本和文档下沉至合适位置
+
+### Fixed:
+  - build:
+    - 修复 Makefile 生成器下传递 Ninja 特有参数的问题
+    - 修复 auto-sync-build.sh 路径错误和健壮性问题
+    - 统一 cmake_minimum_required 版本为 3.19
+    - 修复 rebase 后构建失败的三个问题
+  - soc:
+    - 修正 BTRAM size 及 WiFi RAM 内存布局
+    - WFRAM_SIZE=0 时跳过 WiFi RAM 链接脚本片段
+    - 将 PSRAM DCache invalidate 移出 CONFIG_PSRAM_INIT 宏，修复堆分配失败
+  - kconfig:
+    - 修复所有 Kconfig 警告以兼容 kconfig 工具 -W 参数
+    - 还原 lisa_audio 被误删的 ECHO DMA 通道配置
+    - 还原 lisa_bluetooth 被误删的配置项
+  - startup: 串口初始化移至 soc_init 之后，修复 CONFIG_CLOCK_INIT 下波特率异常
+  - console: 将 console_mutex 改为递归锁，修复日志 flush 死锁
+  - log: 对接 logDbg 到 easylogger 输出
+  - lisa_device: 将 lisa_device_init 初始化级别调整为 PRE_KERNEL
+  - bluetooth: 修复 classic a2dp 初始化崩溃，优化 BT Source 连接顺序与播放状态同步
+  - samples:
+    - 适配 Kconfig 内存布局变更，修复 10 个示例构建失败
+    - cherryusb_video 修复从 Hub 拔出摄像头后的 URB 死循环
+  - lisa_wdt: 修复中断回调错误和 sample 重复输出无用日志
+  - samples/lvgl: 修复开机显示花屏问题
+  - ci: branch-freshness 修复 shallow clone 下误报
+  - docs: 修复文档 toctree 告警、修正 build_and_debug 文档与 SDK 实现不一致之处
+
+### Deprecated:
+
+
+## [0.1.3] - 2026-02-09
+
+- All changes since 0.1.2
+
+### Added:
+  - components/app_player: 新增焦点状态查询接口、同步恢复接口
+  - components/lisa_modem & lisa_net: 添加调制解调器和网络抽象层组件
+  - drivers/lisa_audio: audio_ioctl支持LISA_AUDIO_IOCTL_PLAY_GET_STATUS
+  - drivers/lisa_display: 支持面板初始化参数配置
+  - drivers/lisa_i2s: 新增I2S设备驱动
+  - drivers/lisa_touch: 新增read_chip_id功能
+  - feat: lwip支持httpdns解析
+  - feat: 支持segger rtt为日志后端
+  - feat: websocket线程优先级支持通过kconfig配置
+  - feat: 支持litedac音量实时调节
+  - modules: 新增cherry usb模块和micro-rtsp-c模块
+  - samples: 新增lisa_i2s驱动示例、micro-rtsp-c视频流示例及相关组件示例
+
+### Changed:
+  - components/acomp/wakeup: 添加模式切换的算法服务通知事件
+  - components/app_player:
+    - 统一接口为同步方式，移除_sync后缀
+    - 移除IGNORE焦点丢失策略
+    - 移除tone组件
+    - 调整日志等级
+    - 优化PA控制逻辑和暂停缓存URL
+  - drivers/lisa_audio: 使用lisa gpio代替标准gpio api
+  - drivers/lisa_flash: 优化读取效率，使用memcpy代替flash_read接口
+  - feat: 优化crash时重启的逻辑
+  - feat: 修改mic偏置电压为1v9
+  - wifi: 升级wifi库至20260128版本
+  - wifi_manager: 更新WiFi Manager，修复断连未报告reason code、连接未禁用自动连接等问题
+
+### Fixed:
+  - components/acomp: 修复发送同步消息时的线程安全问题
+  - components/app_player:
+    - 修复异常超时卡住的问题
+    - 修复切换URL时停止播放器不释放焦点
+    - 修复焦点管理导致多播放器同时播放问题
+    - 修复重复播放导致的崩溃问题
+    - 修复音频焦点标志残留导致的状态异常
+    - 修复无效状态下reset导致卡死问题
+    - 修复流式播放的prepare和play时序问题
+    - 修复焦点并发测试配置污染问题
+  - components/lisa_websocket: 修复double free内存的问题
+  - drivers/lisa_audio:
+    - 防止播放启动后重新配置
+    - 修复8K采样率的OSR配置
+    - 修复回采音频数据丢弃错误的问题
+  - drivers/lisa_i2s: 修复回调函数声明错误的bug
+  - drivers/lisa_pwm: 修复输出频率和设置不一致的问题
+  - drivers/lisa_thread: 修复lisa_thread_delete未释放task句柄导致的内存泄漏问题
+  - fix(build): 修复httpdns编译问题、sample编译异常、优化CMakelists
+  - samples/algorithms/face_detect: 修复示例文档错误、优化demo、提高虚警阈值、修复卡死bug
+  - docs: 修复文档warning、添加cskburn工具位置说明、减轻视频轮播黑屏
+
+### Deprecated:
+
+
 ## [0.1.2] - 2026-01-15
 
 - All changes since 0.1.1

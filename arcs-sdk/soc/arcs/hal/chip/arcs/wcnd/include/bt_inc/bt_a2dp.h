@@ -66,6 +66,7 @@ typedef enum
     A2DP_MEDIA_CODEC_NONA2DP = 0xff,
 }a2dp_media_codec_type_t;
 
+
 /*
  * TYPE DEFINITIONS
  ****************************************************************************************
@@ -74,6 +75,7 @@ typedef enum
  typedef struct bt_a2dp_cfg
 {
     uint8_t a2dp_role;
+    uint8_t aac_support;
 } bt_a2dp_cfg_t;
 
 typedef struct bt_a2dp_cb
@@ -91,6 +93,41 @@ typedef struct bt_a2dp_cb
      ****************************************************************************************
      */
     void (*cb_a2dp_revoke_cmp)(uint16_t status);
+    
+    /**
+     ****************************************************************************************
+     * @brief Reception of a2dp connect complete.
+     ****************************************************************************************
+     */
+    void (*cb_a2dp_connect_cmp)(uint8_t conidx, uint16_t status);
+    
+    /**
+     ****************************************************************************************
+     * @brief Reception of a2dp disconnect complete.
+     ****************************************************************************************
+     */
+    void (*cb_a2dp_disconnect_cmp)(uint8_t conidx, uint16_t status);
+    
+    /**
+     ****************************************************************************************
+     * @brief Reception of a2dp start complete.
+     ****************************************************************************************
+     */
+    void (*cb_a2dp_start_cmp)(uint8_t conidx, uint16_t status);
+    
+    /**
+     ****************************************************************************************
+     * @brief Reception of a2dp suspend complete.
+     ****************************************************************************************
+     */
+    void (*cb_a2dp_suspend_cmp)(uint8_t conidx, uint16_t status);
+
+    /**
+     ****************************************************************************************
+     * @brief Reception of a2dp close complete.
+     ****************************************************************************************
+     */
+    void (*cb_a2dp_close_cmp)(uint8_t conidx, uint16_t status);
 
     /**
      ****************************************************************************************
@@ -108,36 +145,23 @@ typedef struct bt_a2dp_cb
 
     /**
      ****************************************************************************************
-     * @brief a2dp media indicate.
+     * @brief a2dp media indicate,receive media data from peer.
      ****************************************************************************************
      */
     void (*cb_a2dp_media_ind)(uint8_t conidx, uint8_t frame_num, uint16_t seq, uint16_t len, uint8_t *data);
 
-}bt_a2dp_cb_t;
 
+     /**
+     ****************************************************************************************
+     * @brief a2dp media respons,respons from peer when send meida data to peer.
+     ****************************************************************************************
+     */
+    void (*cb_a2dp_media_rsp)(uint8_t conidx, uint8_t *data, uint16_t status);
+
+}bt_a2dp_cb_t;
 /*
  * GLOBAL VARIABLE DEFINITIONS
  ****************************************************************************************
- */
- 
- /**
- * a2dp setup
- *
- * @param role            a2dp role 0:source, 1:sink 
- *
- * @return None.
- */
-void bt_a2dp_setup(uint8_t role);
-
-/**
- * a2dp revoke
- *
- * @param None
- *
- * @return None.
- */
-void bt_a2dp_revoke(void);
-
 /**
  * a2dp enable
  *
@@ -146,7 +170,26 @@ void bt_a2dp_revoke(void);
  * @return None.
  */
 
-void app_a2dp_enable(uint8_t role, const bt_a2dp_cb_t *cb);
+void app_a2dp_enable(uint8_t role, uint8_t aac_support, const bt_a2dp_cb_t *cb);
+
+/**
+ * a2dp disable
+ *
+ * @param None
+ *
+ * @return None.
+ */
+void app_a2dp_disable(void);
+
+/**
+ * a2dp get peer media mtu
+ *
+ * @param conidx
+ *
+ * @return mtu.
+ */
+uint16_t app_a2dp_get_media_peer_mtu(uint8_t conidx);
+
 
 #endif
 

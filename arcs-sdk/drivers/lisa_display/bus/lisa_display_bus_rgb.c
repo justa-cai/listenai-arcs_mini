@@ -133,4 +133,4 @@ static int rgb_bus_device_init(void)
 }
 
 LISA_DEVICE_REGISTER(panel_bus_rgb, &rgb_bus_api, &rgb_bus_priv, NULL,
-                     rgb_bus_device_init, LISA_DEVICE_PRIORITY_HIGH);
+                     rgb_bus_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);

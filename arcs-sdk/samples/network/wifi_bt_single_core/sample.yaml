@@ -1,3 +1,0 @@
-tests:
-  samples.wifi_bt_single_core:
-    build_only: true

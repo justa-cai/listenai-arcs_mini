@@ -1,0 +1,59 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "SDK System Configuration"
+
+config ARCS_STARTUP_CONFIG
+	bool "ARCS system config"
+	default y
+	imply MODULE_FREERTOS
+	imply MODULE_HEAP
+	imply LOG
+	imply ARCS_HAL_WARNING_DISABLE
+	imply BOOT_HART
+
+if ARCS_STARTUP_CONFIG
+
+config MAIN_TASK_STACK_SIZE
+	int "main task stack size"
+	default 2048
+
+config MAIN_TASK_PRIORITY
+	int "main task priority"
+	default 1
+
+config BANNER
+	bool "Print boot banner"
+	default y
+	help
+		Print SDK version and hart-id at boot.
+
+config BOOT
+	bool "BOOT embedded"
+	default y if ARCS_CP_CORE
+
+endif # ARCS_STARTUP_CONFIG
+
+config PRINTF_LOG_REDIRECT
+	bool "Redirect printf to log system"
+	depends on LOG
+	help
+		When enabled, printf/printk output will be redirected to the
+		log system after log init. Before log init, output still goes
+		through console backend directly.
+
+rsource "init/Kconfig"
+rsource "console/Kconfig"
+rsource "backtrace/Kconfig"
+rsource "cpp/Kconfig"
+rsource "ringbuf/Kconfig"
+rsource "heap/Kconfig"
+rsource "workq/Kconfig"
+rsource "log/Kconfig"
+rsource "os/Kconfig"
+
+if BOOT
+	orsource "boot/Kconfig.boot"
+endif
+
+endmenu
