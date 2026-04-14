@@ -267,6 +267,7 @@ reboot:
 
 static void ota_manager_check_task(void *arg)
 {
+    vTaskDelay(pdMS_TO_TICKS(500)); // 等待系统稳定后再执行 OTA 检查
     _ota_manager_check_all();
     lisa_thread_delete(NULL);
 }

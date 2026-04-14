@@ -174,6 +174,7 @@ static int voice_platform_init(void)
     #endif
 
     if (ipc_ready) {
+        network_probe_init();
         sys_wifi_init();
         LISA_LOGI(TAG, "BLE init start\n");
         lisa_bluetooth_init(NULL);
@@ -308,9 +309,6 @@ static int voice_platform_init(void)
 
     LISA_LOGI(TAG, "tone init end");
     voice_player_platform_init();
-    if (ipc_ready) {
-        network_probe_init();
-    }
 
 #ifdef CONFIG_BOARD_ARCS_MINI
     extern int lisa_ui_anim_init(uint32_t flash_addr, uint32_t flash_size);
