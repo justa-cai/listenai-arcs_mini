@@ -12,4 +12,5 @@ listenai_library_sources(
     # fs.c
     mic_bias.c
     interact.c
+    version.c
 )
