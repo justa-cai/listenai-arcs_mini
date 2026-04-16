@@ -299,4 +299,4 @@ int panel_gc9a01_device_init(void)
 }
 
 LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_gc9a01_driver, NULL, NULL, &panel_gc9a01_device_init,
-                     LISA_DEVICE_PRIORITY_HIGH);
+                     LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);
