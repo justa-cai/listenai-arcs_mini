@@ -1,8 +1,26 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 config LISA_MODEM
 	bool "Enable 4G Module Support"
-	default n
 	select RINGBUF
 	help
 	  Enable support for ML307 4G module.
 	  This includes AT commands, TCP/UDP communication,
 	  and modem control functionality.
+
+if LISA_MODEM
+
+config LISA_MODEM_DRIVER_ML307
+	bool "Enable ML307 driver"
+	default y
+	help
+	  Build and register the ML307 modem driver.
+
+config LISA_MODEM_DRIVER_EC801E
+	bool "Enable EC801E driver"
+	help
+	  Build and register the EC801E modem driver.
+	  This driver can coexist with ML307 and relies on runtime probe selection.
+
+endif

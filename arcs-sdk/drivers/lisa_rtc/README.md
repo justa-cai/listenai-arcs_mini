@@ -88,6 +88,8 @@ if (lisa_rtc_get_time(rtc, &current) == LISA_DEVICE_OK) {
 // 闹钟事件回调
 void rtc_event_handler(uint32_t event, void *user_data)
 {
+    (void)user_data;
+
     if (event & LISA_RTC_EVENT_ALARM) {
         printf("Alarm triggered\n");
     }
@@ -126,10 +128,9 @@ void rtc_tick_handler(uint32_t event, void *user_data)
     }
 }
 
-// 注册回调并启用秒/分钟周期事件
+// 注册回调并启用秒周期事件
 lisa_rtc_set_callback(rtc, rtc_tick_handler, NULL);
 lisa_rtc_set_periodic_int(rtc, LISA_RTC_EVENT_SECOND, true);
-lisa_rtc_set_periodic_int(rtc, LISA_RTC_EVENT_MINUTE, true);
 ```
 
 ## 硬件配置
@@ -181,6 +182,7 @@ lisa_rtc_set_periodic_int(rtc, LISA_RTC_EVENT_MINUTE, true);
 4. 回调函数在中断上下文中执行，应保持逻辑简短。
 5. 设置时间和闹钟前需确保设备已正确初始化并上电。
 6. 线程安全已在驱动内部实现，可直接在多线程环境中调用。
+7. ARCS CALENDAR 同一时刻仅支持一个周期中断源（秒/分/时三选一）；若切换周期源，请先禁用当前源。
 
 ## 文件说明
 

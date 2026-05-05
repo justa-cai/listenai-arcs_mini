@@ -60,17 +60,32 @@ static inline bool frame_isvalid(struct stackframe *frame, uint32_t sp_start, ui
 
 void backtrace_walk(uint32_t pc, uint32_t fp, uint32_t sp_start, uint32_t sp_end)
 {
+    char line_buf[256];
+    int pos = 0;
+    int remain;
+
     rvb_println("Possible backtrace:");
-    rvb_print("riscv64-unknown-elf-addr2line -e build/" PROJECT_EXECUTABLE_NAME " -a ");
-    rvb_print("%lx ", (unsigned long)pc);
+
+    pos = snprintf(line_buf, sizeof(line_buf),
+                   "riscv64-unknown-elf-addr2line -e build/" PROJECT_EXECUTABLE_NAME " -a %lx ",
+                   (unsigned long)pc);
+
     struct stackframe *frame;
     frame = (struct stackframe *)(fp - 2 * sizeof(uint32_t));
 
     while (frame_isvalid(frame, sp_start, sp_end)) {
-        rvb_print("%lx ", (unsigned long)(frame->ra - 4));
+        remain = sizeof(line_buf) - pos;
+        if (remain <= 1) {
+            rvb_print("%s", line_buf);
+            pos = 0;
+            remain = sizeof(line_buf);
+        }
+        pos += snprintf(line_buf + pos, remain, "%lx ", (unsigned long)(frame->ra - 4));
         frame = (struct stackframe *)(frame->fp - 2 * sizeof(uint32_t));
     }
-    rvb_println("");
+    if (pos > 0) {
+        rvb_println("%s", line_buf);
+    }
 }
 
 const char *backtrace_fault_reason(uint32_t exc_code)

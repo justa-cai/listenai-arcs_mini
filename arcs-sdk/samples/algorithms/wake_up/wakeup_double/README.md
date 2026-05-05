@@ -43,8 +43,8 @@ cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x200000 ./res/algo/algo.bin
 cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x4d0000 ./res/algo/wrap.json
 
 # 烧录 CP 核固件
-# 烧录地址：0x30050000
-cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x500000 ./build/arcs.bin
+# 烧录地址：0x30800000
+cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x800000 ./build/arcs.bin
 ```
 
 ## 预期输出
@@ -121,7 +121,7 @@ I/wakeup          [341:40:44.745 1 rpc_client] wakeup timeout
 ********Arcs SDK@test_deploy-163-gb9c7998b-@v0.0.22********
 Running on hart-id: 0
 AP Hard ID: 0
-boot cp from address: 0x30500000
+boot cp from address: 0x30800000
 luna_version:0x3000200
 I/wakeup          [00:00:00.058 0 main] sys_acomp_wakeup_init
 I/components      [00:00:00.060 0 main] Reserved driver ID: 1

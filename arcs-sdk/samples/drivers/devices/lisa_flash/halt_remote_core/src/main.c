@@ -25,15 +25,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "sys_init.h"
-
 #include "lisa_device.h"
 #include "lisa_flash.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
-#include "ipc_master.h"
-
 /* Flash 设备名称 */
 #define FLASH_DEVICE "flash0"
 
@@ -255,16 +251,7 @@ int main(int argc, char **argv)
     printf("All tests passed successfully!\n");
     printf("Total iterations: %d\n", TEST_ITERATIONS);
     printf("========================================\n\n");
+    printf("CP flash passed\n");
 
     return 0;
 }
-
-static int app_ipc_init(void)
-{
-    ic_lock_init();
-    ipc_master_init(NULL);
-
-    return 0;
-}
-
-SYS_INIT(app_ipc_init,SYS_INIT_LEVEL_PRE_DEVICES_INIT,5); /* 优先级 */

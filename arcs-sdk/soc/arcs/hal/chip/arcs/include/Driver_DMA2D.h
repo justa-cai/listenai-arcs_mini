@@ -261,6 +261,9 @@ int32_t
 DMA2D_Initialize(void);
 
 int32_t
+DMA2D_Uninitialize(void);
+
+int32_t
 DMA2D_Config(csk_dma2d_init_t* res, CSK_DMA2D_SignalEvent_t cb_event, void* workspace);
 
 int32_t

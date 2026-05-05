@@ -6,7 +6,7 @@ find_package(listenai-cmake REQUIRED HINTS $ENV{ARCS_BASE})
 
 project(arcs)
 
-listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+# listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(src)
 

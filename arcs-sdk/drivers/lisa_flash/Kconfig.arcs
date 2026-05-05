@@ -4,7 +4,6 @@
 config LISA_FLASH_ARCS
 	bool "Enable LISA Flash ARCS support"
 	select ARCS_HAL_FLASH_IF
-	select ARCS_HAL_IPC
 	select RTOS_AL
 	help
 		Enable LISA Flash ARCS support.

@@ -1,0 +1,72 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "adb"
+
+config ADB
+	bool "adb"
+
+config ADB_MAX_PAYLOAD_SIZE
+	int "adb max payload size"
+	default 51200
+	range 1024 65536
+
+config ADB_PERF_MODE
+	bool "ADB performance mode (uses more SRAM)"
+	depends on ADB
+	help
+	  Enable performance mode for ADB device transport.
+	  In this mode, the USB RX drop buffer is sized to MAX_PAYLOAD
+	  (CONFIG_ADB_MAX_PAYLOAD_SIZE, default 50 KiB), allowing the host
+	  to be drained in a single USB transfer when packet allocation fails.
+
+	  When disabled (default), the drop buffer is one USB bulk packet
+	  (ADB_BULK_PACKET_SIZE, 512 B in HS mode), matching the static SRAM
+	  footprint of the pre-refactor implementation. Sufficient for normal
+	  use; packet allocation failures on the drop path are rare.
+
+config ADB_TASK_PRIORITY
+	int "adb task priority"
+	default 5
+
+config ADB_SYNC
+	bool "adb sync"
+	select ADB
+	select LSFS
+
+config ADB_REBOOT
+	bool "adb reboot"
+	select ADB
+
+config ADB_SHELL
+	bool "adb shell"
+	select ADB
+
+config ADB_SHELL_BUFFER_SIZE
+	int "adb shell buffer size"
+	default 4096
+
+config ADB_SHELL_EARLY_LOG
+	bool "Cache early boot logs for ADB shell"
+	default y
+	depends on ADB_SHELL
+	help
+		Enable caching of early boot logs before ADB shell is connected.
+		Logs are stored in a PSRAM buffer and flushed to ADB shell on
+		first connection. Dropped messages are counted and reported.
+
+config ADB_SHELL_EARLY_LOG_SIZE
+	int "Early log buffer size in bytes"
+	default 16384
+	depends on ADB_SHELL_EARLY_LOG
+	help
+		Size of the PSRAM buffer for caching early boot logs.
+		Typical log lines are 60-100 bytes, so 4096 bytes holds
+		about 40-65 lines. Increase if boot logs are truncated.
+
+config ADB_PUSH_PULL_DEFAULT_ROOT
+	string "adb push/pull default root"
+	default "/RAM:/adb/"
+	depends on ADB_SYNC
+
+endmenu

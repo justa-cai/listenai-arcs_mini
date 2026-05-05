@@ -110,6 +110,16 @@ static int cat_io_write(char ch)
     return 1;
 }
 
+static int cat_io_notify(void)
+{
+    if (!s_adapter || !s_adapter->data_sem) {
+        return -1;
+    }
+
+    xSemaphoreGive(s_adapter->data_sem);
+    return 0;
+}
+
 /* cAT IO interface read implementation */
 static int cat_io_read(char *ch)
 {
@@ -182,6 +192,7 @@ cat_uart_adapter_t *cat_uart_adapter_init(const cat_uart_config_t *config)
     /* Setup IO interface */
     adapter->io_interface.write = cat_io_write;
     adapter->io_interface.read = cat_io_read;
+    adapter->io_interface.notify = cat_io_notify;
 
     /* Setup mutex interface */
     adapter->mutex_interface.lock = cat_mutex_lock;
@@ -319,17 +330,14 @@ static void cat_uart_process_task(void *arg)
     cat_uart_adapter_t *adapter = (cat_uart_adapter_t *)arg;
 
     while (adapter->task_running) {
-        if (ringbuf_is_empty(adapter) && adapter->cat_obj->state == CAT_STATE_IDLE) {
-            xSemaphoreTake(adapter->data_sem, portMAX_DELAY);
-        }
-
-        if (!adapter->task_running) {
-            break;
-        }
-
         cat_status status = cat_service(adapter->cat_obj);
-        if (status == CAT_STATUS_ERROR) {
-            LOGE("cAT service error");
+
+        if (ringbuf_is_empty(adapter)) {
+            if (status == CAT_STATUS_OK) {
+                xSemaphoreTake(adapter->data_sem, portMAX_DELAY);
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
         }
     }
 

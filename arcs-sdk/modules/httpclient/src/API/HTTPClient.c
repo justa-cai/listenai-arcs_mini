@@ -1863,6 +1863,7 @@ UINT32 HTTPIntrnConnectionOpen (P_HTTP_SESSION pHTTPSession)
         UINT32           Address = 0;
         HTTP_SOCKADDR_IN ServerAddress;                      // Socket address structure
         HTTP_SOCKADDR_IN LoaclAddress;                       // Socket address structure (for client binding)
+        HTTP_TIMEVAL     SocketTimeout = {0, 0};
         HC_DBG(("Connection..\n"));
         do
         {
@@ -1901,6 +1902,15 @@ UINT32 HTTPIntrnConnectionOpen (P_HTTP_SESSION pHTTPSession)
                         break;
                 }
                 HC_DBG(("Create local socket: %lu",pHTTPSession->HttpConnection.HttpSocket));
+
+                if(pHTTPSession->HttpCounters.nActionTimeout > 0)
+                {
+                        SocketTimeout.tv_sec = pHTTPSession->HttpCounters.nActionTimeout;
+                        SocketTimeout.tv_usec = 0;
+                        setsockopt(pHTTPSession->HttpConnection.HttpSocket, SOL_SOCKET, SO_SNDTIMEO, &SocketTimeout, sizeof(SocketTimeout));
+                        setsockopt(pHTTPSession->HttpConnection.HttpSocket, SOL_SOCKET, SO_RCVTIMEO, &SocketTimeout, sizeof(SocketTimeout));
+                }
+
                 // Set non blocking socket
 #ifdef _WIN32
                 nRetCode = ioctlsocket(pHTTPSession->HttpConnection.HttpSocket, FIONBIO, &nNonBlocking);
@@ -2166,6 +2176,26 @@ UINT32 HTTPIntrnSend (P_HTTP_SESSION pHTTPSession,
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+static void HTTPIntrnGetRecvTimeout(P_HTTP_SESSION pHTTPSession, HTTP_TIMEVAL *pTimeval)
+{
+        UINT32 nElapsedTime;
+        UINT32 nRemainTime;
+
+        nElapsedTime = HTTPIntrnSessionGetUpTime() - pHTTPSession->HttpCounters.nActionStartTime;
+        if(nElapsedTime >= pHTTPSession->HttpCounters.nActionTimeout)
+        {
+                return;
+        }
+        nRemainTime = pHTTPSession->HttpCounters.nActionTimeout - nElapsedTime;
+        if(nRemainTime <= 1)
+        {
+                return;
+        }
+
+        pTimeval->tv_sec = nRemainTime;
+        pTimeval->tv_usec = 0;
+}
+
 UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
                 CHAR *pData,        // [IN] a pointer for a buffer that receives the data
                 UINT32 *nLength,    // [IN OUT] Length of the buffer and the count of the received bytes
@@ -2226,6 +2256,7 @@ UINT32 HTTPIntrnRecv (P_HTTP_SESSION pHTTPSession,
 								break;
 						}
 
+                        HTTPIntrnGetRecvTimeout(pHTTPSession, &Timeval);
                         setsockopt(pConnection->HttpSocket, SOL_SOCKET, SO_RCVTIMEO, &Timeval, sizeof(Timeval));
 
                         if(PeekOnly == FALSE)

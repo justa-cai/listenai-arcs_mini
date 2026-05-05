@@ -540,6 +540,13 @@ typedef struct wifi_connect_cfg
     * rssi threshold setting for fast scan, optional
     */
     int8_t rssi_threshold;
+    /**
+     * rssi threshold for roaming, if AP rssi < threshold ,it would trigger roaming
+     * 0: rssi not set, use default value -68dbm in FW
+     * 0xff: disable roaming
+     * other vaule: rssi threshold
+     */
+    int8_t roam_rssi_thold;
 } wifi_connect_cfg_t;
 
 

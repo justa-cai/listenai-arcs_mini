@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 void adb_shell_init(void);
+void adb_shell_flush(void);
 int adb_shell_write_datas(const char *data, int size);
 int adb_printf(const char *format, ...);
 

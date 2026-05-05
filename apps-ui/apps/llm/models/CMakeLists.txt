@@ -4,9 +4,11 @@ target_sources(
     model_voice.c
     model_common.c
     model_qrcode.c
+    model_modem.c
     model_wifi.c
     model_battery.c
     model_camera.c
+    model_camera_preview.c
     model_alarm.c
 )
 

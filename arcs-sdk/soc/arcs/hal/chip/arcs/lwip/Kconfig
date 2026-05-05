@@ -38,6 +38,13 @@ config LWIP_TX_BUF_COPY
     help
         Enable TX buffer copy for LWIP
 
+config LWIP_SOCKET_UDP_TX_COPY
+    bool "Enable UDP socket TX copy for lwIP sockets"
+    default n
+    help
+        Copy UDP and RAW socket payloads into lwIP-owned buffers in
+        sendto/sendmsg without enabling the broader WiFi/L2 TX_BUF_COPY path.
+
 config LWIP_NETAL_TX_BUF_SIZE
     int "lwip net-al tx buffer size"
     default 1536

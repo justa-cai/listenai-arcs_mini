@@ -1,13 +1,19 @@
 #include "stdint.h"
 #include "stddef.h"
+#include "FreeRTOS.h"
+#include "task.h"
 
 #define TAG "voice.app.wakeup"
 #include "voice_msg.h"
 #include "app_datas.h"
 #include "sys_init.h"
+#include "sys_network_manager.h"
 
 #include "voice_cloud.h"
 
+#include "app_player.h"
+#include "tone.h"
+#include "voice_player_comm.h"
 #include "lisa_log.h"
 
 static bool is_valid_keyword(char *keyword)
@@ -19,15 +25,39 @@ static bool is_valid_keyword(char *keyword)
     return true;
 }
 
+static bool voice_wakeup_should_prompt_wifi_provision(void)
+{
+    sys_network_status_t status;
+
+    return sys_network_get_status(&status) == 0 && status.wifi_provision_required;
+}
+
+static void voice_wakeup_prompt_wifi_provision(void)
+{
+#if CONFIG_WIFI_MANAGER
+    static TickType_t s_last_prompt_tick = 0;
+    TickType_t now = xTaskGetTickCount();
+
+    if (s_last_prompt_tick == 0 || (now - s_last_prompt_tick) >= pdMS_TO_TICKS(1000)) {
+        app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
+        s_last_prompt_tick = now;
+    }
+
+    voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, NULL, 0);
+#endif
+}
+
 static bool start_voice_cloud(struct app_datas *app_datas)
 {
+    sys_network_status_t status;
+
     if (app_datas == NULL) {
         LOGW("Invalid app_datas");
         return false;
     }
 
-    if (app_datas->wifi_connected == 0) {
-        LOGW("WiFi not connected");
+    if (sys_network_get_status(&status) != 0 || !status.connected) {
+        LOGW("Network not connected");
         return false;
     }
 
@@ -43,14 +73,20 @@ static bool start_voice_cloud(struct app_datas *app_datas)
 
     const char *keywords[] = {"小聆小聆"};
     struct voice_cloud_chat_config chat_config = {
-        .full_duplex = app_datas->full_duplex,
+        .full_duplex = app_interaction_mode_is_continuous(app_datas->int_mode),
         .timeout_ms = app_datas->full_duplex_timeout_ms,
-        .oneshot = app_datas->oneshot,
+        .oneshot = app_interaction_mode_is_continuous(app_datas->int_mode) ? false : app_datas->oneshot,
         .words = (char **)keywords,
         .words_cnt = 1,
     };
 
     return voice_cloud_chat_start(&chat_config) == 0;
+}
+
+static void interrupt_photo_flow(const char *source)
+{
+    LOGI("interrupt photo flow by %s", source ? source : "unknown");
+    voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
 }
 
 static void voice_wakeup_keyword(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -68,6 +104,13 @@ static void voice_wakeup_keyword(void *unused, uint32_t msg_id, void *data, uint
         return;
     }
 
+    if (voice_wakeup_should_prompt_wifi_provision()) {
+        LOGI("voice wakeup ignored: WiFi provisioning is required");
+        voice_wakeup_prompt_wifi_provision();
+        return;
+    }
+
+    interrupt_photo_flow("voice wakeup");
     start_voice_cloud(app_datas);
 }
 
@@ -89,6 +132,11 @@ static void voice_wakeup_button_event(void *unused, uint32_t msg_id, void *data,
     /* only k1 (button0) is configured for PTT */
     if (evt->button_id != 0) {
         LOGI("ignore button_id=%d", evt->button_id);
+        return;
+    }
+
+    if (voice_wakeup_should_prompt_wifi_provision()) {
+        LOGI("button wakeup ignored: WiFi provisioning is required");
         return;
     }
 
@@ -121,6 +169,7 @@ static void voice_msg_btn_wakeup_start(void *unused, uint32_t msg_id, void *data
         return;
     }
 
+    interrupt_photo_flow("button wakeup");
     voice_cloud_audio_recognition_start();
 }
 

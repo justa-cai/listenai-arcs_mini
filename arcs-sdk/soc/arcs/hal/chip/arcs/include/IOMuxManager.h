@@ -10,10 +10,10 @@
 // PIN NUM: 0-31
 
 #define CSK_IOMUX_PAD_B                 1
-// PIN NUM: 0-15
+// PIN NUM: 0-9
 
 #define CSK_IOMUX_PAD_A_MAX_PIN			31
-#define CSK_IOMUX_PAD_B_MAX_PIN			15
+#define CSK_IOMUX_PAD_B_MAX_PIN			9
 
 /************** NORMAL IOMUX********************/
 #define CSK_IOMUX_FUNC_DEFAULT                 (0U)
@@ -84,6 +84,9 @@
 
 /************** AON TO NORMAL********************/
 #define CSK_AON_IOMUX_FUNC_NORMAL              (5U)
+
+/************** AON TO GPIO_OUT********************/
+#define CSK_AON_IOMUX_FUNC_GPIO_OUT			   (2U)
 
 /************** AON TO ANA********************/
 #define CSK_AON_IOMUX_FUNC_ANA                 (3U)
@@ -186,5 +189,8 @@ int32_t ANA_IOMuxManager_PinConfigure(uint8_t pad, uint8_t pin_num, uint32_t pin
  * @return CSK_DRIVER_OK on success, CSK_DRIVER_ERROR_PARAMETER if any parameter is out of range or invalid.
  */
 int32_t IOMuxManager_PinForce(uint8_t pad, uint8_t pin_num, uint8_t data);
+
+
+int32_t AON_IOMuxManager_PinForce(uint8_t pad, uint8_t pin_num, uint8_t data);
 
 #endif /* __CSK_IOMUX_MANAGER_H */

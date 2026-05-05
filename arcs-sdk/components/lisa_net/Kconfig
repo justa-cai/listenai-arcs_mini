@@ -1,28 +1,30 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
 menuconfig LISA_NET
-    bool "Network Device Abstraction Layer"
-    default n
-    help
-        Enable network device abstraction layer (SAL) for multi-network interface management.
+	bool "Network Device Abstraction Layer"
+	help
+		Enable network device abstraction layer (SAL) for multi-network interface management.
 
-    if LISA_NET
-        config NET_NAME
-            string "Module Name"
-            default "net"
+if LISA_NET
 
-        config SAL_SOCKETS_NUM
-            int "Maximum number of sockets"
-            default 16
-            help
-                Maximum number of sockets that can be allocated.
+config NET_NAME
+	string "Module Name"
+	default "net"
 
-        config SAL_INTERNET_CHECK
-            bool "Enable internet connectivity check"
-            default n
-            help
-                Enable automatic internet connectivity checking for network devices.
-        
-        config SAL_USING_POSIX
-            bool "using posix"
-            default y
+config SAL_SOCKETS_NUM
+	int "Maximum number of sockets"
+	default 16
+	help
+		Maximum number of sockets that can be allocated.
 
-    endif
+config SAL_INTERNET_CHECK
+	bool "Enable internet connectivity check"
+	help
+		Enable automatic internet connectivity checking for network devices.
+
+config SAL_USING_POSIX
+	bool "using posix"
+	default y
+
+endif

@@ -4,7 +4,7 @@
 menu "heap"
 
 config HEAP
-	bool
+	bool "Enable system heap"
 	default y
 	help
 		Enable the heap

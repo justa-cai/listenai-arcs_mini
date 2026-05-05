@@ -16,47 +16,24 @@
 #include "task.h"
 #include "Driver_AON_TIMER.h"
 #include "PowerManager.h"
-#include "ClockManager.h"
 #include "arcs_ap.h"
 #include "IOMuxManager.h"
 #include "spiflash.h"
-// #include "platform.h"
+#include "platform.h"
 #include "ic_spinlock.h"
 #include "ipc.h"
 #include "pm_impl.h"
-#include "wifi_ps_hw.h"
 #include "log_print.h"
-// #include "shell_def.h"
 #include "vrtc.h"
-#include "mrpc_utils_m2s_api_client.h"
 #if defined(CONFIG_PM) && defined(PSRAM_HEAP)
 #include "PSRAMManager.h"
 #endif
-
-#define UART0_IO_TX_PAD          (CSK_IOMUX_PAD_A)
-#define UART0_IO_TX_PIN          (2)
-#define UART0_IO_TX_SEL          (CSK_IOMUX_FUNC_ALTER2)
-
-#define UART0_IO_RX_PAD          (CSK_IOMUX_PAD_A)
-#define UART0_IO_RX_PIN          (3)
-#define UART0_IO_RX_SEL          (CSK_IOMUX_FUNC_ALTER2)
-
-#define UART1_IO_TX_PAD          (CSK_IOMUX_PAD_A)
-#define UART1_IO_TX_PIN          (4)
-#define UART1_IO_TX_SEL          (CSK_IOMUX_FUNC_ALTER3)
-
-#define UART1_IO_RX_PAD          (CSK_IOMUX_PAD_A)
-#define UART1_IO_RX_PIN          (5)
-#define UART1_IO_RX_SEL          (CSK_IOMUX_FUNC_ALTER3)
 
 #if CONFIG_PM
 
 #define SYSTICK_TICK_CONST          (configSYSTICK_CLOCK_HZ / configTICK_RATE_HZ)
 #define portMAX_BIT_NUMBER          ( SysTimer_MTIMER_Msk )
 
-#define WAKEUP_ACT_JUMP_RAM         (0xAA)
-#define WAKEUP_ACT_JUMP_FLASH       (0xBB)
-#define WAKEUP_ACT_JUMP_NONE        (0xFF)
 
 #define WAKEUP_CAUSE_ALL            0x3FF007F
 #define WAKEUP_DELAY_US             100
@@ -64,142 +41,82 @@
 #define REG_PL_RD(addr)              (*(volatile uint32_t *)(addr))
 #define REG_PL_WR(addr, value)       (*(volatile uint32_t *)(addr)) = (value)
 
-#if (BOOT_HARTID == 0)
-#define  RV_ILM_BASE         0x00080000
-#define  RV_ILM_LEN          0x00004000
-#else
-#define  RV_ILM_BASE         0x00280000
-#define  RV_ILM_LEN          0x00004000
-#endif
-enum
-{
-    PM_CORE_MASTER,
-    PM_CORE_SLAVE,
-    PM_CORE_MAX
-};
-
-enum
-{
-    PM_CORE_STATE_ACTIVE,
-    PM_CORE_STATE_IDLE,
-    PM_CORE_STATE_SLEEP,
-    PM_CORE_STATE_WAKEUP,
-    PM_CORE_STATE_STARTUP,
-    PM_CORE_STATE_MAX
-};
+//临时代码，后续UART的寄存器恢复放到设备层
+#define UART1_IO_TX_PAD          (CSK_IOMUX_PAD_A)
 
 #ifdef PSRAM_HEAP
 #define PSRAM_TEST_BASE_ADDR            (PSRAM_BASE_ADDRESS + 0x0)
 #define PSRAM_TEST_LENGTH               (0x80000) // 1MWord
 #endif
 
-extern void __idle_save(void);
-extern void __idle_restore(void);
+extern void __light_sleep_save(void);
+extern void __light_sleep_restore(void);
+extern void __light_sleep_entry(void);
 extern void ECLIC_Init(void);
 extern void BootClock_Init();
 extern void irq_vectors_reinit(void);
-extern void __light_sleep_entry(void);
 extern void mem_copy(void *dst, void *src, int32_t len);
 extern void BootClock_restore(void);
 extern void BootClock_save(void);
-extern void net_arp_announce(void);
 extern void vPortSetupTimerInterrupt(void);
 
-static int32_t pm_peripheral_ctrl(uint32_t cause, int32_t opteration);
-static void pm_force_ap_pd(void);
-#if CONFIG_PM_KEEP_ALIVE
-static void pm_keep_alive(void);
+
+#if (CONFIG_CORE_NUM == 1)
+static pm_config_t       local_config;
+static struct pm_core_context local_core_ctx[1];
+static pm_sleep_config_t local_sleep_cfg;
+static uint32_t          local_wakeup_cause;
+#else
+static uint8_t pm_mbx_default_priority;
 #endif
-struct pm_env_t
-{
-    pm_config_t config;
-    pm_peripheral_dev_t *dev;
-    uint32_t lock_bits;
-    uint32_t wakeup_time;
-    uint64_t startup_time;
-#if CONFIG_PM_KEEP_ALIVE
-    uint32_t arp_time;
-    rtos_timer arp_timer_handle;
-#endif
+
+
+extern int32_t _mem_copy_func_start, _mem_copy_func_end, _mem_copy_func_lma, __copy_table_start__, __copy_table_end__;
+
+static FLASH_DEV arcs_flash_dev = {
+    .base_addr = CMN_FLASHC_BASE,
+    .d_width = 4,
+    .sclk_div = 0xff,  // 0 means divider=2 //0xff,  //0xff means divider=1
+    .run_mod = RUN_WITHOUT_INT,
+    .timeout = 0x180000,
 };
 
-
-volatile pmu_wakeupsrc_t wakeup_cause = PMU_WAKEUP_NONE;
-volatile uint32_t __stack_store_repo = 0;
-
-static struct pm_env_t pm_env =
-{
-    .config.mode = PM_MODE_ACTIVE,
-};
+volatile pmu_wakeupsrc_t pm_wakeup_cause = PMU_WAKEUP_NONE;
 
 #if PM_GPIO_ACTIVE_DET
 static bool pm_gpio_active = false;
 #endif
+struct pm_env_t pm_env;
 
 #if CONFIG_PM_DEBUG
 static uint32_t pm_irq_status[(IRQ_MAX + 31) / 32];
 #endif
 static struct pm_reg_info pm_reg_context[] =
 {
-#if (BOOT_HARTID == 0) || !defined(CFG_AMP_IPC)
+#if IS_PM_CORE_PRIMARY
     {&IP_MAILBOX->REG_CP_MAILBOX_CTRL.all},
     {&IP_SYSCTRL->REG_PERI_CLK_CFG1.all},
     {&IP_SYSCTRL->REG_PERI_CLK_CFG2.all},
     {&IP_SYSCTRL->REG_PERI_CLK_CFG5.all},
-#if defined(UART0_IO_TX_PAD)
-#if (UART0_IO_TX_PAD == CSK_IOMUX_PAD_B)
-    {&IP_CMN_IOMUX->REG_PAD_GPIOB_00.all + UART0_IO_TX_PIN},
-    {&IP_AON_IOMUX->REG_PAD_AON_GPIOB_00.all + UART0_IO_TX_PIN},
-#else
-    {&IP_CMN_IOMUX->REG_PAD_GPIOA_00.all + UART0_IO_TX_PIN},
-#endif
-#if (UART0_IO_RX_PAD == CSK_IOMUX_PAD_B)
-    {&IP_CMN_IOMUX->REG_PAD_GPIOB_00.all + UART0_IO_RX_PIN},
-    {&IP_AON_IOMUX->REG_PAD_AON_GPIOB_00.all + UART0_IO_RX_PIN},
-#else
-    {&IP_CMN_IOMUX->REG_PAD_GPIOA_00.all + UART0_IO_RX_PIN},
-#endif
+
+#ifdef UART0_BASE
     {&IP_UART0->REG_CTRL.all},
     {&IP_UART0->REG_TRIGGERS.all},
     {&IP_UART0->REG_IRQ_MASK.all},
 #endif
-#if defined(UART1_IO_TX_PAD)
-#if (UART1_IO_TX_PAD == CSK_IOMUX_PAD_B)
-    {&IP_CMN_IOMUX->REG_PAD_GPIOB_00.all + UART1_IO_TX_PIN},
-    {&IP_AON_IOMUX->REG_PAD_AON_GPIOB_00.all + UART1_IO_TX_PIN},
-#else
-    {&IP_CMN_IOMUX->REG_PAD_GPIOA_00.all + UART1_IO_TX_PIN},
-#endif
-#if (UART1_IO_RX_PAD == CSK_IOMUX_PAD_B)
-    {&IP_CMN_IOMUX->REG_PAD_GPIOB_00.all + UART1_IO_RX_PIN},
-    {&IP_AON_IOMUX->REG_PAD_AON_GPIOB_00.all + UART1_IO_RX_PIN},
-#else
-    {&IP_CMN_IOMUX->REG_PAD_GPIOA_00.all + UART1_IO_RX_PIN},
-#endif
+
+#ifdef UART1_BASE
     {&IP_UART1->REG_CTRL.all},
     {&IP_UART1->REG_TRIGGERS.all},
     {&IP_UART1->REG_IRQ_MASK.all},
 #endif
 
-#if defined(UART2_IO_TX_PAD)
-#if (UART2_IO_TX_PAD == CSK_IOMUX_PAD_B)
-    {&IP_CMN_IOMUX->REG_PAD_GPIOB_00.all + UART2_IO_TX_PIN},
-#else
-    {&IP_CMN_IOMUX->REG_PAD_GPIOA_00.all + UART2_IO_TX_PIN},
-#endif
-#if (UART2_IO_RX_PAD == CSK_IOMUX_PAD_B)
-    {&IP_CMN_IOMUX->REG_PAD_GPIOB_00.all + UART2_IO_RX_PIN},
-#if CONFIG_PM_UART_WAKEUP
-    {&IP_AON_IOMUX->REG_PAD_AON_GPIOB_00.all + UART2_IO_RX_PIN},
-#endif
-#else
-    {&IP_CMN_IOMUX->REG_PAD_GPIOA_00.all + UART2_IO_RX_PIN},
-#endif
+#ifdef UART2_BASE
     {&IP_UART2->REG_CTRL.all},
     {&IP_UART2->REG_TRIGGERS.all},
     {&IP_UART2->REG_IRQ_MASK.all},
 #endif
-    {&IP_GPADC->REG_ADC_CTRL1.all},
+
     {&IP_GPADC->REG_ADC_IMR0.all},
     {&IP_GPADC->REG_ADC_IMR1.all},
     {&IP_GPADC->REG_ADC_IMR2.all},
@@ -210,9 +127,29 @@ static struct pm_reg_info pm_reg_context[] =
     {0}
 };
 
+static void pm_restore_gpio_reg(void)
+{
+    for (int32_t i = 0; i < PM_GPIO_RETENTION_MAX; i++)
+    {
+        uint32_t pad, gpio;
+        volatile uint32_t *ptr = &IP_CMN_IOMUX->REG_PAD_GPIOA_00.all;
+
+        if (pm_env.gpio_retention[i].gpio_idx)
+        {
+            pad   = pm_env.gpio_retention[i].gpio_idx >> 16;
+            gpio  = pm_env.gpio_retention[i].gpio_idx & 0xFFFF;
+            gpio -= 1;
+            if (pad == CSK_IOMUX_PAD_A)
+                ptr[gpio] = pm_env.gpio_retention[i].val;
+            else
+                ptr[gpio + 32] = pm_env.gpio_retention[i].val;
+        }
+    }
+}
+
 static _PM_RAM_TEXT void pm_restore_context(struct pm_reg_info *reg)
 {
-#if (BOOT_HARTID == 0) || !defined(CFG_AMP_IPC)
+#if IS_PM_CORE_PRIMARY
     uint32_t val = 0;
 
 #if defined(UART0_IO_TX_PAD)
@@ -226,7 +163,6 @@ static _PM_RAM_TEXT void pm_restore_context(struct pm_reg_info *reg)
 #endif
 
     val |= 1<<CMN_SYSCFG_SW_RESET_CP2_GPADC_RESET_Pos;
-
     IP_SYSCTRL->REG_SW_RESET_CP2.all |= val;
 #endif
     while (reg->addr)
@@ -234,7 +170,7 @@ static _PM_RAM_TEXT void pm_restore_context(struct pm_reg_info *reg)
         REG_PL_WR(reg->addr, reg->value);
         reg++;
     }
-#if (BOOT_HARTID == 0) || !defined(CFG_AMP_IPC)
+#if IS_PM_CORE_PRIMARY
 #if defined(UART0_IO_TX_PAD)
     IP_SYSCTRL->REG_PERI_CLK_CFG1.all |= 1 << CMN_SYSCFG_PERI_CLK_CFG1_DIV_UART0_CLK_LD_Pos;
 #endif
@@ -245,6 +181,28 @@ static _PM_RAM_TEXT void pm_restore_context(struct pm_reg_info *reg)
     IP_SYSCTRL->REG_PERI_CLK_CFG3.all |= 1 << CMN_SYSCFG_PERI_CLK_CFG3_DIV_UART2_CLK_LD_Pos;
 #endif
 #endif
+
+    pm_restore_gpio_reg();
+}
+
+static void pm_save_gpio_reg(void)
+{
+    for (int32_t i = 0; i < PM_GPIO_RETENTION_MAX; i++)
+    {
+        uint32_t pad, gpio;
+        volatile uint32_t *ptr = &IP_CMN_IOMUX->REG_PAD_GPIOA_00.all;
+
+        if (pm_env.gpio_retention[i].gpio_idx)
+        {
+            pad   = pm_env.gpio_retention[i].gpio_idx >> 16;
+            gpio  = pm_env.gpio_retention[i].gpio_idx & 0xFFFF;
+            gpio -= 1;
+            if (pad == CSK_IOMUX_PAD_A)
+                pm_env.gpio_retention[i].val = ptr[gpio];
+            else
+                pm_env.gpio_retention[i].val = ptr[gpio+32];
+        }
+    }
 }
 
 static _PM_RAM_TEXT void pm_save_context(struct pm_reg_info *reg)
@@ -254,28 +212,9 @@ static _PM_RAM_TEXT void pm_save_context(struct pm_reg_info *reg)
         reg->value = REG_PL_RD(reg->addr);
         reg++;
     }
-}
-#if CONFIG_PM_CLOSE_AP
-void pm_force_ap_off(void)
-{
-    if (!IP_AON_CTRL->REG_PMU_CORE_CTRL0.bit.AP_STATE_CURR)
-    {
-        IP_AON_CTRL->REG_PMU_CORE_CTRL0.bit.PD_AP_SUB = 1;
-    }
-}
 
-void pm_force_ap_on(void)
-{
-    if (IP_AON_CTRL->REG_PMU_CORE_CTRL0.bit.AP_STATE_CURR)
-    {
-        vPortEnterCritical();
-        IP_AON_CTRL->REG_AON_DIG_RSVD0.all = WAKEUP_ACT_JUMP_NONE;
-        IP_AON_CTRL->REG_PMU_CORE_CTRL0.bit.PU_AP_SUB = 1;
-        while (IP_AON_CTRL->REG_AON_DIG_RSVD0.all);
-        vPortExitCritical();
-    }
+    pm_save_gpio_reg();
 }
-#endif
 
 static void pm_ram_retention(uint32_t reten_bits)
 {
@@ -285,166 +224,51 @@ static void pm_ram_retention(uint32_t reten_bits)
     IP_AON_CTRL->REG_RAM_PGEN_FRC.bit.RAM_PGEN_FRC = PM_RAM_RETENTION_BIT_MASK & (~reten_bits);
 }
 
-#if CONFIG_PM_KEEP_ALIVE
-static void pm_arp_timer_cb(rtos_timer timer)
-{
-    net_arp_announce();
-    if ((pm_env.config.mode == PM_MODE_ACTIVE) && (rtos_timer_get_period(timer) == 1))
-        rtos_timer_schedule(timer, CONFIG_PM_KEEP_ALIVE_PERIOD);
-}
-#endif
-int32_t pm_set_config(pm_config_t *config)
-{
-    int32_t clock = -1;
-
-    if (config->mode >= PM_MODE_MAX)
-        return -1;
-
-    if (config->mode > PM_MODE_ACTIVE)
-    {
-        if ((config->clock_level != pm_env.config.clock_level) && (config->clock_level < PM_CLOCK_LEVEL_COUNT))
-        {
-            pm_env.config.clock_level = config->clock_level;
-            clock = config->clock_level;
-        }
-    }
-    else if (pm_env.config.clock_level)
-    {
-        clock = BOARD_BOOTCLOCKRUN_SYSPLL_CORE_CFG_PARA;
-    }
-
-    if (clock >= 0)
-    {
-        vPortEnterCritical();
-        HAL_CRM_SetHclkClkSrc(CRM_IpSrcXtalClk);
-        CRM_InitCoreSrc(clock);
-        HAL_CRM_SetHclkClkSrc(CRM_IpSrcCoreClk);
-        vPortExitCritical();
-    }
-
-#ifdef CFG_AMP_IPC_MASTER
-    pm_sync_config(config);
-#endif
-#if CONFIG_PM_CLOSE_AP
-    pm_force_ap_off();
-#endif
-#if CONFIG_PM_KEEP_ALIVE
-    if (pm_env.arp_timer_handle)
-    {
-        if (config->mode == PM_MODE_LIGHT_SLEEP)
-        {
-            if (config->keep_alive)
-            {
-                rtos_timer_set_reload_mode(pm_env.arp_timer_handle, false);
-                pm_keep_alive();
-            }
-            else if (rtos_timer_is_active(pm_env.arp_timer_handle))
-            {
-                rtos_timer_stop(pm_env.arp_timer_handle);
-            }
-        }
-        else if (config->mode == PM_MODE_ACTIVE)
-        {
-            rtos_timer_set_reload_mode(pm_env.arp_timer_handle, true);
-            rtos_timer_schedule(pm_env.arp_timer_handle, 1);
-            rtos_timer_start(pm_env.arp_timer_handle);
-        }
-    }
-#endif
-    pm_env.config = *config;
-
-    return 0;
-}
-#ifdef CFG_AMP_IPC_SLAVE
-int32_t pm_sync_config(pm_config_t *config)
-{
-	if (config->mode >= PM_MODE_MAX)
-        return -1;
-
-    pm_env.config = *config;
-
-	return 0;
-}
-#endif
 static int32_t pm_can_sleep(void)
 {
-    int32_t status = 1;
-    pm_peripheral_dev_t *dev = pm_env.dev;
+    pm_handler_t *hnd = (pm_handler_t*)pm_env.handle[PM_HANDLE_TYPE_DEV];
 
-    if ((pm_env.config.mode != PM_MODE_LIGHT_SLEEP) ||  pm_env.lock_bits)
+    if ((pm_env.config->mode != PM_MODE_LIGHT_SLEEP) ||  pm_env.lock_bits 
+        #if (CONFIG_CORE_NUM == 2)
+        || pm_env.core_ctx[PM_CORE_CUR].cross_core_lock
+        #endif
+        )
+    {
         return 0;
+    }
 
 #if PM_GPIO_ACTIVE_DET
     if (pm_gpio_active && ((int32_t)((pm_env.wakeup_time + PM_GPIO_IDLE_TIME) - (uint32_t)rtos_get_sys_us()) > 0))
         return 0;
     pm_gpio_active = false;
 #endif
-    while (dev && status)
+
+    while (hnd)
     {
-        if (dev->pm_check_idle)
-            status = dev->pm_check_idle(PM_MODE_LIGHT_SLEEP);
-        dev = dev->next;
+        if ((hnd->ops.check_idle) && hnd->ops.check_idle(PM_MODE_LIGHT_SLEEP) == 0)
+        {
+            return 0;
+        }
+        hnd = hnd->next;
     }
 
-    return status;
-}
-
-int32_t pm_lock_acquire(pm_lock_t lock)
-{
-    if (lock < PM_LOCK_MAX)
-    {
-        taskENTER_CRITICAL();
-        pm_env.lock_bits |= lock;
-        taskEXIT_CRITICAL();
-    }
-
-    return 0;
-}
-
-int32_t pm_lock_release(pm_lock_t lock)
-{
-    if (lock < PM_LOCK_MAX)
-    {
-        taskENTER_CRITICAL();
-        pm_env.lock_bits &= ~lock;
-        taskEXIT_CRITICAL();
-    }
-
-    return 0;
+    return 1;
 }
 
 static uint32_t pm_get_wakeup_cause(void)
 {
-#ifndef CFG_AMP_IPC
-    return IP_AON_CTRL->REG_WAKEUP_ISR.all;
+#if (CONFIG_CORE_NUM == 1)
+    *pm_env.last_wakeup_cause = IP_AON_CTRL->REG_WAKEUP_ISR.all;
 #else
-    volatile struct amp_shared_info* shared;
-
-    shared = ipc_get_shared_info();
-#ifdef CFG_AMP_IPC_MASTER
+#if !IS_PM_CORE_PRIMARY
     if (ipc_get_app_status(IPC_APP_STATUS_VRTC_ALERT))
         return PMU_WAKEUP_TIMER;
 #else
-    shared->wakeup_cause = IP_AON_CTRL->REG_WAKEUP_ISR.all;
+    *pm_env.last_wakeup_cause = IP_AON_CTRL->REG_WAKEUP_ISR.all;
 #endif
-    return shared->wakeup_cause;
 #endif
+    return *pm_env.last_wakeup_cause;
 }
-#ifdef CFG_AMP_IPC_SLAVE
-void pm_wakeup_isr_from_ipc(void)
-{
-    ipc_send_notify(IPC_EVT_WAKEUP);
-}
-
-void pm_master_idle_request(void)
-{
-    volatile struct amp_shared_info* shared;
-
-    shared = ipc_get_shared_info();
-    if (shared->master_state.state == PM_CORE_STATE_IDLE)
-        shared->master_state.state = PM_CORE_STATE_SLEEP;
-}
-#endif
 
 #if (BOOT_HARTID == 0) && (CONFIG_PM)
 typedef void (*proc_ptr) (void);
@@ -478,10 +302,12 @@ static void pm_set_wakeup_entry(uint32_t entry)
     IP_AON_CTRL->REG_AON_DIG_RSVD1.all = entry;
 #else
     IP_AON_CTRL->REG_AON_DIG_RSVD2.all = WAKEUP_ACT_JUMP_RAM;
-#ifdef CFG_AMP_IPC
+#if (CONFIG_CORE_NUM == 2)
+    /*Dual-core application: CP is waiting for AP to reset it*/
     IP_AON_CTRL->REG_AON_DIG_RSVD3.all = (uint32_t)pm_dead_loop;
     IP_AON_CTRL->REG_AON_DIG_RSVD4.all = entry;
 #else
+    /*Single-core application: AP enters WFI state after startup.*/
     IP_AON_CTRL->REG_AON_DIG_RSVD0.all = WAKEUP_ACT_JUMP_RAM;
     IP_AON_CTRL->REG_AON_DIG_RSVD1.all = (uint32_t)pm_dead_loop;
     IP_AON_CTRL->REG_AON_DIG_RSVD3.all = entry;
@@ -489,19 +315,48 @@ static void pm_set_wakeup_entry(uint32_t entry)
 #endif
 }
 
+static void pm_prevent_other_core_sleep(void)
+{
+#if (CONFIG_CORE_NUM == 2)
+    pm_env.core_ctx[PM_CORE_PEER].cross_core_lock = 1;
+    __asm__ volatile ("fence rw, rw" ::: "memory");
+#endif
+}
+
+static void pm_allow_other_core_sleep(void)
+{
+#if (CONFIG_CORE_NUM == 2)
+    pm_env.core_ctx[PM_CORE_PEER].cross_core_lock = 0;
+    __asm__ volatile ("fence rw, rw" ::: "memory");
+#endif
+}
+
+static void pm_set_core_state(uint32_t state)
+{
+#if (CONFIG_CORE_NUM == 2)
+    pm_env.core_ctx[PM_CORE_CUR].state = state;
+    __asm__ volatile ("fence rw, rw" ::: "memory");
+#endif
+}
+
+static uint32_t pm_get_core_state(uint32_t core_id)
+{
+    return pm_env.core_ctx[core_id].state;
+}
+
 static void pm_set_wakeup_source(void)
 {
-    if (pm_env.config.auto_mode)
+    if (pm_env.config->auto_mode)
         IP_AON_CTRL->REG_WAKEUP_ENABLE.all = (1 << PMU_WAKEUP_WIFI) | (1 << PMU_WAKEUP_TIMER);
     else
         IP_AON_CTRL->REG_WAKEUP_ENABLE.all = (1 << PMU_WAKEUP_WIFI);
-    if (pm_env.config.gpio_pin_mask)
+    if ((pm_env.sleep_cfg->wakeup_src_mask & (1<<PM_WAKEUP_GPIO)) &&pm_env.sleep_cfg->gpio_mask)
     {
         volatile union CORE_IOMUX_REG_PAD_GPIOB_00 *ptr;
 
         for (int32_t i = 0; i < PM_GPIO_PIN_MAX; i++)
         {
-            if (pm_env.config.gpio_pin_mask & (1<<i))
+            if (pm_env.sleep_cfg->gpio_mask & (1<<i))
             {
                 #if CONFIG_PM_UART_WAKEUP && ((UART0_IO_RX_PAD == CSK_IOMUX_PAD_B) || (UART1_IO_RX_PAD == CSK_IOMUX_PAD_B))
                 if ((i == UART0_IO_RX_PIN) || (i == UART1_IO_RX_PIN))
@@ -524,49 +379,31 @@ static void pm_set_wakeup_source(void)
     }
 }
 
-extern int32_t _mem_copy_func_start, _mem_copy_func_end, _mem_copy_func_lma, __copy_table_start__, __copy_table_end__;
-
-static FLASH_DEV arcs_flash_dev = {
-    .base_addr = CMN_FLASHC_BASE,
-    .d_width = 4,
-    .sclk_div = 0xff,  // 0 means divider=2 //0xff,  //0xff means divider=1
-    .run_mod = RUN_WITHOUT_INT,
-    .timeout = 0x180000,
-};
-
 _PM_RAM_TEXT void pm_sleep_startup(void)
 {
     volatile int32_t *dst = &_mem_copy_func_start, *src = &_mem_copy_func_lma, *end = &_mem_copy_func_end;
     volatile int32_t *cpy_tb_entry, *cpy_tb_end;
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_MASTER)
-    volatile struct amp_shared_info* shared;
-#endif
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
+
+    PM_SET_GPIOB(PM_SLEEP_PIN, 1);
     IP_AON_CTRL->REG_RAM_PGEN_FRC_REG.bit.RAM_PGEN_FRC_REG = 0;
     IP_AON_CTRL->REG_RAM_PGEN_FRC.bit.RAM_PGEN_FRC = 0;
-
+#if !IS_PM_CORE_PRIMARY
+    pm_set_core_state(PM_CORE_STATE_STARTUP);
+#endif
     EnableICache();
     EnableDCache();
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
     // Set cache region mask
     __RV_CSR_WRITE(CSR_MNOCM,  ~(CMN_PSRAM_REGION - WIFI_RAM_REGION - 1));
     // Set base physical address and enable
     __RV_CSR_WRITE(CSR_MNOCB, WIFI_RAM_REGION | 0x1);
     __RWMB();
     __FENCE_I();
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
+#if IS_PM_CORE_PRIMARY
     flash_init(&arcs_flash_dev, 0, 0);
-    
     BootClock_restore();
 #endif
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_MASTER)
-    shared = ipc_get_shared_info();
-    shared->master_state.state = PM_CORE_STATE_STARTUP;
-#endif
 
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
+    PM_SET_GPIOB(PM_SLEEP_PIN, 0);
 
     if (((uint32_t)dst >= RV_ILM_BASE) && ((uint32_t)dst < (RV_ILM_BASE + RV_ILM_LEN)))
     {
@@ -589,59 +426,289 @@ _PM_RAM_TEXT void pm_sleep_startup(void)
                 mem_copy((void*)dst, (void*)src, len);
         }
     }
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
+    PM_SET_GPIOB(PM_SLEEP_PIN, 1);
 //    ECLIC_Init();//mth
     ECLIC_SetCfgNlbits(__ECLIC_INTCTLBITS);
-    wakeup_cause = pm_get_wakeup_cause();
-#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_MASTER)
+    pm_wakeup_cause = pm_get_wakeup_cause();
+#if (CONFIG_CORE_NUM == 1) || !IS_PM_CORE_PRIMARY
 #if CONFIG_PM_UART_WAKEUP && ((UART0_IO_RX_PAD == CSK_IOMUX_PAD_B) || (UART1_IO_RX_PAD == CSK_IOMUX_PAD_B))
-    if (wakeup_cause == 0)
+    if (pm_wakeup_cause == 0)
     {
         pm_gpio_active = true;
     }
     else
 #endif
+    {
 #if PM_GPIO_ACTIVE_DET
-    if (wakeup_cause & (((1 << PM_GPIO_PIN_MAX) - 1) << PMU_WAKEUP_GPIOB_00))
+    if (pm_wakeup_cause & (((1 << PM_GPIO_PIN_MAX) - 1) << PMU_WAKEUP_GPIOB_00))
         pm_gpio_active = true;
 #endif
+    }
 #endif
-    wakeup_cause |= 1 << 31;
+    pm_wakeup_cause |= 1 << 31;
 
-#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+#if IS_PM_CORE_PRIMARY
     HAL_PMU_ClearWakeUpCause();
 #if CONFIG_PM_DEBUG
     //wifi_ps_gpio_init();
 #endif
 #endif
-#if defined(CFG_AMP_IPC) && (BOOT_HARTID == 0)
+#if (CONFIG_CORE_NUM == 2) && (IS_PM_CORE_PRIMARY)
     IP_CMN_SYS->REG_N300_CP_RST_ADDR.all = IP_AON_CTRL->REG_AON_DIG_RSVD4.all;
     IP_SYSCTRL->REG_SW_RESET_CP0.all = 0xCAFE000A;
 #endif
     irq_vectors_reinit();
     ECLIC_SetShvIRQ(SysTimerSW_IRQn, ECLIC_VECTOR_INTERRUPT);
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-    __idle_restore();
+    PM_SET_GPIOB(PM_SLEEP_PIN, 0);
+    __light_sleep_restore();
 }
 
-#ifdef CFG_AMP_IPC
+uint64_t pm_get_startup_time(void)
+{
+    return pm_env.startup_time;
+}
+
+static int32_t pm_execute_enter_handler(uint32_t sleep_time_us, int32_t mode)
+{
+    for (int32_t i = (PM_HANDLE_TYPE_MAX - 1); i >= 0; i--)
+    {
+        pm_handler_t *handle = pm_env.handle[i];
+
+        while (handle)
+        {
+            if (handle->ops.on_enter)
+                    handle->ops.on_enter(sleep_time_us, (void*)mode);
+            handle = handle->next;
+        }
+    }
+
+    return 0;
+}
+
+static int32_t pm_execute_exit_handler(uint32_t sleep_time_us, int32_t cause)
+{
+    for (int32_t i = 0; i < PM_HANDLE_TYPE_MAX; i++)
+    {
+        pm_handler_t *handle = pm_env.handle[i];
+
+        while (handle)
+        {
+            if (handle->ops.on_exit)
+                    handle->ops.on_exit(sleep_time_us, (void*)cause);
+            handle = handle->next;
+        }
+    }
+
+    return 0;
+}
+
+static int32_t pm_execute_wake_handler(uint32_t sleep_time_us, int32_t cause)
+{
+    pm_handler_t *handle = pm_env.handle[PM_HANDLE_TYPE_DEV];
+
+    while (handle)
+    {
+        if (handle->ops.on_wake)
+                handle->ops.on_wake(sleep_time_us, (void*)cause);
+        handle = handle->next;
+    }
+
+    return 0;
+}
+
+int32_t pm_internal_register(int32_t type, int32_t id, pm_handler_ops_t *ops)
+{
+    pm_handler_t *new_node;
+    pm_handler_t **prev = &pm_env.handle[type];
+
+    if (ops == NULL)
+        return -1;
+
+    new_node = rtos_malloc(sizeof(pm_handler_t));
+    if (new_node == NULL)
+        return -1;
+
+    new_node->ops.check_idle = ops->check_idle;
+    new_node->ops.on_enter   = ops->on_enter;
+    new_node->ops.on_exit    = ops->on_exit;
+    new_node->ops.on_wake    = ops->on_wake;
+    new_node->id = id;
+
+    taskENTER_CRITICAL();
+
+    while (*prev != NULL)
+    {
+        if ((*prev)->id == id)
+        {
+            taskEXIT_CRITICAL();
+            rtos_free(new_node);
+            return -2;
+        }
+
+        if ((*prev)->id > id)
+            break;
+
+        prev = &((*prev)->next);
+    }
+
+    new_node->next = *prev;
+    *prev = new_node;
+
+    taskEXIT_CRITICAL();
+
+    return 0;
+}
+
+int32_t pm_internal_unregister(int32_t type, int32_t id)
+{
+    pm_handler_t **prev = &pm_env.handle[type];
+    pm_handler_t *entry = NULL;
+
+    taskENTER_CRITICAL();
+
+    while (*prev != NULL)
+    {
+        if ((*prev)->id == id)
+        {
+            entry = *prev;
+            *prev = entry->next;
+            break;
+        }
+
+        if ((*prev)->id > id)
+            break;
+
+        prev = &((*prev)->next);
+    }
+
+    taskEXIT_CRITICAL();
+
+    if (entry)
+    {
+        rtos_free(entry);
+        return 0;
+    }
+
+    return -1;
+}
+
+#if CONFIG_PM_DEBUG
+static void pm_record_irq_state(void)
+{
+    if (pm_env.config->dbg_level)
+    {
+        pm_irq_status[0] = 0;
+        pm_irq_status[1] = 0;
+        pm_irq_status[2] = 0;
+        for (int32_t i = 0; i < IRQ_MAX; i++)
+        {
+            if (ECLIC_GetPendingIRQ(i) && ECLIC_GetEnableIRQ(i))
+                pm_irq_status[i>>5] |= 1 << (i & 0x1F);
+        }
+    }
+}
+#endif
+
+static void pm_light_sleep_prepare(uint32_t sleep_time)
+{
+#if IS_PM_CORE_PRIMARY
+    /*
+    * If an IRQ occurs between the _WFI call and the hardware entering deep sleep,
+    * it will cause a hardware state machine error. Therefore, the AON timer IRQ must be disabled
+    */
+    ECLIC_DisableIRQ(IRQ_AON_TIMER_VECTOR);
+    BootClock_save();
+    pm_set_wakeup_source();
+    pm_set_wakeup_entry((uint32_t)__light_sleep_entry);
+    pm_ram_retention(0xDFF);
+#else
+    pm_mbx_default_priority = ECLIC_GetLevelIRQ(IRQ_MAILBOX_2_VECTOR);
+    ECLIC_SetLevelIRQ(IRQ_MAILBOX_2_VECTOR, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+    ipc_clear_app_status(IPC_APP_STATUS_VRTC_ALERT);
+    pm_set_wakeup_entry((uint32_t)__light_sleep_entry);
+#endif
+    pm_save_context(pm_reg_context);
+
+    if (pm_env.config->auto_mode)
+        vrtc_set_timer(VRTC_TIMER_IDX_LOCAL, ((sleep_time * 1000) - WAKEUP_DELAY_US), NULL);
+}
+
+static int32_t pm_hw_execute_sleep(TickType_t xExpectedIdleTime)
+{
+#if IS_PM_CORE_PRIMARY
+#if (CONFIG_CORE_NUM == 2)
+    if (pm_env.core_ctx[PM_CORE_CUR].cross_core_lock)
+        return -1;
+#else
+#if (BOOT_HARTID == 0)
+    HAL_PMU_PreConfigSleepTrigger(PMU_SLEEP_CMD_BY_AP);
+#else
+    HAL_PMU_PreConfigSleepTrigger(PMU_SLEEP_CMD_BY_CP);
+#endif
+#endif
+    PM_SET_GPIOB(PM_SLEEP_PIN, 0);
+    HAL_PMU_ConfigDeepSleepMode(PMU_SLEEPMODE_MODE2, PMU_HOLDENTRY_WFI);
+#ifdef PSRAM_HEAP
+    HAL_FlushDCache_by_Addr((uint32_t*)PSRAM_TEST_BASE_ADDR, (uint32_t)(PSRAM_TEST_LENGTH * sizeof(uint32_t)));
+    PSRAM_EnterSleepMode(PSRAM_SLEEP_MODE_HALF_SLEEP);
+#endif
+    IP_AON_CTRL->REG_AON_LDOVAON.bit.LDO_AON_VTRIM = 0x22;
+    __light_sleep_save();
+    PM_SET_GPIOB(PM_SLEEP_PIN, 1);
+#else
+    PM_SET_GPIOB(PM_SLEEP_PIN, 0);
+    pm_set_core_state(PM_CORE_STATE_IDLE);
+    pm_allow_other_core_sleep();
+    __set_wfi_sleepmode(WFI_DEEP_SLEEP);
+    ipc_send_notify(IPC_EVT_ENTER_IDLE);
+    __light_sleep_save();
+    pm_prevent_other_core_sleep();
+    /*Restore registers to receive Inter-Core interrupts*/
+    if (pm_wakeup_cause)
+        pm_restore_context(pm_reg_context);
+    PM_SET_GPIOB(PM_SLEEP_PIN, 1);
+#if (CONFIG_CORE_NUM == 2)
+    if (pm_get_core_state(PM_CORE_CUR) == PM_CORE_STATE_STARTUP)
+        __WFI();
+#endif
+    pm_set_core_state(PM_CORE_STATE_ACTIVE);
+#endif
+     return 0;
+}
+
+static void pm_light_sleep_restore(uint32_t sleep_time)
+{
+#if IS_PM_CORE_PRIMARY
+    uint32_t curr_time;
+
+    if (pm_wakeup_cause)
+        pm_restore_context(pm_reg_context);
+    else
+        IP_AON_CTRL->REG_AON_LDOVAON.bit.LDO_AON_VTRIM = 0;
+
+    pm_execute_wake_handler(sleep_time, pm_wakeup_cause);
+#ifdef PSRAM_HEAP
+    PSRAM_Reinit(0x50, 0x40);
+#endif
+#if (CONFIG_CORE_NUM == 2)
+    if (pm_get_core_state(PM_CORE_PEER) == PM_CORE_STATE_STARTUP)
+        ipc_send_notify(IPC_EVT_WAKEUP);
+#endif
+#else
+    ECLIC_SetLevelIRQ(IRQ_MAILBOX_2_VECTOR, pm_mbx_default_priority);
+#endif
+    __set_wfi_sleepmode(WFI_SHALLOW_SLEEP);
+}
+
 static void pm_light_sleep(TickType_t xExpectedIdleTime)
 {
-    uint8_t priority;
-    uint32_t gap, complete_tick_periods, curr_time;
-    volatile uint64_t wakeup_time, sleep_time, system_timer;
-    TickType_t xMaximumPossibleSuppressedTicks = (TickType_t)(portMAX_BIT_NUMBER / SYSTICK_TICK_CONST);
+    uint32_t sleep_time, complete_tick_periods;
+    volatile uint64_t sleep_start, sleep_end, system_timer;
     volatile struct amp_shared_info* shared;
 
-    if (xExpectedIdleTime > xMaximumPossibleSuppressedTicks)
-        xExpectedIdleTime = xMaximumPossibleSuppressedTicks;
-
-    #if 1
     SysTimer_Stop();
-    #else
-    ECLIC_DisableIRQ(SysTimer_IRQn);
-    #endif
-#ifdef CFG_AMP_IPC_MASTER
+
+#if !IS_PM_CORE_PRIMARY
     vPortEnterCritical();
 #endif
     __disable_irq();
@@ -649,415 +716,118 @@ static void pm_light_sleep(TickType_t xExpectedIdleTime)
 
     if (eTaskConfirmSleepModeStatus() != eAbortSleep)
     {
-#ifdef CFG_AMP_IPC_MASTER
-        priority = ECLIC_GetLevelIRQ(IRQ_MAILBOX_2_VECTOR);
-        ECLIC_SetLevelIRQ(IRQ_MAILBOX_2_VECTOR, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+#if (CONFIG_CORE_NUM == 2)
+        if (pm_env.core_ctx[PM_CORE_CUR].cross_core_lock)
+            goto FAILED_TO_SLEEP;
 #endif
-        shared  = ipc_get_shared_info();
+
         SysTimer_ClearSWIRQ();
-        wakeup_cause = 0;
-#ifdef CFG_AMP_IPC_SLAVE
-        if (shared->master_state.state != PM_CORE_STATE_SLEEP)
-        {
-            #if 1
-            SysTimer_Start();
-            #else
-            ECLIC_EnableIRQ(SysTimer_IRQn);
-            #endif
-            SysTick_Reload(SYSTICK_TICK_CONST);
-            __WFI();
-            __enable_irq();
-            return;
-        }
-#ifdef PSRAM_HEAP
-        HAL_FlushDCache_by_Addr((uint32_t*)PSRAM_TEST_BASE_ADDR, (uint32_t)(PSRAM_TEST_LENGTH * sizeof(uint32_t)));
-        PSRAM_EnterSleepMode(PSRAM_SLEEP_MODE_HALF_SLEEP);
-#endif
-        ECLIC_DisableIRQ(IRQ_AON_TIMER_VECTOR);
+        pm_wakeup_cause = 0;
+        pm_execute_enter_handler(xExpectedIdleTime, PM_MODE_LIGHT_SLEEP);
+        pm_light_sleep_prepare(xExpectedIdleTime);
         system_timer = SysTimer_GetLoadValue();
-        sleep_time   = vrtc_get_time_us();
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        pm_peripheral_ctrl(PM_MODE_LIGHT_SLEEP, 1);
-        pm_save_context(pm_reg_context);
-        BootClock_save();
-        if (pm_env.config.auto_mode)
-            vrtc_set_timer(VRTC_TIMER_IDX_LOCAL, ((xExpectedIdleTime * 1000) - WAKEUP_DELAY_US), NULL);
-        pm_set_wakeup_entry((uint32_t)__light_sleep_entry);
-        pm_set_wakeup_source();
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-        HAL_PMU_ConfigDeepSleepMode(PMU_SLEEPMODE_MODE2, PMU_HOLDENTRY_WFI);
-        pm_ram_retention(0xDFF);
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        __idle_save();
-        if (wakeup_cause)
-            pm_restore_context(pm_reg_context);
-#else
-        system_timer = SysTimer_GetLoadValue();
-        sleep_time   = vrtc_get_time_us();
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        ipc_clear_app_status(IPC_APP_STATUS_VRTC_ALERT);
-        pm_save_context(pm_reg_context);
-        if (pm_env.config.auto_mode)
-            vrtc_set_timer(VRTC_TIMER_IDX_IPC, ((xExpectedIdleTime * 1000) - WAKEUP_DELAY_US), NULL);
-        pm_set_wakeup_entry((uint32_t)__light_sleep_entry);
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-        shared->master_state.sleep_time  = sleep_time;
-        shared->master_state.wakeup_time = sleep_time + xExpectedIdleTime*1000;
-        shared->master_state.state       = PM_CORE_STATE_IDLE;
-        ipc_send_notify(IPC_EVT_ENTER_IDLE);
-        __set_wfi_sleepmode(WFI_DEEP_SLEEP);
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        __idle_save();
-        if (wakeup_cause)
-            pm_restore_context(pm_reg_context);
-        if (shared->master_state.state == PM_CORE_STATE_STARTUP)
-            __WFI();
-        shared->master_state.state = PM_CORE_STATE_ACTIVE;
-#endif
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
+        sleep_start  = vrtc_get_time_us();
+        if (pm_hw_execute_sleep(xExpectedIdleTime))
+            goto FAILED_TO_SLEEP;
 #if CONFIG_PM_DEBUG
-        if (pm_env.config.dbg_level)
+        pm_record_irq_state();
+#endif
+        sleep_end  = vrtc_get_time_us();
+        sleep_time = (uint32_t)(sleep_end - sleep_start);
+        if (pm_wakeup_cause)
         {
-            pm_irq_status[0] = 0;
-            pm_irq_status[1] = 0;
-            pm_irq_status[2] = 0;
-            for (int32_t i = 0; i < IRQ_MAX; i++)
-            {
-                if (ECLIC_GetPendingIRQ(i) && ECLIC_GetEnableIRQ(i))
-                    pm_irq_status[i>>5] |= 1 << (i & 0x1F);
-            }
+            #if IS_PM_CORE_PRIMARY
+            uint32_t curr_time = SysTimer_GetLoadValue();
+            pm_env.startup_time = system_timer + sleep_time - curr_time;
+            #endif
+            SysTimer_SetLoadValue(system_timer + sleep_time);
         }
-#endif
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        wakeup_time = vrtc_get_time_us();
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-        gap  = (uint32_t)(wakeup_time - sleep_time);
-        #ifdef CFG_AMP_IPC_SLAVE
-        if (wakeup_cause)
-        {
-            curr_time = SysTimer_GetLoadValue();
-            pm_env.startup_time = system_timer + gap - curr_time;
-        }
-        #endif
-        SysTimer_SetLoadValue(system_timer + gap);
-#ifdef CFG_AMP_IPC_SLAVE
-        pm_peripheral_ctrl(wakeup_cause, 0);
-        if (shared->master_state.state == PM_CORE_STATE_STARTUP)
-            ipc_send_notify(IPC_EVT_WAKEUP);
-#ifdef PSRAM_HEAP
-        PSRAM_Reinit(0x50, 0x40);
-#endif
+        PM_SET_GPIOB(PM_SLEEP_PIN, 0);
+        pm_light_sleep_restore(sleep_time);
 
-#endif
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-
-        complete_tick_periods = (gap/1000) / (1000/configTICK_RATE_HZ);
-        if (complete_tick_periods > xExpectedIdleTime)
-            vTaskStepTick(xExpectedIdleTime);
-        else
-            vTaskStepTick(complete_tick_periods);
+        complete_tick_periods = (sleep_time/1000) / (1000/configTICK_RATE_HZ);
+        vTaskStepTick(complete_tick_periods);
         vPortSetupTimerInterrupt();
         SysTimer_Start();
-        __set_wfi_sleepmode(WFI_SHALLOW_SLEEP);
+
+        pm_execute_exit_handler(sleep_time, pm_wakeup_cause);
+        PM_SET_GPIOB(PM_SLEEP_PIN, 1);
 #if PM_GPIO_ACTIVE_DET
         pm_env.wakeup_time = rtos_get_sys_us();
 #endif
-#ifdef CFG_AMP_IPC_MASTER
-        ECLIC_SetLevelIRQ(IRQ_MAILBOX_2_VECTOR, priority);
-#endif
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
+
 #if CONFIG_PM_DEBUG
-        if (pm_env.config.dbg_level && pm_env.config.dbg_level <= PM_DBG_MAX)
+        if (pm_env.config->dbg_level && pm_env.config->dbg_level <= PM_DBG_MAX)
         {
-            logDbg("wk:%u cause:0x%x\n", gap, wakeup_cause);
-            if (pm_env.config.dbg_level >= PM_DBG_INF)
+            logDbg("wk:%u cause:0x%x\n", sleep_time, pm_wakeup_cause);
+            if (pm_env.config->dbg_level >= PM_DBG_INF)
             {
                 for (int32_t i = 0; i < sizeof(pm_irq_status) / sizeof(uint32_t); i++)
                 {
                     if (pm_irq_status[i])
                         logDbg("irq[%d]=0x%x\n", i, pm_irq_status[i]);
                 }
-                if (pm_env.config.dbg_level >= PM_DBG_VRB)
-                    logDbg("sleep:%u wake:%u\n", sleep_time, wakeup_time);
+                if (pm_env.config->dbg_level >= PM_DBG_VRB)
+                    logDbg("sleep:%u wake:%u\n", sleep_start, sleep_end);
             }
         }
-#endif
-#if CONFIG_PM_KEEP_ALIVE
-        pm_keep_alive();
 #endif
     }
     else
     {
-        #if 1
         SysTimer_Start();
         SysTick_Reload(SYSTICK_TICK_CONST);
-        #else
-        ECLIC_EnableIRQ(SysTimer_IRQn);
-        #endif
     }
-#ifdef CFG_AMP_IPC_MASTER
+#if !IS_PM_CORE_PRIMARY
     vPortExitCritical();
 #endif
     __enable_irq();
-}
-#else
-static void pm_light_sleep(TickType_t xExpectedIdleTime)
-{
-    uint32_t gap, complete_tick_periods, curr_time;
-    volatile uint64_t wakeup_time, sleep_time, system_timer;
-    TickType_t xMaximumPossibleSuppressedTicks = (TickType_t)(portMAX_BIT_NUMBER / SYSTICK_TICK_CONST);
-    // syslog_write("-------\r\n", 9);
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-    if (xExpectedIdleTime > xMaximumPossibleSuppressedTicks)
-        xExpectedIdleTime = xMaximumPossibleSuppressedTicks;
 
-    #if 1
-    SysTimer_Stop();
-    #else
-    ECLIC_DisableIRQ(SysTimer_IRQn);
-    #endif
+    return;
 
-    __disable_irq();
-    log_flush();
-
-    if (eTaskConfirmSleepModeStatus() != eAbortSleep)
-    {
-        SysTimer_ClearSWIRQ();
-        ECLIC_DisableIRQ(IRQ_AON_TIMER_VECTOR);
-        sleep_time   = vrtc_get_time_us();
-        system_timer = SysTimer_GetLoadValue();
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        pm_peripheral_ctrl(PM_MODE_LIGHT_SLEEP, 1);
-        pm_save_context(pm_reg_context);
-        BootClock_save();
-        if (pm_env.config.auto_mode)
-            vrtc_set_timer(VRTC_TIMER_IDX_IPC, ((xExpectedIdleTime * 1000) - WAKEUP_DELAY_US), NULL);
-        pm_set_wakeup_entry((uint32_t)__light_sleep_entry);
-        pm_set_wakeup_source();
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-        HAL_PMU_PreConfigSleepTrigger(PMU_SLEEP_CMD_BY_CP);
-        HAL_PMU_ConfigDeepSleepMode(PMU_SLEEPMODE_MODE2, PMU_HOLDENTRY_WFI);
-        pm_ram_retention(0xDFF);
-        wakeup_cause = 0;
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        __idle_save();
-
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-#if CONFIG_PM_DEBUG
-        if (pm_env.config.dbg_level)
-        {
-            pm_irq_status[0] = 0;
-            pm_irq_status[1] = 0;
-            pm_irq_status[2] = 0;
-            for (int32_t i = 0; i < IRQ_MAX; i++)
-            {
-                if (ECLIC_GetPendingIRQ(i) && ECLIC_GetEnableIRQ(i))
-                    pm_irq_status[i>>5] |= 1 << (i & 0x1F);
-            }
-        }
-#endif
-        if (wakeup_cause)
-            pm_restore_context(pm_reg_context);
-        //  PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-        wakeup_time = vrtc_get_time_us();
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-        gap  = (uint32_t)(wakeup_time - sleep_time);
-        if (wakeup_cause)
-        {
-            curr_time = SysTimer_GetLoadValue();
-            pm_env.startup_time = system_timer + gap - curr_time;
-        }
-        SysTimer_SetLoadValue(system_timer + gap);
-
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-#if 0//def CFG_AMP_IPC_SLAVE
-        __enable_irq();
-        __FENCE_I();
-        __NOP();
-        __disable_irq();
-#endif
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-        pm_peripheral_ctrl(wakeup_cause, 0);
-
-        complete_tick_periods = (gap/1000) / (1000/configTICK_RATE_HZ);
-        if (complete_tick_periods <= xExpectedIdleTime)
-            vTaskStepTick(complete_tick_periods);
-        else
-            vTaskStepTick(complete_tick_periods);
-
-        vPortSetupTimerInterrupt();
-        SysTimer_Start();
-        __set_wfi_sleepmode(WFI_SHALLOW_SLEEP);
-#if PM_GPIO_ACTIVE_DET
-        pm_env.wakeup_time = rtos_get_sys_us();
-#endif
-        // PM_SET_GPIOB(PM_SLEEP_PIN, 1);
-
-#if CONFIG_PM_DEBUG
-        if (pm_env.config.dbg_level && pm_env.config.dbg_level <= PM_DBG_MAX)
-        {
-            logDbg("wk:%u cause:0x%x\n", gap, wakeup_cause);
-            if (pm_env.config.dbg_level >= PM_DBG_INF)
-            {
-                for (int32_t i = 0; i < sizeof(pm_irq_status) / sizeof(uint32_t); i++)
-                {
-                    if (pm_irq_status[i])
-                        logDbg("irq[%d]=0x%x\n", i, pm_irq_status[i]);
-                }
-                if (pm_env.config.dbg_level >= PM_DBG_VRB)
-                    logDbg("slep:%u wake:%u\n", sleep_time, wakeup_time);
-            }
-        }
-#endif
-#if CONFIG_PM_KEEP_ALIVE
-        pm_keep_alive();
-#endif
-    }
-    else
-    {
-        #if 1
-        SysTimer_Start();
-        SysTick_Reload(SYSTICK_TICK_CONST);
-        #else
-        ECLIC_EnableIRQ(SysTimer_IRQn);
-        #endif
-    }
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
+FAILED_TO_SLEEP:
+#if (CONFIG_CORE_NUM == 2)
+    SysTimer_Start();
+    SysTick_Reload(SYSTICK_TICK_CONST);
+   // PM_SET_GPIOB(9, 0);
+    __WFI();
+   // PM_SET_GPIOB(9, 1);
     __enable_irq();
-    // PM_SET_GPIOB(PM_SLEEP_PIN, 0);
-}
 #endif
+    return;
+}
+
+int32_t pm_device_register(int32_t dev_id, pm_handler_ops_t *ops)
+{
+    return pm_internal_register(PM_HANDLE_TYPE_DEV, dev_id, ops);
+}
+
+int32_t pm_device_unregister(int32_t dev_id)
+{
+    return pm_internal_unregister(PM_HANDLE_TYPE_DEV, dev_id);
+}
+
 _PM_RAM_TEXT void vPortSuppressTicksAndSleep(TickType_t xExpectedIdleTime)
 {
     if (pm_can_sleep())
         pm_light_sleep(xExpectedIdleTime);
     else
+    {
+        #if IS_PM_CORE_PRIMARY
+        PM_SET_GPIOB(8, 0);
+        #endif
         __WFI();
-}
-
-static int32_t pm_peripheral_ctrl(uint32_t cause, int32_t opteration)
-{
-    pm_peripheral_dev_t *dev = pm_env.dev;
-
-    while (dev)
-    {
-        if (opteration == 0)
-        {
-            if (dev->pm_resume)
-                dev->pm_resume(cause);
-        }
-        else if (opteration == 1)
-        {
-            if (dev->pm_suspend)
-                dev->pm_suspend(cause);
-        }
-        else
-        {
-            break;
-        }
-
-        dev = dev->next;
-    }
-
-    return 0;
-}
-
-int32_t pm_peripheral_register(pm_peripheral_dev_t *pm_dev)
-{
-    pm_peripheral_dev_t *dev = pm_env.dev;
-
-    if (!pm_dev)
-        return -1;
-
-    taskENTER_CRITICAL();
-    while (dev)
-    {
-        if (dev == pm_dev)
-            goto OUT;
-
-        dev = dev->next;
-    }
-    pm_dev->next = pm_env.dev;
-    pm_env.dev   = pm_dev;
-
-OUT:
-    taskEXIT_CRITICAL();
-
-    return 0;
-}
-
-int32_t pm_peripheral_unregister(pm_peripheral_dev_t *pm_dev)
-{
-    pm_peripheral_dev_t *dev = pm_env.dev;
-    int32_t found = 0;
-
-    if (!pm_dev)
-        return -1;
-
-    taskENTER_CRITICAL();
-    if (dev == pm_dev)
-    {
-        pm_env.dev = pm_dev->next;
-        found = 1;
-    }
-    else
-    {
-        while (dev)
-        {
-            if (dev->next == pm_dev)
-            {
-                dev->next = pm_dev->next;
-                found = 1;
-                break;
-            }
-            dev = dev->next;
-        }
-    }
-    taskEXIT_CRITICAL();
-
-    return found ? 0 : -1;
-}
-
-int32_t pm_enable_keep_alive(bool enable)
-{
-#if CONFIG_PM_KEEP_ALIVE
-    if (enable)
-    {
-        if (!pm_env.arp_timer_handle)
-            pm_env.arp_timer_handle = rtos_timer_create(NULL, true, 1, pm_arp_timer_cb);
-        rtos_timer_start(pm_env.arp_timer_handle);
-    }
-    else
-    {
-        rtos_timer_stop(pm_env.arp_timer_handle);
-    }
-#endif
-    return 0;
-}
-#if CONFIG_PM_KEEP_ALIVE
-static void pm_keep_alive(void)
-{
-    if (pm_env.config.keep_alive)
-    {
-        if ((pm_env.arp_time == 0) || (((int32_t)((pm_env.arp_time + CONFIG_PM_KEEP_ALIVE_PERIOD*1000) - (uint32_t)rtos_get_sys_us())) < 0))
-        {
-            rtos_timer_schedule(pm_env.arp_timer_handle, 1);
-            pm_env.arp_time = (uint32_t)rtos_get_sys_us();
-        }
+        #if IS_PM_CORE_PRIMARY
+        PM_SET_GPIOB(8, 1);
+        #endif
     }
 }
-#endif
-uint64_t pm_get_startup_time(void)
-{
-    return pm_env.startup_time;
-}
 
-int32_t pm_init(void)
+int32_t pm_impl_init(void)
 {
-#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
-    #if PM_GPIO_DBG
-    int32_t i = 0, pin_num[] = {0<<2, 1<<2, 7<<2, 8<<2, 9<<2, -1};
+#if IS_PM_CORE_PRIMARY
+#if PM_GPIO_DBG
+    int32_t i = 0, pin_num[] = {0<<2, 1<<2, 4<<2, 7<<2, 8<<2, 9<<2, -1};
     volatile union AON_IOMUX_REG_PAD_AON_GPIOB_00 *ptr;
 
     do
@@ -1069,35 +839,49 @@ int32_t pm_init(void)
 
     ptr = (volatile union AON_IOMUX_REG_PAD_AON_GPIOB_00*)(0x48100000UL + (7<<2));
     ptr->bit.PAD_AON_GPIOB_00_FSEL = 1;
-
     IP_AON_CTRL->REG_AON_DBG_OUT_SEL.bit.AON_DBG_OUT_SEL = 3;
-    #endif
+#endif
 
-   
     IP_AON_CTRL->REG_PWON_CNT_CFG0.bit.PWON_CNT0 = 4;
     IP_AON_CTRL->REG_PWON_CNT_CFG0.bit.PWON_CNT1 = 4;
     IP_AON_CTRL->REG_PWON_CNT_CFG0.bit.PWON_CNT2 = 4;
     IP_AON_CTRL->REG_PWON_CNT_CFG1.bit.PWON_CNT3 = 12;
     IP_AON_CTRL->REG_PWON_CNT_CFG1.bit.PWON_CNT4 = 12;
     IP_AON_CTRL->REG_PWON_CNT_CFG1.bit.PWON_CNT5 = 12;
+#endif
 
+#if (CONFIG_CORE_NUM == 2)
+    volatile struct amp_shared_info* shared = ipc_get_shared_info();
+
+    pm_env.config    = &shared->pm_data.config;
+    pm_env.core_ctx  = shared->pm_data.core_ctx;
+    pm_env.sleep_cfg = &shared->pm_data.sleep_cfg;
+    pm_env.last_wakeup_cause = &shared->pm_data.last_wakeup_cause;
+#else
+    pm_env.config    = &local_config;
+    pm_env.core_ctx  = local_core_ctx;
+    pm_env.sleep_cfg = &local_sleep_cfg;
+    pm_env.last_wakeup_cause = &local_wakeup_cause;
+#endif
+    pm_env.config->mode = PM_MODE_ACTIVE;
+#if (CONFIG_CORE_NUM == 2)
+#if IS_PM_CORE_PRIMARY
+    pm_env.core_ctx[PM_CORE_CUR].cross_core_lock = 1;
+#else
+    pm_env.core_ctx[PM_CORE_CUR].cross_core_lock = 0;
+#endif
 #endif
 
     return 0;
 }
-
 #else
-int32_t pm_peripheral_register(pm_peripheral_dev_t *pm_dev)
+int32_t pm_device_register(int32_t dev_id, pm_handler_ops_t *ops)
 {
-    (void)pm_dev;
-
     return 0;
 }
 
-int32_t pm_peripheral_unregister(pm_peripheral_dev_t *pm_dev)
+int32_t pm_device_unregister(int32_t dev_id)
 {
-    (void)pm_dev;
-
     return 0;
 }
 
@@ -1105,13 +889,4 @@ uint64_t pm_get_startup_time(void)
 {
     return 0;
 }
-#ifdef CFG_AMP_IPC_SLAVE
-int32_t pm_sync_config(pm_config_t *config)
-{
-    (void)config;
-
-    return 0;
-}
 #endif
-#endif
-

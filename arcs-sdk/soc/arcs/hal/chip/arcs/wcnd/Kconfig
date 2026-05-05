@@ -55,4 +55,54 @@ if ARCS_HAL_WCND
         help
             RF Board Version
 
+    config ARCS_HAL_WCND_FLASH_WF_MFG_CONF_BASE_ADDR
+        hex "WiFi RF mfg conf flash base address"
+        default 0
+        help
+            Flash base address for WiFi PHY/RF manufacture configuration
+            (mac address, xo_cap, power offset, rssi offset, power table, ppa gain...).
+            Partition size must be no less than 512 bytes.
+
+    config ARCS_HAL_WCND_WIFI_RF_SET_GOLDEN
+        int "WiFi RF set golden value enable (1=enable, 0=disable)"
+        default 0
+        help
+            Set to 1 to enable WiFi RF golden value configuration.
+
+    config ARCS_HAL_WCND_XO_CAP_GOLDEN_VAL
+        int "XO cap golden value"
+        default 0
+        help
+            Golden value for XO 24M capacitor.
+
+    config ARCS_HAL_WCND_PWR_OFFSET_LOW_GOLDEN_VAL
+        int "Power offset golden value for low channel"
+        default 0
+        help
+            Golden value for WiFi power offset on low channel.
+
+    config ARCS_HAL_WCND_PWR_OFFSET_MID_GOLDEN_VAL
+        int "Power offset golden value for mid channel"
+        default 0
+        help
+            Golden value for WiFi power offset on mid channel.
+
+    config ARCS_HAL_WCND_PWR_OFFSET_HIGH_GOLDEN_VAL
+        int "Power offset golden value for high channel"
+        default 0
+        help
+            Golden value for WiFi power offset on high channel.
+
+    config ARCS_HAL_WCND_RSSI_OFFSET_DSSS_GOLDEN_VAL
+        int "RSSI offset golden value for DSSS"
+        default 0
+        help
+            Golden value for WiFi RSSI offset on DSSS mode.
+
+    config ARCS_HAL_WCND_RSSI_OFFSET_OFDM_GOLDEN_VAL
+        int "RSSI offset golden value for OFDM"
+        default 0
+        help
+            Golden value for WiFi RSSI offset on OFDM mode.
+
 endif

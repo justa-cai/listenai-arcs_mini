@@ -11,7 +11,6 @@
  */
 
 #include <string.h>
-#include <stdbool.h>
 #include "ls_rtos.h"
 #include "ipc_master.h"
 #include "ls_event.h"
@@ -45,9 +44,34 @@ static struct ipc_ccb *slave_fast_ccb;
 
 uint8_t wifi_share_ring[IPC_WIFI_SHARE_SIZE]  __IPC_WIFI_SHARE;
 
-#ifdef  CFG_IPC_PRINT
+#if defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT)
 extern void rtos_ipc_dbg_task_resume(int32_t isr);
 extern void ipc_dbg_init(volatile struct ipc_dbg_tag *buffer);
+#endif
+
+#if defined(CONFIG_ARCS_HAL_IPC_PRINT)
+extern void ipc_dbg_output_string(const char *string, uint32_t len);
+
+static int32_t ipc_master_print_indication_handler(struct ipc_msg_desc *desc, void *arg)
+{
+    uint32_t len;
+    struct ipc_msg_hdr *msg = (struct ipc_msg_hdr*)desc->data;
+
+    if (msg->id != IPC_IND_PRINT)
+        return IPC_MSG_RELEASE;
+
+    if (msg->len >= (IPC_A2C_MSG_BUF_SIZE - sizeof(struct ipc_msg_hdr)))
+        len = IPC_A2C_MSG_BUF_SIZE - sizeof(struct ipc_msg_hdr) - 1;
+    else
+        len = msg->len;
+
+    if ((len > 0) && (((char*)msg->data)[len - 1] == 0))
+        len--;
+
+    ipc_dbg_output_string((char*)msg->data, len);
+
+    return IPC_MSG_RELEASE;
+}
 #endif
 
 
@@ -128,7 +152,7 @@ static int32_t ipc_master_fast_notify_handler(void *ccb, void *fast_notify)
     }
 #endif
 
-#ifdef  CFG_IPC_PRINT
+#if defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT)
     if (notify & IPC_EVT_PRINT)
     {
         rtos_ipc_dbg_task_resume(1);
@@ -284,6 +308,10 @@ int32_t ipc_master_init(struct ipc_master_cb_tag *cb)
     /*»ùÓÚmsg channel½¨Á¢indication endpointÓÃÓÚ½ÓÊÕÍ¨Öª*/
     if (cb && cb->indication_handler)
         ipc_master_ep_register(IPC_EP_IND, cb->indication_handler, NULL);
+#if defined(CONFIG_ARCS_HAL_IPC_PRINT)
+    else
+        ipc_master_ep_register(IPC_EP_IND, ipc_master_print_indication_handler, NULL);
+#endif
 
 #ifdef CFG_AMP_IPC_MRPC_SERVER
     mrpc_server = mrpc_server_init(IPC_CHAN_MASTER_MSG, IPC_EP_MRPC_SRV);
@@ -308,7 +336,7 @@ int32_t ipc_master_init(struct ipc_master_cb_tag *cb)
 #if defined(CFG_AMP_IPC_HALT_PEER_CORE) || defined(CFG_AMP_IPC_HALT_BY_PEER_CORE)
     ipc_halt_peer_init();
 #endif
-#ifdef CFG_IPC_PRINT
+#if defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT)
     ipc_dbg_init(&ipc_shared_env.dbg_buffer);
 #endif
 #ifdef IPC_TEST_CASE

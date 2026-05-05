@@ -134,7 +134,25 @@ static void video_stream_task(void *arg)
            (actual_fmt == USBH_VIDEO_FORMAT_MJPEG) ? "MJPEG" : "UNCOMPRESSED",
            (unsigned)actual_w, (unsigned)actual_h);
 
-    ret = usbh_video_open(video_class, actual_fmt, actual_w, actual_h, 0);
+    /* ISO 模式下自动选择 MPS 最大的 altsetting */
+    uint8_t altsetting = 0;
+    if (!video_class->is_bulk && video_class->num_of_intf_altsettings > 1) {
+        uint16_t best_mps = 0;
+        for (uint8_t i = 1; i < video_class->num_of_intf_altsettings; i++) {
+            struct usb_endpoint_descriptor *ep =
+                &video_class->hport->config.intf[video_class->data_intf].altsetting[i].ep[0].ep_desc;
+            uint16_t mps = USB_GET_MAXPACKETSIZE(ep->wMaxPacketSize) *
+                           (USB_GET_MULT(ep->wMaxPacketSize) + 1);
+            if (mps > best_mps) {
+                best_mps = mps;
+                altsetting = i;
+            }
+        }
+        printf("[VIDEO%u] ISO mode: selected altsetting %u (mps=%u)\r\n",
+               (unsigned)dev_idx, (unsigned)altsetting, (unsigned)best_mps);
+    }
+
+    ret = usbh_video_open(video_class, actual_fmt, actual_w, actual_h, altsetting);
     if (ret < 0) {
         printf("[VIDEO%u] Open failed: %d\r\n", (unsigned)dev_idx, ret);
         goto out_no_stream;
@@ -143,13 +161,6 @@ static void video_stream_task(void *arg)
     /* 保存协商到的实际分辨率，供帧回调传递给显示模块 */
     ctx->width  = actual_w;
     ctx->height = actual_h;
-
-    if (!video_class->is_bulk) {
-        printf("[VIDEO%u] ISO streaming not yet supported on MUSB, aborting\r\n",
-               (unsigned)dev_idx);
-        usbh_video_close(video_class);
-        goto out_no_stream;
-    }
 
     /* 根据协商后的实际分辨率和格式动态分配帧缓冲区：
      * UNCOMPRESSED(YUY2): width * height * 2 B
@@ -167,22 +178,26 @@ static void video_stream_task(void *arg)
            (unsigned)dev_idx, (unsigned long)frame_bufsize,
            (unsigned)actual_w, (unsigned)actual_h);
 
-    /* 从 PSRAM 分配 chunk 缓冲区 */
-    uint32_t chunk_size = video_class->probe.dwMaxPayloadTransferSize;
-    if (chunk_size == 0) {
-        chunk_size = CONFIG_USBH_VIDEO_BULK_CHUNK_SIZE;
-    }
-    ctx->chunk_buf = psram_malloc_align(CONFIG_USB_ALIGN_SIZE, chunk_size);
-    if (!ctx->chunk_buf) {
-        printf("[VIDEO%u] Failed to allocate chunk_buf (%lu B)\r\n",
+    /* Bulk 模式需要从 PSRAM 分配 chunk 缓冲区；ISO 模式由驱动内部分配 */
+    uint32_t chunk_size = 0;
+    if (video_class->is_bulk) {
+        chunk_size = video_class->probe.dwMaxPayloadTransferSize;
+        if (chunk_size == 0) {
+            chunk_size = CONFIG_USBH_VIDEO_BULK_CHUNK_SIZE;
+        }
+        ctx->chunk_buf = psram_malloc_align(CONFIG_USB_ALIGN_SIZE, chunk_size);
+        if (!ctx->chunk_buf) {
+            printf("[VIDEO%u] Failed to allocate chunk_buf (%lu B)\r\n",
+                   (unsigned)dev_idx, (unsigned long)chunk_size);
+            usbh_video_close(video_class);
+            goto out_no_stream;
+        }
+        printf("[VIDEO%u] chunk_buf allocated: %lu B\r\n",
                (unsigned)dev_idx, (unsigned long)chunk_size);
-        usbh_video_close(video_class);
-        goto out_no_stream;
     }
-    printf("[VIDEO%u] chunk_buf allocated: %lu B\r\n",
-           (unsigned)dev_idx, (unsigned long)chunk_size);
 
-    printf("[VIDEO%u] Starting bulk streaming...\r\n", (unsigned)dev_idx);
+    printf("[VIDEO%u] Starting %s streaming...\r\n",
+           (unsigned)dev_idx, video_class->is_bulk ? "bulk" : "ISO");
 
     ctx->frame_count = 0;
     ctx->total_bytes = 0;
@@ -196,8 +211,10 @@ static void video_stream_task(void *arg)
                                      ctx);
     if (ret < 0) {
         printf("[VIDEO%u] start_streaming failed: %d\r\n", (unsigned)dev_idx, ret);
-        psram_free(ctx->chunk_buf);
-        ctx->chunk_buf = NULL;
+        if (ctx->chunk_buf) {
+            psram_free(ctx->chunk_buf);
+            ctx->chunk_buf = NULL;
+        }
         usbh_video_close(video_class);
         goto out_no_stream;
     }
@@ -238,8 +255,9 @@ static void video_stream_task(void *arg)
     printf("[VIDEO%u] Device disconnected, cleaning up...\r\n", (unsigned)dev_idx);
 
     /*
-     * streaming 已由 usbh_video_stop() 停止（URB 已 kill），
-     * 此处仅释放 chunk_buf；usbh_video_close() 因 hport 可能已被清零而跳过。
+     * streaming 已由 usbh_video_stop() 停止（URB 已 kill）。
+     * Bulk 模式释放 chunk_buf；ISO 模式 chunk_buf 为 NULL（驱动内部已释放 ISO URB）。
+     * usbh_video_close() 因 hport 可能已被清零而跳过。
      */
     psram_free(ctx->chunk_buf);
     ctx->chunk_buf = NULL;
@@ -307,7 +325,7 @@ void usbh_video_run(struct usbh_video *video_class)
 /*            → usbh_video_class_free() ← memset(video_class, 0)       */
 /*                                                                      */
 /*  必须在本函数返回前完成 URB kill，否则 usbh_video_class_free 清零     */
-/*  bulkin_urb（含回调指针）后 MUSB 硬件触发中断会访问 NULL 回调 → crash */
+/*  URB（含回调指针）后 MUSB 硬件触发中断会访问 NULL 回调 → crash        */
 /* ------------------------------------------------------------------ */
 void usbh_video_stop(struct usbh_video *video_class)
 {

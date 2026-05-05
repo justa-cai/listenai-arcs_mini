@@ -1467,9 +1467,17 @@ ftsdc021_set_bus_speed_mode(u8 ip_idx, u8 speed)
         if (speed < 1) {
             SDHost[ip_idx].Card->max_dtr = 25000000; // << speed; tiger debug
         } else if (speed < 2){ /* current controller stable @ max 130 MHz */
+#if CONFIG_ARCS_HAL_SDMMC_SDNAND_COMPAT
+            SDHost[ip_idx].Card->max_dtr = 50000000;
+#else
             SDHost[ip_idx].Card->max_dtr = 100000000;
+#endif
         } else if (speed < 3){
+#if CONFIG_ARCS_HAL_SDMMC_SDNAND_COMPAT
+            SDHost[ip_idx].Card->max_dtr = 50000000;
+#else
             SDHost[ip_idx].Card->max_dtr = 100000000;
+#endif
         } else if (speed < 4){
         	SDHost[ip_idx].Card->max_dtr = 200000000;
         } else {
@@ -1532,6 +1540,9 @@ ftsdc021_pulselatch_tuning(u8 ip_idx, u32 div)
         //sdc_dbg_print("Try Latch offset:%d\n", i);
         if (ftsdc021_card_read(ip_idx, 0, 1, buf)) {
             *(pass_array + i) = 0;
+#if CONFIG_ARCS_HAL_SDMMC_SDNAND_COMPAT
+            ftsdc021_delay(10);
+#endif
         }
     }
 
@@ -2682,7 +2693,9 @@ ftsdc021_init_normal(u8 ip_idx)
 
     //TODO: arcs_c0 IP_SYSCTRL->REG_SW_RESET0.bit.SDIOH_RESET = 0x1;
     __COMPILER_BARRIER();
+#if !CONFIG_ARCS_HAL_SDMMC_SDNAND_COMPAT
 	IP_SDIOH->REG_CCR_TCR_SRR.bit.SD_CLK_EN       = 0x1;
+#endif
 	IP_SDIOH->REG_HC1_PCR_BGCR.bit.SD_BUS_POW     = 0x1; // Set SD power enable
 	IP_SDIOH->REG_HC1_PCR_BGCR.bit.SD_BUS_VOL     = 0x3; // Set SD power enable
 	IP_SDIOH->REG_VR1.bit.LO_SD_RSTN     = 0x0; // Release Reset signal

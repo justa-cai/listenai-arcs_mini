@@ -1,4 +1,4 @@
-
+#include <string.h>
 #include "ls_event.h"
 #include "ls_wifi_type.h"
 #include "net_al.h"
@@ -9,16 +9,45 @@
 #include "ls_misc.h"
 #include "mac_manager.h"
 #include "mac_manager_ops.h"
+#include "sys_wifi.h"
 #include "wifi_manager/wifi_manager.h"
 
 #include "voice_msg.h"
 
+#if CONFIG_SAL_USING_POSIX
+#include "netdev.h"
+#endif
+
 #define TAG "user_wifi"
 #include "lisa_log.h"
+
+typedef struct {
+    bool stack_inited;
+    bool ready;
+    bool started;
+    bool connected;
+    bool autoconnect_requested;
+    bool autoconnect_enabled;
+    bool netdev_registered;
+    bool dhcp_cb_registered;
+    bool force_provision;
+    bool user_force_provision;
+} sys_wifi_status_t;
+
+static sys_wifi_status_t s_wifi = {0};
 
 static mac_manager_t *m_mac_manager = NULL;
 
 static void wifi_mgr_connection_cb(wifi_mgr_connection_info_t *connection_info, void *arg);
+static void wifi_mgr_scan_done_cb(wifi_mgr_scan_info_t *aps_info, int ap_num, void *arg);
+static int sys_wifi_register_netdev(void);
+static void sys_wifi_start_autoconnect(void);
+static void sys_wifi_stop_autoconnect(void);
+static int sys_wifi_init_sta_config(wifi_mgr_sta_config_t *sta_config,
+                                    const char *ssid,
+                                    const char *pwd,
+                                    const char *bssid);
+static bool sys_wifi_has_ap(void);
 
 /* extern 声明 SDK nv_config.c 中的 MAC eFuse 接口 */
 extern int8_t nv_efuse_read_mac(uint8_t *mac_addr);
@@ -199,6 +228,9 @@ static void user_mac_manager_init(void)
 static void dhcp_status_callback(int vif_idx, bool success, uint32_t ip_addr, uint32_t netmask, uint32_t gateway, void *arg)
 {
     if (success) {
+        s_wifi.connected = true;
+        sys_wifi_set_force_provision(false);
+        sys_wifi_set_user_force_provision(false);
         voice_msg_pub(VOICE_MSG_WIFI_IP_GOT, NULL, 0);
         LISA_LOGI(TAG,"DHCP Success on VIF-%d: IP=%d.%d.%d.%d, Mask=%d.%d.%d.%d, GW=%d.%d.%d.%d",
              vif_idx,
@@ -206,25 +238,86 @@ static void dhcp_status_callback(int vif_idx, bool success, uint32_t ip_addr, ui
              netmask & 0xff, (netmask >> 8) & 0xff, (netmask >> 16) & 0xff, (netmask >> 24) & 0xff,
              gateway & 0xff, (gateway >> 8) & 0xff, (gateway >> 16) & 0xff, (gateway >> 24) & 0xff);
     } else {
+        s_wifi.connected = false;
         LISA_LOGI(TAG,"DHCP Failed on VIF-%d", vif_idx);
     }
 }
 
-
-static void cb_lisa_wifi_init_done(void)
+static int sys_wifi_register_netdev(void)
 {
-    LISA_LOGI(TAG,"lisa_wifi_init_done");
+#if CONFIG_SAL_USING_POSIX
+    if (s_wifi.netdev_registered) {
+        return 0;
+    }
+
+    if (app_netdev_register("wifi0", 200) != 0) {
+        LISA_LOGW(TAG, "Failed to register WiFi network device");
+        return -1;
+    }
+
+    s_wifi.netdev_registered = true;
+#endif
+
+    return 0;
+}
+
+static void sys_wifi_unregister_netdev(void)
+{
+#if CONFIG_SAL_USING_POSIX
+    if (!s_wifi.netdev_registered) {
+        return;
+    }
+
+    netdev_unregister_by_name("wifi0");
+    s_wifi.netdev_registered = false;
+#endif
+}
+
+static void sys_wifi_start_autoconnect(void)
+{
+    if (!s_wifi.ready || s_wifi.autoconnect_enabled) {
+        return;
+    }
+
     wifi_mgr_autoconn_config_t cnn_cfg = {
-        .interval_ms = 3000,
+        .interval_ms = 1000,
+        .max_interval_ms = 5000,
     };
+
+    wifi_mgr_auto_connect_start(&cnn_cfg);
+    s_wifi.autoconnect_enabled = true;
+
+    LISA_LOGI(TAG, "WiFi manager auto connect started with interval %d ms, max %d ms",
+              cnn_cfg.interval_ms, cnn_cfg.max_interval_ms);
+}
+
+static void sys_wifi_stop_autoconnect(void)
+{
+    if (!s_wifi.ready || !s_wifi.autoconnect_enabled) {
+        return;
+    }
+
+    wifi_mgr_auto_connect_stop();
+    s_wifi.autoconnect_enabled = false;
+    LISA_LOGI(TAG, "WiFi manager auto connect stopped");
+}
+
+static void wifi_mgr_init_done_cb(void)
+{
+    LISA_LOGI(TAG, "lisa_wifi_init_done");
     wifi_mgr_init(wifi_mgr_ops_get());
     wifi_mgr_sta_enable();
 
     wifi_mgr_sta_add_connection_cb(wifi_mgr_connection_cb, NULL);
-    /*wifi连接必须在wifi初始化完成以后*/
-    wifi_mgr_auto_connect_start(&cnn_cfg);
+    wifi_mgr_add_scan_done_cb(wifi_mgr_scan_done_cb, NULL);
+    s_wifi.ready = true;
 
-    LISA_LOGI(TAG,"WIFI manager auto connect started with interval %d ms", cnn_cfg.interval_ms);
+    if (s_wifi.started) {
+        sys_wifi_register_netdev();
+        if (s_wifi.autoconnect_requested) {
+            sys_wifi_start_autoconnect();
+        }
+    }
 }
 
 static int8_t custom_get_wifi_mac(uint8_t mac_addr[6])
@@ -237,6 +330,52 @@ static int8_t custom_get_wifi_mac(uint8_t mac_addr[6])
     ret = mac_manager_get(m_mac_manager, mac_addr, 6);
     LISA_LOGI(TAG,"custom_get_wifi_mac: %d, %02X:%02X:%02X:%02X:%02X:%02X", ret, mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
     return ret;
+}
+
+static void wifi_mgr_scan_done_cb(wifi_mgr_scan_info_t *aps_info, int ap_num, void *arg)
+{
+    bool has_candidate = false;
+
+    (void)arg;
+
+    if (!s_wifi.started ||
+        s_wifi.connected ||
+        s_wifi.force_provision) {
+        return;
+    }
+
+    if (!(s_wifi.autoconnect_requested || s_wifi.autoconnect_enabled) || !sys_wifi_has_ap()) {
+        return;
+    }
+
+    if (ap_num > 0 && aps_info != NULL) {
+        for (int idx = 0; idx < ap_num; idx++) {
+            wifi_mgr_sta_config_t ap = {0};
+            int count = wifi_mgr_storage_search_ap(&ap, 1, SEARCH_BY_BSSID, aps_info[idx].bssid);
+
+            if (count <= 0 || ap.ssid[0] == '\0') {
+                count = wifi_mgr_storage_search_ap(&ap, 1, SEARCH_BY_SSID, aps_info[idx].ssid);
+            }
+
+            if (count > 0 && ap.ssid[0] != '\0') {
+                if (ap.bssid[0] != '\0' && strcmp(ap.bssid, aps_info[idx].bssid) != 0) {
+                    continue;
+                }
+
+                has_candidate = true;
+                break;
+            }
+        }
+    }
+
+    if (has_candidate) {
+        return;
+    }
+
+    sys_wifi_set_force_provision(true);
+    LISA_LOGI(TAG, "WiFi scan done, no saved AP available, enter force provisioning");
+    voice_msg_pub(VOICE_MSG_WIFI_DISCONNECTED, NULL, 0);
+    voice_msg_pub(VOICE_MSG_WIFI_FORCE_PROVISION_REQUIRED, NULL, 0);
 }
 
 static void wifi_mgr_connection_cb(wifi_mgr_connection_info_t *connection_info, void *arg)
@@ -253,6 +392,11 @@ static void wifi_mgr_connection_cb(wifi_mgr_connection_info_t *connection_info, 
             net_if_up(net_if);
             if (!net_if->static_ip) {
                 ls_dhcpc_start(WIFI_VIF_STA_IDX);
+            } else {
+                s_wifi.connected = true;
+                sys_wifi_set_force_provision(false);
+                sys_wifi_set_user_force_provision(false);
+                voice_msg_pub(VOICE_MSG_WIFI_IP_GOT, NULL, 0);
             }
             
             voice_msg_pub(VOICE_MSG_WIFI_CONNECTED, NULL, 0);
@@ -262,11 +406,29 @@ static void wifi_mgr_connection_cb(wifi_mgr_connection_info_t *connection_info, 
             break;
 
         case WIFI_MGR_STA_DISCONNECTED:
+        case WIFI_MGR_STA_CONNECT_FAILED:
+        {
+            bool was_connected = s_wifi.connected;
+            bool was_force_provision = s_wifi.force_provision;
+
             LISA_LOGI(TAG,"WiFi disconnected, stopping network interface");
             ls_dhcpc_stop(WIFI_VIF_STA_IDX);
             net_if_down(net_if_get(WIFI_VIF_STA_IDX));
+            s_wifi.connected = false;
+            if (s_wifi.started &&
+                (s_wifi.autoconnect_requested || s_wifi.autoconnect_enabled) &&
+                sys_wifi_has_ap()) {
+                sys_wifi_set_force_provision(true);
+            }
             voice_msg_pub(VOICE_MSG_WIFI_DISCONNECTED, NULL, 0);
+            if (!was_force_provision &&
+                s_wifi.force_provision &&
+                (connection_info->status == WIFI_MGR_STA_CONNECT_FAILED || !was_connected)) {
+                LISA_LOGI(TAG, "WiFi auto connect failed, enter force provisioning");
+                voice_msg_pub(VOICE_MSG_WIFI_FORCE_PROVISION_REQUIRED, NULL, 0);
+            }
             break;
+        }
 
         case WIFI_MGR_STA_CONNECTING:
             LISA_LOGI(TAG,"WiFi connecting...");
@@ -276,32 +438,184 @@ static void wifi_mgr_connection_cb(wifi_mgr_connection_info_t *connection_info, 
             break;
     }
 }
-void sys_wifi_init(void)
+
+static int sys_wifi_init_sta_config(wifi_mgr_sta_config_t *sta_config,
+                                    const char *ssid,
+                                    const char *pwd,
+                                    const char *bssid)
 {
+    if (sta_config == NULL || ssid == NULL || ssid[0] == '\0') {
+        return -1;
+    }
+
+    memset(sta_config, 0, sizeof(*sta_config));
+
+    strncpy(sta_config->ssid, ssid, sizeof(sta_config->ssid) - 1);
+    sta_config->ssid[sizeof(sta_config->ssid) - 1] = '\0';
+
+    if (pwd != NULL) {
+        strncpy(sta_config->pwd, pwd, sizeof(sta_config->pwd) - 1);
+        sta_config->pwd[sizeof(sta_config->pwd) - 1] = '\0';
+    }
+
+    if (bssid != NULL) {
+        strncpy(sta_config->bssid, bssid, sizeof(sta_config->bssid) - 1);
+        sta_config->bssid[sizeof(sta_config->bssid) - 1] = '\0';
+    }
+
+    sta_config->encryption_mode = WIFI_MGR_WIFI_AUTH_AUTO;
+    return 0;
+}
+
+int sys_wifi_init(void)
+{
+    if (s_wifi.stack_inited) {
+        return 0;
+    }
 
     user_mac_manager_init();
 
-    // 注册 DHCP 状态回调
-    net_dhcp_register_status_callback(dhcp_status_callback, NULL);
+    if (!s_wifi.dhcp_cb_registered) {
+        net_dhcp_register_status_callback(dhcp_status_callback, NULL);
+        s_wifi.dhcp_cb_registered = true;
+    }
 
     lisa_wifi_ops_t ops = {
-        .init_done = cb_lisa_wifi_init_done,
+        .init_done = wifi_mgr_init_done_cb,
         .custom_mac = custom_get_wifi_mac,
     };
     lisa_wifi_init(&ops);
+    s_wifi.stack_inited = true;
 
-#if CONFIG_SAL_USING_POSIX
-    // Register lwIP network device with priority 50
-    extern int app_netdev_register(const char *name, uint8_t priority);
-    if (app_netdev_register("wifi0", 200) != 0)
-    {
-        CLOGW("Failed to register lwIP network device");
-    }
-#endif
-
+    return 0;
 }
 
-void ls_wifi_refresh_dnsserver(const char *const dns_srv)
+int sys_wifi_start(bool autoconnect)
+{
+    if (!s_wifi.stack_inited) {
+        return -1;
+    }
+
+    s_wifi.started = true;
+    s_wifi.autoconnect_requested = autoconnect;
+    sys_wifi_set_force_provision(false);
+
+    if (!s_wifi.ready) {
+        return 0;
+    }
+
+    if (sys_wifi_register_netdev() != 0) {
+        return -1;
+    }
+
+    if (autoconnect) {
+        sys_wifi_start_autoconnect();
+    } else {
+        sys_wifi_stop_autoconnect();
+    }
+
+    return 0;
+}
+
+int sys_wifi_stop(void)
+{
+    s_wifi.started = false;
+    s_wifi.autoconnect_requested = false;
+    sys_wifi_set_force_provision(false);
+    sys_wifi_set_user_force_provision(false);
+
+    sys_wifi_unregister_netdev();
+
+    if (!s_wifi.ready) {
+        s_wifi.connected = false;
+        return 0;
+    }
+
+    sys_wifi_stop_autoconnect();
+    wifi_mgr_sta_disconnect(true);
+    s_wifi.connected = false;
+
+    return 0;
+}
+
+int sys_wifi_connect(const char *ssid, const char *pwd, const char *bssid)
+{
+    wifi_mgr_sta_config_t sta_config;
+
+    if (!s_wifi.ready || !s_wifi.started) {
+        return -1;
+    }
+
+    if (sys_wifi_init_sta_config(&sta_config, ssid, pwd, bssid) != 0) {
+        return -1;
+    }
+
+    sys_wifi_set_force_provision(false);
+    sys_wifi_set_user_force_provision(false);
+    return wifi_mgr_sta_connect(&sta_config, false);
+}
+
+int sys_wifi_save_ap(const char *ssid, const char *pwd, const char *bssid)
+{
+    wifi_mgr_sta_config_t sta_config;
+    int ret;
+
+    if (!s_wifi.ready) {
+        return -1;
+    }
+
+    if (sys_wifi_init_sta_config(&sta_config, ssid, pwd, bssid) != 0) {
+        return -1;
+    }
+
+    ret = wifi_mgr_storage_save_ap(&sta_config);
+    if (ret == 0) {
+        sys_wifi_set_force_provision(false);
+        sys_wifi_set_user_force_provision(false);
+    }
+
+    return ret;
+}
+
+int sys_wifi_clear_saved_aps(void)
+{
+    wifi_mgr_sta_config_t list[16] = {0};
+    int batch_size = (int)(sizeof(list) / sizeof(list[0]));
+    int count = 0;
+
+    if (!s_wifi.ready) {
+        s_wifi.connected = false;
+        return 0;
+    }
+
+    (void)wifi_mgr_sta_disconnect(true);
+
+    do {
+        count = wifi_mgr_storage_search_ap(list, batch_size, SEARCH_ALL, NULL);
+        if (count <= 0) {
+            break;
+        }
+
+        for (int i = 0; i < count && i < batch_size; i++) {
+            if (wifi_mgr_storage_delete_ap(&list[i]) != 0) {
+                return -1;
+            }
+        }
+
+        memset(list, 0, sizeof(list));
+    } while (count >= batch_size);
+
+    return 0;
+}
+
+static bool sys_wifi_has_ap(void)
+{
+    wifi_mgr_sta_config_t ap = {0};
+    int count = wifi_mgr_storage_search_ap(&ap, 1, SEARCH_ALL, NULL);
+    return count > 0;
+}
+
+void sys_wifi_refresh_dnsserver(const char *const dns_srv)
 {
     if (DNS_MAX_SERVERS >= 2) {
         ip_addr_t dns_ip_addr;
@@ -315,4 +629,68 @@ void ls_wifi_refresh_dnsserver(const char *const dns_srv)
             }
         }
     }
+}
+
+bool sys_wifi_get_signal_quality(int *rssi)
+{
+    wifi_mgr_sta_config_t wifi_sta_info = {0};
+
+    if (rssi == NULL || !s_wifi.ready || !s_wifi.connected) {
+        return false;
+    }
+
+    if (wifi_mgr_sta_get_connected_info(&wifi_sta_info) != 0) {
+        return false;
+    }
+
+    *rssi = wifi_sta_info.rssi;
+    return true;
+}
+
+bool sys_wifi_is_ready(void)
+{
+    return s_wifi.ready;
+}
+
+bool sys_wifi_is_started(void)
+{
+    return s_wifi.started;
+}
+
+bool sys_wifi_is_connected(void)
+{
+    return s_wifi.connected;
+}
+
+void sys_wifi_set_force_provision(bool enabled)
+{
+    s_wifi.force_provision = enabled;
+}
+
+bool sys_wifi_get_force_provision(void)
+{
+    if (!s_wifi.started) {
+        return false;
+    }
+
+    if (!sys_wifi_has_ap()) {
+        return true;
+    }
+
+    if (s_wifi.connected) {
+        return false;
+    }
+
+    return s_wifi.force_provision;
+}
+
+
+bool sys_wifi_get_user_force_provision(void)
+{
+    return s_wifi.user_force_provision;
+}
+
+void sys_wifi_set_user_force_provision(bool enabled)
+{
+    s_wifi.user_force_provision = enabled;
 }

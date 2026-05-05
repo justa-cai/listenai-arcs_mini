@@ -190,6 +190,25 @@ void app_a2dp_disable(void);
  */
 uint16_t app_a2dp_get_media_peer_mtu(uint8_t conidx);
 
+/**
+ * a2dp send media to peer
+ *
+ * @param conidx
+  *
+ * @param frame_num
+  *
+ * @param len
+  *
+ * @param data
+ *
+ * @return .
+ */
+void app_a2dp_send_media_to_peer(uint8_t conidx, uint8_t frame_num, uint16_t len, uint8_t *data);
+
+void app_a2dp_connect(uint8_t conidx, uint8_t role);
+
+void app_a2dp_start(uint8_t conidx);
+
 
 #endif
 

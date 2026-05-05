@@ -1,0 +1,3 @@
+tests:
+  samples.usb.host.cherryusb_ec801e_ecm:
+    build_only: true

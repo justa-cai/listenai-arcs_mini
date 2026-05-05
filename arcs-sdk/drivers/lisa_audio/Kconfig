@@ -190,19 +190,41 @@ config LISA_AUDIO_PLAY_PA_PULSE_US
 
 endif # LISA_AUDIO_PLAY_PA_ENABLE
 
-config LISA_AUDIO_PLAY_ECHO_ENABLE
-	bool "Enable Play Echo capture"
+choice LISA_AUDIO_PLAY_ECHO_MODE
+	prompt "Play Echo mode"
+	default LISA_AUDIO_PLAY_ECHO_NONE
 	help
-			Enable Echo capture during playback. Echo data is a copy of the
-			DAC output signal, useful for AEC (Acoustic Echo Cancellation).
+		Select echo capture mode for AEC (Acoustic Echo Cancellation).
 
-			IMPORTANT: Echo DMA channel (LISA_AUDIO_PLAY_ECHO_DMA_CHN) must not
-			conflict with Record right channel (LISA_AUDIO_RECORD_DMA_CHN_RIGHT).
+config LISA_AUDIO_PLAY_ECHO_NONE
+	bool "Disable Echo"
+	help
+		No echo capture. AEC will not be available.
 
-if LISA_AUDIO_PLAY_ECHO_ENABLE
+config LISA_AUDIO_PLAY_ECHO_ENABLE
+	bool "Hardware Echo (DAC echo DMA)"
+	help
+		Enable hardware Echo capture during playback. Echo data is a copy of the
+		DAC output signal captured via DMA.
+
+		IMPORTANT: Uses DMA channel 3 (GPDMA_ECHO_CHN), which conflicts
+		with Record stereo mode (GPDMA_ADC1_CHN = 3) and I2S1 full-duplex mode.
+
+config LISA_AUDIO_PLAY_SOFT_ECHO
+	bool "Software Echo (playback data copy)"
+	help
+		Enable software echo capture during playback. Instead of using
+		hardware DAC echo (which requires DMA channel 3), the playback
+		data is copied as echo reference for AEC.
+
+		Use this when hardware echo conflicts with other DMA resources
+		(e.g., I2S1 full-duplex mode).
+
+endchoice
 
 config LISA_AUDIO_PLAY_ECHO_DMA_CHN
 	int "Echo capture DMA channel number"
+	depends on LISA_AUDIO_PLAY_ECHO_ENABLE
 	default 3
 	range 0 5
 	help
@@ -211,8 +233,6 @@ config LISA_AUDIO_PLAY_ECHO_DMA_CHN
 
 			NOTE: Must not conflict with LISA_AUDIO_RECORD_DMA_CHN_RIGHT when
 			stereo recording is enabled.
-
-endif # LISA_AUDIO_PLAY_ECHO_ENABLE
 
 config LISA_AUDIO_RECORD_BUFFER_COUNT
 	int "Record buffer count"

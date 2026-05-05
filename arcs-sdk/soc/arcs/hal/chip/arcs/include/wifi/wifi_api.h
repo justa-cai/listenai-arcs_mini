@@ -964,4 +964,5 @@ ls_err_t wifi_dpd_track_connect_switch(uint8_t en);
  *    - others: other errors
  */
 ls_err_t wifi_ps_dbg_level_set(uint8_t level);
+
 #endif

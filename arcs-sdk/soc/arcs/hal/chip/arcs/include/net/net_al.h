@@ -95,6 +95,8 @@
 #endif
 #endif
 
+#define NET_KEEP_ALIVE_PERIOD 30000
+
 /// netif handle
 typedef struct netif_handle
 {
@@ -587,7 +589,6 @@ void *net_tx_alloc_mac_buf(net_buf_tx_t *buf, uint16_t rsv_head_len);
 bool net_is_tx_buf_copy(void);
 
 char* net_get_monitor_name(void);
-void net_arp_announce(void);
 
 /**
  * @brief DHCP status callback function type
@@ -606,6 +607,10 @@ typedef void (*net_dhcp_status_cb_t)(int vif_idx, bool success, uint32_t ip_addr
  * @param arg User-defined parameter
  */
 void net_dhcp_register_status_callback(net_dhcp_status_cb_t cb, void *arg);
+
+int32_t net_enable_keep_alive(void);
+
+int32_t net_disable_keep_alive(void);
 
 #endif // NET_AL_H_
 /**

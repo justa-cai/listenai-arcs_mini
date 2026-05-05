@@ -28,3 +28,8 @@ usbd_class_driver_t const *usbd_app_driver_get_cb(uint8_t *driver_count)
 	*driver_count = sizeof(_usbd_app_driver) / sizeof(usbd_class_driver_t);
 	return &_usbd_app_driver[0];
 }
+
+uint8_t tusb_appclass_driver_count(void)
+{
+	return sizeof(_usbd_app_driver) / sizeof(usbd_class_driver_t);
+}

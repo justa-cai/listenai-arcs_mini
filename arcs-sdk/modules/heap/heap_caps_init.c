@@ -288,7 +288,7 @@ esp_err_t heap_caps_add_region_with_caps(const uint32_t caps[], intptr_t start, 
     /* (This insertion is atomic to registered_heaps, so
        we don't need to worry about thread safety for readers,
        only for writers. */
-    // static multi_heap_lock_t registered_heaps_write_lock = MULTI_HEAP_LOCK_STATIC_INITIALIZER;
+    static multi_heap_lock_t registered_heaps_write_lock = MULTI_HEAP_LOCK_STATIC_INITIALIZER;
     MULTI_HEAP_LOCK(&registered_heaps_write_lock);
     SLIST_INSERT_HEAD(&registered_heaps, p_new, next);
     MULTI_HEAP_UNLOCK(&registered_heaps_write_lock);

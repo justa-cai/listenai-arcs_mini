@@ -12,18 +12,33 @@ static const console_backend_t *console_be = NULL;
 #if CONFIG_MODULE_FREERTOS
 #include "FreeRTOS.h"
 #include "semphr.h"
+#include "task.h"
 static SemaphoreHandle_t console_mutex = NULL;
+
+#define CONSOLE_CAN_LOCK() \
+    (console_mutex != NULL && \
+     xTaskGetSchedulerState() == taskSCHEDULER_RUNNING && \
+     !(xPortIsInsideInterrupt() || xPortIsInsideCritical()))
 
 void console_init(void)
 {
+    if (console_mutex == NULL) {
+        console_mutex = xSemaphoreCreateRecursiveMutex();
+    }
 }
 
 static inline void console_lock(void)
 {
+    if (CONSOLE_CAN_LOCK()) {
+        xSemaphoreTakeRecursive(console_mutex, portMAX_DELAY);
+    }
 }
 
 static inline void console_unlock(void)
 {
+    if (CONSOLE_CAN_LOCK()) {
+        xSemaphoreGiveRecursive(console_mutex);
+    }
 }
 #else
 void console_init(void) {}

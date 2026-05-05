@@ -13,3 +13,4 @@ listenai_include_directories(
 add_subdirectory(src)
 
 listenai_add_executable(${PROJECT_NAME})
+listenai_code_relocate(LIBRARY chryusb LOCATION PSRAM)

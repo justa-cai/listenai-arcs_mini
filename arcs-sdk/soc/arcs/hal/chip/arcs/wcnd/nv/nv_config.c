@@ -38,10 +38,20 @@
  ****************************************************************************************
  */
 #define TPC_DIG_GAIN_BASE_ADDR   (&IP_NEW_DFE->REG_CFR_POST_DIG_GAIN_0.all)
+
+/* Unit test mode: use test mock functions */
+#ifdef CFG_NV_EFUSE_UNIT_TEST
+extern int test_efuse_read_word(uint8_t addr, uint32_t *val);
+extern int test_efuse_write_word(uint32_t addr, uint32_t val);
+#define EFUSE_RD32 test_efuse_read_word
+#define EFUSE_WR32 test_efuse_write_word
+#else
 #define EFUSE_RD32 ls_efuse_read_word//efuse_read_word
 /* TODO use efuse_write_word define in bsp driver later */
 //extern int efuse_write_word_simple(uint32_t addr, uint32_t val);
 #define EFUSE_WR32 ls_efuse_write_word //efuse_write_word_simple
+#endif
+
 #define MEM_RD32(addr)              (*(volatile uint32_t *)(addr))
 #define MEM_WR32(addr, value)       (*(volatile uint32_t *)(addr)) = (value)
 
@@ -50,6 +60,20 @@
 uint8_t nv_self_cali_cfg_buf[MAX_SEC_LEN] = {0};
 uint32_t g_magic_code = 0;
 
+/** Golden value define */
+int8_t wf_golden_val_set = WIFI_RF_SET_GOLDEN;
+int8_t wf_xo_cap_golden_val = XO_CAP_GOLDEN_VAL;
+int8_t wf_pwr_offset_low_golden_val = PWR_OFFSET_LOW_GOLDEN_VAL;
+int8_t wf_pwr_offset_mid_golden_val = PWR_OFFSET_MID_GOLDEN_VAL;
+int8_t wf_pwr_offset_high_golden_val = PWR_OFFSET_HIGH_GOLDEN_VAL;
+int8_t wf_rssi_offset_dsss_golden_val = RSSI_OFFSET_DSSS_GOLDEN_VAL;
+int8_t wf_rssi_offset_ofdm_golden_val = RSSI_OFFSET_OFDM_GOLDEN_VAL;
+
+/*
+ * WiFi mfg conf base address
+ * config: mac address, xo_cap, power offset, rssi offset, power table, ppa gain...
+ */
+uint32_t wf_conf_base_addr = FLASH_WF_MFG_CONF_BASE_ADDR;
 /*
  * STRUCTURE DEFINITIONS
  ****************************************************************************************
@@ -68,12 +92,27 @@ int8_t ls_nv_fixzone_valid_flag = false;
 int8_t ls_nv_selfcali_valid_flag = false;
 ls_nv_fixzone_efuse_t nv_efuse_cfg_env = {0};
 
+/* Base address configurations (reusable) */
+static const uint8_t efuse_slot_addrs[] = {EFUSE_NV_SLOT0_ADDR, EFUSE_NV_SLOT1_ADDR};
+static const efuse_base_addrs_t g_efuse_nv_slots = {
+    .addr_count = sizeof(efuse_slot_addrs) / sizeof(efuse_slot_addrs[0]),
+    .addrs = efuse_slot_addrs
+};
+
+/* Main configuration table: combines base addresses pointer and bit field layout
+ * order: base_addrs, bits_mask, offset_idx, field_dim, bit_valid, bit_start, bits_width, is_signed
+ */
 const efuse_cfg_t mfg_efuse_cfg_tb[] = {
-    {EFUSE_NV_SLOT0_ADDR(1), EFUSE_NV_SLOT1_ADDR(1), WF_PPA_CAP_DIM, WF_PPA_CAP_VALID_BIT_OFFSET, WF_PPA_CAP_BITS_MASK, WF_PPA_CAP_0_BIT_OFFSET, WF_PPA_CAP_BITS_WIDTH, false},
-    {EFUSE_NV_SLOT0_ADDR(2), EFUSE_NV_SLOT1_ADDR(2), WF_POWER_OFFSET_DIM, WF_POWER_OFFSET_VALID_BIT_OFFSET, WF_POWER_OFFSET_BITS_MASK, WF_POWER_OFFSET_0_BIT_OFFSET, WF_POWER_OFFSET_BITS_WIDTH, true},
-    {EFUSE_NV_SLOT0_ADDR(2), EFUSE_NV_SLOT1_ADDR(2), WF_RSSI_OFFSET_DIM, WF_RSSI_OFFSET_VALID_BIT_OFFSET, WF_RSSI_OFFSET_BITS_MASK, WF_RSSI_OFFSET_0_BIT_OFFSET, WF_RSSI_OFFSET_BITS_WIDTH, true},
-    {EFUSE_NV_SLOT0_ADDR(3), EFUSE_NV_SLOT1_ADDR(3), BT_POWER_OFFSET_DIM, BT_POWER_OFFSET_VALID_BIT_OFFSET, BT_POWER_OFFSET_BITS_MASK, BT_POWER_OFFSET_0_BIT_OFFSET, BT_POWER_OFFSET_BITS_WIDTH, true},
-    {EFUSE_NV_SLOT0_ADDR(3), EFUSE_NV_SLOT1_ADDR(3), XO24M_CAP_DIM, XO24M_CAP_VALID_BIT_OFFSET, XO24M_CAP_BITS_MASK, XO24M_CAP_BIT_OFFSET, XO24M_CAP_BITS_WIDTH, true},
+    /* WF_PPA_CAP */
+    {&g_efuse_nv_slots, 1, WF_PPA_CAP_DIM, WF_PPA_CAP_VALID_BIT_OFFSET, WF_PPA_CAP_0_BIT_OFFSET, WF_PPA_CAP_BITS_MASK, WF_PPA_CAP_BITS_WIDTH, false},
+    /* WF_POWER_OFFSET */
+    {&g_efuse_nv_slots, 2, WF_POWER_OFFSET_DIM, WF_POWER_OFFSET_VALID_BIT_OFFSET, WF_POWER_OFFSET_0_BIT_OFFSET, WF_POWER_OFFSET_BITS_MASK, WF_POWER_OFFSET_BITS_WIDTH, true},
+    /* WF_RSSI_OFFSET */
+    {&g_efuse_nv_slots, 2, WF_RSSI_OFFSET_DIM, WF_RSSI_OFFSET_VALID_BIT_OFFSET, WF_RSSI_OFFSET_0_BIT_OFFSET, WF_RSSI_OFFSET_BITS_MASK, WF_RSSI_OFFSET_BITS_WIDTH, true},
+    /* BT_POWER_OFFSET */
+    {&g_efuse_nv_slots, 3, BT_POWER_OFFSET_DIM, BT_POWER_OFFSET_VALID_BIT_OFFSET, BT_POWER_OFFSET_0_BIT_OFFSET, BT_POWER_OFFSET_BITS_MASK, BT_POWER_OFFSET_BITS_WIDTH, true},
+    /* XO24M_CAP */
+    {&g_efuse_nv_slots, 3, XO24M_CAP_DIM, XO24M_CAP_VALID_BIT_OFFSET, XO24M_CAP_BIT_OFFSET, XO24M_CAP_BITS_MASK, XO24M_CAP_BITS_WIDTH, true},
 };
 
 
@@ -129,32 +168,25 @@ static void set_tpc_dig_gain(uint8_t idx, uint16_t dgain)
 
 int8_t nv_efuse_read_mac(uint8_t *mac_addr)
 {
-    uint32_t read_val = 0;
+    uint32_t rd0 = 0, rd1 = 0;
     uint8_t tmp_mac[6] = {0};
     uint8_t zero_mac[6] = {0};
+    const efuse_base_addrs_t *base_addrs = &g_efuse_nv_slots;
 
-    EFUSE_RD32(EFUSE_NV_SLOT1_ADDR(0), &read_val);
-    memcpy(&tmp_mac[0], &read_val, 4);
-    EFUSE_RD32(EFUSE_NV_SLOT1_ADDR(1), &read_val);
-    memcpy(&tmp_mac[4], &read_val, 2);
-    if (memcmp(zero_mac, tmp_mac, 6)) {
-        memcpy(mac_addr, tmp_mac, 6);
-        goto rd_ok;
+    /* Read from highest-priority base to lowest */
+    for (int a = base_addrs->addr_count - 1; a >= 0; a--) {
+        uint32_t base = base_addrs->addrs[a];
+        EFUSE_RD32(base, &rd0);
+        EFUSE_RD32((base + 1), &rd1);
+        memcpy(&tmp_mac[0], &rd0, 4);
+        memcpy(&tmp_mac[4], &rd1, 2);
+        if (memcmp(zero_mac, tmp_mac, 6) != 0) {
+            memcpy(mac_addr, tmp_mac, 6);
+            return 0;
+        }
     }
-    EFUSE_RD32(EFUSE_NV_SLOT0_ADDR(0), &read_val);
-    memcpy(&tmp_mac[0], &read_val, 4);
-    EFUSE_RD32(EFUSE_NV_SLOT0_ADDR(1), &read_val);
-    memcpy(&tmp_mac[4], &read_val, 2);
-    if (memcmp(zero_mac, tmp_mac, 6)) {
-        memcpy(mac_addr, tmp_mac, 6);
-        goto rd_ok;
-    }
-    CLOGW("cannot read valid mac addr from efuse\n");
+    //CLOGW("cannot read valid mac addr from efuse\n");
     return -1;
-rd_ok:
-    // CLOGD("read efuse mac addr " MACSTR "\n", MAC2STR(mac_addr));
-    return 0;
-
 }
 
 int8_t nv_efuse_sync_mac(uint8_t *mac_addr)
@@ -172,68 +204,62 @@ int8_t nv_efuse_sync_mac(uint8_t *mac_addr)
 int8_t nv_efuse_burn_mac(void)
 {
     uint32_t *mac_ptr = (uint32_t *)&nv_efuse_cfg_env.mac[0];
-    uint32_t tmp32 = 0;
+    uint32_t rd0 = 0, rd1 = 0;
     uint8_t tmp_mac[6] = {0};
     uint8_t zero_mac[6] = {0};
+    const efuse_base_addrs_t *base_addrs = &g_efuse_nv_slots;
+    int ret = 0;
 
-    EFUSE_RD32(EFUSE_NV_SLOT0_ADDR(0), &tmp32);
-    memcpy(&tmp_mac[0], &tmp32, 4);
-    EFUSE_RD32(EFUSE_NV_SLOT0_ADDR(1), &tmp32);
-    memcpy(&tmp_mac[4], &tmp32, 2);
-    if (!memcmp(zero_mac, tmp_mac, 6)) {
-        EFUSE_WR32(EFUSE_NV_SLOT0_ADDR(0), *mac_ptr);
-        mac_ptr++;
-        EFUSE_WR32(EFUSE_NV_SLOT0_ADDR(1), (*mac_ptr & 0x0000FFFF));
-        goto burn_ok;
+    /* Write to the first base (lowest priority) that is still all-zero for the two words */
+    for (uint8_t a = 0; a < base_addrs->addr_count; a++) {
+        uint32_t base = base_addrs->addrs[a];
+        EFUSE_RD32(base, &rd0);
+        EFUSE_RD32((base + 1), &rd1);
+        memcpy(&tmp_mac[0], &rd0, 4);
+        memcpy(&tmp_mac[4], &rd1, 2);
+        if (!memcmp(zero_mac, tmp_mac, 6)) {
+            ret = EFUSE_WR32(base, *mac_ptr);
+            if (ret != 0) {
+                CLOGE("burn mac to slot%u word0 failed, ret=%d\n", a, ret);
+                return -1;
+            }
+            ret = EFUSE_WR32((base + 1), (*(mac_ptr + 1) & 0x0000FFFF));
+            if (ret != 0) {
+                CLOGE("burn mac to slot%u word1 failed, ret=%d\n", a, ret);
+                return -1;
+            }
+            goto burn_ok;
+        }
     }
-    EFUSE_RD32(EFUSE_NV_SLOT1_ADDR(0), &tmp32);
-    memcpy(&tmp_mac[0], &tmp32, 4);
-    EFUSE_RD32(EFUSE_NV_SLOT1_ADDR(1), &tmp32);
-    memcpy(&tmp_mac[4], &tmp32, 2);
-    if (!memcmp(zero_mac, tmp_mac, 6)) {
-        EFUSE_WR32(EFUSE_NV_SLOT1_ADDR(0), *mac_ptr);
-        mac_ptr++;
-        EFUSE_WR32(EFUSE_NV_SLOT1_ADDR(1), (*mac_ptr & 0x0000FFFF));
-        goto burn_ok;
-    }
-    else {
-        CLOGW("efuse space for mac addr full used!\n");
-    }
+    CLOGW("efuse space for mac addr full used!\n");
+    return -1;
 burn_ok:
-    CLOGI("burn efuse mac addr " MACSTR "success\n", MAC2STR((uint8_t *)&nv_efuse_cfg_env.mac[0]));
+    CLOGI("burn efuse mac addr " MACSTR " success\n", MAC2STR((uint8_t *)&nv_efuse_cfg_env.mac[0]));
     return 0;
 }
 
 int8_t nv_efuse_read_common_item(uint8_t *item, const efuse_cfg_t *cfg, char *fn)
 {
     uint32_t tmp32 = 0;
+    uint8_t i;
+    const efuse_base_addrs_t *base_addrs = cfg->base_addrs;
 
     assert(cfg->bits_width * cfg->field_dim <= 32);
 
-    EFUSE_RD32(cfg->addr1, &tmp32);
-    if (tmp32 & (1 << cfg->bit_valid)) //valid == 1
-    {
-        for (uint8_t i = 0; i < cfg->field_dim; i++) {
-            item[i] = (tmp32 >> (cfg->bit_start + cfg->bits_width * i)) & cfg->bits_mask;
-            if (cfg->is_signed && (item[i] & (1 << (cfg->bits_width - 1))))
-                item[i] |= ~cfg->bits_mask;
+    /* Read from highest-priority base to lowest */
+    for (int8_t a = base_addrs->addr_count - 1; a >= 0; a--) {
+        uint32_t actual_addr = base_addrs->addrs[a] + cfg->offset_idx;
+        EFUSE_RD32(actual_addr, &tmp32);
+        if (tmp32 & (1u << cfg->bit_valid)) {
+            for (i = 0; i < cfg->field_dim; i++) {
+                item[i] = (tmp32 >> (cfg->bit_start + cfg->bits_width * i)) & cfg->bits_mask;
+                if (cfg->is_signed && (item[i] & (1u << (cfg->bits_width - 1))))
+                    item[i] |= ~cfg->bits_mask;
+            }
+            return 0;
         }
-        goto rd_ok;
     }
-    EFUSE_RD32(cfg->addr0, &tmp32);
-    if (tmp32 & (1 << cfg->bit_valid)) //valid == 1
-    {
-        for (uint8_t i = 0; i < cfg->field_dim; i++) {
-            item[i] = (tmp32 >> (cfg->bit_start + cfg->bits_width * i)) & cfg->bits_mask;
-            if (cfg->is_signed && (item[i] & (1 << (cfg->bits_width - 1))))
-                item[i] |= ~cfg->bits_mask;
-        }
-        goto rd_ok;
-    }
-    CLOGW("cannot read valid %s from efuse\n", fn);
     return -1;
-rd_ok:
-    return 0;
 }
 
 int8_t nv_efuse_sync_common_item(void *env_field, uint8_t *item, const efuse_cfg_t *cfg, char *fn)
@@ -244,7 +270,7 @@ int8_t nv_efuse_sync_common_item(void *env_field, uint8_t *item, const efuse_cfg
     uint8_t i = 0;
 
     assert(cfg->bits_width * cfg->field_dim <= 32);
-    CLOGD("%s:field_dim=%d, bit_width=%d\n", fn, cfg->field_dim, cfg->bits_width);
+    //CLOGD("%s:field_dim=%d, bit_width=%d\n", fn, cfg->field_dim, cfg->bits_width);
 
     for (i = 0; i < cfg->field_dim; i++)
     {
@@ -264,44 +290,33 @@ int8_t nv_efuse_burn_common_item(void *env_field, const efuse_cfg_t *cfg, char *
     uint8_t  *byte_field = (uint8_t *)env_field;
     uint16_t *word_field = (uint16_t *)env_field;
     uint32_t *dword_field = (uint32_t *)env_field;
+    uint8_t i;
+    const efuse_base_addrs_t *base_addrs = cfg->base_addrs;
 
     assert(cfg->bits_width * cfg->field_dim <= 32);
 
-    EFUSE_RD32(cfg->addr0, &tmp32);
-    if (!(tmp32 & (1 << cfg->bit_valid))) //valid == 0
-    {
-        for (uint8_t i = 0; i < cfg->field_dim; i++)
-        {
-            if (cfg->bits_width <= 8)
-                tmp32 |= (byte_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
-            else if (cfg->bits_width <= 16)
-                tmp32 |= (word_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
-            else
-                tmp32 |= (dword_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
+    /* Write to the first base (lowest priority) where the target field is not written.
+       Use the valid-bit indicator to determine if this word has already been burned. */
+    for (uint8_t a = 0; a < base_addrs->addr_count; a++) {
+        uint32_t actual_addr = base_addrs->addrs[a] + cfg->offset_idx;
+        EFUSE_RD32(actual_addr, &tmp32);
+        if (!(tmp32 & (1u << cfg->bit_valid))) {
+            for (i = 0; i < cfg->field_dim; i++) {
+                if (cfg->bits_width <= 8)
+                    tmp32 |= (byte_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
+                else if (cfg->bits_width <= 16)
+                    tmp32 |= (word_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
+                else
+                    tmp32 |= (dword_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
+            }
+            tmp32 |= (1u << cfg->bit_valid);
+            EFUSE_WR32(actual_addr, tmp32);
+            CLOGI("burn efuse %s success\n", fn);
+            return 0;
         }
-        tmp32 |= (1 << cfg->bit_valid); //force valid = 1
-        EFUSE_WR32(cfg->addr0, tmp32);
-        goto burn_ok;
     }
-    EFUSE_RD32(cfg->addr1, &tmp32);
-    if (!(tmp32 & (1 << cfg->bit_valid))) //valid == 0
-    {
-        for (uint8_t i = 0; i < cfg->field_dim; i++)
-        {
-            if (cfg->bits_width <= 8)
-                tmp32 |= (byte_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
-            else if (cfg->bits_width <= 16)
-                tmp32 |= (word_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
-            else
-                tmp32 |= (dword_field[i] & cfg->bits_mask) << (cfg->bit_start + cfg->bits_width * i);
-        }
-        tmp32 |= (1 << cfg->bit_valid); //force valid = 1
-        EFUSE_WR32(cfg->addr1, tmp32);
-        goto burn_ok;
-    }
-burn_ok:
-    CLOGI("burn efuse %s success\n", fn);
-    return 0;
+    CLOGW("efuse space for %s full used!\n", fn);
+    return -1;
 }
 
 int8_t nv_efuse_read_wf_ppa_cap(uint8_t *cap)
@@ -363,10 +378,17 @@ int8_t nv_fixzone_head_check(uint32_t base_addr, uint32_t magic_code)
 
 int8_t nv_fixzone_init()
 {
-    ls_nv_fixzone_valid_flag = !nv_fixzone_head_check(FIXZONE_NV_BASE_ADDR, NV_MAGIC_PATTERN);
+
+    ls_nv_fixzone_valid_flag = !nv_fixzone_head_check(wf_conf_base_addr, NV_MAGIC_PATTERN);
+    if (wf_conf_base_addr)
+        CLOGI("Partition addr 0x%8lx for WiFi PHY/RF param conf \n", wf_conf_base_addr);
     return 0;
 }
 
+uint32_t nv_fixzone_get_wf_conf_base_addr(void)
+{
+    return wf_conf_base_addr;
+}
 #if 0
 static void gen_random_mac(uint8_t *mac_addr)
 {
@@ -415,7 +437,7 @@ static int8_t get_mac_from_nvs(uint8_t *mac_addr)
 #endif
 int8_t nv_fixzone_get_wf_mac(uint8_t *mac_addr)
 {
-    ls_nv_fixzone_body_t *body = (ls_nv_fixzone_body_t *)(FIXZONE_NV_BASE_ADDR+sizeof(ls_nv_fixzone_header_t));
+    ls_nv_fixzone_body_t *body = (ls_nv_fixzone_body_t *)(wf_conf_base_addr+sizeof(ls_nv_fixzone_header_t));
 
     if (!mac_addr || !ls_nv_fixzone_valid_flag)
         return -1;
@@ -425,7 +447,7 @@ int8_t nv_fixzone_get_wf_mac(uint8_t *mac_addr)
 }
 int8_t nv_fixzone_get_bt_mac(uint8_t *mac_addr)
 {
-    ls_nv_fixzone_body_t *body = (ls_nv_fixzone_body_t *)(FIXZONE_NV_BASE_ADDR+sizeof(ls_nv_fixzone_header_t));
+    ls_nv_fixzone_body_t *body = (ls_nv_fixzone_body_t *)(wf_conf_base_addr+sizeof(ls_nv_fixzone_header_t));
 
     if (!mac_addr)
         return -1;
@@ -438,6 +460,38 @@ int8_t nv_fixzone_get_bt_mac(uint8_t *mac_addr)
     memcpy(mac_addr, body->wf_mac, 6);
     return 0;
 }
+
+static int8_t nv_fixzone_golden_val_config(void)
+{
+    if (wf_golden_val_set) {
+        // XO golden value update
+        if (wf_xo_cap_golden_val) {
+            IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG = wf_xo_cap_golden_val;
+            IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC = 1;
+        }
+        // power offset golden value update
+        if (wf_pwr_offset_high_golden_val || wf_pwr_offset_mid_golden_val || wf_pwr_offset_low_golden_val) {
+            wf_power_offset_fake_reg[0] = wf_pwr_offset_low_golden_val;
+            wf_power_offset_fake_reg[1] = wf_pwr_offset_mid_golden_val;
+            wf_power_offset_fake_reg[2] = wf_pwr_offset_high_golden_val;
+            wf_power_offset_en = 1;
+        }
+        // rssi offset golden value update
+        if (wf_rssi_offset_dsss_golden_val || wf_rssi_offset_ofdm_golden_val) {
+            IP_WIFI_CTRL->REG_WIFI_RSSI_OFFSET.bit.CFG_RSSI_DSSS_OFFSET = (int16_t)wf_rssi_offset_dsss_golden_val;
+            IP_WIFI_CTRL->REG_WIFI_RSSI_OFFSET.bit.CFG_RSSI_OFDM_OFFSET = (int16_t)wf_rssi_offset_ofdm_golden_val;
+        }
+
+        CLOGI("golden value: xo cap %d low/mig/high chan pwr off %d %d %d rssi dsss/ofdm offset %d %d \n", \
+            wf_xo_cap_golden_val,wf_pwr_offset_low_golden_val,wf_pwr_offset_mid_golden_val,wf_pwr_offset_high_golden_val,wf_rssi_offset_dsss_golden_val,wf_rssi_offset_ofdm_golden_val);
+        return 0;
+    } else {
+        CLOGI("No golden value set \n");
+        return -1;
+    }
+
+}
+
 
 int8_t nv_fixzone_efuse_load_rf_config(void)
 {
@@ -471,16 +525,26 @@ int8_t nv_fixzone_efuse_load_rf_config(void)
     return 0;
 }
 
+/*
+ * xo_cap/power offset/rssi offset load from flash factory zone, or golden value configured by customer, or value from efuse
+ * the 1st priority is load from flash factory zone
+ * the 2nd priority is load form golden value
+ * the 3rd priority is load from efuse
+ */
 int8_t nv_fixzone_load_rf_config(void)
 {
 #if 1
     uint8_t i = 0;
-    ls_nv_fixzone_body_t *body = (ls_nv_fixzone_body_t *)(FIXZONE_NV_BASE_ADDR+sizeof(ls_nv_fixzone_header_t));
+    int8_t ret = 0;
+    ls_nv_fixzone_body_t *body = (ls_nv_fixzone_body_t *)(wf_conf_base_addr+sizeof(ls_nv_fixzone_header_t));
 
     nv_fixzone_init();
 
     if (!ls_nv_fixzone_valid_flag) {
-        nv_fixzone_efuse_load_rf_config();
+        ret = nv_fixzone_golden_val_config();
+        if (ret)
+            nv_fixzone_efuse_load_rf_config();
+
         return 0;
     }
 
@@ -511,6 +575,21 @@ int8_t nv_fixzone_load_rf_config(void)
             ls_tpc_update_tx_power_table((int8_t *)&body->wf_target_power[i], i+1, 1);
     }
 #endif
+    return 0;
+}
+
+int8_t nv_reset_rf_config(void)
+{
+    int8_t i = 0;
+
+    for (i = 0; i < 3; i++)
+        wf_power_offset_fake_reg[i] = 0;
+    wf_power_offset_en = 0;
+    IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET = 0;
+    IP_WIFI_CTRL->REG_WIFI_RSSI_OFFSET.bit.CFG_RSSI_DSSS_OFFSET = 0;
+    IP_WIFI_CTRL->REG_WIFI_RSSI_OFFSET.bit.CFG_RSSI_OFDM_OFFSET = 0;
+    IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG = 0;
+
     return 0;
 }
 

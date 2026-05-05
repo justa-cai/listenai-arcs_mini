@@ -69,6 +69,9 @@ endif()
 
 list(FILTER ARCS_HAL_SRCS EXCLUDE REGEX ".*usb_subsys/.*")
 list(FILTER ARCS_HAL_SRCS EXCLUDE REGEX ".*ota/.*")
+if(NOT CONFIG_ARCS_HAL_CRYPTO)
+    list(FILTER ARCS_HAL_SRCS EXCLUDE REGEX ".*crypto/.*")
+endif()
 
 listenai_library_sources(${ARCS_HAL_SRCS})
 listenai_include_directories(

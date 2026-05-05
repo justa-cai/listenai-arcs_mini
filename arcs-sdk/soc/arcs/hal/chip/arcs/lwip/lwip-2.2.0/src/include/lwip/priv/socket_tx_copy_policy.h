@@ -1,0 +1,21 @@
+#ifndef LWIP_HDR_PRIV_SOCKET_TX_COPY_POLICY_H
+#define LWIP_HDR_PRIV_SOCKET_TX_COPY_POLICY_H
+
+#ifndef LWIP_SOCKET_UDP_TX_COPY
+#define LWIP_SOCKET_UDP_TX_COPY 0
+#endif
+
+#ifndef LWIP_NETIF_TX_SINGLE_PBUF
+#define LWIP_NETIF_TX_SINGLE_PBUF 0
+#endif
+
+#define LWIP_SOCKET_UDP_SENDS_COPY \
+  (LWIP_NETIF_TX_SINGLE_PBUF || LWIP_SOCKET_UDP_TX_COPY)
+
+static inline int
+lwip_socket_udp_send_should_copy(void)
+{
+  return LWIP_SOCKET_UDP_SENDS_COPY ? 1 : 0;
+}
+
+#endif /* LWIP_HDR_PRIV_SOCKET_TX_COPY_POLICY_H */

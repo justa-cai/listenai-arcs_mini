@@ -106,14 +106,12 @@ typedef struct _csk_gpdma_ch_info {
 static csk_gpdma_ch_info_t gpdma_ch_info[CSK_GPDMA_MAX_CHANNEL_NUM] = {0};
 
 static volatile uint8_t GPDMA_GLB_FLAG = 0;
+volatile uint8_t GPDMA_ALLCHN_FLAG = 0;
 
 static void GPDMA_IRQ_Handler(void);
 
 int32_t
 GPDMA_Initialize(void){
-
-    if (GPDMA_GLB_FLAG == 0){
-
 #if CONFIG_ARCS_GPDMA_DATA_ONLY
         memset(gpdma_ch_info, 0, sizeof(gpdma_ch_info));
         register_ISR(IRQ_DMAC_GP_VECTOR, GPDMA_IRQ_Handler, NULL);
@@ -123,13 +121,26 @@ GPDMA_Initialize(void){
         }
         return 0;
 #endif
+    if (0 == GPDMA_ALLCHN_FLAG) {
         // Rest GPDMA module
         IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
+#if GPDMAC_ARCS_D0
+        __HAL_CRM_GPDMA_CLK_ENABLE();
+#else
+        __HAL_CRM_DMA_GP_CLK_ENABLE();
+#endif
+    }
+    GPDMA_ALLCHN_FLAG++;
+
+    if (GPDMA_GLB_FLAG == 0){
+
+//        // Rest GPDMA module
+//        IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
 
         memset(gpdma_ch_info, 0, sizeof(gpdma_ch_info));
 
 	#if GPDMAC_ARCS_D0
-        __HAL_CRM_GPDMA_CLK_ENABLE();
+//        __HAL_CRM_GPDMA_CLK_ENABLE();
 
         // Clean GPDMA interrupt
         IP_GPDMA->REG_DMA_INT_CLR.bit.CFG_BLOCK_FINISH_CLR = 0x3F;
@@ -140,7 +151,7 @@ GPDMA_Initialize(void){
 
         IP_GPDMA->REG_DMA_CH_CLR.bit.CFG_CH_CLR = 0x3F;
 	#else
-        __HAL_CRM_DMA_GP_CLK_ENABLE();
+//        __HAL_CRM_DMA_GP_CLK_ENABLE();
 
         // Clean GPDMA interrupt
         IP_GPDMA->REG_DMA_BLOCK_FINISH_CLR.bit.CFG_BLOCK_FINISH_CLR = 0x3FF;
@@ -176,8 +187,8 @@ GPDMA_Uninitialize(void){
     GPDMA_GLB_FLAG--;
 
     if (GPDMA_GLB_FLAG == 0){
-        // Device reset
-        IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
+//        // Device reset
+//        IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
 
         // Disable GPDMA interrupt
         IP_GPDMA->REG_DMA_INT_EN.bit.CFG_BLOCK_FINISH_INT_EN = 0x0;
@@ -191,11 +202,11 @@ GPDMA_Uninitialize(void){
         // clear information
         memset(gpdma_ch_info, 0, sizeof(gpdma_ch_info));
 
-	#if GPDMAC_ARCS_D0
-        __HAL_CRM_GPDMA_CLK_DISABLE();
-	#else
-        __HAL_CRM_DMA_GP_CLK_DISABLE();
-	#endif
+//	#if GPDMAC_ARCS_D0
+//        __HAL_CRM_GPDMA_CLK_DISABLE();
+//	#else
+//        __HAL_CRM_DMA_GP_CLK_DISABLE();
+//	#endif
 
         // clear channel configure
         IP_GPDMA->REG_DMA_CH_CLR.bit.CFG_CH_CLR = 0x3FF;
@@ -204,6 +215,17 @@ GPDMA_Uninitialize(void){
         for (i = 0; i < CSK_GPDMA_MAX_CHANNEL_NUM; i++){
             gpdma_ch_info[i].status = gpdma_status_none;
         }
+    }
+
+    GPDMA_ALLCHN_FLAG--;
+    if (0 == GPDMA_ALLCHN_FLAG) {
+        // Device reset
+        IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
+#if GPDMAC_ARCS_D0
+        __HAL_CRM_GPDMA_CLK_DISABLE();
+#else
+        __HAL_CRM_DMA_GP_CLK_DISABLE();
+#endif
     }
 
     return CSK_DRIVER_OK;

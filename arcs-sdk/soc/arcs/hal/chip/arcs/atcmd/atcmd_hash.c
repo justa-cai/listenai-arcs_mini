@@ -47,7 +47,7 @@ void atcmd_entry_add_table(const atcmd_item_t *item_table, int len)
         {
             index = hash_index(item_table[i].atcmd_entry.name) % ATC_INDEX_NUM;
             // atcmd_item_t item_copy = item_table[i];
-            atcmd_item_t *item_copy = (atcmd_item_t *)pvPortMalloc(sizeof(atcmd_item_t));
+            atcmd_item_t *item_copy = (atcmd_item_t *)rtos_malloc(sizeof(atcmd_item_t));
             memcpy(item_copy, &item_table[i], sizeof(atcmd_item_t));
             dlist_add(&item_copy->node, &atcmd_item_hash_list[index]);
         }

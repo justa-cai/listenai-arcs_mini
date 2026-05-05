@@ -7,10 +7,24 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "cache.h"
 #include "streamer.h"
 #include "linked_list.h"
 #include "lisa_thread.h"
+#include "rtsp_rtp_timestamp_math.h"
+#include "rtsp_streamer_timing.h"
 #include "session.h"
+#include "sysutils.h"
+
+#define RTSP_VIDEO_SEND_BUF_SIZE 1204
+#define RTSP_VIDEO_SEND_BUF_DEPTH 16
+#define RTSP_AUDIO_SEND_BUF_SIZE 1200
+#define RTSP_AUDIO_SEND_BUF_DEPTH 8
+
+static __psram_bss__ uint8_t s_rtsp_video_send_bufs[RTSP_VIDEO_SEND_BUF_DEPTH][RTSP_VIDEO_SEND_BUF_SIZE];
+static __psram_bss__ uint8_t s_rtsp_audio_send_bufs[RTSP_AUDIO_SEND_BUF_DEPTH][RTSP_AUDIO_SEND_BUF_SIZE];
+static uint8_t s_rtsp_video_send_buf_idx;
+static uint8_t s_rtsp_audio_send_buf_idx;
 
 static inline void rtsp_socker_peer_addr(int __peer_sock, uint32_t *__peer_addr, uint16_t *__peer_port) {
     struct sockaddr_in __peer_r;
@@ -27,6 +41,10 @@ static inline void rtsp_socker_peer_addr(int __peer_sock, uint32_t *__peer_addr,
 static inline ssize_t rtsp_udp_socket_send(int __udp_sock, const void *__udp_buf, size_t __udp_len, uint32_t __udp_addr, uint16_t __udp_port)
 {
     struct sockaddr_in __udp_addr_in;
+
+    /* UDP TX may hand the payload to non-cache-coherent hardware, so flush the
+     * packet bytes before sendto() to avoid stale stack/static contents on air. */
+    HAL_FlushDCache_by_Addr((uint32_t *)(uintptr_t)__udp_buf, (uint32_t)__udp_len);
 
     __udp_addr_in.sin_family      = AF_INET;
     __udp_addr_in.sin_addr.s_addr = __udp_addr;
@@ -103,7 +121,9 @@ void rtsp_streamer_deinit_session(void* session) {
 }
 
 void rtsp_streamer_deinit(rtsp_streamer_t* streamer) {
-	llist_foreach(streamer->clients, rtsp_streamer_deinit_session);
+	if (streamer->clients != NULL) {
+		llist_foreach(streamer->clients, rtsp_streamer_deinit_session);
+	}
 	llist_item_t* client = streamer->clients;
 	while (client != NULL) {
 		llist_item_t* next = client->next;
@@ -111,6 +131,10 @@ void rtsp_streamer_deinit(rtsp_streamer_t* streamer) {
 		client = next;
 	}
 	streamer->clients = NULL;
+	rtsp_streamer_deinit_udp_transport(streamer);
+	if (streamer->audio_enabled) {
+		rtsp_streamer_deinit_audio_udp_transport(streamer);
+	}
 }
 
 void rtsp_streamer_add_session(rtsp_streamer_t* streamer, rtsp_session_t* session) {
@@ -173,12 +197,17 @@ int rtsp_streamer_send_rtp_packet(rtsp_streamer_t* streamer, const uint8_t* jpeg
 	// The actual quality is determined by the quantization tables from the JPEG
 	uint8_t q = include_quant_tbl ? 128 : 96;
 
-	static char buf[2048];
+	uint8_t *buf = s_rtsp_video_send_bufs[s_rtsp_video_send_buf_idx];
 
 	int rtp_packet_size = frag_len + RTP_HEADER_SIZE + JPEG_HEADER_SIZE + (include_quant_tbl ? (4 + (64 * 2)) : 0);
+	if ((rtp_packet_size + 4) > RTSP_VIDEO_SEND_BUF_SIZE) {
+		printf("+ video RTP packet too large: %d\n", rtp_packet_size + 4);
+		return 0;
+	}
+	s_rtsp_video_send_buf_idx = (uint8_t)((s_rtsp_video_send_buf_idx + 1U) % RTSP_VIDEO_SEND_BUF_DEPTH);
 
 
-	memset(buf, 0x00, sizeof(buf));
+	memset(buf, 0x00, RTSP_VIDEO_SEND_BUF_SIZE);
 
 	buf[0]  = '$';
 	buf[1]  = 0;
@@ -233,26 +262,31 @@ int rtsp_streamer_send_rtp_packet(rtsp_streamer_t* streamer, const uint8_t* jpeg
 	llist_item_t* client = streamer->clients;
 	rtsp_session_t* session = NULL;
 	int sent_count = 0;
-	while (client != NULL) {
-		session = (rtsp_session_t*)client->value;
-		if (session->is_streaming && !session->is_stopped) {
-			if (session->is_tcp_transport) {
-				int ret = send(session->client, buf, rtp_packet_size + 4, 0);
-				if (session->is_debug && sent_count == 0) {
-					printf("+ TCP send RTP: %d bytes, ret=%d\n", rtp_packet_size + 4, ret);
+		while (client != NULL) {
+				session = (rtsp_session_t*)client->value;
+				if (session->is_streaming && !session->is_stopped) {
+					if (session->is_tcp_transport) {
+						int ret = rtsp_session_send(session, buf, rtp_packet_size + 4);
+						if (session->is_debug && sent_count == 0) {
+							printf("+ TCP send RTP: %d bytes, ret=%d\n", rtp_packet_size + 4, ret);
+						}
+						if (ret == 0) {
+							sent_count++;
+						}
+				} else {
+					rtsp_socker_peer_addr(session->client, &addr, &port);
+					int ret = rtsp_udp_socket_send(streamer->rtp_sock, &buf[4], rtp_packet_size, addr, session->video_rtp_port);
+					if (session->is_debug && sent_count == 0) {
+						printf("+ UDP send VIDEO RTP: sock=%d size=%d addr=%08x port=%d ret=%d\n",
+							streamer->rtp_sock, rtp_packet_size, addr, session->video_rtp_port, ret);
+					}
+						if (ret >= 0) {
+							sent_count++;
+						}
 				}
-			} else {
-				rtsp_socker_peer_addr(session->client, &addr, &port);
-				int ret = rtsp_udp_socket_send(streamer->rtp_sock, &buf[4], rtp_packet_size, addr, session->video_rtp_port);
-				if (session->is_debug && sent_count == 0) {
-					printf("+ UDP send VIDEO RTP: sock=%d size=%d addr=%08x port=%d ret=%d\n",
-						streamer->rtp_sock, rtp_packet_size, addr, session->video_rtp_port, ret);
-				}
-			}
-			sent_count++;
-		} else if (session->is_debug && sent_count == 0) {
-			printf("+ skip send: is_streaming=%d, is_stopped=%d\n",
-				session->is_streaming, session->is_stopped);
+			} else if (session->is_debug && sent_count == 0) {
+				printf("+ skip send: is_streaming=%d, is_stopped=%d\n",
+					session->is_streaming, session->is_stopped);
 		}
 
 		client = client->next;
@@ -271,9 +305,10 @@ int rtsp_streamer_send_rtp_packet(rtsp_streamer_t* streamer, const uint8_t* jpeg
 bool rtsp_streamer_init_udp_transport(rtsp_streamer_t* streamer) {
 	printf("+ init_udp_transport: udp_rc=%d\n", streamer->udp_rc);
 
-	if (streamer->udp_rc != 0) {
-		++streamer->udp_rc;
-		printf("+ init_udp_transport: already initialized, rc=%d\n", streamer->udp_rc);
+	if (streamer->rtp_sock > 0) {
+		streamer->udp_rc = 1;
+		printf("+ init_udp_transport: already initialized, rtp_sock=%d rtp_port=%d\n",
+		       streamer->rtp_sock, streamer->rtp_port);
 		return true;
 	}
 
@@ -281,49 +316,44 @@ bool rtsp_streamer_init_udp_transport(rtsp_streamer_t* streamer) {
 	for (uint16_t p = 6970; p < 0xFFFE; p += 2) {
 		streamer->rtp_sock = rtsp_udp_socket_create(p);
 		if (streamer->rtp_sock) {
-			streamer->rtcp_sock = rtsp_udp_socket_create(p + 1);
-			if (streamer->rtcp_sock) {
-				streamer->rtp_port = p;
-				streamer->rtcp_port = p + 1;
-				printf("+ init_udp_transport: SUCCESS - rtp_sock=%d rtp_port=%d rtcp_sock=%d rtcp_port=%d\n",
-					streamer->rtp_sock, streamer->rtp_port, streamer->rtcp_sock, streamer->rtcp_port);
-				break;
-			} else {
-				close(streamer->rtp_sock);
-				close(streamer->rtcp_sock);
-			}
+			/* We only transmit RTP today, so avoid binding an unused RTCP socket on
+			 * the board. That keeps UDP media setup within the limited socket budget. */
+			streamer->rtp_port = p;
+			streamer->rtcp_port = p + 1;
+			streamer->rtcp_sock = 0;
+			printf("+ init_udp_transport: SUCCESS - rtp_sock=%d rtp_port=%d rtcp_port=%d (rtcp unbound)\n",
+				streamer->rtp_sock, streamer->rtp_port, streamer->rtcp_port);
+			break;
 		}
 	}
 
 	if (streamer->rtp_sock == 0) {
 		printf("+ init_udp_transport: FAILED - could not create UDP sockets\n");
+		streamer->rtp_port = 0;
+		streamer->rtcp_port = 0;
+		streamer->rtp_sock = 0;
+		streamer->rtcp_sock = 0;
+		return false;
 	}
 
-	++streamer->udp_rc;
+	streamer->udp_rc = 1;
 	return true;
 }
 void rtsp_streamer_deinit_udp_transport(rtsp_streamer_t* streamer) {
-	if (streamer->udp_rc > 0) {
-		--streamer->udp_rc;
-		if (streamer->udp_rc == 0) {
-			streamer->rtp_port = 0;
-			streamer->rtcp_port = 0;
-			close(streamer->rtp_sock);
-			close(streamer->rtcp_sock);
-			streamer->rtp_sock = 0;
-			streamer->rtcp_sock = 0;
-			/* Reset RTP sequence number and timestamp to avoid sequence disorder on the next connection */
-			streamer->cseq = 0;
-			streamer->timestamp = 0;
-			streamer->prev_ms = 0;
-			streamer->start_ms = 0;
-			printf("+ deinit_udp_transport: UDP sockets closed, seq/timestamp reset\n");
-		} else {
-			printf("+ deinit_udp_transport: rc=%d, still in use\n", streamer->udp_rc);
-		}
-	} else {
+	if (streamer->rtp_sock <= 0 && streamer->rtcp_sock <= 0) {
 		printf("+ deinit_udp_transport: WARNING - not initialized (rc=%d)\n", streamer->udp_rc);
+		return;
 	}
+
+	streamer->udp_rc = 0;
+	streamer->rtp_port = 0;
+	streamer->rtcp_port = 0;
+	if (streamer->rtp_sock > 0) close(streamer->rtp_sock);
+	if (streamer->rtcp_sock > 0) close(streamer->rtcp_sock);
+	streamer->rtp_sock = 0;
+	streamer->rtcp_sock = 0;
+	rtsp_streamer_reset_media_timing(streamer);
+	printf("+ deinit_udp_transport: UDP sockets closed, seq/timestamp reset\n");
 }
 
 bool rtsp_streamer_start(rtsp_streamer_t* streamer, uint32_t read_timeout_ms) {
@@ -454,40 +484,50 @@ bool rtsp_decode_jpeg_file(const uint8_t** data, uint32_t* len, const uint8_t** 
 
 void rtsp_streamer_stream_frame(rtsp_streamer_t* streamer, const uint8_t* data, uint32_t len, uint32_t ms) {
 	const uint8_t *qtable_0, *qtable_1;
+	uint32_t delta_ms;
+	uint32_t frame_timestamp;
+	uint16_t first_seq;
+	uint16_t last_seq;
+	int packet_count = 0;
+	static uint32_t video_frame_count = 0;
 
 	if (!rtsp_decode_jpeg_file(&data, &len, &qtable_0, &qtable_1)) {
 		return;
 	}
 
+	/* Compute the RTP timestamp before sending so each JPEG frame carries its
+	 * own presentation timestamp instead of reusing the previous frame's. */
+	if (streamer->start_ms == 0) {
+		streamer->start_ms = ms;
+		streamer->timestamp = 0;
+		delta_ms = 0;
+	} else {
+		delta_ms = (ms >= streamer->prev_ms) ? (ms - streamer->prev_ms) : 0;
+		streamer->timestamp =
+			rtsp_rtp_timestamp_from_elapsed_ms(ms - streamer->start_ms, 90000U);
+	}
+	streamer->prev_ms = ms;
+	frame_timestamp = streamer->timestamp;
+	first_seq = (uint16_t)(streamer->cseq & 0xFFFFU);
+
 	// Send all fragments with quantization tables in first packet
 	// Add small delay between fragments to prevent UDP packet loss
 	int offset = 0;
 	do {
+		packet_count++;
 		offset = rtsp_streamer_send_rtp_packet(streamer, data, len, offset, qtable_0, qtable_1);
 	} while (offset != 0);
-
-	// 音视频同步：使用统一的起始时间计算时间戳
-	if (streamer->start_ms == 0) {
-		// 第一帧：记录起始时间
-		streamer->start_ms = ms;
-		streamer->prev_ms = ms;
-		streamer->timestamp = 0;  // 从0开始
-	} else {
-		// 后续帧：根据相对于起始时间的偏移计算时间戳
-		// 使用 90000 Hz 时钟（RTP 视频标准）
-		uint32_t elapsed_ms = ms - streamer->start_ms;
-		streamer->timestamp = (elapsed_ms * 90);  // 90000 / 1000 = 90
-	}
-
-	uint32_t delta_ms = (ms >= streamer->prev_ms) ? (ms - streamer->prev_ms) : 0;
-	streamer->prev_ms = ms;
+	last_seq = (uint16_t)((streamer->cseq == 0) ? 0 : ((streamer->cseq - 1U) & 0xFFFFU));
 
 	streamer->send_idx++;
 	if (streamer->send_idx > 1) streamer->send_idx = 0;
 
-	// 每帧都打印时间戳信息用于调试
-	// printf("+ Video Frame: ms=%u, elapsed=%u, delta=%u, rtp_ts=%u\n",
-	// 	ms, ms - streamer->start_ms, delta_ms, streamer->timestamp);
+	video_frame_count++;
+	if ((video_frame_count % 100U) == 0U) {
+		printf("+ VIDEO RTP: frame=%u jpeg=%u frag=%d ts=%u delta=%u seq=%u-%u qtbl=%d\n",
+		       video_frame_count, len, packet_count, frame_timestamp, delta_ms,
+		       first_seq, last_seq, (qtable_0 != NULL && qtable_1 != NULL) ? 1 : 0);
+	}
 }
 
 void rtsp_streamer_init_audio(rtsp_streamer_t* streamer, const rtsp_audio_config_t* audio_config) {
@@ -498,7 +538,12 @@ void rtsp_streamer_init_audio(rtsp_streamer_t* streamer, const rtsp_audio_config
 }
 
 bool rtsp_streamer_init_audio_udp_transport(rtsp_streamer_t* streamer) {
-	if (streamer->audio_udp_rc++ > 0) return true;
+	if (streamer->audio_rtp_sock > 0) {
+		streamer->audio_udp_rc = 1;
+		printf("+ Audio UDP transport already initialized: rtp_port=%d rtcp_port=%d\n",
+		       streamer->audio_rtp_port, streamer->audio_rtcp_port);
+		return true;
+	}
 
 	// Start from a port after video ports to avoid conflicts
 	uint16_t start_port = (streamer->rtp_port > 0) ? streamer->rtp_port + 2 : 6972;
@@ -512,25 +557,32 @@ bool rtsp_streamer_init_audio_udp_transport(rtsp_streamer_t* streamer) {
 		streamer->audio_rtp_sock = rtsp_udp_socket_create(port);
 		if (streamer->audio_rtp_sock) {
 			streamer->audio_rtp_port = port;
-			streamer->audio_rtcp_sock = rtsp_udp_socket_create(port + 1);
-			if (streamer->audio_rtcp_sock) {
-				streamer->audio_rtcp_port = port + 1;
-				printf("+ Audio UDP transport: rtp_port=%d rtcp_port=%d\n",
-					streamer->audio_rtp_port, streamer->audio_rtcp_port);
-				return true;
-			}
-			close(streamer->audio_rtp_sock);
+			streamer->audio_rtcp_port = port + 1;
+			streamer->audio_rtcp_sock = 0;
+			streamer->audio_udp_rc = 1;
+			printf("+ Audio UDP transport: rtp_port=%d rtcp_port=%d (rtcp unbound)\n",
+				streamer->audio_rtp_port, streamer->audio_rtcp_port);
+			return true;
 		}
 	}
+	streamer->audio_rtp_sock = 0;
+	streamer->audio_rtcp_sock = 0;
+	streamer->audio_rtp_port = 0;
+	streamer->audio_rtcp_port = 0;
 	return false;
 }
 
 void rtsp_streamer_deinit_audio_udp_transport(rtsp_streamer_t* streamer) {
-	if (--streamer->audio_udp_rc > 0) return;
-	if (streamer->audio_rtp_sock) close(streamer->audio_rtp_sock);
-	if (streamer->audio_rtcp_sock) close(streamer->audio_rtcp_sock);
+	if (streamer->audio_rtp_sock <= 0 && streamer->audio_rtcp_sock <= 0) {
+		return;
+	}
+	streamer->audio_udp_rc = 0;
+	if (streamer->audio_rtp_sock > 0) close(streamer->audio_rtp_sock);
+	if (streamer->audio_rtcp_sock > 0) close(streamer->audio_rtcp_sock);
 	streamer->audio_rtp_sock = 0;
 	streamer->audio_rtcp_sock = 0;
+	streamer->audio_rtp_port = 0;
+	streamer->audio_rtcp_port = 0;
 	/* Reset audio RTP sequence number and timestamp to avoid sequence issues on next connection */
 	streamer->audio_seq_num = 0;
 	streamer->audio_timestamp = 0;
@@ -540,8 +592,18 @@ void rtsp_streamer_deinit_audio_udp_transport(rtsp_streamer_t* streamer) {
 void rtsp_streamer_stream_audio_frame(rtsp_streamer_t* streamer, const uint8_t* data, uint32_t len, uint32_t ms) {
 	if (!streamer->audio_enabled || llist_is_empty(streamer->clients)) return;
 
-	uint8_t rtp_packet[1200];
+	uint8_t *rtp_packet = s_rtsp_audio_send_bufs[s_rtsp_audio_send_buf_idx];
 	size_t offset = 0;
+	uint32_t audio_rate = streamer->audio_config.sample_rate;
+	if ((len + 12U) > RTSP_AUDIO_SEND_BUF_SIZE) {
+		printf("+ audio RTP packet too large: %u\n", (unsigned int)(len + 12U));
+		return;
+	}
+	s_rtsp_audio_send_buf_idx = (uint8_t)((s_rtsp_audio_send_buf_idx + 1U) % RTSP_AUDIO_SEND_BUF_DEPTH);
+
+	if (audio_rate == 0) {
+		audio_rate = 8000;
+	}
 
 	rtp_packet[offset++] = 0x80;
 	rtp_packet[offset++] = streamer->audio_config.payload_type;
@@ -557,7 +619,8 @@ void rtsp_streamer_stream_audio_frame(rtsp_streamer_t* streamer, const uint8_t* 
 	} else {
 		// 根据相对于起始时间的偏移计算时间戳
 		uint32_t elapsed_ms = ms - streamer->start_ms;
-		streamer->audio_timestamp = (elapsed_ms * 8);  // 8000 / 1000 = 8
+		streamer->audio_timestamp =
+			rtsp_rtp_timestamp_from_elapsed_ms(elapsed_ms, audio_rate);
 	}
 
 	rtp_packet[offset++] = (streamer->audio_timestamp >> 24) & 0xFF;
@@ -580,31 +643,38 @@ void rtsp_streamer_stream_audio_frame(rtsp_streamer_t* streamer, const uint8_t* 
 		rtsp_session_t* session = (rtsp_session_t*)client->value;
 		// TCP 模式下不检查端口号（端口为0），UDP 模式需要检查端口号
 		bool should_send_audio = session->is_streaming &&
+		                         !session->is_stopped &&
 		                         (session->is_tcp_transport || session->audio_rtp_port > 0);
 
-		if (should_send_audio) {
-			if (session->is_tcp_transport) {
-				char tcp_header[4];
-				tcp_header[0] = 0x24;
-				tcp_header[1] = 0x02;  // Audio RTP channel
-				tcp_header[2] = (offset >> 8) & 0xFF;
-				tcp_header[3] = offset & 0xFF;
-				send(session->client, tcp_header, 4, 0);
-				send(session->client, rtp_packet, offset, 0);
-				if (session->is_debug && sent_count == 0) {
-					printf("+ TCP send AUDIO RTP: %d bytes, channel=2\n", (int)offset);
-				}
-			} else {
-				int ret = rtsp_udp_socket_send(streamer->audio_rtp_sock, rtp_packet, offset,
-					session->peer_addr, session->audio_rtp_port);
-				if (session->is_debug && sent_count == 0) {
+			if (should_send_audio) {
+				if (session->is_tcp_transport) {
+					uint8_t tcp_packet[RTSP_AUDIO_SEND_BUF_SIZE + 4];
+					int ret;
+					tcp_packet[0] = 0x24;
+					tcp_packet[1] = 0x02;  // Audio RTP channel
+					tcp_packet[2] = (offset >> 8) & 0xFF;
+					tcp_packet[3] = offset & 0xFF;
+					memcpy(tcp_packet + 4, rtp_packet, offset);
+					ret = rtsp_session_send(session, tcp_packet, offset + 4);
+					if (session->is_debug && sent_count == 0) {
+						printf("+ TCP send AUDIO RTP: %d bytes, channel=2 ret=%d\n", (int)(offset + 4), ret);
+					}
+					if (ret == 0) {
+						sent_count++;
+					}
+				} else {
+					int ret = rtsp_udp_socket_send(streamer->audio_rtp_sock, rtp_packet, offset,
+						session->peer_addr, session->audio_rtp_port);
+					if (session->is_debug && sent_count == 0) {
 					printf("+ UDP send AUDIO RTP: sock=%d size=%d addr=%08x port=%d ret=%d seq=%d ts=%u\n",
-						streamer->audio_rtp_sock, (int)offset, session->peer_addr,
-						session->audio_rtp_port, ret, streamer->audio_seq_num - 1, streamer->audio_timestamp);
+							streamer->audio_rtp_sock, (int)offset, session->peer_addr,
+							session->audio_rtp_port, ret, streamer->audio_seq_num - 1, streamer->audio_timestamp);
+					}
+					if (ret >= 0) {
+						sent_count++;
+					}
 				}
 			}
-			sent_count++;
-		}
 		client = client->next;
 	}
 
@@ -621,4 +691,3 @@ void rtsp_streamer_stream_audio_frame(rtsp_streamer_t* streamer, const uint8_t* 
 		audio_frame_count = 0;
 	}
 }
-

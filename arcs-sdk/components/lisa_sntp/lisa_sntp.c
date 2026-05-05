@@ -174,7 +174,7 @@ static int lisa_sntp_query_once(const char *server, uint32_t timeout, struct lis
 			  &udpTransportIntf, NULL);
 	if (status != SntpSuccess) {
 		LISA_NLOGE("Sntp_Init() failed,status=%d", status);
-		close(udpContext.udpSocket);
+		closesocket(udpContext.udpSocket);
 		return -1;
 	}
 
@@ -182,18 +182,18 @@ static int lisa_sntp_query_once(const char *server, uint32_t timeout, struct lis
 				      TIME_REQUEST_SEND_WAIT_TIME_MS * 2);
 	if (status != SntpSuccess) {
 		LISA_NLOGE("Sntp_SendTimeRequest() failed,status=%d", status);
-		close(udpContext.udpSocket);
+		closesocket(udpContext.udpSocket);
 		return -1;
 	}
 
 	status = Sntp_ReceiveTimeResponse(&context, TIME_REQUEST_RECEIVE_WAIT_TIME_MS * 2);
 	if (status != SntpSuccess) {
 		LISA_NLOGE("Sntp_ReceiveTimeResponse failed,status=%d", status);
-		close(udpContext.udpSocket);
+		closesocket(udpContext.udpSocket);
 		return -1;
 	}
 
-	close(udpContext.udpSocket);
+	closesocket(udpContext.udpSocket);
 
 	/* lisaSntpQueryCtx.status will update at function sntpClient_SetTime  */
 	if (lisaSntpQueryCtx.status != SntpSuccess) {

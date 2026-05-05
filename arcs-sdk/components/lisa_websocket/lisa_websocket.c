@@ -44,6 +44,11 @@ struct lisa_ws {
     lisa_thread_t *thread;
     noPollCtx *nopoll_ctx;
     noPollConn *nopoll_conn;
+    char *rx_msg_buf;
+    uint32_t rx_msg_len;
+    uint32_t rx_msg_cap;
+    lisa_ws_data_type_e rx_msg_type;
+    bool rx_msg_active;
 };
 
 typedef struct {
@@ -55,9 +60,94 @@ typedef struct {
 
 static void lisa_websocket_thread(void *param);
 
+static void lisa_websocket_rx_msg_reset(lisa_ws_t *ins)
+{
+    if (ins == NULL) {
+        return;
+    }
+
+    if (ins->rx_msg_buf != NULL) {
+        lisa_mem_free(ins->rx_msg_buf);
+        ins->rx_msg_buf = NULL;
+    }
+
+    ins->rx_msg_len = 0;
+    ins->rx_msg_cap = 0;
+    ins->rx_msg_type = LISA_WS_TEXT;
+    ins->rx_msg_active = false;
+}
+
+static int lisa_websocket_rx_msg_reserve(lisa_ws_t *ins, uint32_t need)
+{
+    char *buf;
+    uint32_t new_cap;
+
+    if (need <= ins->rx_msg_cap) {
+        return 0;
+    }
+
+    new_cap = ins->rx_msg_cap ? ins->rx_msg_cap : 256;
+    while (new_cap < need) {
+        if (new_cap > UINT32_MAX / 2) {
+            new_cap = need;
+            break;
+        }
+        new_cap *= 2;
+    }
+
+    buf = ins->rx_msg_buf ? lisa_mem_realloc(ins->rx_msg_buf, new_cap) : lisa_mem_alloc(new_cap);
+    if (buf == NULL) {
+        LISA_NLOGE("rx msg buf alloc failed, need:%u", need);
+        return -1;
+    }
+
+    ins->rx_msg_buf = buf;
+    ins->rx_msg_cap = new_cap;
+    return 0;
+}
+
+static int lisa_websocket_rx_msg_append(lisa_ws_t *ins, const void *data, uint32_t len, lisa_ws_data_type_e type, bool start)
+{
+    if (start) {
+        if (ins->rx_msg_active) {
+            LISA_NLOGW("drop unfinished websocket message, len:%u", ins->rx_msg_len);
+            lisa_websocket_rx_msg_reset(ins);
+        }
+        ins->rx_msg_type = type;
+        ins->rx_msg_active = true;
+    } else if (!ins->rx_msg_active) {
+        LISA_NLOGE("unexpected websocket continuation frame");
+        return -1;
+    }
+
+    if (lisa_websocket_rx_msg_reserve(ins, ins->rx_msg_len + len + 1) != 0) {
+        lisa_websocket_rx_msg_reset(ins);
+        return -1;
+    }
+
+    if (len > 0) {
+        memcpy(ins->rx_msg_buf + ins->rx_msg_len, data, len);
+        ins->rx_msg_len += len;
+    }
+    ins->rx_msg_buf[ins->rx_msg_len] = 0;
+    return 0;
+}
+
+static void lisa_websocket_rx_msg_dispatch(lisa_ws_t *ins, const void *msg, uint32_t len, lisa_ws_data_type_e type)
+{
+    lisa_ws_data_t ws_data;
+
+    ws_data.type = type;
+    ws_data.user = ins->user;
+    ws_data.buf = msg;
+    ws_data.len = len;
+    ins->inter_on_data(&ws_data);
+}
+
 static void _callback_ws_disconnect(lisa_ws_t *handle)
 {
     if (handle) {
+        lisa_websocket_rx_msg_reset(handle);
         handle->ws_conn = false;
         lisa_ws_event_t ws_event;
         ws_event.what = LISA_WS_ON_DISCONNECTED;
@@ -257,9 +347,12 @@ static int lisa_websocket_msg_fragment_remain_recv(lisa_ws_t *ins, noPollConn *n
 static int lisa_websocket_msg_recv_proc(lisa_ws_t *ins, noPollConn *nopoll_conn)
 {
     noPollMsg *nopoll_msg;
-    nopoll_msg = nopoll_conn_get_msg(nopoll_conn);
-    bool fragment_msg = false;
+    noPollOpCode opcode;
+    bool final_frame;
+    bool partial_frame = false;
+    lisa_ws_data_type_e data_type;
 
+    nopoll_msg = nopoll_conn_get_msg(nopoll_conn);
     if (nopoll_msg == NULL) {
         return -1;
     }
@@ -279,8 +372,11 @@ static int lisa_websocket_msg_recv_proc(lisa_ws_t *ins, noPollConn *nopoll_conn)
         return 0;
     }
 
-    /* reframe msg if it is a fragment */
-    if (nopoll_msg->is_fragment) {
+    opcode = nopoll_msg_opcode(nopoll_msg);
+    final_frame = nopoll_msg->has_fin != 0;
+
+    /* Finish reading the current frame before websocket message reassembly. */
+    if (nopoll_msg->remain_bytes > 0) {
         uint32_t total_size = nopoll_msg->remain_bytes + nopoll_msg->payload_size;
         LISA_NLOGD("msg is a fragment, remain:%d, payload size:%ld, total:%d, payload: %s", nopoll_msg->remain_bytes,
                    nopoll_msg->payload_size, total_size, msg);
@@ -301,19 +397,37 @@ static int lisa_websocket_msg_recv_proc(lisa_ws_t *ins, noPollConn *nopoll_conn)
         buf[total_size] = 0;
         msg = buf;
         len = total_size;
-        fragment_msg = true;
+        partial_frame = true;
     }
 
-    /* complete msg received */
-    lisa_ws_data_t ws_data;
-    ws_data.type = (nopoll_msg->op_code == NOPOLL_TEXT_FRAME ? LISA_WS_TEXT : LISA_WS_BIN);
-    ws_data.user = ins->user;
-    ws_data.buf = msg;
-    ws_data.len = len;
-    ins->inter_on_data(&ws_data);
+    if (opcode == NOPOLL_TEXT_FRAME) {
+        data_type = LISA_WS_TEXT;
+    } else if (opcode == NOPOLL_BINARY_FRAME) {
+        data_type = LISA_WS_BIN;
+    } else if (opcode == NOPOLL_CONTINUATION_FRAME) {
+        data_type = ins->rx_msg_type;
+    } else {
+        data_type = LISA_WS_BIN;
+    }
+
+    if (opcode == NOPOLL_CONTINUATION_FRAME) {
+        if (lisa_websocket_rx_msg_append(ins, msg, len, data_type, false) == 0 && final_frame) {
+            lisa_websocket_rx_msg_dispatch(ins, ins->rx_msg_buf, ins->rx_msg_len, ins->rx_msg_type);
+            lisa_websocket_rx_msg_reset(ins);
+        }
+    } else if (!final_frame) {
+        (void)lisa_websocket_rx_msg_append(ins, msg, len, data_type, true);
+    } else {
+        if (ins->rx_msg_active) {
+            LISA_NLOGW("drop unfinished websocket message before direct dispatch, len:%u", ins->rx_msg_len);
+            lisa_websocket_rx_msg_reset(ins);
+        }
+        lisa_websocket_rx_msg_dispatch(ins, msg, len, data_type);
+    }
+
     /* release msg */
     nopoll_msg_unref(nopoll_msg);
-    if (fragment_msg) {
+    if (partial_frame) {
         lisa_mem_free((void *)msg);
     }
 
@@ -749,6 +863,7 @@ lisa_ws_err_e lisa_ws_cleanup(lisa_ws_t *ins)
         ins->connect_sem = NULL;
     }
 
+    lisa_websocket_rx_msg_reset(ins);
     lisa_mem_free(ins);
 
     return LISA_WS_OK;

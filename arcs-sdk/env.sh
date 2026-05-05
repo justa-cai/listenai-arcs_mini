@@ -98,9 +98,14 @@ _env_setup_path() {
 
     local paths_to_add=()
 
-    # cskburn
-    local burn_dir="$_ENV_SDK_DIR/tools/burn"
-    [ -d "$burn_dir" ] && paths_to_add+=("$burn_dir")
+    # cskburn — macOS 优先使用 listenai-tools 下的原生二进制
+    if [[ "$(uname)" == "Darwin" ]] && [ -n "${LISTENAI_TOOLS_PATH:-}" ] && \
+       [ -x "$LISTENAI_TOOLS_PATH/cskburn/cskburn" ]; then
+        paths_to_add+=("$LISTENAI_TOOLS_PATH/cskburn")
+    else
+        local burn_dir="$_ENV_SDK_DIR/tools/burn"
+        [ -d "$burn_dir" ] && paths_to_add+=("$burn_dir")
+    fi
 
     # toolchain bin
     if [ -n "${NUCLEI_TOOLCHAIN_PATH:-}" ] && [ -d "$NUCLEI_TOOLCHAIN_PATH/bin" ]; then
@@ -131,7 +136,11 @@ _env_check_deps() {
     command -v git &>/dev/null || missing+=("git")
     if [ ${#missing[@]} -gt 0 ]; then
         _env_miss "缺少系统依赖: ${missing[*]}"
-        _env_info "请运行: sudo apt install -y ${missing[*]}"
+        if [[ "$(uname)" == "Darwin" ]]; then
+            _env_info "请运行: brew install ${missing[*]}"
+        else
+            _env_info "请运行: sudo apt install -y ${missing[*]}"
+        fi
         return 1
     fi
     return 0
@@ -152,13 +161,20 @@ _env_install_toolchain() {
     if [ "$force" = false ] && "$toolchain_path/bin/riscv64-unknown-elf-gcc" --version &>/dev/null; then
         _env_ok "GCC 工具链已存在，跳过"
     else
-        _env_info "正在下载 GCC 工具链..."
-        if bash "$_ENV_SDK_DIR/tools/scripts/prepare_toolchain.sh" "$dev_tools_path"; then
-            _env_ok "GCC 工具链安装完成"
-        else
-            _env_miss "GCC 工具链安装失败"
-            _env_info "可尝试手动安装: bash tools/scripts/prepare_toolchain.sh"
+        if [[ "$(uname)" == "Darwin" ]]; then
+            _env_miss "GCC 工具链未安装（macOS 需手动编译）"
+            _env_info "请运行: bash /tmp/build-riscv-toolchain.sh"
+            _env_info "或设置 NUCLEI_TOOLCHAIN_PATH 指向已编译的工具链"
             has_error=true
+        else
+            _env_info "正在下载 GCC 工具链..."
+            if bash "$_ENV_SDK_DIR/tools/scripts/prepare_toolchain.sh" "$dev_tools_path"; then
+                _env_ok "GCC 工具链安装完成"
+            else
+                _env_miss "GCC 工具链安装失败"
+                _env_info "可尝试手动安装: bash tools/scripts/prepare_toolchain.sh"
+                has_error=true
+            fi
         fi
     fi
 
@@ -167,13 +183,19 @@ _env_install_toolchain() {
     if [ "$force" = false ] && "$tools_path/cmake/bin/cmake" --version &>/dev/null; then
         _env_ok "listenai-tools 已存在，跳过"
     else
-        _env_info "正在下载 listenai-tools..."
-        if bash "$_ENV_SDK_DIR/tools/scripts/prepare_listenai_tools.sh" "$dev_tools_path"; then
-            _env_ok "listenai-tools 安装完成"
-        else
-            _env_miss "listenai-tools 安装失败"
-            _env_info "可尝试手动安装: bash tools/scripts/prepare_listenai_tools.sh"
+        if [[ "$(uname)" == "Darwin" ]]; then
+            _env_miss "listenai-tools 未安装（macOS 需手动配置）"
+            _env_info "请参考 macOS 适配文档配置 listenai-tools"
             has_error=true
+        else
+            _env_info "正在下载 listenai-tools..."
+            if bash "$_ENV_SDK_DIR/tools/scripts/prepare_listenai_tools.sh" "$dev_tools_path"; then
+                _env_ok "listenai-tools 安装完成"
+            else
+                _env_miss "listenai-tools 安装失败"
+                _env_info "可尝试手动安装: bash tools/scripts/prepare_listenai_tools.sh"
+                has_error=true
+            fi
         fi
     fi
 

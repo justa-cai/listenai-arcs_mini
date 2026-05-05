@@ -14,9 +14,17 @@
 #include "alarm_nvs.h"
 #include "kv_user.h"
 #include "voice_msg.h"
+#include "app_datas.h"
 #include "apps/llm/models/model_voice.h"
 #include "service_volume.h"
 #include "service_brightness.h"
+
+static void kv_apply_interaction_mode(app_interaction_mode_t interaction_mode)
+{
+    model_voice_interaction_mode_set((int)interaction_mode);
+
+    voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
+}
 
 static int kv_cmd_del(int argc, char **argv)
 {
@@ -72,6 +80,13 @@ static int kv_cmd_set(int argc, char **argv)
                 return -1;
             }
 
+            if (!strcmp(key, KV_KEY_INT_MODE) && !app_interaction_mode_is_valid((int)parsed)) {
+                shellPrint(shellGetCurrent(),
+                           "flash set %s out of range: %ld (valid range: 0-%d)\n",
+                           key, parsed, APP_INTERACTION_MODE_MAX - 1);
+                return -1;
+            }
+
             int int_temp = (int)parsed;
             if (!strcmp(key, KV_KEY_USER_VOLUME)) {
                 service_volume_set(int_temp);
@@ -91,6 +106,9 @@ static int kv_cmd_set(int argc, char **argv)
                 shellPrint(shellGetCurrent(),"flash set %s:%d failed\n", key, int_temp);
             } else {
                 shellPrint(shellGetCurrent(),"flash set %s:%d success\n", key, int_temp);
+                if (!strcmp(key, KV_KEY_INT_MODE)) {
+                    kv_apply_interaction_mode((app_interaction_mode_t)int_temp);
+                }
             }
         } else if (!strcmp(type, "bool")) {
             int bool_temp = atoi(value);
@@ -98,10 +116,6 @@ static int kv_cmd_set(int argc, char **argv)
                 shellPrint(shellGetCurrent(),"flash set %s:%d failed\n", key, bool_temp);
             } else {
                 shellPrint(shellGetCurrent(),"flash set %s:%d success\n", key, bool_temp);
-                if (!strcmp(key, KV_KEY_FULL_DUPLEX)) {
-                    model_voice_wakeup_mode_set(bool_temp ? MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI : MODEL_VOICE_WAKEUP_MODE_VOICE_SINGLE);
-                    voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
-                }
             }
         } else {
             shellPrint(shellGetCurrent(),"invalid type %s\n", type);

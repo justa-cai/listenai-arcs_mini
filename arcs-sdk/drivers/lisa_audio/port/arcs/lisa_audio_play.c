@@ -28,6 +28,9 @@ extern int audio_submit_event_from_isr(internal_audio_event_t *event);
 #define GPDMA_DAC0_CHN  CONFIG_LISA_AUDIO_PLAY_DMA_CHN
 #ifdef CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE
 #define GPDMA_ECHO_CHN        CONFIG_LISA_AUDIO_PLAY_ECHO_DMA_CHN
+#endif
+
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
 #define ECHO_BUFFER_COUNT     CONFIG_LISA_AUDIO_RECORD_BUFFER_COUNT
 #define ECHO_BUFFER_SAMPLES   CONFIG_LISA_AUDIO_RECORD_BUFFER_SAMPLES
 #endif
@@ -227,6 +230,32 @@ static void play_event_callback(uint32_t event, uint32_t user)
             priv->pong_addr = next_item.addr;
         }
 
+#ifdef CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO
+        /* Software echo: copy completed play buffer as echo reference */
+        if (completed_addr && priv->state == PLAY_STATE_PLAY_RUN) {
+            void *echo_buf = priv->echo_fifo[priv->echo_xpos];
+            uint32_t copy_size = (priv->buffer_size < priv->echo_buffer_size)
+                                     ? priv->buffer_size
+                                     : priv->echo_buffer_size;
+            memcpy(echo_buf, completed_addr, copy_size);
+            if (copy_size < priv->echo_buffer_size) {
+                memset((uint8_t *)echo_buf + copy_size, 0, priv->echo_buffer_size - copy_size);
+            }
+
+            internal_audio_event_t echo_event = {
+                .type = AUDIO_EVENT_TYPE_ECHO,
+                .buffer = echo_buf,
+                .samples = priv->echo_buffer_samples,
+                .timestamp = SysTimeMsGet() * 1000000ULL,
+            };
+            if (audio_submit_event_from_isr(&echo_event) == 0) {
+                if (++priv->echo_xpos >= priv->echo_buffer_count) {
+                    priv->echo_xpos = 0;
+                }
+            }
+        }
+#endif
+
         recycle_completed_buffer(priv, completed_addr, &yield);
     }
 
@@ -281,6 +310,34 @@ static void play_event_callback(uint32_t event, uint32_t user)
 #endif
 
     portYIELD_FROM_ISR(yield);
+}
+
+static void arcs_audio_play_release_runtime(lisa_audio_play_priv_t *priv)
+{
+    if (priv == NULL) {
+        return;
+    }
+
+    if (priv->play_queue) vQueueDelete(priv->play_queue);
+    if (priv->free_queue) vQueueDelete(priv->free_queue);
+    if (priv->event) vEventGroupDelete(priv->event);
+    if (priv->buffer_pool) lisa_mem_free(priv->buffer_pool);
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    if (priv->echo_fifo) {
+        if (priv->echo_fifo[0]) {
+            lisa_mem_free(priv->echo_fifo[0]);
+        }
+        lisa_mem_free(priv->echo_fifo);
+    }
+#endif
+
+    priv->play_queue = NULL;
+    priv->free_queue = NULL;
+    priv->event = NULL;
+    priv->buffer_pool = NULL;
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    priv->echo_fifo = NULL;
+#endif
 }
 
 int arcs_audio_play_config(lisa_audio_play_priv_t *priv, const lisa_audio_play_config_t *config)
@@ -388,26 +445,7 @@ int arcs_audio_play_config(lisa_audio_play_priv_t *priv, const lisa_audio_play_c
     priv->buffer_samples = config->buffer_samples * MONO_CHANNELS;
     priv->buffer_size = priv->buffer_samples * (uint8_t)config->format.sample_bits;
 
-    if (priv->play_queue) vQueueDelete(priv->play_queue);
-    if (priv->free_queue) vQueueDelete(priv->free_queue);
-    if (priv->event) vEventGroupDelete(priv->event);
-    if (priv->buffer_pool) lisa_mem_free(priv->buffer_pool);
-#ifdef CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE
-    if (priv->echo_fifo) {
-        if (priv->echo_fifo[0]) {
-            lisa_mem_free(priv->echo_fifo[0]);
-        }
-        lisa_mem_free(priv->echo_fifo);
-    }
-#endif
-
-    priv->play_queue = NULL;
-    priv->free_queue = NULL;
-    priv->event = NULL;
-    priv->buffer_pool = NULL;
-#ifdef CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE
-    priv->echo_fifo = NULL;
-#endif
+    arcs_audio_play_release_runtime(priv);
 
     const uint32_t pool_alignment = 32;
     const uint32_t pool_size = priv->buffer_count * priv->buffer_size;
@@ -428,7 +466,7 @@ int arcs_audio_play_config(lisa_audio_play_priv_t *priv, const lisa_audio_play_c
         goto exit;
     }
 
-#ifdef CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
     priv->echo_buffer_count = ECHO_BUFFER_COUNT;
     priv->echo_buffer_samples = ECHO_BUFFER_SAMPLES;
     priv->echo_buffer_size = priv->echo_buffer_samples * BYTES_PER_SAMPLE_16;
@@ -661,6 +699,8 @@ int arcs_audio_play_control(lisa_audio_play_priv_t *priv, uint32_t cmd, void *ar
                     if (ret != 0) {
                         LOGE("DAC_Echo_Receive_PiPo failed: %d", ret);
                     }
+#elif defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+                    priv->echo_xpos = 0;
 #endif
                     DAC_SetMute(priv->hdrv, 0, dev_bitmap);
                     priv->status = LISA_AUDIO_STATUS_RUNNING;

@@ -1,8 +1,6 @@
 #include <stdlib.h>
 #include <string.h>
-#include <sys/select.h>
 #include "ze_tls.h"
-#include <unistd.h>
 #include <mbedtls/platform.h>
 #include "log_print.h"
 #include "rtos_al.h"
@@ -278,15 +276,60 @@ int mbedtls_config_context(mbedtls_context *context, void *param, int verify)
 
 #if defined(MBEDTLS_SSL_CLI_C)
 
-static int mbedtls_get_noblock(mbedtls_net_context *ctx)
+static int mbedtls_set_socket_nonblock(mbedtls_net_context *ctx, int nonblock)
 {
 	if (ctx == NULL) {
 		mbedtls_dbg(err, "Ctx is NULL.\n");
 		return -1;
 	}
-	if ((fcntl(ctx->fd, F_GETFL, 0) & O_NONBLOCK) != O_NONBLOCK)
-		return( 0 );
-	return 1;
+
+	int mode = nonblock ? 1 : 0;
+	return ioctlsocket(ctx->fd, FIONBIO, &mode);
+}
+
+static int mbedtls_wait_socket_connected(mbedtls_net_context *ctx, uint32_t timeout_ms)
+{
+	uint32_t waited_ms = 0;
+	const uint32_t poll_interval_ms = 10;
+	int so_error = 0;
+	socklen_t optlen = sizeof(so_error);
+
+	if (ctx == NULL) {
+		return -1;
+	}
+
+	while (waited_ms <= timeout_ms) {
+		so_error = 0;
+		optlen = sizeof(so_error);
+		if (getsockopt(ctx->fd, SOL_SOCKET, SO_ERROR, &so_error, &optlen) == 0) {
+			if (so_error == 0) {
+				return 0;
+			}
+
+			if (so_error != EINPROGRESS && so_error != EINVAL && so_error != EAGAIN &&
+			    so_error != EWOULDBLOCK &&
+			    so_error != EALREADY && so_error != ENOTCONN) {
+				mbedtls_dbg(err, "tls connect %d so_error %d\n", ctx->fd, so_error);
+				return -1;
+			}
+		} else {
+			if (errno != ENOTCONN && errno != EINVAL && errno != EAGAIN &&
+			    errno != EWOULDBLOCK && errno != EINPROGRESS && errno != EALREADY) {
+				mbedtls_dbg(err, "tls connect %d getsockopt errno %d\n", ctx->fd, errno);
+				return -1;
+			}
+		}
+
+		if (waited_ms >= timeout_ms) {
+			break;
+		}
+
+		rtos_delay(poll_interval_ms);
+		waited_ms += poll_interval_ms;
+	}
+
+	mbedtls_dbg(err, "tls connect %d timeout %u ms\n", ctx->fd, timeout_ms);
+	return -1;
 }
 
 /**
@@ -304,14 +347,13 @@ static int mbedtls_get_noblock(mbedtls_net_context *ctx)
 int mbedtls_connect(mbedtls_context *context, mbedtls_sock *fd, struct sockaddr *name,
                            int namelen, char *hostname)
 {
-	int is_block = 0;
 	int ret = 0;
 	mbedtls_dbg(inf, "Connect start..\n");
 	mbedtls_context *pContext = (mbedtls_context *)context;
 	struct sockaddr *ServerAddress = (struct sockaddr *)name;
 	mbedtls_net_context *net_fd = (mbedtls_net_context *) fd;
 
-	if (!pContext || net_fd < 0 || !ServerAddress) {
+	if (!pContext || !net_fd || net_fd->fd < 0 || !ServerAddress) {
 		mbedtls_dbg(err, "Connect invalid arg..\n");
 		return -1;
 	}
@@ -322,25 +364,24 @@ int mbedtls_connect(mbedtls_context *context, mbedtls_sock *fd, struct sockaddr 
 			return -1;
 		}
 	}
-	if ((is_block = mbedtls_get_noblock(net_fd)) == 0)
-		mbedtls_net_set_nonblock(net_fd);
-	if ((ret = connect(net_fd->fd, ServerAddress, namelen)) != 0) {
-		struct timeval con_timeout;
-		fd_set fdset;
-		con_timeout.tv_sec = 0;
-		con_timeout.tv_usec = MBEDTLS_CONNECT_TIMEOUT_MS * 1000;
-		FD_ZERO(&fdset);
-		FD_SET(net_fd->fd, &fdset);
 
-		ret = select(net_fd->fd + 1, NULL, &fdset, NULL, &con_timeout);
-		if (ret <= 0) {
-			mbedtls_dbg(err, "tls connect %d socket timeout %d\n", net_fd->fd, ret);
-			return -1;
+	if (mbedtls_set_socket_nonblock(net_fd, 1) != 0) {
+		mbedtls_dbg(err, "tls connect %d set nonblock failed\n", net_fd->fd);
+		return -1;
+	}
+
+	ret = connect(net_fd->fd, ServerAddress, namelen);
+	if (ret != 0) {
+		if (errno == EINPROGRESS || errno == EWOULDBLOCK || errno == EALREADY) {
+			ret = mbedtls_wait_socket_connected(net_fd, MBEDTLS_CONNECT_TIMEOUT_MS);
+		} else if (errno == EISCONN) {
+			ret = 0;
 		} else {
-			mbedtls_dbg(inf, "Connect ok %d..\n", ret);
-			return 0;
+			mbedtls_dbg(err, "tls connect %d errno %d\n", net_fd->fd, errno);
+			ret = -1;
 		}
 	}
+
 	return ret;
 }
 #endif

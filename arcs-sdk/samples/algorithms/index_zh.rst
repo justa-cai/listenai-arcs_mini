@@ -12,4 +12,7 @@
     wake_up/wakeup_single/README.md
     wake_up/wakeup_double/README.md
     face_detect/README.md
-
+    tuner/README.md
+    translation/README.md
+    xtts/README.md
+    spv/README.md

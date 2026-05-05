@@ -181,11 +181,11 @@ static void touchpad_transform_coordinates(lv_coord_t *x, lv_coord_t *y)
 #endif
 
 #if CONFIG_LV_POINTER_INVERT_X
-    cur_x = caps.x_resolution - cur_x;
+    cur_x = caps.width - cur_x;
 #endif
 
 #if CONFIG_LV_POINTER_INVERT_Y
-    cur_y = caps.y_resolution - cur_y;
+    cur_y = caps.height - cur_y;
 #endif
 
     *x = cur_x;

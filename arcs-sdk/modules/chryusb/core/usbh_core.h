@@ -147,7 +147,7 @@ struct usbh_hubport {
     const char *iProduct;
     const char *iSerialNumber;
     uint8_t *raw_config_desc;
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet *setup; /* Core-owned staged setup buffer for EP0 transfers */
     struct usbh_hub *parent;
     struct usbh_hub *self; /* if this hubport is a hub */
     struct usbh_bus *bus;
@@ -204,6 +204,7 @@ struct usbh_bus {
     usb_osal_thread_t hub_thread;
     usb_osal_mq_t hub_mq;
     usb_osal_mutex_t mutex;
+    usb_osal_mutex_t ep0_mutex;
     usbh_event_handler_t event_handler;
 };
 
@@ -280,7 +281,7 @@ extern struct usbh_bus g_usbhost_bus[];
  * @param buffer buffer used for sending the request and for returning any responses.
  * @return On success will return 0, and others indicate fail.
  */
-int usbh_control_transfer(struct usbh_hubport *hport, struct usb_setup_packet *setup, uint8_t *buffer);
+int usbh_control_transfer(struct usbh_hubport *hport, const struct usb_setup_packet *setup, uint8_t *buffer);
 
 /**
  * @brief Retrieves a USB string descriptor from a specific hub port.

@@ -680,7 +680,7 @@ struct audio_cs_if_as_format_type_descriptor {
     uint8_t bSubframeSize;
     uint8_t bBitResolution;
     uint8_t bSamFreqType;
-    uint8_t tSamFreq[3];
+    uint8_t tSamFreq[3 * 8]; /* up to 8 discrete frequencies, 3 bytes each (24-bit LE) */
 } __PACKED;
 
 #define AUDIO_SIZEOF_FORMAT_TYPE_DESC(bSamFreqType) (8 + 3 * (bSamFreqType))

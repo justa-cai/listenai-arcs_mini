@@ -3,12 +3,6 @@
 
 if LISA_DISPLAY_DEVICE
 
-choice
-	prompt "Display Panel Driver"
-	default LISA_DISPLAY_PANEL_ST7789P3
-	help
-		Select the specific display panel driver to be used.
-
 config LISA_DISPLAY_PANEL_ST7789P3
 	bool "ST7789P3 Panel Driver"
 	help
@@ -34,12 +28,16 @@ config LISA_DISPLAY_PANEL_GC9D01N
 	help
 		Enable driver for GC9D01N display panel.
 
-endchoice
+config LISA_DISPLAY_PANEL_NV3030B
+	bool "NV3030B Panel Driver"
+	help
+		Enable driver for NV3030B display panel (170x320, SPI 4-wire).
 
 rsource "Kconfig.axs15231b"
 rsource "Kconfig.st7789p3"
 rsource "Kconfig.st7701s"
 rsource "Kconfig.gc9a01"
 rsource "Kconfig.gc9d01n"
+rsource "Kconfig.nv3030b"
 
 endif

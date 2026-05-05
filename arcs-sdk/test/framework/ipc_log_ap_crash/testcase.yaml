@@ -1,0 +1,12 @@
+tests:
+  test.framework.ipc_log_ap_crash:
+    programmer: arcs
+    runner: uart
+    images:
+      - file: "remote/ipc_log_ap_crash_ap.bin"
+        address: "0x0"
+      - file: "ipc_log_ap_crash_cp.bin"
+        address: "0x80000"
+    log_analyzer:
+      type: "regex"
+      pattern: "(?s)(\\[AP\\].*AP crash test trigger.*\\[AP\\].*system exception.*\\[AP\\].*general purpose registers.*\\[AP\\].*msubm:\\s*0x[0-9a-fA-F]+.*\\[AP\\].*Possible backtrace:.*\\[AP\\].*backtrace end)"

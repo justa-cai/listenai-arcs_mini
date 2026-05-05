@@ -13,8 +13,8 @@ FIRMWARE_MAP = [
     (0x000000, "./res/ap.bin"),
     (0x100000, "./res/algo/face_detect_thinker.bin"),
     (0x170000, "./res/algo/face_align_thinker.bin"),
-    (0x300000, "./res/algo/face_nir_thinker_lineart_split.bin"),
-    (0x410000, "./res/algo/face_verify_thinker.bin"),
+    (0x200000, "./res/algo/face_nir_thinker_lineart_split.bin"),
+    (0x2C0000, "./res/algo/face_verify_thinker.bin"),
     (0x800000, "./build/arcs.bin"),
 ]
 

@@ -1,4 +1,24 @@
 # Copyright (c) 2025, LISTENAI
 # SPDX-License-Identifier: Apache-2.0
 
+choice SAMPLE_MODEM_BACKEND
+	prompt "Modem sample backend"
+	default SAMPLE_MODEM_BACKEND_UART
+
+config SAMPLE_MODEM_BACKEND_UART
+	bool "UART modem backend"
+	help
+		Use a UART-connected modem as the AT transport backend.
+
+config SAMPLE_MODEM_BACKEND_USB_AT
+	bool "EC801E USB AT backend"
+	depends on CHERRYUSB
+	depends on CHERRYUSB_HOST
+	depends on CHERRYUSB_HOST_GSM
+	help
+		Use CherryUSB host serial to scan the EC801E USB ECM AT interface
+		(vendor specific AT port, interface 3) and bind it to lisa_modem.
+
+endchoice
+
 osource "$ARCS_BASE/Kconfig"

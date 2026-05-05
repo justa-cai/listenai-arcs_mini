@@ -16,8 +16,9 @@ endif
 exclude_dirs=
 
 #files want to build: eg. CSRCS=a.c  CPPSRCS=b.cpp  SSRCS=c.S
-ifeq ($(strip $(WCN_TYPE)), both)
-CSRCS	= atcmd.c atcmd_wifi.c atcmd_hash.c atcmd_iperf.c atcmd_lwip.c ping.c atcmd_bt.c atcmd_bt_if.c
+ifneq ($(filter both both_dual, $(strip $(WCN_TYPE))),)
+CSRCS	= atcmd.c atcmd_wifi.c atcmd_hash.c atcmd_iperf.c atcmd_lwip.c ping.c \
+          atcmd_bt.c atcmd_bt_if.c
 else ifeq ($(strip $(WCN_TYPE)), wf)
 CSRCS	= atcmd.c atcmd_wifi.c atcmd_hash.c atcmd_iperf.c atcmd_lwip.c ping.c
 else ifeq ($(strip $(WCN_TYPE)), bt)
@@ -27,6 +28,8 @@ endif
 #macro ctrl
 ifeq ($(strip $(WCN_TYPE)), both)
 CFLAGS += -DAT_TYPE_WF -DAT_TYPE_BT
+else ifeq ($(strip $(WCN_TYPE)), both_dual)
+CFLAGS += -DAT_TYPE_WF -DAT_TYPE_BT -DAT_TYPE_BT_DUAL
 else ifeq ($(strip $(WCN_TYPE)), wf)
 CFLAGS += -DAT_TYPE_WF
 else ifeq ($(strip $(WCN_TYPE)), bt)
@@ -69,8 +72,12 @@ CFLAGS  += -I $(TOPDIR)/include/NMSIS/Core/Include \
           -I $(TOPDIR)/include/nvs \
           -I $(TOPDIR)/src/${APP_PATH} \
           -I $(TOPDIR)/chip/${CHIP}/cli_cmd \
-          -I $(TOPDIR)/src/${APP_PATH} \
-          -I $(TOPDIR)/src/${APP_PATH}/if/bt_if
+          -I $(TOPDIR)/modules/profiles/gap/api \
+          -I $(TOPDIR)/modules/profiles/hogp/hogpd/api \
+          -I $(TOPDIR)/modules/profiles/bas/bass/api \
+          -I $(TOPDIR)/modules/profiles/dis/diss/api \
+          -I $(TOPDIR)/modules/profiles/netcfg_ble/netcfg_bles/api \
+	  -I $(TOPDIR)/modules/profiles/hogp 
 
 
 include $(TOPDIR)/rules.mk

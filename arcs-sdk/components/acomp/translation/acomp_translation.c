@@ -125,9 +125,21 @@ int acomp_translation_prepare(acomp_ipc_prepare_t *prepare)
 
 int acomp_translation_cleanup(void)
 {
-    int ret;
-    ret = acomp_ipc_build_frame_send_sync(trans_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
-                                          ACOMP_IPC_CMD_CLEANUP, 0, NULL, 0);
+    int ret = 0;
+
+    if (trans_handle != NULL) {
+        ret = acomp_ipc_build_frame_send_sync(trans_handle->dev_index,
+                                              ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
+                                              ACOMP_IPC_CMD_CLEANUP, 0, NULL, 0);
+        acomp_ipc_remove_callback(trans_handle->dev_index, (ipc_event_cb_t)trans_event_callback);
+        if (trans_handle->event_callbacks != NULL) {
+            gcl_cb_list_delete(trans_handle->event_callbacks);
+            trans_handle->event_callbacks = NULL;
+        }
+        psram_free(trans_handle);
+        trans_handle = NULL;
+    }
+
     return ret;
 }
 
@@ -150,7 +162,7 @@ int acomp_translation_stop(void)
     LISA_LOGI(TAG, "acomp translation stop enter");
     int ret;
     ret = acomp_ipc_build_frame_send_sync(trans_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
-                                          ACOMP_IPC_CMD_STOP, 0, NULL, 0);
+                                          ACOMP_IPC_CMD_ABORT, 0, NULL, 0);
     if (ret != ACOMP_ERR_OK) {
         LISA_LOGE(TAG, "acomp translation stop failed!");
     }

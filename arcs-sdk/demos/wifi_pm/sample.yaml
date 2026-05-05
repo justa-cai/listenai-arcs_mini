@@ -1,0 +1,3 @@
+tests:
+  demos.wifi_pm:
+    build_only: true

@@ -52,8 +52,6 @@ rsource "workq/Kconfig"
 rsource "log/Kconfig"
 rsource "os/Kconfig"
 
-if BOOT
-	orsource "boot/Kconfig.boot"
-endif
+orsource "uboot/Kconfig.public"
 
 endmenu

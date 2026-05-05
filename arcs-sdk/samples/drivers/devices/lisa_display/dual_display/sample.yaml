@@ -1,0 +1,3 @@
+tests:
+  samples.dual_display:
+    build_only: true

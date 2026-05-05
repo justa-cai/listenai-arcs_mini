@@ -74,6 +74,8 @@ typedef struct {
  *
  * @param event 事件类型位掩码
  * @param user_data 用户数据指针
+ *
+ * @note 回调在中断上下文中执行，应保持逻辑简短
  */
 typedef void (*lisa_rtc_callback_t)(uint32_t event, void *user_data);
 
@@ -225,6 +227,7 @@ static inline int lisa_rtc_enable_alarm(lisa_device_t *dev, uint8_t alarm_id, bo
  * @return 0 成功
  * @return LISA_DEVICE_ERR_INVALID 参数无效
  * @return LISA_DEVICE_ERR_NOT_SUPPORT 不支持该操作
+ * @return LISA_DEVICE_ERR_BUSY 当前已有其他周期中断源处于使能状态
  * @return <0 其他错误
  *
  * @note 某些硬件只能同时启用一种周期性中断
@@ -304,6 +307,9 @@ static inline int lisa_rtc_set_callback(lisa_device_t *dev, lisa_rtc_callback_t 
 
 /**
  * @brief 闹钟忽略标志
+ *
+ * @note 当前 ARCS CALENDAR 实现要求闹钟完整匹配所有时间字段，
+ *       以下宏仅保留给需要兼容其他平台实现的场景
  */
 #define LISA_RTC_ALARM_IGNORE_YEAR    0
 #define LISA_RTC_ALARM_IGNORE_MONTH   0

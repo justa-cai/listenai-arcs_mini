@@ -12,6 +12,7 @@
 #include "app_player_internal.h"
 #include "app_player_core.h"
 #include "pa_manager.h"
+#include "lisa_player_adapter.h"
 
 #ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
 #include "app_player_focus.h"
@@ -212,6 +213,9 @@ int app_player_init(const app_player_config_t *config)
     }
 
     LISA_LOGI(TAG, "Initializing app_player module");
+
+    // 设置 PCM 输出回调（如果提供）
+    app_player_adapter_set_pcm_output(config->pcm_output_callback);
 
     // 初始化 PA 管理器
     pa_manager_config_t pa_config = {

@@ -1,0 +1,13 @@
+rsource "Kconfig.syslog"
+
+config APPLICATION_ADDRESS
+    hex "Application Address"
+    default 0x30200000
+    help
+    Specify the address where the application will be loaded.
+
+config APPLICATION_DYNAMIC_ADDRESS
+    hex "Application Dynamic Address"
+    default 0x30FFF000
+    help
+    Specify the dynamic address where the application will be loaded.

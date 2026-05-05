@@ -363,7 +363,9 @@ lib_sdc_scan_card(u8 ip_idx, u8 speed)
     if (ftsdc021_ops_go_idle_state(ip_idx, 0) != 0)
         sdc_dbg_print("idle state fail\n");
     //ftsdc021_HCReset(ip_idx,SDHCI_SOFTRST_CMD|SDHCI_SOFTRST_DAT);
+#if !CONFIG_ARCS_HAL_SDMMC_SDNAND_COMPAT
     ftsdc021_delay(1);
+#endif
 
     if (ftsdc021_scan_cards(ip_idx)) {
         sdc_dbg_print(" Scan card FAILED !\n");
@@ -535,7 +537,7 @@ gm_api_sdc_platform_init(u32 sdc0_option, u32 sdc1_option, sdc_platform_setting_
     sdc_dbg_print("%s sdc0 op=%d sdc1 op=%d\n", __func__, sdc0_option, sdc1_option);
 
     SDHost[SD_0].Card = (SDCardInfo*) (card_buffer);
-    memset(SDHost[SD_0].Card, 0, 512);
+    memset(SDHost[SD_0].Card, 0, sizeof(SDCardInfo));
 //    SDHost[SD_1].Card = (SDCardInfo*)(card_buffer + 512);
 //    for (i = 0; i < 2; i++) {
     SDHost[SD_0].sd_init[0] = NULL;

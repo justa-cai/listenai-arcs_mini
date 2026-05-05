@@ -1,5 +1,159 @@
 # Change Log
 
+## [0.1.6] - 2026-04-22:
+
+- All changes since 0.1.5
+
+### Changed:
+  - env/build:
+    - 增加 macOS 开发环境和 cskburn 支持
+    - 完善 boot 构建与 app-only watchdog 接入
+  - system/boot:
+    - boot 控制存储改为寄存器+Flash 混合方案
+    - OTA 触发和 config.json 流程同步更新
+  - samples:
+    - 优化 USB 与网络示例的内存配置
+    - 调整双屏相关示例的目录组织和运行方式
+    - 更新 uboot 相关示例的重启与触发流程
+  - soc: 更新 dual-core scanpen 默认 SRAM 内存布局
+  - modules: 更新 micro-rtsp-c，完善 RTSP 相关资源释放与传输时序
+
+### Fixed:
+  - https: 修复 https 交互异常
+  - sdmmc: 恢复 app 侧稳定初始化时序
+  - udp: 增加 UDP tx copy 配置，修复发送数据异常
+  - fs: 修复 lsfs fat mkfs 栈溢出
+  - audio/bluetooth:
+    - 修复 bt_audio_session 和 hfp_source 相关稳定性问题
+    - 对齐蓝牙接口与 lisa_audio echo 行为
+  - runtime/log:
+    - 修复 rtc 语义不一致问题
+    - 修复 printk 栈溢出和 easylogger 输出交织
+    - 修复 lisa_websocket 分片处理问题
+  - camera/display:
+    - 修复 camera/dvp 运行时重配置问题
+    - 修复双屏 SPI 挂载与总线参数问题
+    - 补齐 NV3030B 默认面板支持
+  - samples:
+    - 修复 wake_up 示例不可运行问题
+    - 修复 boot-only 宏和 lisa_net 绑定同步问题
+
+### Added:
+  - adb/boot-adb:
+    - 新增 CherryUSB recovery 后端和 raw flash 传输能力
+    - 新增 sync metadata、app class 和 device 示例
+    - 完善重连、死锁、FATFS push 与校验链路稳定性
+  - display:
+    - 新增多显示实例支持
+    - 新增双屏独立旋转能力
+    - 新增全 panel custom init_params 支持
+    - 补齐 dual display 示例
+  - modem:
+    - 重构 modem 示例
+    - 新增 USB AT 后端
+    - 完善默认 transport 配置
+  - acomp:
+    - 新增 tuner 组件和示例
+    - 支持 wakeup/fd 算法从 SD 卡加载资源
+    - 完善相关释放与停止流程
+  - samples:
+    - network:
+      - 新增 wifi_pm 示例
+      - 新增 wifi A2DP iperf 共存示例
+    - adb:
+      - 新增 adb push benchmark 示例
+      - 新增 recovery boot standalone 示例
+    - ota:
+      - 新增 app-only flash/tf trigger 示例
+      - 新增 flash real-flow OTA 示例
+    - display:
+      - 新增 lvgl8 dual widgets 示例
+      - 新增 lvgl8 dual benchmark 和 multiple displays 示例
+  - system: 新增 sys_reboot，支持 soft 和 hard 重启
+  - coex: 新增 coex_slot_time shell 命令
+
+### Deprecated:
+
+## [0.1.5] - 2026-03-31:
+
+- All changes since 0.1.4
+
+### Changed:
+  - boot: 使用 uboot 替代 system/boot
+  - acomp: 使用 lisa_mem 替代 plat_os 内存函数
+  - acomp: 提取共享资源管理器，xtts/translation 延迟 prepare 和资源加载
+  - hal: 更新 wifi 到 20260326 版本，修复扫描时偶现崩溃；更新至 20260316 版本
+  - hal: 更新 bt 库到 20260324 版本；更新 bt/ble/cli/atcmd 到 20260318 版本
+  - build: 集中根目录构建流程和 CI 辅助脚本
+  - modules/cAT: 更新 cAT 模块，修复 process task 在非 IDLE 状态下的空转问题
+  - sntp: 使用 closesocket 替代 close 接口，兼容 4G 模块
+  - chryusb: 更新子模块以支持 USB Host
+
+### Fixed:
+  - bt_audio:
+    - 设置 SCO disconnect reason 用于 HFP stop 回调
+    - 上行 PCM underrun 时填充静音而非跳过，防止蓝牙断连
+  - lis_algo: OCR 模型加载策略强制设置 boot type 为 1
+  - lvgl8: 更新子模块，修复触摸坐标反转字段名错误
+  - i2c: 用独立信号量替代 task notification 避免假超时
+  - i2s: 移除 TX_FIFO_EMPTY 的误判处理，仅响应真正的 underrun
+  - ipc: 修复 ipc print auto init
+  - boot: 修复启动时钟初始化不完整的问题
+  - hal: 更新 arcs-hal 包含 DMA2D 修复；修复编译失败问题
+  - uart: 修复串口接收大数据异常问题
+  - coex: 修复 wifi_ble_net_cfg 崩溃
+  - wifi: 修复 IPC wifi 连接失败
+  - wifi_manager: 连接后立即断开视为失败
+  - bt_sink: 支持 NULL audio interface 并修复 bt_audio_types.h 包含路径
+  - lisa_modem: MDNSGIP 响应优先使用 IPv4 地址，避免 IPv6 解析失败
+  - bluetooth: 启用 HCI transport 修复 a2dp_source 静音播放
+  - acomp/cv: 添加 cv_handle 和 message 的 NULL 检查
+  - adb:
+    - 修复 shell task 被强杀导致 adb_msg_send_lock 死锁
+    - 修复 local_id 溢出后可能冲突的问题
+    - 修复 shell 重复打开时旧 session 未正确清理
+    - 修正 __builtin_expect 的期望值方向
+    - 移除未使用的 TX 队列和任务，释放资源
+    - 修复 USB 断开重连时未清理活跃服务导致卡死
+  - vaddr_remap: 支持不依赖 FreeRTOS 的最小 loader
+  - env: 修复新环境工具链安装路径和查找逻辑；移除错误的 python3 fallback
+  - translation: 稳定重复运行和方向资源
+  - xtts: 稳定重复播放生命周期
+  - samples: 统一多个示例的 CI 入口和 guardian pattern
+
+### Added:
+  - acomp_xtts: 支持多角色
+  - display: 适配 NV3030B 面板驱动到新 lisa_display 接口
+  - bluetooth:
+    - 添加 A2DP/HFP profile 连接回调机制
+    - 添加 BT Classic 连接/断连/AVRCP 回调机制
+  - app_player: 支持运行时 PCM 输出回调（app_player_init）
+  - drivers/lisa_audio: 添加软件回采(soft echo)支持
+  - adb:
+    - 添加 early boot 日志缓存
+    - 解析 host 端 feature 协商信息
+    - 添加 reboot 服务支持 adb reboot/recovery
+  - ble: 解耦 AT_CMD 依赖，更新 lisa_modem
+  - vaddr_remap: 新增 HAL 驱动和验证示例/测试
+  - samples:
+    - 新增 iperf3 吞吐量测试和上下行测试
+    - 新增 spv/translation/xtts 算法示例
+    - 新增 ec801e USB Host ECM 示例
+    - 新增 cherryusb video/serial/audio host 示例
+    - 新增 dual-core IPC log 示例
+    - 更新 face_detect 版本和 classic audio 示例
+  - docs:
+    - 新增系统启动流程文档和系统架构章节
+    - 新增硬件支持章节，整合 SoC 规格与板型文档
+    - 修复 rst inline literal 语法错误
+  - ci:
+    - AI review 添加重试机制和备用 TOKEN 支持
+    - 添加 MR pipeline 状态检查
+    - 新增 GitLab MR review follow-up workflow
+
+### Deprecated:
+
+
 ## [0.1.4] - 2026-03-13
 
 - All changes since 0.1.3
@@ -309,4 +463,3 @@
 
 ### Deprecated:
   - samples/drivers: hal驱动示例不做维护，建议使用新的设备驱动
-

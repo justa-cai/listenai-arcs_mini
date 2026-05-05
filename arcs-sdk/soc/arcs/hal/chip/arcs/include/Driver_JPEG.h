@@ -121,6 +121,12 @@ Jpeg_Start(void *pJpegDev);
 int32_t
 Jpeg_Stop(void *pJpegDev);
 
+/**
+ * @fn void Jpeg_Reset(void)
+ * @brief Hard resets JPEG module to default state
+ * @details Forces immediate reset of JPEG hardware logic
+ */
+void Jpeg_Reset(void);
 
 /**
   * @brief  Return Jpeg instance.

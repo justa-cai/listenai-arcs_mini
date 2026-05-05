@@ -44,12 +44,6 @@ typedef enum
 
 typedef struct
 {
-    Jpeg_emPixelFormat output_format;
-    //rgb_order reservation
-}Jpeg_DecoderCfg;
-
-typedef struct
-{
     uint16_t width;
     uint16_t height;
     uint16_t q_factor;  /* reservation quantization coefficient [1,99], the larger the number of values, the smaller the quantization coefficient, the better the image quality and the lower the compression rate */
@@ -80,7 +74,8 @@ uint32_t jpeg_gpdma_input_finish_cnt_get(void);
 uint32_t jpeg_gpdma_output_finish_cnt_get(void);
 uint32_t jpeg_encoder(void *in_buf, void *out_buf, uint32_t *out_size, Jpeg_EncoderCfg enc_cfg);
 uint32_t jpeg_encoder_ext(void *in_buf, void *out_buf, uint32_t *out_size, Jpeg_EncoderCfg enc_cfg);
-uint32_t jpeg_decoder(const uint8_t *in_buf, uint32_t in_size, uint8_t *out_buf, uint16_t *width, uint16_t *height, Jpeg_DecoderCfg dec_cfg);
+uint32_t jpeg_decoder(const uint8_t *in_buf, uint32_t in_size, uint8_t *out_buf, Jpeg_EncoderCfg *dec_cfg);
+uint32_t jpeg_decoder_ext(const uint8_t *in_buf, uint32_t in_size, uint8_t *out_buf, Jpeg_EncoderCfg *dec_cfg);
 
 
 #ifdef __cplusplus

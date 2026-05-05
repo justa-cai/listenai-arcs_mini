@@ -48,7 +48,9 @@
 目前暂时支持注册最多 10 个人脸特征到内存库，可配置活体检测阈值以适应不同应用场景。
 
 #### 3. 交互式操作
-- **K1 键**：抓取当前检测到的人脸特征（需先检测到人脸），如果符合条件（比如活体检测通过、头部姿势正常），就把它存储下来，并且加载到算法对比库中。如果不满足条件，需要用户重新按K1键抓取
+- **K1 键**：抓取当前检测到的人脸特征并尝试注册，注册成功后会加载到算法对比库
+- **K2 键**：在手动比对模式下触发一次人脸比对
+- **K3 键**：在手动比对模式下切换彩色/灰度显示
 
 #### 4. 可视化显示
 - LCD 显示字符来提示用户怎么操作
@@ -61,9 +63,10 @@
 - **开发板**： ARCS-EVB开发板
 - **摄像头**: GC0328 摄像头模块，通过 DVP 接口连接
 - **显示屏**: ST7789 LCD 显示屏，通过 SPI 接口连接
-- **按键**: 通过 ADC 引脚检测，支持 2 个按键（目前仅K1按键可用）
+- **按键**: 通过 ADC 引脚检测，支持 3 个按键（有效按键取决于配置模式）
   - **K1**: 注册人脸特征
-  - **K2**: 人脸识别（与注册人脸比对）（需要CONFIG_ONLY_FACE_REGISTER=n才能生效）
+  - **K2**: 手动触发人脸识别（仅 `CONFIG_ONLY_FACE_REGISTER=n` 时生效）
+  - **K3**: 切换彩色/灰度显示（仅 `CONFIG_ONLY_FACE_REGISTER=n` 时生效）
 - **调试串口**: 
   - CP 核 UART0 (PA3)，波特率 921600
   - AP 核 UART1 (PA21)，波特率 921600
@@ -72,9 +75,46 @@
 
 1. 上电后系统自动初始化，LCD 显示摄像头实时画面
 2. 检测到人脸时，屏幕显示绿色矩形框
-3. **K1 键**: 注册当前人脸特征（最多 10 个）
-4. **K2 键**: 触发人脸识别，显示比对得分
-5. **K3 键**: 切换摄像头彩色/灰度模式
+3. 按 `K1` 注册当前人脸特征（最多 10 个）
+4. 按模式执行比对：
+   - **自动比对模式**（`CONFIG_ONLY_FACE_REGISTER=y`，默认）：仅 `K1` 有效，注册后每帧自动进行比对并实时显示结果
+   - **手动比对模式**（`CONFIG_ONLY_FACE_REGISTER=n`）：`K1` 注册、`K2` 触发比对、`K3` 切换彩色/灰度
+> 注意： 本demo没有使用持久化存储注册的人脸特征，因此每次上电后需重新注册人脸
+
+## 人脸注册与比对判定条件
+
+### K1 注册成功条件（需同时满足）
+
+- 当前帧检测到人脸（`results_cnt > 0`）
+- 人脸质量满足：
+  - `face_score > 0.8`
+  - `n_align_point > 0`
+  - 姿态角范围：`-30 < yaw/pitch/roll < 30`
+  - 活体结果有效：`live_result.status == 1`
+  - 特征点有效：`feature_cnt > 0`
+- 未超过最大注册数量：`fd_feature_cnt < ACOMP_FD_MAX_RESULT_CNT`
+- 若当前人脸与已注册库存在比对结果（`compare_cnt > 0`），则最大相似度必须不高于阈值（避免重复注册）：
+  - `max_register_score <= CONFIG_FACE_COMPARE_SCORE_THRESHOLD / 100`
+
+### K1 注册失败条件（任一触发即失败）
+
+- 未检测到人脸
+- 人脸质量条件任一不满足（分数、关键点、姿态、活体、特征点）
+- 识别为“已注册同一人”（`max_register_score` 高于比对阈值）
+- 已达到最大可注册数量（`ACOMP_FD_MAX_RESULT_CNT`）
+
+### 比对成功条件
+
+- 自动模式（`CONFIG_ONLY_FACE_REGISTER=y`）：每帧自动计算与已注册库的最大相似度，`max_score > CONFIG_FACE_COMPARE_SCORE_THRESHOLD / 100` 判定为成功（显示绿色）
+- 手动模式（`CONFIG_ONLY_FACE_REGISTER=n`）：按 `K2` 后，先满足以下前置条件：
+  - 检测到人脸且质量有效：`face_score > 0.8`、`n_align_point > 0`、姿态角在 `(-30, 30)`、`live_result.status == 1`、`feature_cnt > 0`
+  - 存在可比对特征：`compare_cnt > 0`
+  - 然后按阈值判断：`max_score > CONFIG_FACE_COMPARE_SCORE_THRESHOLD / 100` 为成功
+
+### 比对失败条件
+
+- 不满足前置条件（未检测到人脸、质量不达标、无可比对特征）
+- 或者最大相似度未超过阈值：`max_score <= CONFIG_FACE_COMPARE_SCORE_THRESHOLD / 100`
 
 ## 编译运行
 
@@ -100,10 +140,10 @@ cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x100000 ./res/algo/face_detect_think
 cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x170000 ./res/algo/face_align_thinker.bin
 
 # 活体检测模型
-cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x300000 ./res/algo/face_nir_thinker_lineart_split.bin
+cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x200000 ./res/algo/face_nir_thinker_lineart_split.bin
 
 # 人脸特征提取模型
-cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x410000 ./res/algo/face_verify_thinker.bin
+cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x2C0000 ./res/algo/face_verify_thinker.bin
 ```
 
 ### 3. 烧录 CP 核固件
@@ -267,11 +307,11 @@ void fd_event_handler(uint32_t event, void *event_data, uint32_t len, void *priv
 CONFIG_ACOMP_FD_RES_FACE_DETECT_ADDRESS=0x30100000
 CONFIG_ACOMP_FD_RES_FACE_DETECT_LENGTH=450936
 CONFIG_ACOMP_FD_RES_FACE_ALIGN_ADDRESS=0x30170000
-CONFIG_ACOMP_FD_RES_FACE_ALIGN_LENGTH=1588664
-CONFIG_ACOMP_FD_RES_FACE_LIVE_ADDRESS=0x30300000
-CONFIG_ACOMP_FD_RES_FACE_LIVE_LENGTH=1095288
-CONFIG_ACOMP_FD_FACE_VERIFY_ADDRESS=0x30410000
-CONFIG_ACOMP_FD_FACE_VERIFY_LENGTH=2953752
+CONFIG_ACOMP_FD_RES_FACE_ALIGN_LENGTH=557304
+CONFIG_ACOMP_FD_RES_FACE_LIVE_ADDRESS=0x30200000
+CONFIG_ACOMP_FD_RES_FACE_LIVE_LENGTH=734752
+CONFIG_ACOMP_FD_FACE_VERIFY_ADDRESS=0x302C0000
+CONFIG_ACOMP_FD_FACE_VERIFY_LENGTH=1936808
 ```
 
 ### 摄像头配置
@@ -302,3 +342,8 @@ CONFIG_PSRAM_HEAP_SIZE=0x680000
 6. **双核协作**: 本示例运行在 CP 核 (HARTID=1)，需要 AP 核 (HARTID=0) 提供算法支持
 7. **特征注册**: 最多支持 10 个注册人脸，每个人脸特征为 384 维浮点数
 8. **回调函数**: 人脸识别结果通过回调函数异步返回，不要在回调中执行耗时操作
+
+## 相关文档
+
+- [ACOMP FD 组件文档](../../components/acomp/fd/README.rst) - 包含接口定义、参数说明与基础调用方式
+- [Face Detect Sample 文档](../../samples/algorithms/face_detect/README.md) - 包含资源烧录地址、配置项和基础示例流程

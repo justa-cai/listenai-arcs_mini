@@ -4520,9 +4520,15 @@ char * pcTaskGetName( TaskHandle_t xTaskToQuery )
          * was suppressed.  Note this does *not* call the tick hook function for
          * each stepped tick. */
         xUpdatedTickCount = xTickCount + xTicksToJump;
-        configASSERT( xUpdatedTickCount <= xNextTaskUnblockTime );
+        #if ( configUSE_TICKLESS_IDLE != 2 )
+        configASSERT( xUpdatedTickCount <= xNextTaskUnblockTime )
+        #endif
 
-        if( xUpdatedTickCount == xNextTaskUnblockTime )
+        #if ( configUSE_TICKLESS_IDLE != 2 )
+        if (xUpdatedTickCount == xNextTaskUnblockTime)
+        #else
+        if (xUpdatedTickCount >= xNextTaskUnblockTime)
+        #endif
         {
             /* Arrange for xTickCount to reach xNextTaskUnblockTime in
              * xTaskIncrementTick() when the scheduler resumes.  This ensures

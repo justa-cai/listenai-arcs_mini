@@ -45,6 +45,17 @@ void resetTest(void)
 #include <string.h>
 #include <errno.h>
 
+static void create_readdir_probe_file(void)
+{
+    static const char probe_data[] = "probe";
+    FILE *fp = fopen("/SD:/dirent_func_probe.tmp", "wb");
+
+    TEST_ASSERT_NOT_NULL(fp);
+    TEST_ASSERT_EQUAL_INT(sizeof(probe_data) - 1,
+                          fwrite(probe_data, 1, sizeof(probe_data) - 1, fp));
+    fclose(fp);
+}
+
 void test_opendir_func(void)
 {
     DIR *dir = opendir("/SD:/");
@@ -54,6 +65,8 @@ void test_opendir_func(void)
 
 void test_readdir_func(void)
 {
+    create_readdir_probe_file();
+
     DIR *dir = opendir("/SD:/");
     TEST_ASSERT_NOT_NULL(dir);
     struct dirent *entry = readdir(dir);

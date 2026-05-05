@@ -9,4 +9,14 @@
         _eipcshram = . ;
         *(.ic_lock_shared_mem)
     } > IPC_RAM
+
+#if CONFIG_ARCS_HAL_IPC_PRINT
+    .ipc.print (NOLOAD):
+    {
+        . = ALIGN(4);
+        _ipc_dbg_start = .;
+        . += CONFIG_ARCS_HAL_IPC_PRINT_BUF_SIZE;
+        _ipc_dbg_end = .;
+    } > IPC_RAM
+#endif
 #endif

@@ -65,6 +65,8 @@ struct lisa_ui_llm_primary {
     lv_obj_t *content_label;     /*!< 内容文本标签 */
     lv_obj_t *img;
     lv_obj_t *img_hint;
+    lv_obj_t *finger_hint_icon;
+    lv_obj_t *finger_hint_label;
 };
 
 /** LLM UI主要组件类型定义 */
@@ -193,6 +195,14 @@ void lisa_ui_llm_primary_set_wifi_img(lv_obj_t *obj, const void *img_path);
 void lisa_ui_llm_primary_set_full_duplex_icon_visible(lv_obj_t *obj, bool visible);
 
 /**
+ * @brief 设置交互模式图标图片
+ *
+ * @param obj LLM UI主要组件对象
+ * @param img_path 图片路径，如果为NULL则不更新图片
+ */
+void lisa_ui_llm_primary_set_full_duplex_icon_img(lv_obj_t *obj, const void *img_path);
+
+/**
  * @brief 设置闹钟图标显示状态
  *
  * @param obj LLM UI主要组件对象
@@ -289,6 +299,8 @@ void lisa_ui_llm_primary_img_show(lv_obj_t *obj, void *img);
 void lisa_ui_llm_primary_img_hide(lv_obj_t *obj);
 void lisa_ui_llm_primary_img_hint_show(lv_obj_t *obj, const char *text);
 void lisa_ui_llm_primary_img_hint_hide(lv_obj_t *obj);
+void lisa_ui_llm_primary_finger_hint_show(lv_obj_t *obj, const char *text);
+void lisa_ui_llm_primary_finger_hint_hide(lv_obj_t *obj);
 
 #ifdef __cplusplus
 } /* extern "C" */

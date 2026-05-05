@@ -1087,7 +1087,8 @@ ADC_PDM_Control(void *adc_pdm_grp, uint32_t control, uint32_t arg)
     if ((control & CSK_ADCPDM_HPF_Msk) == CSK_ADCPDM_HPF_SET) {
         reg_r6.all = adc->reg->REG_AUD_R6_ADC_CTRL1.all;
         reg_r6.bit.HPF1EN = arg & 0x1; // bit[0]
-        reg_r6.bit.HPF2EN = (arg >> 1) & 0x1; // bit[1]
+        // NOTE: HPF2EN may cause issues. DO NOT enable it.
+        // reg_r6.bit.HPF2EN = (arg >> 1) & 0x1; // bit[1]
         reg_r6.bit.HPFCUT = (arg >> 2) & 0x7; // bit[4:2]
         adc->reg->REG_AUD_R6_ADC_CTRL1.all = reg_r6.all;
         // remove HPF setting bits after done and just return if no other setting

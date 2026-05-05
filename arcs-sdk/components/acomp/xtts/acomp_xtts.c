@@ -23,6 +23,16 @@ acomp_xtts_handle_t *xtts_handle = NULL;
 
 static int xtts_control_subcmd(xtts_ipc_control_subcmd_e subcmd, void *data, uint32_t data_len);
 
+static int xtts_require_handle(void)
+{
+    if (xtts_handle == NULL) {
+        LISA_LOGW(TAG, "acomp xtts invalid state: handle is null");
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    return ACOMP_ERR_OK;
+}
+
 void xtts_event_callback(acomp_ipc_message_t *message, void *priv)
 {
     acomp_xtts_handle_t *handle = (acomp_xtts_handle_t *)priv;
@@ -68,6 +78,7 @@ void xtts_event_callback(acomp_ipc_message_t *message, void *priv)
 int acomp_xtts_init(void)
 {
     int ret = 0;
+    int callback_added = 0;
     LISA_LOGI(TAG, "acomp xtts init enter");
 
     if (xtts_handle != NULL) {
@@ -93,24 +104,38 @@ int acomp_xtts_init(void)
 
     ret = acomp_ipc_add_callback(xtts_handle->dev_index, (ipc_event_cb_t)xtts_event_callback, xtts_handle);
     if (ret != ACOMP_ERR_OK) {
-        return ret;
+        goto err_destroy_cb;
     }
+    callback_added = 1;
 
     ret = acomp_ipc_build_frame_send_sync(xtts_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_NEW | IPC_HEADER_REQ_REPALY, 0,
                                           0, NULL, 0);
     if (ret != ACOMP_ERR_OK) {
         LISA_LOGE(TAG, "acomp xtts init failed!");
-        return ret;
+        goto err_remove_ipc_cb;
     }
 
     xtts_handle->stream = acomp_stream_create(xtts_handle->dev_index);
     if (xtts_handle->stream == NULL) {
-        return ACOMP_ERR_CREATE_STREAM_FAILED;
+        ret = ACOMP_ERR_CREATE_STREAM_FAILED;
+        goto err_remove_ipc_cb;
     }
 
     LISA_LOGI(TAG, "acomp xtts init exit");
 
     return 0;
+
+err_remove_ipc_cb:
+    if (callback_added) {
+        acomp_ipc_remove_callback(xtts_handle->dev_index, (ipc_event_cb_t)xtts_event_callback);
+    }
+err_destroy_cb:
+    if (xtts_handle->event_callbacks != NULL) {
+        gcl_cb_list_delete(xtts_handle->event_callbacks);
+    }
+    psram_free(xtts_handle);
+    xtts_handle = NULL;
+    return ret;
 }
 
 int acomp_xtts_prepare(acomp_ipc_prepare_t *prepare)
@@ -121,8 +146,12 @@ int acomp_xtts_prepare(acomp_ipc_prepare_t *prepare)
         return ACOMP_ERR_INVALID_ARG;
     }
 
+    int ret = xtts_require_handle();
+    if (ret != ACOMP_ERR_OK) {
+        return ret;
+    }
+
     uint32_t size;
-    int ret;
 
     size = sizeof(acomp_ipc_prepare_t) + sizeof(acomp_res_item_t) * prepare->number;
     size = ALIGN_SIZE(size);
@@ -139,16 +168,36 @@ int acomp_xtts_prepare(acomp_ipc_prepare_t *prepare)
 
 int acomp_xtts_cleanup(void)
 {
-    int ret;
-    ret = acomp_ipc_build_frame_send_sync(xtts_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
-                                          ACOMP_IPC_CMD_CLEANUP, 0, NULL, 0);
+    int ret = 0;
+
+    if (xtts_handle != NULL) {
+        ret = acomp_ipc_build_frame_send_sync(xtts_handle->dev_index,
+                                              ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
+                                              ACOMP_IPC_CMD_CLEANUP, 0, NULL, 0);
+        acomp_ipc_remove_callback(xtts_handle->dev_index, (ipc_event_cb_t)xtts_event_callback);
+        if (xtts_handle->stream != NULL) {
+            acomp_stream_destroy(xtts_handle->stream);
+            xtts_handle->stream = NULL;
+        }
+        if (xtts_handle->event_callbacks != NULL) {
+            gcl_cb_list_delete(xtts_handle->event_callbacks);
+            xtts_handle->event_callbacks = NULL;
+        }
+        psram_free(xtts_handle);
+        xtts_handle = NULL;
+    }
+
     return ret;
 }
 
 int acomp_xtts_start(void)
 {
     LISA_LOGI(TAG, "acomp xtts start enter");
-    int ret;
+    int ret = xtts_require_handle();
+    if (ret != ACOMP_ERR_OK) {
+        return ret;
+    }
+
     ret = acomp_ipc_build_frame_send_sync(xtts_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
                                           ACOMP_IPC_CMD_START, 0, NULL, 0);
     if (ret != ACOMP_ERR_OK) {
@@ -162,9 +211,13 @@ int acomp_xtts_start(void)
 int acomp_xtts_stop(void)
 {
     LISA_LOGI(TAG, "acomp xtts stop enter");
-    int ret;
+    int ret = xtts_require_handle();
+    if (ret != ACOMP_ERR_OK) {
+        return ret;
+    }
+
     ret = acomp_ipc_build_frame_send_sync(xtts_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
-                                          ACOMP_IPC_CMD_STOP, 0, NULL, 0);
+                                          ACOMP_IPC_CMD_ABORT, 0, NULL, 0);
     if (ret != ACOMP_ERR_OK) {
         LISA_LOGE(TAG, "acomp xtts stop failed!");
     }
@@ -175,7 +228,11 @@ int acomp_xtts_stop(void)
 
 static int xtts_control_subcmd(xtts_ipc_control_subcmd_e subcmd, void *data, uint32_t data_len)
 {
-    int ret;
+    int ret = xtts_require_handle();
+    if (ret != ACOMP_ERR_OK) {
+        return ret;
+    }
+
     uint32_t size;
     acomp_ipc_control_t *ipc_control;
 
@@ -211,7 +268,11 @@ int acomp_xtts_synth_text(const char *text, uint32_t len)
         return ACOMP_ERR_INVALID_ARG;
     }
 
-    int ret;
+    int ret = xtts_require_handle();
+    if (ret != ACOMP_ERR_OK) {
+        return ret;
+    }
+
     uint32_t data_len;
     uint32_t size;
     acomp_ipc_control_t *ipc_control;
@@ -346,9 +407,8 @@ int acomp_xtts_stream_ch_disable(int chn)
         return ACOMP_ERR_INVALID_ARG;
     }
 
-    ret = acomp_stream_ipc_channel_destroy(chn);
+    ret = acomp_stream_ipc_channel_destroy(xtts_handle->stream, xtts_handle->dev_index, (uint32_t)chn);
     LISA_LOGI(TAG, "acomp_xtts_stream_ch_disable chn index(%d),ret(%d)", chn, ret);
-    xtts_handle->stream->ch[chn] = NULL;
     return ret;
 }
 
@@ -384,7 +444,14 @@ int acomp_xtts_stream_rx_buffer_release(int chn, uint16_t desc_idx, uint32_t len
         return ACOMP_ERR_INVALID_ARG;
     }
 
-    ret = xtts_handle->stream->ops.rx_buffer_release(xtts_handle->stream->ch[chn], buffer, len, desc_idx);
+    acomp_stream_channel_t *channel = xtts_handle->stream->ch[chn];
+    if (channel == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
 
-    return ret;
+    /* AP pulls returned R2M descriptors directly from the shared vring.
+     * Kicking here turns every PCM release into a synchronous STREAM_UPDATE IPC,
+     * which can block the CP playback path while AP is busy running XTTS on the
+     * shared acomp_workqueue. */
+    return xtts_handle->stream->ops.rx_buffer_release(channel, buffer, len, desc_idx);
 }

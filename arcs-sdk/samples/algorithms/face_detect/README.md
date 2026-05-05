@@ -41,10 +41,10 @@ cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x100000 ./res/algo/face_detect_think
 cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x170000 ./res/algo/face_align_thinker.bin
 
 # 活体检测模型
-cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x300000 ./res/algo/face_nir_thinker_lineart_split.bin
+cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x200000 ./res/algo/face_nir_thinker_lineart_split.bin
 
 # 人脸特征提取模型
-cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x410000 ./res/algo/face_verify_thinker.bin
+cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x2C0000 ./res/algo/face_verify_thinker.bin
 ```
 
 ### 3. 烧录 CP 核固件
@@ -56,38 +56,52 @@ cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x800000 ./build/arcs.bin
 ## 预期输出
 
 ```
-********Arcs SDK 0.1.1 @ v0.0.1-860-gd85bab268324********
-Running on hart-id: 1
+********SDK 0.1.4 @ v0.0.1-1221-g9ff155d68b58********
+Running on cpu-id: 1
 CP=======! Hard ID: 1
-I/elog            [00:00:00.009 1 elog_async] EasyLogger V2.2.99 is initialize success.
-I/main            [00:00:00.011 1 main] ic_message_init done!
-I/acomp_ipc       [00:00:02.011 1 rpc_client] [0]acomp remote dev index 1 name acomp.fd
-I/acomp_fd        [00:00:02.011 1 main] acomp fd init enter
-I/acomp_fd        [00:00:02.012 1 main] acomp fd dev index 1,name:acomp.fd
-I/acomp_fd        [00:00:02.012 1 main] acomp fd dev index 1,name:acomp.fd
-I/acomp_fd        [00:00:02.013 1 main] acomp fd init exit
-I/acomp_fd        [00:00:02.013 1 main] acomp fd prepare enter
-I/acomp_fd        [00:00:02.013 1 main] acomp fd prepare:0x2880c4c0, size:128
-I/acomp_fd        [00:00:02.015 1 main] acomp fd prepare exit
-I/acomp_fd        [00:00:02.015 1 main] acomp fd start enter
-I/acomp_fd        [00:00:02.215 1 main] acomp fd start exit
-I/acomp_fd        [00:00:02.215 1 main] acomp fd add callback enter
-I/acomp_fd        [00:00:02.216 1 main] acomp fd add callback exit
-I/acomp_fd        [00:00:02.216 1 main] acomp_fd_live_detect_mode_set enter
-I/acomp_fd        [00:00:02.217 1 main] acomp_fd_live_detect_mode_set exit
-INF:[acomp_stream_channel_create]Acomp stream channel 0x288aa5f4,0x200150d4,'stream.fd_image' created successfully ,vring phy addr=0x288144e0, num_descs=4, buffer_size=153632, direction=M2R, role=Master
+I/elog            [00:00:00.029 1 elog_async] EasyLogger V2.2.99 is initialize success.
+I/main            [00:00:00.031 1 main] ic_message_init done!
+I/acomp_ipc       [00:00:02.032 1 rpc_client] [0]acomp remote dev index 1 name acomp.fd
+I/acomp_fd        [00:00:02.032 1 main] acomp fd init enter
+I/acomp_fd        [00:00:02.032 1 main] acomp fd dev index 1,name:acomp.fd
+I/acomp_fd        [00:00:02.032 1 main] acomp fd dev index 1,name:acomp.fd
+I/acomp_fd        [00:00:02.034 1 main] acomp fd init exit
+I/acomp_fd        [00:00:02.034 1 main] acomp fd prepare enter
+I/acomp_fd        [00:00:02.034 1 main] acomp fd prepare:0x2880c500, size:128
+I/acomp_fd        [00:00:02.035 1 main] acomp fd prepare exit
+I/acomp_fd        [00:00:02.036 1 main] acomp fd start enter
+I/acomp_fd        [00:00:02.164 1 main] acomp fd start exit
+I/acomp_fd        [00:00:02.164 1 main] acomp fd add callback enter
+I/acomp_fd        [00:00:02.164 1 main] acomp fd add callback exit
+I/acomp_fd        [00:00:02.164 1 main] acomp_fd_live_detect_mode_set enter
+I/acomp_fd        [00:00:02.166 1 main] acomp_fd_live_detect_mode_set exit
+INF:[acomp_stream_channel_create]Acomp stream channel 0x288aa654,0x20014e78,'stream.fd_image' created successfully ,vring phy addr=0x28814540, num_descs=4, buffer_size=153632, direction=M2R, role=Master
 
-I/acomp_fd        [00:00:02.227 1 main] acomp_fd_stream_ch_enable chn(stream.fd_image) index(0),desc(0x2880bb58)
-I/app_fd          [00:00:03.420 1 rpc_client] fd result:2732,
-I/app_fd          [00:00:03.420 1 rpc_client] detect face cnt: 1
+I/acomp_fd        [00:00:02.177 1 main] acomp_fd_stream_ch_enable chn(stream.fd_image) index(0),desc(0x2880bbc8)
+I/app_fd          [00:00:03.355 1 rpc_client] fd result:2732,0x2850e6a4
+I/app_fd          [00:00:03.356 1 rpc_client] detect face cnt: 1
 
 max area result:
 index: 0
 face_rect: [x:124, y:96, w:84, h:106]
 face_score: 0.909907
 face_align_cnt:68
-head_pose:[yaw:-1.790493, pitch:-4.476233, roll:-2.685740]
-face_live_result:[status:1, scores[0]:0.000066, scores[1]:0.999934]
+head_pose:[yaw:-2.685740, pitch:-0.895247, roll:-3.580986]
+face_live_result:[status:1, scores[0]:0.000006, scores[1]:0.999994]
+feature_cnt:384
+compare_cnt:0
+compare_scores:[0.000000, 0.000000]
+
+I/app_fd          [00:00:04.364 1 rpc_client] fd result:2732,0x2850e6a4
+I/app_fd          [00:00:04.365 1 rpc_client] detect face cnt: 1
+
+max area result:
+index: 0
+face_rect: [x:124, y:96, w:84, h:106]
+face_score: 0.909907
+face_align_cnt:68
+head_pose:[yaw:-2.685740, pitch:-0.895247, roll:-3.580986]
+face_live_result:[status:1, scores[0]:0.000006, scores[1]:0.999994]
 feature_cnt:384
 compare_cnt:0
 compare_scores:[0.000000, 0.000000]
@@ -179,11 +193,11 @@ acomp_fd_stream_tx_buffer_submit(0, buffer, buf_size, desc_idx);
 CONFIG_ACOMP_FD_RES_FACE_DETECT_ADDRESS=0x30100000
 CONFIG_ACOMP_FD_RES_FACE_DETECT_LENGTH=450936
 CONFIG_ACOMP_FD_RES_FACE_ALIGN_ADDRESS=0x30170000
-CONFIG_ACOMP_FD_RES_FACE_ALIGN_LENGTH=1588664
-CONFIG_ACOMP_FD_RES_FACE_LIVE_ADDRESS=0x30300000
-CONFIG_ACOMP_FD_RES_FACE_LIVE_LENGTH=1095288
-CONFIG_ACOMP_FD_FACE_VERIFY_ADDRESS=0x30410000
-CONFIG_ACOMP_FD_FACE_VERIFY_LENGTH=2953752
+CONFIG_ACOMP_FD_RES_FACE_ALIGN_LENGTH=557304
+CONFIG_ACOMP_FD_RES_FACE_LIVE_ADDRESS=0x30200000
+CONFIG_ACOMP_FD_RES_FACE_LIVE_LENGTH=734752
+CONFIG_ACOMP_FD_FACE_VERIFY_ADDRESS=0x302C0000
+CONFIG_ACOMP_FD_FACE_VERIFY_LENGTH=1936808
 ```
 
 ### PSRAM 堆大小配置
@@ -194,17 +208,27 @@ CONFIG_PSRAM_HEAP_SIZE=0x100000
 
 ## 算法内存占用
 
-算法内存占用如下(粗略统计)， 详细内存分布见`memap.h`文件
+算法内存占用如下(粗略统计)，详细内存分布见 `memap.h` 文件
 
-|  MCU核心 |  内存类型 | 大小 | 备注 |
-|---------|----------|----|-----|
-|  AP |  FLASH | 6546KB   | 4个算法资源 + ap固件大小 + cp固件大小 |
-|  AP |  PSRAM |  7900KB   | 算法实例用的PSRAM + 4个算法资源拷贝到PSRAM上 + 动态内存 |
-|  AP |  SRAM  |  8KB | IPC共享内存 |
-|  AP |  SRAM  |  60KB | AP的SRAM |
-|  AP |  SRAM  |  384KB | 算法实例大小 |
-|  AP |  SRAM  |  28KB | LUNA的*(.sharedmem.*) |
-|  AP |  LUNASRAM |  64KB  | LUNA专用的SRAM大小 |
+| MCU核心 | 内存类型 | 大小 | 备注 |
+|---------|----------|------|------|
+| AP | FLASH | ~4000KB | 4个算法资源(3594KB) + ap固件(~319KB) |
+| CP | FLASH | ~300KB | cp固件 |
+| AP | PSRAM | ~5500KB | 算法资源拷贝到PSRAM(3594KB) + 实例内存(860KB) + bgr24图像缓冲(900KB) + 动态内存 |
+| AP | SRAM | 8KB | IPC共享内存 |
+| AP | SRAM | 60KB | AP的SRAM |
+| AP | SRAM | 384KB | 算法实例大小 |
+| AP | SRAM | 28KB | LUNA的*(.sharedmem.*) |
+| AP | LUNASRAM | 64KB | LUNA专用的SRAM大小 |
+
+算法资源各模型大小（lsface.arcs.0.0.0004.0）：
+
+| 模型 | 文件 | 大小 |
+|------|------|------|
+| 人脸检测 | face_detect_thinker.bin | 441KB (450936B) |
+| 人脸对齐 | face_align_thinker.bin | 545KB (557304B) |
+| 活体检测 | face_nir_thinker_lineart_split.bin | 718KB (734752B) |
+| 人脸特征提取 | face_verify_thinker.bin | 1891KB (1936808B) |
 
 ## 注意事项
 

@@ -5,6 +5,9 @@ if (DEFINED CONFIG_TUSB_APP_CLASS)
         tusb_appclass.c
     )
     listenai_add_subdirectory_ifdef(CONFIG_ADB adb)
-    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../modules/tinyusb/src/device)
+    listenai_include_directories(
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../modules/tinyusb/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../modules/tinyusb/src/device
+    )
 
 endif()

@@ -1031,7 +1031,7 @@ lis_err_t lis_ocr_init(void)
     }
 
     /* Notify AP of boot type for OCR model loading strategy */
-    acomp_cv_set_boot_type(s_start_up_type == SYSTEM_START_UP_TYPE_SCAN_KEY ? 1 : 0);
+    acomp_cv_set_boot_type(1);
 
 
     ret = lis_ocr_stream_init();

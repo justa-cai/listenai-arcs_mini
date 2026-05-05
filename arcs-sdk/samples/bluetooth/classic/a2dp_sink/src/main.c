@@ -6,6 +6,8 @@
 
 #include <string.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -18,7 +20,36 @@
 #include "lisa_shell.h"
 #include "shell_passthrough.h"
 #include "lisa_bluetooth.h"
+#include "lisa_bt_classic_api.h"
 #include "fs/user_fs.h"
+
+static int cmd_bt_scan(int argc, char **argv)
+{
+    char *end = NULL;
+    unsigned long value;
+    int ret;
+
+    if (argc != 2) {
+        LOGE("Usage: bt_scan <0|1|2|3>\n");
+        return -1;
+    }
+
+    value = strtoul(argv[1], &end, 0);
+    if ((argv[1][0] == '\0') || (end == NULL) || (*end != '\0') || (value > 3)) {
+        LOGE("Invalid argument: %s\n", argv[1]);
+        LOGE("Usage: bt_scan <0|1|2|3>\n");
+        return -1;
+    }
+
+    ret = lisa_bt_scan((uint8_t)value);
+    if (ret != 0) {
+        LOGE("bt_scan failed: %d\n", ret);
+        return ret;
+    }
+
+    LOGI("bt_scan %lu\n", value);
+    return 0;
+}
 
 int main(int argc, char **argv)
 {
@@ -71,3 +102,6 @@ static int at_passthrough_handler(char *data, unsigned short len)
 //   Interactive mode: AT (then input AT+?, no space needed)
 //   Single-line mode: AT AT+? (execute at once)
 SHELL_EXPORT_PASSTROUGH(SHELL_CMD_PERMISSION(0), AT, AT>>, at_passthrough_handler, AT command passthrough mode);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_scan, cmd_bt_scan, enable or disable bt classic scan);

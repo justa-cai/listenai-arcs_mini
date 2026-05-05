@@ -1,0 +1,3 @@
+tests:
+  samples.algorithms.translation:
+    build_only: true

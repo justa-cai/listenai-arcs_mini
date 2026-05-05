@@ -1,0 +1,3 @@
+tests:
+  samples.algorithms.spv:
+    build_only: true

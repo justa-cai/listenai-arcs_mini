@@ -57,10 +57,13 @@ RPC_Client_init(void)
 
 // 启动, 并与client同步.
 // rpc所需的handler都已就绪, 初始化mailbox.
-void
+// 返回 0 表示连接成功, -1 表示超时放弃
+int32_t
 RPC_Client_Start(void)
 {
     int8_t ret;
+    int32_t retry = 0;
+    const int32_t max_retry = 3000;
 
     // 该api的语义就是开始运行
     urpc_init_client(RPC_Client_stub, & rpc_client_cb);
@@ -69,12 +72,17 @@ RPC_Client_Start(void)
         ret = urpc_connect(RPC_Client_stub);
         if (URPC_SUCCESS == ret) break;
 
+        if (++retry >= max_retry) {
+            CLOGE("urpc_connect timeout after %d retries, AP may not be ready\n", max_retry);
+            return -1;
+        }
+
         CLOGD("urpc_connect retry.\n");
-        // 等1秒
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
     CLOGD("urpc_accept succeed.\n");
+    return 0;
 }
 
 static void

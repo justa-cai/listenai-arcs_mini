@@ -32,20 +32,19 @@ static struct usbh_cdc_ecm g_cdc_ecm_class;
 
 static int usbh_cdc_ecm_set_eth_packet_filter(struct usbh_cdc_ecm *cdc_ecm_class, uint16_t filter_value)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
 
     if (!cdc_ecm_class || !cdc_ecm_class->hport) {
         return -USB_ERR_INVAL;
     }
-    setup = cdc_ecm_class->hport->setup;
 
-    setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
-    setup->bRequest = CDC_REQUEST_SET_ETHERNET_PACKET_FILTER;
-    setup->wValue = filter_value;
-    setup->wIndex = cdc_ecm_class->ctrl_intf;
-    setup->wLength = 0;
+    setup.bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
+    setup.bRequest = CDC_REQUEST_SET_ETHERNET_PACKET_FILTER;
+    setup.wValue = filter_value;
+    setup.wIndex = cdc_ecm_class->ctrl_intf;
+    setup.wLength = 0;
 
-    return usbh_control_transfer(cdc_ecm_class->hport, setup, NULL);
+    return usbh_control_transfer(cdc_ecm_class->hport, &setup, NULL);
 }
 
 int usbh_cdc_ecm_get_connect_status(struct usbh_cdc_ecm *cdc_ecm_class)
@@ -197,7 +196,11 @@ get_mac:
 
     USB_LOG_INFO("Register CDC ECM Class:%s\r\n", hport->config.intf[intf].devname);
 
+#ifdef CONFIG_USBHOST_PLATFORM_CDC_ECM
     usbh_cdc_ecm_run(cdc_ecm_class);
+#else
+    USB_LOG_INFO("CDC ECM netif binding disabled, skip platform netif run\r\n");
+#endif
     return ret;
 }
 
@@ -223,7 +226,9 @@ static int usbh_cdc_ecm_disconnect(struct usbh_hubport *hport, uint8_t intf)
         if (hport->config.intf[intf].devname[0] != '\0') {
             usb_osal_thread_schedule_other();
             USB_LOG_INFO("Unregister CDC ECM Class:%s\r\n", hport->config.intf[intf].devname);
+#ifdef CONFIG_USBHOST_PLATFORM_CDC_ECM
             usbh_cdc_ecm_stop(cdc_ecm_class);
+#endif
         }
 
         memset(cdc_ecm_class, 0, sizeof(struct usbh_cdc_ecm));

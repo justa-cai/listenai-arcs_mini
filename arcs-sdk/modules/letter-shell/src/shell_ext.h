@@ -12,6 +12,7 @@
 #ifndef __SHELL_EXT_H__
 #define __SHELL_EXT_H__
 
+#include <stddef.h>
 #include "shell.h"
 
 /**

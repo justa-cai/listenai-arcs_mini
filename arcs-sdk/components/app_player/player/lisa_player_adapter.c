@@ -1,6 +1,8 @@
 #include <stdint.h>
+#include <stddef.h>
 #include "lisa_device.h"
 #include "lisa_audio.h"
+#include "lisa_player_adapter.h"
 
 #define TAG "lisa_player_adapter"
 #include "lisa_log.h"
@@ -9,8 +11,20 @@
 #define AUDIO_BUFFER_CNT     10
 #define AUDIO_BUFFER_SAMPLES 256
 
+static app_player_pcm_output_cb_t s_pcm_output_cb = NULL;
+
+void app_player_adapter_set_pcm_output(app_player_pcm_output_cb_t cb)
+{
+    s_pcm_output_cb = cb;
+}
+
 void audio_play_send_pcm(char *data, int size)
 {
+    if (s_pcm_output_cb) {
+        s_pcm_output_cb(data, size);
+        return;
+    }
+
     static lisa_device_t *audio_dev = NULL;
     int ret;
     if (audio_dev == NULL) {

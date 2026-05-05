@@ -23,6 +23,7 @@
 #include "dbg_assert.h"
 #include "arcs_ap.h"
 #include "timers.h"
+#include "tinyprintf.h"
 
 #if NX_TRACE
 
@@ -477,11 +478,15 @@ void rtos_mutex_delete(rtos_mutex mutex)
 
 void rtos_mutex_lock(rtos_mutex mutex)
 {
+    if (!rtos_os_started())
+        return;
     xSemaphoreTake(mutex, portMAX_DELAY);
 }
 
 void rtos_mutex_unlock(rtos_mutex mutex)
 {
+    if (!rtos_os_started())
+        return;
     xSemaphoreGive(mutex);
 }
 

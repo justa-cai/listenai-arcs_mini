@@ -51,6 +51,7 @@ static cJSON *take_photo_list(const char *name)
 static cJSON *take_photo_call(const char *id, const char *name, cJSON *args)
 {
     (void)args;
+    voice_msg_camera_preview_req_t req = {0};
 
     if (!id || id[0] == '\0') {
         LOGE("take photo failed: invalid mcp id");
@@ -65,11 +66,20 @@ static cJSON *take_photo_call(const char *id, const char *name, cJSON *args)
         }
     }
 
-    LOGI("Taking photo...");
+    LOGI("take photo request accepted, mode=mcp, delay_ms=%u", 3000U);
 
-    voice_msg_pub(VOICE_MSG_CLOUD_MCP_IMAGE_RECOGNITION, (void *)id, strlen(id) + 1);
+    req.mode = VOICE_MSG_CAMERA_PREVIEW_MODE_MCP_PHOTO;
+    req.auto_capture_delay_ms = 3000;
+    strncpy(req.context_id, id, sizeof(req.context_id) - 1);
 
-    return NULL;
+    if (voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_START, &req, sizeof(req)) != 0) {
+        LOGE("take photo failed: preview start publish error");
+        return take_photo_result_text(name, "拍照请求发送失败。", true);
+    }
+
+    LOGI("take photo preview start published");
+
+    return take_photo_result_text(name, "已完成操作", false);
 }
 
 MCP_TOOL_DEFINE(ls.built_in.take_photo, take_photo_list, take_photo_call);

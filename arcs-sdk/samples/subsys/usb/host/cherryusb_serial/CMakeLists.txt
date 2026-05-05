@@ -19,3 +19,4 @@ listenai_include_directories(
 target_compile_options(${PROJECT_NAME} PRIVATE
     -Os
 )
+listenai_code_relocate(LIBRARY chryusb LOCATION PSRAM)

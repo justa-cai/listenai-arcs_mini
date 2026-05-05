@@ -1,0 +1,20 @@
+# Define the boot-owned control store symbols before loading the shared SDK
+# tree so standalone boot builds can reference them.
+config BOOT_CONTROL_STORE_BASE_ADDR
+    hex
+    default 0x3003E000 if BOOT_ADB_SYNC
+    default 0x30026000 if BOOT_OTA_SOURCE_TF
+    default 0x3001A000 if BOOT_SECOND_STAGE && BOOT_OTA_PACKAGE
+    default 0x30F00000
+
+config BOOT_CONTROL_STORE_SIZE
+    int
+    default 4096
+
+# Reuse the shared SDK configuration tree first, matching the sample project
+# entry style, then overlay the boot-specific standalone fragments.
+osource "$ARCS_BASE/Kconfig"
+
+rsource "Kconfig.boot"
+rsource "Kconfig.public"
+rsource "src/Kconfig"

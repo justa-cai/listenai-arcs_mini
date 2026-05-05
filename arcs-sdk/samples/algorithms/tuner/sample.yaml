@@ -1,0 +1,3 @@
+tests:
+  samples.acomp.tuner:
+    build_only: true

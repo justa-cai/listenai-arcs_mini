@@ -178,7 +178,7 @@ void i2s_drv_event_callback(uint32_t event_info, uint32_t usr_param)
         }
     }
 
-    if (event & (CSK_I2S_EVENT_TX_FIFO_UNDERRUN | CSK_I2S_EVENT_TX_FIFO_EMPTY)) {
+    if (event & CSK_I2S_EVENT_TX_FIFO_UNDERRUN) {
         arcs_i2s_stop(device, LISA_I2S_DIRECTION_TX);
     
         if (i2s_priv->callback) {

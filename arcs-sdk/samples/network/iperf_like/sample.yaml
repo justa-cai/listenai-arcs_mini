@@ -1,0 +1,3 @@
+tests:
+  samples.network.iperf_like:
+    build_only: true

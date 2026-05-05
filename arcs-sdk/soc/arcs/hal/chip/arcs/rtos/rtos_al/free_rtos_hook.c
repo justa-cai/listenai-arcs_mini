@@ -23,7 +23,7 @@
 #include "rtos_def.h"
 #include "rtos_al.h"
 
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_MASTER) && (CFG_IPC_PRINT)
+#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_MASTER) && (defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT))
 extern void rtos_ipc_dbg_task_resume(int32_t isr);
 #endif
 void vApplicationTickHook(void)
@@ -92,7 +92,7 @@ void vApplicationIdleHook(void)
     if there is a lot of heap remaining unallocated then
     the value of configTOTAL_HEAP_SIZE in FreeRTOSConfig.h can be
     reduced accordingly. */
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_MASTER) && (CFG_IPC_PRINT)
+#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_MASTER) && (defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT))
     rtos_ipc_dbg_task_resume(0);
 #endif
 }
@@ -140,7 +140,7 @@ static StackType_t *uxTimerTaskStack = NULL;
 
     if (uxTimerTaskStack == NULL)
     {
-        uxTimerTaskStack = rtos_malloc(configMINIMAL_STACK_SIZE * sizeof(StackType_t));
+        uxTimerTaskStack = rtos_malloc(configTIMER_TASK_STACK_DEPTH * sizeof(StackType_t));
     }
 
     /* Pass out a pointer to the StaticTask_t structure in which the Timer

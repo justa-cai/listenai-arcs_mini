@@ -222,6 +222,8 @@ static bt_audio_error_t bt_vintf_create_uplink_session(bt_audio_codec_type_t cod
     // 在link层调用CVSD的编解码，应用层不需要进行处理
     if (codec == BT_CODEC_CVSD)
         g_vintf_ctx.playback_is_passthrough = true;
+    else
+        g_vintf_ctx.playback_is_passthrough = false;
     
     /* 创建上行session（CAPTURE方向：录音→编码→发送）*/
     bt_audio_session_config_t session_config = {
@@ -293,6 +295,8 @@ static bt_audio_error_t bt_vintf_create_downlink_session(bt_audio_codec_type_t c
     // 在link层调用CVSD的编解码，应用层不需要进行处理
     if (codec == BT_CODEC_CVSD)
         g_vintf_ctx.capture_is_passthrough = true;
+    else
+        g_vintf_ctx.capture_is_passthrough = false;
     
     /* 创建下行session（PLAYBACK方向：接收→解码→回调）*/
     bt_audio_session_config_t session_config = {

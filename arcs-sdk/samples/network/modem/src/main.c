@@ -34,6 +34,7 @@
 #include "lisa_modem_module.h"
 #include "user_fs.h"
 #include "lisa_kv.h"
+#include "modem_backend.h"
 
 // ============================================================
 // 重要：使用前请修改以下配置！
@@ -44,7 +45,7 @@
 #define TEST_SERVER_PORT    80
 
 // UDP 测试服务器配置（可以使用公共 NTP 服务器或 echo 服务器测试）
-#define UDP_TEST_HOST       "time.google.com"
+#define UDP_TEST_HOST       "ntp.aliyun.com"
 #define UDP_TEST_PORT       123  // NTP 端口
 
 // HTTP GET 请求示例
@@ -62,12 +63,12 @@
 /**
  * @brief 演示 DNS 解析功能
  */
-static int demo_dns_resolve(const char *domain, char *ip_addr, size_t ip_len)
+static int demo_dns_resolve(lisa_modem_t *modem, const char *domain, char *ip_addr, size_t ip_len)
 {
     LISA_LOGI(LOG_TAG, "=== DNS Resolve Test ===");
     LISA_LOGI(LOG_TAG, "Resolving domain: %s", domain);
 
-    if (!lisa_modem_dns_resolve(domain, ip_addr, ip_len)) {
+    if (!lisa_modem_dns_resolve_on(modem, domain, ip_addr, ip_len)) {
         LISA_LOGE(LOG_TAG, "Error: DNS resolve failed for %s", domain);
         return -1;
     }
@@ -76,15 +77,39 @@ static int demo_dns_resolve(const char *domain, char *ip_addr, size_t ip_len)
     return 0;
 }
 
+static bool resolve_ipv4_sockaddr(lisa_modem_t *modem, const char *host, int port, struct sockaddr_in *addr)
+{
+    char ip_addr[64] = {0};
+
+    if (!host || !addr) {
+        return false;
+    }
+
+    memset(addr, 0, sizeof(*addr));
+    addr->sin_family = AF_INET;
+    addr->sin_port = htons((uint16_t)port);
+
+    if (inet_pton(AF_INET, host, &addr->sin_addr) == 1) {
+        return true;
+    }
+
+    if (!lisa_modem_dns_resolve_on(modem, host, ip_addr, sizeof(ip_addr))) {
+        return false;
+    }
+
+    return inet_pton(AF_INET, ip_addr, &addr->sin_addr) == 1;
+}
+
 /**
  * @brief 演示 TCP 连接和数据传输
  */
-static int demo_tcp_communication(const char *host, int port)
+static int demo_tcp_communication(lisa_modem_t *modem, const char *host, int port)
 {
-    int tcp_id = -1;
+    int sockfd = -1;
     int ret = -1;
     char *recv_buf = NULL;
     int recv_len;
+    struct sockaddr_in dest_addr;
 
     LISA_LOGI(LOG_TAG, "=== TCP Communication Test ===");
 
@@ -97,16 +122,17 @@ static int demo_tcp_communication(const char *host, int port)
 
     /* 1. 创建 TCP socket */
     LISA_LOGI(LOG_TAG, "Step 1: Creating TCP socket...");
-    tcp_id = lisa_modem_tcp_socket(false);
-    if (tcp_id < 0) {
+    sockfd = lisa_modem_socket_open_on(modem, AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
         LISA_LOGE(LOG_TAG, "Error: Failed to create TCP socket");
         goto cleanup;
     }
-    LISA_LOGI(LOG_TAG, "TCP socket created: id=%d", tcp_id);
+    LISA_LOGI(LOG_TAG, "TCP socket created: id=%d", sockfd);
 
     /* 2. 连接到服务器 */
     LISA_LOGI(LOG_TAG, "Step 2: Connecting to %s:%d...", host, port);
-    if (!lisa_modem_tcp_connect(tcp_id, host, port, false)) {
+    if (!resolve_ipv4_sockaddr(modem, host, port, &dest_addr) ||
+        !lisa_modem_socket_connect_on(modem, sockfd, (const struct sockaddr *)&dest_addr, (int)sizeof(dest_addr))) {
         LISA_LOGE(LOG_TAG, "Error: Failed to connect to server");
         goto cleanup;
     }
@@ -114,7 +140,7 @@ static int demo_tcp_communication(const char *host, int port)
 
     /* 3. 发送 HTTP 请求 */
     LISA_LOGI(LOG_TAG, "Step 3: Sending HTTP request...");
-    ret = lisa_modem_tcp_send(tcp_id, HTTP_GET_REQUEST, strlen(HTTP_GET_REQUEST), 5000);
+    ret = lisa_modem_socket_send_on(modem, sockfd, HTTP_GET_REQUEST, strlen(HTTP_GET_REQUEST), 5000);
     if (ret < 0) {
         LISA_LOGE(LOG_TAG, "Error: Failed to send data (ret=%d)", ret);
         goto cleanup;
@@ -124,7 +150,7 @@ static int demo_tcp_communication(const char *host, int port)
     /* 4. 接收响应 */
     LISA_LOGI(LOG_TAG, "Step 4: Receiving response...");
     memset(recv_buf, 0, RECV_BUFFER_SIZE);
-    recv_len = lisa_modem_tcp_recv(tcp_id, recv_buf, RECV_BUFFER_SIZE - 1, RECV_TIMEOUT_MS);
+    recv_len = lisa_modem_socket_recv_on(modem, sockfd, recv_buf, RECV_BUFFER_SIZE - 1, RECV_TIMEOUT_MS);
     if (recv_len > 0) {
         LISA_LOGI(LOG_TAG, "Received %d bytes:", recv_len);
         /* 打印前 512 字节的响应内容 */
@@ -144,10 +170,9 @@ static int demo_tcp_communication(const char *host, int port)
 
 cleanup:
     /* 5. 关闭连接 */
-    if (tcp_id >= 0) {
+    if (sockfd >= 0) {
         LISA_LOGI(LOG_TAG, "Step 5: Closing connection...");
-        lisa_modem_tcp_closesocket(tcp_id);
-        lisa_modem_tcp_deinit(tcp_id);
+        lisa_modem_socket_close_on(modem, sockfd);
         LISA_LOGI(LOG_TAG, "Connection closed");
     }
 
@@ -172,62 +197,60 @@ static void build_ntp_request(uint8_t *buffer)
 /**
  * @brief 演示 UDP 通信（使用 NTP 协议测试）
  */
-static int demo_udp_communication(const char *host, int port)
+static int demo_udp_communication(lisa_modem_t *modem, const char *host, int port)
 {
-    int udp_id = -1;
+    int sockfd = -1;
     int ret = -1;
     uint8_t ntp_request[48];
     uint8_t ntp_response[48];
     struct sockaddr_in dest_addr;
     struct sockaddr_in src_addr;
     int addr_len = sizeof(src_addr);
-    char ip_addr[64] = {0};
+    char dest_ip[INET_ADDRSTRLEN] = {0};
 
     LISA_LOGI(LOG_TAG, "=== UDP Communication Test (NTP) ===");
 
-    /* 1. DNS 解析获取服务器 IP */
-    LISA_LOGI(LOG_TAG, "Step 1: Resolving %s...", host);
-    if (!lisa_modem_dns_resolve(host, ip_addr, sizeof(ip_addr))) {
-        LISA_LOGE(LOG_TAG, "Error: Failed to resolve %s", host);
-        return -1;
-    }
-    LISA_LOGI(LOG_TAG, "Resolved IP: %s", ip_addr);
-
-    /* 2. 创建 UDP socket */
-    LISA_LOGI(LOG_TAG, "Step 2: Creating UDP socket...");
-    udp_id = lisa_modem_udp_socket(AF_INET, SOCK_DGRAM, 0);
-    if (udp_id < 0) {
+    /* 1. 创建 UDP socket */
+    LISA_LOGI(LOG_TAG, "Step 1: Creating UDP socket...");
+    sockfd = lisa_modem_socket_open_on(modem, AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0) {
         LISA_LOGE(LOG_TAG, "Error: Failed to create UDP socket");
         return -1;
     }
-    LISA_LOGI(LOG_TAG, "UDP socket created: id=%d", udp_id);
+    LISA_LOGI(LOG_TAG, "UDP socket created: id=%d", sockfd);
 
-    /* 3. 准备目标地址 */
-    memset(&dest_addr, 0, sizeof(dest_addr));
-    dest_addr.sin_family = AF_INET;
-    dest_addr.sin_port = htons(port);
-    inet_pton(AF_INET, ip_addr, &dest_addr.sin_addr);
+    /* 2. 准备目标地址 */
+    LISA_LOGI(LOG_TAG, "Step 2: Resolving %s...", host);
+    if (!resolve_ipv4_sockaddr(modem, host, port, &dest_addr)) {
+        LISA_LOGE(LOG_TAG, "Error: Failed to resolve %s", host);
+        goto cleanup;
+    }
+    inet_ntop(AF_INET, &dest_addr.sin_addr, dest_ip, sizeof(dest_ip));
 
-    /* 4. 构建并发送 NTP 请求 */
-    LISA_LOGI(LOG_TAG, "Step 3: Sending NTP request to %s:%d...", ip_addr, port);
+    /* 3. 构建并发送 NTP 请求 */
+    LISA_LOGI(LOG_TAG, "Step 3: Sending NTP request to %s:%d...", dest_ip, port);
     build_ntp_request(ntp_request);
-    ret = lisa_modem_udp_sendto(udp_id, (char *)ntp_request, sizeof(ntp_request), 0,
-                                 (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    ret = lisa_modem_socket_sendto_on(modem, sockfd, ntp_request, sizeof(ntp_request), 0,
+                                      (const struct sockaddr *)&dest_addr, (int)sizeof(dest_addr), 5000);
     if (ret < 0) {
         LISA_LOGE(LOG_TAG, "Error: Failed to send UDP data (ret=%d)", ret);
         goto cleanup;
     }
     LISA_LOGI(LOG_TAG, "Sent %d bytes", ret);
 
-    /* 5. 接收 NTP 响应 */
+    /* 4. 接收 NTP 响应 */
     LISA_LOGI(LOG_TAG, "Step 4: Receiving NTP response...");
     memset(ntp_response, 0, sizeof(ntp_response));
     memset(&src_addr, 0, sizeof(src_addr));
-    ret = lisa_modem_udp_recvform(udp_id, (char *)ntp_response, sizeof(ntp_response), 0,
-                                   (struct sockaddr *)&src_addr, &addr_len);
+    ret = lisa_modem_socket_recvfrom_on(modem, sockfd, ntp_response, sizeof(ntp_response), 0,
+                                        (struct sockaddr *)&src_addr, &addr_len, RECV_TIMEOUT_MS);
     if (ret > 0) {
+        char src_ip[INET_ADDRSTRLEN] = {0};
+
+        inet_ntop(AF_INET, &src_addr.sin_addr, src_ip, sizeof(src_ip));
         LISA_LOGI(LOG_TAG, "Received %d bytes from NTP server", ret);
-        
+        LISA_LOGI(LOG_TAG, "recvfrom src=%s:%u", src_ip, ntohs(src_addr.sin_port));
+
         /* 解析 NTP 响应中的时间戳（简化版） */
         if (ret >= 48) {
             /* NTP 时间戳在偏移量 40-43（秒）*/
@@ -246,11 +269,10 @@ static int demo_udp_communication(const char *host, int port)
     ret = 0;
 
 cleanup:
-    /* 6. 关闭 UDP socket */
-    if (udp_id >= 0) {
+    /* 5. 关闭 UDP socket */
+    if (sockfd >= 0) {
         LISA_LOGI(LOG_TAG, "Step 5: Closing UDP socket...");
-        lisa_modem_udp_closesocket(udp_id);
-        lisa_modem_udp_deinit(udp_id);
+        lisa_modem_socket_close_on(modem, sockfd);
         LISA_LOGI(LOG_TAG, "UDP socket closed");
     }
 
@@ -263,6 +285,10 @@ cleanup:
 int main(int argc, char **argv)
 {
     char ip_addr[64] = {0};
+    lisa_modem_t *modem = NULL;
+
+    (void)argc;
+    (void)argv;
 
     LISA_LOGI(LOG_TAG, "=== 4G Modem Example ===");
 
@@ -271,8 +297,9 @@ int main(int argc, char **argv)
     lisa_kv_init();
 
     /* 初始化 4G 模块 */
-    LISA_LOGI(LOG_TAG, "Initializing 4G modem module...");
-    if (!lisa_modem_module_init(MODEM_UART_DEVICE)) {
+    LISA_LOGI(LOG_TAG, "Initializing 4G modem module via backend=%s...", sample_modem_backend_name());
+    modem = sample_modem_open(MODEM_UART_DEVICE);
+    if (!modem) {
         LISA_LOGE(LOG_TAG, "Error: Failed to initialize 4G modem");
         goto exit;
     }
@@ -283,19 +310,23 @@ int main(int argc, char **argv)
     vTaskDelay(pdMS_TO_TICKS(3000));
 
     /* 演示 DNS 解析 */
-    if (demo_dns_resolve(TEST_SERVER_HOST, ip_addr, sizeof(ip_addr)) != 0) {
+    if (demo_dns_resolve(modem, TEST_SERVER_HOST, ip_addr, sizeof(ip_addr)) != 0) {
         LISA_LOGW(LOG_TAG, "DNS resolve failed, using hostname directly");
     }
 
     /* 演示 TCP 通信 */
-    demo_tcp_communication(TEST_SERVER_HOST, TEST_SERVER_PORT);
+    demo_tcp_communication(modem, TEST_SERVER_HOST, TEST_SERVER_PORT);
 
     /* 演示 UDP 通信（NTP 时间同步） */
-    demo_udp_communication(UDP_TEST_HOST, UDP_TEST_PORT);
+    demo_udp_communication(modem, UDP_TEST_HOST, UDP_TEST_PORT);
 
     LISA_LOGI(LOG_TAG, "=== Example completed ===");
 
 exit:
+    if (modem) {
+        sample_modem_close(modem);
+    }
+
     /* 主循环 */
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));

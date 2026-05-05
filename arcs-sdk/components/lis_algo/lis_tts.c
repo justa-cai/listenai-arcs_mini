@@ -72,11 +72,20 @@ lis_err_t lis_tts_start(char *txt, uint32_t txt_size, uint32_t speed, uint32_t v
     ESP_LOGI(TTS_TAG, "lis_tts_start txt_size:%d, speed:%d, vol:%d, role:%d\n",
              txt_size, actual_speed, vol, role);
 
+    tts.status = -1;
+    int rc = acomp_xtts_do_prepare_with_role((int)role, (xtts_event_cb_t)tts_event_cb, NULL);
+    if (rc != 0) {
+        ret = lis_err_err;
+        ESP_LOGE(TTS_TAG, "lis_tts_start fail: acomp_xtts_do_prepare_with_role %d", rc);
+        xSemaphoreGive(tts.ctrl_sem);
+        return ret;
+    }
+
     acomp_xtts_set_speed((int)actual_speed);
     acomp_xtts_set_volume((int)vol);
     acomp_xtts_set_role((int)role);
 
-    int rc = acomp_xtts_synth_text(txt, txt_size);
+    rc = acomp_xtts_synth_text(txt, txt_size);
     if (rc != 0) {
         ret = lis_err_err;
         ESP_LOGE(TTS_TAG, "lis_tts_start fail: acomp_xtts_synth_text %d", rc);
@@ -188,7 +197,7 @@ int lis_tts_prepare(void)
     acomp_cv_cleanup();
     acomp_translation_do_cleanup();
 
-    return acomp_xtts_do_prepare((xtts_event_cb_t)tts_event_cb, NULL);
+    return acomp_xtts_do_prepare_with_role(XTTS_ROLE_LINGXIAOQI, (xtts_event_cb_t)tts_event_cb, NULL);
 }
 
 int lis_tts_cleanup(void)
@@ -200,9 +209,12 @@ void lis_tts_deinit(void)
 {
     if (!tts.inited) return;
 
-    acomp_xtts_remove_callback(tts_event_cb);
-    acomp_xtts_cleanup();
-    vSemaphoreDelete(tts.ctrl_sem);
+    lis_tts_cleanup();
+    if (tts.ctrl_sem != NULL) {
+        vSemaphoreDelete(tts.ctrl_sem);
+        tts.ctrl_sem = NULL;
+    }
+    tts.status = -1;
     tts.inited = 0;
 }
 

@@ -1,0 +1,7 @@
+tests:
+  uboot.api.wdt:
+    platform_allow: native_sim
+    tags:
+      - uboot
+      - api
+      - wdt

@@ -10,6 +10,7 @@
 typedef struct
 {
     uint8_t inited : 1;
+    uint8_t end_notified : 1;
     char *result;
     lis_trans_status status;
     SemaphoreHandle_t ctrl_sem;
@@ -17,6 +18,11 @@ typedef struct
 
 static const char TRANS_TAG[] = "trans";
 static trans_t trans;
+
+/* AP translation status event values (bitmask) -> lis_trans_status mapping */
+#define TRANS_ALGO_EVENT_RESULT_BEGIN  (1UL << 0)  /* 0x1 */
+#define TRANS_ALGO_EVENT_RESULT_END    (1UL << 2)  /* 0x4 */
+#define TRANS_ALGO_EVENT_RESULT_STOP   (1UL << 3)  /* 0x8 */
 
 /* acomp translation event callback */
 static void trans_event_cb(uint32_t event, void *event_data, uint32_t event_data_len, void *priv)
@@ -27,12 +33,24 @@ static void trans_event_cb(uint32_t event, void *event_data, uint32_t event_data
                               ? event_data_len : TRANSLATION_RESULT_SIZE - 1;
             memcpy(trans.result, event_data, copy_len);
             trans.result[copy_len] = '\0';
-            trans.status = LIS_TRANS_STATE_RESULT;
+            trans.status = trans.end_notified ? LIS_TRANS_STATE_OVER : LIS_TRANS_STATE_RESULT;
         }
     }
     if (event & TRANS_CB_EVENT_STATUS) {
         if (event_data && event_data_len >= sizeof(uint32_t)) {
-            trans.status = *(uint32_t *)event_data;
+            uint32_t raw = *(uint32_t *)event_data;
+            if (raw == TRANS_ALGO_EVENT_RESULT_BEGIN) {
+                trans.end_notified = 0;
+                trans.status = LIS_TRANS_STATE_ING;
+            } else if (raw == TRANS_ALGO_EVENT_RESULT_END) {
+                trans.end_notified = 1;
+                if (trans.result && trans.result[0] != '\0') {
+                    trans.status = LIS_TRANS_STATE_OVER;
+                }
+            } else if (raw == TRANS_ALGO_EVENT_RESULT_STOP) {
+                trans.end_notified = 0;
+                trans.status = LIS_TRANS_STATE_EARLY_OVER;
+            }
         }
     }
 }
@@ -49,6 +67,12 @@ lis_err_t lis_trans_start(char *txt, uint32_t txt_size, lis_trans_type type)
     }
 
     xSemaphoreTake(trans.ctrl_sem, portMAX_DELAY);
+
+    trans.end_notified = 0;
+    trans.status = LIS_TRANS_STATE_ING;
+    if (trans.result) {
+        trans.result[0] = '\0';
+    }
 
     lis_err_t ret = lis_err_ok;
     int rc;

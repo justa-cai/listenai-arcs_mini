@@ -41,12 +41,14 @@
 #include <sys/types.h>
 #include "lwip/sockets.h"
 #include "lwip/netdb.h"
+#include "rtos_al.h"
 
 #if defined(MBEDTLS_HAVE_TIME)
 #include <time.h>
 #endif
 
 #define SOCKET int
+#define MBEDTLS_NET_POLL_INTERVAL_MS    10U
 
 /*
  * Prepare for using the sockets interface
@@ -202,6 +204,15 @@ static int net_would_block( const mbedtls_net_context *ctx )
 #if defined EWOULDBLOCK && EWOULDBLOCK != EAGAIN
     case EWOULDBLOCK:
 #endif
+#if defined EINPROGRESS
+    case EINPROGRESS:
+#endif
+#if defined EALREADY
+    case EALREADY:
+#endif
+#if defined ENOTCONN
+    case ENOTCONN:
+#endif
         return ( 1 );
     }
     return ( 0 );
@@ -297,12 +308,14 @@ int mbedtls_net_accept( mbedtls_net_context *bind_ctx,
  */
 int mbedtls_net_set_block( mbedtls_net_context *ctx )
 {
-    return ( fcntl( ctx->fd, F_SETFL, fcntl( ctx->fd, F_GETFL, 0 ) & ~O_NONBLOCK ) );
+    int mode = 0;
+    return ioctlsocket( ctx->fd, FIONBIO, &mode );
 }
 
 int mbedtls_net_set_nonblock( mbedtls_net_context *ctx )
 {
-    return ( fcntl( ctx->fd, F_SETFL, fcntl( ctx->fd, F_GETFL, 0 ) | O_NONBLOCK ) );
+    int mode = 1;
+    return ioctlsocket( ctx->fd, FIONBIO, &mode );
 }
 
 /*
@@ -310,10 +323,7 @@ int mbedtls_net_set_nonblock( mbedtls_net_context *ctx )
  */
 void mbedtls_net_usleep( unsigned long usec )
 {
-    struct timeval tv;
-    tv.tv_sec  = usec / 1000000;
-    tv.tv_usec = usec % 1000000;
-    select( 0, NULL, NULL, NULL, &tv );
+    usleep( usec );
 }
 
 /*
@@ -328,7 +338,7 @@ int mbedtls_net_recv( void *ctx, unsigned char *buf, size_t len )
         return ( MBEDTLS_ERR_NET_INVALID_CONTEXT );
     }
 
-    ret = (int) read( fd, buf, len );
+    ret = (int) recv( fd, buf, len, 0 );
 
     if ( ret < 0 ) {
         if ( net_would_block( ctx ) != 0 ) {
@@ -356,37 +366,27 @@ int mbedtls_net_recv_timeout( void *ctx, unsigned char *buf, size_t len,
                               uint32_t timeout )
 {
     int ret;
-    struct timeval tv;
-    fd_set read_fds;
     int fd = ((mbedtls_net_context *) ctx)->fd;
+    uint32_t start_ms;
 
     if ( fd < 0 ) {
         return ( MBEDTLS_ERR_NET_INVALID_CONTEXT );
     }
 
-    FD_ZERO( &read_fds );
-    FD_SET( fd, &read_fds );
+    start_ms = rtos_get_time();
 
-    tv.tv_sec  = timeout / 1000;
-    tv.tv_usec = ( timeout % 1000 ) * 1000;
-
-    ret = select( fd + 1, &read_fds, NULL, NULL, timeout == 0 ? NULL : &tv );
-
-    /* Zero fds ready means we timed out */
-    if ( ret == 0 ) {
-        return ( MBEDTLS_ERR_SSL_TIMEOUT );
-    }
-
-    if ( ret < 0 ) {
-        if ( errno == EINTR ) {
-            return ( MBEDTLS_ERR_SSL_WANT_READ );
+    for ( ;; ) {
+        ret = mbedtls_net_recv( ctx, buf, len );
+        if ( ret != MBEDTLS_ERR_SSL_WANT_READ ) {
+            return ret;
         }
 
-        return ( MBEDTLS_ERR_NET_RECV_FAILED );
-    }
+        if ( timeout == 0 || rtos_time_past( start_ms, timeout ) ) {
+            return ( MBEDTLS_ERR_SSL_TIMEOUT );
+        }
 
-    /* This call will not block */
-    return ( mbedtls_net_recv( ctx, buf, len ) );
+        rtos_delay( MBEDTLS_NET_POLL_INTERVAL_MS );
+    }
 }
 
 /*
@@ -401,7 +401,7 @@ int mbedtls_net_send( void *ctx, const unsigned char *buf, size_t len )
         return ( MBEDTLS_ERR_NET_INVALID_CONTEXT );
     }
 
-    ret = (int) write( fd, buf, len );
+    ret = (int) send( fd, buf, len, 0 );
 
     if ( ret < 0 ) {
         if ( net_would_block( ctx ) != 0 ) {

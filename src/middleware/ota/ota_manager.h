@@ -8,6 +8,7 @@ typedef enum {
     OTA_STATE_UPDATING,
     OTA_STATE_SUCCESSED,
     OTA_STATE_FAILED,
+    OTA_STATE_PACKAGE_INFO_FAILED,
     OTA_STATE_UP_TO_DATE,
 } ota_state_e;
 
@@ -24,10 +25,16 @@ typedef enum {
     OTA_REBOOT_STRATEGY_MANUAL,
 } ota_reboot_strategy_e;
 
+typedef enum {
+    OTA_POST_ACTION_NONE = 0,
+    OTA_POST_ACTION_REBOOT,
+} ota_post_action_e;
+
 typedef struct {
     ota_state_e state;
     ota_target_e target;
     ota_reboot_strategy_e reboot;
+    ota_post_action_e post_action;
     uint32_t bytes_processed;
     uint32_t bytes_total;
     uint32_t update_index;     // 当前更新的资源序号 (从1开始)
@@ -37,3 +44,4 @@ typedef struct {
 } ota_state_t;
 
 int ota_manager_check_all(void);
+ota_state_e ota_manager_get_state(void);

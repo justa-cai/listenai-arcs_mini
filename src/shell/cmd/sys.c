@@ -10,11 +10,11 @@
 #include "task.h"
 #include "lisa_mem.h"
 #include "chip.h"
+#include "power_manager.h"
 
 static int reboot_cmd_handler(int argc, char **argv)
 {
-    extern void sys_platform_sw_full_reset(void);
-    sys_platform_sw_full_reset();
+    power_reboot_soft();
 
     return 0;
 }
@@ -45,6 +45,7 @@ static int recovery_cmd_handler(int argc, char **argv)
     struct boot_info *info = (struct boot_info *)&IP_AON_CTRL->REG_AON_DIG_RSVD4.all;
     info->req = 1;
     info->reboot_cnt = 0;
+    info->recover_reason = 1;
 
     // turn off GPIOB_03 FORCE OUTPUT
     IP_AON_IOMUX->REG_PAD_AON_GPIOB_03.all &= ~(0b1111 << 21);

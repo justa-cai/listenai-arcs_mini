@@ -86,6 +86,7 @@ typedef enum {
 } at_lwip_errcode_e;
 
 const char *at_lwip_error_messages[] = {
+    [ERR_NONE]                                          = "no error",
     [ERR_ATCMD_PARAMETER_IS_NULL]                       = "parameter is null",
     [ERR_ATCMD_PARAMETER_COUNT_EXCEED]                  = "parameter count exceed",
     [ERR_ATCMD_PARAMETER_COUNT_MISSING]                 = "parameter count missing",

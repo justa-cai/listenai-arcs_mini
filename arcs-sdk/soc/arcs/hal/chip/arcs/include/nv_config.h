@@ -24,7 +24,7 @@
 #define FLASH_NOR_OTP_NV_BASE_ADDR (CMN_FLASH_REGION + 0x200000)
 #endif
 #define FLASH_OTP_NV_LENGTH   512
-#define FIXZONE_NV_BASE_ADDR  0x301FF000
+
 #define WF_PPA_CAP_BITS_MASK       0x1f
 #define WF_PPA_CAP_BITS_WIDTH         5
 #define WF_PPA_CAP_0_BIT_OFFSET      16
@@ -50,8 +50,33 @@
 #define XO24M_CAP_BIT_OFFSET          25
 #define XO24M_CAP_BITS_WIDTH           5
 #define XO24M_CAP_DIM                  1
-#define EFUSE_NV_SLOT0_ADDR(idx)    (64 + idx)
-#define EFUSE_NV_SLOT1_ADDR(idx)    (68 + idx)
+#define EFUSE_NV_SLOT0_ADDR    64
+#define EFUSE_NV_SLOT1_ADDR    68
+
+#ifndef FLASH_WF_MFG_CONF_BASE_ADDR
+#define FLASH_WF_MFG_CONF_BASE_ADDR     0
+#endif
+#ifndef WIFI_RF_SET_GOLDEN
+#define WIFI_RF_SET_GOLDEN              0
+#endif
+#ifndef XO_CAP_GOLDEN_VAL
+#define XO_CAP_GOLDEN_VAL               0
+#endif
+#ifndef PWR_OFFSET_LOW_GOLDEN_VAL
+#define PWR_OFFSET_LOW_GOLDEN_VAL       0
+#endif
+#ifndef PWR_OFFSET_MID_GOLDEN_VAL
+#define PWR_OFFSET_MID_GOLDEN_VAL       0
+#endif
+#ifndef PWR_OFFSET_HIGH_GOLDEN_VAL
+#define PWR_OFFSET_HIGH_GOLDEN_VAL      0
+#endif
+#ifndef RSSI_OFFSET_DSSS_GOLDEN_VAL
+#define RSSI_OFFSET_DSSS_GOLDEN_VAL     0
+#endif
+#ifndef RSSI_OFFSET_OFDM_GOLDEN_VAL
+#define RSSI_OFFSET_OFDM_GOLDEN_VAL     0
+#endif
 #ifndef MAC2STR
 #define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 #define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"
@@ -78,16 +103,29 @@ typedef struct {
     int8_t wf_rssi_offset[2];
 } ls_nv_fixzone_efuse_t;
 
+/* Separate base address configuration (reusable) */
+typedef struct efuse_base_addrs_s {
+    uint8_t addr_count;    /* number of base addresses */
+    const uint8_t *addrs;  /* pointer to base addresses array */
+} efuse_base_addrs_t;
+
+/* efuse configuration table entry: holds base addresses pointer and field layout
+ * Base addresses are treated as base word addresses; actual word to access is
+ * base + layout.offset_idx. Entries are ordered such that addrs[0] is the
+ * lower-priority base and addrs[addr_count-1] is the highest-priority base.
+ * Members are ordered by size (descending) to optimize memory alignment.
+ */
 typedef struct efuse_cfg_s
 {
-    uint8_t  addr0;            /*efuse slot0 word address*/
-    uint8_t  addr1;            /*efuse slot1 word address*/
-    uint8_t  field_dim;        /*if field_dim > 1 this means field type is array, array's dim == field_dim*/
-    uint8_t  bit_valid;        /*field bit valid position in the efuse word*/
-    uint32_t bits_mask;        /*field bits mask*/
-    uint8_t  bit_start;        /*field bit start position in the efuse word*/
-    uint8_t  bits_width;       /*field single item bits width*/
-    uint8_t  is_signed;        /*field item's highest bit is signed or not*/
+    const efuse_base_addrs_t *base_addrs; /* pointer to base addresses configuration (4/8 bytes) */
+    uint8_t offset_idx;                   /* offset (word index) relative to base address */
+    uint8_t field_dim;                    /* array dimension */
+    uint8_t bit_valid;                    /* valid bit position in the efuse word */
+    uint8_t bit_start;                    /* bit start position for the first item */
+    uint32_t bits_mask;                   /* bits mask for a single item (4 bytes) */
+    uint8_t bits_width;                   /* bits width for a single item */
+    uint8_t is_signed;                    /* signed flag for the item */
+    /* 2 bytes padding to align to 4-byte boundary */
 } efuse_cfg_t;
 
 typedef struct {
@@ -154,6 +192,10 @@ extern int8_t nv_fixzone_init();
 extern int8_t nv_fixzone_get_wf_mac(uint8_t *mac_addr);
 extern int8_t nv_fixzone_get_bt_mac(uint8_t *mac_addr);
 extern int8_t nv_fixzone_load_rf_config(void);
+extern int8_t nv_reset_rf_config(void);
 extern int8_t nv_selfcali_erase_otp(void);
 extern int8_t nv_selfcali_get_otp_flag(uint32_t *flag);
+
+uint32_t nv_fixzone_get_wf_conf_base_addr(void);
+
 #endif//_NV_CONFIG_H_

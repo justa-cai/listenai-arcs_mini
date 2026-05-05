@@ -2,20 +2,19 @@
 
 ## 功能说明
 
-本示例演示了如何使用 ARCS SDK 的蓝牙音频框架在 **Sink 模式**下工作，从远程设备（如手机）接收音频数据并播放。
+本示例演示了如何使用 ARCS SDK 的蓝牙音频框架在 **Sink 模式**下工作，从远程设备（如手机）接收 A2DP 音频并通过 `lisa_audio` 播放。
 
 示例实现了以下功能：
-- 蓝牙经典音频 Sink 模式初始化
-- A2DP Sink 配置（音乐接收）
-- HFP HF 配置（语音通话，可选）
-- 虚拟声卡接口注册
-- 音频数据接收与解码（SBC → PCM）
-- Shell 命令控制音频接收
+- 初始化 Lisa Shell、Lisa Bluetooth、BT Audio Framework 和 BT Sink
+- 通过 Shell 命令 `bt_scan <0|1|2|3>` 控制经典蓝牙扫描模式
+- 手机连接后自动完成经典蓝牙链路、HFP、AVRCP、A2DP 建链
+- 收到 A2DP Start 后自动创建播放会话并开始 SBC 解码播放
+- 通过 `AT` 透传命令直接下发底层 AT 指令
 
 ## 硬件连接
 
 - ARCS 开发板（支持蓝牙经典功能）
-- 音频播放设备（可选：扬声器、耳机等）
+- 音频播放设备（如喇叭、耳机、功放）
 - 手机或其他蓝牙音频源设备
 
 ## 软件依赖
@@ -24,16 +23,16 @@
 - Lisa Bluetooth 组件
 - Lisa Bluetooth Audio Framework
 - Lisa Shell
-- Lisa Audio Device（用于音频播放）
+- Lisa Audio Device
 
 ## 示例内容
 
-1. 初始化蓝牙音频框架（Sink 模式）
-2. 注册虚拟声卡接口
-3. 初始化蓝牙并进入可发现和可连接状态
-4. 等待蓝牙设备连接
-5. 通过 Shell 命令启动音频接收
-6. 接收并解码蓝牙音频数据
+1. 初始化 Shell 与文件系统
+2. 初始化蓝牙协议栈和 BT Audio Framework
+3. 初始化 BT Sink 音频适配层
+4. 通过 `bt_scan` 打开 inquiry/page scan
+5. 等待手机连接并自动完成 HFP、AVRCP、A2DP 建链
+6. 手机侧开始播放音乐后，设备自动创建音频播放会话并输出 PCM
 
 ## 编译
 
@@ -49,78 +48,106 @@
 
 ## 预期输出
 
-设备启动后控制台输出：
+### 1. 启动日志
 
-```
-=== Bluetooth Audio Sink Sample ===
-Initializing system components...
-Bluetooth audio framework initialized (Sink mode)
-Virtual soundcard interface registered
-Bluetooth initialized successfully
-Device name: ARCS_BT_SINK
-Waiting for connection from audio source...
-Use 'bt_audio_start' command to start audio receiving
+设备启动后可以看到类似如下日志：
+
+```text
+I/BT_AUDIO_SESSION Audio session manager initialized
+I/BT_SINK          bt_sink initialized successfully with interface: lisa_audio
+DBG:bt_stack_init,state:0
+DBG:a2dp_init, init_type:1
+DBG:bt_stack_init,state:1
+DBG:bt reset cmp: 20:23:03:64:74:57
+DBG:ble enable cmp, sta:0
+DBG:bt classic enable cmp, status:0
+DBG:a2dp en, role:1
+DBG:hfp en, role:0,feats:0x31
+INF:a2dp enable cmp!
+DBG:hfp enable cmp,status:0x0
 ```
 
+### 2. 打开扫描并连接手机
+
+串口执行：
+
+```bash
+bt_scan 3
+```
+
+随后可以看到协议栈打开经典蓝牙扫描并接受手机连接：
+
+```text
+DBG:classic scan en:3
+DBG:BT classic connected
+DBG:classic scan en:0
+DBG:hfp connect cmp,conidx:6, type:1, status:0x0
+INF:avrcp connect cmp!,conidx:0x6, status:0x0
+INF:a2dp connect cmp! conidx=6, status=0x0
+```
+
+### 3. 手机播放音乐
+
+当手机侧开始播放音乐后，A2DP Start 会触发播放会话创建和音频输出：
+
+```text
+INF:a2dp start! codec:0, ch:2, sample_rate:44100
+I/BT_AUDIO_ADAPTER AUD_OS_START_EVT: type=16, ch=2, sample=44100
+I/BT_SINK          BT audio stream starting: type=16, ch=2, sample=44100
+I/BT_AUDIO_SESSION Session created: direction=0, codec=2, passthrough=0
+I/BT_AUDIO_SESSION Codec initialized: type=2, name=SBC, duration=2902 us, frame_size=77 bytes
+I/LISA_AUDIO_INTERFACE Opening playback: 44100 Hz, 2 ch, 16 bits
+I/BT_SINK          Playback session and interface opened successfully
+I/BT_AUDIO_SESSION PCM prefilled, start playback
+```
+
+### 4. 停止播放
+
+手机暂停或停止播放后，会话关闭：
+
+```text
+INF:a2dp stop!, conidx:6, sta:0x0
+I/BT_AUDIO_ADAPTER AUD_OS_STOP_EVT: conidx=6, status=0x0
+I/BT_SINK          BT audio stream stopping: conidx=6, status=0x0
+I/BT_AUDIO_SESSION Session destroyed
+```
 
 ## 使用方法
 
 ### 1. 启动设备
 
-设备启动后会自动初始化蓝牙，并进入可发现和可连接状态。
+设备上电后会自动完成 Shell、蓝牙协议栈、BT Audio Framework 和 BT Sink 初始化。
 
-控制台输出示例：
-```
-=== Bluetooth Audio Sink Sample ===
-Initializing system components...
-Bluetooth audio framework initialized (Sink mode)
-Virtual soundcard interface registered
-Bluetooth initialized successfully
-Device name: ARCS_BT_SINK
-Waiting for connection from audio source...
-Use 'bt_audio_start' command to start audio receiving
-```
+### 2. 打开经典蓝牙扫描
 
-### 2. 连接蓝牙设备
-
-使用您的手机或其他蓝牙设备搜索并连接到 **"ARCS_BT_SINK"**。
-
-### 3. 启动音频接收
-
-连接成功后，在串口控制台输入以下命令启动音频接收：
+在串口控制台输入：
 
 ```bash
-bt_audio_start
+bt_scan 3
 ```
 
-输出示例：
-```
-Mode: Decode SBC to PCM
-Virtual interface opened successfully
-Waiting for audio data from remote device...
-BT audio sink started successfully
-Audio format: sample_rate=48000, channels=2, bits=16
-```
+参数说明：
+- `0`：关闭扫描
+- `1`：打开 inquiry scan
+- `2`：打开 page scan
+- `3`：同时打开 inquiry scan 和 page scan
 
-现在您可以在手机上播放音乐，设备将接收并解码音频数据。
+通常建议使用 `bt_scan 3`，这样手机既能搜索到设备，也能主动连接设备。
 
-### 4. 查看状态
+### 3. 手机连接设备
+
+在手机蓝牙设置中搜索并连接目标设备。连接建立后，示例会自动完成 HFP、AVRCP 和 A2DP 相关链路。
+
+### 4. 手机开始播放音乐
+
+连接成功后，不需要额外执行 `bt_audio_start` 之类命令。手机侧开始播放音乐时，设备会自动收到 A2DP Start 事件并开始解码播放。
+
+### 5. 关闭扫描
+
+如需关闭扫描，可执行：
 
 ```bash
-bt_audio_status
-```
-
-输出示例：
-```
-=== Bluetooth Audio Sink Status ===
-Audio receiving: ENABLED
-====================================
-```
-
-### 5. 停止音频接收
-
-```bash
-bt_audio_stop
+bt_scan 0
 ```
 
 ## 配置选项
@@ -129,182 +156,59 @@ bt_audio_stop
 
 | 配置项 | 说明 | 默认值 |
 |--------|------|--------|
-| `CONFIG_BT_CLASSIC_ROLE_SINK` | 启用 Sink 模式 | y |
-| `CONFIG_LISA_BLUETOOTH_CLASSIC_A2DP_SINK` | 启用 A2DP Sink | y |
-| `CONFIG_LISA_BLUETOOTH_CLASSIC_HFP_HF` | 启用 HFP HF（可选） | y |
-| `CONFIG_BT_AUDIO_CODEC_SBC` | SBC 编解码器 | y |
-| `CONFIG_LISA_BLUETOOTH_DEVICE_NAME` | 蓝牙设备名称 | "ARCS_BT_SINK" |
-| `CONFIG_LISA_AUDIO_DEVICE` | 音频设备支持 | y |
-
-### 关键差异：Source vs Sink
-
-| 特性 | A2DP Source | A2DP Sink |
-|------|-------------|-----------|
-| 角色 | 音频发送端 | 音频接收端 |
-| 典型设备 | 手机、电脑 | 蓝牙耳机、音箱 |
-| 数据流向 | 发送音频 → 远程设备 | 接收音频 ← 远程设备 |
-| Interface 类型 | `VINTF_PROFILE_PLAYBACK` | `VINTF_PROFILE_CAPTURE` |
-| 编解码方向 | PCM → SBC | SBC → PCM |
-| 配置宏 | `CONFIG_BT_CLASSIC_ROLE_SOURCE` | `CONFIG_BT_CLASSIC_ROLE_SINK` |
+| `CONFIG_BT_CLASSIC_ROLE_SINK` | 启用 Sink 模式 | `y` |
+| `CONFIG_LISA_BLUETOOTH_CLASSIC_A2DP_SINK` | 启用 A2DP Sink | `y` |
+| `CONFIG_LISA_BLUETOOTH_CLASSIC_HFP_HF` | 启用 HFP HF | `y` |
+| `CONFIG_BT_AUDIO_CODEC_SBC` | 启用 SBC 编解码器 | `y` |
+| `CONFIG_LISA_AUDIO_DEVICE` | 启用音频设备输出 | `y` |
 
 ## 代码架构
 
 ### 数据流程
 
-```
-远程设备（手机）
+```text
+Shell 命令 bt_scan 3
     ↓
-蓝牙栈接收 A2DP 数据
+经典蓝牙扫描打开
     ↓
-适配器接收
+手机建立 BR/EDR 连接
     ↓
-会话解码 (SBC → PCM)
+HFP / AVRCP / A2DP 建链
     ↓
-虚拟接口处理 (bt_audio_interface_virtual)
+A2DP Start 指示
     ↓
-音频数据回调 (audio_data_callback)
+BT Audio Session 创建
     ↓
-音频播放设备 (DAC/I2S)
+SBC 解码为 PCM
+    ↓
+lisa_audio 播放输出
 ```
 
-### 关键函数
+### 关键点
 
-#### 1. 音频数据回调
+- `main()`：完成 Shell、蓝牙、BT Audio Framework 和 BT Sink 初始化。
+- `cmd_bt_scan()`：解析 `0..3` 参数并调用 `lisa_bt_scan()`。
+- `SHELL_EXPORT_PASSTROUGH(AT, ...)`：提供 AT 透传入口，便于直接调试底层蓝牙 AT 指令。
 
-```c
-static void audio_data_callback(const uint8_t *data, size_t len, void *user_data)
-```
+## Shell 命令
 
-当从蓝牙接收并解码音频数据后，该回调函数会被调用。接收到的是 PCM 数据，可以直接发送到音频播放设备。
-
-#### 2. 打开完成回调
-
-```c
-static void open_complete_handler(const bt_audio_format_t format)
-```
-
-当虚拟接口打开完成时被调用，可以获取音频格式信息（采样率、声道数等）。
-
-#### 3. Shell 命令
-
-- `bt_inquiry`: 扫描周围的蓝牙设备
-- `bt_connect <device_name>`: 连接到指定设备
-- `bt_audio_start`: 启动音频接收
-- `bt_audio_stop`: 停止音频接收
-- `bt_audio_status`: 显示当前状态
-
-## 扩展开发
-
-### 1. 添加音频播放支持
-
-在 `audio_data_callback` 中添加音频播放代码：
-
-```c
-static void audio_data_callback(const uint8_t *data, size_t len, void *user_data)
-{
-    // 将 PCM 数据发送到音频设备
-    lisa_audio_play_write(data, len);
-}
-```
-
-### 2. 音频处理
-
-在播放前对音频数据进行处理：
-
-```c
-static void audio_data_callback(const uint8_t *data, size_t len, void *user_data)
-{
-    // 音量调节
-    adjust_volume((int16_t*)data, len / 2, volume_level);
-    
-    // 音效处理
-    apply_equalizer((int16_t*)data, len / 2);
-    
-    // 播放
-    lisa_audio_play_write(data, len);
-}
-```
-
-### 3. 保存接收的音频
-
-将接收到的音频保存到文件：
-
-```c
-static FILE *audio_file = NULL;
-
-static void audio_data_callback(const uint8_t *data, size_t len, void *user_data)
-{
-    if (audio_file) {
-        fwrite(data, 1, len, audio_file);
-    }
-    
-    // 同时播放
-    lisa_audio_play_write(data, len);
-}
-```
-
-### 4. 支持多种音频格式
-
-示例默认支持 SBC 编解码，可以通过配置添加更多格式：
-
-- **AAC**: 更高的音质
-- **LC3**: 低延迟编解码
-- **AptX/AptX HD**: 高质量编解码（需要授权）
+- `bt_scan <0|1|2|3>`：设置经典蓝牙扫描模式。
+- `AT`：进入 AT 透传模式，或直接执行单行 AT 指令。
 
 ## 故障排除
 
-### 1. 无法连接
+### 1. 手机搜索不到设备
 
-- 确认设备名称配置正确
-- 检查蓝牙是否已初始化
-- 查看是否有配对信息冲突
+- 确认已经执行 `bt_scan 3`
+- 检查日志中是否出现 `DBG:classic scan en:3`
+- 确认手机蓝牙已打开，且开发板没有被其他设备占用
 
-### 2. 没有音频输出
+### 2. 已连接但没有声音
 
-- 检查 `audio_data_callback` 是否被调用
-- 确认音频播放设备已正确初始化
-- 检查音频格式是否匹配
+- 确认手机侧已经开始实际播放音乐
+- 检查日志中是否出现 `INF:a2dp start!` 和 `Playback session and interface opened successfully`
+- 确认音频播放外设连接正常
 
-### 3. 音频断续
+### 3. 日志出现 `Unsupported sample rate: 44100`
 
-- 增加音频缓冲区大小
-- 检查系统负载
-- 优化任务优先级
-
-## 性能优化
-
-### 1. 降低延迟
-
-- 使用低延迟编解码器（LC3）
-- 减小音频缓冲区
-- 提高音频任务优先级
-
-### 2. 提高音质
-
-- 使用高质量编解码器（AAC、AptX）
-- 增加编码比特率
-- 减少音频处理环节
-
-### 3. 降低功耗
-
-- 在空闲时关闭音频接收
-- 使用低功耗蓝牙编解码器
-- 优化音频处理算法
-
-## 相关示例
-
-- **a2dp_source**: A2DP Source 音频发送示例
-- **hfp_hf**: HFP Hands-Free 语音通话示例
-- **audio_player**: 音频播放器示例
-
-## 参考文档
-
-- [ARCS SDK 蓝牙音频框架文档](../../docs/bluetooth/audio_framework.md)
-- [A2DP 协议规范](https://www.bluetooth.com/specifications/specs/a2dp/)
-- [蓝牙音频编解码器对比](../../docs/bluetooth/codecs.md)
-
-## 许可证
-
-Copyright (c) 2025, LISTENAI
-
-SPDX-License-Identifier: Apache-2.0
+从当前日志看，手机以 `44100 Hz` 发流，而本地播放设备最终按 `48000 Hz` 配置输出。该警告不一定导致播放失败，但如果后续出现音质或速率异常，需要继续检查底层音频设备配置。

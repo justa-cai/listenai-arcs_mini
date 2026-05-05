@@ -87,7 +87,7 @@ typedef struct {
     play_state_t state;
     EventGroupHandle_t event;
 
-#ifdef CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
     /* Echo feature fields */
     void **echo_fifo;
     int echo_xpos;

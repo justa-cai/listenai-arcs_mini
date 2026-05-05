@@ -69,6 +69,7 @@ int main(int argc, char **argv)
 
     lisa_display_config_t display_config = {
         .bus_type = LISA_DISPLAY_BUS_SPI_4WIRE,
+        .panel_name = "st7789p3",
         .bus_config = {.spi_4wire =
                            {
 #ifdef CONFIG_BOARD_ARCS_MINI

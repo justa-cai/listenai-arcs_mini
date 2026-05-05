@@ -335,7 +335,7 @@ BaseType_t xPortStartScheduler(void)
     configASSERT(configMAX_SYSCALL_INTERRUPT_PRIORITY);
 
     /* Get the real MTH should be set to ECLIC MTH register */
-    uxMaxSysCallMTH = prvCalcMaxSysCallMTH(configMAX_SYSCALL_INTERRUPT_PRIORITY);
+    uxMaxSysCallMTH = prvCalcMaxSysCallMTH(configMAX_SYSCALL_INTERRUPT_PRIORITY - 1);
     FREERTOS_PORT_DEBUG("Max SysCall MTH is set to 0x%x\n", uxMaxSysCallMTH);
 
 #if( configASSERT_DEFINED == 1 )

@@ -11,18 +11,19 @@
  */
 #include <stdbool.h>
 #include "atcmd.h"
+#include "atcmd_hash.h"
 #include "log_print.h"
 #include "lwiperf.h"
-#include "lwip/inet.h"
+// #include "inet.h"
 #include "net_ip.h"
 #include "ls_wifi_type.h"
 
 extern void lwiperf_start_tcp_server_default_task(void *arg);
 extern void lwiperf_start_tcp_client_task(void *arg);
 
-int atcmd_lwiperf_start_tcp_server_default(int type, void *arg)
+int atcmd_lwiperf_start_tcp_server_default(int type, char *arg)
 {
-	if(xTaskCreate(lwiperf_start_tcp_server_default_task, ((const char*)"lwiperf_server"), DEFAULT_THREAD_STACKSIZE, arg, DEFAULT_THREAD_PRIO, NULL) != pdPASS)
+	if(xTaskCreate(lwiperf_start_tcp_server_default_task, ((const char*)"lwiperf_server"), DEFAULT_THREAD_STACKSIZE, (void *)arg, DEFAULT_THREAD_PRIO, NULL) != pdPASS)
 	{	
 		CLOGE("ERROR: Create lwiperf tcp server task failed.\r\n");
 		return -1;
@@ -83,10 +84,10 @@ err_exit:
 	return;
 } 
 
-int atcmd_lwiperf_start_tcp_client(int type, void *arg)
+int atcmd_lwiperf_start_tcp_client(int type, char *arg)
 {
 	
-	if(xTaskCreate(lwiperf_start_tcp_client_task, ((const char*)"lwiperf_client"), DEFAULT_THREAD_STACKSIZE, arg, DEFAULT_THREAD_PRIO, NULL) != pdPASS)
+	if(xTaskCreate(lwiperf_start_tcp_client_task, ((const char*)"lwiperf_client"), DEFAULT_THREAD_STACKSIZE, (void *)arg, DEFAULT_THREAD_PRIO, NULL) != pdPASS)
 	{	
 		CLOGE("ERROR: Create lwiperf tcp client task failed.\r\n");
 		return -1;
@@ -96,13 +97,13 @@ int atcmd_lwiperf_start_tcp_client(int type, void *arg)
 
 void lwiperf_start_tcp_client_task(void *arg)
 {
-	char *cur;
+    char *cur;
     char *next = arg;
     int8_t token_idx = -1;
 
-	int error_no = 0;
-	uint16_t remote_port;
-	ip_addr_t addr;
+    int error_no = 0;
+    uint16_t remote_port = 0;
+    ip_addr_t addr;
     uint32_t amount = 10;
 	if(arg) {
 		do
@@ -176,8 +177,8 @@ err_exit:
 
 const atcmd_item_t atcmd_iperf_table[] =
 {
-   {atcmd_lwiperf_start_tcp_client, "AT+IPERFCLI", "iperf client\r\n"},
-   {atcmd_lwiperf_start_tcp_server_default, "AT+IPERFSER", "iperf server\r\n"},
+   {{atcmd_lwiperf_start_tcp_client, "AT+IPERFCLI", "iperf client\r\n"}, },
+   {{atcmd_lwiperf_start_tcp_server_default, "AT+IPERFSER", "iperf server\r\n"}, },
 };
 
 void atcmd_iperf_register(void)

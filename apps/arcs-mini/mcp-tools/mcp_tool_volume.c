@@ -3,17 +3,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#define TAG "mcp_tool_volume"
+
 #include "cJSON.h"
 #include "lisa_log.h"
 #include "mcp.h"
 #include "service_volume.h"
 
-#define TAG "mcp_tool_volume"
+static int volume_parse_adjust_step(const char *value, const char *unit)
+{
+    int step = 10;
+
+    if (value && value[0] != '\0') {
+        int parsed = atoi(value);
+        if (parsed > 0) {
+            if (unit && strcmp(unit, "百分比") == 0) {
+                step = parsed;
+            } else {
+                step = parsed * 10;
+            }
+        }
+    }
+
+    return step;
+}
 
 static cJSON *volume_control_list(const char *name)
 {
     cJSON *tool = mcp_tool_list_info_create_default(name,
-        "音量控制与调节工具。当用户发出调节音量、控制声音大小的指令时调用。支持绝对值设置（如：调到50%）、相对值调节（如：大声点、调小2档）以及极值控制（如：静音、最大声）。");
+        "音量控制与调节工具。当用户发出调节音量、控制声音大小的指令时调用。支持绝对值设置（如：调到50%%）、相对值调节（如：大声点、小声点、调小2档）以及极值控制（如：静音、最大声、最小声）。");
     if (!tool) {
         return NULL;
     }
@@ -35,7 +53,7 @@ static cJSON *volume_control_list(const char *name)
 
     cJSON *unit_property = cJSON_CreateObject();
     cJSON_AddStringToObject(unit_property, "type", "string");
-    cJSON_AddStringToObject(unit_property, "description", "描述数值的单位。若指令中提及'档'、'级'、'%'则对应填写，否则留空。");
+    cJSON_AddStringToObject(unit_property, "description", "描述数值的单位。若指令中提及'档'、'级'、'%%'则对应填写，否则留空。");
     cJSON *unit_enum = cJSON_CreateArray();
     cJSON_AddItemToArray(unit_enum, cJSON_CreateString("档"));
     cJSON_AddItemToArray(unit_enum, cJSON_CreateString("级"));
@@ -80,19 +98,9 @@ static cJSON *volume_control_call(const char *id, const char *name, cJSON *args)
             }
         }
     } else if (strcmp(intent, "adjustUp") == 0) {
-        int adjust_step = 10;
-        if (value) {
-            // adjust_step = atoi(value);
-            if (adjust_step <= 0) adjust_step = 10;
-        }
-        service_volume_adjust(adjust_step * atoi(value));
+        service_volume_adjust(volume_parse_adjust_step(value, unit));
     } else if (strcmp(intent, "adjustDown") == 0) {
-        int adjust_step = 10;
-        if (value) {
-            // adjust_step = atoi(value);
-            if (adjust_step <= 0) adjust_step = 10;
-        }
-        service_volume_adjust(-adjust_step * atoi(value));
+        service_volume_adjust(-volume_parse_adjust_step(value, unit));
     }
 
     cJSON *result = mcp_tool_call_result_create(name);

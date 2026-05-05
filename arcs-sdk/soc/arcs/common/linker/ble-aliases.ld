@@ -1,1 +1,3 @@
+#if defined(CONFIG_MEM_BTRAM_BASE) && defined(CONFIG_MEM_BTRAM_SIZE)
 REGION_ALIAS("RAM_BT", BTRAM)
+#endif

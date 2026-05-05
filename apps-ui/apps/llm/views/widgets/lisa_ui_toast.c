@@ -3,6 +3,8 @@
 #include "lisa_ui_assets.h"
 #include "lisa_ui_fonts.h"
 
+#define LISA_UI_TOAST_DURATION_MS_DEFAULT 2000U
+
 static lv_obj_t *toast_obj = NULL;
 static lv_timer_t *toast_timer = NULL;
 
@@ -18,8 +20,12 @@ static void toast_hide_cb(lv_timer_t *timer)
     }
 }
 
-void lisa_ui_toast_show(const char *txt)
+void lisa_ui_toast_show_duration(const char *txt, uint32_t duration_ms)
 {
+    if (duration_ms == 0) {
+        duration_ms = 1;
+    }
+
     if (toast_obj) {
         toast_hide_cb(NULL);
     }
@@ -44,5 +50,10 @@ void lisa_ui_toast_show(const char *txt)
 
     lv_obj_align(toast_obj, LV_ALIGN_CENTER, 0, 0);
 
-    toast_timer = lv_timer_create(toast_hide_cb, 2000, NULL);
+    toast_timer = lv_timer_create(toast_hide_cb, duration_ms, NULL);
+}
+
+void lisa_ui_toast_show(const char *txt)
+{
+    lisa_ui_toast_show_duration(txt, LISA_UI_TOAST_DURATION_MS_DEFAULT);
 }

@@ -12,7 +12,9 @@
 #ifndef _AMP_SHARED_H_
 #define _AMP_SHARED_H_
 
-
+#if defined(CONFIG_PM) && (CONFIG_PM == 1)
+#include "pm.h"
+#endif
 
 /*
  * Halt the other core
@@ -23,16 +25,13 @@
 
 #define IPC_APP_STATUS_VRTC_ALERT                0x00000004
 
-enum {
-    IPC_CORE_STATE_ACTIVE,
-    IPC_CORE_STATE_SLEEP,
-    IPC_CORE_STATE_WAKEUP,
-    IPC_CORE_STATE_MAX
-};
+#if defined(CFG_AMP_IPC)
+#define CONFIG_CORE_NUM      2
+#else
+#define CONFIG_CORE_NUM      1
+#endif
 
-
-struct vrtc_reg_info
-{
+struct vrtc_reg_info {
     uint32_t sec;
     uint32_t usec;
     uint32_t freq;
@@ -41,28 +40,26 @@ struct vrtc_reg_info
     uint32_t timeout_req;
 };
 
-struct pm_master_state
-{
-    uint32_t state;
-    uint64_t sleep_time;
-    uint64_t wakeup_time;
+#if defined(CONFIG_PM) && (CONFIG_PM == 1)
+struct pm_core_context {
+    volatile int32_t state;
+    volatile uint32_t cross_core_lock;
 };
+struct pm_shared_data {
+    struct pm_core_context core_ctx[CONFIG_CORE_NUM];
 
-struct pm_slave_state
-{
-    uint32_t state;
+    volatile uint32_t last_wakeup_cause;
+    pm_config_t config;
+    pm_sleep_config_t sleep_cfg;
 };
-
-struct amp_shared_info
-{
+#endif
+struct amp_shared_info {
     volatile uint32_t app_status;
-    volatile struct vrtc_reg_info vtc_reg;
-    volatile struct pm_master_state master_state;
-    volatile struct pm_slave_state slave_state;
-    volatile uint32_t wakeup_cause;
+    volatile struct vrtc_reg_info vrtc_reg;
+#if defined(CONFIG_PM) && (CONFIG_PM == 1)
+    struct pm_shared_data pm_data;
+#endif
 };
-
-
 
 
 

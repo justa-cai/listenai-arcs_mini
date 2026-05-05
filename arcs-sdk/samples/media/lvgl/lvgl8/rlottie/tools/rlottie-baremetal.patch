@@ -1,0 +1,497 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index bd2e432..fed752a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -31,10 +31,16 @@ add_library(rlottie::rlottie ALIAS rlottie)
+ option(LOTTIE_MODULE "Enable LOTTIE MODULE SUPPORT" ON)
+ option(LOTTIE_THREAD "Enable LOTTIE THREAD SUPPORT" ON)
+ option(LOTTIE_CACHE "Enable LOTTIE CACHE SUPPORT" ON)
++option(LOTTIE_DOTLOTTIE "Enable .lottie zip SUPPORT" ON)
+ option(LOTTIE_TEST "Build LOTTIE AUTOTESTS" OFF)
++option(LOTTIE_DEMO "Build LOTTIE demo binaries" ON)
+ option(LOTTIE_CCACHE "Enable LOTTIE ccache SUPPORT" OFF)
+ option(LOTTIE_ASAN "Compile with asan" OFF)
+ 
++if (LOTTIE_DOTLOTTIE)
++    target_compile_definitions(rlottie PRIVATE LOTTIE_DOTLOTTIE_SUPPORT)
++endif()
++
+ set(LOTTIE_MODULE_PATH "${CMAKE_SHARED_LIBRARY_PREFIX}rlottie-image-loader${CMAKE_SHARED_LIBRARY_SUFFIX}"
+     CACHE STRING "Absolute or relative path to dynamic loader plugin.")
+ 
+@@ -80,18 +86,22 @@ if (WIN32 AND NOT BUILD_SHARED_LIBS)
+ endif()
+ 
+ #declare dependancy
+-set( CMAKE_THREAD_PREFER_PTHREAD TRUE )
+-find_package( Threads )
++if (LOTTIE_THREAD)
++    set( CMAKE_THREAD_PREFER_PTHREAD TRUE )
++    find_package( Threads )
++endif()
+ 
+ if(WIN32)
+    set( OSSPEC_LIBS Shlwapi.lib )
+ endif()
+ 
+-target_link_libraries(rlottie
+-                    PUBLIC
+-                        "${CMAKE_THREAD_LIBS_INIT}"
+-                        ${OSSPEC_LIBS}
+-                     )
++if (LOTTIE_THREAD)
++    target_link_libraries(rlottie PUBLIC "${CMAKE_THREAD_LIBS_INIT}")
++endif()
++
++if (OSSPEC_LIBS)
++    target_link_libraries(rlottie PUBLIC ${OSSPEC_LIBS})
++endif()
+ 
+ if (NOT APPLE AND NOT WIN32)
+     target_link_libraries(rlottie
+@@ -142,7 +152,9 @@ endif (NOT LIB_INSTALL_DIR)
+ #declare source and include files
+ add_subdirectory(inc)
+ add_subdirectory(src)
+-add_subdirectory(example)
++if (LOTTIE_DEMO)
++    add_subdirectory(example)
++endif()
+ 
+ if (LOTTIE_TEST)
+     enable_testing()
+diff --git a/inc/rlottie.h b/inc/rlottie.h
+index ec50d2d..fb969b8 100644
+--- a/inc/rlottie.h
++++ b/inc/rlottie.h
+@@ -23,9 +23,14 @@
+ #ifndef _RLOTTIE_H_
+ #define _RLOTTIE_H_
+ 
+-#include <future>
+ #include <vector>
+ #include <memory>
++#include <string>
++#include <functional>
++
++#ifdef LOTTIE_THREAD_SUPPORT
++#include <future>
++#endif
+ 
+ #if defined _WIN32 || defined __CYGWIN__
+   #ifdef RLOTTIE_BUILD
+@@ -409,7 +414,9 @@ public:
+      *  @see Surface
+      *  @internal
+      */
++#ifdef LOTTIE_THREAD_SUPPORT
+     std::future<Surface> render(size_t frameNo, Surface surface, bool keepAspectRatio=true);
++#endif
+ 
+     /**
+      *  @brief Renders the content to surface synchronously.
+diff --git a/src/binding/c/lottieanimation_capi.cpp b/src/binding/c/lottieanimation_capi.cpp
+index e93b055..d0aeecd 100644
+--- a/src/binding/c/lottieanimation_capi.cpp
++++ b/src/binding/c/lottieanimation_capi.cpp
+@@ -31,12 +31,25 @@ extern void lottie_shutdown_impl();
+ 
+ extern "C" {
+ #include <string.h>
++#include <stdlib.h>
+ #include <stdarg.h>
+ 
++static char *lottie_capi_strdup(const char *src)
++{
++    if (!src) return nullptr;
++
++    size_t len = strlen(src) + 1;
++    char *dst = static_cast<char *>(malloc(len));
++    if (dst) memcpy(dst, src, len);
++    return dst;
++}
++
+ struct Lottie_Animation_S
+ {
+     std::unique_ptr<Animation>      mAnimation;
++#ifdef LOTTIE_THREAD_SUPPORT
+     std::future<Surface>            mRenderTask;
++#endif
+     uint32_t                       *mBufferRef;
+     LOTMarkerList                  *mMarkerList;
+ };
+@@ -102,9 +115,11 @@ RLOTTIE_API void lottie_animation_destroy(Lottie_Animation_S *animation)
+             delete animation->mMarkerList;
+         }
+ 
++#ifdef LOTTIE_THREAD_SUPPORT
+         if (animation->mRenderTask.valid()) {
+             animation->mRenderTask.get();
+         }
++#endif
+         animation->mAnimation = nullptr;
+         delete animation;
+     }
+@@ -179,7 +194,11 @@ lottie_animation_render_async(Lottie_Animation_S *animation,
+     if (!animation) return;
+ 
+     rlottie::Surface surface(buffer, width, height, bytes_per_line);
++#ifdef LOTTIE_THREAD_SUPPORT
+     animation->mRenderTask = animation->mAnimation->render(frame_number, surface);
++#else
++    animation->mAnimation->renderSync(frame_number, surface);
++#endif
+     animation->mBufferRef = buffer;
+ }
+ 
+@@ -188,9 +207,11 @@ lottie_animation_render_flush(Lottie_Animation_S *animation)
+ {
+     if (!animation) return nullptr;
+ 
++#ifdef LOTTIE_THREAD_SUPPORT
+     if (animation->mRenderTask.valid()) {
+         animation->mRenderTask.get();
+     }
++#endif
+ 
+     return animation->mBufferRef;
+ }
+@@ -314,7 +335,7 @@ lottie_animation_get_markerlist(Lottie_Animation_S *animation)
+    animation->mMarkerList->ptr = new LOTMarker[markers.size()]();
+ 
+    for(size_t i = 0; i < markers.size(); i++) {
+-       animation->mMarkerList->ptr[i].name = strdup(std::get<0>(markers[i]).c_str());
++       animation->mMarkerList->ptr[i].name = lottie_capi_strdup(std::get<0>(markers[i]).c_str());
+        animation->mMarkerList->ptr[i].startframe= std::get<1>(markers[i]);
+        animation->mMarkerList->ptr[i].endframe= std::get<2>(markers[i]);
+    }
+diff --git a/src/lottie/CMakeLists.txt b/src/lottie/CMakeLists.txt
+index a5895b0..8b7b38f 100644
+--- a/src/lottie/CMakeLists.txt
++++ b/src/lottie/CMakeLists.txt
+@@ -1,4 +1,6 @@
+-add_subdirectory(zip)
++if (LOTTIE_DOTLOTTIE)
++    add_subdirectory(zip)
++endif()
+ 
+ target_sources(rlottie
+     PRIVATE
+diff --git a/src/lottie/lottieanimation.cpp b/src/lottie/lottieanimation.cpp
+index afcc400..74a9f75 100644
+--- a/src/lottie/lottieanimation.cpp
++++ b/src/lottie/lottieanimation.cpp
+@@ -34,6 +34,7 @@ RLOTTIE_API void rlottie::configureModelCacheSize(size_t cacheSize)
+     internal::model::configureModelCacheSize(cacheSize);
+ }
+ 
++#ifdef LOTTIE_THREAD_SUPPORT
+ struct RenderTask {
+     RenderTask() { receiver = sender.get_future(); }
+     std::promise<Surface> sender;
+@@ -44,6 +45,7 @@ struct RenderTask {
+     bool                  keepAspectRatio{true};
+ };
+ using SharedRenderTask = std::shared_ptr<RenderTask>;
++#endif
+ 
+ class AnimationImpl {
+ public:
+@@ -56,8 +58,10 @@ public:
+     size_t  frameAtPos(double pos) const { return mModel->frameAtPos(pos); }
+     Surface render(size_t frameNo, const Surface &surface,
+                    bool keepAspectRatio);
++#ifdef LOTTIE_THREAD_SUPPORT
+     std::future<Surface> renderAsync(size_t frameNo, Surface &&surface,
+                                      bool keepAspectRatio);
++#endif
+     const LOTLayerNode * renderTree(size_t frameNo, const VSize &size);
+ 
+     const LayerInfoList &layerInfoList() const
+@@ -74,7 +78,9 @@ public:
+ private:
+     mutable LayerInfoList                  mLayerList;
+     model::Composition *                   mModel;
++#ifdef LOTTIE_THREAD_SUPPORT
+     SharedRenderTask                       mTask;
++#endif
+     std::atomic<bool>                      mRenderInProgress;
+     std::unique_ptr<renderer::Composition> mRenderer{nullptr};
+ };
+@@ -220,30 +226,9 @@ public:
+     }
+ };
+ 
+-#else
+-class RenderTaskScheduler {
+-public:
+-    static bool IsRunning;
+-
+-    static RenderTaskScheduler &instance()
+-    {
+-        static RenderTaskScheduler singleton;
+-        return singleton;
+-    }
+-
+-    void stop() {}
+-
+-    std::future<Surface> process(SharedRenderTask task)
+-    {
+-        auto result = task->playerImpl->render(task->frameNo, task->surface,
+-                                               task->keepAspectRatio);
+-        task->sender.set_value(result);
+-        return std::move(task->receiver);
+-    }
+-};
+-
+ #endif
+ 
++#ifdef LOTTIE_THREAD_SUPPORT
+ bool RenderTaskScheduler::IsRunning{false};
+ 
+ std::future<Surface> AnimationImpl::renderAsync(size_t    frameNo,
+@@ -263,6 +248,7 @@ std::future<Surface> AnimationImpl::renderAsync(size_t    frameNo,
+ 
+     return RenderTaskScheduler::instance().process(mTask);
+ }
++#endif
+ 
+ /**
+  * \breif Brief abput the Api.
+@@ -359,11 +345,13 @@ const LOTLayerNode *Animation::renderTree(size_t frameNo, size_t width,
+     return d->renderTree(frameNo, VSize(int(width), int(height)));
+ }
+ 
++#ifdef LOTTIE_THREAD_SUPPORT
+ std::future<Surface> Animation::render(size_t frameNo, Surface surface,
+                                        bool keepAspectRatio)
+ {
+     return d->renderAsync(frameNo, std::move(surface), keepAspectRatio);
+ }
++#endif
+ 
+ void Animation::renderSync(size_t frameNo, Surface surface,
+                            bool keepAspectRatio)
+@@ -460,9 +448,11 @@ void Surface::setDrawRegion(size_t x, size_t y, size_t width, size_t height)
+ namespace {
+ void lottieShutdownRenderTaskScheduler()
+ {
++#ifdef LOTTIE_THREAD_SUPPORT
+     if (RenderTaskScheduler::IsRunning) {
+         RenderTaskScheduler::instance().stop();
+     }
++#endif
+ }
+ }  // namespace
+ 
+diff --git a/src/lottie/lottiemodel.h b/src/lottie/lottiemodel.h
+index c51cc4a..4c8d581 100644
+--- a/src/lottie/lottiemodel.h
++++ b/src/lottie/lottiemodel.h
+@@ -25,6 +25,7 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <cstdlib>
+ #include <cstring>
+ #include <functional>
+ #include <memory>
+@@ -483,7 +484,8 @@ public:
+                 strncpy(mData._buffer, name, len + 1);
+             } else {
+                 setShortString(false);
+-                mPtr = strdup(name);
++                mPtr = static_cast<char *>(malloc(len + 1));
++                if (mPtr) memcpy(mPtr, name, len + 1);
+             }
+         }
+     }
+diff --git a/src/lottie/lottieparser.cpp b/src/lottie/lottieparser.cpp
+index f54c358..69fc4ec 100644
+--- a/src/lottie/lottieparser.cpp
++++ b/src/lottie/lottieparser.cpp
+@@ -57,7 +57,9 @@
+ 
+ #include "lottiemodel.h"
+ #include "rapidjson/document.h"
++#ifdef LOTTIE_DOTLOTTIE_SUPPORT
+ #include "zip/zip.h"
++#endif
+ 
+ RAPIDJSON_DIAG_PUSH
+ #ifdef __GNUC__
+@@ -856,7 +858,14 @@ namespace
+ 
+        return false;
+ #else
++#if defined(__unix__) || defined(__APPLE__)
+        return realpath(path, resolved_path);
++#else
++       auto len = strlen(path);
++       if (len >= PATH_MAX) return false;
++       memcpy(resolved_path, path, len + 1);
++       return true;
++#endif
+ #endif
+    }
+ }
+@@ -2476,6 +2485,7 @@ public:
+ 
+ #endif
+ 
++#ifdef LOTTIE_DOTLOTTIE_SUPPORT
+ static char* uncompressZip(const char * str, size_t length)
+ {
+     auto zip = zip_stream_open(str, length, 0, 'r');
+@@ -2520,6 +2530,7 @@ static bool checkDotLottie(const char * str)
+     if (str[0] == 0x50 && str[1] == 0x4B && str[2] == 0x03 && str[3] == 0x04) return true;
+     else return false;
+ }
++#endif
+ 
+ std::shared_ptr<model::Composition> parseImpl(char* input,
+                                               std::string dir_path,
+@@ -2554,7 +2565,8 @@ std::shared_ptr<model::Composition> model::parse(char *             str,
+ {
+     auto input = str;
+ 
+-    auto dotLottie = checkDotLottie(str);
++#ifdef LOTTIE_DOTLOTTIE_SUPPORT
++    bool dotLottie = checkDotLottie(str);
+     if (dotLottie) {
+         input = uncompressZip(str, length);
+         if (!input) {
+@@ -2562,6 +2574,10 @@ std::shared_ptr<model::Composition> model::parse(char *             str,
+             return {};
+         }
+     }
++#else
++    (void)length;
++    bool dotLottie = false;
++#endif
+ 
+     auto result = parseImpl(input, std::move(dir_path), std::move(filter));
+ 
+diff --git a/src/vector/vdrawhelper.cpp b/src/vector/vdrawhelper.cpp
+index 41593c8..a15301a 100644
+--- a/src/vector/vdrawhelper.cpp
++++ b/src/vector/vdrawhelper.cpp
+@@ -24,7 +24,9 @@
+ #include <algorithm>
+ #include <climits>
+ #include <cstring>
++#ifdef LOTTIE_THREAD_SUPPORT
+ #include <mutex>
++#endif
+ #include <unordered_map>
+ #include <array>
+ 
+@@ -61,7 +63,9 @@ public:
+                 VCacheKey(stops[i].second.premulARGB() * gradient.alpha());
+ 
+         {
++#ifdef LOTTIE_THREAD_SUPPORT
+             std::lock_guard<std::mutex> guard(mMutex);
++#endif
+ 
+             size_t count = mCache.count(hash_val);
+             if (!count) {
+@@ -121,7 +125,9 @@ private:
+     VGradientCache() = default;
+ 
+     VGradientColorTableHash mCache;
++#ifdef LOTTIE_THREAD_SUPPORT
+     std::mutex              mMutex;
++#endif
+ };
+ 
+ bool VGradientCache::generateGradientColorTable(const VGradientStops &stops,
+@@ -763,4 +769,3 @@ void memfill32(uint32_t *dest, uint32_t value, int length)
+     }
+ }
+ #endif
+-
+diff --git a/src/vector/vimageloader.cpp b/src/vector/vimageloader.cpp
+index c2446be..a642b7c 100644
+--- a/src/vector/vimageloader.cpp
++++ b/src/vector/vimageloader.cpp
+@@ -5,7 +5,7 @@
+ 
+ #ifdef _WIN32
+ # include <windows.h>
+-#else
++#elif defined(LOTTIE_IMAGE_MODULE_SUPPORT)
+ # include <dlfcn.h>
+ #endif  // _WIN32
+ 
+diff --git a/src/vector/vraster.cpp b/src/vector/vraster.cpp
+index 8ef7b57..e1a771d 100644
+--- a/src/vector/vraster.cpp
++++ b/src/vector/vraster.cpp
+@@ -23,6 +23,10 @@
+ #include <climits>
+ #include <cstring>
+ #include <memory>
++#ifdef LOTTIE_THREAD_SUPPORT
++#include <condition_variable>
++#include <mutex>
++#endif
+ #include "config.h"
+ #include "v_ft_raster.h"
+ #include "v_ft_stroker.h"
+@@ -272,20 +276,26 @@ public:
+     VRle &unsafe() { return _rle; }
+     void  notify()
+     {
++#ifdef LOTTIE_THREAD_SUPPORT
+         {
+             std::lock_guard<std::mutex> lock(_mutex);
+             _ready = true;
+         }
+         _cv.notify_one();
++#else
++        _ready = true;
++#endif
+     }
+     void wait()
+     {
+         if (!_pending) return;
+ 
++#ifdef LOTTIE_THREAD_SUPPORT
+         {
+             std::unique_lock<std::mutex> lock(_mutex);
+             while (!_ready) _cv.wait(lock);
+         }
++#endif
+ 
+         _pending = false;
+     }
+@@ -305,8 +315,10 @@ public:
+ 
+ private:
+     VRle                    _rle;
++#ifdef LOTTIE_THREAD_SUPPORT
+     std::mutex              _mutex;
+     std::condition_variable _cv;
++#endif
+     bool                    _ready{true};
+     bool                    _pending{false};
+ };
+@@ -380,14 +392,14 @@ struct VRleTask {
+             outRef.convert(mPath);
+             outRef.convert(mCap, mJoin, mStrokeWidth, mMiterLimit);
+ 
+-            uint32_t points, contors;
++            SW_FT_UInt points, contours;
+ 
+             SW_FT_Stroker_Set(stroker, outRef.ftWidth, outRef.ftCap,
+                               outRef.ftJoin, outRef.ftMiterLimit);
+             SW_FT_Stroker_ParseOutline(stroker, &outRef.ft);
+-            SW_FT_Stroker_GetCounts(stroker, &points, &contors);
++            SW_FT_Stroker_GetCounts(stroker, &points, &contours);
+ 
+-            outRef.grow(points, contors);
++            outRef.grow(points, contours);
+ 
+             SW_FT_Stroker_Export(stroker, &outRef.ft);
+ 

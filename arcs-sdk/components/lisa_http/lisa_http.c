@@ -33,13 +33,7 @@ lisa_http_t *lisa_http_init(lisa_http_request_t *req)
         return NULL;
     }
 
-    if (strncmp(req->url, "https", 5) == 0) {
-        strcat(http_session->url, "http");
-        strcat(http_session->url, req->url + 5);
-        LISA_NLOGI("lisa_http_init, https->http, origin:%s, new:%s", req->url, http_session->url);
-    } else {
-        strcpy(http_session->url, req->url);
-    }
+    strcpy(http_session->url, req->url);
 
     if (req->body_len > 0 && req->body == NULL) {
         LISA_NLOGE("body is null but len is %d.", req->body_len);
@@ -71,6 +65,8 @@ lisa_http_err_e lisa_http_perform(lisa_http_t *ins)
     lisa_http_data_t http_data;
     int ret = 0;
     char *buf = NULL;
+    unsigned int readsize = 0;
+    size_t buf_capacity = 0;
 
     if (ins == NULL) {
         return LISA_HTTP_COMMON_ERR;
@@ -108,50 +104,112 @@ lisa_http_err_e lisa_http_perform(lisa_http_t *ins)
     }
     if (http_client.TotalResponseBodyLength != 0) {
         UINT32 received = 0;
-        unsigned int readsize = 0;
-        buf = lisa_mem_calloc(1, http_client.TotalResponseBodyLength + 1);
+        UINT32 to_read = 0;
+        int read_ret = 0;
+
+        buf_capacity = http_client.TotalResponseBodyLength + 1;
+        buf = lisa_mem_calloc(1, buf_capacity);
+        if (buf == NULL) {
+            LISA_NLOGE("malloc response buffer error");
+            ret = -1;
+            goto ERR;
+        }
+
         do {
-            if (HTTPC_read(http_param, buf + readsize, RESP_BUF_SIZE, (void *)&received) != 0) {
+            to_read = http_client.TotalResponseBodyLength - readsize;
+            if (to_read > RESP_BUF_SIZE) {
+                to_read = RESP_BUF_SIZE;
+            }
+
+            if (to_read == 0) {
+                break;
+            }
+
+            read_ret = HTTPC_read(http_param, buf + readsize, to_read, (void *)&received);
+            if (read_ret != 0) {
                 if (received > 0) {
                     readsize += received;
                 }
                 break;
             } else {
+                if (received == 0) {
+                    read_ret = -1;
+                    break;
+                }
                 readsize += received;
             }
 
-        } while (1);
+        } while (readsize < http_client.TotalResponseBodyLength);
+        if (readsize < http_client.TotalResponseBodyLength) {
+            LISA_NLOGE("http read err.. ret:%d, received:%u, total:%u, expect:%u",
+                       read_ret,
+                       received,
+                       readsize,
+                       http_client.TotalResponseBodyLength);
+            ret = -1;
+            goto ERR;
+        }
         ret = 0;
+        buf[readsize] = '\0';
         http_data.buf = buf;
-        http_data.len = http_client.TotalResponseBodyLength;
+        http_data.len = readsize;
         http_data.user = ins->user;
         if (ins->inter_on_data) {
             ins->inter_on_data(&http_data);
         }
-        (void)readsize;
     } else {
         UINT32 received = 0;
-        unsigned int readsize = 0;
-        buf = lisa_mem_calloc(1, 4096 + 1);
+
+        buf_capacity = RESP_BUF_SIZE + 1;
+        buf = lisa_mem_calloc(1, buf_capacity);
+        if (buf == NULL) {
+            LISA_NLOGE("malloc response buffer error");
+            ret = -1;
+            goto ERR;
+        }
+
         do {
+            if ((readsize + RESP_BUF_SIZE + 1) > buf_capacity) {
+                size_t new_capacity = buf_capacity * 2;
+                char *new_buf = NULL;
+
+                if (new_capacity < (readsize + RESP_BUF_SIZE + 1)) {
+                    new_capacity = readsize + RESP_BUF_SIZE + 1;
+                }
+
+                new_buf = lisa_mem_realloc(buf, new_capacity);
+                if (new_buf == NULL) {
+                    LISA_NLOGE("realloc response buffer error");
+                    ret = -1;
+                    goto ERR;
+                }
+
+                memset(new_buf + buf_capacity, 0, new_capacity - buf_capacity);
+                buf = new_buf;
+                buf_capacity = new_capacity;
+            }
+
             if (HTTPC_read(http_param, buf + readsize, RESP_BUF_SIZE, (void *)&received) != 0) {
                 if (received > 0) {
                     readsize += received;
                 }
                 break;
             } else {
+                if (received == 0) {
+                    break;
+                }
                 readsize += received;
             }
 
         } while (1);
         ret = 0;
+        buf[readsize] = '\0';
         http_data.buf = buf;
-        http_data.len = http_client.TotalResponseBodyLength;
+        http_data.len = readsize;
         http_data.user = ins->user;
         if (ins->inter_on_data) {
             ins->inter_on_data(&http_data);
         }
-        (void)readsize;
     }
 
 ERR:
@@ -203,9 +261,17 @@ lisa_http_err_e lisa_http_download(lisa_http_t *ins)
 
     if (http_client.TotalResponseBodyLength != 0) {
         unsigned int received = 0;
+        unsigned int total_read = 0;
+        int read_ret = 0;
         buf = lisa_mem_calloc(1, DOWNLOAD_SIZE);
+        if (buf == NULL) {
+            LISA_NLOGE("malloc download buffer error");
+            goto ERR;
+        }
         do {
-            if (HTTPC_read(http_param, buf, DOWNLOAD_SIZE, (void *)&received) != 0) {
+            read_ret = HTTPC_read(http_param, buf, DOWNLOAD_SIZE, (void *)&received);
+            total_read += received;
+            if (read_ret != 0) {
                 if (received > 0) {
                     http_data.buf = buf;
                     http_data.len = received;
@@ -216,6 +282,10 @@ lisa_http_err_e lisa_http_download(lisa_http_t *ins)
                 }
                 break;
             } else {
+                if (received == 0) {
+                    read_ret = -1;
+                    break;
+                }
                 http_data.buf = buf;
                 http_data.len = received;
                 http_data.user = ins->user;
@@ -225,7 +295,16 @@ lisa_http_err_e lisa_http_download(lisa_http_t *ins)
             }
 
         } while (1);
-        ret = 0;
+        if (total_read < http_client.TotalResponseBodyLength) {
+            LISA_NLOGE("http download read err.. ret:%d, received:%u, total:%u, expect:%u",
+                       read_ret,
+                       received,
+                       total_read,
+                       http_client.TotalResponseBodyLength);
+            ret = -1;
+        } else {
+            ret = 0;
+        }
 
     } else {
         ret = -1;
@@ -300,6 +379,9 @@ lisa_http_err_e lisa_http_perform_chunked(lisa_http_t *ins)
     }
 
     while (HTTPC_read(http_param, buf, RESP_BUF_SIZE, (void *)&received) == 0) {
+        if (received == 0) {
+            break;
+        }
         http_data.buf = buf;
         http_data.len = received;
         http_data.user = ins->user;
@@ -382,6 +464,9 @@ lisa_http_err_e lisa_http_perform_chunked_with_cb(lisa_http_t *ins, int (*on_chu
     }
 
     while (HTTPC_read(http_param, buf, RESP_BUF_SIZE, (void *)&received) == 0) {
+        if (received == 0) {
+            break;
+        }
         http_data.buf = buf;
         http_data.len = received;
         http_data.user = ins->user;

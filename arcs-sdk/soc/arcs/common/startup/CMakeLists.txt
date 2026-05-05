@@ -13,6 +13,7 @@ listenai_library_sources(
     startup.S
     system.c
     soc.c
+    portasm_stub.S
 )
 
 listenai_include_directories(

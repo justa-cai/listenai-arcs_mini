@@ -1,0 +1,13 @@
+tests:
+  samples.drivers.ic_mutex.shared_variable:
+    programmer: arcs
+    runner: uart
+    build_extra_args: ""
+    images:
+      - file: "remote/ic_mutex_shared_variable_ap.bin"
+        address: "0x0"
+      - file: "ic_mutex_shared_variable_cp.bin"
+        address: "0xD00000"
+    log_analyzer:
+      type: "regex"
+      pattern: "IC mutex shared variable sample passed"

@@ -26,6 +26,7 @@
 #include "app_datas.h"
 #include "lisa_ui_invoke.h"
 #include "app_net_cfg.h"
+#include "sys_wifi.h"
 #endif
 
 LV_IMG_DECLARE(ble_qr);
@@ -549,7 +550,9 @@ int model_qrcode_get_config_data(qrcode_data_t *data)
 
     model_wifi_status_t wifi_sta = model_wifi_get_status();
 
-    if (wifi_sta == MODEL_WIFI_STATUS_DISCONNECTED || wifi_sta == MODEL_WIFI_STATUS_UNKNOWN) {
+    if (sys_wifi_get_force_provision() ||
+        wifi_sta == MODEL_WIFI_STATUS_DISCONNECTED ||
+        wifi_sta == MODEL_WIFI_STATUS_UNKNOWN) {
         data->status = QR_STATUS_NOT_CONNECTED;
         data->top_text = DEFAULT_NOT_CONNECTED_TEXT;
         if (get_current_device_id(g_qrcode_ctx.device_id, sizeof(g_qrcode_ctx.device_id)) == 0) {

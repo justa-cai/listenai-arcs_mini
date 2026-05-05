@@ -77,12 +77,24 @@ SECTIONS {
         /* Default Vector Table */
         . = ALIGN(4);
         PROVIDE(_rom_code_start = .);
-        * (.vtable)
+        KEEP(* (.vtable))
+
+#ifdef CONFIG_BOOT_FEATURES
+        /* Pin uboot features descriptor at CONFIG_BOOT_FEATURES_ADDR so the
+         * application can read a stable flash offset regardless of .vtable
+         * size (see arcs-sdk/system/uboot). */
+        . = ALIGN(4);
+        ASSERT(. <= CONFIG_BOOT_FEATURES_ADDR, ".vtable overlaps uboot_features descriptor");
+        . = CONFIG_BOOT_FEATURES_ADDR - CONFIG_MEM_FLASH_BASE;
+        KEEP(*(.uboot_features))
+        . = ALIGN(4);
+#endif
 
         /* Starup Initialition Region */
         . = ALIGN(4);
         KEEP(startup.* (SORT_NONE(.init)))
         KEEP(scatload.* (SORT(.init)))
+        KEEP(* (.init))
         PROVIDE(_rom_code_end = .);
     } >ROM AT>ROM
 

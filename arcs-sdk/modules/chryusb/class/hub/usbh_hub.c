@@ -58,19 +58,16 @@ static void usbh_hub_class_free(struct usbh_hub *hub_class)
 
 static int _usbh_hub_get_hub_descriptor(struct usbh_hub *hub, uint8_t *buffer)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
     int ret;
 
-    setup = hub->parent->setup;
+    setup.bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_DEVICE;
+    setup.bRequest = USB_REQUEST_GET_DESCRIPTOR;
+    setup.wValue = HUB_DESCRIPTOR_TYPE_HUB << 8;
+    setup.wIndex = 0;
+    setup.wLength = USB_SIZEOF_HUB_DESC;
 
-    setup->bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_DEVICE;
-    setup->bRequest = USB_REQUEST_GET_DESCRIPTOR;
-    setup->wValue = HUB_DESCRIPTOR_TYPE_HUB << 8;
-
-    setup->wIndex = 0;
-    setup->wLength = USB_SIZEOF_HUB_DESC;
-
-    ret = usbh_control_transfer(hub->parent, setup, g_hub_buf[hub->bus->busid]);
+    ret = usbh_control_transfer(hub->parent, &setup, g_hub_buf[hub->bus->busid]);
     if (ret < 0) {
         return ret;
     }
@@ -80,19 +77,16 @@ static int _usbh_hub_get_hub_descriptor(struct usbh_hub *hub, uint8_t *buffer)
 
 static int _usbh_hub_get_hub_ss_descriptor(struct usbh_hub *hub, uint8_t *buffer)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
     int ret;
 
-    setup = hub->parent->setup;
+    setup.bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_DEVICE;
+    setup.bRequest = USB_REQUEST_GET_DESCRIPTOR;
+    setup.wValue = HUB_DESCRIPTOR_TYPE_HUB3 << 8;
+    setup.wIndex = 0;
+    setup.wLength = USB_SIZEOF_HUB_SS_DESC;
 
-    setup->bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_DEVICE;
-    setup->bRequest = USB_REQUEST_GET_DESCRIPTOR;
-    setup->wValue = HUB_DESCRIPTOR_TYPE_HUB3 << 8;
-
-    setup->wIndex = 0;
-    setup->wLength = USB_SIZEOF_HUB_SS_DESC;
-
-    ret = usbh_control_transfer(hub->parent, setup, g_hub_buf[hub->bus->busid]);
+    ret = usbh_control_transfer(hub->parent, &setup, g_hub_buf[hub->bus->busid]);
     if (ret < 0) {
         return ret;
     }
@@ -103,18 +97,16 @@ static int _usbh_hub_get_hub_ss_descriptor(struct usbh_hub *hub, uint8_t *buffer
 
 static int _usbh_hub_get_portstatus(struct usbh_hub *hub, uint8_t port, struct hub_port_status *port_status)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
     int ret;
 
-    setup = hub->parent->setup;
+    setup.bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_OTHER;
+    setup.bRequest = HUB_REQUEST_GET_STATUS;
+    setup.wValue = 0;
+    setup.wIndex = port;
+    setup.wLength = 4;
 
-    setup->bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_OTHER;
-    setup->bRequest = HUB_REQUEST_GET_STATUS;
-    setup->wValue = 0;
-    setup->wIndex = port;
-    setup->wLength = 4;
-
-    ret = usbh_control_transfer(hub->parent, setup, g_hub_buf[hub->bus->busid]);
+    ret = usbh_control_transfer(hub->parent, &setup, g_hub_buf[hub->bus->busid]);
     if (ret < 0) {
         return ret;
     }
@@ -124,48 +116,42 @@ static int _usbh_hub_get_portstatus(struct usbh_hub *hub, uint8_t port, struct h
 
 static int _usbh_hub_set_feature(struct usbh_hub *hub, uint8_t port, uint8_t feature)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
 
-    setup = hub->parent->setup;
+    setup.bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_OTHER;
+    setup.bRequest = HUB_REQUEST_SET_FEATURE;
+    setup.wValue = feature;
+    setup.wIndex = port;
+    setup.wLength = 0;
 
-    setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_OTHER;
-    setup->bRequest = HUB_REQUEST_SET_FEATURE;
-    setup->wValue = feature;
-    setup->wIndex = port;
-    setup->wLength = 0;
-
-    return usbh_control_transfer(hub->parent, setup, NULL);
+    return usbh_control_transfer(hub->parent, &setup, NULL);
 }
 
 static int _usbh_hub_clear_feature(struct usbh_hub *hub, uint8_t port, uint8_t feature)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
 
-    setup = hub->parent->setup;
+    setup.bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_OTHER;
+    setup.bRequest = HUB_REQUEST_CLEAR_FEATURE;
+    setup.wValue = feature;
+    setup.wIndex = port;
+    setup.wLength = 0;
 
-    setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_OTHER;
-    setup->bRequest = HUB_REQUEST_CLEAR_FEATURE;
-    setup->wValue = feature;
-    setup->wIndex = port;
-    setup->wLength = 0;
-
-    return usbh_control_transfer(hub->parent, setup, NULL);
+    return usbh_control_transfer(hub->parent, &setup, NULL);
 }
 
 #if CONFIG_USBHOST_MAX_EXTHUBS > 0
 static int _usbh_hub_set_depth(struct usbh_hub *hub, uint16_t depth)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
 
-    setup = hub->parent->setup;
+    setup.bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_DEVICE;
+    setup.bRequest = HUB_REQUEST_SET_HUB_DEPTH;
+    setup.wValue = depth;
+    setup.wIndex = 0;
+    setup.wLength = 0;
 
-    setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_DEVICE;
-    setup->bRequest = HUB_REQUEST_SET_HUB_DEPTH;
-    setup->wValue = depth;
-    setup->wIndex = 0;
-    setup->wLength = 0;
-
-    return usbh_control_transfer(hub->parent, setup, NULL);
+    return usbh_control_transfer(hub->parent, &setup, NULL);
 }
 
 static int parse_hub_descriptor(struct usb_hub_descriptor *desc, uint16_t length)
@@ -726,6 +712,13 @@ int usbh_hub_initialize(struct usbh_bus *bus)
         return -1;
     }
 
+    bus->ep0_mutex = usb_osal_mutex_create();
+    if (bus->ep0_mutex == NULL) {
+        USB_LOG_ERR("Failed to create EP0 mutex\r\n");
+        usb_osal_mutex_delete(bus->mutex);
+        return -1;
+    }
+
     snprintf(thread_name, 32, "usbh_hub%u", bus->busid);
     bus->hub_thread = usb_osal_thread_create(thread_name, CONFIG_USBHOST_PSC_STACKSIZE, CONFIG_USBHOST_PSC_PRIO, usbh_hub_thread, bus);
     if (bus->hub_thread == NULL) {
@@ -754,6 +747,9 @@ int usbh_hub_deinitialize(struct usbh_bus *bus)
     usb_osal_mq_delete(bus->hub_mq);
 
     usb_osal_mutex_give(bus->mutex);
+    if (bus->ep0_mutex) {
+        usb_osal_mutex_delete(bus->ep0_mutex);
+    }
     usb_osal_mutex_delete(bus->mutex);
     return 0;
 }

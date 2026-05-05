@@ -25,7 +25,23 @@ typedef struct {
 
 acomp_fd_handle_t *fd_handle = NULL;
 
-void event_callback(acomp_ipc_message_t *message, void *priv)
+int acomp_fd_stream_ch_disable(int chn);
+
+static int acomp_fd_res_item_valid(const acomp_fd_res_item_t *item)
+{
+    if (item == NULL || item->size == 0U) {
+        return 0;
+    }
+
+    /* For SD/eMMC resources, addr carries the storage offset so 0 is valid. */
+    if (item->storage == ACOMP_FD_RES_STORAGE_SD) {
+        return 1;
+    }
+
+    return item->addr != 0U;
+}
+
+static void fd_event_callback(acomp_ipc_message_t *message, void *priv)
 {
 
     acomp_fd_handle_t *handle = (acomp_fd_handle_t *)priv;
@@ -80,7 +96,7 @@ int acomp_fd_init(void)
     }
     LISA_LOGI(TAG, "acomp fd dev index %d,name:%s", fd_handle->dev_index, ACOMP_FD_DEV_NAME);
 
-    ret = acomp_ipc_add_callback(fd_handle->dev_index, (ipc_event_cb_t)event_callback, fd_handle);
+    ret = acomp_ipc_add_callback(fd_handle->dev_index, (ipc_event_cb_t)fd_event_callback, fd_handle);
     if (ret != ACOMP_ERR_OK) {
         return ret;
     }
@@ -105,17 +121,44 @@ int acomp_fd_init(void)
 
 int acomp_fd_deinit(void)
 {
-    /*TODO*/
-    return ACOMP_ERR_NOT_SUPPORTED;
+    if (fd_handle == NULL) {
+        return ACOMP_ERR_OK;
+    }
+
+    for (int chn = 0; chn < ACOMP_STREAM_MAX_CHANNEL; chn++) {
+        if (fd_handle->stream != NULL && fd_handle->stream->ch[chn] != NULL) {
+            (void)acomp_fd_stream_ch_disable(chn);
+        }
+    }
+
+    acomp_ipc_remove_callback(fd_handle->dev_index, (ipc_event_cb_t)fd_event_callback);
+    if (fd_handle->stream != NULL) {
+        acomp_stream_destroy(fd_handle->stream);
+        fd_handle->stream = NULL;
+    }
+    if (fd_handle->event_callbacks != NULL) {
+        gcl_cb_list_delete(fd_handle->event_callbacks);
+        fd_handle->event_callbacks = NULL;
+    }
+    psram_free(fd_handle);
+    fd_handle = NULL;
+
+    return ACOMP_ERR_OK;
 }
 
-int acomp_fd_prepare(void)
+static int acomp_fd_prepare_send(const acomp_fd_resource_config_t *config)
 {
-    LISA_LOGI(TAG, "acomp fd prepare enter");
-
-    acomp_ipc_prepare_t *prepare;
+    acomp_ipc_prepare_t *prepare = NULL;
     uint32_t size;
     int ret;
+
+    if (config == NULL) {
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    if (fd_handle == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
 
     size = sizeof(acomp_ipc_prepare_t) + sizeof(acomp_res_item_t) * ACOMP_FD_RES_NUMBER;
     size = ALIGN_SIZE(size);
@@ -126,41 +169,85 @@ int acomp_fd_prepare(void)
         return ACOMP_ERR_NO_MEM;
     }
     memset(prepare, 0, size);
+
     prepare->number = ACOMP_FD_RES_NUMBER;
     prepare->item[0].index = RES_FACE_DETECT;
-    prepare->item[0].attr.hdr.storage = 0;
-    prepare->item[0].addr = CONFIG_ACOMP_FD_RES_FACE_DETECT_ADDRESS;
+    prepare->item[0].attr.hdr.storage = config->detect.storage;
+    prepare->item[0].addr = (uint32_t)config->detect.addr;
     prepare->item[0].offset = 0;
-    prepare->item[0].size = CONFIG_ACOMP_FD_RES_FACE_DETECT_LENGTH;
+    prepare->item[0].size = config->detect.size;
 
     prepare->item[1].index = RES_FACE_ALIGN;
-    prepare->item[1].attr.hdr.storage = 0;
-    prepare->item[1].addr = CONFIG_ACOMP_FD_RES_FACE_ALIGN_ADDRESS;
+    prepare->item[1].attr.hdr.storage = config->align.storage;
+    prepare->item[1].addr = (uint32_t)config->align.addr;
     prepare->item[1].offset = 0;
-    prepare->item[1].size = CONFIG_ACOMP_FD_RES_FACE_ALIGN_LENGTH;
+    prepare->item[1].size = config->align.size;
 
     prepare->item[2].index = RES_FACE_LIVE;
-    prepare->item[2].attr.hdr.storage = 0;
-    prepare->item[2].addr = CONFIG_ACOMP_FD_RES_FACE_LIVE_ADDRESS;
+    prepare->item[2].attr.hdr.storage = config->live.storage;
+    prepare->item[2].addr = (uint32_t)config->live.addr;
     prepare->item[2].offset = 0;
-    prepare->item[2].size = CONFIG_ACOMP_FD_RES_FACE_LIVE_LENGTH;
+    prepare->item[2].size = config->live.size;
 
     prepare->item[3].index = RES_FACE_VERIFY;
-    prepare->item[3].attr.hdr.storage = 0;
-    prepare->item[3].addr = CONFIG_ACOMP_FD_FACE_VERIFY_ADDRESS;
+    prepare->item[3].attr.hdr.storage = config->verify.storage;
+    prepare->item[3].addr = (uint32_t)config->verify.addr;
     prepare->item[3].offset = 0;
-    prepare->item[3].size = CONFIG_ACOMP_FD_FACE_VERIFY_LENGTH;
+    prepare->item[3].size = config->verify.size;
 
     LISA_LOGI(TAG, "acomp fd prepare:%p, size:%u", prepare, size);
     ret = acomp_ipc_build_frame_send_sync(fd_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
                                           ACOMP_IPC_CMD_PREPARE, 0, prepare, size);
     if (ret != ACOMP_ERR_OK) {
         LISA_LOGE(TAG, "acomp fd prepare failed! ret:%d", ret);
-        return ret;
     }
 
     psram_free(prepare);
+    return ret;
+}
 
+int acomp_fd_prepare(void)
+{
+    const acomp_fd_resource_config_t config = {
+        .detect = {
+            .storage = ACOMP_FD_RES_STORAGE_FLASH,
+            .addr = CONFIG_ACOMP_FD_RES_FACE_DETECT_ADDRESS,
+            .size = CONFIG_ACOMP_FD_RES_FACE_DETECT_LENGTH,
+        },
+        .align = {
+            .storage = ACOMP_FD_RES_STORAGE_FLASH,
+            .addr = CONFIG_ACOMP_FD_RES_FACE_ALIGN_ADDRESS,
+            .size = CONFIG_ACOMP_FD_RES_FACE_ALIGN_LENGTH,
+        },
+        .live = {
+            .storage = ACOMP_FD_RES_STORAGE_FLASH,
+            .addr = CONFIG_ACOMP_FD_RES_FACE_LIVE_ADDRESS,
+            .size = CONFIG_ACOMP_FD_RES_FACE_LIVE_LENGTH,
+        },
+        .verify = {
+            .storage = ACOMP_FD_RES_STORAGE_FLASH,
+            .addr = CONFIG_ACOMP_FD_FACE_VERIFY_ADDRESS,
+            .size = CONFIG_ACOMP_FD_FACE_VERIFY_LENGTH,
+        },
+    };
+
+    return acomp_fd_prepare_with_resources(&config);
+}
+
+int acomp_fd_prepare_with_resources(const acomp_fd_resource_config_t *config)
+{
+    int ret;
+
+    LISA_LOGI(TAG, "acomp fd prepare enter");
+
+    if (config == NULL || !acomp_fd_res_item_valid(&config->detect) ||
+        !acomp_fd_res_item_valid(&config->align) ||
+        !acomp_fd_res_item_valid(&config->live) ||
+        !acomp_fd_res_item_valid(&config->verify)) {
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    ret = acomp_fd_prepare_send(config);
     LISA_LOGI(TAG, "acomp fd prepare exit");
     return ret;
 }
@@ -364,7 +451,8 @@ int acomp_fd_stream_ch_enable(int chn,acomp_stream_chn_create_desc_t *desc){
 
 int acomp_fd_stream_ch_disable(int chn){
     int ret;
-    if (fd_handle == NULL) {
+
+    if (fd_handle == NULL || fd_handle->stream == NULL) {
         return ACOMP_ERR_INVALID_STATE;
     }
 
@@ -372,9 +460,8 @@ int acomp_fd_stream_ch_disable(int chn){
         return ACOMP_ERR_INVALID_ARG;
     }
 
-    ret = acomp_stream_ipc_channel_destroy(chn);
+    ret = acomp_stream_ipc_channel_destroy(fd_handle->stream, fd_handle->dev_index, (uint32_t)chn);
     LISA_LOGI(TAG,"acomp_fd_stream_ch_disable chn index(%d),ret(%d)",chn,ret);
-    fd_handle->stream->ch[chn] = NULL;
     return ret;
 }
 

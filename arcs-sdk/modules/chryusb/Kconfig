@@ -340,8 +340,20 @@ if CHERRYUSB
         config CHERRYUSB_HOST_CDC_ECM
             bool
             prompt "Enable usb cdc ecm driver"
-            select USBHOST_PLATFORM_CDC_ECM
             default n
+
+        config CHERRYUSB_HOST_CDC_ECM_NETIF
+            bool
+            prompt "Register usb cdc ecm network interface"
+            depends on CHERRYUSB_HOST_CDC_ECM
+            select USBHOST_PLATFORM_CDC_ECM
+            default y
+            help
+                Enable the platform network-stack binding for the USB CDC ECM
+                class driver. Disable this if you only need other USB
+                interfaces on the same device, such as the AT port exposed by
+                CHERRYUSB_HOST_GSM, and do not want CDC ECM to register a
+                network interface in lwIP or esp-netif.
 
         config CHERRYUSB_HOST_CDC_RNDIS
             bool

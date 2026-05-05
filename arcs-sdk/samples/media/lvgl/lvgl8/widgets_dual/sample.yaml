@@ -1,0 +1,3 @@
+tests:
+  samples.lvgl8.widgets_dual:
+    build_only: true

@@ -21,6 +21,23 @@ extern "C" {
 
 #define ALIGN_SIZE(len) ((len + IPC_ALIGN_SIZE - 1) / IPC_ALIGN_SIZE * IPC_ALIGN_SIZE)
 
+typedef enum {
+    ACOMP_WAKEUP_RES_STORAGE_FLASH = ACOMP_RES_STORAGE_FLASH,
+    ACOMP_WAKEUP_RES_STORAGE_SD = ACOMP_RES_STORAGE_SD,
+    ACOMP_WAKEUP_RES_STORAGE_PSRAM = ACOMP_RES_STORAGE_PSRAM,
+} acomp_wakeup_res_storage_t;
+
+typedef struct {
+    acomp_wakeup_res_storage_t storage;
+    uintptr_t addr;
+    uint32_t size;
+} acomp_wakeup_res_item_t;
+
+typedef struct {
+    acomp_wakeup_res_item_t mlp;
+    acomp_wakeup_res_item_t wrap;
+} acomp_wakeup_resource_config_t;
+
 /*语音唤醒组件回调事件定义*/
 #define WAKEUP_CB_EVENT_ENGINE_RLT       BIT(0) /*语音唤醒引擎结果返回*/
 #define WAKEUP_CB_EVENT_STREAM_UPDATE    BIT(1) /*音频数据流更新*/
@@ -95,7 +112,7 @@ extern int acomp_wakeup_init(void);
 //  * @return GCL_OK : 成功
 //  *
 //  */
-// extern int acomp_wakeup_deinit(void);
+extern int acomp_wakeup_deinit(void);
 
 /**
  * @brief 就绪语音唤醒组件（WAKEUP）
@@ -108,6 +125,19 @@ extern int acomp_wakeup_init(void);
  *
  */
 extern int acomp_wakeup_prepare(void);
+
+/**
+ * @brief 使用指定资源配置就绪语音唤醒组件（WAKEUP）
+ *
+ * @param config[in] 自定义资源配置，支持 Flash / eMMC / PSRAM
+ *
+ * @return ACOMP_ERR_OK : 成功
+ * @retval ACOMP_ERR_INVALID_ARG : 错误参数
+ * @retval ACOMP_ERR_NO_MEM : 没有足够内存
+ * @retval ACOMP_ERR_INVALID_STATE : 无效状态
+ *
+ */
+extern int acomp_wakeup_prepare_with_resources(const acomp_wakeup_resource_config_t *config);
 
 /**
  * @brief 复位语音唤醒组件（WAKEUP）
@@ -307,13 +337,6 @@ extern void* acomp_wakeup_stream_tx_buffer_alloc(int chn, uint32_t* len, uint16_
  *
  */
 extern int acomp_wakeup_stream_tx_buffer_submit(int chn, void* buffer, uint32_t len, uint16_t desc_idx);
-
-/**
- *
- * @note 索引0必须是WAKEUP_INDEX_CAE_ESR_MLP资源
- * @note 索引1必须是WAKEUP_INDEX_AI_WRAP资源
- */
-int acomp_wakeup_prepare_with_config(acomp_ipc_prepare_t *prepare);
 
 #ifdef __cplusplus
 }

@@ -10,13 +10,18 @@
  ****************************************************************************************
  */
 #include <stdbool.h>
+
 #include "atcmd.h"
 #include "atcmd_bt_if.h"
+#include "atcmd_hash.h"
 #include "log_print.h"
 #include "ls_event.h"
 #include "ls_bt_type.h"
 #include "bt_config.h"
 
+#ifdef CFG_AMP_IPC
+#include "bt_ipc_api.h"
+#endif
 
 #define RETURN_IF_ERROR(cond, err_code, fmt, ...) \
     do { \
@@ -31,6 +36,8 @@ struct out_bd_addr ble_scan_filter_bd_addr;
 uint32_t adv_report_num = 0;
 
 extern uint32_t lsip_get_em_base_addr(void);
+extern void hci_event_notify_reg(void *notify);
+extern uint8_t atcmd_rf_set_tx_power_send(uint8_t power);
 
 int atoi_ex(const char *str)
 {
@@ -104,7 +111,7 @@ void print_adv_data_structure(const uint8_t* adv_data, uint8_t data_length)
 
         if (ad_length == 0)
         {
-            CLOG(" ️  Encountered AD structure with length 0, skipping\n");
+            CLOG("Encountered AD structure with length 0, skipping\n");
             index++;
             continue;
         }
@@ -279,42 +286,7 @@ void parse_dev_name(uint8_t *adv_data, uint8_t adv_len)
     CLOG("\n");
 }
 
-
-int atcmd_bt_parse_mac_addr(char *str, uint8_t *addr)
-{
-    char *ptr = str;
-    uint32_t i;
-
-    if (!str || (strlen(str) < 17) || !addr)
-        return -1;
-
-    for (i = 0; i < 6; i++)
-    {
-        char *next;
-        long int hex = strtol(ptr, &next, 16);
-        if (((unsigned)hex > 255) || ((hex == 0) && (next == ptr)) ||
-            ((i < 5) && (*next != ':')) ||
-            ((i == 5) && (*next != '\0')))
-            return -1;
-
-        addr[i] = (uint8_t)hex;
-        ptr = ++next;
-    }
-
-    return 0;
-}
-
-
-uint8_t atcmd_bt_not_support(void)
-{
-    CLOGD("atcmd_bt_not_support,open BT_WIFI_COEX\n");
-    return ATCMD_UNKNOWN;
-}
-
-void atcmd_ble_not_support(void)
-{
-    CLOGD("atcmd_ble_not_support,open BT_WIFI_COEX\n");
-}
+#if (BLE_EMB_PRESENT)
 /// controller
 int atcmd_bleinit(int type, char *params)
 {
@@ -337,11 +309,8 @@ int atcmd_bleinit(int type, char *params)
             return ATCMD_ERROR;
         }
         init = atoi(params);
-        #if BT_WIFI_COEX
         atcmd_ble_init_send(init);
-        #else
-        atcmd_ble_not_support();
-        #endif
+
         return ATCMD_OK;
     }
     else //ATCMD_QUERY
@@ -600,6 +569,69 @@ int atcmd_blescanrspdata(int type, char *params)
 
 }
 
+
+int ble_parse_adv_param(char *params, ble_adv_param_t *config)
+{
+    char *cur;
+    char *next = params;
+    int8_t token_idx = -1;
+
+    if (!params)
+    {
+        return 0;
+    }
+
+    do
+    {
+        cur = atcmd_next_token(&next);
+        token_idx++;
+
+        switch (token_idx)
+        {
+            case 0: //type
+            {
+                if (cur)
+                {
+                    ///
+                    config->adv_type = atoi_ex(cur);
+                }
+                break;
+            }
+            case 1: //data_len
+            {
+                if (cur)
+                {
+                    config->adv_mode = atoi_ex(cur);
+                }
+                break;
+            }
+            case 2: //scan rspdata
+            {
+               if (cur)
+                {
+                    config->adv_int_min = atoi_ex(cur);
+                }
+                break;
+            }
+            case 3: //scan rspdata
+            {
+                if (cur)
+                {
+                    config->adv_int_max = atoi_ex(cur);
+                }
+                break;
+            }
+            default:
+                //CLOGI("%s %d\n", __func__, __LINE__);
+                break;
+        }
+    } while(next);
+
+    return 0;
+}
+
+
+
 int atcmd_bleadvparam(int type, char *params)
 {
     int res = 0;
@@ -613,12 +645,13 @@ int atcmd_bleadvparam(int type, char *params)
     }
     else if (type == ATCMD_EXEC)
     {
-        int cnt = 0;
-        if (params)
+        res = ble_parse_adv_param(params, &config);
+
+        if (res)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i ", &config.adv_type, &config.adv_mode, &config.adv_int_min, &config.adv_int_max);
+            atcmd_rspdata("ble adv param:%d", ATCMD_ERR_UNSPECIF);
+            return ATCMD_ERROR;
         }
-        RETURN_IF_ERROR(cnt<4, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLEADVPARAM=0,0,0x50,0x50");
         CLOGI("adv_type   :%d", config.adv_type);
         CLOGI("adv_mode   :%d", config.adv_mode);
         CLOGI("adv_int_min:%d", config.adv_int_min);
@@ -1193,11 +1226,9 @@ int atcmd_bleencdev(int type, char *params)
     }
     else if (type == ATCMD_EXEC)
     {
-        /*#if BT_WIFI_COEX
-        atcmd_ble_enc_dev_send();
-        #else
-        atcmd_ble_not_support();
-        #endif*/
+
+        //atcmd_ble_enc_dev_send();
+
         return ATCMD_OK;
 
     }
@@ -1211,7 +1242,7 @@ int atcmd_bleencdev(int type, char *params)
 
 }
 
-int atcmd_bleencclear(int type, char *params)
+int atcmd_blebtencclear(int type, char *params)
 {
     int res;
     ble_enc_clear_t config = {0};
@@ -1231,11 +1262,7 @@ int atcmd_bleencclear(int type, char *params)
         }
         RETURN_IF_ERROR(cnt<7, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
 
-        #if BT_WIFI_COEX
-        atcmd_ble_enc_clear_send(&config);
-        #else
-        atcmd_ble_not_support();
-        #endif
+        atcmd_ble_bt_enc_clear_send(&config);
 
         return ATCMD_OK;
     }
@@ -1267,9 +1294,9 @@ int atcmd_blenonsignaltx(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i ", &channel, &data_len, &payload, &phy, &fhss);
+            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i", &channel, &data_len, &payload, &phy, &fhss);
         }
-        RETURN_IF_ERROR(cnt<4, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLENONSIGNALTX=5,27,0,0,0");
+        RETURN_IF_ERROR(cnt<5, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLENONSIGNALTX=5,27,0,1,0, phy[1 2 3 4]");
 
         CLOGI("channel :%d", channel);
         CLOGI("data_len:%d", data_len);
@@ -1311,11 +1338,13 @@ int atcmd_blenonsignalrx(int type, char *params)
     {
         uint8_t channel = 0, phy = 0, mod_idx = 0, infinite_rx_mode = 0;
         int cnt = 0;
+
         if (params)
         {
-            int cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i ", &channel, &phy, &mod_idx, &infinite_rx_mode);
+            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i", &channel, &phy, &mod_idx, &infinite_rx_mode);
         }
-        RETURN_IF_ERROR(cnt<4, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLENONSIGNALRX=5,0,0,0");
+
+        RETURN_IF_ERROR(cnt<4, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLENONSIGNALRX=5,1,0,0, phy[1 2 3 4]");
 
         CLOGI("channel         :%d", channel);
         CLOGI("phy             :%d", phy);
@@ -1369,6 +1398,72 @@ int atcmd_blenonsignalend(int type, char *params)
     return ATCMD_UNKNOWN;
 }
 
+/// host
+int atcmd_hbleadvstart(int type, char *params)
+{
+    ls_err_t ret;
+    uint8_t mode = 0;
+
+    //CLOGI("%s %d %d %s\n", __func__, __LINE__, type, params);
+
+    if (type == ATCMD_PARAM)
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+    else if (type == ATCMD_EXEC)
+    {
+        params = atcmd_next_token(&params);
+        if (!params)
+        {
+            atcmd_rspdata("CWAUTOCONN:%d", -ATCMD_ERR_UNSPECIF);
+            return ATCMD_ERROR;
+        }
+        mode = atoi(params);
+
+        atcmd_hble_adv_start_send(mode);
+
+        return ATCMD_OK;
+    }
+    else //ATCMD_QUERY
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+
+    return ATCMD_UNKNOWN;
+
+}
+int atcmd_hbleadvstop(int type, char *params)
+{
+    ls_err_t ret;
+    uint8_t init = 0;
+
+    //CLOGI("%s %d %d %s\n", __func__, __LINE__, type, params);
+
+    if (type == ATCMD_PARAM)
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+    else if (type == ATCMD_EXEC)
+    {
+        atcmd_hble_adv_stop_send();
+        return ATCMD_OK;
+    }
+    else //ATCMD_QUERY
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+
+    return ATCMD_UNKNOWN;
+
+}
+
+#endif
+
+#if (BT_EMB_PRESENT)
 int atcmd_btinquiry(int type, char *params)
 {
     int res;
@@ -1724,78 +1819,8 @@ int atcmd_btnonsignalrxgetdata(int type, char *params)
     return ATCMD_UNKNOWN;
 
 }
+#endif
 
-/// host
-int atcmd_hbleadvstart(int type, char *params)
-{
-    ls_err_t ret;
-    uint8_t mode = 0;
-
-    //CLOGI("%s %d %d %s\n", __func__, __LINE__, type, params);
-
-    if (type == ATCMD_PARAM)
-    {
-        //CLOGI("%s %d\n",__func__, __LINE__);
-        return ATCMD_UNKNOWN;
-    }
-    else if (type == ATCMD_EXEC)
-    {
-        params = atcmd_next_token(&params);
-        if (!params)
-        {
-            atcmd_rspdata("CWAUTOCONN:%d", -ATCMD_ERR_UNSPECIF);
-            return ATCMD_ERROR;
-        }
-        mode = atoi(params);
-    #if BT_WIFI_COEX
-        atcmd_hble_adv_start_send(mode);
-    #else
-        atcmd_bt_not_support();
-    #endif
-        return ATCMD_OK;
-    }
-    else //ATCMD_QUERY
-    {
-        //CLOGI("%s %d\n",__func__, __LINE__);
-        return ATCMD_UNKNOWN;
-    }
-
-    return ATCMD_UNKNOWN;
-
-}
-int atcmd_hbleadvstop(int type, char *params)
-{
-    ls_err_t ret;
-    uint8_t init = 0;
-
-    //CLOGI("%s %d %d %s\n", __func__, __LINE__, type, params);
-
-    if (type == ATCMD_PARAM)
-    {
-        //CLOGI("%s %d\n",__func__, __LINE__);
-        return ATCMD_UNKNOWN;
-    }
-    else if (type == ATCMD_EXEC)
-    {
-    #if BT_WIFI_COEX
-        atcmd_hble_adv_stop_send();
-    #else
-        atcmd_bt_not_support();
-    #endif
-        return ATCMD_OK;
-    }
-    else //ATCMD_QUERY
-    {
-        //CLOGI("%s %d\n",__func__, __LINE__);
-        return ATCMD_UNKNOWN;
-    }
-
-    return ATCMD_UNKNOWN;
-
-}
-
-
-#if (BT_WIFI_COEX)
 #if (BT_EMB_PRESENT)
 extern void ld_bd_addr_get(void* bd_addr);
 #endif
@@ -1804,7 +1829,7 @@ extern void ld_bd_addr_get(void* bd_addr);
 extern void llm_get_local_pub_addr(uint8_t *addr);
 #endif
 extern void ble_gap_set_loc_pub_addr(uint8_t *addr);
-#endif
+
 int atcmd_bdaddr(int type, char *params)
 {
     struct out_bd_addr lc_bd_addr;
@@ -1842,16 +1867,18 @@ int atcmd_bdaddr(int type, char *params)
     else //ATCMD_QUERY
     {
         struct out_bd_addr bd_addr;
-        #if (BT_WIFI_COEX)
-        #if (BT_EMB_PRESENT||BLE_EMB_PRESENT)
+
         #if(BT_EMB_PRESENT)
+#ifdef CFG_AMP_IPC
+        ld_bd_addr_get_api(&bd_addr);
+#else
         ld_bd_addr_get(&bd_addr);
+#endif
 
         atcmd_rspdata("BT MAC: %02x:%02x:%02x:%02x:%02x:%02x",
                       bd_addr.addr[0], bd_addr.addr[1], bd_addr.addr[2],bd_addr.addr[3],bd_addr.addr[4],bd_addr.addr[5]);
         #endif
         #if(BLE_EMB_PRESENT)
-        
 #ifdef CFG_AMP_IPC
        llm_get_local_pub_addr_api(&bd_addr);
 #else
@@ -1861,13 +1888,42 @@ int atcmd_bdaddr(int type, char *params)
         atcmd_rspdata("BLE MAC: %02x:%02x:%02x:%02x:%02x:%02x",
                       bd_addr.addr[0], bd_addr.addr[1], bd_addr.addr[2],bd_addr.addr[3],bd_addr.addr[4],bd_addr.addr[5]);
         #endif
-        #endif
-        #else
-        atcmd_bt_not_support();
-        #endif
-
         return ATCMD_OK;
 
+    }
+
+    return ATCMD_UNKNOWN;
+
+}
+
+
+int atcmd_txpower(int type, char *params)
+{
+    if (type == ATCMD_PARAM)
+    {
+        return ATCMD_UNKNOWN;
+    }
+    else if (type == ATCMD_EXEC)
+    {
+        uint8_t txpower = 0;
+        int cnt = 0;
+        if (params)
+        {
+            cnt = sscanf(params, "%i", &txpower);
+        }
+
+        RETURN_IF_ERROR(cnt<1, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
+
+        CLOGI("txpower:%d", txpower);
+
+        atcmd_rf_set_tx_power_send(txpower);
+
+        return ATCMD_OK;
+    }
+    else //ATCMD_QUERY
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
     }
 
     return ATCMD_UNKNOWN;
@@ -1965,11 +2021,54 @@ int atcmd_bthcimode(int type, char *params)
     }
     else if (type == ATCMD_EXEC)
     {
-        #if (BT_WIFI_COEX && BT_EMB_PRESENT)
         atcmd_bt_hci_mode_send();
-        #else
-        atcmd_bt_not_support();
-        #endif
+
+        return ATCMD_OK;
+    }
+    else //ATCMD_QUERY
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+
+    return ATCMD_UNKNOWN;
+
+}
+
+
+int atcmd_bt_set_event_filter(int type, char *params)
+{
+    //CLOGI("%s %d %d %s\n", __func__, __LINE__, type, params);
+
+    if (type == ATCMD_PARAM)
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+    else if (type == ATCMD_EXEC)
+    {
+        uint8_t filter_type = 0;
+        uint8_t filter_con_type = 0;
+        uint8_t con[7] = {0};
+
+        CLOGI("params = %s", params);
+
+        int cnt = 0;
+        if (params)
+        {
+            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i",
+                        &filter_type, &filter_con_type, &con[0], &con[1], &con[2], &con[3], &con[4], &con[5], &con[6]);
+        }
+
+        CLOGI("cnt = %d", cnt);
+
+        RETURN_IF_ERROR(cnt<2, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
+
+        CLOGI("filter_type:      %d",       filter_type);
+        CLOGI("filter_con_type  :%d", filter_con_type);
+        CLOGI("con[0]:           %d",       con[0]);
+
+        atcmd_bt_set_event_filter_send(filter_type, filter_con_type, con);
 
         return ATCMD_OK;
     }
@@ -2079,7 +2178,7 @@ int bt_event_cb(void *arg, event_module_t event_module,
         break;
         case EVENT_BT_NON_SIGNAL_RX_GET_DATA:
             bt_get_rx_data_param = (event_bt_non_signal_get_rx_data_param_t*)event_data;
-            CLOG("event <%d %d> total_packet:0x%x, error_packet:0x%x, total_bit:0x%x, error_bit:0x%x\n", event_module, event_id, bt_get_rx_data_param->total_packet, bt_get_rx_data_param->error_packet, bt_get_rx_data_param->total_bit, bt_get_rx_data_param->error_bit);
+            CLOG("total_packet:%d, error_packet:%d, total_bit:%d, error_bit:%d\n", bt_get_rx_data_param->total_packet, bt_get_rx_data_param->error_packet, bt_get_rx_data_param->total_bit, bt_get_rx_data_param->error_bit);
         break;
         default:
         break;
@@ -2097,6 +2196,7 @@ int bt_event_cb(void *arg, event_module_t event_module,
 **/
 const atcmd_item_t atcmd_bt_table[] =
 {
+    #if (BLE_EMB_PRESENT)
     // bt controller
     {atcmd_bleinit,      "AT+BLEINIT",    "init ble env\r\n"
                        "AT+BLEINIT=<init>\r\n"},
@@ -2160,8 +2260,8 @@ const atcmd_item_t atcmd_bt_table[] =
     {atcmd_bledisconn,   "AT+BLEDISCONN",    "ble connection disconnect\r\n"
                        "AT+BLEDISCONN=<addr_type>, <addr>\r\n"
                        "eg: AT+BLEDISCONN=0, 18B905DE97CA\r\n"},
-    {atcmd_bledatalen,   "AT+BLEDAATLEN",    "set ble data length\r\n"
-                       "AT+BLEDAATLEN=<conn_index>,<pkt_data_len>\r\n"
+    {atcmd_bledatalen,   "AT+BLEDATALEN",    "set ble data length\r\n"
+                       "AT+BLEDATALEN=<conn_index>,<pkt_data_len>\r\n"
                        "<conn_index>: index of BLE connection, range: [0~10]\r\n"
                        "<pkt_data_len>: data packet's leghth, range: 0xx001B ~ 0x00FB\r\n"},
     {atcmd_blesecparam,  "AT+BLESECPARAM?",    "set ble sec param\r\n"
@@ -2179,9 +2279,9 @@ const atcmd_item_t atcmd_bt_table[] =
                        "<conn_index>: index of BLE connection, range: [0~10]\r\n"
                        "<key>: pairing key"},
     {atcmd_bleencdev,    "AT+BLEENCDEV?",    "ble enc dev\r\n"},
-    {atcmd_bleencclear,  "AT+BLEENCCLEAR",  "ble enc clear\r\n"
-                       "AT+BLEENCCLEAR=<type>,<address>\r\n"
-                       "<type>: address type\r\n"
+    {atcmd_blebtencclear,  "AT+BLEBTENCCLEAR",  "ble enc clear\r\n"
+                       "AT+BLEBTENCCLEAR=<type>,<address>\r\n"
+                       "<type>: type 7b0:0,clear ble,7b0:1 \r\n"
                        "<address>: if set to 0, clear all paired devices\r\n"},
     {atcmd_blenonsignaltx, "AT+BLENONSIGNALTX",    "ble non signal tx\r\n"
                          "AT+BLENONSIGNALTX=<tx_channel>,<data_len>,<pkt_payl>,<phy>,<fhss>\r\n"
@@ -2197,17 +2297,25 @@ const atcmd_item_t atcmd_bt_table[] =
                          "0x06 Repeated 00001111\r\n"
                          "0x07 Repeated 01010101\r\n"
                          "0x08 inifinite mode\r\n"
+                         "<phy>: 1: 1M 2: 2M 3: coded\r\n"
                          "<fhss>:\r\n"
                          "0x01 fhss hopping suppoorted\r\n"
                          "0x00 fhss hopping not supported\r\n"},
     {atcmd_blenonsignalrx, "AT+BLENONSIGNALRX",    "ble non signal rx\r\n"
                          "AT+BLENONSIGNALRX=<rx_channel>,<phy>,<mod_idx>,<infinite_rx_mode>\r\n"
                          "<rx_channel>: rx channel,   range: 0x00~0x27\r\n"
-                         "<phy>: 0: 1M 1: 2M 2: coded\r\n"
+                         "<phy>: 1: 1M 2: 2M 3: coded\r\n"
                          "<mod_idx>: 0: standard 1: stable\r\n"
                          "<infinite_rx_mode>: 1: inifinate rx mode 0: normal rx mode\r\n"},
     {atcmd_blenonsignalend,"AT+BLENONSIGNALEND",    "ble non signal test end\r\n"
                          "rsp is: <nb_pkt_recv>"},
+        // bt host
+    {atcmd_hbleadvstart,   "AT+ADVSTART",    "host adv start \r\n"
+                         "AT+ADVSTART=<mode>\r\n"},
+    {atcmd_hbleadvstop,    "AT+ADVSTOP",     "host adv stop \r\n"
+                         "rsp is: <status>"},
+    #endif
+    #if (BT_EMB_PRESENT)
     {atcmd_btinquiry,      "AT+BTINQUIRY",    "bt inquiry\r\n"
                          "AT+BTINQUIRY=<lap>,<inq_len>,<nb_rsp>\r\n"
                          "rsp is: +BTINQUIRY: <addr>,<class_of_dev>,<page_scan_req_mode>,<clk_offset>\r\n"
@@ -2227,7 +2335,7 @@ const atcmd_item_t atcmd_bt_table[] =
                          "AT+BTDUTMODE=<enable>\r\n"
                          "<enable>: 1 enable 0 disable\r\n"},
     {atcmd_btconn,         "AT+BTCONN",    "bt connect\r\n"
-                         "AT+BLECONN=<bd_addr>,<pkt_type>,<page_scan_rep_mode>,<clk_off>,<switch_en>\r\n"
+                         "AT+BTCONN=<bd_addr>,<pkt_type>,<page_scan_rep_mode>,<clk_off>,<switch_en>\r\n"
                          "<bd_addr>: remote bd addr\r\n"
                          "<pkt_type>: alow packet type\r\n"
                          "<page_scan_rep_mode>: from inquiry result\r\n"
@@ -2274,24 +2382,37 @@ const atcmd_item_t atcmd_bt_table[] =
     {atcmd_btnonsignaldisable,  "AT+BTNONSIGNALDISABLE",    "bt non signal disable\r\n"},
     {atcmd_btnonsignalrxgetdata,"AT+BTNONSIGNALRXGETDATA",  "bt non signal rx get data\r\n"
                               "rsp is:<total_packets>,<error_packets>,<total_bits>,<error_bits>\r\n"},
+    #endif
     // test tone
-    {atcmd_testtonestart,  "AT+TESTTONESTART",    "rf tx test tone\r\n"},
+    {atcmd_testtonestart,  "AT+TESTTONESTART",    "rf tx test tone\r\n"
+                           "AT+TESTTONESTART=<ch>,<power>\r\n"},
     {atcmd_testtonestop,   "AT+TESTTONESTOP",    "rf stop tet tone\r\n"},
-    // bt host
-    {atcmd_hbleadvstart,   "AT+ADVSTART",    "host adv start \r\n"
-                         "AT+ADVSTART=<mode>\r\n"},
-    {atcmd_hbleadvstop,    "AT+ADVSTOP",     "host adv stop \r\n"
-                         "rsp is: <status>"},
+    {atcmd_txpower,        "AT+TXPOWER", "rf set tx power\r\n"
+                           "AT+TXPOWER=<power>"},
     {atcmd_bdaddr,         "AT+BDADDR",     "read or write bd addr \r\n"
                            "AT+BDADDR?, read bd addr\r\n"
                            "AT+BDADDR=<bd_addr>, write bd addr"},
     // switch bt hci hci mode
     {atcmd_bthcimode,  "AT+BTHCIMODE",    "bt hci test mode\r\n"},
+    // set event filter
+    {atcmd_bt_set_event_filter, "AT+SETEVTFILTER",    "bt set event filter\r\n"
+                         "AT+SETEVTFILTER=<filter_type>,<filter_con_type>,<con>\r\n"
+                         "<filter_type>: "
+                         "0 clear all filters\r\n"
+                         "1 inquiry result\r\n"
+                         "2 connection setup\r\n"},
 };
 
 void atcmd_bt_register(void)
 {
     atcmd_entry_add_table(atcmd_bt_table, sizeof(atcmd_bt_table)/sizeof(atcmd_item_t));
+
+#ifdef CFG_AMP_IPC
+    //hci_event_notify_reg_api(ls_event_post);
+#else
+    hci_event_notify_reg(ls_event_post);
+#endif
+
 }
 
 void atcmd_bt_help(void)

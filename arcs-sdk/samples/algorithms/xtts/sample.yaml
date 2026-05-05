@@ -1,0 +1,3 @@
+tests:
+  samples.algorithms.xtts:
+    build_only: true

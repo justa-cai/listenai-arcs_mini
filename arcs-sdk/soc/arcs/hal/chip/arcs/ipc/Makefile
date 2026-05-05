@@ -148,7 +148,6 @@ pre:
 	python3 $(TOPDIR)/tools/scripts/mrpcgen/mrpc_generate.py nvs mrpc/nvs mrpc/template ../include/ipc
 	python3 $(TOPDIR)/tools/scripts/mrpcgen/mrpc_generate.py flash_if mrpc/flash_if mrpc/template ../include/ipc
 	python3 $(TOPDIR)/tools/scripts/mrpcgen/mrpc_generate.py utils_s2m mrpc/utils_s2m mrpc/template ../include/ipc
-	python3 $(TOPDIR)/tools/scripts/mrpcgen/mrpc_generate.py utils_m2s mrpc/utils_m2s mrpc/template ../include/ipc
 ifneq ("$(CFG_IPC_TEST_CASE)", "")
 	python $(TOPDIR)/tools/scripts/mrpcgen/mrpc_generate.py m2s_test mrpc/ipc_master2slave_test mrpc/ipc_master2slave_test/template ../include/ipc
 	python $(TOPDIR)/tools/scripts/mrpcgen/mrpc_generate.py s2m_test mrpc/ipc_slave2master_test mrpc/ipc_slave2master_test/template ../include/ipc

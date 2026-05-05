@@ -70,6 +70,7 @@ typedef const struct rf_ops {
     void (*update_cal_addr)(uint32_t start, uint32_t end);
     int32_t (*calc_temp)(float vptat);
     bool (*temp_rf_por_config)(int32_t temp, bool realtime);
+    uint32_t (*get_wf_factory_partition_addr)(void);
 } RF_OPS, *P_RF_OPS;
 
 typedef struct rf_entry {
@@ -107,4 +108,8 @@ int32_t ls_rf_resume(int32_t rf_mode, int32_t power_off);
 void wf_crm_rcclkforce_setf(uint8_t rcclkforce);
 void wf_macbyp_clken_set(uint32_t value);
 extern void rf_set_channel_sx(uint16_t freq);
+
+void rf_start_test_tone(uint16_t channel, uint8_t power);
+void rf_stop_test_tone(void);
+
 #endif//_RF_DRV_H_

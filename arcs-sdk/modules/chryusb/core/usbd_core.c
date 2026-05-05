@@ -308,8 +308,13 @@ static bool usbd_get_descriptor(uint8_t busid, uint16_t type_index, uint8_t **da
     }
 
     if (found == false) {
-        /* nothing found */
-        USB_LOG_ERR("descriptor <type:%x,index:%x> not found!\r\n", type, index);
+        /* Some hosts probe optional descriptors (e.g. DEBUG descriptor 0x0A).
+         * Treat them as quiet misses to avoid noisy false-positive errors. */
+        if (type == USB_DESCRIPTOR_TYPE_DEBUG) {
+            USB_LOG_DBG("optional descriptor <type:%x,index:%x> not provided\r\n", type, index);
+        } else {
+            USB_LOG_ERR("descriptor <type:%x,index:%x> not found!\r\n", type, index);
+        }
     } else {
         *data = (uint8_t *)desc;
         //memcpy(*data, desc, desc_len);
@@ -905,10 +910,14 @@ static bool usbd_setup_request_handler(uint8_t busid, struct usb_setup_packet *s
     switch (setup->bmRequestType & USB_REQUEST_TYPE_MASK) {
         case USB_REQUEST_STANDARD:
             if (usbd_standard_request_handler(busid, setup, data, len) < 0) {
-                /* Ignore error log for getting Device Qualifier Descriptor request */
-                if ((setup->bRequest == 0x06) && (setup->wValue == 0x0600)) {
-                    //USB_LOG_DBG("Ignore DQD in fs\r\n");
-                    return false;
+                /* Some hosts probe optional descriptors.
+                 * Ignore noisy logs for unsupported optional descriptor requests. */
+                if (setup->bRequest == USB_REQUEST_GET_DESCRIPTOR) {
+                    uint8_t desc_type = HI_BYTE(setup->wValue);
+                    if ((desc_type == USB_DESCRIPTOR_TYPE_DEVICE_QUALIFIER) ||
+                        (desc_type == USB_DESCRIPTOR_TYPE_DEBUG)) {
+                        return false;
+                    }
                 }
                 USB_LOG_ERR("standard request error\r\n");
                 usbd_print_setup(setup);

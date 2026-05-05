@@ -425,6 +425,35 @@ int voice_player_replay_current(void)
     return playlist_play_index(g_playlist.current_index);
 }
 
+static bool voice_player_state_is_audio_active(app_player_t *player)
+{
+    if (player == NULL) {
+        return false;
+    }
+
+    switch (app_player_get_state(player)) {
+    case APP_PLAYER_STATE_PREPARING:
+    case APP_PLAYER_STATE_PREPARED:
+    case APP_PLAYER_STATE_PLAYING:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool voice_player_is_music_active(void)
+{
+    return voice_player_state_is_audio_active(music_player);
+}
+
+bool voice_player_is_audio_active(void)
+{
+    return voice_player_state_is_audio_active(tone_player) ||
+           voice_player_state_is_audio_active(tts_player) ||
+           voice_player_state_is_audio_active(music_player) ||
+           voice_player_state_is_audio_active(alert_player);
+}
+
 int voice_player_set_system_volume(int volume)
 {
     // 参数校验

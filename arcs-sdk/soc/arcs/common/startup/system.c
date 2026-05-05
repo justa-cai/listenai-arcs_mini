@@ -261,16 +261,18 @@ const char *reg_name[32] = {
 };
 
 static void dump_reg(uint32_t *data, size_t cnt) {
-
+    char tmp[128];
     if (cnt >= 32) {
         cnt = 32;
     }
 
     for (size_t i = 0; i < cnt; i += 4) {
-        printf("%-4s: 0x%08lx\t", reg_name[i+0], (unsigned long)data[i+0]);
-        printf("%-4s: 0x%08lx\t", reg_name[i+1], (unsigned long)data[i+1]);
-        printf("%-4s: 0x%08lx\t", reg_name[i+2], (unsigned long)data[i+2]);
-        printf("%-4s: 0x%08lx\n", reg_name[i+3], (unsigned long)data[i+3]);
+        snprintf(tmp, sizeof(tmp), "%-4s: 0x%08lx\t%-4s: 0x%08lx\t%-4s: 0x%08lx\t%-4s: 0x%08lx\n",
+                 reg_name[i+0], (unsigned long)data[i+0],
+                 reg_name[i+1], (unsigned long)data[i+1],
+                 reg_name[i+2], (unsigned long)data[i+2],
+                 reg_name[i+3], (unsigned long)data[i+3]);
+        printf("%s", tmp);
     }
 
     printf("\n");
@@ -434,7 +436,7 @@ volatile IRegion_Info_Type SystemIRegionInfo;
 
 
 ////////////////////////////////////////////////////////////////////////////////
-__attribute__((aligned (64))) void* OS_CPU_Vector_Table[IRQ_MAX] = { 0 };
+__attribute__((aligned (512))) void* OS_CPU_Vector_Table[IRQ_MAX] = { 0 };
 
 extern void default_intexc_handler(void);
 
@@ -458,7 +460,7 @@ void irq_vectors_init(void)
 void irq_vectors_reinit(void)
 {
     for (int i = 1; i < IRQ_MAX; i++) {
-        if (OS_CPU_Vector_Table[i] != default_intexc_handler) {
+        if (OS_CPU_Vector_Table[i] && OS_CPU_Vector_Table[i] != default_intexc_handler) {
             enable_IRQ(i);
         }
     }

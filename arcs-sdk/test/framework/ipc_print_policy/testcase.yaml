@@ -1,0 +1,5 @@
+tests:
+  test.framework.ipc_print_policy:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity

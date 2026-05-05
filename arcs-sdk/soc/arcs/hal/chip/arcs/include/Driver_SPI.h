@@ -292,6 +292,24 @@ SPI_Receive_DMA_Lite(void *spi_dev, void *data, uint32_t num, uint32_t no_endint
 int32_t
 SPI_Transfer(void *spi_dev, const void *data_out, void *data_in, uint32_t num);
 
+// SPI pin mode for Single/Dual/Quad and Bidirectional
+typedef enum {
+    SPI_PIN_UNIDIR_SINGLE, // Unidirectional Single SPI (MOSI, MISO separate) [default]
+    SPI_PIN_BIDIR_SINGLE,  // Bidirectional Single SPI (CS + SCLK + SDIO on MOSI)
+    SPI_PIN_DUAL,          // Dual SPI (2 data lines)
+    SPI_PIN_QUAD,          // Quad SPI (4 data lines)
+    SPI_PIN_MODE_COUNT
+} SPI_PIN_MODE;
+
+// Set SPI I/O pin mode (Single/Bidirectional/Dual/Quad)
+int32_t SPI_Set_Pin_Mode(void *spi_dev, SPI_PIN_MODE pin_mode);
+
+// Half-duplex polling: write data_out (num_out items), then read data_in (num_in items),
+// with optional dummy cycles in between. Ported from vegah driver.
+int32_t
+SPI_TxRx_Polling(void *spi_dev, const void *data_out, uint32_t num_out,
+                 void *data_in, uint32_t num_in, uint8_t interval_dummy_cnt);
+
 // Experimental API: SPI_Transfer_NEnd
 // Duplex-Transfering data continuously without triggering ENDINT interrupt (when CS signal is raised up)
 int32_t

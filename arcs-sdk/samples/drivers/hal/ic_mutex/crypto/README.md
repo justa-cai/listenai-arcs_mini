@@ -28,47 +28,33 @@
 
 ## 🚀 快速开始
 
-### 1. 构建 AP 核固件
+### 1. 构建双核固件
 
 在 SDK 根目录执行构建命令：
 
 ```bash
-./build.sh -S samples/drivers/hal/ic_mutex/crypto/ap
+./build.sh -S samples/drivers/hal/ic_mutex/crypto
 ```
 
-构建成功后，会在 `ap/build` 目录下生成 `ap.bin` 文件。
+构建成功后，会在 `build/` 目录下生成 CP 核镜像，并在 `build/remote/` 目录下生成 AP 核镜像。
 
-### 3. 烧录 AP 核固件
+### 2. 烧录 AP 核固件
 
 ```shell
-cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/ap.bin -C arcs
+cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/remote/ic_mutex_crypto_ap.bin -C arcs
 ```
 
-### 2. 构建 CP 核固件
-
-在 SDK 根目录执行构建命令：
-
-```bash
-./build.sh -S samples/drivers/hal/ic_mutex/crypto/cp
-```
-
-构建成功后，会在 `cp/build` 目录下生成 `helloworld.bin` 文件。
-
-```shell
-cskburn -s /dev/ttyUSB0 -b 3000000 0xd00000 build/helloworld.bin -C arcs
-```
-
-### 4. 烧录 CP 核固件
+### 3. 烧录 CP 核固件
 
 将 CP 核固件烧录到 flash 的 0xd00000 位置：
 
 ```bash
-cskburn -s /dev/ttyUSB0 -b 3000000 0xd00000 cp/build/arcs.bin
+cskburn -s /dev/ttyUSB0 -b 3000000 0xd00000 build/ic_mutex_crypto_cp.bin -C arcs
 ```
 
 > 💡 详细烧录步骤请参考 {ref}`快速开始 - 烧录运行 <flashing>`。
 
-### 5. 查看输出
+### 4. 查看输出
 
 烧录完成后，复位开发板，需要连接两个串口分别查看 AP 核和 CP 核的日志输出。
 
@@ -76,7 +62,7 @@ cskburn -s /dev/ttyUSB0 -b 3000000 0xd00000 cp/build/arcs.bin
 
 ### 项目配置
 
-AP 核在 `ap/prj.conf` 中配置：
+AP 核在 `remote/prj.conf` 中配置：
 
 ```conf
 CONFIG_MEM_CONFIG=y
@@ -104,8 +90,8 @@ CONFIG_IPC_LSF=y                   # LSF 核间通信
 
 | 核心 | 烧录地址 | 固件文件 |
 |------|----------|----------|
-| AP 核 | 0x0 | ap/build/ap.bin |
-| CP 核 | 0xd00000 | cp/build/helloworld.bin |
+| AP 核 | 0x0 | build/remote/ic_mutex_crypto_ap.bin |
+| CP 核 | 0xd00000 | build/ic_mutex_crypto_cp.bin |
 
 ## 📋 代码解析
 

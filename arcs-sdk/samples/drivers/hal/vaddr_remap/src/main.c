@@ -30,17 +30,12 @@ int main(void)
 {
     entry_fn fw_entry = (entry_fn)VADDR_REGION_A_BASE;
 
-    printf("\r\n=== vaddr_remap sample: %s ===\r\n\r\n",
-           CONFIG_VADDR_REMAP_SAMPLE_BOOT_VARIANT_NAME);
-
     setup_flash_mapping();
 
 #if CONFIG_VADDR_REMAP_SAMPLE_BOOT_FW_IN_CP
-    printf("Boot CP from Region A (0x%08lX)\r\n", (unsigned long)VADDR_REGION_A_BASE);
     IP_CMN_SYS->REG_N300_CP_RST_ADDR.all = VADDR_REGION_A_BASE;
     IP_SYSCTRL->REG_SW_RESET_CP0.all = 0xCAFE000A;
 #else
-    printf("Boot AP from Region A (0x%08lX)\r\n", (unsigned long)VADDR_REGION_A_BASE);
     fw_entry();
 #endif
 

@@ -17,7 +17,7 @@ exclude_dirs=
 
 #files want to build: eg. CSRCS=a.c  CPPSRCS=b.cpp  SSRCS=c.S
 
-CSRCS	= $(wildcard *.c)
+CSRCS	= ls_utils.c
 CPPSRCS	=
 SSRCS	=
 

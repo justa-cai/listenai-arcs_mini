@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
 
 #define TAG "info_presenter"
 
@@ -9,15 +10,63 @@
 #include "info_view.h"
 #include "model_qrcode.h"
 
+#ifdef LISA_UI_PLATFORM_ARCS
+#include "sys_network_manager.h"
+#endif
+
 struct info_nav_scr_data {
     lv_obj_t *view;          /**< Info view object */
     lv_timer_t *auto_return; /**< Auto return timer */
     lv_timer_t *retry_qr;    /**< QR data retry timer */
+    lv_timer_t *guard_timer; /**< Provisioning guard timer */
+    bool provision_locked;   /**< Whether provisioning page is currently forced */
 };
+
+static void auto_return_timer_cb(lv_timer_t *timer);
+
+static bool info_should_force_provision_page(void)
+{
+#ifdef LISA_UI_PLATFORM_ARCS
+    sys_network_status_t status;
+
+    return sys_network_get_status(&status) == 0 && status.wifi_provision_required;
+#else
+    return false;
+#endif
+}
+
+static void info_auto_return_start(struct info_nav_scr_data *scr_data)
+{
+    if (!scr_data || scr_data->auto_return) {
+        return;
+    }
+
+#ifdef CONFIG_BOARD_ARCS_MINI
+    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 30000, scr_data);
+#else
+    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 10000, scr_data);
+#endif
+    if (scr_data->auto_return) {
+        lv_timer_set_repeat_count(scr_data->auto_return, 1);
+    }
+}
 
 static void auto_return_timer_cb(lv_timer_t *timer)
 {
+    struct info_nav_scr_data *scr_data = (struct info_nav_scr_data *)timer->user_data;
+
     LISA_UI_LOGD("Auto return timer triggered");
+
+    /* repeat_count=1，LVGL 会在本回调返回后自动释放 timer，
+     * 提前清空指针避免 close 时 double-free */
+    if (scr_data) {
+        scr_data->auto_return = NULL;
+    }
+
+    if (info_should_force_provision_page()) {
+        LISA_UI_LOGI("Provisioning page is locked, skip auto return");
+        return;
+    }
 
     lisa_ui_nav_scr_nav_back();
 }
@@ -47,6 +96,22 @@ static void retry_qr_timer_cb(lv_timer_t *timer)
     } else {
         LISA_UI_LOGE("Failed to get QR data on retry, will retry again");
     }
+}
+
+static void guard_timer_cb(lv_timer_t *timer)
+{
+    struct info_nav_scr_data *scr_data = (struct info_nav_scr_data *)timer->user_data;
+
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+    if (info_should_force_provision_page()) {
+        return;
+    }
+
+    scr_data->provision_locked = false;
+    lisa_ui_nav_scr_nav_back();
 }
 
 static int info_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
@@ -83,12 +148,13 @@ static int info_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
         LISA_UI_LOGE("Failed to get QR data from model");
     }
 
-#ifdef CONFIG_BOARD_ARCS_MINI
-    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 30000, NULL);
-#else // !CONFIG_BOARD_ARCS_MINI
-    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 10000, NULL);
-#endif
-    lv_timer_set_repeat_count(scr_data->auto_return, 1);
+    scr_data->provision_locked = info_should_force_provision_page();
+
+    if (scr_data->provision_locked) {
+        scr_data->guard_timer = lv_timer_create(guard_timer_cb, 1000, scr_data);
+    } else {
+        info_auto_return_start(scr_data);
+    }
 
     *data = scr_data;
     return 0;
@@ -147,6 +213,11 @@ static int info_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *data)
         if (scr_data->retry_qr) {
             lv_timer_del(scr_data->retry_qr);
             scr_data->retry_qr = NULL;
+        }
+
+        if (scr_data->guard_timer) {
+            lv_timer_del(scr_data->guard_timer);
+            scr_data->guard_timer = NULL;
         }
 
         if (scr_data->view) {

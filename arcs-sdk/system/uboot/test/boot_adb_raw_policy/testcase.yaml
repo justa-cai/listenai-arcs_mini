@@ -1,0 +1,5 @@
+tests:
+  test.boot_adb_raw_policy:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"

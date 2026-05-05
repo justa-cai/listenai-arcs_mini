@@ -19,9 +19,59 @@
 
 #include "lisa_log.h"
 
+#if CONFIG_ADB_SHELL_EARLY_LOG
+#include "sysheap.h"
+#include "sys_init.h"
+#endif
+
 #define ETX 0x03 /* ctrl+c */
 
 static struct adb_service *curr_service = NULL;
+
+/* ---- Early boot log caching ---- */
+#if CONFIG_ADB_SHELL_EARLY_LOG
+
+static struct {
+    uint8_t *buf;
+    uint32_t size;
+    uint32_t write_pos;
+    uint32_t dropped;
+    bool active;
+} early_log;
+
+static void early_log_output(const uint8_t *log, uint32_t len, void *data)
+{
+    if (!early_log.active || !early_log.buf) {
+        return;
+    }
+
+    UBaseType_t uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();
+    uint32_t remaining = early_log.size - early_log.write_pos;
+    if (len <= remaining) {
+        memcpy(early_log.buf + early_log.write_pos, log, len);
+        early_log.write_pos += len;
+    } else {
+        early_log.dropped++;
+    }
+    taskEXIT_CRITICAL_FROM_ISR(uxSavedInterruptStatus);
+}
+
+static int early_log_backend_init(void)
+{
+    early_log.buf = psram_malloc(CONFIG_ADB_SHELL_EARLY_LOG_SIZE);
+    if (!early_log.buf) {
+        return -1;
+    }
+    early_log.size = CONFIG_ADB_SHELL_EARLY_LOG_SIZE;
+    early_log.write_pos = 0;
+    early_log.dropped = 0;
+    early_log.active = true;
+    lisa_log_backend_add("early_log", early_log_output, NULL);
+    return 0;
+}
+SYS_INIT(early_log_backend_init, SYS_INIT_LEVEL_PRE_DEVICES_INIT, 0);
+
+#endif /* CONFIG_ADB_SHELL_EARLY_LOG */
 
 struct adb_shell_context {
     Shell sh;
@@ -44,6 +94,82 @@ static void adb_shell_log_output(const uint8_t *log, uint32_t len, void *data)
 
     shellWriteEndLine(&ctx->sh, (char *)log, len);
 }
+
+/* ---- Early log flush (called after adb_shell backend is registered) ---- */
+#if CONFIG_ADB_SHELL_EARLY_LOG
+
+/*
+ * Drain tx_stream manually since shell_task's main loop is not running
+ * during flush. Without this, tx_stream (CONFIG_ADB_SHELL_BUFFER_SIZE)
+ * fills up and xStreamBufferSend with timeout 0 silently drops data.
+ */
+static void early_log_drain_tx(struct adb_shell_context *ctx)
+{
+    size_t len = xStreamBufferBytesAvailable(ctx->tx_stream);
+    while (len > 0) {
+        uint8_t *data = ADB_MALLOC(len);
+        if (data == NULL) {
+            break;
+        }
+        size_t received = xStreamBufferReceive(ctx->tx_stream, data, len, 0);
+        if (received > 0) {
+            adb_service_write_remote(ctx->s, data, received);
+        }
+        ADB_FREE(data);
+        len = xStreamBufferBytesAvailable(ctx->tx_stream);
+    }
+}
+
+static void early_log_flush(void)
+{
+    if (!early_log.buf || curr_service == NULL || curr_service->data == NULL) {
+        return;
+    }
+
+    struct adb_shell_context *ctx = curr_service->data;
+
+    /* Remove early_log backend to stop caching */
+    lisa_log_backend_remove("early_log");
+    early_log.active = false;
+
+    /* Pause adb_shell backend to prevent new logs interleaving with cached logs */
+    lisa_log_backend_pause("adb_shell");
+
+    /* Output header */
+    char header[80];
+    int hlen = snprintf(header, sizeof(header),
+        "--- early boot log (%lu messages dropped) ---\r\n",
+        (unsigned long)early_log.dropped);
+    adb_shell_log_output((const uint8_t *)header, hlen, NULL);
+    early_log_drain_tx(ctx);
+
+    /* Output cached content in chunks, drain tx_stream between chunks */
+    uint32_t offset = 0;
+    while (offset < early_log.write_pos) {
+        uint32_t chunk = early_log.write_pos - offset;
+        if (chunk > 256) {
+            chunk = 256;
+        }
+        adb_shell_log_output(early_log.buf + offset, chunk, NULL);
+        offset += chunk;
+        early_log_drain_tx(ctx);
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+
+    /* Output footer */
+    const char *footer = "--- end of early boot log ---\r\n";
+    adb_shell_log_output((const uint8_t *)footer, strlen(footer), NULL);
+    early_log_drain_tx(ctx);
+
+    /* Resume adb_shell backend for normal real-time logging */
+    lisa_log_backend_resume("adb_shell");
+
+    /* Free buffer */
+    psram_free(early_log.buf);
+    early_log.buf = NULL;
+}
+
+#endif /* CONFIG_ADB_SHELL_EARLY_LOG */
 
 static signed short shell_write(char *data, unsigned short size)
 {
@@ -85,6 +211,10 @@ static void shell_task(void *arg)
     ADB_LOGD("shell init done\n");
 
     lisa_log_backend_add("adb_shell", adb_shell_log_output, NULL);
+
+#if CONFIG_ADB_SHELL_EARLY_LOG
+    early_log_flush();
+#endif
 
     uint8_t ch;
     while (!ctx->closing) {
@@ -260,6 +390,15 @@ static int adb_shell_write_datas(const char *data, int size)
     }
 
     return size;
+}
+
+void adb_shell_flush(void)
+{
+    if (curr_service == NULL || curr_service->data == NULL) {
+        return;
+    }
+
+    shell_task_flush_tx(curr_service->data);
 }
 
 static int adb_shell_write(struct adb_service *s, adb_packet_t *p)

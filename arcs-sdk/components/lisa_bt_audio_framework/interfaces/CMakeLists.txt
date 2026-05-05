@@ -9,6 +9,8 @@ listenai_library_sources(
 if(CONFIG_LISA_BT_AUDIO_INTERFACE_LOCAL)
     listenai_library_sources(
         lisa_audio_interface.c
+        lisa_audio_resampler.c
+        lisa_audio_playback_resample.c
     )
 endif()
 

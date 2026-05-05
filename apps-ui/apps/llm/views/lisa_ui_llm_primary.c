@@ -8,8 +8,10 @@
 #include "lisa_ui_fonts.h"
 #include "lisa_ui_anim_ext.h"
 
-LV_IMG_DECLARE(icons_ic_status_full_duplex_png);
+LV_IMG_DECLARE(icons_ic_status_duplex_interruptible_png);
+LV_IMG_DECLARE(icons_ic_status_duplex_non_interruptible_png);
 LV_IMG_DECLARE(icons_ic_status_alarm_png);
+LV_IMG_DECLARE(icons_icon_finger_png);
 
 static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
 
@@ -83,6 +85,10 @@ static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p,
     // 创建图片提示文本标签（覆盖在图片下方，默认隐藏）
     llm_primary->img_hint = lv_label_create(obj);
 
+    // 创建左下角操作提示图标和文本（默认隐藏）
+    llm_primary->finger_hint_icon = lv_img_create(obj);
+    llm_primary->finger_hint_label = lv_label_create(obj);
+
     // 创建内容文本容器（下半部分）
     llm_primary->content_container = lv_obj_create(container);
 
@@ -115,8 +121,8 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_align(llm_primary->wifi_icon, LV_ALIGN_LEFT_MID, 0, 0);
 
     // 设置交互模式图标（默认隐藏）
-    lv_img_set_src(llm_primary->full_duplex_icon, &icons_ic_status_full_duplex_png);
-    lv_obj_align(llm_primary->full_duplex_icon, LV_ALIGN_LEFT_MID, 20, 0);
+    lv_img_set_src(llm_primary->full_duplex_icon, &icons_ic_status_duplex_interruptible_png);
+    lv_obj_align(llm_primary->full_duplex_icon, LV_ALIGN_LEFT_MID, 26, 0);
     lv_obj_add_flag(llm_primary->full_duplex_icon, LV_OBJ_FLAG_HIDDEN);
 
     // 设置闹钟图标（默认隐藏）
@@ -177,6 +183,23 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_add_flag(llm_primary->img_hint, LV_OBJ_FLAG_IGNORE_LAYOUT);
     lv_obj_align(llm_primary->img_hint, LV_ALIGN_BOTTOM_MID, 0, -5);
     lv_obj_move_foreground(llm_primary->img_hint);
+
+    lv_img_set_src(llm_primary->finger_hint_icon, &icons_icon_finger_png);
+    lv_obj_add_flag(llm_primary->finger_hint_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->finger_hint_icon, LV_OBJ_FLAG_IGNORE_LAYOUT | LV_OBJ_FLAG_FLOATING);
+    lv_obj_align(llm_primary->finger_hint_icon, LV_ALIGN_BOTTOM_LEFT, 0, -10);
+    lv_obj_move_foreground(llm_primary->finger_hint_icon);
+
+    lv_label_set_text(llm_primary->finger_hint_label, "");
+    lv_obj_set_style_text_color(llm_primary->finger_hint_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
+    lv_obj_set_style_text_font(llm_primary->finger_hint_label, &lv_font_chinese_16, LV_PART_MAIN);
+    lv_obj_set_style_text_align(llm_primary->finger_hint_label, LV_TEXT_ALIGN_LEFT, LV_PART_MAIN);
+    lv_obj_set_width(llm_primary->finger_hint_label, LV_PCT(70));
+    lv_label_set_long_mode(llm_primary->finger_hint_label, LV_LABEL_LONG_WRAP);
+    lv_obj_add_flag(llm_primary->finger_hint_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->finger_hint_label, LV_OBJ_FLAG_IGNORE_LAYOUT | LV_OBJ_FLAG_FLOATING);
+    lv_obj_align_to(llm_primary->finger_hint_label, llm_primary->finger_hint_icon, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
+    lv_obj_move_foreground(llm_primary->finger_hint_label);
 
     // 设置内容文本容器
     lv_obj_set_style_bg_opa(llm_primary->content_container, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -354,6 +377,20 @@ void lisa_ui_llm_primary_set_full_duplex_icon_visible(lv_obj_t *obj, bool visibl
     }
 }
 
+void lisa_ui_llm_primary_set_full_duplex_icon_img(lv_obj_t *obj, const void *img_path)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (!llm_primary->full_duplex_icon || !img_path) {
+        return;
+    }
+
+    lv_img_set_src(llm_primary->full_duplex_icon, img_path);
+}
+
 void lisa_ui_llm_primary_set_alarm_icon_visible(lv_obj_t *obj, bool visible)
 {
     if (!lisa_ui_llm_primary_is_valid(obj)) {
@@ -424,6 +461,8 @@ void lisa_ui_llm_primary_img_hide(lv_obj_t *obj)
 
     lv_obj_add_flag(llm_primary->img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(llm_primary->img_hint, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->finger_hint_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->finger_hint_label, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_clear_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_HIDDEN);
 #ifndef CONFIG_BOARD_ARCS_MINI_DOLL_V2
@@ -438,9 +477,6 @@ void lisa_ui_llm_primary_img_show(lv_obj_t *obj, void *img)
 
     if (llm_primary->img_hint) {
         lv_obj_add_flag(llm_primary->img_hint, LV_OBJ_FLAG_HIDDEN);
-    }
-    if (llm_primary->content_label) {
-        lv_textarea_set_text(llm_primary->content_label, "");
     }
 
     lv_img_set_src(llm_primary->img, img);
@@ -499,4 +535,39 @@ void lisa_ui_llm_primary_img_hint_hide(lv_obj_t *obj)
     }
 
     lv_obj_add_flag(llm_primary->img_hint, LV_OBJ_FLAG_HIDDEN);
+}
+
+void lisa_ui_llm_primary_finger_hint_show(lv_obj_t *obj, const char *text)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (!llm_primary->finger_hint_icon || !llm_primary->finger_hint_label) {
+        return;
+    }
+
+    lv_label_set_text(llm_primary->finger_hint_label, text ? text : "");
+    lv_obj_align(llm_primary->finger_hint_icon, LV_ALIGN_BOTTOM_LEFT, 0, -10);
+    lv_obj_align_to(llm_primary->finger_hint_label, llm_primary->finger_hint_icon, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
+    lv_obj_move_foreground(llm_primary->finger_hint_icon);
+    lv_obj_move_foreground(llm_primary->finger_hint_label);
+    lv_obj_clear_flag(llm_primary->finger_hint_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(llm_primary->finger_hint_label, LV_OBJ_FLAG_HIDDEN);
+}
+
+void lisa_ui_llm_primary_finger_hint_hide(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (!llm_primary->finger_hint_icon || !llm_primary->finger_hint_label) {
+        return;
+    }
+
+    lv_obj_add_flag(llm_primary->finger_hint_icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(llm_primary->finger_hint_label, LV_OBJ_FLAG_HIDDEN);
 }

@@ -12,7 +12,7 @@
 
 1. 初始化 RTC 设备
 2. 设置当前时间为 2025-01-15 12:00:00
-3. 配置闹钟在 12:00:10 触发（10秒后）
+3. 配置闹钟在 12:00:03 触发（3秒后）
 4. 注册事件回调函数
 5. 等待闹钟触发
 
@@ -34,14 +34,12 @@
 === LISA RTC alarm example ===
 rtc0 device ready
 RTC time set: 2025-01-15 12:00:00
-Alarm set: 12:00:10
+Alarm set after 3 s -> 12:00:03
 Alarm enabled, waiting for trigger...
 Current time: 2025-01-15 12:00:00
 Current time: 2025-01-15 12:00:01
 Current time: 2025-01-15 12:00:02
-...
-Current time: 2025-01-15 12:00:09
-Current time: 2025-01-15 12:00:10
+Current time: 2025-01-15 12:00:03
 Alarm triggered!
 Alarm test completed!
 ```
@@ -50,7 +48,7 @@ Alarm test completed!
 
 - **设备名称**: rtc0
 - **初始时间**: 2025-01-15 Wednesday 12:00:00
-- **闹钟时间**: 12:00:10 (10秒后)
+- **闹钟时间**: 12:00:03 (3秒后)
 - **闹钟匹配**: 支持年/月/日/时/分/秒多级匹配
 
 ## 核心 API
@@ -62,7 +60,7 @@ Alarm test completed!
 | `lisa_rtc_get_time()` | 读取 RTC 当前时间 |
 | `lisa_rtc_set_alarm()` | 设置闹钟时间 |
 | `lisa_rtc_set_callback()` | 注册闹钟事件回调函数 |
-| `lisa_rtc_alarm_enable()` | 使能闹钟 |
+| `lisa_rtc_enable_alarm()` | 使能闹钟 |
 
 ## 关键代码
 
@@ -77,13 +75,32 @@ lisa_rtc_time_t time = {
 };
 lisa_rtc_set_time(rtc_dev, &time);
 
-/* 设置闹钟（10秒后） */
+static volatile bool alarm_triggered = false;
+
+static void alarm_callback(uint32_t event, void *user_data)
+{
+    (void)user_data;
+
+    if (event & LISA_RTC_EVENT_ALARM) {
+        printf("Alarm triggered!\n");
+        alarm_triggered = true;
+    }
+}
+
+/* 设置闹钟（3秒后） */
 lisa_rtc_alarm_t alarm = {
-    .hour = 12, .minute = 0, .second = 10,
+    .year = 25, .month = 1, .day = 15,
+    .hour = 12, .minute = 0, .second = 3,
 };
 lisa_rtc_set_alarm(rtc_dev, 0, &alarm);
 lisa_rtc_set_callback(rtc_dev, alarm_callback, NULL);
-lisa_rtc_alarm_enable(rtc_dev, 0);
+lisa_rtc_enable_alarm(rtc_dev, 0, true);
+
+while (!alarm_triggered) {
+    /* 等待中断回调置位标志 */
+}
+
+printf("Alarm triggered!\n");
 ```
 
 ## 注意事项
@@ -95,4 +112,3 @@ lisa_rtc_alarm_enable(rtc_dev, 0);
 2. **年份范围**: 0-127
 3. **中断回调**: 回调在中断上下文中执行，应保持简短
 4. **闹钟ID**: 当前仅支持 1 个闹钟，ID 固定为 0
-

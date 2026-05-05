@@ -49,13 +49,6 @@ extern void vPortExitCritical(void);
 
 static int32_t UART_check_idle(pm_mode_t mode);
 
-static pm_peripheral_dev_t uart_pm_dev =
-{
-    .name = "uart",
-    .pm_suspend = NULL,
-    .pm_resume  = NULL,
-    .pm_check_idle = UART_check_idle
-};
 struct uart_pm_info_t
 {
     int32_t state;
@@ -305,7 +298,14 @@ CSK_DRIVER_VERSION UART_GetVersion(void)
 
 int32_t UART_Initialize(void *res, CSK_UART_SignalEvent_t cb_event, void* workspace)
 {
-
+#if CONFIG_PM && CONFIG_PM_UART_WAKEUP
+    pm_handler_ops_t uart_pm_dev = {
+                .check_idle = UART_check_idle,
+                .on_enter = NULL,
+                .on_exit  = NULL,
+                .on_wake  = NULL,
+    };
+#endif
     CHECK_RESOURCES(res);
 
     UART_RESOURCES* uart = (UART_RESOURCES*)res;
@@ -345,7 +345,7 @@ int32_t UART_Initialize(void *res, CSK_UART_SignalEvent_t cb_event, void* worksp
 
     uart->info->flags = UART_FLAG_INITIALIZED;
 #if CONFIG_PM && CONFIG_PM_UART_WAKEUP
-    pm_peripheral_register(&uart_pm_dev);
+    pm_device_register(PM_DEV_ID_UART, &uart_pm_dev);
 #endif
 
     return CSK_DRIVER_OK;

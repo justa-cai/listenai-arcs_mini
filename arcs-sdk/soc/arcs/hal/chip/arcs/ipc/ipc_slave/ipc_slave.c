@@ -34,7 +34,9 @@
 #ifdef CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S
 #include "mrpc_utils_m2s_api_server.h"
 #endif
+#ifdef CONFIG_PM
 #include "pm_impl.h"
+#endif
 #include "vrtc.h"
 
 static struct ipc_ccb *slave_msg_ccb;
@@ -46,6 +48,11 @@ static struct ipc_ccb *master_fast_ccb;
 static struct ipc_slave_env_tag ipc_slave_env;
 struct ipc_shared_env_tag ipc_shared_env __SHAREDRAM_AMP_IPC_ENV;
 
+#if defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT)
+extern int32_t ipc_dbg_output(char *string, int32_t len);
+#endif
+
+int32_t ipc_slave_print(char *string, int32_t len);
 
 static int32_t ipc_slave_fast_notify_handler(void *ccb, void *fast_notify)
 {
@@ -97,32 +104,68 @@ int32_t ipc_slave_msg_push(uint32_t chan, uint32_t ep_idx, int32_t len, void *da
     return ret;
 }
 
-void ipc_slave_printf(char *string, int32_t len)
+static int32_t ipc_slave_print_msg(char *string, int32_t len)
 {
-    uint16_t size = 0;
-    struct ipc_msg_hdr *msg;
     struct ipc_msg_desc desc;
 
-    msg = (struct ipc_msg_hdr*)ipc_get_tbuffer(master_msg_ccb, &size, IPC_TIMEOUT);
-    if (msg)
-    {
-        msg->id  = IPC_IND_PRINT;
-        msg->len = (len + 1) > size ? size : (len + 1);
-        if ((len + 1) > size)
-        {
-            string[size - 3] = '*';
-            string[size - 2] = '\n';
-            string[size - 1] = 0;
-        }
-        memcpy(msg->data, string, msg->len);
+    int32_t offset = 0;
 
-        desc.hdr.dst_id = ipc_get_eid(IPC_CHAN_MASTER_MSG, IPC_EP_IND);
-        desc.hdr.src_id = ipc_get_eid(IPC_CHAN_SLAVE_MSG, IPC_EP_IND);
+    if ((string == NULL) || (len <= 0))
+        return -1;
+
+    if (master_msg_ccb == NULL)
+        return -1;
+
+    desc.hdr.dst_id = ipc_get_eid(IPC_CHAN_MASTER_MSG, IPC_EP_IND);
+    desc.hdr.src_id = ipc_get_eid(IPC_CHAN_SLAVE_MSG, IPC_EP_IND);
+
+    while (offset < len)
+    {
+        uint16_t size = 0;
+        uint16_t payload_size;
+        uint16_t copy_len;
+        struct ipc_msg_hdr *msg;
+
+        msg = (struct ipc_msg_hdr*)ipc_get_tbuffer(master_msg_ccb, &size, IPC_TIMEOUT);
+        if ((msg == NULL) || (size <= (sizeof(struct ipc_msg_hdr) + 1)))
+            return -1;
+
+        payload_size = size - sizeof(struct ipc_msg_hdr) - 1;
+        copy_len = (uint16_t)(len - offset);
+        if (copy_len > payload_size)
+            copy_len = payload_size;
+
+        msg->id = IPC_IND_PRINT;
+        memcpy(msg->data, string + offset, copy_len);
+        ((char*)msg->data)[copy_len] = 0;
+        msg->len = copy_len + 1;
+
         desc.hdr.data_len = sizeof(struct ipc_msg_hdr) + msg->len;
         desc.data = msg;
-
         ipc_send_tbuffer(master_msg_ccb, &desc);
+
+        offset += copy_len;
     }
+
+    return 0;
+}
+
+void ipc_slave_printf(char *string, int32_t len)
+{
+    (void)ipc_slave_print(string, len);
+}
+
+int32_t ipc_slave_print(char *string, int32_t len)
+{
+    if ((string == NULL) || (len <= 0))
+        return -1;
+
+#if defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT)
+    if (ipc_dbg_output(string, len) == 0)
+        return 0;
+#endif
+
+    return ipc_slave_print_msg(string, len);
 }
 
 void ipc_slave_putchar(char c)

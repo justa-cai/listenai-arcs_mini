@@ -5,6 +5,7 @@
  */
 
 #include <string.h>
+#include <stdio.h>
 #include "lisa_device.h"
 #include "lisa_display.h"
 #include "lisa_display_panel.h"
@@ -18,13 +19,15 @@
 #define LOG_TAG "lisa_display"
 #include <lisa_log.h>
 
-typedef struct {
+/* 前向声明静态变量（用于锁共享判断）*/
+typedef struct lisa_display_priv lisa_display_priv_t;
+
+struct lisa_display_priv {
     lisa_mutex_t *mutex;
     lisa_display_panel_t *panel;
     lisa_device_t *te_gpio;
     uint32_t te_pin;
     lisa_semaphore_t *te_sync_sem;
-
 #if CONFIG_LISA_DISPLAY_COMPOSITE
     void (*composite_activate)(int disp_idx);
     void (*composite_deactivate)(int disp_idx);
@@ -32,7 +35,14 @@ typedef struct {
     lisa_display_capabilities_t composite_caps;
     uint8_t *composite_buf;
 #endif
-} lisa_display_priv_t;
+    uint8_t display_inst;
+};
+
+/* 静态变量前向声明 */
+static lisa_display_priv_t arcs_display_priv0;
+#ifdef CONFIG_LISA_DUAL_DISPLAY
+static lisa_display_priv_t arcs_display_priv1;
+#endif
 
 #define DEVICE_LOCK(priv) if ((priv)->mutex) { lisa_mutex_lock((priv)->mutex, LISA_OS_WAIT_FOREVER); }
 #define DEVICE_UNLOCK(priv) if ((priv)->mutex) { lisa_mutex_unlock((priv)->mutex); }
@@ -70,9 +80,57 @@ static void arcs_configure_te(lisa_display_priv_t *priv)
         return;
     }
 
-	lisa_gpio_configure(priv->te_gpio, priv->te_pin, LISA_GPIO_INPUT);
+    lisa_gpio_configure(priv->te_gpio, priv->te_pin, LISA_GPIO_INPUT);
     lisa_gpio_configure_irq(priv->te_gpio, priv->te_pin, LISA_GPIO_IRQ_EDGE_RISING, te_gpio_irq_handler, priv);
     lisa_gpio_enable_irq(priv->te_gpio, priv->te_pin);
+}
+
+static lisa_device_t *arcs_get_bus_hw_ref(const lisa_display_config_t *config)
+{
+    switch (config->bus_type) {
+    case LISA_DISPLAY_BUS_SPI_4WIRE:
+        return config->bus_config.spi_4wire.spi_dev;
+    case LISA_DISPLAY_BUS_QSPI:
+        return config->bus_config.qspi.qspi_dev;
+    case LISA_DISPLAY_BUS_RGB:
+        return config->bus_config.rgb.rgb_dev;
+    default:
+        return NULL;
+    }
+}
+
+static const char *arcs_get_default_panel_name(void)
+{
+#if defined(CONFIG_LISA_DISPLAY_PANEL_ST7789P3)
+    return "st7789p3";
+#elif defined(CONFIG_LISA_DISPLAY_PANEL_AXS15231B)
+    return "axs15231b";
+#elif defined(CONFIG_LISA_DISPLAY_PANEL_ST7701S)
+    return "st7701s";
+#elif defined(CONFIG_LISA_DISPLAY_PANEL_NV3030B)
+    return "nv3030b";
+#else
+    return NULL;
+#endif
+}
+
+static void arcs_reset_attached_panel(lisa_display_panel_t *panel)
+{
+    if (!panel) {
+        return;
+    }
+
+    panel->panel_dev = NULL;
+    panel->bus_dev = NULL;
+    panel->cmd_bus_dev = NULL;
+    panel->bus_hw_ref = NULL;
+    panel->rst_gpio = NULL;
+    panel->rst_pin = 0;
+    memset(&panel->backlight, 0, sizeof(panel->backlight));
+    memset(&panel->caps, 0, sizeof(panel->caps));
+    panel->bus_mutex = NULL;
+    panel->bus_mutex_owner = false;
+    panel->priv_data = NULL;
 }
 
 static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t *config)
@@ -86,14 +144,37 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
     lisa_display_priv_t *priv = (lisa_display_priv_t *)dev->priv_data;
     lisa_display_panel_t *panel = priv->panel;
 
+    const char *panel_name = config->panel_name ? config->panel_name : arcs_get_default_panel_name();
+    if (!config->panel_name) {
+        if (!panel_name) {
+            LISA_LOGE(LOG_TAG, "Panel name is NULL and no single-panel default is available");
+            return LISA_DEVICE_ERR_INVALID;
+        }
+        LISA_LOGI(LOG_TAG, "Panel name not specified, fallback to single-panel default: %s", panel_name);
+    }
+
+    lisa_device_t *panel_dev = lisa_device_get(panel_name);
+    if (!panel_dev) {
+        LISA_LOGE(LOG_TAG, "Failed to get panel device: %s", panel_name);
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    panel->panel_dev = panel_dev;
+
     lisa_device_t *bus_dev = NULL;
+    char bus_dev_name[32];
+
     if (config->bus_type == LISA_DISPLAY_BUS_QSPI) {
+        /* QSPI 目前仍为单实例 */
         bus_dev = lisa_device_get("panel_bus_qspi");
     }
     else if (config->bus_type == LISA_DISPLAY_BUS_SPI_4WIRE) {
-        bus_dev = lisa_device_get("panel_bus_spi_4wire");
+        /* SPI 4-wire 支持多实例: panel_bus_spi_4wire_0, panel_bus_spi_4wire_1, ... */
+        snprintf(bus_dev_name, sizeof(bus_dev_name), "panel_bus_spi_4wire_%d", priv->display_inst);
+        bus_dev = lisa_device_get(bus_dev_name);
     }
     else if (config->bus_type == LISA_DISPLAY_BUS_RGB) {
+        /* RGB 目前仍为单实例 */
         bus_dev = lisa_device_get("panel_bus_rgb");
     }
     else {
@@ -107,13 +188,16 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
     }
 
     panel->bus_dev = bus_dev;
+    panel->bus_hw_ref = arcs_get_bus_hw_ref(config);
     lisa_display_bus_api_t *bus_api = (lisa_display_bus_api_t *)bus_dev->api;
     if (!bus_api || !bus_api->attach) {
+        arcs_reset_attached_panel(panel);
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
     lisa_display_panel_driver_t *driver = (lisa_display_panel_driver_t *)panel->panel_dev->api;
     if (!driver) {
+        arcs_reset_attached_panel(panel);
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
@@ -145,12 +229,14 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
             cmd_bus_dev = lisa_device_get("cmd_bus_sw_spi");
             if (!cmd_bus_dev) {
                 LOGE("Failed to get cmd bus device");
+                arcs_reset_attached_panel(panel);
                 return LISA_DEVICE_ERR_INIT_FAIL;
             }
             cmd_bus_api = (lisa_display_cmd_bus_api_t *)cmd_bus_dev->api;
             break;
         default:
             LOGE("Unsupported cmd_bus_type: %d", config->cmd_bus_type);
+            arcs_reset_attached_panel(panel);
             return LISA_DEVICE_ERR_NOT_SUPPORT;
         }
 
@@ -159,6 +245,7 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
             ret = cmd_bus_api->configure(config->cmd_bus_type, &config->cmd_bus_config);
             if (ret != LISA_DEVICE_OK) {
                 LOGE("Failed to configure command bus: %d", ret);
+                arcs_reset_attached_panel(panel);
                 return ret;
             }
             /* 保存命令总线设备到 Panel（关键：自动路由依赖此指针）*/
@@ -177,10 +264,44 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
     }
 #endif
 
+    /* 初始化总线互斥锁：检查是否有其他 Panel 已使用相同的 bus_dev */
+    panel->bus_mutex = NULL;
+    panel->bus_mutex_owner = false;
+
+    /* 遍历所有已初始化的 Display 实例，查找是否共享总线 */
+    if (arcs_display_priv0.panel && arcs_display_priv0.panel != panel &&
+        arcs_display_priv0.panel->bus_hw_ref == panel->bus_hw_ref) {
+        /* 共享 display0 的总线锁 */
+        panel->bus_mutex = arcs_display_priv0.panel->bus_mutex;
+        LOGI("Sharing bus mutex with display0");
+    }
+#ifdef CONFIG_LISA_DUAL_DISPLAY
+    else if (arcs_display_priv1.panel && arcs_display_priv1.panel != panel &&
+             arcs_display_priv1.panel->bus_hw_ref == panel->bus_hw_ref) {
+        /* 共享 display1 的总线锁 */
+        panel->bus_mutex = arcs_display_priv1.panel->bus_mutex;
+        LOGI("Sharing bus mutex with display1");
+    }
+#endif
+    else {
+        /* 独立总线，创建新锁 */
+        panel->bus_mutex = lisa_mutex_create();
+        if (!panel->bus_mutex) {
+            LOGE("Failed to create bus mutex");
+            arcs_reset_attached_panel(panel);
+            return LISA_DEVICE_ERR_NO_MEM;
+        }
+        panel->bus_mutex_owner = true;
+        LOGI("Created new bus mutex for independent bus");
+    }
+
     if (config->te_gpio) {
         priv->te_sync_sem = lisa_semaphore_create(1);
         if (!priv->te_sync_sem) {
-            lisa_mem_free(panel);
+            if (panel->bus_mutex_owner) {
+                lisa_mutex_delete(panel->bus_mutex);
+            }
+            arcs_reset_attached_panel(panel);
             return LISA_DEVICE_ERR_NO_MEM;
         }
         priv->te_gpio = config->te_gpio;
@@ -205,7 +326,10 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
             panel->init_params = NULL;
             panel->init_params_len = 0;
         }
-        lisa_mem_free(panel);
+        if (panel->bus_mutex_owner) {
+            lisa_mutex_delete(panel->bus_mutex);
+        }
+        arcs_reset_attached_panel(panel);
         return ret;
     }
 
@@ -239,7 +363,10 @@ static int arcs_attach_bus(const lisa_device_t *dev, const lisa_display_config_t
                 panel->init_params = NULL;
                 panel->init_params_len = 0;
             }
-            lisa_mem_free(panel);
+            if (panel->bus_mutex_owner) {
+                lisa_mutex_delete(panel->bus_mutex);
+            }
+            arcs_reset_attached_panel(panel);
             return ret;
         }
 #endif
@@ -455,39 +582,106 @@ static int arcs_set_brightness(lisa_device_t *dev, uint8_t brightness)
     return ret;
 }
 
-static lisa_display_priv_t arcs_display_priv;
-
-static int lisa_display_device_init(void)
+/**
+ * @brief 初始化单个 Display 实例
+ * @param priv Display 私有数据指针
+ * @param inst_id 实例 ID
+ * @return LISA_DEVICE_OK 成功, 其他值失败
+ */
+static int lisa_display_init_instance(lisa_display_priv_t *priv, uint8_t inst_id)
 {
-    memset(&arcs_display_priv, 0, sizeof(arcs_display_priv));
+    if (!priv) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
 
-    lisa_device_t *panel_dev = lisa_device_get("lcd_panel");
-    if (!panel_dev) {
-        LISA_LOGE(LOG_TAG, "Failed to get panel device");
+    /* 清零私有数据结构 */
+    memset(priv, 0, sizeof(lisa_display_priv_t));
+
+    /* 创建设备级互斥锁 */
+    priv->mutex = lisa_mutex_create();
+    if (!priv->mutex) {
+        LISA_LOGE(LOG_TAG, "Failed to create mutex for display%d", inst_id);
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    arcs_display_priv.mutex = lisa_mutex_create();
-    if (!arcs_display_priv.mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create mutex");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-
-    arcs_display_priv.panel = lisa_mem_alloc(sizeof(lisa_display_panel_t));
-    if (!arcs_display_priv.panel) {
-        LISA_LOGE(LOG_TAG, "Failed to allocate memory for panel");
-        lisa_mutex_delete(arcs_display_priv.mutex);
+    /* 分配 Panel 结构体内存 */
+    priv->panel = lisa_mem_alloc(sizeof(lisa_display_panel_t));
+    if (!priv->panel) {
+        LISA_LOGE(LOG_TAG, "Failed to allocate memory for panel%d", inst_id);
+        lisa_mutex_delete(priv->mutex);
+        priv->mutex = NULL;
         return LISA_DEVICE_ERR_NO_MEM;
     }
-    memset(arcs_display_priv.panel, 0, sizeof(lisa_display_panel_t));
 
-    arcs_display_priv.panel->panel_dev = panel_dev;
+    /* 初始化实例 ID 和 Panel 结构 */
+    priv->display_inst = inst_id;
+    memset(priv->panel, 0, sizeof(lisa_display_panel_t));
 
-    panel_rotate_init();
+    LISA_LOGI(LOG_TAG, "Display instance %d initialized", inst_id);
+    return LISA_DEVICE_OK;
+}
+
+/**
+ * @brief 清理 Display 实例资源
+ * @param priv Display 私有数据指针
+ */
+static void lisa_display_cleanup_instance(lisa_display_priv_t *priv)
+{
+    if (!priv) {
+        return;
+    }
+
+    if (priv->panel) {
+        lisa_mem_free(priv->panel);
+        priv->panel = NULL;
+    }
+
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+        priv->mutex = NULL;
+    }
+}
+
+/**
+ * @brief 通用单实例初始化逻辑
+ * @param priv Display 私有数据指针
+ * @param inst_id 实例 ID
+ * @return LISA_DEVICE_OK 成功, 其他值失败
+ */
+static int lisa_display_init_by_idx(lisa_display_priv_t *priv, uint8_t inst_id)
+{
+    int ret = lisa_display_init_instance(priv, inst_id);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    ret = panel_rotate_init(priv->panel);
+    if (ret != LISA_DEVICE_OK) {
+        LISA_LOGE(LOG_TAG, "Failed to initialize rotate context for display%d", inst_id);
+        lisa_display_cleanup_instance(priv);
+        return ret;
+    }
 
     return LISA_DEVICE_OK;
 }
+
+/**
+ * @brief Display0 初始化入口
+ */
+static int lisa_display_init_0(void)
+{
+    return lisa_display_init_by_idx(&arcs_display_priv0, 0);
+}
+
+#ifdef CONFIG_LISA_DUAL_DISPLAY
+/**
+ * @brief Display1 初始化入口
+ */
+static int lisa_display_init_1(void)
+{
+    return lisa_display_init_by_idx(&arcs_display_priv1, 1);
+}
+#endif
 
 static const lisa_display_api_t arcs_display_api = {
     .write            = arcs_display_write,
@@ -499,4 +693,10 @@ static const lisa_display_api_t arcs_display_api = {
     .set_orientation  = arcs_set_orientation,
 };
 
-LISA_DEVICE_REGISTER(display, &arcs_display_api, &arcs_display_priv, NULL, lisa_display_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+
+LISA_DEVICE_REGISTER(display, &arcs_display_api, &arcs_display_priv0, NULL, lisa_display_init_0, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+
+#ifdef CONFIG_LISA_DUAL_DISPLAY
+LISA_DEVICE_REGISTER(display1, &arcs_display_api, &arcs_display_priv1, NULL, lisa_display_init_1, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#endif
+

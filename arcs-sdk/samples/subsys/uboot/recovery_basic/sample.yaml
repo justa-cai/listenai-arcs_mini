@@ -1,0 +1,7 @@
+tests:
+  samples.subsys.uboot.recovery_basic.cherryusb:
+    build_only: true
+
+  samples.subsys.uboot.recovery_basic.tinyusb:
+    build_only: true
+    build_extra_args: "-c prj_tinyusb.conf"

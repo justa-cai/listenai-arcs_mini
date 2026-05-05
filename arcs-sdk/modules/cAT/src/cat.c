@@ -128,6 +128,14 @@ cat_status cat_is_hold(struct cat_object *self)
         return s;
 }
 
+static void notify_unsolicited_event(struct cat_object *self)
+{
+        assert(self != NULL);
+
+        if ((self->io != NULL) && (self->io->notify != NULL))
+                (void)self->io->notify();
+}
+
 static bool is_variables_access_possible(struct cat_object *self, const struct cat_command *cmd, cat_var_access access)
 {
         size_t i;
@@ -1944,6 +1952,9 @@ cat_status cat_trigger_unsolicited_event(struct cat_object *self, struct cat_com
 
         if ((self->mutex != NULL) && (self->mutex->unlock() != 0))
                 return CAT_STATUS_ERROR_MUTEX_UNLOCK;
+
+        if (s == CAT_STATUS_OK)
+                notify_unsolicited_event(self);
 
         return s;
 }

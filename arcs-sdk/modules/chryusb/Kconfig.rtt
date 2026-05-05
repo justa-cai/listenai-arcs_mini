@@ -352,9 +352,15 @@ if RT_USING_CHERRYUSB
         config RT_CHERRYUSB_HOST_CDC_ECM
             bool
             prompt "Enable usb cdc ecm driver"
+            default n
+
+        config RT_CHERRYUSB_HOST_CDC_ECM_NETIF
+            bool
+            prompt "Register usb cdc ecm network interface"
+            depends on RT_CHERRYUSB_HOST_CDC_ECM
             select RT_USING_LWIP
             select CONFIG_USBHOST_PLATFORM_CDC_ECM
-            default n
+            default y
 
         config RT_CHERRYUSB_HOST_CDC_RNDIS
             bool

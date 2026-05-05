@@ -318,6 +318,10 @@ int usb_dc_init(uint8_t busid)
     usb_dc_low_level_init();
 
 #ifdef CONFIG_USB_HS
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+    /* ARCS MUSB: pulse SOFT_RST (0x7F) to unlock HS PHY, must be immediately before HSENAB */
+    HWREGB(USB_BASE + 0x7F) |= (0x01 | 0x02);
+#endif
     HWREGB(USB_BASE + MUSB_POWER_OFFSET) |= USB_POWER_HSENAB;
 #else
     HWREGB(USB_BASE + MUSB_POWER_OFFSET) &= ~USB_POWER_HSENAB;
@@ -805,6 +809,12 @@ void USBD_IRQHandler(uint8_t busid)
         usbd_event_reset_handler(0);
         HWREGH(USB_BASE + MUSB_TXIE_OFFSET) = USB_TXIE_EP0;
         HWREGH(USB_BASE + MUSB_RXIE_OFFSET) = 0;
+
+#if defined(CONFIG_USB_HS) && defined(CONFIG_CHERRYUSB_DEVICE_MUSB_LISA)
+        /* ARCS MUSB: pulse SOFT_RST + re-enable HSENAB after bus reset */
+        HWREGB(USB_BASE + 0x7F) |= (0x01 | 0x02);
+        HWREGB(USB_BASE + MUSB_POWER_OFFSET) |= USB_POWER_HSENAB;
+#endif
 
         usb_ep0_state = USB_EP0_STATE_SETUP;
     }

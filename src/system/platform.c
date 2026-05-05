@@ -11,6 +11,8 @@
 #include "app_wakeup.h"
 #include "voice_player_comm.h"
 #include "lisa_bluetooth.h"
+#include "sys_network_manager.h"
+#include "sys_wifi.h"
 
 #if CONFIG_FILE_SYSTEM
 #include "lsfs.h"
@@ -26,13 +28,6 @@
 
 #define TAG "platform"
 #include "lisa_log.h"
-
-#if CONFIG_LISA_MODEM
-#include "ml307_modem.h"
-#endif
-
-#define AT_4G_UART_DEVICE              "uart2"        /* UART device name */
-
 
 #ifdef CONFIG_BOARD_ARCS_MINI
 #define TONE_BIN_ADDR       (CMN_FLASH_REGION + 0x00100000)
@@ -120,8 +115,11 @@ static int voice_platform_init(void)
      */
 
     if (ipc_ready) {
-        ic_message_init();
-        LISA_LOGI(TAG, "IC message init end");
+        if (ic_message_init() == 0) {
+            LISA_LOGI(TAG, "IC message init end");
+        } else {
+            LISA_LOGW(TAG, "IC message init failed, AP may not be ready");
+        }
     } else {
         LISA_LOGW(TAG, "IPC not ready, skip ic_message_init");
     }
@@ -169,10 +167,6 @@ static int voice_platform_init(void)
     sal_init();
     #endif
     
-    #if CONFIG_LISA_MODEM
-    lisa_modem_module_init(AT_4G_UART_DEVICE);
-    #endif
-
     if (ipc_ready) {
         network_probe_init();
         sys_wifi_init();
@@ -309,6 +303,7 @@ static int voice_platform_init(void)
 
     LISA_LOGI(TAG, "tone init end");
     voice_player_platform_init();
+    sys_network_manager_init(ipc_ready);
 
 #ifdef CONFIG_BOARD_ARCS_MINI
     extern int lisa_ui_anim_init(uint32_t flash_addr, uint32_t flash_size);

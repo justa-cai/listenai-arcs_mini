@@ -133,6 +133,8 @@ typedef struct {
     bool enable_hmirror;                     /* 水平镜像 */
     bool enable_vflip;                       /* 垂直翻转 */
     bool enable_colorbar;                    /* 测试模式 (colorbar) */
+    void *mem_pool;                          /* 内存地址指针,如果外部有传递内存地址,则使用外部内存进行buffer分配*/
+    uint32_t mem_pool_size;                 /* 内存池大小 (字节) */
 } lisa_camera_config_t;
 
 /**

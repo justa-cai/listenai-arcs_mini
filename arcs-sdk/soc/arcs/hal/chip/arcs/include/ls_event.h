@@ -177,6 +177,21 @@ ls_err_t ls_event_init(void);
 ls_err_t ls_event_deinit(void);
 
 /**
+ * @brief event clear func
+ *
+ * This API would clear specified pending event
+ *
+ * @param event_module_id The ID of the module that generates the event
+ * @param event_id the event id that identifies the event
+ *
+ *
+ * @return
+ *  - LS_OK: succeed
+ *  - Others: Fail
+ */
+ls_err_t ls_event_clear(event_module_t event_module_id, int event_id);
+
+/**
  * @brief event wait func
  *
  * This API would wait until specified event happen or timeout
@@ -190,10 +205,6 @@ ls_err_t ls_event_deinit(void);
  *  - Others: Fail
  */
 ls_err_t ls_event_wait(event_module_t event_module_id, int event_id, uint32_t timeout_ms);
-
-
-ls_err_t ls_event_clear(event_module_t event_module_id, int event_id);
-
 /**
  * @}
  */

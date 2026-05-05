@@ -1,505 +1,136 @@
-# LISA Modem 组件
+# LISA Modem
 
-ML307 4G/LTE 模块驱动组件，为 ARCS 平台提供基于 AT 命令的蜂窝网络通信能力，支持 TCP/UDP/SSL 连接、DNS 解析，并与 NetDev 抽象层集成实现多网卡管理。
+`lisa_modem` 为 ARCS 提供基于 AT modem 的蜂窝网络接入能力。当前默认支持 `ML307`，并可按配置启用 `EC801E` runtime。
 
-## 功能特性
+## 当前架构
 
-- **AT 命令通信**: 完整的 AT 命令发送与响应解析框架
-- **URC 处理**: 自动检测和分发未经请求的结果码（Unsolicited Result Code）
-- **TCP/SSL 连接**: 支持 TCP 和 SSL/TLS 安全连接
-- **UDP 通信**: 支持 UDP 数据报收发
-- **DNS 解析**: 通过 4G 模块进行域名解析
-- **多连接支持**: 同时支持 6 个 TCP/UDP 连接（ID 0-5）
-- **网络状态监控**: 实时监控网络注册状态和 IP 地址获取
-- **电源管理**: 支持休眠模式和模块重启
-- **NetDev 集成**: 与 SAL 层集成，提供标准 Socket API
-- **线程安全**: 所有接口支持多任务并发访问
+组件内部现在是三层轻量结构：
 
-## 配置选项
+1. `lisa_modem_module`
+   负责 modem 创建、驱动探测、默认实例管理，以及 socket 风格 API。
+   同时持有轻量 socket record，包括 public sockfd、driver endpoint id、超时、TLS 使能和 cached peer。
+2. `drivers/<modem>`
+   每个 modem 自己维护真实 runtime 状态和 AT 事务，例如连接、收发、URC、预取任务、DNS。
+3. `drivers/common`
+   只放小型共用 helper，目前包括 `recv_ring` 轮询读取逻辑和共享网络状态枚举。
 
-在 `prj.conf` 中启用组件：
+`modem_core`、`bearer_manager`、`tls_profile_manager` 已移除，不再保留单纯为转发存在的中间层。
+
+## 默认驱动
+
+默认配置下通常启用：
+
+- `CONFIG_LISA_MODEM_DRIVER_ML307=y`
+
+可选启用：
+
+- `CONFIG_LISA_MODEM_DRIVER_EC801E=y`
+
+## 配置
+
+在 `prj.conf` 中启用：
 
 ```kconfig
-CONFIG_LISA_MODEM=y              # 启用 LISA Modem 组件
-CONFIG_SAL_USING_POSIX=y         # 启用 SAL 套接字抽象层（可选）
-CONFIG_LISA_NETWORK=y            # 启用 LISA 网络组件（可选，用于 NetDev 集成）
+CONFIG_LISA_MODEM=y
+CONFIG_LISA_MODEM_DRIVER_ML307=y
 ```
 
-## API 接口
+如果需要通过 `lisa_net` 暴露 socket/netdev：
 
-### 模块初始化
+```kconfig
+CONFIG_LISA_NET=y
+CONFIG_SAL_USING_POSIX=y
+```
+
+## 公开接口
+
+头文件：
 
 ```c
-/* 初始化 4G 模块（阻塞式，等待网络就绪） */
-int lisa_modem_module_init(void);
+#include "lisa_modem_module.h"
 ```
 
-### TCP 连接
+核心生命周期接口：
 
 ```c
-/* 创建 TCP 连接 */
-ml307_tcp_t *ml307_tcp_create(at_uart_t *uart, int id);
+bool lisa_modem_module_init(const char *uart_dev);
+bool lisa_modem_module_deinit(void);
 
-/* 连接服务器 */
-int ml307_tcp_connect(ml307_tcp_t *tcp, const char *host, uint16_t port);
-
-/* 发送数据 */
-int ml307_tcp_send(ml307_tcp_t *tcp, const char *data, size_t len);
-
-/* 断开连接 */
-int ml307_tcp_disconnect(ml307_tcp_t *tcp);
-
-/* 销毁连接 */
-void ml307_tcp_destroy(ml307_tcp_t *tcp);
-
-/* 设置数据接收回调 */
-void ml307_tcp_on_stream(ml307_tcp_t *tcp, ml307_on_stream_cb cb, void *user_data);
-
-/* 设置断开连接回调 */
-void ml307_tcp_on_disconnected(ml307_tcp_t *tcp, ml307_on_disconnected_cb cb, void *user_data);
+lisa_modem_t *lisa_modem_create_uart(const char *uart_dev, uint32_t baudrate);
+void lisa_modem_destroy(lisa_modem_t *modem);
 ```
 
-### UDP 通信
+主推 socket 风格接口：
 
 ```c
-/* 创建 UDP 连接 */
-ml307_udp_t *ml307_udp_create(at_uart_t *uart, int id);
+bool lisa_modem_dns_resolve(const char *domain, char *ip_addr, size_t size);
 
-/* 连接远程地址 */
-int ml307_udp_connect(ml307_udp_t *udp, const char *host, uint16_t port);
+int  lisa_modem_socket_open(int domain, int type, int protocol);
+bool lisa_modem_socket_connect(int sockfd, const struct sockaddr *addr, int addrlen);
+int  lisa_modem_socket_close(int sockfd);
+int  lisa_modem_socket_send(int sockfd, const void *data, size_t length, uint32_t timeout_ms);
+int  lisa_modem_socket_sendto(int sockfd, const void *data, size_t length, int flags,
+                              const struct sockaddr *dest_addr, int addrlen, uint32_t timeout_ms);
+int  lisa_modem_socket_recv(int sockfd, void *buffer, size_t length, uint32_t timeout_ms);
+int  lisa_modem_socket_recvfrom(int sockfd, void *buffer, size_t length, int flags,
+                                struct sockaddr *src_addr, int *addrlen, uint32_t timeout_ms);
 
-/* 发送数据 */
-int ml307_udp_send(ml307_udp_t *udp, const char *data, size_t len);
-
-/* 关闭连接 */
-int ml307_udp_close(ml307_udp_t *udp);
-
-/* 销毁连接 */
-void ml307_udp_destroy(ml307_udp_t *udp);
+int lisa_modem_setsockopt(int sockfd, int level, int optname, const void *optval, int optlen);
+int lisa_modem_ioctlsocket(int sockfd, long cmd, void *arg);
+int lisa_modem_getpeername(int sockfd, struct sockaddr *addr, int *addrlen);
 ```
 
-### SSL/TLS 连接
+如果需要显式操作某个 modem 实例，而不是默认实例，可使用对应的 `*_on` 接口。
+
+## 兼容接口
+
+`lisa_modem_tcp_*` / `lisa_modem_udp_*` 旧接口仍然保留，但现在只是对 socket API 的兼容薄壳，主要用于历史调用点平滑迁移。
+
+新的代码优先使用 `lisa_modem_socket_*`。
+
+## Socket 语义
+
+- public sockfd 与 driver endpoint id 已解耦，`lisa_modem_module` 负责映射。
+- `setsockopt()` 当前只支持 `SOL_SOCKET` 下的 `SO_SNDTIMEO`、`SO_RCVTIMEO` 和 `SO_SSL_CONFIG`。
+- `ioctlsocket()` 当前只支持 `FIONBIO`。
+- `recv()` 只消费 driver 本地 ring buffer；实际 modem RX pull 由 dispatcher 调度。
+- socket `SO_RCVTIMEO` / per-call `timeout_ms` 只控制当前 socket 等待语义，不再直接放大后台 RX pull 的 AT 事务超时。
+- UDP 显式 `connect()` 会记住默认 peer，后续 `send()` 走该 peer。
+- UDP `sendto()` 不会把最近一次目标地址当成长期 peer。
+- `getpeername()` 返回模块层缓存的 peer 地址。
+- TCP `recvfrom()` 在 driver 未上报源地址时，会回退到缓存 peer。
+
+## 已验证行为
+
+本轮重构至少回归了以下路径：
+
+- TCP connect / send / recv / close
+- UDP sendto / recvfrom
+- `recvfrom src=` 来源地址打印
+- `SO_RCVTIMEO`
+- `SO_SNDTIMEO`
+- `SO_SSL_CONFIG`
+- `FIONBIO`
+- dual-board sample build: `arcs_evb` / `arcs_mini`
+- host regression: public sockfd 映射、sockaddr 转换、peer cache、wrapper guard
+
+## 调试
+
+AT 收发日志可通过 `at_client_set_debug()` 打开：
 
 ```c
-/* 创建 SSL 连接 */
-ml307_tcp_t *ml307_tcp_create_ssl(at_uart_t *uart, int id);
-
-/* 连接服务器（使用 SSL） */
-int ml307_tcp_connect(ml307_tcp_t *tcp, const char *host, uint16_t port);
+at_client_set_debug(lisa_modem_get_client(lisa_modem_get_default()), true);
 ```
 
-### DNS 解析
+## 示例
 
-```c
-/* 域名解析 */
-int ml307_dns_resolve(const char *hostname, char *ip_buf, size_t buf_len);
-```
+参考：
 
-### 网络状态
+- `samples/network/modem`
 
-```c
-/* 获取网络状态 */
-network_status_t ml307_wrapper_get_network_status(ml307_wrapper_t *wrapper);
+该示例覆盖：
 
-/* 检查网络是否就绪 */
-bool ml307_wrapper_is_network_ready(ml307_wrapper_t *wrapper);
-
-/* 等待网络就绪 */
-int ml307_network_check(ml307_wrapper_t *wrapper, uint32_t timeout_ms);
-```
-
-### AT 命令接口
-
-```c
-/* 发送 AT 命令 */
-at_response_t *at_uart_send_command(const char *cmd, uint32_t timeout_ms, bool wait_ok);
-
-/* 设置 URC 回调 */
-void at_uart_register_urc_callback(const char *prefix, at_urc_callback_t cb, void *user_data);
-
-/* 启用调试输出 */
-void at_uart_set_debug(bool enable);
-```
-
-## 使用示例
-
-### 基础初始化示例
-
-```c
-#include "lisa_modem.h"
-#include "lisa_log.h"
-
-#define LOG_TAG "modem_example"
-
-int modem_init_example(void)
-{
-    LISA_LOGI(LOG_TAG, "Initializing 4G modem...");
-
-    /* 初始化 4G 模块（阻塞等待网络就绪） */
-    int ret = lisa_modem_module_init();
-    if (ret != 0) {
-        LISA_LOGE(LOG_TAG, "Modem init failed: %d", ret);
-        return -1;
-    }
-
-    LISA_LOGI(LOG_TAG, "4G modem initialized successfully");
-    return 0;
-}
-```
-
-### TCP 通信示例
-
-```c
-#include "ml307_tcp.h"
-#include "lisa_log.h"
-
-#define LOG_TAG "tcp_example"
-
-/* 数据接收回调 */
-static void on_data_received(const char *data, size_t len, void *user_data)
-{
-    LISA_LOGI(LOG_TAG, "Received %d bytes: %.*s", (int)len, (int)len, data);
-}
-
-/* 连接断开回调 */
-static void on_disconnected(void *user_data)
-{
-    LISA_LOGI(LOG_TAG, "Connection closed");
-}
-
-int tcp_example(void)
-{
-    /* 1. 创建 TCP 连接实例 */
-    ml307_tcp_t *tcp = ml307_tcp_create(NULL, 0);
-    if (!tcp) {
-        LISA_LOGE(LOG_TAG, "Failed to create TCP instance");
-        return -1;
-    }
-
-    /* 2. 设置回调（连接前设置） */
-    ml307_tcp_on_stream(tcp, on_data_received, NULL);
-    ml307_tcp_on_disconnected(tcp, on_disconnected, NULL);
-
-    /* 3. 连接服务器 */
-    if (ml307_tcp_connect(tcp, "httpbin.org", 80) != 0) {
-        LISA_LOGE(LOG_TAG, "Connect failed");
-        ml307_tcp_destroy(tcp);
-        return -1;
-    }
-
-    LISA_LOGI(LOG_TAG, "Connected to server");
-
-    /* 4. 发送 HTTP 请求 */
-    const char *request = "GET /get HTTP/1.1\r\n"
-                          "Host: httpbin.org\r\n"
-                          "Connection: close\r\n\r\n";
-
-    if (ml307_tcp_send(tcp, request, strlen(request)) < 0) {
-        LISA_LOGE(LOG_TAG, "Send failed");
-    }
-
-    /* 5. 等待响应（回调中处理） */
-    lisa_os_thread_sleep(5000);
-
-    /* 6. 断开连接并清理 */
-    ml307_tcp_disconnect(tcp);
-    ml307_tcp_destroy(tcp);
-
-    return 0;
-}
-```
-
-### UDP 通信示例
-
-```c
-#include "ml307_udp.h"
-#include "lisa_log.h"
-
-#define LOG_TAG "udp_example"
-
-/* UDP 数据接收回调 */
-static void on_udp_data(const char *data, size_t len, void *user_data)
-{
-    LISA_LOGI(LOG_TAG, "UDP received: %.*s", (int)len, data);
-}
-
-int udp_example(void)
-{
-    /* 1. 创建 UDP 实例 */
-    ml307_udp_t *udp = ml307_udp_create(NULL, 1);
-    if (!udp) {
-        return -1;
-    }
-
-    /* 2. 设置回调 */
-    ml307_udp_on_data(udp, on_udp_data, NULL);
-
-    /* 3. 连接远程地址 */
-    if (ml307_udp_connect(udp, "time.nist.gov", 37) != 0) {
-        ml307_udp_destroy(udp);
-        return -1;
-    }
-
-    /* 4. 发送数据 */
-    ml307_udp_send(udp, "hello", 5);
-
-    /* 5. 等待响应 */
-    lisa_os_thread_sleep(3000);
-
-    /* 6. 清理 */
-    ml307_udp_close(udp);
-    ml307_udp_destroy(udp);
-
-    return 0;
-}
-```
-
-### SSL/TLS 安全连接示例
-
-```c
-#include "ml307_tcp.h"
-#include "lisa_log.h"
-
-#define LOG_TAG "ssl_example"
-
-int ssl_example(void)
-{
-    /* 1. 创建 SSL 连接实例 */
-    ml307_tcp_t *ssl = ml307_tcp_create_ssl(NULL, 2);
-    if (!ssl) {
-        return -1;
-    }
-
-    /* 2. 连接 HTTPS 服务器 */
-    if (ml307_tcp_connect(ssl, "httpbin.org", 443) != 0) {
-        ml307_tcp_destroy(ssl);
-        return -1;
-    }
-
-    LISA_LOGI(LOG_TAG, "SSL connected");
-
-    /* 3. 发送 HTTPS 请求 */
-    const char *request = "GET /get HTTP/1.1\r\n"
-                          "Host: httpbin.org\r\n"
-                          "Connection: close\r\n\r\n";
-
-    ml307_tcp_send(ssl, request, strlen(request));
-
-    /* 4. 等待响应 */
-    lisa_os_thread_sleep(5000);
-
-    /* 5. 清理 */
-    ml307_tcp_disconnect(ssl);
-    ml307_tcp_destroy(ssl);
-
-    return 0;
-}
-```
-
-### DNS 解析示例
-
-```c
-#include "ml307_dns.h"
-#include "lisa_log.h"
-
-#define LOG_TAG "dns_example"
-
-int dns_example(void)
-{
-    char ip_buf[16];
-
-    /* 解析域名 */
-    if (ml307_dns_resolve("www.baidu.com", ip_buf, sizeof(ip_buf)) == 0) {
-        LISA_LOGI(LOG_TAG, "Resolved IP: %s", ip_buf);
-    } else {
-        LISA_LOGE(LOG_TAG, "DNS resolve failed");
-        return -1;
-    }
-
-    return 0;
-}
-```
-
-### 与 NetDev 集成示例
-
-```c
-#include "netdev.h"
-#include "lisa_modem.h"
-#include "lisa_log.h"
-
-#define LOG_TAG "netdev_modem"
-
-/* 网络状态回调 */
-static void on_modem_status(struct netdev *netdev, enum netdev_cb_type type)
-{
-    switch (type) {
-    case NETDEV_CB_STATUS_LINK_UP:
-        LISA_LOGI(LOG_TAG, "4G link up");
-        break;
-    case NETDEV_CB_STATUS_LINK_DOWN:
-        LISA_LOGI(LOG_TAG, "4G link down");
-        break;
-    case NETDEV_CB_STATUS_INTERNET_UP:
-        LISA_LOGI(LOG_TAG, "4G internet available");
-        break;
-    default:
-        break;
-    }
-}
-
-int netdev_modem_example(void)
-{
-    /* 1. 初始化网络设备子系统 */
-    netdev_init();
-
-    /* 2. 初始化 4G 模块 */
-    lisa_modem_module_init();
-
-    /* 3. 注册 4G 网络设备（优先级 500，低于 WiFi） */
-    app_netdev_register("ml307", 500);
-
-    /* 4. 设置状态回调 */
-    struct netdev *modem_dev = netdev_get_by_name("ml307");
-    if (modem_dev) {
-        netdev_set_status_callback(modem_dev, on_modem_status);
-    }
-
-    /* 5. 现在可以使用标准 Socket API */
-    /* SAL 层会自动选择可用的网络设备 */
-
-    return 0;
-}
-```
-
-## 架构说明
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                   应用层 (Application)                   │
-│     HTTP Client / MQTT Client / Custom Protocols        │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────┐
-│              ml307_wrapper.h/c (高级管理层)              │
-│   - 模块初始化与重启                                     │
-│   - 网络注册监控 (+CREG URC)                            │
-│   - PDP 上下文管理 (+MIPCALL URC)                       │
-│   - 连接工厂 (TCP/SSL)                                  │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────┐
-│         ml307_tcp.h/c  &  ml307_udp.h/c (连接层)        │
-│   - 连接生命周期管理 (connect/disconnect)               │
-│   - 数据传输（自动 Hex 编码）                           │
-│   - URC 处理 (MIPOPEN, MIPCLOSE, MIPSEND, MIPURC)      │
-│   - 流数据与断开回调                                    │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────┐
-│                at_uart.h/c (AT 命令层)                   │
-│   - 命令/响应同步 (EventGroups)                         │
-│   - URC 解析与分发                                      │
-│   - 参数解析 (string/int/double)                        │
-│   - 动态缓冲区管理                                      │
-└───────────────────────┬─────────────────────────────────┘
-                        │
-┌───────────────────────▼─────────────────────────────────┐
-│              lisa_uart (ARCS SDK UART 驱动)              │
-└─────────────────────────────────────────────────────────┘
-```
-
-## 支持的 AT 命令
-
-| 命令 | 说明 |
-|------|------|
-| `AT+CREG` | 网络注册状态查询 |
-| `AT+MIPCALL` | PDP 上下文激活/查询 |
-| `AT+MIPOPEN` | 打开 TCP/UDP 连接 |
-| `AT+MIPCLOSE` | 关闭连接 |
-| `AT+MIPSEND` | 发送数据 |
-| `AT+MDNSGIP` | DNS 域名解析 |
-| `AT+CSQ` | 信号强度查询 |
-| `AT+CPIN` | SIM 卡状态查询 |
-| `AT+COPS` | 运营商查询 |
-
-## 性能参数
-
-| 参数 | 数值 |
-|------|------|
-| 模块初始化时间 | 3-5 秒 |
-| 网络注册时间 | 5-30 秒（取决于信号） |
-| TCP 连接时间 | 1-10 秒 |
-| 数据发送延迟 | 100-500ms |
-| 数据接收延迟 | 100-500ms |
-| 最大连接数 | 6 个（ID 0-5） |
-| 单包最大数据 | 730 字节 |
-
-## 内存占用
-
-| 模块 | 内存 |
-|------|------|
-| at_uart | ~8KB（缓冲区 + 实例） |
-| ml307_tcp | ~2KB / 连接 |
-| ml307_wrapper | ~1KB |
-| **总计** | ~11KB + (2KB × 连接数) |
-
-## 使用注意事项
-
-1. **初始化顺序**: 必须先调用 `lisa_modem_module_init()` 初始化模块
-2. **回调设置**: 必须在 `connect` 之前设置数据接收回调
-3. **连接 ID**: 使用 0-5 的连接 ID，不同连接使用不同 ID
-4. **数据分包**: 大数据自动分包（730 字节/包），无需手动处理
-5. **Hex 编码**: 数据传输自动进行 Hex 编码/解码
-6. **回调上下文**: URC 回调在 UART 任务上下文中执行，回调函数应尽快返回
-7. **网络状态**: 发起连接前应确认网络已就绪
-8. **资源释放**: 使用完毕后调用 `destroy` 函数释放资源
-9. **调试模式**: 调用 `at_uart_set_debug(true)` 可查看 AT 命令交互日志
-10. **线程安全**: 所有接口线程安全，可在多任务环境中使用
-
-## 故障排查
-
-### 模块无响应
-
-```c
-/* 启用调试查看 AT 交互 */
-at_uart_set_debug(true);
-
-/* 尝试重启模块 */
-ml307_wrapper_reboot(modem);
-lisa_os_thread_sleep(5000);
-```
-
-### 网络注册失败
-
-```c
-/* 检查 SIM 卡 */
-at_uart_send_command("AT+CPIN?", 1000, true);
-
-/* 检查信号强度 */
-at_uart_send_command("AT+CSQ", 1000, true);
-
-/* 检查运营商 */
-at_uart_send_command("AT+COPS?", 1000, true);
-```
-
-### TCP 连接失败
-
-- 确认网络已就绪：`ml307_wrapper_is_network_ready()`
-- 检查连接 ID 是否冲突（0-5）
-- 验证服务器地址和端口
-- 信号弱时增加超时时间
-
-## 文件说明
-
-- `include/lisa_modem.h` - 模块主头文件
-- `include/ml307_tcp.h` - TCP/SSL 连接接口
-- `include/ml307_udp.h` - UDP 连接接口
-- `include/ml307_wrapper.h` - 高级管理接口
-- `include/at_uart.h` - AT 命令接口
-- `src/ml307_tcp.c` - TCP/SSL 实现
-- `src/ml307_udp.c` - UDP 实现
-- `src/ml307_wrapper.c` - 模块管理实现
-- `src/at_uart.c` - AT 命令实现
-- `sal/netdev_at.c` - NetDev 适配层实现
-- `Kconfig` - 组件配置选项
-- `CMakeLists.txt` - 构建配置
+- modem 初始化
+- DNS 解析
+- TCP HTTP 请求
+- UDP NTP 请求

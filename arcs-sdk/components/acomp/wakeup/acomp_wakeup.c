@@ -22,8 +22,23 @@ typedef struct {
 acomp_wakeup_handle_t *wakeup_handle = NULL;
 
 static int acomp_wakeup_control_subcmd(wakeup_ipc_control_subcmd_e subcmd, void *data, uint32_t data_len);
+int acomp_wakeup_stream_ch_disable(int chn);
 
-void event_callback(acomp_ipc_message_t *message, void *priv)
+static int acomp_wakeup_res_item_valid(const acomp_wakeup_res_item_t *item)
+{
+    if (item == NULL || item->size == 0U) {
+        return 0;
+    }
+
+    /* For SD/eMMC resources, addr carries the storage offset so 0 is valid. */
+    if (item->storage == ACOMP_WAKEUP_RES_STORAGE_SD) {
+        return 1;
+    }
+
+    return item->addr != 0U;
+}
+
+static void wakeup_event_callback(acomp_ipc_message_t *message, void *priv)
 {
 
     acomp_wakeup_handle_t *handle = (acomp_wakeup_handle_t *)priv;
@@ -151,7 +166,7 @@ int acomp_wakeup_init(void)
     }
     LISA_LOGI(TAG, "acomp wakeup dev index %d,name:%s", wakeup_handle->dev_index, ACOMP_WAKEUP_DEV_NAME);
 
-    ret = acomp_ipc_add_callback(wakeup_handle->dev_index, (ipc_event_cb_t)event_callback, wakeup_handle);
+    ret = acomp_ipc_add_callback(wakeup_handle->dev_index, (ipc_event_cb_t)wakeup_event_callback, wakeup_handle);
     if (ret != ACOMP_ERR_OK) {
         return ret;
     }
@@ -177,17 +192,46 @@ int acomp_wakeup_init(void)
 
 int acomp_wakeup_deinit(void)
 {
-    /*TODO*/
-    return ACOMP_ERR_NOT_SUPPORTED;
+    int ret = ACOMP_ERR_OK;
+
+    if (wakeup_handle == NULL) {
+        return ACOMP_ERR_OK;
+    }
+
+    for (int chn = 0; chn < ACOMP_STREAM_MAX_CHANNEL; chn++) {
+        if (wakeup_handle->stream != NULL && wakeup_handle->stream->ch[chn] != NULL) {
+            (void)acomp_wakeup_stream_ch_disable(chn);
+        }
+    }
+
+    acomp_ipc_remove_callback(wakeup_handle->dev_index, (ipc_event_cb_t)wakeup_event_callback);
+    if (wakeup_handle->stream != NULL) {
+        acomp_stream_destroy(wakeup_handle->stream);
+        wakeup_handle->stream = NULL;
+    }
+    if (wakeup_handle->event_callbacks != NULL) {
+        gcl_cb_list_delete(wakeup_handle->event_callbacks);
+        wakeup_handle->event_callbacks = NULL;
+    }
+    psram_free(wakeup_handle);
+    wakeup_handle = NULL;
+
+    return ret;
 }
 
-int acomp_wakeup_prepare(void)
+static int acomp_wakeup_prepare_send(const acomp_wakeup_resource_config_t *config)
 {
-    LISA_LOGI(TAG, "acomp wakeup prepare enter");
-
-    acomp_ipc_prepare_t *prepare;
+    acomp_ipc_prepare_t *prepare = NULL;
     uint32_t size;
     int ret;
+
+    if (config == NULL) {
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    if (wakeup_handle == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
 
     size = sizeof(acomp_ipc_prepare_t) + sizeof(acomp_res_item_t) * ACOMP_WAKEUP_RES_NUMBER;
     size = ALIGN_SIZE(size);
@@ -196,17 +240,20 @@ int acomp_wakeup_prepare(void)
     if (prepare == NULL) {
         return ACOMP_ERR_NO_MEM;
     }
+    memset(prepare, 0, size);
 
     prepare->number = ACOMP_WAKEUP_RES_NUMBER;
     prepare->item[0].index = WAKEUP_INDEX_CAE_ESR_MLP;
-    prepare->item[0].addr = CONFIG_ACOMP_WAKEUP_RES_CAE_ESR_MLP_ADDRESS;
+    prepare->item[0].attr.hdr.storage = config->mlp.storage;
+    prepare->item[0].addr = (uint32_t)config->mlp.addr;
     prepare->item[0].offset = 0;
-    prepare->item[0].size = CONFIG_ACOMP_WAKEUP_RES_CAE_ESR_MLP_LENGTH;
+    prepare->item[0].size = config->mlp.size;
 
     prepare->item[1].index = WAKEUP_INDEX_AI_WRAP;
-    prepare->item[1].addr = CONFIG_ACOMP_WAKEUP_RES_AI_WRAP_ADDRESS;
+    prepare->item[1].attr.hdr.storage = config->wrap.storage;
+    prepare->item[1].addr = (uint32_t)config->wrap.addr;
     prepare->item[1].offset = 0;
-    prepare->item[1].size = CONFIG_ACOMP_WAKEUP_RES_AI_WRAP_LENGTH;
+    prepare->item[1].size = config->wrap.size;
 
     ret = acomp_ipc_build_frame_send_sync(wakeup_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
                                           ACOMP_IPC_CMD_PREPARE, 0, prepare, size);
@@ -215,35 +262,39 @@ int acomp_wakeup_prepare(void)
     }
 
     psram_free(prepare);
-
-    LISA_LOGI(TAG, "acomp wakeup prepare exit");
     return ret;
 }
 
-int acomp_wakeup_prepare_with_config(acomp_ipc_prepare_t *prepare)
+int acomp_wakeup_prepare(void)
 {
-    LISA_LOGI(TAG, "acomp wakeup prepare enter");
+    const acomp_wakeup_resource_config_t config = {
+        .mlp = {
+            .storage = ACOMP_WAKEUP_RES_STORAGE_FLASH,
+            .addr = CONFIG_ACOMP_WAKEUP_RES_CAE_ESR_MLP_ADDRESS,
+            .size = CONFIG_ACOMP_WAKEUP_RES_CAE_ESR_MLP_LENGTH,
+        },
+        .wrap = {
+            .storage = ACOMP_WAKEUP_RES_STORAGE_FLASH,
+            .addr = CONFIG_ACOMP_WAKEUP_RES_AI_WRAP_ADDRESS,
+            .size = CONFIG_ACOMP_WAKEUP_RES_AI_WRAP_LENGTH,
+        },
+    };
 
-    if (prepare == NULL) {
-        return -1;
-    }
+    return acomp_wakeup_prepare_with_resources(&config);
+}
 
-    uint32_t size;
+int acomp_wakeup_prepare_with_resources(const acomp_wakeup_resource_config_t *config)
+{
     int ret;
 
-    size = sizeof(acomp_ipc_prepare_t) + sizeof(acomp_res_item_t) * ACOMP_WAKEUP_RES_NUMBER;
-    size = ALIGN_SIZE(size);
+    LISA_LOGI(TAG, "acomp wakeup prepare enter");
 
-    prepare->number = ACOMP_WAKEUP_RES_NUMBER;
-    prepare->item[0].index = WAKEUP_INDEX_CAE_ESR_MLP;
-    prepare->item[1].index = WAKEUP_INDEX_AI_WRAP;
-
-    ret = acomp_ipc_build_frame_send_sync(wakeup_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
-                                          ACOMP_IPC_CMD_PREPARE, 0, prepare, size);
-    if (ret != ACOMP_ERR_OK) {
-        LISA_LOGE(TAG, "acomp wakeup prepare failed!");
+    if (config == NULL || !acomp_wakeup_res_item_valid(&config->mlp) ||
+        !acomp_wakeup_res_item_valid(&config->wrap)) {
+        return ACOMP_ERR_INVALID_ARG;
     }
 
+    ret = acomp_wakeup_prepare_send(config);
     LISA_LOGI(TAG, "acomp wakeup prepare exit");
     return ret;
 }
@@ -427,7 +478,8 @@ int acomp_wakeup_stream_ch_enable(int chn,acomp_stream_chn_create_desc_t *desc){
 
 int acomp_wakeup_stream_ch_disable(int chn){
     int ret;
-    if (wakeup_handle == NULL) {
+
+    if (wakeup_handle == NULL || wakeup_handle->stream == NULL) {
         return ACOMP_ERR_INVALID_STATE;
     }
 
@@ -435,9 +487,8 @@ int acomp_wakeup_stream_ch_disable(int chn){
         return ACOMP_ERR_INVALID_ARG;
     }
 
-    ret = acomp_stream_ipc_channel_destroy(chn);
+    ret = acomp_stream_ipc_channel_destroy(wakeup_handle->stream, wakeup_handle->dev_index, (uint32_t)chn);
     LISA_LOGI(TAG,"acomp_wakeup_stream_ch_disable chn index(%d),ret(%d)",chn,ret);
-    wakeup_handle->stream->ch[chn] = NULL;
     return ret;
 }
 

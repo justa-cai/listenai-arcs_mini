@@ -2,7 +2,12 @@ tests:
   samples.drivers.devices.lisa_flash.halt_remote_core:
     programmer: arcs
     runner: uart
-    executable: merged.bin
+    build_extra_args: ""
+    images:
+      - file: "remote/lisa_flash_halt_remote_core_ap.bin"
+        address: "0x0"
+      - file: "lisa_flash_halt_remote_core_cp.bin"
+        address: "0x80000"
     log_analyzer:
       type: "regex"
-      pattern: "All tests passed successfully!"
+      pattern: "CP flash passed"

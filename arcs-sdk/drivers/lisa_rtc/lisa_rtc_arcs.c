@@ -37,13 +37,15 @@
         }                                                                                                              \
     } while (0)
 
+#define RTC_PERIODIC_EVENT_MASK (LISA_RTC_EVENT_SECOND | LISA_RTC_EVENT_MINUTE | LISA_RTC_EVENT_HOUR)
+
 /* ===== RTC 设备私有数据 ===== */
 typedef struct {
     void *hal_handler;                /* HAL CALENDAR 句柄 */
     lisa_mutex_t *mutex;              /* 互斥锁 */
     lisa_rtc_callback_t callback;     /* 用户回调函数 */
     void *user_data;                  /* 用户数据 */
-    uint32_t enabled_events;          /* 已启用的事件掩码 */
+    volatile uint32_t enabled_events; /* 已启用的事件掩码 */
 } lisa_rtc_priv_t;
 
 /* ===== RTC 设备静态实例 ===== */
@@ -76,6 +78,8 @@ static void rtc_hal_callback(uint32_t event, void *workspace)
     if (event & CSK_CALENDAR_EVENT_HOUR_INT) {
         lisa_event |= LISA_RTC_EVENT_HOUR;
     }
+
+    lisa_event &= priv->enabled_events;
 
     if (lisa_event) {
         priv->callback(lisa_event, priv->user_data);
@@ -356,6 +360,7 @@ static int arcs_rtc_set_periodic_int(lisa_device_t *dev, lisa_rtc_event_t event,
 
     lisa_rtc_priv_t *priv = (lisa_rtc_priv_t *)dev->priv_data;
     uint32_t control = 0;
+    uint32_t enabled_periodic_events = 0;
 
     /* 映射LISA事件到HAL控制位 */
     switch (event) {
@@ -373,6 +378,23 @@ static int arcs_rtc_set_periodic_int(lisa_device_t *dev, lisa_rtc_event_t event,
     }
 
     DEVICE_LOCK(priv);
+    enabled_periodic_events = priv->enabled_events & RTC_PERIODIC_EVENT_MASK;
+
+    if (enable) {
+        if (enabled_periodic_events == event) {
+            DEVICE_UNLOCK(priv);
+            return LISA_DEVICE_OK;
+        }
+
+        if (enabled_periodic_events != 0U) {
+            DEVICE_UNLOCK(priv);
+            LISA_LOGE(LOG_TAG, "Only one periodic interrupt source can be enabled at a time");
+            return LISA_DEVICE_ERR_BUSY;
+        }
+    } else if (enabled_periodic_events != event) {
+        DEVICE_UNLOCK(priv);
+        return LISA_DEVICE_OK;
+    }
 
     if (CALENDAR_Control(priv->hal_handler, control, enable ? 1 : 0) != 0) {
         DEVICE_UNLOCK(priv);
@@ -381,9 +403,9 @@ static int arcs_rtc_set_periodic_int(lisa_device_t *dev, lisa_rtc_event_t event,
     }
 
     if (enable) {
-        priv->enabled_events |= event;
+        priv->enabled_events = (priv->enabled_events & ~RTC_PERIODIC_EVENT_MASK) | event;
     } else {
-        priv->enabled_events &= ~event;
+        priv->enabled_events &= ~RTC_PERIODIC_EVENT_MASK;
     }
 
     DEVICE_UNLOCK(priv);

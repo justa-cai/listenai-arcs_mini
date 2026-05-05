@@ -50,7 +50,7 @@ static void ap_cfg_jpeg_reset(void)
     IP_AP_CFG->REG_SW_RESET.all |= (1<<14);
 }
 
-static void Jpeg_Reset(void)
+void Jpeg_Reset(void)
 {
     ap_cfg_video_clk_enable();
     ap_cfg_jpeg_clk_enable();

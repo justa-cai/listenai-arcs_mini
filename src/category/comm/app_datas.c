@@ -24,11 +24,11 @@
 #define DEFAULT_PRODUCT_ID             CONFIG_CLOUD_PRODUCT_ID_DEFAULT
 #define DEFAULT_SECRET_ID              CONFIG_CLOUD_SECRET_ID_DEFAULT
 
+#define DEFAULT_INTERACTION_MODE       APP_INTERACTION_MODE_FULL_DUPLEX
+
 #if CONFIG_CLOUD_FULL_DUPLEX_ENABLE
-#define DEFAULT_FULL_DUPLEX            (1)
 #define DEFAULT_FULL_DUPLEX_TIMEOUT_MS (CONFIG_CLOUD_FULL_DUPLEX_TIMEOUT_MS)
 #else
-#define DEFAULT_FULL_DUPLEX            (0)
 #define DEFAULT_FULL_DUPLEX_TIMEOUT_MS (0)
 #endif
 
@@ -217,9 +217,12 @@ static void app_datas_load_from_lisa_kv(void)
         strcpy(g_app_datas->did, device_id_str_get());
     }
 
-    r = lisa_kv_get_bool(KV_KEY_FULL_DUPLEX, (bool *)&g_app_datas->full_duplex);
-    if (r != 0) {
-        g_app_datas->full_duplex = DEFAULT_FULL_DUPLEX;
+    int int_mode = DEFAULT_INTERACTION_MODE;
+    r = lisa_kv_get_int(KV_KEY_INT_MODE, &int_mode);
+    if (r == 0 && app_interaction_mode_is_valid(int_mode)) {
+        g_app_datas->int_mode = (uint8_t)int_mode;
+    } else {
+        g_app_datas->int_mode = DEFAULT_INTERACTION_MODE;
     }
 
     int timeout_ms = 0;
@@ -246,6 +249,16 @@ static void app_datas_load_from_lisa_kv(void)
         work_mode = VOICE_WORK_MODE_VOICE_WAKEUP;
     }
     g_app_datas->voice_work_mode = work_mode;
+
+    int network_mode = SYS_NETWORK_MODE_WIFI_PREFERRED;
+    r = lisa_kv_get_int(KV_KEY_NETWORK_MODE, &network_mode);
+    if (r != 0 ||
+        (network_mode != SYS_NETWORK_MODE_WIFI_PREFERRED &&
+         network_mode != SYS_NETWORK_MODE_MODEM_PREFERRED)) {
+        network_mode = SYS_NETWORK_MODE_WIFI_PREFERRED;
+    }
+    g_app_datas->network_mode = (uint8_t)network_mode;
+    g_app_datas->active_bearer = SYS_NETWORK_BEARER_NONE;
 }
 
 static void app_datas_load_from_default(void)
@@ -301,10 +314,11 @@ int app_datas_init(void)
     g_app_datas->can_wakeup = 1;
 
     LOGI("did: %s", g_app_datas->did);
-    LOGI("full_duplex: %d", g_app_datas->full_duplex);
+    LOGI("int_mode: %d", g_app_datas->int_mode);
     LOGI("full_duplex_timeout_ms: %d", g_app_datas->full_duplex_timeout_ms);
     LOGI("device_mode: %d", g_app_datas->device_mode);
     LOGI("voice_work_mode: 0x%02x", g_app_datas->voice_work_mode);
+    LOGI("network_mode: %d", g_app_datas->network_mode);
     LOGI("oneshot: %d", g_app_datas->oneshot);
     LOGI("host: %s", g_app_datas->host);
     LOGI("host_staging: %s", g_app_datas->host_staging);

@@ -11,6 +11,10 @@ if (DEFINED CONFIG_LWIP)
         listenai_compile_definitions(TX_BUF_COPY=1)
     endif() # CONFIG_LWIP_TX_BUF_COPY
 
+    if (CONFIG_LWIP_SOCKET_UDP_TX_COPY)
+        listenai_compile_definitions(LWIP_SOCKET_UDP_TX_COPY=1)
+    endif() # CONFIG_LWIP_SOCKET_UDP_TX_COPY
+
     # Add LWIP configurations
     if (DEFINED CONFIG_IPERF)
         target_compile_definitions(${LISTENAI_CURRENT_LIBRARY} PRIVATE CFG_IPERF)
@@ -147,4 +151,3 @@ if (DEFINED CONFIG_LWIP)
     endif()
 
 endif()
-

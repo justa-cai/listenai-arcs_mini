@@ -10,5 +10,6 @@ USB Device 示例
     uvc/README.md
     msc/README.md
     adb/README.md
+    cherryusb_adb/README.md
 
 

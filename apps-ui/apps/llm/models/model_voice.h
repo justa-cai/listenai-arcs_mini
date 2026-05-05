@@ -1,6 +1,7 @@
 #ifndef __MODEL_VOICE_H__
 #define __MODEL_VOICE_H__
 
+#include <stdint.h>
 #include <math.h>
 #include <stdbool.h>
 
@@ -56,10 +57,13 @@ const char *model_voice_role_propmt_get(void);
 uint8_t model_voice_cloud_is_connected(void);
 uint8_t model_voice_cloud_is_running(void);
 uint8_t model_voice_tts_is_playing(void);
+uint8_t model_voice_img_rec_is_mcp(void);
 const char *model_voice_last_iat_text_get(void);
 
 model_voice_wakeup_mode_t model_voice_wakeup_mode_get(void);
 int model_voice_wakeup_mode_set(model_voice_wakeup_mode_t mode);
+int model_voice_interaction_mode_set(int interaction_mode);
+void model_voice_notify_interaction_mode_changed(void);
 const char *model_voice_wakeup_mode_name_get(model_voice_wakeup_mode_t mode);
 int model_voice_img_recognition(uint8_t *rgb565, uint32_t len, int width, int height);
 int model_voice_oneshot_emoji_post(const char *emoji_name);
