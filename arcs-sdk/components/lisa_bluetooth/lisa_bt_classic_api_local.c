@@ -35,7 +35,7 @@ static uint8_t bt_classic_send_event(uint16_t msg_id, void *param, uint16_t para
         memcpy(ev.msg_body->param, param, param_len);
     }
 
-    return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+    return (btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY) == pdTRUE) ? 0 : 1;
 }
 
 /*
@@ -62,7 +62,7 @@ static btos_event_t bt_classic_alloc_varlen_event(uint16_t msg_id, uint16_t para
 
 static uint8_t bt_classic_commit_varlen_event(btos_event_t *ev)
 {
-    return btos_send_event(OS_TASK_ID_BT, ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+    return (btos_send_event(OS_TASK_ID_BT, ev, (uint32_t)BTOS_TASK_MAX_DELAY) == pdTRUE) ? 0 : 1;
 }
 
 /*

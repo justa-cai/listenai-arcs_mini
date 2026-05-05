@@ -28,6 +28,7 @@ CFLAGS = -I./ic_mutex \
 		 -I $(TOPDIR)/include/bsp \
 		 -I $(TOPDIR)/include/driver \
 		 -I $(TOPDIR)/chip/${CHIP}/driver/private_include \
+		 -I $(TOPDIR)/chip/${CHIP}/ic_lock \
 		 -I $(TOPDIR)/include/debug \
 		 -I $(TOPDIR)/chip/${CHIP}/include/urpc \
 		 -I $(TOPDIR)/chip/${CHIP}/include/lsf_server \

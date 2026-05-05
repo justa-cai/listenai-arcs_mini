@@ -23,6 +23,28 @@ typedef struct {
 /* DVP 设备私有数据实例 */
 static lisa_dvp_priv_t dvp_priv;
 
+static void arcs_dvp_release_locked(void)
+{
+    if (!dvp_priv.initialized) {
+        return;
+    }
+
+    if (!dvp_priv.stop_flag) {
+        DVP_Stop(dvp_priv.hal_handler);
+        GPDMA_Stop(dvp_priv.gpdma_ch);
+    }
+
+    GPDMA_Uninitialize();
+    DVP_Uninitialize(dvp_priv.hal_handler);
+
+    dvp_priv.callback = NULL;
+    dvp_priv.user_data = NULL;
+    dvp_priv.hal_handler = NULL;
+    dvp_priv.gpdma_ch = 0;
+    dvp_priv.initialized = false;
+    dvp_priv.stop_flag = true;
+}
+
 /* GPDMA 事件回调函数 */
 static void dvp_gpdma_event_callback(uint32_t event, void *workspace)
 {
@@ -55,9 +77,8 @@ static int arcs_dvp_setup(const lisa_device_t *dev, const lisa_dvp_config_t *con
     lisa_mutex_lock(dvp_priv.lock, -1);
 
     if (dvp_priv.initialized) {
-        LISA_LOGW(LOG_TAG, "DVP already initialized");
-        lisa_mutex_unlock(dvp_priv.lock);
-        return LISA_DEVICE_ERR_EXISTS;
+        LISA_LOGW(LOG_TAG, "reconfigure existing DVP instance");
+        arcs_dvp_release_locked();
     }
 
     lisa_dvp_pinmux();

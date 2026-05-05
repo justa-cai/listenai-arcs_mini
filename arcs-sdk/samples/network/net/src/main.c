@@ -23,11 +23,15 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
 
 #include "netdev.h"
+#include "netdev_lwip.h"
 #include "user_fs.h"
 #include "lisa_kv.h"
 
@@ -192,13 +196,25 @@ static int8_t custom_get_wifi_mac(uint8_t mac_addr[6])
 static void dhcp_status_callback(int vif_idx, bool success, uint32_t ip_addr,
                                   uint32_t netmask, uint32_t gateway, void *arg)
 {
+    struct netdev *netdev = netdev_get_by_name("wifi0");
+
     if (success) {
         LISA_LOGI(LOG_TAG, "DHCP Success: IP=%d.%d.%d.%d",
                   ip_addr & 0xff, (ip_addr >> 8) & 0xff,
                   (ip_addr >> 16) & 0xff, (ip_addr >> 24) & 0xff);
         g_wifi_got_ip = true;
+        netdev_lwip_update_ip_info(ip_addr, netmask, gateway);
+        netdev_lwip_update_status(true, true);
+        if (netdev) {
+            netdev_low_level_set_status(netdev, true);
+            netdev_low_level_set_dhcp_status(netdev, true);
+        }
     } else {
         LISA_LOGI(LOG_TAG, "DHCP Failed on VIF-%d", vif_idx);
+        netdev_lwip_update_status(false, false);
+        if (netdev) {
+            netdev_low_level_set_dhcp_status(netdev, false);
+        }
     }
 }
 
@@ -214,6 +230,14 @@ static void wifi_mgr_connection_status_cb(wifi_mgr_connection_info_t *connection
         g_wifi_connected = true;
         net_if = net_if_get(WIFI_VIF_STA_IDX);
         net_if_up(net_if);
+        netdev_lwip_update_status(true, false);
+        {
+            struct netdev *netdev = netdev_get_by_name("wifi0");
+            if (netdev) {
+                netdev_low_level_set_status(netdev, true);
+                netdev_low_level_set_link_status(netdev, true);
+            }
+        }
         if (!net_if->static_ip) {
             ls_dhcpc_start(WIFI_VIF_STA_IDX);
         }
@@ -225,6 +249,15 @@ static void wifi_mgr_connection_status_cb(wifi_mgr_connection_info_t *connection
         g_wifi_got_ip = false;
         ls_dhcpc_stop(WIFI_VIF_STA_IDX);
         net_if_down(net_if_get(WIFI_VIF_STA_IDX));
+        netdev_lwip_update_status(false, false);
+        {
+            struct netdev *netdev = netdev_get_by_name("wifi0");
+            if (netdev) {
+                netdev_low_level_set_link_status(netdev, false);
+                netdev_low_level_set_status(netdev, false);
+                netdev_low_level_set_dhcp_status(netdev, false);
+            }
+        }
         break;
 
     default:
@@ -389,6 +422,64 @@ static void demo_device_status(void)
     }
 }
 
+static void demo_socket_bind(void)
+{
+    int sockfd;
+    int enable = 1;
+    int ret;
+    struct sockaddr_in addr;
+    struct sockaddr_in actual_addr;
+    socklen_t actual_len = sizeof(actual_addr);
+
+    LISA_LOGI(LOG_TAG, "=== Socket Bind Demo ===");
+
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        LISA_LOGE(LOG_TAG, "socket create failed: errno=%d", errno);
+        return;
+    }
+
+    ret = setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
+    if (ret != 0) {
+        LISA_LOGE(LOG_TAG, "setsockopt SO_REUSEADDR failed: ret=%d errno=%d fd=%d",
+                  ret, errno, sockfd);
+        close(sockfd);
+        return;
+    }
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(0);
+
+    ret = bind(sockfd, (struct sockaddr *)&addr, sizeof(addr));
+    if (ret != 0) {
+        LISA_LOGE(LOG_TAG, "bind any:0 failed: ret=%d errno=%d fd=%d",
+                  ret, errno, sockfd);
+        close(sockfd);
+        return;
+    }
+
+    memset(&actual_addr, 0, sizeof(actual_addr));
+    if (getsockname(sockfd, (struct sockaddr *)&actual_addr, &actual_len) == 0) {
+        LISA_LOGI(LOG_TAG, "bind any:0 ok fd=%d port=%u",
+                  sockfd, (unsigned int)ntohs(actual_addr.sin_port));
+    } else {
+        LISA_LOGI(LOG_TAG, "bind any:0 ok fd=%d port=<unknown>", sockfd);
+    }
+
+    ret = listen(sockfd, 1);
+    if (ret != 0) {
+        LISA_LOGE(LOG_TAG, "listen failed: ret=%d errno=%d fd=%d",
+                  ret, errno, sockfd);
+        close(sockfd);
+        return;
+    }
+
+    LISA_LOGI(LOG_TAG, "listen ok fd=%d", sockfd);
+    close(sockfd);
+}
+
 /**
  * @brief 为网络设备设置回调
  */
@@ -459,6 +550,7 @@ int main(int argc, char **argv)
     vTaskDelay(pdMS_TO_TICKS(1000));
 
     demo_device_status();
+    demo_socket_bind();
 
     LISA_LOGI(LOG_TAG, "=== Example completed ===");
 

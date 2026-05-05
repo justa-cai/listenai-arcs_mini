@@ -1,5 +1,6 @@
 #define TAG "voice.cloud"
 
+#include <stdint.h>
 #include <string.h>
 #include "lsc.h"
 #include "lsc_errno.h"
@@ -18,6 +19,8 @@
 #include "service_image.h"
 
 #include "acomp_wakeup.h"
+#include "power/power_manager.h"
+#include "uboot_features_api.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -47,17 +50,21 @@ static TaskHandle_t g_audio_send_task = NULL;
 static lsc_conn_t *g_lsc_conn_obj = NULL;
 static TimerHandle_t g_pcm_send_en_timer = NULL;
 static volatile uint8_t g_cloud_connected = 0;
+static volatile uint8_t g_voice_session_active = 0;
 
 static volatile uint8_t pcm_send_en = 0;
 static volatile uint8_t cloud_init_done = 0;
 static session_objrec_t objrec = NULL;
 static uint8_t *voice_cloud_token = NULL;
 static uint8_t full_duplex = 0;
+static volatile uint32_t g_objrec_request_seq = 0;
+static volatile uint32_t g_objrec_accept_seq = 0;
 
 /* 发起云端交互后延迟多少时间开始发送音频 */
 #define PCM_SEND_AFTER_CLOUD_CHAT_START_MS (0)
 
 #define VOICE_CLOUD_TTS_TEXT 0
+#define RESOURCE_UPDATE_REBOOT_DELAY_MS_DEFAULT 3000U
 
 const char *lsc_get_firmware_type(void)
 {
@@ -85,6 +92,16 @@ int voice_cloud_is_connected(void)
     return g_cloud_connected ? 1 : 0;
 }
 
+int voice_cloud_is_session_active(void)
+{
+    return g_voice_session_active ? 1 : 0;
+}
+
+int voice_cloud_is_uploading_audio(void)
+{
+    return pcm_send_en ? 1 : 0;
+}
+
 static void voice_pcm_send_enable(void)
 {
     LOGI("voice pcm send enable");
@@ -95,6 +112,62 @@ static void voice_pcm_send_disable(void)
 {
     LOGI("voice pcm send disable");
     pcm_send_en = 0;
+}
+
+int voice_cloud_upload_audio_pause(void)
+{
+    if (!cloud_init_done) {
+        LOGW("upload audio pause ignored, cloud not init");
+        return -1;
+    }
+
+#if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
+    if (g_pcm_send_en_timer && xTimerIsTimerActive(g_pcm_send_en_timer) != pdFALSE) {
+        if (xTimerStop(g_pcm_send_en_timer, 0) != pdPASS) {
+            LOGW("upload audio pause: stop enable timer failed");
+        }
+    }
+#endif
+
+    voice_pcm_send_disable();
+
+    if (g_record_stream_buffer) {
+        xStreamBufferReset(g_record_stream_buffer);
+    }
+
+    LOGI("upload audio paused and buffer cleared");
+    return 0;
+}
+
+int voice_cloud_upload_audio_resume(void)
+{
+    if (!cloud_init_done) {
+        LOGW("upload audio resume ignored, cloud not init");
+        return -1;
+    }
+
+    if (g_record_stream_buffer) {
+        xStreamBufferReset(g_record_stream_buffer);
+    }
+
+#if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
+    if (g_pcm_send_en_timer) {
+        if (xTimerStop(g_pcm_send_en_timer, 0) != pdPASS &&
+            xTimerIsTimerActive(g_pcm_send_en_timer) != pdFALSE) {
+            LOGW("upload audio resume: stop enable timer failed");
+        }
+
+        if (xTimerStart(g_pcm_send_en_timer, pdMS_TO_TICKS(20)) != pdPASS) {
+            LOGW("upload audio resume: start enable timer failed");
+            return -1;
+        }
+    }
+#else
+    voice_pcm_send_enable();
+#endif
+
+    LOGI("upload audio resumed");
+    return 0;
 }
 
 static void pcm_send_en_timer_cb(TimerHandle_t xTimer)
@@ -142,6 +215,59 @@ static void lsc_emoji_msg_process(cJSON *emoji_data)
 
     LOGI("cloud emoji received, name: %s", emo_id->valuestring);
     voice_msg_pub(VOICE_MSG_CLOUD_EMOJI, emo_id->valuestring, strlen(emo_id->valuestring) + 1);
+}
+
+static uint32_t lsc_cloud_reboot_delay_ms_get(cJSON *reboot_data)
+{
+    cJSON *delay_ms = reboot_data ? cJSON_GetObjectItem(reboot_data, "delay_ms") : NULL;
+
+    if (delay_ms && cJSON_IsNumber(delay_ms) && delay_ms->valuedouble >= 0) {
+        if (delay_ms->valuedouble > (double)UINT32_MAX) {
+            return UINT32_MAX;
+        }
+
+        return (uint32_t)delay_ms->valuedouble;
+    }
+
+    return RESOURCE_UPDATE_REBOOT_DELAY_MS_DEFAULT;
+}
+
+static void lsc_resource_update_reboot_process(uint32_t delay_ms)
+{
+    /* 新 boot 可靠软重启；老 boot 纯电池下会掉电变静悄悄关机，提示用户手动重启。*/
+    bool auto_reboot = uboot_features_has(UBOOT_FEATURE_POWER_GUARD) || power_is_usb_plugged();
+    voice_msg_cloud_reboot_t reboot_msg = {
+        .auto_reboot = auto_reboot ? 1 : 0,
+        .delay_ms = delay_ms,
+    };
+
+    LOGI("resource update reboot process, auto_reboot=%u, delay_ms=%u",
+         reboot_msg.auto_reboot, reboot_msg.delay_ms);
+
+    voice_msg_pub(VOICE_MSG_CLOUD_RESOURCE_UPDATE_REBOOT, &reboot_msg, sizeof(reboot_msg));
+}
+
+static bool lsc_pushup_device_control_process(cJSON *data)
+{
+    cJSON *device_control = cJSON_GetObjectItem(data, "device_control");
+    cJSON *command = device_control ? cJSON_GetObjectItem(device_control, "command") : NULL;
+
+    if (!device_control || !cJSON_IsObject(device_control)) {
+        return false;
+    }
+
+    if (!command || !cJSON_IsString(command) || command->valuestring == NULL) {
+        LOGW("invalid pushup device_control command");
+        return true;
+    }
+
+    if (strcmp(command->valuestring, "reboot") != 0) {
+        LOGW("unsupported pushup device_control command: %s", command->valuestring);
+        return true;
+    }
+
+    lsc_resource_update_reboot_process(lsc_cloud_reboot_delay_ms_get(device_control));
+    return true;
 }
 
 static void lsc_mcp_msg_process(cJSON *data)
@@ -211,6 +337,16 @@ static void lsc_pushup_msg_process(cJSON *data)
         } else {
             LOGW("image_generation pushup url not found");
         }
+    }
+    if (lsc_pushup_device_control_process(data)) {
+        return;
+    }
+
+    cJSON *need_reboot = cJSON_GetObjectItem(data, "need_reboot");
+    if (need_reboot && cJSON_IsTrue(need_reboot)) {
+        LOGI("resource update need reboot detected");
+        lsc_resource_update_reboot_process(lsc_cloud_reboot_delay_ms_get(data));
+        return;
     }
 
     cJSON *sub = cJSON_GetObjectItem(data, "sub");
@@ -307,6 +443,7 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
     } break;
     case LSC_DISCONNECTED: {
         g_cloud_connected = 0;
+        g_voice_session_active = 0;
         voice_pcm_send_disable();
         xStreamBufferReset(g_record_stream_buffer);
         voice_msg_pub(VOICE_MSG_CLOUD_DISCONNECTED, NULL, 0);
@@ -316,7 +453,7 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
             s_dns_fallback_index++;
             const char *dns = s_dns_fallback[(s_dns_fallback_index - 1) % DNS_FALLBACK_COUNT];
             LOGI("[dns-rotate] disconnect #%u, switching primary DNS -> %s", (unsigned)s_disconn_cnt, dns);
-            ls_wifi_refresh_dnsserver(dns);
+            sys_wifi_refresh_dnsserver(dns);
             s_disconn_cnt = 0;
         }
     } break;
@@ -351,6 +488,7 @@ static void voice_event_cb(session_voice_event_e evt, void *data, uint32_t size,
 
     switch (evt) {
     case SESSION_VOICE_FINISH:
+        g_voice_session_active = 0;
         voice_pcm_send_disable();
         voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
         break;
@@ -738,9 +876,12 @@ int voice_cloud_chat_start(struct voice_cloud_chat_config *config)
         return ret;
     }
 
+    g_voice_session_active = 1;
+
     #if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
     if (xTimerStart(g_pcm_send_en_timer, pdMS_TO_TICKS(20)) != pdPASS) {
         LOGE("pcm send en timer start failed");
+        g_voice_session_active = 0;
         return -1;
     }
 #else
@@ -761,6 +902,7 @@ int voice_cloud_chat_stop(void)
         LOGE("session_voice_cancel failed");
         return ret;
     }
+    g_voice_session_active = 0;
     voice_pcm_send_disable();
 
     return ret;
@@ -768,16 +910,28 @@ int voice_cloud_chat_stop(void)
 
 int voice_cloud_chat_send_audio(uint8_t *data, int len)
 {
-    if (g_record_stream_buffer) {
-        if (xStreamBufferSend(g_record_stream_buffer, data, len, 0) == pdFALSE) {
-            LOGE("voice_cloud_chat_send_audio, xStreamBufferSend failed");
-            return -1;
-        }
+    if (!g_record_stream_buffer) {
+        return -1;
     }
+
+    if (xStreamBufferSend(g_record_stream_buffer, data, len, 0) == pdFALSE) {
+        LOGE("voice_cloud_chat_send_audio, xStreamBufferSend failed");
+        return -1;
+    }
+
+    return 0;
 }
 
 static void session_objrec_evt_cb(session_objrec_t s, int evt, void *data, uint32_t data_len, void *user)
 {
+    uint32_t request_seq = (uint32_t)(uintptr_t)user;
+
+    if (request_seq == 0 || request_seq != g_objrec_accept_seq) {
+        LOGW("ignore stale objrec evt=%d, request_seq=%u, accept_seq=%u",
+             evt, (unsigned)request_seq, (unsigned)g_objrec_accept_seq);
+        return;
+    }
+
     if (evt == SESSION_OBJREC_EVT_TEXT_URL) {
         if (data) {
 #if VOICE_CLOUD_TTS_TEXT
@@ -800,6 +954,7 @@ static void session_objrec_evt_cb(session_objrec_t s, int evt, void *data, uint3
 int voice_cloud_image_recognition(uint8_t *jpg_image, uint32_t len)
 {
     int err;
+    uint32_t request_seq = 0;
 
     if (!cloud_init_done) {
         return -1;
@@ -811,15 +966,35 @@ int voice_cloud_image_recognition(uint8_t *jpg_image, uint32_t len)
         assert(objrec);
     }
 
-    err = session_objrec_run_async(objrec, jpg_image, len, session_objrec_evt_cb, NULL);
+    request_seq = ++g_objrec_request_seq;
+    g_objrec_accept_seq = request_seq;
+    LOGI("start object recognition, request_seq=%u, size=%u",
+         (unsigned)request_seq, (unsigned)len);
+
+    err = session_objrec_run_async(objrec, jpg_image, len, session_objrec_evt_cb,
+                                   (void *)(uintptr_t)request_seq);
     if (err) {
         LOGE("session_objrec_run failed, err:%d", err);
+        if (g_objrec_accept_seq == request_seq) {
+            g_objrec_accept_seq = 0;
+        }
         return -1;
     }
 
     LOGI("session object async run successfully");
 
     return 0;
+}
+
+void voice_cloud_image_recognition_drop_pending_result(void)
+{
+    if (g_objrec_accept_seq == 0) {
+        LOGI("object recognition cancel ignored, no pending request");
+        return;
+    }
+
+    LOGI("cancel pending object recognition, request_seq=%u", (unsigned)g_objrec_accept_seq);
+    g_objrec_accept_seq = 0;
 }
 
 int voice_cloud_audio_recognition_start(void)
@@ -853,20 +1028,23 @@ int voice_cloud_audio_recognition_start(void)
         return ret;
     }
 
-#if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
-    if (xTimerStart(g_pcm_send_en_timer, pdMS_TO_TICKS(20)) != pdPASS) {
-        LOGE("pcm send en timer start failed");
-        return -1;
-    }
-#else
-    voice_pcm_send_enable();
-#endif
-
     ret = session_voice_start();
     if (ret != 0) {
         LOGE("session_voice_start failed");
         return ret;
     }
+
+    g_voice_session_active = 1;
+
+#if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
+    if (xTimerStart(g_pcm_send_en_timer, pdMS_TO_TICKS(20)) != pdPASS) {
+        LOGE("pcm send en timer start failed");
+        g_voice_session_active = 0;
+        return -1;
+    }
+#else
+    voice_pcm_send_enable();
+#endif
 
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_STARTING, NULL, 0);
 

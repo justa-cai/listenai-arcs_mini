@@ -48,6 +48,20 @@ int voice_player_play_prev(void);
 int voice_player_replay_current(void);
 
 /**
+ * @brief 判断音乐播放器是否处于活跃音频播放管线中
+ *
+ * 包括准备中、准备完成和播放中；暂停/停止/空闲不算活跃。
+ */
+bool voice_player_is_music_active(void);
+
+/**
+ * @brief 判断任一播放器是否处于活跃音频播放管线中
+ *
+ * 包括准备中、准备完成和播放中；暂停/停止/空闲不算活跃。
+ */
+bool voice_player_is_audio_active(void);
+
+/**
  * @brief 设置系统音量（设置所有已创建播放器的音量）
  * @param volume 音量值 (0-100)
  * @return 0 成功, 其他失败

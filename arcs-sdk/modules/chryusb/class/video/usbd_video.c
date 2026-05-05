@@ -26,6 +26,8 @@ struct usbd_video_priv {
     uint8_t stream_frameid;
     uint32_t stream_headerlen;
     bool do_copy;
+    uint8_t stream_ep;
+    bool streaming;
 } g_usbd_video[CONFIG_USBDEV_MAX_BUS];
 
 static int usbd_video_control_request_handler(uint8_t busid, struct usb_setup_packet *setup, uint8_t **data, uint32_t *len)
@@ -593,6 +595,7 @@ static int usbd_video_stream_request_handler(uint8_t busid, struct usb_setup_pac
             switch (setup->bRequest) {
                 case VIDEO_REQUEST_SET_CUR:
                     //memcpy((uint8_t *)&g_usbd_video[busid].commit, *data, setup->wLength);
+                    usbd_video_open(busid, 1);
                     break;
                 case VIDEO_REQUEST_GET_CUR:
                     memcpy(*data, (uint8_t *)&g_usbd_video[busid].commit, setup->wLength);
@@ -668,6 +671,7 @@ static void video_notify_handler(uint8_t busid, uint8_t event, void *arg)
         case USBD_EVENT_RESET:
             g_usbd_video[busid].error_code = 0;
             g_usbd_video[busid].power_mode = 0;
+            g_usbd_video[busid].streaming = false;
             break;
 
         case USBD_EVENT_SET_INTERFACE: {
@@ -675,6 +679,7 @@ static void video_notify_handler(uint8_t busid, uint8_t event, void *arg)
             if (intf->bAlternateSetting == 1) {
                 usbd_video_open(busid, intf->bInterfaceNumber);
             } else {
+                g_usbd_video[busid].streaming = false;
                 usbd_video_close(busid, intf->bInterfaceNumber);
             }
         }
@@ -757,6 +762,11 @@ bool usbd_video_stream_split_transfer(uint8_t busid, uint8_t ep)
     struct video_payload_header *header;
     static uint32_t offset = 0;
     static uint32_t len = 0;
+    int ret;
+
+    if (!g_usbd_video[busid].streaming) {
+        return true;
+    }
 
     if (g_usbd_video[busid].stream_finish) {
         g_usbd_video[busid].stream_finish = false;
@@ -793,13 +803,22 @@ bool usbd_video_stream_split_transfer(uint8_t busid, uint8_t ep)
     }
 
     if (g_usbd_video[busid].do_copy) {
-        usbd_ep_start_write(busid, ep,
-                            g_usbd_video[busid].ep_buf,
-                            g_usbd_video[busid].stream_headerlen + len);
+        ret = usbd_ep_start_write(busid, ep,
+                                  g_usbd_video[busid].ep_buf,
+                                  g_usbd_video[busid].stream_headerlen + len);
     } else {
-        usbd_ep_start_write(busid, ep,
-                            &g_usbd_video[busid].stream_buf[offset - g_usbd_video[busid].stream_headerlen],
-                            g_usbd_video[busid].stream_headerlen + len);
+        ret = usbd_ep_start_write(busid, ep,
+                                  &g_usbd_video[busid].stream_buf[offset - g_usbd_video[busid].stream_headerlen],
+                                  g_usbd_video[busid].stream_headerlen + len);
+    }
+
+    if (ret < 0) {
+        USB_LOG_ERR("stream_split ep_start_write failed: %d (ep=0x%02x, len=%u)\r\n",
+                    ret, ep, (unsigned)(g_usbd_video[busid].stream_headerlen + len));
+        /* Abort current frame transfer to avoid deadlock in upper-layer wait loop. */
+        g_usbd_video[busid].stream_finish = true;
+        g_usbd_video[busid].streaming = false;
+        return true;
     }
 
     return false;
@@ -819,6 +838,8 @@ int usbd_video_stream_start_write(uint8_t busid, uint8_t ep, uint8_t *ep_buf, ui
     g_usbd_video[busid].stream_offset = 0;
     g_usbd_video[busid].stream_finish = false;
     g_usbd_video[busid].do_copy = do_copy;
+    g_usbd_video[busid].stream_ep = ep;
+    g_usbd_video[busid].streaming = true;
 
     uint32_t len = MIN(g_usbd_video[busid].stream_len,
                        g_usbd_video[busid].probe.dwMaxPayloadTransferSize -
@@ -835,8 +856,12 @@ int usbd_video_stream_start_write(uint8_t busid, uint8_t ep, uint8_t *ep_buf, ui
     g_usbd_video[busid].stream_offset += len;
     g_usbd_video[busid].stream_len -= len;
 
-    usbd_ep_start_write(busid, ep, ep_buf, g_usbd_video[busid].stream_headerlen + len);
-    return 0;
+    int ret = usbd_ep_start_write(busid, ep, ep_buf, g_usbd_video[busid].stream_headerlen + len);
+    if (ret < 0) {
+        USB_LOG_ERR("ep_start_write failed: %d (ep=0x%02x, len=%u)\r\n",
+                    ret, ep, (unsigned)(g_usbd_video[busid].stream_headerlen + len));
+    }
+    return ret;
 }
 
 __WEAK void usbd_video_open(uint8_t busid, uint8_t intf)

@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "apps": [
+    {
+      "app_name": "uboot_ota_app_only_trigger",
+      "description": "APP-only OTA payload",
+      "images": [
+        {
+          "bin_path": "uboot_ota_app_only_upgrade_fw.bin.without.boot",
+          "flash_addr": "0x30040000"
+        }
+      ]
+    }
+  ]
+}

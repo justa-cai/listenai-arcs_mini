@@ -2,58 +2,108 @@
 
 ## 功能说明
 
-本示例演示如何使用 LISA Modem 模块（ML307 4G 模块）进行网络通信，包括：
-- 4G 模块初始化
+本示例演示如何使用 `lisa_modem` 的 socket 风格接口进行蜂窝网络通信，包括：
+
+- modem 初始化
 - DNS 域名解析
-- TCP 连接建立
-- TCP 数据发送和接收
-- 连接关闭和资源清理
+- TCP socket 建立、发送、接收、关闭
+- UDP `sendto` / `recvfrom`
+- 打印 UDP 响应源地址
+
+示例内部不再依赖默认全局 modem，而是：
+
+- 通过 `sample_modem_open()` 按 backend 创建 `lisa_modem_t *`
+- 通过 `lisa_modem_*_on()` 实例接口执行 DNS / socket 操作
+
+## Backend 模式
+
+本 sample 现在支持两种 AT 传输后端，默认使用 UART。
+
+### 1. UART backend（默认）
+
+- 使用 `src/modem_backend_uart.c`
+- 通过 `lisa_modem_create_uart()` 打开 modem
+- 默认 AT 设备为 `uart2`
+- sample 内部会覆盖 `lisa_uart2_pinmux()`，默认把 `uart2` 配到 `PA15/PA16`
+
+### 2. USB AT backend（overlay）
+
+- 使用 `src/modem_backend_usb_at.c`
+- 通过 CherryUSB Host 枚举 `/dev/ttyUSBx`
+- 当前仅匹配 `EC801E USB ECM`
+- 当前仅使用 AT 接口 `intf=3`
+- 通过 `at_transport_usbh_serial_create()` 包装 USB 串口
+- 再通过 `lisa_modem_create_with_transport()` 创建 modem
+
+注意：
+
+- “找 AT 口”的逻辑保留在 sample 内部，不放到 `lisa_modem` 或 CherryUSB 侧
+- 这个 USB backend 只替换 AT 传输层，不会在 sample 中自动执行 `AT+QCFG="usbnet"`、`AT+QCFG="nat"`、`AT+QNETDEVCTL`
+- 如果你的 USB 方案依赖 ECM 数据面，请先用独立流程把模块准备好；本示例仍然走 `lisa_modem` 的 AT socket 能力
 
 ## 硬件连接
 
-本示例使用 ML307 4G 模块通过 UART 与主控芯片通信。
+### UART 模式
 
-**UART 连接：**
-- 默认使用 `uart1` 设备
-- 需要根据实际硬件连接修改 `MODEM_UART_DEVICE` 宏
+- 4G 模块通过 UART 与主控连接
+- 默认使用 `uart2`
+- 需要根据实际硬件连接修改 `src/main.c` 中的 `MODEM_UART_DEVICE`
 
-**4G 模块：**
-- 确保 4G 模块已正确供电
-- 确保 SIM 卡已正确插入且开通数据业务
-- 确保天线已正确连接
+### USB AT 模式
 
-**串口输出：**
-- 串口 TX: PA3
-- 波特率：921600
+- 目前只支持 ARCS EVB 作为 USB Host 接入 EC801E
+- 需要把 EC801E 的 USB 口接到开发板 `USB_ARCS`
+- 线材必须支持数据通信
+- 如果开发板默认是 Device 角色，需要先完成 Host 侧硬件改造
 
-## 示例内容
+## 示例流程
 
 1. 初始化文件系统和 KV 存储
-2. 初始化 4G 模块并等待网络注册
-3. 通过 4G 模块解析域名获取 IP 地址
-4. 建立 TCP 连接到测试服务器
-5. 发送 HTTP GET 请求
-6. 接收并显示服务器响应
-7. 关闭连接
+2. 根据 backend 打开 modem
+3. 等待网络注册
+4. 解析 `httpbin.org`
+5. 建立 TCP 连接并发送 HTTP GET
+6. 接收服务器响应
+7. 解析 `ntp.aliyun.com`
+8. 发送 UDP NTP 请求并通过 `recvfrom()` 读取响应
 
-## 配置修改
+## 关键配置
 
-使用前请修改 `src/main.c` 中的配置：
+使用前请检查 `src/main.c` 中的配置：
 
 ```c
-// 4G 模块使用的 UART 设备
-#define MODEM_UART_DEVICE   "uart1"
-
-// 测试服务器配置
+#define MODEM_UART_DEVICE   "uart2"
 #define TEST_SERVER_HOST    "httpbin.org"
 #define TEST_SERVER_PORT    80
+#define UDP_TEST_HOST       "ntp.aliyun.com"
+#define UDP_TEST_PORT       123
 ```
 
 ## 编译
 
-```{eval-rst}
-.. include:: /sample_build.rst
+### UART backend
+
+```bash
+./build.sh -C -S samples/network/modem -DBOARD=arcs_evb
 ```
+
+### USB AT backend
+
+```bash
+./build.sh -C -S samples/network/modem -DBOARD=arcs_evb -DCONFIG_FILES=prj_usb_at.conf
+```
+
+`prj_usb_at.conf` 会额外启用：
+
+- `CONFIG_SAMPLE_MODEM_BACKEND_USB_AT=y`
+- `CONFIG_CHERRYUSB=y`
+- `CONFIG_CHERRYUSB_HOST=y`
+- `CONFIG_CHERRYUSB_HOST_MUSB_LISA=y`
+- `CONFIG_CHERRYUSB_HOST_CDC_ECM=y`
+- `CONFIG_CHERRYUSB_HOST_GSM=y`
+- `CONFIG_CHERRYUSB_HOST_CDC_ECM_NETIF=n`
+
+同时会切换到适合 CherryUSB Host 的单核内存布局，并保留 EC801E 的 ECM 类驱动加载能力，但不在 lwIP 中注册 USB 网卡，不影响 USB AT 口创建。
 
 ## 烧录
 
@@ -61,133 +111,38 @@
 .. include:: /sample_flash.rst
 ```
 
-## 预期输出
-
-系统启动后，终端将输出以下内容：
-
-```
-[I][modem] === 4G Modem Example ===
-[I][modem] Initializing 4G modem module...
-[I][lisa_modem] 4G module initialized successfully
-[I][modem] 4G modem initialized successfully
-[I][modem] Waiting for network registration...
-[I][modem] === DNS Resolve Test ===
-[I][modem] Resolving domain: httpbin.org
-[I][modem] Resolved IP: 54.208.105.16
-[I][modem] === TCP Communication Test ===
-[I][modem] Step 1: Creating TCP socket...
-[I][modem] TCP socket created: id=0
-[I][modem] Step 2: Connecting to httpbin.org:80...
-[I][modem] Connected to server successfully
-[I][modem] Step 3: Sending HTTP request...
-[I][modem] Sent 58 bytes
-[I][modem] Step 4: Receiving response...
-[I][modem] Received 512 bytes:
-[I][modem] HTTP/1.1 200 OK...
-[I][modem] Step 5: Closing connection...
-[I][modem] Connection closed
-[I][modem] === Example completed ===
-```
-
-## 核心 API
+## 关键 API
 
 | API | 说明 |
 |-----|------|
-| `lisa_modem_module_init()` | 初始化 4G 模块 |
-| `lisa_modem_dns_resolve()` | DNS 域名解析 |
-| `lisa_modem_tcp_socket()` | 创建 TCP socket |
-| `lisa_modem_tcp_connect()` | 建立 TCP 连接 |
-| `lisa_modem_tcp_send()` | 发送 TCP 数据 |
-| `lisa_modem_tcp_recv()` | 接收 TCP 数据 |
-| `lisa_modem_tcp_closesocket()` | 关闭 TCP 连接 |
-| `lisa_modem_tcp_deinit()` | 释放 TCP socket |
+| `sample_modem_open()` | 按 sample backend 创建 modem |
+| `sample_modem_close()` | 销毁 sample 创建的 modem |
+| `lisa_modem_dns_resolve_on()` | DNS 解析 |
+| `lisa_modem_socket_open_on()` | 创建 TCP/UDP socket |
+| `lisa_modem_socket_connect_on()` | 建立 TCP 连接 |
+| `lisa_modem_socket_send_on()` | 发送 TCP 数据 |
+| `lisa_modem_socket_recv_on()` | 接收 TCP 数据 |
+| `lisa_modem_socket_sendto_on()` | 发送 UDP 数据 |
+| `lisa_modem_socket_recvfrom_on()` | 接收 UDP 数据并带回源地址 |
+| `lisa_modem_socket_close_on()` | 关闭 socket |
 
-## 关键代码
+## 验证要点
 
-### 1. 4G 模块初始化
-
-```c
-/* 初始化 4G 模块 */
-if (!lisa_modem_module_init(MODEM_UART_DEVICE)) {
-    LISA_LOGE(LOG_TAG, "Error: Failed to initialize 4G modem");
-    return -1;
-}
-
-/* 等待网络注册完成 */
-vTaskDelay(pdMS_TO_TICKS(3000));
-```
-
-### 2. DNS 解析
-
-```c
-char ip_addr[64] = {0};
-
-if (!lisa_modem_dns_resolve(domain, ip_addr, sizeof(ip_addr))) {
-    LISA_LOGE(LOG_TAG, "Error: DNS resolve failed");
-    return -1;
-}
-
-LISA_LOGI(LOG_TAG, "Resolved IP: %s", ip_addr);
-```
-
-### 3. TCP 通信
-
-```c
-/* 创建 TCP socket */
-int tcp_id = lisa_modem_tcp_socket(false);
-
-/* 连接到服务器 */
-if (!lisa_modem_tcp_connect(tcp_id, host, port, false)) {
-    LISA_LOGE(LOG_TAG, "Error: Connect failed");
-    return -1;
-}
-
-/* 发送数据 */
-int sent = lisa_modem_tcp_send(tcp_id, data, data_len, 5000);
-
-/* 接收数据 */
-int recv_len = lisa_modem_tcp_recv(tcp_id, buffer, buffer_size, 10000);
-
-/* 关闭连接 */
-lisa_modem_tcp_closesocket(tcp_id);
-lisa_modem_tcp_deinit(tcp_id);
-```
-
-## 配置说明
-
-### prj.conf 关键配置
-
-```kconfig
-# 4G Modem 配置（必需）
-CONFIG_LISA_MODEM=y
-
-# SAL 网络抽象层
-CONFIG_SAL_USING_POSIX=y
-
-# LWIP 网络栈
-CONFIG_LWIP=y
-CONFIG_LWIP_OPTION_LWIP_DNS=y
-
-# 堆内存配置
-CONFIG_HEAP_SIZE=0x5000
-CONFIG_PSRAM_HEAP_SIZE=0x100000
-```
+- UART 默认配置可编译
+- USB AT overlay 可编译
+- DNS 解析
+- TCP connect / send / recv / close
+- UDP `sendto` / `recvfrom`
+- `recvfrom src=` 源地址打印
 
 ## 注意事项
 
-1. **SIM 卡**：确保 SIM 卡已正确插入且已开通数据业务，否则无法进行网络通信
-
-2. **网络注册**：4G 模块需要一定时间完成网络注册，示例中等待 3 秒，实际使用时可根据需要调整
-
-3. **UART 配置**：根据实际硬件连接修改 `MODEM_UART_DEVICE` 宏
-
-4. **超时设置**：发送和接收都有超时参数，根据网络状况适当调整
-
-5. **资源释放**：TCP 连接使用完毕后必须调用 `lisa_modem_tcp_closesocket()` 和 `lisa_modem_tcp_deinit()` 释放资源
-
-6. **错误处理**：网络通信可能因各种原因失败，务必检查所有 API 的返回值
+1. 使用 USB AT 模式时，当前只支持 `VID:PID=0x2c7c:0x0903` 的 EC801E USB ECM 设备。
+2. 使用 USB AT 模式时，当前只扫描并匹配 AT 接口 `intf=3`。
+3. 发送和接收都带超时参数，网络较差时请适当调大。
+4. UDP 响应依赖运营商网络和目标服务器，可优先关注是否打印 `recvfrom src=...`。
 
 ## 相关文档
 
-- [LISA Modem 组件文档](../../../components/lisa_modem/README.md) - 4G 模块详细说明
-- [NetDev 网络设备抽象层](../../../components/lisa_net/README.md) - 网络设备管理
+- [LISA Modem 组件文档](../../../components/lisa_modem/README.md)
+- [CherryUSB Host EC801E ECM 示例](../../subsys/usb/host/cherryusb_ec801e_ecm/README.md)

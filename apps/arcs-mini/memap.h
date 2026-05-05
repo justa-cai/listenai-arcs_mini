@@ -90,10 +90,10 @@
 
 /* 注意,修改以下内存时, 必须与CP保持同步修改 */
 #define MEM_CP_WIFI_RAM_BASE  __MEM_TOTAL_SRAM_START__
-#define MEM_CP_WIFI_RAM_SIZE  (__KB__(96) - 128)        //暂留128(0x80)字节给WiFi硬件
+#define MEM_CP_WIFI_RAM_SIZE  (__KB__(92) - 128)        //暂留128(0x80)字节给WiFi硬件
 
 #define MEM_CP_SRAM_BASE  ((MEM_CP_WIFI_RAM_BASE) + (MEM_CP_WIFI_RAM_SIZE))
-#define MEM_CP_SRAM_SIZE  (__KB__(160))
+#define MEM_CP_SRAM_SIZE  (__KB__(164))
 
 #define MEM_AP_WIFI_RAM_BASE  ((MEM_CP_SRAM_BASE) + (MEM_CP_SRAM_SIZE))
 #define MEM_AP_WIFI_RAM_SIZE  (__KB__(0))

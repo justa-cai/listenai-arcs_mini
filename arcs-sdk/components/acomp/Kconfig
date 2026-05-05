@@ -32,12 +32,16 @@ if ACOMP
 	config ACOMP_TRANSLATION
 		bool "algo component translation"
 
+	config ACOMP_TUNER
+		bool "algo component tuner (EQ/DRC/Limiter)"
+
 rsource "resmgr/Kconfig"
 rsource "wakeup/Kconfig"
 rsource "fd/Kconfig"
 rsource "cv/Kconfig"
 rsource "xtts/Kconfig"
 rsource "translation/Kconfig"
+rsource "tuner/Kconfig"
 endif
 
 if ACOMP_LOGGER

@@ -41,12 +41,15 @@ extern void shell_output_data(char *data, uint32_t len);
 #define AT_LOG_FLAG_SYS         AT_BIT(1)
 #define AT_LOG_FLAG_WIFI        AT_BIT(2)
 #define AT_LOG_FLAG_LWIP        AT_BIT(3)
+#define AT_LOG_FLAG_BT          AT_BIT(4)
+#define AT_LOG_FLAG_BLE         AT_BIT(5)
 
 enum{
 	AT_LOG_LEVEL_OFF = 0,
 	AT_LOG_LEVEL_ALWAYS,
 	AT_LOG_LEVEL_ERROR,
 	AT_LOG_LEVEL_WARNING,
+    AT_LOG_LEVEL_INFO,
 	AT_LOG_LEVEL_DEBUG
 };
 
@@ -114,7 +117,7 @@ typedef enum atcmd_type
 typedef struct atcmd_entry
 {
     // process function
-    int (*func) (int type, void *params);
+    int (*func) (int type, char *params);
     // name of the command
     char *name;
     // command usage description
@@ -132,14 +135,22 @@ int32_t atcmd_shell_process(char *command, int32_t len, int32_t (*func)(uint8_t*
 
 char *atcmd_next_token(char **params);
 
+#if defined(AT_TYPE_WF)
 extern void atcmd_wifi_register(void);
 extern void atcmd_wifi_help(void);
 extern void atcmd_iperf_register(void);
 extern void atcmd_iperf_help(void);
 extern void atcmd_lwip_register(void);
 extern void atcmd_lwip_help(void);
+#endif
+#if defined(AT_TYPE_BT)
 extern void atcmd_bt_register(void);
 extern void atcmd_bt_help(void);
+extern void atcmd_ble_host_register(void);
+extern void atcmd_ble_host_help(void);
+extern void atcmd_ble_gatt_register(void);
+extern void atcmd_ble_gatt_help(void);
+#endif
 void atcmd_init(void);
 
 

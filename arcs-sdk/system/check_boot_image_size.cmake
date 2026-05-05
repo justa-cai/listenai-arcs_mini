@@ -1,0 +1,32 @@
+if(NOT DEFINED BOOT_BIN)
+    message(FATAL_ERROR "BOOT_BIN is required")
+endif()
+
+if(NOT DEFINED BOOT_FLASH_SIZE)
+    message(FATAL_ERROR "BOOT_FLASH_SIZE is required")
+endif()
+
+file(SIZE "${BOOT_BIN}" BOOT_BIN_SIZE)
+math(EXPR BOOT_FLASH_SIZE_BYTES "${BOOT_FLASH_SIZE}")
+set(MAX_BOOT_IMAGE_SIZE "${BOOT_FLASH_SIZE_BYTES}")
+set(BOOT_RESERVED_TAIL_SIZE_BYTES 0)
+
+if(DEFINED BOOT_RESERVED_TAIL_SIZE)
+    math(EXPR BOOT_RESERVED_TAIL_SIZE_BYTES "${BOOT_RESERVED_TAIL_SIZE}")
+    math(EXPR MAX_BOOT_IMAGE_SIZE "${BOOT_FLASH_SIZE_BYTES} - ${BOOT_RESERVED_TAIL_SIZE_BYTES}")
+endif()
+
+if(BOOT_BIN_SIZE GREATER MAX_BOOT_IMAGE_SIZE)
+    math(
+        EXPR RECOMMENDED_BOOT_FLASH_SIZE
+        "((${BOOT_BIN_SIZE} + ${BOOT_RESERVED_TAIL_SIZE_BYTES} + 4095) / 4096) * 4096"
+        OUTPUT_FORMAT HEXADECIMAL
+    )
+    message(
+        FATAL_ERROR
+        "Boot image '${BOOT_BIN}' is ${BOOT_BIN_SIZE} bytes, "
+        "but CONFIG_BOOT_FLASH_SIZE only leaves ${MAX_BOOT_IMAGE_SIZE} bytes for code/data "
+        "after reserving ${BOOT_RESERVED_TAIL_SIZE_BYTES} bytes at the tail of the boot area. "
+        "Increase CONFIG_BOOT_FLASH_SIZE to at least ${RECOMMENDED_BOOT_FLASH_SIZE}."
+    )
+endif()

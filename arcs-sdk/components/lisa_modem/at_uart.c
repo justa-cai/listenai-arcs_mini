@@ -46,7 +46,6 @@
 #endif
 
 /* AT UART Configuration */
-#define AT_UART_DEVICE              "uart2"        /* UART device name */
 #define AT_UART_DEFAULT_BAUDRATE    115200        /* Default baudrate */
 #define AT_UART_USED_BAUDRATE       921600        /* used baudrate */
 #define AT_UART_RX_BUF_SIZE         512            /* Receive buffer size per circular buffer */
@@ -67,13 +66,6 @@
 #define AT_EVENT_COMMAND_DONE       BIT0           /* Command completed successfully */
 #define AT_EVENT_COMMAND_ERROR      BIT1           /* Command error */
 #define AT_EVENT_DATA_PROMPT        BIT2           /* '>' prompt received */
-
-/* UART1 引脚: PB2=TX, PB3=RX */
-#define UART2_TX_PAD   CSK_IOMUX_PAD_A
-#define UART2_TX_PIN   15
-#define UART2_RX_PAD   CSK_IOMUX_PAD_A
-#define UART2_RX_PIN   16
-#define UART2_FUNC     CSK_IOMUX_FUNC_ALTER4
 
 /* AT UART Module Context */
 static struct {
@@ -106,11 +98,6 @@ static struct {
     bool wait_for_response;
 } at_uart_ctx = {0};
 
-void lisa_uart2_pinmux(void)
-{
-    IOMuxManager_PinConfigure(UART2_TX_PAD, UART2_TX_PIN, UART2_FUNC);
-    IOMuxManager_PinConfigure(UART2_RX_PAD, UART2_RX_PIN, UART2_FUNC);
-}
 
 /**
  * @brief Encode binary data to hex string
@@ -1162,7 +1149,7 @@ int at_uart_init(const char *uart_dev_name)
     at_uart_ctx.initialized = 1;
 
     LISA_LOGI(TAG, "AT UART module initialized successfully");
-    LISA_LOGI(TAG, "  - Device: %s", AT_UART_DEVICE);
+    LISA_LOGI(TAG, "  - Device: %s", uart_dev_name);
     LISA_LOGI(TAG, "  - Buffer: %zu bytes (dynamic)", at_uart_ctx.rx_buffer_capacity);
 
     return 0;

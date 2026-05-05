@@ -18,7 +18,7 @@
 
 uint8_t RXPWR_INC = 15; //should less 25
 
-volatile CMN_BUSCFG_RegDef *CMN_SYS_NODFT_P = CMN_SYS_NODFT;
+volatile CMN_BUSCFG_RegDef *CMN_SYS_NODFT_P = IP_SYSNODEF;
 volatile BT_CTRL_TOP_RegDef *BT_CNTL_P  = IP_BT_CTRL;
 volatile AON_IOMUX_RegDef *AON_IOMUX_P  = IP_AON_IOMUX;
 volatile AON_CTRL_RegDef *AON_CTRL_P    = IP_AON_CTRL;
@@ -38,6 +38,14 @@ volatile BT_RegDef *BT_BT_P             = IP_BT;
 
 extern uint16_t plf_get_feat(uint8_t feat_idx);
 extern uint32_t CRM_GetHclkFreq();
+extern int bt_nvs_init(void);
+
+#if RFCALI_BT_EN
+extern int8_t bt_cali_rxiq_result(int16_t c21, int16_t c22);
+extern int8_t bt_cali_txiq_set(int16_t c21, int16_t c22);
+extern int8_t bt_cali_txdc_set(uint16_t dac_i, uint16_t dac_q);
+#endif
+extern void set_abb_cap_bt(uint8_t cap_val);
 
 /*
  *  FUNCTIONS DEFINITION
@@ -212,8 +220,13 @@ void ble_linklayer_init( void )
     //BT_BLE_P->REG_BLE_RADIOPWRUPDN0.bit.BLE_TXPWRUP0      = 0x5a; //0x46;
     //BT_BLE_P->REG_BLE_RADIOPWRUPDN0.bit.BLE_TXPWRDN0      = 0x4;
     BT_BLE_P->REG_BLE_RADIOPWRUPDN0.all                   = ((0x46 + RXPWR_INC)<<16) + (0x9<<8) + (0x5a);
+    #if (BQB_TEST_EN)
+    BT_BLE_P->REG_BLE_RADIOTXRXTIM0.bit.BLE_TXPATHDLY0    = 0x6;//0x4;  //arcs_d actual value 7
+    BT_BLE_P->REG_BLE_RADIOTXRXTIM0.bit.BLE_RXPATHDLY0    = 0x18;//0x15; //actual value 24
+    #else
     BT_BLE_P->REG_BLE_RADIOTXRXTIM0.bit.BLE_TXPATHDLY0    = 0x3;   //arcs_c actual value 4
     BT_BLE_P->REG_BLE_RADIOTXRXTIM0.bit.BLE_RXPATHDLY0    = 0x1b;  //actual value 0x18
+    #endif 
     BT_BLE_P->REG_BLE_RADIOTXRXTIM0.bit.BLE_RFRXTMDA0     = 0x1C;  //actual value 0x1B   simulate value 0x15
 
     // ble uncoded 2m
@@ -221,9 +234,14 @@ void ble_linklayer_init( void )
     //BT_BLE_P->REG_BLE_RADIOPWRUPDN1.bit.BLE_RXPWRUP1      = 0x46 + RXPWR_INC;
     //BT_BLE_P->REG_BLE_RADIOPWRUPDN1.bit.BLE_TXPWRUP1      = 0x5a; //0x46;
     //BT_BLE_P->REG_BLE_RADIOPWRUPDN1.bit.BLE_TXPWRDN1      = 0x4;
-    BT_BLE_P->REG_BLE_RADIOPWRUPDN1.all                   = ((0x46 + RXPWR_INC)<<16) + (0x4<<8) + (0x5a);
+    BT_BLE_P->REG_BLE_RADIOPWRUPDN1.all                   = ((0x46 + RXPWR_INC)<<16) + (0x6<<8) + (0x5a);
+    #if (BQB_TEST_EN)
+    BT_BLE_P->REG_BLE_RADIOTXRXTIM1.bit.BLE_TXPATHDLY1    = 0x4;//0x4; //arcs_d actual value 3.65
+    BT_BLE_P->REG_BLE_RADIOTXRXTIM1.bit.BLE_RXPATHDLY1    = 0xc;//0x9; //arcs_d actual value 0xc
+    #else
     BT_BLE_P->REG_BLE_RADIOTXRXTIM1.bit.BLE_TXPATHDLY1    = 0x2;  //arcs_c actual value 2.57
     BT_BLE_P->REG_BLE_RADIOTXRXTIM1.bit.BLE_RXPATHDLY1    = 0xe;  //arcs_c actual value 0xc
+    #endif
     BT_BLE_P->REG_BLE_RADIOTXRXTIM1.bit.BLE_RFRXTMDA1     = 0xe;  //arcs_c actual value 0xe  simulate value 0xb
 
     //// ble coded s8
@@ -235,7 +253,11 @@ void ble_linklayer_init( void )
     //BT_BLE_P->REG_BLE_RADIOTXRXTIM2.bit.BLE_RXPATHDLY2    = 0xa;   //arcs_c actual value 0x16
     //BT_BLE_P->REG_BLE_RADIOTXRXTIM2.bit.BLE_RFRXTMDA2     = 0xa0;    //arcs_c actual value 0xa0  simulate value 0x97
     //BT_BLE_P->REG_BLE_RADIOTXRXTIM2.bit.BLE_RXFLUSHPATHDLY2 = 0x27;  //arcs_c actual value 0x27
+    #if (BQB_TEST_EN)
+    BT_BLE_P->REG_BLE_RADIOTXRXTIM2.all                     = (0x26 << 24) + (0xa0 << 16) + (0xc << 8) + 0x6;
+    #else
     BT_BLE_P->REG_BLE_RADIOTXRXTIM2.all                     = (0x2A << 24) + (0x9c << 16) + (0x16 << 8) + 0x4;
+    #endif
     //BT_BLE_P->REG_BLE_RADIOCNTL2.bit.BLE_PHYMSK           = 0x2;
     BT_BLE_P->REG_BLE_RADIOCNTL2.bit.BLE_RXCITERMBYPASS   = 0x1;   
 
@@ -246,7 +268,11 @@ void ble_linklayer_init( void )
     //BT_BLE_P->REG_BLE_RADIOTXRXTIM3.bit.BLE_TXPATHDLY3    = 0x3;   //arcs_c actual value 3.6
     //BT_BLE_P->REG_BLE_RADIOTXRXTIM3.bit.BLE_RFRXTMDA3     = 0x3B;  //arcs_c actual value 0x3B  simulate value 0x37
     //BT_BLE_P->REG_BLE_RADIOTXRXTIM3.bit.BLE_RXFLUSHPATHDLY3 = 0x26; //arcs_c actual value 0x26
+    #if (BQB_TEST_EN)
+    BT_BLE_P->REG_BLE_RADIOTXRXTIM3.all                     = (0x29 << 24) + (0x3B << 16) + 0x4;
+    #else
     BT_BLE_P->REG_BLE_RADIOTXRXTIM3.all                     = (0x29 << 24) + (0x3B << 16) + 0x3;
+    #endif
 
     BT_BLE_P->REG_BLE_TIMGENCNTL.bit.BLE_PREFETCH_TIME    = (IP_PREFETCH_TIME_US)<<1;
 #endif
@@ -407,6 +433,9 @@ void modem_init( void )
     //BT_MODEM_P->REG_BT_RX_SYNC_G.bit.RX_G_COEF_SYNC                         = 0x0ea16; // BT   only,  GUASS filter sync threshold
     //BT_MODEM_P->REG_BT_RX_SYNC_G_LE.bit.RX_G_COEF_SYNC_LE                   = 0x16028; // ble  only   GUASS filter sync threshold
     BT_MODEM_P->REG_BT_RX_SYNC_CORR.bit.RX_COARSE_CORR_THD                    = 0x1240;//0x1000 0x1400; // bt only
+    #if (BQB_LL_ENC_ADV_BI_01_C && BQB_TEST_EN)
+    BT_MODEM_P->REG_BT_RX_SYNC_CORR.bit.RX_COARSE_CORR_THD_LE               = 0x1450; //ble only
+    #endif
     //BT_MODEM_P->REG_BT_RX_SYNC_CORR.bit.RX_COARSE_CORR_THD_LE               = 0x1000; //ble only
     //BT_MODEM_P->REG_BT_RX_SYNC_CORR_CODED.bit.RX_COARSE_CORR_THD_CODED      = 0x1600; //ble coded only
     //BT_MODEM_P->REG_BT_RX_SYNC_CORR_CODED.bit.RX_COARSE_CORR_THD_CODED_DC   = 0x1800; //ble coded only
@@ -468,9 +497,14 @@ void modem_init( void )
 #else
     uint32_t modem_used_pclk=    BT_CNTL_P->REG_BT_CTRL_CLK_CTRL.bit.MASTER_CLKSEL; //(CRM_GetHclkFreq()/1000000) ;
 
+    #if (BQB_TEST_EN)
+    BT_MODEM_P->REG_TOP_CFG4.bit.TOP_RX_MODEM_EN_DELAY                      = 0x46*modem_used_pclk + RXPWR_INC*modem_used_pclk; // (BLE_RXPWRUP0  - modem fifo deepth(8) + 1us)* CLK    rx modem first receive then bt link receive
+    BT_MODEM_P->REG_TOP_CFG2.bit.TOP_TX_MODEM_EN_DELAY                      = (0x5a+1)*modem_used_pclk; //2184;//1720; // (BLE_TXPWRUP0  + modem fifo deepth(8) + 1us )* CLK   tx bt link send first then modem send
+    #else
     BT_MODEM_P->REG_TOP_CFG4.bit.TOP_RX_MODEM_EN_DELAY                      = 0x47*modem_used_pclk + RXPWR_INC*modem_used_pclk; // (BLE_RXPWRUP0  - modem fifo deepth(8) + 1us)* CLK    rx modem first receive then bt link receive
     // (0x5a+(2-TX_PADBITLEN))*BT_MODEM_USED_CLK,  add for CMW500 crc_err
     BT_MODEM_P->REG_TOP_CFG2.bit.TOP_TX_MODEM_EN_DELAY                      = (0x5a+2)*modem_used_pclk; //2184;//1720; // (BLE_TXPWRUP0  + modem fifo deepth(8) + 1us )* CLK   tx bt link send first then modem send
+    #endif
 #endif
 
     BT_MODEM_P->REG_TOP_CFG4.bit.TOP_RX_RF_EN_DELAY                      = 120 + 5*modem_used_pclk;
@@ -500,9 +534,13 @@ void modem_init( void )
     BT_MODEM_P->REG_TX_CFG1.bit.TX_RAMPUP4EDREN                             = 1;
     BT_MODEM_P->REG_TX_CFG1.bit.TX_RAMPDOWN4EDREN                           = 1;
     // ble ramp en
+    #if (BQB_LL_DDI_ADV_BV_106_C && BQB_TEST_EN)
+    BT_MODEM_P->REG_TX_CFG1.bit.TX_RAMPUP4BLEEN                             = 0;
+    BT_MODEM_P->REG_TX_CFG1.bit.TX_RAMPDOWN4BLEEN                           = 0;
+    #else
     BT_MODEM_P->REG_TX_CFG1.bit.TX_RAMPUP4BLEEN                             = 1;
     BT_MODEM_P->REG_TX_CFG1.bit.TX_RAMPDOWN4BLEEN                           = 1;
-
+    #endif
     BT_MODEM_P->REG_TOP_CFG3.bit.TOP_RX_CLK_EN_DELAY                        = 10 + 5*modem_used_pclk;
     BT_MODEM_P->REG_TOP_CFG3.bit.TOP_RX_RST_RLS_DELAY                       = 470;
     // add for CMW500 crc_err
@@ -591,6 +629,8 @@ void rfif_tx_power_config(void)
     RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 14; // 6
     RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 18; // 9
     RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 24; // 12 */
+
+    /*
     // ble 1M, 2M
     RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -18.4
     RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 2;  // -10.7
@@ -599,8 +639,17 @@ void rfif_tx_power_config(void)
     RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // 0.0
     RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 10; // 3.5
     RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 14; // 6.3
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 16; // 9.1
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 16; // 9.1 */
 
+    // ble 1M, 2M
+    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -18.4
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 2;  // -10
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 3;  // -7
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 4;  // -4
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // 0
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 11; // 4
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 15; // 7
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 20; // 10
 }
 
 void rfif_init(void)
@@ -804,6 +853,17 @@ void sleep_wakeup_reg_init(void)
 }
 
 
+// add for bqb test case LL/CON/ADV/BV-26-C
+void bt_drv_tx_en_bypass(uint8_t bypass)
+{
+    BT_CNTL_P->REG_BT_CTRL_TEST_CFG.bit.TX_EN_BYPASS = bypass;
+}
 
+// add for bqb test case LL/DDI/SCN/BI-06-C
+void bt_drv_rx_en_bypass(uint8_t bypass)
+{
+    //CLOGD("RX BPS %d", bypass);
+    BT_CNTL_P->REG_BT_CTRL_TEST_CFG.bit.RX_EN_BYPASS = bypass;
+}
 
 

@@ -1,9 +1,11 @@
 #define TAG "ota_api"
 
+#include <ctype.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#include <time.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -14,14 +16,47 @@
 #include "cJSON.h"
 #include "aiui_base64.h"
 #include "project_version.h"
+#include "mbedtls/md5.h"
 
 #include "ota_api.h"
 #include "kv_user.h"
 #include "app_datas.h"
 
 #define DEV_CONF_API "api.listenai.com/external/device/configurations"
+#define APP_OTA_API  "api.listenai.com/v1/ota/packages"
 
 #define CONF_URL_LEN 512
+#define OTA_HTTP_RETRY_COUNT 3
+#define OTA_HTTP_RETRY_DELAY_BASE_MS 300
+#define OTA_HTTP_REQUEST_TIMEOUT_SEC 3
+#define OTA_HTTP_DOWNLOAD_TIMEOUT_SEC 10
+
+static lisa_http_err_e ota_api_http_perform_with_retry(lisa_http_t *http, const char *purpose)
+{
+    lisa_http_err_e err = LISA_HTTP_COMMON_ERR;
+
+    if (!http) {
+        return LISA_HTTP_PARAM_ERROR;
+    }
+
+    for (int attempt = 0; attempt < OTA_HTTP_RETRY_COUNT; ++attempt) {
+        err = lisa_http_perform(http);
+        if (err == LISA_HTTP_OK) {
+            if (attempt > 0) {
+                LISA_LOGI(TAG, "%s HTTP succeeded on retry %d/%d", purpose, attempt + 1, OTA_HTTP_RETRY_COUNT);
+            }
+            return err;
+        }
+
+        LISA_LOGW(TAG, "%s HTTP failed on attempt %d/%d: %d",
+                  purpose, attempt + 1, OTA_HTTP_RETRY_COUNT, err);
+        if (attempt + 1 < OTA_HTTP_RETRY_COUNT) {
+            vTaskDelay(pdMS_TO_TICKS(OTA_HTTP_RETRY_DELAY_BASE_MS * (attempt + 1)));
+        }
+    }
+
+    return err;
+}
 
 static char *conf_build_param_base64(void)
 {
@@ -113,7 +148,7 @@ static cJSON *conf_get(void)
     lisa_http_request_t req = {
         .method = LISA_HTTP_GET,
         .url = url,
-        .timeout = 10,
+        .timeout = OTA_HTTP_REQUEST_TIMEOUT_SEC,
         .body = NULL,
         .body_len = 0,
         .headers = (uint8_t *)conf_headers,
@@ -127,7 +162,7 @@ static cJSON *conf_get(void)
         return NULL;
     }
 
-    lisa_http_err_e err = lisa_http_perform(http);
+    lisa_http_err_e err = ota_api_http_perform_with_retry(http, "Get config");
     if (err != LISA_HTTP_OK) {
         LISA_LOGE(TAG, "HTTP perform failed: %d", err);
         lisa_http_cleanup(http);
@@ -259,6 +294,8 @@ struct download_context {
     ota_download_cb_t cb;
     int cb_ret;
     uint32_t downloaded;
+    mbedtls_md5_context md5_ctx;
+    char calc_md5[OTA_RES_MD5_LEN];
 };
 
 static void download_on_data(lisa_http_data_t *data)
@@ -270,6 +307,7 @@ static void download_on_data(lisa_http_data_t *data)
         return;
     }
 
+    mbedtls_md5_update(&ctx->md5_ctx, (const uint8_t *)data->buf, data->len);
     ctx->downloaded += data->len;
 
     if (ctx->cb) {
@@ -285,11 +323,14 @@ int ota_api_download(const ota_res_info_t *res_info, ota_download_cb_t cb)
         .cb_ret = 0,
         .downloaded = 0,
     };
+    int ret = -1;
+    lisa_http_t *http = NULL;
+    lisa_http_err_e err;
 
     lisa_http_request_t req = {
         .method = LISA_HTTP_GET,
         .url = (uint8_t *)res_info->url,
-        .timeout = 10,
+        .timeout = OTA_HTTP_DOWNLOAD_TIMEOUT_SEC,
         .body = NULL,
         .body_len = 0,
         .headers = NULL,
@@ -297,28 +338,408 @@ int ota_api_download(const ota_res_info_t *res_info, ota_download_cb_t cb)
         .user = (void *)&ctx,
     };
 
-    lisa_http_t *http = lisa_http_init(&req);
+    mbedtls_md5_init(&ctx.md5_ctx);
+    mbedtls_md5_starts(&ctx.md5_ctx);
+
+    http = lisa_http_init(&req);
     if (!http) {
         LISA_LOGE(TAG, "HTTP init failed");
-        return -1;
+        goto out;
     }
 
-    lisa_http_err_e err = lisa_http_download(http);
+    err = lisa_http_download(http);
     if (err != LISA_HTTP_OK) {
-        LISA_LOGE(TAG, "HTTP download failed: %d", err);
-        lisa_http_cleanup(http);
-        return -1;
+        LISA_LOGE(TAG, "HTTP download failed: %d, received %u / %u bytes", err, ctx.downloaded, res_info->size);
+        goto out;
     }
 
     if (ctx.cb_ret < 0) {
         LISA_LOGE(TAG, "Download completed with error from callback: %d", ctx.cb_ret);
-        lisa_http_cleanup(http);
-        return ctx.cb_ret;
+        ret = ctx.cb_ret;
+        goto out;
     }
 
-    LISA_LOGI(TAG, "Download completed: %u bytes", ctx.downloaded);
+    LISA_LOGI(TAG, "Download received: %u bytes", ctx.downloaded);
 
+    if (ctx.downloaded != res_info->size) {
+        LISA_LOGE(TAG, "Download size mismatch: expected %u, got %u", res_info->size, ctx.downloaded);
+        goto out;
+    }
+
+    mbedtls_md5_finish(&ctx.md5_ctx, (uint8_t *)ctx.calc_md5);
+    LISA_LOGI(TAG, "Download MD5 actual: " MD5_PRI, MD5_ARG(ctx.calc_md5));
+    LISA_LOGI(TAG, "Download MD5 expect: " MD5_PRI, MD5_ARG(res_info->md5));
+
+    if (memcmp(ctx.calc_md5, res_info->md5, OTA_RES_MD5_LEN) != 0) {
+        LISA_LOGE(TAG, "Download MD5 mismatch");
+        goto out;
+    }
+
+    ret = (int)ctx.downloaded;
+
+out:
+    if (http) {
+        lisa_http_cleanup(http);
+    }
+    mbedtls_md5_free(&ctx.md5_ctx);
+    return ret;
+}
+
+/* ==================== 系统 OTA（/v1/ota/packages） ==================== */
+
+static char *s_app_ota_headers = NULL;
+
+static void *app_ota_headers_cb(void)
+{
+    return (void *)s_app_ota_headers;
+}
+
+static void hex_of(const uint8_t *bin, size_t len, char *out)
+{
+    static const char k[] = "0123456789abcdef";
+    for (size_t i = 0; i < len; i++) {
+        out[i * 2] = k[(bin[i] >> 4) & 0x0F];
+        out[i * 2 + 1] = k[bin[i] & 0x0F];
+    }
+    out[len * 2] = '\0';
+}
+
+/* 严格解析 32 个十六进制字符的 md5。长度不足/超长/含非 hex 字符都返回 -1。 */
+static int parse_md5_hex(const char *s, char *out)
+{
+    if (!s || !out) {
+        return -1;
+    }
+
+    if (strlen(s) != OTA_RES_MD5_LEN * 2) {
+        return -1;
+    }
+
+    for (size_t i = 0; i < OTA_RES_MD5_LEN * 2; i++) {
+        if (!isxdigit((unsigned char)s[i])) {
+            return -1;
+        }
+    }
+
+    for (size_t i = 0; i < OTA_RES_MD5_LEN; i++) {
+        if (sscanf(s + i * 2, "%2hhx", (unsigned char *)&out[i]) != 1) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+static int build_app_ota_headers(void)
+{
+    struct app_datas *app_datas = get_app_datas();
+    if (!app_datas || app_datas->pid[0] == '\0' || app_datas->did[0] == '\0') {
+        LISA_LOGE(TAG, "Missing pid/did for app OTA");
+        return -1;
+    }
+    if (app_datas->sid[0] == '\0') {
+        LISA_LOGE(TAG, "Missing product secret (sid) for app OTA");
+        return -1;
+    }
+
+    char ts[24];
+    snprintf(ts, sizeof(ts), "%ld", (long)time(NULL));
+
+    /* checksum = md5(product_secret + deviceid + curtime) */
+    mbedtls_md5_context md5_ctx;
+    mbedtls_md5_init(&md5_ctx);
+    mbedtls_md5_starts(&md5_ctx);
+    mbedtls_md5_update(&md5_ctx, (const uint8_t *)app_datas->sid, strlen(app_datas->sid));
+    mbedtls_md5_update(&md5_ctx, (const uint8_t *)app_datas->did, strlen(app_datas->did));
+    mbedtls_md5_update(&md5_ctx, (const uint8_t *)ts, strlen(ts));
+    uint8_t digest[16];
+    mbedtls_md5_finish(&md5_ctx, digest);
+    mbedtls_md5_free(&md5_ctx);
+
+    char checksum[33];
+    hex_of(digest, sizeof(digest), checksum);
+
+    const char *fmt = "Accept: application/json\r\n"
+                      "X-ProductID: %s\r\n"
+                      "X-DeviceID: %s\r\n"
+                      "X-CurTime: %s\r\n"
+                      "X-CheckSum: %s";
+    size_t header_len = strlen(fmt) + strlen(app_datas->pid) + strlen(app_datas->did) + strlen(ts) + strlen(checksum) +
+                        1;
+
+    if (s_app_ota_headers) {
+        lisa_mem_free(s_app_ota_headers);
+    }
+    s_app_ota_headers = lisa_mem_calloc(1, header_len);
+    if (!s_app_ota_headers) {
+        return -1;
+    }
+    snprintf(s_app_ota_headers, header_len, fmt, app_datas->pid, app_datas->did, ts, checksum);
+
+    return 0;
+}
+
+static void free_app_ota_headers(void)
+{
+    if (s_app_ota_headers) {
+        lisa_mem_free(s_app_ota_headers);
+        s_app_ota_headers = NULL;
+    }
+}
+
+struct app_check_ctx {
+    cJSON *json;
+};
+
+static void app_check_on_data(lisa_http_data_t *data)
+{
+    struct app_check_ctx *ctx = (struct app_check_ctx *)data->user;
+    if (!ctx || !data->buf || data->len <= 0) {
+        return;
+    }
+
+    LISA_LOGI(TAG, "App OTA check response: %.*s", data->len, (const char *)data->buf);
+
+    if (ctx->json) {
+        cJSON_Delete(ctx->json);
+        ctx->json = NULL;
+    }
+    ctx->json = cJSON_ParseWithLength((const char *)data->buf, data->len);
+}
+
+int ota_api_check_app(ota_app_package_t *pkg)
+{
+    if (!pkg) {
+        return -1;
+    }
+
+    memset(pkg, 0, sizeof(*pkg));
+    pkg->available = false;
+
+    struct app_datas *app_datas = get_app_datas();
+    if (!app_datas) {
+        return -1;
+    }
+
+    if (build_app_ota_headers() != 0) {
+        return -1;
+    }
+
+    const char *host_suffix = "";
+    if (app_datas->device_mode == DEVICE_MODE_STAGING) {
+        host_suffix = "staging-";
+    } else if (app_datas->device_mode == DEVICE_MODE_INTEGRATION) {
+        host_suffix = "integration-";
+    }
+
+    char url[CONF_URL_LEN];
+    int url_len = snprintf(url, sizeof(url), "https://%s%s", host_suffix, APP_OTA_API);
+    if (url_len < 0 || url_len >= (int)sizeof(url)) {
+        LISA_LOGE(TAG, "App OTA URL too long");
+        free_app_ota_headers();
+        return -1;
+    }
+
+    struct app_check_ctx ctx = {.json = NULL};
+    lisa_http_request_t req = {
+        .method = LISA_HTTP_GET,
+        .url = (uint8_t *)url,
+        .timeout = OTA_HTTP_REQUEST_TIMEOUT_SEC,
+        .body = NULL,
+        .body_len = 0,
+        .headers = (uint8_t *)app_ota_headers_cb,
+        .on_data = app_check_on_data,
+        .user = &ctx,
+    };
+
+    int ret = -1;
+    lisa_http_t *http = lisa_http_init(&req);
+    if (!http) {
+        LISA_LOGE(TAG, "HTTP init failed");
+        goto out;
+    }
+
+    lisa_http_err_e err = ota_api_http_perform_with_retry(http, "App OTA check");
     lisa_http_cleanup(http);
 
-    return ctx.downloaded;
+    if (err != LISA_HTTP_OK) {
+        LISA_LOGE(TAG, "App OTA check HTTP failed: %d", err);
+        goto out;
+    }
+
+    if (!ctx.json) {
+        LISA_LOGW(TAG, "App OTA check: empty/invalid response (assumed up-to-date)");
+        ret = 0;  /* 视为无更新 */
+        goto out;
+    }
+
+    cJSON *url_item = cJSON_GetObjectItem(ctx.json, "url");
+    cJSON *ver_item = cJSON_GetObjectItem(ctx.json, "version");
+    cJSON *verno_item = cJSON_GetObjectItem(ctx.json, "version_number");
+    cJSON *md5_item = cJSON_GetObjectItem(ctx.json, "md5_checksum");
+
+    if (!cJSON_IsString(url_item) || url_item->valuestring[0] == '\0') {
+        LISA_LOGI(TAG, "App OTA: no update available");
+        ret = 0;
+        goto out;
+    }
+
+    if (strlen(url_item->valuestring) >= OTA_RES_URL_LEN) {
+        LISA_LOGE(TAG, "App OTA url too long");
+        goto out;
+    }
+
+    if (!cJSON_IsNumber(verno_item)) {
+        LISA_LOGE(TAG, "App OTA: server missing required 'version_number', refuse");
+        goto out;
+    }
+    uint32_t server_verno = (uint32_t)cJSON_GetNumberValue(verno_item);
+    if (server_verno <= PROJECT_VERSION_NUMBER) {
+        LISA_LOGI(TAG, "App OTA: server version_number=%u <= local=%u, not an upgrade",
+                  server_verno, (uint32_t)PROJECT_VERSION_NUMBER);
+        ret = 0;
+        goto out;
+    }
+
+    /* md5_checksum 是后台人工录入字段，可能为空字符串甚至格式错误。
+     * 空 → 跳过校验；合法 32-hex → 正常校验；其它 → 拒绝下载（明显是数据错）。 */
+    if (cJSON_IsString(md5_item) && md5_item->valuestring[0] != '\0') {
+        if (parse_md5_hex(md5_item->valuestring, pkg->md5) != 0) {
+            LISA_LOGE(TAG, "App OTA md5 malformed (%s), refuse to download", md5_item->valuestring);
+            goto out;
+        }
+        pkg->has_md5 = true;
+    } else {
+        pkg->has_md5 = false;
+    }
+
+    strncpy(pkg->url, url_item->valuestring, OTA_RES_URL_LEN - 1);
+    pkg->url[OTA_RES_URL_LEN - 1] = '\0';
+
+    if (cJSON_IsString(ver_item)) {
+        strncpy(pkg->version, ver_item->valuestring, OTA_APP_VERSION_LEN - 1);
+    }
+
+    pkg->version_number = server_verno;
+
+    cJSON *pid_item = cJSON_GetObjectItem(ctx.json, "package_id");
+    if (cJSON_IsString(pid_item)) {
+        strncpy(pkg->package_id, pid_item->valuestring, OTA_APP_PACKAGE_ID_LEN - 1);
+    }
+
+    pkg->available = true;
+    LISA_LOGI(TAG, "App OTA available: package_id=%s version=%s version_number=%u (local=%u) md5=%s url=%s",
+              pkg->package_id, pkg->version, pkg->version_number, (uint32_t)PROJECT_VERSION_NUMBER,
+              pkg->has_md5 ? "set" : "<empty, skip verify>", pkg->url);
+
+    ret = 0;
+
+out:
+    if (ctx.json) {
+        cJSON_Delete(ctx.json);
+    }
+    free_app_ota_headers();
+    return ret;
+}
+
+struct app_download_ctx {
+    const ota_app_package_t *pkg;
+    ota_app_download_cb_t cb;
+    void *user;
+    int cb_ret;
+    uint32_t downloaded;
+    mbedtls_md5_context md5_ctx;
+};
+
+static void app_download_on_data(lisa_http_data_t *data)
+{
+    struct app_download_ctx *ctx = (struct app_download_ctx *)data->user;
+    if (!ctx || ctx->cb_ret != 0 || !data->buf || data->len <= 0) {
+        return;
+    }
+
+    if (ctx->pkg->has_md5) {
+        mbedtls_md5_update(&ctx->md5_ctx, (const uint8_t *)data->buf, data->len);
+    }
+    uint32_t chunk_offset = ctx->downloaded;
+    ctx->downloaded += data->len;
+
+    if (ctx->cb) {
+        ctx->cb_ret = ctx->cb(ctx->user, chunk_offset, (const uint8_t *)data->buf, (uint32_t)data->len,
+                              0 /* total unknown */);
+    }
+}
+
+int ota_api_download_app(const ota_app_package_t *pkg, ota_app_download_cb_t cb, void *user)
+{
+    if (!pkg || !pkg->available || pkg->url[0] == '\0') {
+        return -1;
+    }
+
+    struct app_download_ctx ctx = {
+        .pkg = pkg,
+        .cb = cb,
+        .user = user,
+        .cb_ret = 0,
+        .downloaded = 0,
+    };
+
+    if (pkg->has_md5) {
+        mbedtls_md5_init(&ctx.md5_ctx);
+        mbedtls_md5_starts(&ctx.md5_ctx);
+    }
+
+    lisa_http_request_t req = {
+        .method = LISA_HTTP_GET,
+        .url = (uint8_t *)pkg->url,
+        .timeout = OTA_HTTP_DOWNLOAD_TIMEOUT_SEC,
+        .body = NULL,
+        .body_len = 0,
+        .headers = NULL,
+        .on_data = app_download_on_data,
+        .user = &ctx,
+    };
+
+    int ret = -1;
+    lisa_http_t *http = lisa_http_init(&req);
+    if (!http) {
+        LISA_LOGE(TAG, "App OTA HTTP init failed");
+        goto out;
+    }
+
+    lisa_http_err_e err = lisa_http_download(http);
+    lisa_http_cleanup(http);
+
+    if (err != LISA_HTTP_OK) {
+        LISA_LOGE(TAG, "App OTA download failed: %d (got %u bytes)", err, ctx.downloaded);
+        goto out;
+    }
+
+    if (ctx.cb_ret != 0) {
+        LISA_LOGE(TAG, "App OTA download aborted by callback: %d", ctx.cb_ret);
+        ret = ctx.cb_ret;
+        goto out;
+    }
+
+    if (pkg->has_md5) {
+        uint8_t calc_md5[OTA_RES_MD5_LEN];
+        mbedtls_md5_finish(&ctx.md5_ctx, calc_md5);
+        LISA_LOGI(TAG, "App OTA MD5 actual: " MD5_PRI, MD5_ARG(calc_md5));
+        LISA_LOGI(TAG, "App OTA MD5 expect: " MD5_PRI, MD5_ARG(pkg->md5));
+
+        if (memcmp(calc_md5, pkg->md5, OTA_RES_MD5_LEN) != 0) {
+            LISA_LOGE(TAG, "App OTA MD5 mismatch");
+            goto out;
+        }
+    } else {
+        LISA_LOGW(TAG, "App OTA: server md5 empty, skipped verification");
+    }
+
+    LISA_LOGI(TAG, "App OTA downloaded %u bytes", ctx.downloaded);
+    ret = (int)ctx.downloaded;
+
+out:
+    if (pkg->has_md5) {
+        mbedtls_md5_free(&ctx.md5_ctx);
+    }
+    return ret;
 }

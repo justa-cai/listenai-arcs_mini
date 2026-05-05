@@ -1,0 +1,74 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+osource "$ARCS_BASE/Kconfig"
+
+menu "Iperf-Like 测试配置"
+
+choice IPERF_DEFAULT_MODE
+	prompt "默认测试模式"
+	default IPERF_MODE_UPLINK
+	help
+	  选择上电后的默认 iperf3 测试模式。
+
+config IPERF_MODE_UPLINK
+	bool "上行测试"
+
+config IPERF_MODE_DOWNLINK
+	bool "下行测试"
+
+config IPERF_MODE_BIDIRECTIONAL
+	bool "双向同时测试"
+
+endchoice
+
+config IPERF_WIFI_SSID
+	string "WiFi SSID"
+	default "your_wifi_ssid"
+	help
+	  目标 WiFi 热点名称
+
+config IPERF_WIFI_PWD
+	string "WiFi 密码"
+	default "your_wifi_password"
+	help
+	  目标 WiFi 热点密码
+
+config IPERF_SERVER_IP
+	string "测试服务器 IP 地址"
+	default "192.168.1.100"
+	help
+	  运行 iperf3 服务端的主机 IP 地址。
+	  请按实际局域网环境填写可访问的主机地址。
+
+config IPERF_SERVER_PORT
+	int "测试服务器端口"
+	default 5201
+	help
+	  iperf3 服务端默认监听 5201
+
+config IPERF_ROUND_SECONDS
+	int "每轮测试持续时间（秒）"
+	default 10
+	help
+	  每轮 TCP 发流测试的持续时间
+
+config IPERF_SEND_BLOCK_SIZE
+	int "发送块大小（字节）"
+	default 1460
+	help
+	  每次 send() 调用的数据块大小，建议与 TCP MSS 对齐
+
+config IPERF_ROUND_INTERVAL_MS
+	int "轮次间隔（毫秒）"
+	default 1000
+	help
+	  两轮测试之间的等待时间
+
+config IPERF_CONNECT_TIMEOUT_MS
+	int "TCP 连接超时（毫秒）"
+	default 5000
+	help
+	  TCP 连接服务器的超时时间
+
+endmenu

@@ -463,6 +463,38 @@ void test_audio_dispatch_paired(void)
 }
 
 /**
+ * @brief 回归测试：无论 echo 是否启用，record+play 同时运行时 record callback 必须触发
+ *
+ * 复现场景：原始代码在 ECHO_NONE 配置下，dispatch 线程访问不存在的 echo_queue
+ * 导致 crash 或永远 continue，record callback 永远无法触发。
+ */
+void test_audio_dispatch_record_callback_when_play_running(void)
+{
+    TEST_ASSERT_NOT_NULL(g_audio_dev);
+
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_register_callback(g_audio_dev, audio_test_callback, NULL));
+
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, audio_configure_record());
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, audio_configure_play());
+    fill_play_buffer();
+
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_record_start(g_audio_dev));
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_play_start(g_audio_dev));
+    TEST_ASSERT_GREATER_OR_EQUAL_INT(0, lisa_audio_play_write(g_audio_dev, g_play_buffer, PLAY_TEST_SAMPLES));
+
+    vTaskDelay(pdMS_TO_TICKS(200));
+
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_record_stop(g_audio_dev));
+    TEST_ASSERT_EQUAL_INT(LISA_DEVICE_OK, lisa_audio_play_stop(g_audio_dev));
+
+    /* record callback 必须被触发，不能因为 echo_queue 不存在或无数据而被阻塞 */
+    TEST_ASSERT_GREATER_THAN_UINT32_MESSAGE(0, g_record_events,
+        "record callback not triggered when play is running");
+
+    lisa_audio_unregister_callback(g_audio_dev, audio_test_callback);
+}
+
+/**
  * @brief 测试先启动录音，后启动播放的场景
  * 
  * 验证：启动播放前应该是单独分发，启动后应该是配对分发
@@ -526,9 +558,13 @@ int main(void)
 
     /* 智能分发功能测试 */
     RUN_TEST(test_audio_dispatch_record_only, __LINE__);
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
     RUN_TEST(test_audio_dispatch_play_only, __LINE__);
     RUN_TEST(test_audio_dispatch_paired, __LINE__);
     RUN_TEST(test_audio_dispatch_sequential_start, __LINE__);
+#endif
+    /* 回归测试：无论 echo 是否启用，play 运行时 record callback 必须触发 */
+    RUN_TEST(test_audio_dispatch_record_callback_when_play_running, __LINE__);
     
     RUN_TEST(test_audio_unregister_callback, __LINE__);
 

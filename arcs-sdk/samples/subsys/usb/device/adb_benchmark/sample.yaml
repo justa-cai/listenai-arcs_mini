@@ -1,0 +1,3 @@
+tests:
+  samples.usb.device.adb_benchmark:
+    build_only: true

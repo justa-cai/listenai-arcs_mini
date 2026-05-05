@@ -71,7 +71,6 @@ void setUp(void)
 void tearDown(void)
 {
     dualtimer_test_uninit();
-    disable_GINT();
 }
 
 void test_dualtimer_pointer_verify(void)

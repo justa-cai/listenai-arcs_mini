@@ -1,0 +1,38 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "NV3030B Display Panel"
+
+if LISA_DISPLAY_PANEL_NV3030B
+
+config PANEL_NV3030B_WIDTH
+	int "screen width"
+	default 170
+	help
+	The pixel length in the x-axis direction of the display screen.
+
+config PANEL_NV3030B_HEIGHT
+	int "screen height"
+	default 320
+	help
+	The pixel length in the y-axis direction of the display screen.
+
+config PANEL_NV3030B_X_OFFSET
+	int "display screen x offset"
+	default 35
+	help
+	The pixel offset in the x-axis direction of the display screen.
+
+config PANEL_NV3030B_Y_OFFSET
+	int "screen y offset"
+	default 0
+	help
+	The pixel offset in the y-axis direction of the display screen.
+
+config ROTATE_BUF_MAX_HEIGHT
+	int "rotate buffer max height"
+	default PANEL_NV3030B_WIDTH
+
+endif
+
+endmenu

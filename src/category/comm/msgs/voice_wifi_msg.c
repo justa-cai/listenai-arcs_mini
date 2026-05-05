@@ -16,8 +16,6 @@ static void voice_wifi_ip_got(void *unused, uint32_t evt, void *data, uint32_t l
     assert(app_datas != NULL);
 
     app_datas->wifi_connected = 1;
-
-    network_probe_start();
 }
 
 static void voice_wifi_disconnected(void *unused, uint32_t evt, void *data, uint32_t len, void *user_data)
@@ -27,7 +25,6 @@ static void voice_wifi_disconnected(void *unused, uint32_t evt, void *data, uint
     assert(app_datas != NULL);
 
     app_datas->wifi_connected = 0;
-    app_datas->network_connected = 0;
 }
 
 int voice_wifi_evt_init(void)

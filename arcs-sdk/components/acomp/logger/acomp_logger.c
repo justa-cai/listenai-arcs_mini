@@ -353,9 +353,8 @@ int _logger_stream_ch_disable(int chn)
         return ACOMP_ERR_INVALID_ARG;
     }
 
-    ret = acomp_stream_ipc_channel_destroy(chn);
+    ret = acomp_stream_ipc_channel_destroy(logger_handle->stream, logger_handle->dev_index, (uint32_t)chn);
     LISA_LOGI(TAG, "acomp_logger_stream_ch_disable chn index(%d), ret(%d)", chn, ret);
-    logger_handle->stream->ch[chn] = NULL;
     return ret;
 }
 

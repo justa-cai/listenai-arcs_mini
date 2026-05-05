@@ -4,7 +4,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(listenai-cmake REQUIRED HINTS $ENV{ARCS_BASE})
 
-project(remote)
+project(lisa_flash_halt_remote_core_ap)
 
 listenai_add_executable(${PROJECT_NAME})
 

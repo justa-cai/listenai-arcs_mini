@@ -8,7 +8,12 @@ if(CONFIG_ARCS_HAL_PM)
     listenai_compile_definitions_ifdef(CONFIG_ARCS_HAL_PM_KEEP_ALIVE CONFIG_PM_KEEP_ALIVE=1)
     listenai_compile_definitions_ifdef(CONFIG_ARCS_HAL_PM_DEBUG CONFIG_PM_DEBUG=1)
 
-    listenai_library_sources(pm_impl.c)
+    listenai_library_sources(
+        pm_impl.c
+        pm.c
+    )
+
+    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
     listenai_library_compile_options_ifdef(
         CONFIG_ARCS_HAL_WARNING_DISABLE
@@ -18,5 +23,6 @@ if(CONFIG_ARCS_HAL_PM)
 else()
     listenai_library_named(arcs_hal_pm_stub)
     listenai_library_sources(pm_stub.c)
+    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 
 endif()

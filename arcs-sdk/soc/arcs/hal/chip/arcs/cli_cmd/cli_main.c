@@ -693,7 +693,8 @@ static int cli_light_sleep(char *params)
 {
     char *ptr = NULL, *next = params;
     uint32_t val;
-    pm_config_t config = {.mode = PM_MODE_LIGHT_SLEEP, .keep_alive = true};
+    pm_config_t config = {.mode = PM_MODE_LIGHT_SLEEP};
+    pm_sleep_config_t sleep_config;
 
     if (!(ptr = utils_next_token(&next)))
         goto END;
@@ -704,20 +705,13 @@ static int cli_light_sleep(char *params)
         goto END;
     }
 
+    memset(&sleep_config, 0, sizeof(pm_sleep_config_t));
     while (ptr != NULL)
     {
         if (ptr[0] == '-')
         {
             switch (ptr[1])
             {
-                case ('k'):
-                    if (!(ptr = utils_next_token(&next)))
-                        return CLI_SHOW_USAGE;
-                    if (!strcmp(ptr, "0"))
-                        config.keep_alive = false;
-                    else
-                        config.keep_alive = true;
-                    break;
                 case ('f'):
                     if (!(ptr = utils_next_token(&next)))
                         return CLI_SHOW_USAGE;
@@ -740,7 +734,10 @@ static int cli_light_sleep(char *params)
                         return CLI_SHOW_USAGE;
                     val = atoi(ptr);
                     if (val < PM_GPIO_PIN_MAX)
-                        config.gpio_pin_mask = 1 << val;
+                    {
+                        sleep_config.wakeup_src_mask = 1 << PM_WAKEUP_GPIO;
+                        sleep_config.gpio_mask = 1 << val;
+                    }
                     break;
                 case ('p'):
                     if (!(ptr = utils_next_token(&next)))
@@ -754,6 +751,7 @@ static int cli_light_sleep(char *params)
         ptr = utils_next_token(&next);
     };
 
+    pm_set_sleep_config(&sleep_config);
 END:
     pm_set_config(&config);
 

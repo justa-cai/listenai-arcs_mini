@@ -1,0 +1,3 @@
+tests:
+  samples.usb.host.cherryusb_video_serial_audio:
+    build_only: true

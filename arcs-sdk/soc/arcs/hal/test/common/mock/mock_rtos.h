@@ -22,6 +22,11 @@ DECLARE_FAKE_VOID_FUNC(rtos_free, void *);
 DECLARE_FAKE_VALUE_FUNC(void *, rtos_calloc, size_t, size_t);
 DECLARE_FAKE_VOID_FUNC(rtos_delay, int);
 
+DECLARE_FAKE_VALUE_FUNC(rtos_timer, rtos_timer_create, void *, int, unsigned int, rtos_timer_callback);
+DECLARE_FAKE_VALUE_FUNC(int, rtos_timer_start, rtos_timer);
+DECLARE_FAKE_VALUE_FUNC(int, rtos_timer_stop, rtos_timer);
+DECLARE_FAKE_VOID_FUNC(rtos_timer_schedule, rtos_timer, unsigned int);
+
 void mock_rtos_reset(void);
 
 #endif

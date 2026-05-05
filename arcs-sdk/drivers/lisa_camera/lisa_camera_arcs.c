@@ -265,15 +265,32 @@ static int lisa_camera_fb_init(arcs_camera_priv_t *priv, uint32_t frame_size)
 
     /* 分配帧缓冲区内存并初始化 */
     for (uint8_t i = 0; i < fb_count; i++) {
-        priv->fb_buf[i] = (uint8_t *)lisa_mem_align_alloc(32, frame_size);
-        if (!priv->fb_buf[i]) {
-            LOGE("Failed to allocate frame buffer %d", i);
-            /* 释放已分配的内存 */
-            for (uint8_t j = 0; j < i; j++) {
-                lisa_mem_free(priv->fb_buf[j]);
-                priv->fb_buf[j] = NULL;
+        /* 如果配置了外部 mem_pool，从外部内存地址分配 */
+        if (priv->config.mem_pool != NULL) {
+            /* 计算对齐后的偏移量 */
+            uint32_t offset = i * ((frame_size + 31) & ~31);  /* 32字节对齐 */
+
+            /* 检查是否超出内存池大小 */
+            if (offset + frame_size > priv->config.mem_pool_size) {
+                LOGE("Frame buffer %d exceeds mem_pool size (offset=%lu, size=%lu, pool_size=%lu)",
+                     i, offset, frame_size, priv->config.mem_pool_size);
+                return LISA_DEVICE_ERR_NO_MEM;
             }
-            return LISA_DEVICE_ERR_NO_MEM;
+
+            priv->fb_buf[i] = (uint8_t *)priv->config.mem_pool + offset;
+            LOGD("Frame buffer %d allocated from external mem_pool: %p (offset=%lu)", i, priv->fb_buf[i], offset);
+        } else {
+            /* 使用系统默认内存分配 */
+            priv->fb_buf[i] = (uint8_t *)lisa_mem_align_alloc(32, frame_size);
+            if (!priv->fb_buf[i]) {
+                LOGE("Failed to allocate frame buffer %d", i);
+                /* 释放已分配的内存 */
+                for (uint8_t j = 0; j < i; j++) {
+                    lisa_mem_free(priv->fb_buf[j]);
+                    priv->fb_buf[j] = NULL;
+                }
+                return LISA_DEVICE_ERR_NO_MEM;
+            }
         }
 
         /* 初始化帧缓冲区结构 */
@@ -290,7 +307,11 @@ static int lisa_camera_fb_init(arcs_camera_priv_t *priv, uint32_t frame_size)
     }
 
     priv->fb_count = fb_count;
-    LOGI("Frame buffers initialized: count=%d, size=%lu", fb_count, frame_size);
+    if (priv->config.mem_pool != NULL) {
+        LOGI("Frame buffers initialized: count=%d, size=%lu, external mem_pool=%p", fb_count, frame_size, priv->config.mem_pool);
+    } else {
+        LOGI("Frame buffers initialized: count=%d, size=%lu (system memory)", fb_count, frame_size);
+    }
 
     return LISA_DEVICE_OK;
 }
@@ -308,18 +329,38 @@ static int lisa_camera_fb_reinit(arcs_camera_priv_t *priv)
     /* 仅重新分配缓冲区内存，不销毁队列 */
     for (uint8_t i = 0; i < priv->fb_count; i++) {
         if (priv->fb_buf[i]) {
-            lisa_mem_free(priv->fb_buf[i]);
-        }
-        priv->fb_buf[i] = (uint8_t *)lisa_mem_align_alloc(32, frame_size);
-        if (!priv->fb_buf[i]) {
-            LOGE("Failed to re-allocate frame buffer %d", i);
-            /* 释放已分配的内存 */
-            for (uint8_t j = 0; j < i; j++) {
-                lisa_mem_free(priv->fb_buf[j]);
-                priv->fb_buf[j] = NULL;
+            /* 如果使用了外部 mem_pool，不需要释放旧内存（由外部管理） */
+            if (priv->config.mem_pool == NULL) {
+                lisa_mem_free(priv->fb_buf[i]);
             }
-            return LISA_DEVICE_ERR_NO_MEM;
         }
+
+        /* 分配新内存 */
+        if (priv->config.mem_pool != NULL) {
+            /* 从外部内存地址分配 */
+            uint32_t offset = i * ((frame_size + 31) & ~31);  /* 32字节对齐 */
+
+            /* 检查是否超出内存池大小 */
+            if (offset + frame_size > priv->config.mem_pool_size) {
+                LOGE("Frame buffer %d exceeds mem_pool size during reinit", i);
+                return LISA_DEVICE_ERR_NO_MEM;
+            }
+
+            priv->fb_buf[i] = (uint8_t *)priv->config.mem_pool + offset;
+        } else {
+            /* 使用系统内存分配 */
+            priv->fb_buf[i] = (uint8_t *)lisa_mem_align_alloc(32, frame_size);
+            if (!priv->fb_buf[i]) {
+                LOGE("Failed to re-allocate frame buffer %d", i);
+                /* 释放已分配的内存 */
+                for (uint8_t j = 0; j < i; j++) {
+                    lisa_mem_free(priv->fb_buf[j]);
+                    priv->fb_buf[j] = NULL;
+                }
+                return LISA_DEVICE_ERR_NO_MEM;
+            }
+        }
+
         priv->fb_list[i].buf = priv->fb_buf[i];
         priv->fb_list[i].len = frame_size;
         priv->fb_list[i].width = priv->frame_width;
@@ -346,11 +387,46 @@ static void lisa_camera_fb_deinit(arcs_camera_priv_t *priv)
     /* 释放帧缓冲区内存 */
     for (uint8_t i = 0; i < priv->fb_count; i++) {
         if (priv->fb_buf[i]) {
-            lisa_mem_free(priv->fb_buf[i]);
+            /* 如果使用了外部 mem_pool，不需要释放（由外部管理） */
+            if (priv->config.mem_pool == NULL) {
+                lisa_mem_free(priv->fb_buf[i]);
+            }
             priv->fb_buf[i] = NULL;
         }
     }
     priv->fb_count = 0;
+}
+
+static void lisa_camera_release_runtime(arcs_camera_priv_t *priv)
+{
+    if (priv == NULL) {
+        return;
+    }
+
+    if (priv->is_started) {
+        if (priv->bus_dev) {
+            lisa_camera_bus_if_t *api = (lisa_camera_bus_if_t *)priv->bus_dev->api;
+            if ((api != NULL) && (api->stop_capture != NULL)) {
+                api->stop_capture(priv->bus_dev);
+            }
+        }
+
+        if (priv->sensor.stop) {
+            priv->sensor.stop(&priv->sensor);
+        }
+    }
+
+    lisa_camera_fb_deinit(priv);
+    priv->bus_dev = NULL;
+    priv->callback = NULL;
+    priv->callback_user_data = NULL;
+    memset(&priv->sensor, 0, sizeof(priv->sensor));
+    memset(&priv->capabilities, 0, sizeof(priv->capabilities));
+    priv->pixel_format = LISA_CAMERA_PIXFMT_RAW;
+    priv->frame_width = 0;
+    priv->frame_height = 0;
+    priv->is_started = false;
+    priv->is_initialized = false;
 }
 
 /**
@@ -860,6 +936,11 @@ static int lisa_camera_setup_arcs(lisa_device_t *dev, const lisa_camera_config_t
     arcs_camera_priv_t *priv = (arcs_camera_priv_t *)dev->priv_data;
     if (!priv) {
         return LISA_DEVICE_ERR_INVALID;
+    }
+
+    if (priv->is_initialized) {
+        LOGW("reconfigure existing camera instance");
+        lisa_camera_release_runtime(priv);
     }
 
     /* 复制配置 */

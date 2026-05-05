@@ -1,0 +1,5 @@
+tests:
+  test.uboot_ota_api:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"

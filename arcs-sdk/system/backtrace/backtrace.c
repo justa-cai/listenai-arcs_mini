@@ -17,14 +17,18 @@
 
 void backtrace_stack_dump(uint32_t *data, size_t cnt)
 {
+    char line[128];
+    int pos;
+
     for (size_t i = 0; i < cnt; i++) {
         if (i % 4 == 0) {
-            rvb_print("\n%p: ", data);
+            pos = snprintf(line, sizeof(line), "%p: ", data);
         }
-        rvb_print("%08lx ", (unsigned long)*data++);
+        pos += snprintf(line + pos, sizeof(line) - pos, "%08lx ", (unsigned long)*data++);
+        if ((i % 4 == 3) || (i == cnt - 1)) {
+            rvb_println("%s", line);
+        }
     }
-
-    rvb_print("\n");
 }
 
 void backtrace_show_tasks_info(void)

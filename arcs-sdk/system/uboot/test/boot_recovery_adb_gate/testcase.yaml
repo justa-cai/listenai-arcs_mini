@@ -1,0 +1,5 @@
+tests:
+  test.boot_recovery_adb_gate:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"

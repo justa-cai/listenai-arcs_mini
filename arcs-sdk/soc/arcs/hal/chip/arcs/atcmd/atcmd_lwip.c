@@ -29,7 +29,7 @@
 #include "net_ip.h"
 #include "ls_wifi_type.h"
 
-#define ATCMD_LWIP_TASK_DEFAULT_STACK_SIZE  296
+#define ATCMD_LWIP_TASK_DEFAULT_STACK_SIZE  1024
 #define ATCMD_LWIP_DEFAULT_TASK_PRIO        1
 #define MAX_BUFFER ETH_MAX_MTU
 #define ETH_MAX_MTU                         1500

@@ -41,6 +41,11 @@ static const ota_partition_t partition_map[] = {
             .addr = 0x00380000,
             .size = SIZE_K(768),
         },
+    [OTA_PART_APP_STAGING] =
+        {
+            .addr = 0x00A00000,
+            .size = SIZE_K(5120),
+        },
 };
 
 int ota_flash_verify(ota_partition_id_e part, const char *md5, uint32_t size)
@@ -94,7 +99,7 @@ int ota_flash_update_begin(ota_partition_id_e part, uint32_t total_size)
 {
     const ota_partition_t *partition = &partition_map[part];
 
-    if (total_size > partition->size) {
+    if (total_size != OTA_FLASH_SIZE_UNKNOWN && total_size > partition->size) {
         LISA_LOGE(TAG, "Partition %d size too small: %u < %u", part, partition->size, total_size);
         return -1;
     }
@@ -140,7 +145,7 @@ int ota_flash_update_step(ota_partition_id_e part, uint32_t offset, const uint8_
         return -1;
     }
 
-    if (offset + size > flash_update.total_size) {
+    if (flash_update.total_size != OTA_FLASH_SIZE_UNKNOWN && offset + size > flash_update.total_size) {
         LISA_LOGE(TAG, "Write exceeds update size: %u + %u > %u", offset, size, flash_update.total_size);
         return -1;
     }
@@ -202,7 +207,7 @@ int ota_flash_update_finish(ota_partition_id_e part)
         return -1;
     }
 
-    if (flash_update.offset != flash_update.total_size) {
+    if (flash_update.total_size != OTA_FLASH_SIZE_UNKNOWN && flash_update.offset != flash_update.total_size) {
         LISA_LOGE(TAG, "Update incomplete: %u / %u", flash_update.offset, flash_update.total_size);
         return -1;
     }
@@ -236,5 +241,5 @@ int ota_flash_update_finish(ota_partition_id_e part)
     vSemaphoreDelete(flash_update.mutex);
     flash_update.in_progress = false;
 
-    return 0;
+    return (int)flash_update.offset;
 }

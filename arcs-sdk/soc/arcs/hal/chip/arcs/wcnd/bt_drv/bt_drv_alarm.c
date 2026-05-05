@@ -12,7 +12,7 @@
 
 
 extern void sch_alarm_set(struct sch_alarm_tag* elt);
-
+extern bool HAL_PMU_Is_PowerOn(void);
 
 /*
  * VARIABLES DEFINITIONS

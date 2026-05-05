@@ -13,7 +13,7 @@ static void fd_event_handler(uint32_t event, void *event_data, uint32_t event_da
 {
 
     if (event & FD_CB_EVENT_ENGINE_RLT) {
-        LISA_LOGI(TAG, "fd result:%d,%s", event_data_len, (char *)event_data);
+        LISA_LOGI(TAG, "fd result:%d,%p", event_data_len, (char *)event_data);
 
         acomp_fd_result_info_t *info = (acomp_fd_result_info_t *)event_data;
         uint32_t result_cnt = info->results_cnt;

@@ -31,6 +31,7 @@ CFLAGS  =
 CFLAGS  += -I $(TOPDIR)/include/bsp \
            -I $(TOPDIR)/include/debug \
            -I $(TOPDIR)/chip/${CHIP}/driver/private_include \
+           -I $(TOPDIR)/chip/${CHIP}/driver/debug \
            -I $(TOPDIR)/chip/${CHIP}/bsp \
            -I $(TOPDIR)/chip/${CHIP}/include
 

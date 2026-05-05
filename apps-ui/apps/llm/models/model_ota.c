@@ -26,9 +26,11 @@ static void handle_ota_state_change(void *unused, uint32_t msg_id, void *data, u
 
 int model_ota_init(void)
 {
+    voice_msg_sub(VOICE_MSG_OTA_CHECKING, handle_ota_state_change, NULL);
     voice_msg_sub(VOICE_MSG_OTA_UPDATING, handle_ota_state_change, NULL);
     voice_msg_sub(VOICE_MSG_OTA_SUCCESSED, handle_ota_state_change, NULL);
     voice_msg_sub(VOICE_MSG_OTA_FAILED, handle_ota_state_change, NULL);
+    voice_msg_sub(VOICE_MSG_OTA_PACKAGE_INFO_FAILED, handle_ota_state_change, NULL);
     return 0;
 }
 

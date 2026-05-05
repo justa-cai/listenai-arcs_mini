@@ -30,6 +30,7 @@
 
 #include "bt_stack_cfg.h"
 #include "bt_stack_hal.h"
+#include "lisa_bluetooth.h"
 
 #if BT_STACK_PRESENT
 #include "bt_a2dp.h"
@@ -103,7 +104,7 @@ static void hfp_disconnect_cmp(uint8_t conidx, uint16_t status);
 void hfp_aud_start_ind(uint8_t conidx, uint16_t codec, uint16_t status);
 void hfp_aud_stop_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason);
 static void hfp_receive_media_from_peer(uint8_t conidx, uint8_t pkt_sta, uint16_t len, uint8_t *data);
-static void hfp_send_media_cmp(uint8_t conidx, uint16_t status, uint8_t *data);
+static void hfp_send_media_cmp(uint8_t conidx, uint8_t status, uint8_t *data);
 static void hfp_status_ind(uint8_t conidx, uint8_t req_type, uint8_t status_type, uint16_t val);
 static void hfp_call_ind(uint8_t conidx, uint8_t req_type, uint8_t call_type, uint8_t call_idx);
 #endif
@@ -387,6 +388,7 @@ void bt_stack_classic_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *pe
     bt_classic_scan_enable(BT_GAP_SCAN_DIS);
 #endif
     bt_stack_nvs_set(NVS_ID_BT_PEER_ADDRESS, GAP_BD_ADDR_LEN, peer_addr->addr);
+    lisa_bt_classic_notify_connected(conidx, conhdl, peer_addr);
 }
 
 /**
@@ -397,6 +399,7 @@ void bt_stack_classic_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
 
     stack_env->bt_classic_connected = 0;
+    lisa_bt_classic_notify_disconnected(conidx, conhdl, reason);
     uint16_t flags = 0;
     uint8_t disc = 0;
     uint16_t uuid[2];
@@ -479,7 +482,7 @@ static void a2dp_revoke_cmp(uint16_t status)
 static void a2dp_connect_cmp(uint8_t conidx, uint16_t status)
 {
     CLOGI("a2dp connect cmp! conidx=%d, status=0x%x", conidx, status);
-    
+
 #ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
 #if BT_MUSIC_SOURCE_SEND_DUMMY
     app_a2dp_start(conidx);
@@ -487,15 +490,21 @@ static void a2dp_connect_cmp(uint8_t conidx, uint16_t status)
     bt_stack_a2dp_connection_update(conidx, true);
 #endif
 #endif
+
+    if (status == 0) {
+        lisa_bt_classic_notify_profile(conidx, LISA_BT_PROFILE_A2DP, true);
+    }
 }
 
 static void a2dp_disconnect_cmp(uint8_t conidx, uint16_t status)
 {
     CLOGI("a2dp disconnect cmp! conidx=%d, status=0x%x", conidx, status);
-    
+
 #ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
     bt_stack_a2dp_connection_update(conidx, false);
 #endif
+
+    lisa_bt_classic_notify_profile(conidx, LISA_BT_PROFILE_A2DP, false);
 }
 
 static void a2dp_start_ind(uint8_t conidx, uint8_t codec, uint8_t ch, uint16_t sample_rate)
@@ -601,6 +610,9 @@ static void avrcp_media_cmp(uint8_t conidx, uint16_t status)
 static void avrcp_avrcp_press_ind(uint8_t conidx, uint8_t key_type, uint8_t key_id, uint8_t key_value)
 {
     CLOGI("avrcp press ind,idx:%d,key:0x%x-0x%x-0x%x", conidx, key_type, key_id, key_value);
+    if (key_type == BT_AVRCP_KEY_RELEASED) {
+        lisa_bt_classic_notify_avrcp_key(conidx, key_id);
+    }
     switch(key_id)
     {
         case BT_AVRCP_KEY_ID_PAUSE :
@@ -687,7 +699,7 @@ static void hfp_disable_cmp(uint16_t status)
 static void hfp_connect_cmp(uint8_t conidx, uint8_t type, uint16_t status)
 {
     CLOGD("hfp connect cmp,conidx:%d, type:%d, status:0x%x", conidx, type, status);
-    
+
 #ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
     app_a2dp_connect(conidx, a2dp_cfg.a2dp_role);
 #if BT_HFP_SOURCE_SEND_DUMMY
@@ -701,15 +713,21 @@ static void hfp_connect_cmp(uint8_t conidx, uint8_t type, uint16_t status)
     bt_stack_hfp_connection_update(conidx, true);
 #endif
 #endif
+
+    if (status == 0) {
+        lisa_bt_classic_notify_profile(conidx, LISA_BT_PROFILE_HFP, true);
+    }
 }
 
 static void hfp_disconnect_cmp(uint8_t conidx, uint16_t status)
 {
     CLOGD("hfp disconnect cmp,conidx:%d, status:0x%x", conidx, status);
-    
+
 #ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
     bt_stack_hfp_connection_update(conidx, false);
 #endif
+
+    lisa_bt_classic_notify_profile(conidx, LISA_BT_PROFILE_HFP, false);
 }
 
 void hfp_aud_start_ind(uint8_t conidx, uint16_t codec, uint16_t status)
@@ -759,7 +777,7 @@ static void hfp_receive_media_from_peer(uint8_t conidx, uint8_t pkt_sta, uint16_
 /**
  * @brief HFP 音频发送完成回调
  */
-static void hfp_send_media_cmp(uint8_t conidx, uint16_t status, uint8_t *data)
+static void hfp_send_media_cmp(uint8_t conidx, uint8_t status, uint8_t *data)
 {
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
     if(stack_env->bt_call_send_cnt > 0)

@@ -40,6 +40,10 @@ target_sources(tests PRIVATE
     test_net_al_lwip_api.c
 )
 
+set_source_files_properties(${HAL_ROOT}/chip/arcs/lwip/net_al/net_al.c PROPERTIES
+    COMPILE_OPTIONS "-Wno-pointer-to-int-cast;-Wno-int-to-pointer-cast"
+)
+
 target_compile_definitions(tests PRIVATE
     CONFIG_PM=0
 )

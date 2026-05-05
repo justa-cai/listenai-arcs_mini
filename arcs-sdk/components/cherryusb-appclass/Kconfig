@@ -1,0 +1,16 @@
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "cherry usb app class"
+
+config CHERRYUSB_APP_CLASS
+	bool "cherry usb app class"
+	depends on CHERRYUSB && CHERRYUSB_DEVICE && !TUSB_APP_CLASS
+	help
+		Enable app-level USB classes implemented on CherryUSB.
+
+if CHERRYUSB_APP_CLASS
+	rsource "adb/Kconfig"
+endif
+
+endmenu

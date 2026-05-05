@@ -4,7 +4,13 @@ if(CONFIG_ARCS_HAL_WCND)
     # 静态库目标
     listenai_library_named(arcs_hal_wcnd)
 
-    if (CONFIG_WIFI AND (CONFIG_BLE OR CONFIG_BT))
+    if (CONFIG_WIFI AND CONFIG_BT)
+        listenai_compile_definitions(WCN_TYPE=both)
+        listenai_compile_definitions(RFCALI_BT_EN=1 WCN_TYPE_BT=1)
+        listenai_compile_definitions(RFCALI_WF_EN=1 WCN_TYPE_WF=1)
+        listenai_compile_definitions(WCN_TYPE_BT_DUAL=1)
+        listenai_compile_definitions(BT_WIFI_COEX=1) # 启用蓝牙相关的接口和AT指令功能
+    elseif(CONFIG_WIFI AND CONFIG_BLE)
         listenai_compile_definitions(WCN_TYPE=both)
         listenai_compile_definitions(RFCALI_BT_EN=1 WCN_TYPE_BT=1)
         listenai_compile_definitions(RFCALI_WF_EN=1 WCN_TYPE_WF=1)
@@ -80,6 +86,17 @@ if(CONFIG_ARCS_HAL_WCND)
     endif()
     
     target_compile_definitions(arcs_hal_wcnd PRIVATE RF_BOARD_VER=${CONFIG_ARCS_HAL_WCND_RF_BOARD_VER})
+
+    listenai_compile_definitions(
+        FLASH_WF_MFG_CONF_BASE_ADDR=${CONFIG_ARCS_HAL_WCND_FLASH_WF_MFG_CONF_BASE_ADDR}
+        WIFI_RF_SET_GOLDEN=${CONFIG_ARCS_HAL_WCND_WIFI_RF_SET_GOLDEN}
+        XO_CAP_GOLDEN_VAL=${CONFIG_ARCS_HAL_WCND_XO_CAP_GOLDEN_VAL}
+        PWR_OFFSET_LOW_GOLDEN_VAL=${CONFIG_ARCS_HAL_WCND_PWR_OFFSET_LOW_GOLDEN_VAL}
+        PWR_OFFSET_MID_GOLDEN_VAL=${CONFIG_ARCS_HAL_WCND_PWR_OFFSET_MID_GOLDEN_VAL}
+        PWR_OFFSET_HIGH_GOLDEN_VAL=${CONFIG_ARCS_HAL_WCND_PWR_OFFSET_HIGH_GOLDEN_VAL}
+        RSSI_OFFSET_DSSS_GOLDEN_VAL=${CONFIG_ARCS_HAL_WCND_RSSI_OFFSET_DSSS_GOLDEN_VAL}
+        RSSI_OFFSET_OFDM_GOLDEN_VAL=${CONFIG_ARCS_HAL_WCND_RSSI_OFFSET_OFDM_GOLDEN_VAL}
+    )
 
     listenai_library_sources(${WCND_SRCS})
 

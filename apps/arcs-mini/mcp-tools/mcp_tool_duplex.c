@@ -16,43 +16,83 @@
 
 #define TAG "mcp_tool_duplex"
 
+static const char *interaction_mode_desc(app_interaction_mode_t mode)
+{
+    switch (mode) {
+    case APP_INTERACTION_MODE_FULL_DUPLEX:
+        return "全双工可打断模式";
+    case APP_INTERACTION_MODE_MULTI_NO_INTERRUPT:
+        return "全双工不可打断模式";
+    case APP_INTERACTION_MODE_SINGLE:
+        return "单工模式";
+    default:
+        return "未知模式";
+    }
+}
+
+static bool interaction_mode_parse(cJSON *args, app_interaction_mode_t *mode)
+{
+    const cJSON *mode_json = mcp_tool_call_args_get(args, "mode");
+    if (mode_json && cJSON_IsString(mode_json) && mode_json->valuestring) {
+        const char *mode_str = mode_json->valuestring;
+        if (!strcmp(mode_str, "single")) {
+            *mode = APP_INTERACTION_MODE_SINGLE;
+            return true;
+        }
+        if (!strcmp(mode_str, "duplex")) {
+            *mode = APP_INTERACTION_MODE_FULL_DUPLEX;
+            return true;
+        }
+        if (!strcmp(mode_str, "duplex_no_interrupt")) {
+            *mode = APP_INTERACTION_MODE_MULTI_NO_INTERRUPT;
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static cJSON *duplex_switch_list(const char *name)
 {
     cJSON *tool = mcp_tool_list_info_create_default(name,
-        "该工具用于切换交互模式，在[单工模式/半双工模式/单轮对话] 与 [全双工模式/连续对话/多轮对话] 这两种对话模式之间切换");
+        "该工具用于切换交互模式：全双工可打断、全双工不可打断、单工模式");
     if (!tool) {
         return NULL;
     }
 
-    mcp_tool_info_add_property(tool, "value","开关，true为进入[全双工模式/连续对话/多轮对话]，false为[单工模式/半双工模式/单轮对话]","boolean", true);
+    cJSON *mode_property = cJSON_CreateObject();
+    cJSON *mode_enum = cJSON_CreateArray();
+    if (!mode_property || !mode_enum) {
+        cJSON_Delete(mode_property);
+        cJSON_Delete(mode_enum);
+        cJSON_Delete(tool);
+        return NULL;
+    }
+
+    cJSON_AddStringToObject(mode_property, "type", "string");
+    cJSON_AddStringToObject(mode_property, "description", "Interaction mode value.");
+    cJSON_AddItemToArray(mode_enum, cJSON_CreateString("single"));
+    cJSON_AddItemToArray(mode_enum, cJSON_CreateString("duplex"));
+    cJSON_AddItemToArray(mode_enum, cJSON_CreateString("duplex_no_interrupt"));
+    cJSON_AddItemToObject(mode_property, "enum", mode_enum);
+    mcp_tool_info_add_json_property(tool, "mode", mode_property, true);
 
     return tool;
 }
 
 static cJSON *duplex_switch_call(const char *id, const char *name, cJSON *args)
 {
-    const cJSON *value_json = mcp_tool_call_args_get(args, "value");
-    if (!value_json || !cJSON_IsBool(value_json)) {
-        LOGE("value parameter not found or invalid");
+    app_interaction_mode_t interaction_mode = APP_INTERACTION_MODE_SINGLE;
+    if (!interaction_mode_parse(args, &interaction_mode)) {
+        LOGE("mode parameter not found or invalid");
         return NULL;
     }
 
-    bool enable_full_duplex = cJSON_IsTrue(value_json);
-    LOGI("switch duplex -> %s", enable_full_duplex ? "full" : "half");
+    LOGI("switch interaction mode -> %d", interaction_mode);
 
-
-    model_voice_wakeup_mode_t mode = enable_full_duplex ? MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI : MODEL_VOICE_WAKEUP_MODE_VOICE_SINGLE;
-    if (model_voice_wakeup_mode_set(mode) != 0) {
-        LOGW("model_voice_wakeup_mode_set failed, fallback to app_datas only");
-    }
-
-    struct app_datas *app_datas = get_app_datas();
-    if (app_datas) {
-        app_datas->full_duplex = enable_full_duplex;
-        app_datas->voice_work_mode &= ~VOICE_WORK_MODE_BUTTON_WAKEUP;
-        app_datas->voice_work_mode |= VOICE_WORK_MODE_VOICE_WAKEUP;
-        lisa_kv_set_bool(KV_KEY_FULL_DUPLEX, app_datas->full_duplex);
-        lisa_kv_set_int(KV_KEY_WAKEUP_MODE, (int)app_datas->voice_work_mode);
+    if (model_voice_interaction_mode_set((int)interaction_mode) != 0) {
+        LOGE("model_voice_interaction_mode_set failed");
+        return NULL;
     }
 
     voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
@@ -63,8 +103,7 @@ static cJSON *duplex_switch_call(const char *id, const char *name, cJSON *args)
     }
 
     char text[96];
-    const char *mode_desc = enable_full_duplex ? "全双工模式" : "单工模式";
-    snprintf(text, sizeof(text), "已切换到%s", mode_desc);
+    snprintf(text, sizeof(text), "已切换到%s", interaction_mode_desc(interaction_mode));
 
     cJSON *content_array = cJSON_CreateArray();
     cJSON *content_item = cJSON_CreateObject();
@@ -77,4 +116,4 @@ static cJSON *duplex_switch_call(const char *id, const char *name, cJSON *args)
     return result;
 }
 
-MCP_TOOL_DEFINE(ls.built_in.switch_full_duplex, duplex_switch_list, duplex_switch_call);
+MCP_TOOL_DEFINE(ls.built_in.switch_full_duplex_v2, duplex_switch_list, duplex_switch_call);

@@ -16,23 +16,27 @@ menu "General hardware acceleration"
 
 endmenu
 
-menu " Cipher hardware acceleration"
+menu "Cipher hardware acceleration"
 
     config MBEDTLS_HARDWARE_AES
         bool "Enable hardware AES acceleration"
         default n
+        select ARCS_HAL_CRYPTO
 
     config MBEDTLS_HARDWARE_AES_CCM
         bool "Enable hardware aes ccm acceleration"
         default n
+        select ARCS_HAL_CRYPTO
 
     config MBEDTLS_HARDWARE_AES_GCM
         bool "Enable hardware aes gcm acceleration"
         default n
+        select ARCS_HAL_CRYPTO
 
     config MBEDTLS_HARDWARE_AES_CMAC
         bool "Enable hardware aes cmac acceleration"
         default n
+        select ARCS_HAL_CRYPTO
 
 endmenu
 
@@ -53,6 +57,7 @@ menu "Message digest hardware acceleration"
     config MBEDTLS_HARDWARE_SHA_HMAC
         bool "Enable hardware sha hmac acceleration"
         default n
+        select ARCS_HAL_CRYPTO
 
 endmenu
 
@@ -71,6 +76,7 @@ menu "Rsa hardware acceleration"
     config MBEDTLS_HARDWARE_MPI_MODULAR_EXPONENTIATION
         bool "Enable hardware MPI modular exponent acceleration"
         default n
+        select ARCS_HAL_CRYPTO
         help
             Enable hardware acceleration for MPI modular exponentiation(X = A^E mod N).
             This option can accelerate RSA and other algorithms that use modular exponentiation.
@@ -82,6 +88,7 @@ menu "Ecp hardware acceleration"
     config MBEDTLS_HARDWARE_ECC
         bool "Enable hardware ECC acceleration"
         default n
+        select ARCS_HAL_CRYPTO
 
 endmenu
 

@@ -6,6 +6,7 @@
 menuconfig LISA_BLUETOOTH
 	bool "Enable Lisa Bluetooth"
 	select SDK_MODULE_MBEDTLS
+	select ARCS_HAL_CRYPTO
 	help
 		Enable Lisa Bluetooth component.
 

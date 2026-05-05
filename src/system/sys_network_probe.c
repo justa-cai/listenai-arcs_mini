@@ -11,6 +11,7 @@
 #include "lisa_thread.h"
 #include "lisa_semaphore.h"
 
+#include "sys_network_manager.h"
 #include "voice_msg.h"
 
 const char *sntp_servers[] = {
@@ -35,10 +36,12 @@ static void network_probe_task(void *pvParameters)
                 break;
             }
             LOGE("sntp query failed, r:%d", r);
+            sys_network_report_probe_result(false);
             voice_msg_pub(VOICE_MSG_SYSTEM_NETWORK_PROBE_FAIL, NULL, 0);
             vTaskDelay(pdMS_TO_TICKS(5 * 1000));
         }
 
+        sys_network_report_probe_result(true);
         voice_msg_pub(VOICE_MSG_SYSTEM_NETWORK_PROBE_SUCCESS, NULL, 0);
         struct timeval tv = {
             .tv_sec = time.sec,
@@ -56,7 +59,7 @@ int network_probe_init(void)
 
     lisa_thread_attr_t att = {
         .name = "sys.net.probe",
-        .stack_size = 2048,
+        .stack_size = 8192,
         .priority = LISA_OS_PRIORITY_NORMAL,
     };
 

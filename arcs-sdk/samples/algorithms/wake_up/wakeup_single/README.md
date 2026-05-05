@@ -43,8 +43,8 @@ cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x200000 ./res/algo/algo.bin
 cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x4d0000 ./res/algo/wrap.json
 
 # 烧录 CP 核固件
-# 烧录地址：0x30050000
-cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x500000 ./build/arcs.bin
+# 烧录地址：0x30800000
+cskburn -s /dev/ttyACM0 -b 3000000 -C arcs 0x800000 ./build/arcs.bin
 ```
 
 ## 预期输出
@@ -148,7 +148,7 @@ Running on hart-id: 0
 I/elog            [00:00:00.039 0 elog_async] EasyLogger V2.2.99 is initialize success.
 
 AP Hard ID: 0
-boot cp from address: 0x30500000
+boot cp from address: 0x30800000
 luna_version:0x3000200
 I/wakeup          [00:00:00.055 0 main] sys_acomp_wakeup_init
 

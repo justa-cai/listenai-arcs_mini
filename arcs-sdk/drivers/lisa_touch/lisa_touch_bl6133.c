@@ -111,23 +111,19 @@ static int bl6133_read_reg(lisa_device_t *i2c_dev, uint8_t reg, uint8_t *data, u
 static void bl6133_read_task(void *pvParameters)
 {
     lisa_touch_bl6133_priv_t *priv = (lisa_touch_bl6133_priv_t *)pvParameters;
-    
+
     while (1) {
-        /* 等待任务通知（中断会发送通知）
-         * 使用 pdFALSE 清除所有累积的通知，避免重复处理
-         */
-        ulTaskNotifyTake(pdFALSE, portMAX_DELAY);
-        
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+
         if (!priv->enabled || !priv->interrupt_mode_active) {
             continue;
         }
-        
+
         /* 在任务上下文中读取完整的触摸数据 */
         lisa_touch_event_t event = {0};
         int ret = bl6133_touch_read_event_internal(priv, &event);
-        
+
         if (ret == LISA_DEVICE_OK && priv->callback) {
-            /* 通过回调函数返回完整数据 */
             priv->callback(&event, priv->callback_user_data);
         }
     }
@@ -140,7 +136,7 @@ static void bl6133_gpio_irq_callback(uint32_t pin, void *user_data)
 {
     (void)pin;
     lisa_touch_bl6133_priv_t *priv = (lisa_touch_bl6133_priv_t *)user_data;
-    
+
     if (!priv || !priv->interrupt_mode_active) {
         return;
     }
@@ -406,7 +402,7 @@ static int bl6133_touch_set_int_mode(lisa_device_t *dev, lisa_touch_int_mode_t m
         if (priv->read_task_handle == NULL) {
             /* 使用 Kconfig 配置的任务优先级 */
             UBaseType_t task_priority = tskIDLE_PRIORITY + CONFIG_LISA_TOUCH_ARCS_BL6133_READ_TASK_PRIORITY;
-            xTaskCreate(bl6133_read_task, "bl6133_read", 1024, priv, 
+            xTaskCreate(bl6133_read_task, "bl6133_read", 1024, priv,
                        task_priority, &priv->read_task_handle);
             if (priv->read_task_handle == NULL) {
                 DEVICE_UNLOCK(priv);

@@ -42,13 +42,15 @@
 
 #define AXS_DEFAULT_BACKLIGHT_FREQ 20000U
 
-struct panel_axs15231b_priv {
-    lisa_display_orientation_t orientation;
-};
-
 static int panel_axs15231b_init(lisa_display_panel_t *panel)
 {
-    // reset panel
+    panel->caps.width = CONFIG_PANEL_AXS15231B_WIDTH;
+    panel->caps.height = CONFIG_PANEL_AXS15231B_HEIGHT;
+    panel->caps.pixel_format = LISA_DISPLAY_PIXEL_FORMAT_RGB_565;
+    panel->caps.orientation = LISA_DISPLAY_ORIENTATION_0;
+    panel->caps.supported_pixel_formats = (1U << LISA_DISPLAY_PIXEL_FORMAT_RGB_565);
+
+    /* 硬件复位 */
     panel_reset_pin_set(panel, 1);
     lisa_thread_mdelay(10);
     panel_reset_pin_set(panel, 0);
@@ -56,21 +58,27 @@ static int panel_axs15231b_init(lisa_display_panel_t *panel)
     panel_reset_pin_set(panel, 1);
     lisa_thread_mdelay(10);
 
+    /* 退出睡眠模式 */
     panel_write_cmd_data(panel, AXS15231B_CMD_CONCAT_CMD(LCD_CMD_SLEEP_OUT), AXS15231B_CMD_BITS, NULL, 0);
     lisa_thread_mdelay(10);
 
-    struct panel_axs15231b_priv *priv = lisa_mem_alloc(sizeof(*priv));
-    if (!priv) {
-        return LISA_DEVICE_ERR_NO_MEM;
+    /* 发送初始化序列（通过 attach 时的 init_params 传入） */
+    const uint8_t *seq = (const uint8_t *)panel->init_params;
+    size_t seq_len = panel->init_params_len;
+    if (seq && seq_len > 0) {
+        const uint8_t *p = seq;
+        const uint8_t *end = seq + seq_len;
+        while (p + 2 <= end) {
+            uint8_t cmd = *p++;
+            uint8_t len = *p++;
+            if (p + len > end) {
+                LISA_LOGW(LOG_TAG, "Init sequence truncated for cmd 0x%02x", cmd);
+                break;
+            }
+            panel_write_cmd_data(panel, AXS15231B_CMD_CONCAT_CMD(cmd), AXS15231B_CMD_BITS, p, len);
+            p += len;
+        }
     }
-
-    panel->priv_data = priv;
-    panel->caps.width = CONFIG_PANEL_AXS15231B_WIDTH;
-    panel->caps.height = CONFIG_PANEL_AXS15231B_HEIGHT;
-    panel->caps.pixel_format = LISA_DISPLAY_PIXEL_FORMAT_RGB_565;
-    panel->caps.orientation = LISA_DISPLAY_ORIENTATION_0;
-    panel->caps.supported_pixel_formats = (1U << LISA_DISPLAY_PIXEL_FORMAT_RGB_565);
-    priv->orientation = LISA_DISPLAY_ORIENTATION_0;
 
     LISA_LOGI(LOG_TAG, "AXS15231B initialized");
     return LISA_DEVICE_OK;
@@ -135,11 +143,7 @@ static int panel_axs15231b_set_brightness(lisa_display_panel_t *panel, uint8_t b
 
 static int panel_axs15231b_set_orientation(lisa_display_panel_t *panel, lisa_display_orientation_t orientation)
 {
-    struct panel_axs15231b_priv *priv = (struct panel_axs15231b_priv *)panel->priv_data;
-
     panel->caps.orientation = orientation;
-    priv->orientation = orientation;
-
     return LISA_DEVICE_OK;
 }
 
@@ -159,4 +163,5 @@ int panel_axs15231b_device_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_axs15231b_driver, NULL, NULL, &panel_axs15231b_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(axs15231b, &lisa_display_axs15231b_driver, NULL, NULL, &panel_axs15231b_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);
+

@@ -724,11 +724,25 @@ static void sal_sockaddr_to_ipaddr(const struct sockaddr *name, netdev_ip_addr_t
 #endif /* NETDEV_IPV4 && NETDEV_IPV6*/
 }
 
+static bool sal_sockaddr_is_any_v4(const struct sockaddr *name)
+{
+    const struct sockaddr_in *svr_addr = (const struct sockaddr_in *)name;
+
+    if (name == NULL || name->sa_family != AF_INET)
+    {
+        return false;
+    }
+
+    return svr_addr->sin_addr.s_addr == htonl(INADDR_ANY);
+}
+
 int sal_bind(int socket, const struct sockaddr *name, socklen_t namelen)
 {
     struct sal_socket *sock;
     struct sal_proto_family *pf;
     netdev_ip_addr_t input_ipaddr;
+    bool bind_any_addr = false;
+    int ret;
 
     assert(name);
     // LOG_I("%d, %s---\r\n", __LINE__, __func__);
@@ -740,9 +754,10 @@ int sal_bind(int socket, const struct sockaddr *name, socklen_t namelen)
     {
         /* bind network interface by ip address */
         sal_sockaddr_to_ipaddr(name, &input_ipaddr);
+        bind_any_addr = sal_sockaddr_is_any_v4(name);
 
         /* check input ipaddr is default netdev ipaddr */
-        if (!ip_addr_isany_val(input_ipaddr))
+        if (!bind_any_addr)
         {
             struct sal_proto_family *input_pf = NULL, *local_pf = NULL;
             struct netdev *new_netdev = NULL;
@@ -750,6 +765,12 @@ int sal_bind(int socket, const struct sockaddr *name, socklen_t namelen)
             new_netdev = netdev_get_by_ipaddr(&input_ipaddr);
             if (new_netdev == NULL)
             {
+                LOG_E("sal_bind cannot find netdev for bind ip=%u.%u.%u.%u",
+                      input_ipaddr.addr & 0xFF,
+                      (input_ipaddr.addr >> 8) & 0xFF,
+                      (input_ipaddr.addr >> 16) & 0xFF,
+                      (input_ipaddr.addr >> 24) & 0xFF);
+                errno =(EADDRNOTAVAIL);
                 return -1;
             }
 
@@ -763,11 +784,12 @@ int sal_bind(int socket, const struct sockaddr *name, socklen_t namelen)
                 int new_socket = -1;
 
                 /* protocol family is different, close old socket and create new socket by input ip address */
-                local_pf->skt_ops->closesocket(socket);
+                local_pf->skt_ops->closesocket((int)(size_t)sock->user_data);
 
                 new_socket = input_pf->skt_ops->socket(input_pf->family, sock->type, sock->protocol);
                 if (new_socket < 0)
                 {
+                    LOG_E("sal_bind failed to create replacement proto socket for netdev=%s", new_netdev->name);
                     return -1;
                 }
                 sock->netdev = new_netdev;
@@ -777,7 +799,17 @@ int sal_bind(int socket, const struct sockaddr *name, socklen_t namelen)
     }
     /* check and get protocol families by the network interface device */
     SAL_NETDEV_SOCKETOPS_VALID(sock->netdev, pf, bind);
-    return pf->skt_ops->bind((int)(size_t)sock->user_data, name, namelen);
+    ret = pf->skt_ops->bind((int)(size_t)sock->user_data, name, namelen);
+    if (ret != 0)
+    {
+        LOG_E("sal_bind backend bind failed sal_fd=%d proto_fd=%d netdev=%s ret=%d errno=%d",
+              socket,
+              (int)(size_t)sock->user_data,
+              sock->netdev ? sock->netdev->name : "(null)",
+              ret,
+              errno);
+    }
+    return ret;
 }
 
 int sal_shutdown(int socket, int how)

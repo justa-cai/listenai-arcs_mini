@@ -25,7 +25,8 @@
 #include "ic_spinlock.h"
 #endif
 #include "PowerManager.h"
-#include "pm_impl.h"
+#include "pm.h"
+#include "log_print.h"
 
 #define VRTC_TIMER_VALUE_MASK          (0xFFFFFF)
 #define VRTC_TIMEOUT                   (20) /*s*/
@@ -162,7 +163,6 @@ uint32_t vrtc_get_freq(void)
 
 #if VRTC_DEBUG
 static volatile uint32_t start_time, raw_time, timer_begin;
-static volatile union CORE_IOMUX_REG_PAD_GPIOB_00 *ptr = (union CORE_IOMUX_REG_PAD_GPIOB_00*)(0x48100000UL + (6<<2));
 #endif
 
 #if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
@@ -245,9 +245,6 @@ static void vrtc_isr(uint32_t event, void* workspace)
             }
             vrtc_current_timer = timer;
             VRTC_SPIN_UNLOCK(IC_SPIN_LOCK_TYPE_VRTC);
-            #if VRTC_DEBUG
-            ptr->bit.PAD_GPIOB_00_OUT_REG = 1;
-            #endif
             return;
         }
         else
@@ -431,7 +428,7 @@ int32_t vrtc_init(void)
     memset(&reg_info, 0, sizeof(struct vrtc_reg_info));
     vrtc_reg = &reg_info;
 #else
-    vrtc_reg = &(ipc_get_shared_info()->vtc_reg);
+    vrtc_reg = &(ipc_get_shared_info()->vrtc_reg);
 #endif
 
 #if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)

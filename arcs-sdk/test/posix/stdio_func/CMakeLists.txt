@@ -7,13 +7,11 @@ find_package(listenai-cmake REQUIRED HINTS $ENV{ARCS_BASE})
 project(arcs)
 listenai_include_directories(
     ./
-    fs/
 )
 listenai_add_executable(${PROJECT_NAME})
 
 target_sources(${PROJECT_NAME} PRIVATE 
     test_stdio.c
-    fs/user_fs.c
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE unity)

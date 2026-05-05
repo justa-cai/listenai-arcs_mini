@@ -2,6 +2,7 @@ target_sources(
     ${LISA_UI_LIB_NAME}
     PRIVATE
     home_presenter.c
+    home_camera_preview_presenter.c
     info_presenter.c
     setting_presenter.c
     setting_common_presenter.c

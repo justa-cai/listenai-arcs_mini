@@ -55,6 +55,10 @@ typedef union{
 #define ACOMP_IPC_CMD_NOTIFY_STREAM_UPDATE  (0x02) /*async notify data write*/
 #define ACOMP_IPC_CMD_NOTIFY_SUBCMD         (0x03) /*async notify subcmd*/
 
+#define ACOMP_RES_STORAGE_FLASH (0U)
+#define ACOMP_RES_STORAGE_SD    (1U)
+#define ACOMP_RES_STORAGE_PSRAM (2U)
+
 
 typedef struct {
 
@@ -159,6 +163,7 @@ typedef void(*ipc_event_cb_t) (acomp_ipc_message_t *message, void *priv);
 
 extern int acomp_ipc_init(void);
 extern int acomp_ipc_add_callback(uint32_t dev_index, ipc_event_cb_t cb, void *priv);
+extern int acomp_ipc_remove_callback(uint32_t dev_index, ipc_event_cb_t cb);
 extern int acomp_ipc_build_frame_send_sync(int dev_index,int cmd,int acomp_cmd,uint8_t flags,void* data,uint16_t len);
 extern int acomp_ipc_get_dev_index(const char *name);
 

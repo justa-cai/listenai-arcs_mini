@@ -569,7 +569,7 @@ rtos_timer rtos_timer_create(void *id, bool reload, uint32_t period_ms, TimerCal
 int32_t rtos_timer_start(rtos_timer timer);
 int32_t rtos_timer_stop(rtos_timer timer);
 int32_t rtos_timer_reload(rtos_timer timer);
-int32_t rtos_timer_destroy(rtos_timer timer);
+int32_t rtos_timer_delete(rtos_timer timer);
 void rtos_timer_id_set(rtos_timer timer, void *id);
 void *rtos_timer_id_get(rtos_timer timer);
 void rtos_timer_set_reload_mode(rtos_timer timer, bool reload);

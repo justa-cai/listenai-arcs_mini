@@ -1,0 +1,616 @@
+#
+# Public boot options: expose only BOOT_* knobs to the main
+# application Kconfig tree and avoid leaking boot-internal defaults.
+#
+config BOOT_AP_ENTRY
+    hex "AP entry"
+    default 0
+
+config BOOT_SECOND_STAGE
+    bool "Enable boot second stage (boot_s)"
+    default n
+    help
+        Enable the second boot stage which includes FreeRTOS, USB stack,
+        ADB, display, and other advanced features.
+        When disabled, boot_f jumps directly to the application.
+
+config BOOT_DISPLAY
+    bool "Bootloader LCD recovery indicator"
+    default n
+    select BOOT_SECOND_STAGE
+    select LISA_DEVICE
+    select LISA_DISPLAY_DEVICE
+    select LISA_DISPLAY_BUS_SPI_4WIRE
+    select LISA_DISPLAY_BACKLIGHT_PWM
+    select LISA_DISPLAY_PANEL_ST7789P3
+    select LISA_SPI0
+    select LISA_GPIOA
+    select LISA_GPIOB
+    select LISA_PWM
+    help
+        Show a pre-rendered "recovery mode" indicator on the LCD when
+        the bootloader enters recovery. Uses the LISA display stack
+        (panel driver, SPI bus, PWM backlight).
+        Currently wired for the arcs_mini ST7789P3 panel (spi0, GPIOA/B,
+        pwm0); other board/panel combos must extend this option with
+        their own select lines.
+
+config BOOT_ADB
+    bool "Bootloader recovery ADB transport"
+    default n
+    select BOOT_SECOND_STAGE
+    help
+        Compile the bootloader ADB transport into boot_s for explicit
+        recovery sessions only.
+        Normal boot and automatic OTA second-stage handoff must not
+        enumerate ADB through this option.
+
+if BOOT_ADB
+
+choice
+    prompt "Bootloader recovery ADB backend"
+    default BOOT_ADB_BACKEND_TINYUSB
+    help
+        Select the USB stack backend used by boot recovery ADB.
+
+    config BOOT_ADB_BACKEND_TINYUSB
+        bool "TinyUSB"
+        select TINY_USB
+        select TINY_USB_USE_CUSTOM_CONFIG_FILE
+        select TUSB_APP_CLASS
+        help
+            Use the TinyUSB-based boot recovery ADB backend.
+
+    config BOOT_ADB_BACKEND_CHERRYUSB
+        bool "CherryUSB"
+        select CHERRYUSB
+        select CHERRYUSB_DEVICE
+        select CHERRYUSB_DEVICE_MUSB_LISA
+        select CHERRYUSB_APP_CLASS
+        select ADB_PERF_MODE
+        help
+            Use the CherryUSB-based boot recovery ADB backend.
+
+endchoice
+
+endif
+
+config BOOT_ADB_SHELL
+    bool "Bootloader recovery ADB shell"
+    default n
+    depends on BOOT_ADB
+    select SDK_MODULE_LETTER_SHELL
+    select ARCS_HAL_CRYPTO
+    help
+        Enable the bootloader ADB shell for explicit recovery sessions.
+        Applications should request this with BOOT_* knobs rather than
+        enabling CONFIG_ADB_SHELL in the main app build.
+
+config BOOT_ADB_SYNC
+    bool "Bootloader recovery ADB sync"
+    default n
+    select BOOT_ADB
+    select BOOT_ADB_SHELL
+    select BOOT_RECOVERY
+    select BOOT_EARLY_INIT
+    select BOOT_EARLY_CLOCK_INIT
+    select BOOT_EARLY_PSRAM_INIT
+    select FILE_SYSTEM
+    select LSFS
+    select DISK_DRIVER
+    help
+        Enable recovery-only ADB push/pull and sync support in boot_s.
+        Applications should request this through BOOT_* knobs. SDMMC raw
+        access and TF filesystem mounting stay behind dedicated BOOT_* knobs
+        so plain recovery ADB sessions do not pull them in implicitly.
+
+config BOOT_ADB_SDMMC_RAW
+    bool "Bootloader recovery ADB raw SDMMC access"
+    default n
+    depends on BOOT_ADB_SYNC
+    select DISK_DRIVER_SDMMC
+    help
+        Enable `/RAW/SDRAW/...` access during boot recovery ADB sessions.
+        Keep this disabled unless the recovery image must access raw TF
+        sectors directly.
+
+config BOOT_ADB_SDMMC_FS
+    bool "Bootloader recovery ADB TF filesystem access"
+    default n
+    depends on BOOT_ADB_SYNC
+    select FATFS_FILESYSTEM
+    select LSFS_FAT
+    select DISK_DRIVER_SDMMC
+    help
+        Enable TF FAT filesystem mounting for boot recovery ADB sessions and
+        switch the default adb push/pull root to `/SD:/adb/`.
+
+config BOOT_ADB_SDMMC_FS_ROOT
+    string "Bootloader recovery ADB TF filesystem root"
+    default "/SD:/adb/"
+    depends on BOOT_ADB_SDMMC_FS
+    help
+        Filesystem root exposed to `adb push/pull` after the TF FAT
+        filesystem is mounted for boot recovery.
+
+config ADB_SHELL
+    default y if BOOT_ADB_SHELL
+
+config ADB_SYNC
+    default y if BOOT_ADB_SYNC
+
+config TINY_USB_CONFIG_FILE
+    default "boot_tusb_config.h" if BOOT_ADB_BACKEND_TINYUSB
+
+config ADB_PUSH_PULL_DEFAULT_ROOT
+    default BOOT_ADB_SDMMC_FS_ROOT if BOOT_ADB_SDMMC_FS
+
+config SDK_MODULE_LETTER_SHELL
+    default y if BOOT_ADB_SHELL
+
+config SDK_MODULE_LETTER_SHELL_CONFIG_FILE
+    default "shell_cfg_user.h" if BOOT_ADB_SHELL
+
+config BOOT_CP_ENTRY
+    hex "CP entry"
+    default 0
+    depends on !MEM_CONFIG
+
+config BOOT_DUAL_FLASH
+    bool "Bootloader dual flash support"
+    default n
+    select DUAL_FLASH
+    help
+      Enable dual flash memory support in the bootloader.
+
+config BOOT_FLASH_SIZE
+    hex "Flash size"
+    default 0x40000 if BOOT_ADB_SYNC
+    default 0x28000 if BOOT_OTA_SOURCE_TF
+    default 0x1C000 if BOOT_SECOND_STAGE && BOOT_OTA_PACKAGE
+    default 0x4000 if BOOT_SECOND_STAGE
+    default 0x2000
+
+config BOOT_PARTAB_SIZE
+    hex "Boot OTA partab size"
+    default 0x1000
+    depends on BOOT_OTA_PACKAGE
+    help
+      Reserve one flash page at the tail of the boot area for OTA partab and
+      request metadata. The merge step subtracts this size from the boot image
+      payload budget.
+
+choice
+    prompt "boot log level"
+    default BOOT_LOG_LVL_NON
+
+    config BOOT_LOG_LVL_NON
+        bool "non"
+    config BOOT_LOG_LVL_ERR
+        bool "err"
+    config BOOT_LOG_LVL_WRN
+        bool "wrn"
+    config BOOT_LOG_LVL_INF
+        bool "inf"
+    config BOOT_LOG_LVL_DBG
+        bool "dbg"
+
+endchoice
+
+config BOOT_LOG
+    bool "Boot UART logging"
+    default y
+    help
+      Enable UART syslog initialization and the boot banner (version,
+      commit, serial number, reset reason) emitted at boot_s entry.
+      Disable to keep UART silent when the recovery image hands UART
+      off to another consumer, or to trim boot time and code size.
+
+config BOOT_EARLY_LOG
+    bool "Emit boot_f (stage 1) raw UART log"
+    default n
+    help
+      Enable raw UART character output from boot_f before scatload
+      finishes. Bypasses syslog (which depends on .text in SRAM).
+      Use for diagnosing early boot flow such as app address resolution
+      or stage_gate decision. Disable in production.
+
+config BOOT_UART_PORT
+    int "boot log port"
+    default SYSLOG_UART_PORT if BOOT
+    default 0
+
+config BOOT_UART_TX_PIN
+    int "boot uart tx pin"
+    default SYSLOG_UART_TX_PIN if BOOT
+    default 3
+
+config BOOT_UART_BAUDRATE
+    int "boot log baud rate"
+    default SYSLOG_UART_BAUDRATE if BOOT
+    default 921600
+
+config BOOT_UART_PIN_FUNC_SEL
+    int "boot log pin func sel"
+    default SYSLOG_UART_TX_PIN_FUNC_SEL if BOOT
+    default 2
+
+menuconfig BOOT_CHECK_GPIO
+    bool "GPIO Boot Check"
+    default n
+    help
+      Enable GPIO boot check to determine the boot mode based on GPIO states.
+
+if BOOT_CHECK_GPIO
+
+config BOOT_CHECK_GPIO_PIN
+    int "GPIO Boot Check Pin"
+    default 0
+
+config BOOT_CHECK_GPIO_PORT
+    int "GPIO Boot Check Port"
+    default 0
+
+config BOOT_CHECK_GPIO_LEVEL
+    int "GPIO Boot Check Level"
+    default 0
+
+endif
+
+menuconfig BOOT_CHECK_POWER_KEY
+    bool "Boot power-key GPIO check"
+    default n
+    select BOOT_SECOND_STAGE
+    select BOOT_RECOVERY
+    help
+      Force entry into the boot recovery path when a power-key GPIO is
+      held down, optionally gated on a USB-detect GPIO. Covers two user
+      flows on arcs_mini-class boards:
+        - plug USB while holding power key: enter recovery from off state
+        - press reset while holding power key: enter recovery from on state
+      The check runs once in boot_f, only driving recovery when all
+      configured GPIOs match their active levels at that moment.
+
+if BOOT_CHECK_POWER_KEY
+
+config BOOT_CHECK_POWER_KEY_PORT
+    int "Power key IOMUX pad (0 = PAD_A, 1 = PAD_B)"
+    default 1
+    range 0 1
+
+config BOOT_CHECK_POWER_KEY_PIN
+    int "Power key pin within the pad"
+    default 4
+
+config BOOT_CHECK_POWER_KEY_LEVEL
+    int "Power key level considered 'pressed' (0 = active-low, 1 = active-high)"
+    default 0
+    range 0 1
+
+config BOOT_CHECK_POWER_KEY_REQUIRE_USB
+    bool "Also require USB-detect GPIO to be asserted"
+    default y
+    help
+      When enabled, the power-key check only triggers recovery if an
+      additional USB-detect GPIO is in its asserted level. Prevents a
+      stuck power key from accidentally blocking normal boot when USB
+      is not connected.
+
+if BOOT_CHECK_POWER_KEY_REQUIRE_USB
+
+config BOOT_CHECK_POWER_KEY_USB_PORT
+    int "USB-det IOMUX pad (0 = PAD_A, 1 = PAD_B)"
+    default 1
+    range 0 1
+
+config BOOT_CHECK_POWER_KEY_USB_PIN
+    int "USB-det pin within the pad"
+    default 0
+
+config BOOT_CHECK_POWER_KEY_USB_LEVEL
+    int "USB-det level considered 'plugged' (0 = active-low, 1 = active-high)"
+    default 1
+    range 0 1
+
+endif
+
+endif
+
+menuconfig BOOT_POWER_GUARD
+    bool "Stage0 power-up guard (PB long-press)"
+    default n
+    select BOOT_SECOND_STAGE
+    help
+      Require POWER_KEY long-press before latching PWR_LOCK on cold boot.
+      PB+USB at reset enters recovery; software reset honors
+      boot_info.shutdown_req. Runs entirely inside boot_f with bare-metal
+      register access and the mcycle CSR.
+
+if BOOT_POWER_GUARD
+
+config BOOT_POWER_GUARD_KEY_PORT
+    int "Power-key IOMUX pad (0 = PAD_A, 1 = PAD_B)"
+    default 1
+    range 0 1
+
+config BOOT_POWER_GUARD_KEY_PIN
+    int "Power-key pin within pad"
+    default 4
+
+config BOOT_POWER_GUARD_KEY_LEVEL
+    int "Power-key level considered 'pressed' (0 = active-low, 1 = active-high)"
+    default 0
+    range 0 1
+
+config BOOT_POWER_GUARD_LATCH_PORT
+    int "PWR_LOCK IOMUX pad (0 = PAD_A, 1 = PAD_B)"
+    default 1
+    range 0 1
+
+config BOOT_POWER_GUARD_LATCH_PIN
+    int "PWR_LOCK pin within pad"
+    default 3
+
+config BOOT_POWER_GUARD_LATCH_ACTIVE_LEVEL
+    int "PWR_LOCK level to latch on (0 or 1)"
+    default 1
+    range 0 1
+
+config BOOT_POWER_GUARD_USB_PORT
+    int "USB-detect IOMUX pad (0 = PAD_A, 1 = PAD_B)"
+    default 1
+    range 0 1
+
+config BOOT_POWER_GUARD_USB_PIN
+    int "USB-detect pin within pad"
+    default 0
+
+config BOOT_POWER_GUARD_USB_LEVEL
+    int "USB-detect level considered 'plugged' (0 = active-low, 1 = active-high)"
+    default 1
+    range 0 1
+
+config BOOT_POWER_GUARD_HOLD_TIME_MS
+    int "Required PB hold time (ms)"
+    default 3000
+
+config BOOT_POWER_GUARD_SAMPLE_INTERVAL_MS
+    int "PB sample interval (ms)"
+    default 50
+
+config BOOT_POWER_GUARD_LED
+    bool "Drive boot indicator LED during guard"
+    default n
+    help
+      Turn off the indicator LED while guard is waiting, turn it back on
+      once the guard decides to continue booting (PB long-press satisfied
+      or non-POR path through). Recovery entry and fake-shutdown spin
+      leave the LED off.
+
+if BOOT_POWER_GUARD_LED
+
+config BOOT_POWER_GUARD_LED_PORT
+    int "LED IOMUX pad (0 = PAD_A, 1 = PAD_B)"
+    default 1
+    range 0 1
+
+config BOOT_POWER_GUARD_LED_PIN
+    int "LED pin within pad"
+    default 1
+
+config BOOT_POWER_GUARD_LED_ACTIVE_LEVEL
+    int "LED level considered 'on' (0 or 1)"
+    default 0
+    range 0 1
+
+endif
+
+endif
+
+config BOOT_RECOVERY
+    bool "Boot recovery logic"
+    default n
+    help
+      Enable recovery checks in boot_f: watchdog timeout detection,
+      soft/hard reboot requests, application header validation, and
+      reboot counter management.
+
+config BOOT_RECOVERY_API
+    bool "Boot public recovery API"
+    default n
+    select BOOT_RECOVERY
+    help
+      Expose uboot recovery public API for app-side recovery request/reboot.
+      This switch enables API integration without requiring boot image build.
+
+config BOOT_WDT_API
+    bool "Boot public watchdog API"
+    default n
+    help
+      Expose uboot watchdog public API for app-side enable/disable/feed of the
+      boot AP watchdog. This switch only enables the API surface; boot-side
+      runtime watchdog behavior is still controlled by CONFIG_BOOT_WDT.
+
+config BOOT_POWER_API
+    bool "Boot public power API"
+    default n
+    help
+      Expose uboot_shutdown_request() to the app. Sets boot_info.shutdown_req
+      and triggers a software reset; stage0 power-guard spins on it.
+
+config BOOT_FEATURES
+    bool "Emit boot features descriptor for backward-compat probing"
+    default n
+    help
+      Emit a 32-byte descriptor at CONFIG_BOOT_FEATURES_ADDR advertising the
+      optional boot capabilities the image supports. Apps probe it via
+      BOOT_FEATURES_API to decide whether to fall back to legacy behavior.
+
+config BOOT_FEATURES_ADDR
+    hex "Boot features descriptor flash address"
+    default 0x30000180
+    depends on BOOT_FEATURES || BOOT_FEATURES_API
+    help
+      Absolute flash address of the features descriptor, placed right after
+      .vtable (ListenAI boot header inclusive). Used by both boot (to emit)
+      and app (to read).
+
+config BOOT_FEATURES_API
+    bool "Boot public features query API"
+    default n
+    help
+      Expose uboot_features_query() / uboot_features_has() to the app.
+      Reads CONFIG_BOOT_FEATURES_ADDR and returns 0 on magic mismatch so
+      apps can detect legacy boot images.
+
+menuconfig BOOT_EARLY_INIT
+    bool "Boot early initialization (stage 1)"
+    default n
+    help
+      Enable early hardware initialization in boot_f (Flash XIP stage).
+
+if BOOT_EARLY_INIT
+
+config BOOT_EARLY_CLOCK_INIT
+    bool "Early clock initialization"
+    default n
+
+config BOOT_EARLY_PSRAM_INIT
+    bool "Early PSRAM initialization"
+    default n
+
+endif
+
+menuconfig BOOT_OTA_PACKAGE
+    bool "OTA package support"
+    default n
+    help
+      Enable boot-side OTA package upgrade support.
+
+config BOOT_OTA_API
+    bool "Boot public OTA API"
+    default n
+    select LISA_DEVICE
+    select LISA_FLASH
+    help
+      Expose uboot OTA public API for app-side OTA request/reboot.
+      Boot-side package parsing and source handling remain internal.
+      Store backend defaults to flash so APP-only projects do not need
+      to select BOOT_CONTROL_STORE_* internals explicitly.
+
+config BOOT_OTA_SOURCE_TF
+    bool "Bootloader OTA source from TF card"
+    default n
+    depends on BOOT_OTA_PACKAGE && BOOT_SECOND_STAGE
+    select FILE_SYSTEM
+    select FATFS_FILESYSTEM
+    select LSFS
+    select LSFS_FAT
+    select DISK_DRIVER
+    select DISK_DRIVER_SDMMC
+    help
+      Enable boot-side OTA package reading from the default TF mount point.
+      Request paths may be provided as `/SD:/download/update.txz`,
+      `/download/update.txz`, or `download/update.txz`; boot normalizes the
+      latter two forms to `/SD:/...` before opening the package. Projects that
+      override `CONFIG_BOOT_FLASH_SIZE` should reserve at least `0x28000` for
+      boot when this option is enabled.
+
+choice BOOT_CONTROL_STORE
+    prompt "Boot control store backend"
+    default BOOT_CONTROL_STORE_FLASH if BOOT_OTA_API
+    default BOOT_CONTROL_STORE_FLASH if BOOT_OTA_PACKAGE
+    default BOOT_CONTROL_STORE_NONE
+
+config BOOT_CONTROL_STORE_NONE
+    bool "None (stub)"
+
+config BOOT_CONTROL_STORE_FLASH
+    bool "Direct Flash R/W"
+
+config BOOT_CONTROL_STORE_TEST
+    bool "In-memory test backend"
+
+endchoice
+
+if BOOT_CONTROL_STORE_FLASH || BOOT_OTA_API
+
+config BOOT_CONTROL_STORE_BASE_ADDR
+    hex "Boot control store base address"
+    default 0x3003E000 if BOOT_ADB_SYNC
+    default 0x30026000 if BOOT_OTA_SOURCE_TF
+    default 0x3001A000 if BOOT_SECOND_STAGE && BOOT_OTA_PACKAGE
+    default 0x30F00000
+    help
+      Flash base address reserved for the boot control store.
+      Boot OTA builds default to the page right before the boot tail metadata
+      so the control store stays between boot payload and the application
+      image without consuming extra app flash space.
+
+config BOOT_CONTROL_STORE_SIZE
+    int "Boot control store size"
+    default 4096
+    help
+      Size of the flash region reserved for the boot control store.
+      Uses hybrid storage: register for boot_mode, flash for OTA request.
+
+endif
+
+config BOOT_WDT
+    bool "Boot watchdog before jumping to app"
+    default n
+    help
+      Enable the boot watchdog before jumping to app. This watchdog is connected
+      to the AP core side, and is the AP watchdog used by boot and the public
+      WDT API exposed to app-side projects.
+
+menuconfig BOOT_VADDR_REMAP
+    bool "Use vaddr_remap for application partition switching"
+    default n
+
+if BOOT_VADDR_REMAP
+
+choice BOOT_VADDR_TARGET
+    prompt "Remap target device"
+    default BOOT_VADDR_TARGET_FLASH
+
+config BOOT_VADDR_TARGET_FLASH
+    bool "Flash"
+
+config BOOT_VADDR_TARGET_PSRAM
+    bool "PSRAM"
+
+endchoice
+
+choice BOOT_VADDR_REGION
+    prompt "Default boot region"
+    default BOOT_VADDR_REGION_A
+
+config BOOT_VADDR_REGION_A
+    bool "Region A (0x08000000)"
+
+config BOOT_VADDR_REGION_B
+    bool "Region B (0x10000000)"
+
+config BOOT_VADDR_REGION_C
+    bool "Region C (0x18000000)"
+
+config BOOT_VADDR_REGION_D
+    bool "Region D (0x1C000000)"
+
+endchoice
+
+config BOOT_VADDR_FLASH_OFFSET
+    hex "Flash offset for boot region"
+    default 0x20000
+
+config BOOT_VADDR_PSRAM_COPY_SIZE
+    hex "PSRAM copy size (bytes)"
+    default 0x80000
+    depends on BOOT_VADDR_TARGET_PSRAM
+
+config BOOT_VADDR_RUNTIME_SELECT
+    bool "Enable runtime partition selection"
+    default n
+
+endif

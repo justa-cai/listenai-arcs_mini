@@ -4,3 +4,4 @@ listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_PANEL_ST7701S panel_st7701s.c
 if(CONFIG_LISA_DISPLAY_PANEL_GC9A01 OR CONFIG_LISA_DISPLAY_PANEL_GC9D01N)
     listenai_library_sources(panel_gc9a01.c)
 endif()
+listenai_library_sources_ifdef(CONFIG_LISA_DISPLAY_PANEL_NV3030B panel_nv3030b.c)

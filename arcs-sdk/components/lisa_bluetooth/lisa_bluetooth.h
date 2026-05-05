@@ -168,6 +168,13 @@ void lisa_bluetooth_register_discovery_callback(lisa_bt_discovery_callback_t cal
 int lisa_bluetooth_connect_by_name(const char *name);
 
 /**
+ * @brief Connect to a bluetooth device by index in the discovered device list
+ * @param index Index of the device in the discovered device list
+ * @return 0 on success, -1 if device not found, -2 on invalid parameter
+ */
+int lisa_bluetooth_connect_by_index(uint8_t index);
+
+/**
  * @brief Get the discovered device list
  * @param list Pointer to receive the device list
  * @param count Pointer to receive the device count
@@ -214,5 +221,66 @@ void lisa_ble_register_key_req_cb(lisa_ble_key_req_cb_t cb);
  * @param passkey Passkey value (6-digit decimal, max 999999)
  */
 void lisa_ble_key_confirm(uint8_t conidx, uint8_t accept, uint32_t passkey);
+
+/* ======== BT Classic callbacks ======== */
+
+/**
+ * @brief BT Classic connection indication callback type.
+ */
+typedef void (*lisa_bt_classic_conn_cb_t)(uint8_t conidx, uint16_t conhdl, const gap_bdaddr_t *peer_addr);
+
+/**
+ * @brief BT Classic disconnection indication callback type.
+ */
+typedef void (*lisa_bt_classic_disc_cb_t)(uint8_t conidx, uint16_t conhdl, uint16_t reason);
+
+/**
+ * @brief BT Classic AVRCP key press callback type.
+ * @param conidx Connection index
+ * @param key_id AVRCP key ID (BT_AVRCP_KEY_ID_xxx)
+ */
+typedef void (*lisa_bt_classic_avrcp_cb_t)(uint8_t conidx, uint8_t key_id);
+
+/**
+ * @brief Register BT Classic connection callback
+ */
+void lisa_bt_classic_register_conn_cb(lisa_bt_classic_conn_cb_t cb);
+
+/**
+ * @brief Register BT Classic disconnection callback
+ */
+void lisa_bt_classic_register_disc_cb(lisa_bt_classic_disc_cb_t cb);
+
+/**
+ * @brief Register BT Classic AVRCP key press callback
+ */
+void lisa_bt_classic_register_avrcp_cb(lisa_bt_classic_avrcp_cb_t cb);
+
+/**
+ * @brief BT profile types
+ */
+enum lisa_bt_profile {
+    LISA_BT_PROFILE_A2DP = 0,
+    LISA_BT_PROFILE_HFP  = 1,
+};
+
+/**
+ * @brief BT Classic profile connection/disconnection callback type.
+ * @param conidx    Connection index
+ * @param profile   Profile type (LISA_BT_PROFILE_A2DP or LISA_BT_PROFILE_HFP)
+ * @param connected true=connected, false=disconnected
+ */
+typedef void (*lisa_bt_classic_profile_cb_t)(uint8_t conidx, int profile, bool connected);
+
+/**
+ * @brief Register BT Classic profile connection callback
+ */
+void lisa_bt_classic_register_profile_cb(lisa_bt_classic_profile_cb_t cb);
+
+/* Internal notify functions (called from bt_classic_user.c) */
+void lisa_bt_classic_notify_connected(uint8_t conidx, uint16_t conhdl, const gap_bdaddr_t *peer_addr);
+void lisa_bt_classic_notify_disconnected(uint8_t conidx, uint16_t conhdl, uint16_t reason);
+void lisa_bt_classic_notify_avrcp_key(uint8_t conidx, uint8_t key_id);
+void lisa_bt_classic_notify_profile(uint8_t conidx, int profile, bool connected);
 
 #endif /* __LISA_BLUETOOTH_H__ */

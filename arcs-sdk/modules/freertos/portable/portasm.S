@@ -508,7 +508,8 @@ eclic_msip_handler:
 
     csrr t0, CSR_MEPC
     STORE t0, 0(sp)
-    jal xPortTaskSwitch
+    /* Use a far call because xPortTaskSwitch may be linked into .fast_text. */
+    call xPortTaskSwitch
 
     /* Switch task context */
     LOAD t0, pxCurrentTCB           /* Load pxCurrentTCB. */

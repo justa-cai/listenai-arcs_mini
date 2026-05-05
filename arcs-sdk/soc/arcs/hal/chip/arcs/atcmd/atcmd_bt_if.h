@@ -767,6 +767,7 @@ typedef struct
  ****************************************************************************************
  */
 uint8_t atcmd_ble_init_send(uint8_t init);
+uint8_t atcmd_blename_send(uint8_t *name);
 uint8_t atcmd_ble_scan_param_send(ble_scan_params_t *params);
 uint8_t atcmd_ble_scan_send(ble_scan_t *params);
 uint8_t atcmd_ble_scan_rsp_data_send(ble_scan_rspdata_t *params);
@@ -802,6 +803,9 @@ uint8_t atcmd_rf_test_tone_start_send(uint16_t channel, uint8_t power);
 uint8_t atcmd_rf_test_tone_stop_send();
 uint8_t atcmd_bt_hci_mode_send();
 void bt_at_cmd_msg_handle(bt_at_cmd_t* msg);
+bt_at_cmd_t *atcmd_msg_alloc( btos_event_t *ev, uint32_t size);
+uint8_t atcmd_bt_set_event_filter_send(uint8_t filter_type, uint8_t filter_con_type, uint8_t *con);
+
 
 /// @} BT OS TASK
 #endif // BT_AT_IF_H_

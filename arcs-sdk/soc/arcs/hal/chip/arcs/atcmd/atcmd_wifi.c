@@ -218,7 +218,7 @@ int atcmd_cwjap(int type, char *params)
             atcmd_rspdata("CWJAP:%d", res);
             return ATCMD_ERROR;
         }
-
+        wifi_sta_auto_reconnect_disable();
         ret = wifi_sta_connect(&config);
         if (ret != LS_OK)
         {
@@ -249,7 +249,7 @@ int atcmd_cwjap(int type, char *params)
             nvds_del(NVDS_TAG_WIFI_STA_PWD);
         }
 #endif
-        ret = ls_event_wait(EVENT_WIFI, EVENT_WIFI_CONNECTED, 10000);
+        ret = ls_event_wait(EVENT_WIFI, EVENT_WIFI_CONNECTED, 20000);
         if (ret != LS_OK) {
             ls_event_clear(EVENT_WIFI, EVENT_WIFI_CONNECTED);
             atcmd_rspdata("CWJAP:%d", -ATCMD_ERR_TIMEOUT);
@@ -257,7 +257,7 @@ int atcmd_cwjap(int type, char *params)
         } else {
             atcmd_rspinfor("WIFI CONNECTED");
         }
-
+        ls_event_clear(EVENT_WIFI, EVENT_WIFI_GOT_IP);
         ret = ls_event_wait(EVENT_WIFI, EVENT_WIFI_GOT_IP, 20000);
         if (ret != LS_OK)
         {
@@ -631,7 +631,7 @@ int atcmd_cwlap(int type, char *params)
             atcmd_rspdata("CWLAP:%d", res);
             return ATCMD_ERROR;
         }
-
+        config.duration = 150;
         ls_event_clear(EVENT_WIFI, EVENT_WIFI_SCAN_DONE);
         ret = wifi_scan_start(&config);
         if (ret != LS_OK)

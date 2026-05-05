@@ -3,76 +3,148 @@
 
 if ACOMP_TRANSLATION
 
-	config ACOMP_TRANS_RES_ENC_A_EMMC_ADDR
-		hex "Translation encoder A eMMC address"
-		default 0x2d00000
+	config ACOMP_TRANS_RES_ENCN_ENC_A_EMMC_ADDR
+		hex "Translation ENCN encoder A eMMC address"
+		default 0x0
 
-	config ACOMP_TRANS_RES_ENC_A_SIZE
-		int "Translation encoder A size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_ENC_A_SIZE
+		int "Translation ENCN encoder A size (bytes)"
 		default 3306480
 
-	config ACOMP_TRANS_RES_ENC_B_EMMC_ADDR
-		hex "Translation encoder B eMMC address"
-		default 0x3200000
+	config ACOMP_TRANS_RES_ENCN_ENC_B_EMMC_ADDR
+		hex "Translation ENCN encoder B eMMC address"
+		default 0x328000
 
-	config ACOMP_TRANS_RES_ENC_B_SIZE
-		int "Translation encoder B size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_ENC_B_SIZE
+		int "Translation ENCN encoder B size (bytes)"
 		default 3286864
 
-	config ACOMP_TRANS_RES_ENC_C_EMMC_ADDR
-		hex "Translation encoder C eMMC address"
-		default 0x3700000
+	config ACOMP_TRANS_RES_ENCN_ENC_C_EMMC_ADDR
+		hex "Translation ENCN encoder C eMMC address"
+		default 0x64b000
 
-	config ACOMP_TRANS_RES_ENC_C_SIZE
-		int "Translation encoder C size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_ENC_C_SIZE
+		int "Translation ENCN encoder C size (bytes)"
 		default 3286864
 
-	config ACOMP_TRANS_RES_ENC_D_EMMC_ADDR
-		hex "Translation encoder D eMMC address"
-		default 0x3c00000
+	config ACOMP_TRANS_RES_ENCN_ENC_D_EMMC_ADDR
+		hex "Translation ENCN encoder D eMMC address"
+		default 0x96e000
 
-	config ACOMP_TRANS_RES_ENC_D_SIZE
-		int "Translation encoder D size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_ENC_D_SIZE
+		int "Translation ENCN encoder D size (bytes)"
 		default 3286864
 
-	config ACOMP_TRANS_RES_ENC_E_EMMC_ADDR
-		hex "Translation encoder E eMMC address"
-		default 0x4100000
+	config ACOMP_TRANS_RES_ENCN_ENC_E_EMMC_ADDR
+		hex "Translation ENCN encoder E eMMC address"
+		default 0xc91000
 
-	config ACOMP_TRANS_RES_ENC_E_SIZE
-		int "Translation encoder E size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_ENC_E_SIZE
+		int "Translation ENCN encoder E size (bytes)"
 		default 3286864
 
-	config ACOMP_TRANS_RES_ENC_F_EMMC_ADDR
-		hex "Translation encoder F eMMC address"
-		default 0x4600000
+	config ACOMP_TRANS_RES_ENCN_ENC_F_EMMC_ADDR
+		hex "Translation ENCN encoder F eMMC address"
+		default 0xfb4000
 
-	config ACOMP_TRANS_RES_ENC_F_SIZE
-		int "Translation encoder F size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_ENC_F_SIZE
+		int "Translation ENCN encoder F size (bytes)"
 		default 3561152
 
-	config ACOMP_TRANS_RES_DEC_EMMC_ADDR
-		hex "Translation decoder eMMC address"
-		default 0x4b00000
+	config ACOMP_TRANS_RES_ENCN_DEC_EMMC_ADDR
+		hex "Translation ENCN decoder eMMC address"
+		default 0x131a000
 
-	config ACOMP_TRANS_RES_DEC_SIZE
-		int "Translation decoder size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_DEC_SIZE
+		int "Translation ENCN decoder size (bytes)"
 		default 4429216
 
-	config ACOMP_TRANS_RES_DEC_EMB_EMMC_ADDR
-		hex "Translation decoder embedding eMMC address"
-		default 0x5000000
+	config ACOMP_TRANS_RES_ENCN_DEC_EMB_EMMC_ADDR
+		hex "Translation ENCN decoder embedding eMMC address"
+		default 0x1754000
 
-	config ACOMP_TRANS_RES_DEC_EMB_SIZE
-		int "Translation decoder embedding size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_DEC_EMB_SIZE
+		int "Translation ENCN decoder embedding size (bytes)"
 		default 1936384
 
-	config ACOMP_TRANS_RES_ENC_EMB_EMMC_ADDR
-		hex "Translation encoder embedding eMMC address"
-		default 0x5500000
+	config ACOMP_TRANS_RES_ENCN_ENC_EMB_EMMC_ADDR
+		hex "Translation ENCN encoder embedding eMMC address"
+		default 0x192d000
 
-	config ACOMP_TRANS_RES_ENC_EMB_SIZE
-		int "Translation encoder embedding size (bytes)"
+	config ACOMP_TRANS_RES_ENCN_ENC_EMB_SIZE
+		int "Translation ENCN encoder embedding size (bytes)"
+		default 1936384
+
+	config ACOMP_TRANS_RES_CNEN_ENC_A_EMMC_ADDR
+		hex "Translation CNEN encoder A eMMC address"
+		default 0x1b06000
+
+	config ACOMP_TRANS_RES_CNEN_ENC_A_SIZE
+		int "Translation CNEN encoder A size (bytes)"
+		default 3306480
+
+	config ACOMP_TRANS_RES_CNEN_ENC_B_EMMC_ADDR
+		hex "Translation CNEN encoder B eMMC address"
+		default 0x1e2e000
+
+	config ACOMP_TRANS_RES_CNEN_ENC_B_SIZE
+		int "Translation CNEN encoder B size (bytes)"
+		default 3286864
+
+	config ACOMP_TRANS_RES_CNEN_ENC_C_EMMC_ADDR
+		hex "Translation CNEN encoder C eMMC address"
+		default 0x2151000
+
+	config ACOMP_TRANS_RES_CNEN_ENC_C_SIZE
+		int "Translation CNEN encoder C size (bytes)"
+		default 3286864
+
+	config ACOMP_TRANS_RES_CNEN_ENC_D_EMMC_ADDR
+		hex "Translation CNEN encoder D eMMC address"
+		default 0x2474000
+
+	config ACOMP_TRANS_RES_CNEN_ENC_D_SIZE
+		int "Translation CNEN encoder D size (bytes)"
+		default 3286864
+
+	config ACOMP_TRANS_RES_CNEN_ENC_E_EMMC_ADDR
+		hex "Translation CNEN encoder E eMMC address"
+		default 0x2797000
+
+	config ACOMP_TRANS_RES_CNEN_ENC_E_SIZE
+		int "Translation CNEN encoder E size (bytes)"
+		default 3286864
+
+	config ACOMP_TRANS_RES_CNEN_ENC_F_EMMC_ADDR
+		hex "Translation CNEN encoder F eMMC address"
+		default 0x2aba000
+
+	config ACOMP_TRANS_RES_CNEN_ENC_F_SIZE
+		int "Translation CNEN encoder F size (bytes)"
+		default 3561152
+
+	config ACOMP_TRANS_RES_CNEN_DEC_EMMC_ADDR
+		hex "Translation CNEN decoder eMMC address"
+		default 0x2e20000
+
+	config ACOMP_TRANS_RES_CNEN_DEC_SIZE
+		int "Translation CNEN decoder size (bytes)"
+		default 4429216
+
+	config ACOMP_TRANS_RES_CNEN_DEC_EMB_EMMC_ADDR
+		hex "Translation CNEN decoder embedding eMMC address"
+		default 0x325a000
+
+	config ACOMP_TRANS_RES_CNEN_DEC_EMB_SIZE
+		int "Translation CNEN decoder embedding size (bytes)"
+		default 1936384
+
+	config ACOMP_TRANS_RES_CNEN_ENC_EMB_EMMC_ADDR
+		hex "Translation CNEN encoder embedding eMMC address"
+		default 0x3433000
+
+	config ACOMP_TRANS_RES_CNEN_ENC_EMB_SIZE
+		int "Translation CNEN encoder embedding size (bytes)"
 		default 1936384
 
 endif

@@ -8,6 +8,7 @@
 
 #include "lisa_display.h"
 #include <lisa_semaphore.h>
+#include <lisa_mutex.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -15,22 +16,16 @@ extern "C" {
 #endif
 
 typedef struct lisa_display_panel {
-    /* --- 关联的总线设备 --- */
     lisa_device_t *bus_dev;      /**< 数据总线设备（用于像素传输）*/
     lisa_device_t *cmd_bus_dev;  /**< 命令总线设备（可选，NULL 表示与数据总线共用）*/
-
-    /* --- 硬件引脚 --- */
-    lisa_device_t *rst_gpio;
-    uint32_t rst_pin;
-
-    /* --- 背光控制 --- */
-    lisa_display_backlight_t backlight;
-
-    /* --- 显示能力与状态 --- */
-    lisa_display_capabilities_t caps;
-
-    /* --- 驱动设备 --- */
-    lisa_device_t *panel_dev;
+    lisa_device_t *bus_hw_ref;   /**< 物理总线设备引用（用于共享底层互斥锁）*/
+    lisa_device_t *rst_gpio;     /**< 复位 GPIO 设备 */
+    uint32_t rst_pin;            /**< 复位引脚号 */
+    lisa_display_backlight_t backlight;  /**< 背光配置 */
+    lisa_display_capabilities_t caps;    /**< 显示能力与状态 */
+    lisa_device_t *panel_dev;    /**< Panel 驱动设备 */
+    lisa_mutex_t *bus_mutex;     /**< 总线访问互斥锁（共享总线时多个 Panel 共享同一锁）*/
+    bool bus_mutex_owner;        /**< 是否为锁的创建者（用于判断是否需要释放）*/
 
     /* --- 私有数据 --- */
     void *priv_data;
@@ -38,6 +33,7 @@ typedef struct lisa_display_panel {
     void *init_params;
     size_t init_params_len;
 
+    void *rotate_ctx;            /**< 旋转上下文指针（由 panel_rotate_init 绑定）*/
 } lisa_display_panel_t;
 
 typedef struct {
@@ -52,6 +48,7 @@ typedef struct {
 } lisa_display_panel_mem_area_t;
 
 typedef uint8_t lisa_mem_coord_t[4];
+
 /**
  * @brief Panel 驱动接口 API 结构体
  *
@@ -75,9 +72,9 @@ typedef struct lisa_display_panel_driver {
 } lisa_display_panel_driver_t;
 
 /**
- * @brief Panel 公共层：发送命令和关联的数据
+ * @brief 发送命令和关联的数据
  *
- * @param panel Panel实例
+ * @param panel Panel 实例
  * @param cmd 要发送的命令字节
  * @param cmd_bits 命令位数
  * @param data 指向数据的指针
@@ -85,33 +82,55 @@ typedef struct lisa_display_panel_driver {
  * @return 0 成功, <0 失败
  */
 int panel_write_cmd_data(lisa_display_panel_t *panel, int cmd, uint8_t cmd_bits, const void *data, size_t len);
+
 /**
- * @brief Panel 公共层：绘制位图
+ * @brief 绘制位图
  *
- * @param panel Panel实例
+ * @param panel Panel 实例
  * @param cmd 命令
  * @param cmd_bits 命令位数
- * @param x x坐标
- * @param y y坐标
+ * @param x x 坐标
+ * @param y y 坐标
  * @param w 宽度
  * @param h 高度
  * @param pixels 位图数据
  * @return 0 成功, <0 失败
  */
 int panel_draw_pixels(lisa_display_panel_t *panel, uint32_t cmd, uint16_t cmd_bits, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const void *pixels);
+
 /**
- * @brief Panel 公共层：设置背光亮度
+ * @brief 设置背光亮度
  *
  * @param backlight 背光实例
- * @param brightness 亮度值
+ * @param brightness 亮度值 (0-100)
  * @return 0 成功, <0 失败
  */
 int panel_set_backlight_brightness(lisa_display_backlight_t *backlight, uint8_t brightness);
 
-int panel_rotate_init(void);
+/**
+ * @brief 初始化旋转上下文
+ *
+ * @param panel Panel 实例
+ * @return 0 成功, <0 失败
+ */
+int panel_rotate_init(lisa_display_panel_t *panel);
 
+/**
+ * @brief 设置复位引脚电平
+ *
+ * @param panel Panel 实例
+ * @param level 电平值 (0 或 1)
+ */
 void panel_reset_pin_set(lisa_display_panel_t *panel, uint8_t level);
 
+/**
+ * @brief 设置显存区域坐标
+ *
+ * @param panel Panel 实例
+ * @param area 区域参数
+ * @param x 输出 x 坐标数组
+ * @param y 输出 y 坐标数组
+ */
 void panel_set_mem_area(lisa_display_panel_t *panel, lisa_display_panel_mem_area_t *area, lisa_mem_coord_t x, lisa_mem_coord_t y);
 
 #ifdef __cplusplus

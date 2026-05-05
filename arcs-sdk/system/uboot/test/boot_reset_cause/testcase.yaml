@@ -1,0 +1,4 @@
+tests:
+  test.boot_reset_cause:
+    platform_allow:
+      - native_sim

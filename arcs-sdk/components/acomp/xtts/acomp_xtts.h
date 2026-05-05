@@ -188,6 +188,19 @@ extern int acomp_xtts_stream_rx_buffer_release(int chn, uint16_t desc_idx, uint3
 extern int acomp_xtts_do_prepare(xtts_event_cb_t event_cb, void *cb_priv);
 
 /**
+ * @brief Prepare XTTS resources for a specific role and start the component
+ *
+ * Reuses the current XTTS instance when the prepared role matches; otherwise
+ * stops, cleans up and re-prepares resources for the requested role.
+ *
+ * @param role      XTTS role identifier
+ * @param event_cb  Event callback (registered on first call, can be NULL)
+ * @param cb_priv   Private data passed to callback
+ * @return 0 on success, negative on error
+ */
+extern int acomp_xtts_do_prepare_with_role(int role, xtts_event_cb_t event_cb, void *cb_priv);
+
+/**
  * @brief Stop and cleanup XTTS component
  *
  * @return 0 on success

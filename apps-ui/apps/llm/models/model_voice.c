@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -22,6 +23,8 @@
 #include "cJSON.h"
 #include "lisa_ui_nav_scr_ids.h"
 #include "model_alarm.h"
+#include "lisa_ui_toast.h"
+#include "power_manager.h"
 
 #endif
 
@@ -48,6 +51,10 @@ struct model_voice_context {
     char prompt[64];
 
     uint32_t img_rec_task_id;
+#ifdef LISA_UI_PLATFORM_ARCS
+    uint32_t img_upload_seq;
+    async_task_t *img_upload_task;
+#endif
 
     // Standby text rotation
     char standby_texts[MAX_STANDBY_TEXTS][MAX_TEXT_LENGTH];
@@ -74,6 +81,8 @@ static void notify_standby_texts_changed(void);
 #ifdef LISA_UI_PLATFORM_ARCS
 static void voice_cloud_show_qrcode_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data);
 static void voice_cloud_show_qrcode_ui_worker(void *arg, uint32_t arg_len);
+static void voice_app_camera_preview_exit(void *unused, uint32_t msg_id, void *data, uint32_t len,
+                                          void *user_data);
 #define SHOW_QRCODE_NAV_DELAY_MS 50
 #endif
 
@@ -156,6 +165,54 @@ model_voice_wakeup_mode_t model_voice_wakeup_mode_get(void)
     return model_voice_ctx.wakeup_mode;
 }
 
+int model_voice_interaction_mode_set(int interaction_mode)
+{
+    model_voice_wakeup_mode_t wakeup_mode;
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    if (interaction_mode < 0 || interaction_mode >= APP_INTERACTION_MODE_MAX) {
+        return -1;
+    }
+
+    wakeup_mode = app_interaction_mode_is_continuous(interaction_mode) ?
+        MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI : MODEL_VOICE_WAKEUP_MODE_VOICE_SINGLE;
+#else
+    if (interaction_mode < 0 || interaction_mode >= 3) {
+        return -1;
+    }
+
+    wakeup_mode = interaction_mode < 2 ? MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI :
+        MODEL_VOICE_WAKEUP_MODE_VOICE_SINGLE;
+#endif
+
+    model_voice_ctx.wakeup_mode = wakeup_mode;
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    LISA_UI_INVOKE_BN_ARG_BASE(interaction_mode, {
+        struct app_datas *app_datas = get_app_datas();
+        if (app_datas == NULL) {
+            return;
+        }
+
+        app_datas->int_mode = (uint8_t)_invoke_interaction_mode;
+        app_datas->voice_work_mode &= ~VOICE_WORK_MODE_BUTTON_WAKEUP;
+        app_datas->voice_work_mode |= VOICE_WORK_MODE_VOICE_WAKEUP;
+
+        voice_cloud_chat_stop();
+
+        lisa_kv_set_int(KV_KEY_INT_MODE, (int)app_datas->int_mode);
+        LISA_UI_LOGI("save voice work mode: %d", (int)app_datas->voice_work_mode);
+        lisa_kv_set_int(KV_KEY_WAKEUP_MODE, (int)app_datas->voice_work_mode);
+
+        model_voice_notify_interaction_mode_changed();
+    });
+#else
+    model_voice_notify_interaction_mode_changed();
+#endif
+
+    return 0;
+}
+
 int model_voice_wakeup_mode_set(model_voice_wakeup_mode_t mode)
 {
     if (mode >= MODEL_VOICE_WAKEUP_MODE_MAX) {
@@ -180,15 +237,15 @@ int model_voice_wakeup_mode_set(model_voice_wakeup_mode_t mode)
         app_datas->voice_work_mode = 0;
 
         if (_invoke_mode == MODEL_VOICE_WAKEUP_MODE_BUTTON) {
-            app_datas->full_duplex = false;
+            app_datas->int_mode = APP_INTERACTION_MODE_SINGLE;
             app_datas->voice_work_mode &= ~VOICE_WORK_MODE_VOICE_WAKEUP;
             app_datas->voice_work_mode |= VOICE_WORK_MODE_BUTTON_WAKEUP;
         } else if (_invoke_mode == MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI) {
-            app_datas->full_duplex = true;
+            app_datas->int_mode = APP_INTERACTION_MODE_FULL_DUPLEX;
             app_datas->voice_work_mode &= ~VOICE_WORK_MODE_BUTTON_WAKEUP;
             app_datas->voice_work_mode |= VOICE_WORK_MODE_VOICE_WAKEUP;
         } else if (_invoke_mode == MODEL_VOICE_WAKEUP_MODE_VOICE_SINGLE) {
-            app_datas->full_duplex = false;
+            app_datas->int_mode = APP_INTERACTION_MODE_SINGLE;
             app_datas->voice_work_mode &= ~VOICE_WORK_MODE_BUTTON_WAKEUP;
             app_datas->voice_work_mode |= VOICE_WORK_MODE_VOICE_WAKEUP;
         } else {
@@ -197,13 +254,20 @@ int model_voice_wakeup_mode_set(model_voice_wakeup_mode_t mode)
 
         voice_cloud_chat_stop();
 
-        lisa_kv_set_bool(KV_KEY_FULL_DUPLEX, app_datas->full_duplex);
+        lisa_kv_set_int(KV_KEY_INT_MODE, (int)app_datas->int_mode);
         LISA_UI_LOGI("save voice work mode: %d", (int)app_datas->voice_work_mode);
         lisa_kv_set_int(KV_KEY_WAKEUP_MODE, (int)app_datas->voice_work_mode);
     });
 #endif
 
     return 0;
+}
+
+void model_voice_notify_interaction_mode_changed(void)
+{
+    if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_wakeup_mode_changed) {
+        model_voice_ctx.cbs->on_wakeup_mode_changed(model_voice_ctx.arg, model_voice_ctx.wakeup_mode);
+    }
 }
 
 const char *model_voice_wakeup_mode_name_get(model_voice_wakeup_mode_t mode)
@@ -508,6 +572,24 @@ static void voice_button_image_recognition(void *unused, uint32_t msg_id, void *
     });
 }
 
+static void voice_app_camera_preview_start(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    voice_msg_camera_preview_req_t *req = (voice_msg_camera_preview_req_t *)data;
+
+    if (!req || len < sizeof(*req)) {
+        LISA_UI_LOGE("invalid camera preview request");
+        return;
+    }
+
+    LISA_UI_INVOKE_UI_ARG_PTR(req, sizeof(*req), {
+        model_voice_ctx.img_rec_mode = IMG_REC_MODE_LSCHAT;
+        memset(model_voice_ctx.mcp_id, 0, sizeof(model_voice_ctx.mcp_id));
+
+        LISA_UI_LOGI("camera preview request received, mode=%u, delay_ms=%u",
+                     _invoke_req->mode, _invoke_req->auto_capture_delay_ms);
+    });
+}
+
 static void voice_mcp_image_url_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     char *url = (char *)data;
@@ -565,6 +647,78 @@ static void voice_cloud_open_info_received(void *unused, uint32_t msg_id, void *
             LISA_UI_LOGE("on_info_show callback is NULL");
         }
     });
+}
+
+static void voice_system_reboot_worker(void *arg, uint32_t arg_len)
+{
+    (void)arg;
+    (void)arg_len;
+
+    LISA_UI_LOGI("System reboot triggered by resource update");
+
+    power_reboot_soft();
+}
+
+static uint32_t voice_resource_update_reboot_seconds_get(uint32_t delay_ms)
+{
+    if (delay_ms == 0) {
+        return 0;
+    }
+
+    return (delay_ms / 1000U) + ((delay_ms % 1000U) ? 1U : 0U);
+}
+
+static void voice_resource_update_reboot_ui_worker(void *arg, uint32_t arg_len)
+{
+    const voice_msg_cloud_reboot_t *reboot = (const voice_msg_cloud_reboot_t *)arg;
+    char toast_text[96] = {0};
+
+    if (!reboot || arg_len < sizeof(*reboot)) {
+        LISA_UI_LOGE("Invalid reboot UI worker arg");
+        return;
+    }
+
+    if (reboot->auto_reboot) {
+        uint32_t delay_seconds = voice_resource_update_reboot_seconds_get(reboot->delay_ms);
+
+        if (delay_seconds > 0) {
+            snprintf(toast_text, sizeof(toast_text), "云端更新配置\n将在%u秒后重启",
+                     (unsigned int)delay_seconds);
+        } else {
+            strncpy(toast_text, "云端更新配置，即将重启", sizeof(toast_text) - 1);
+        }
+
+        lisa_ui_toast_show_duration(toast_text, reboot->delay_ms);
+
+        if (lisa_ui_invoke_ui_delayed(voice_system_reboot_worker, NULL, 0, reboot->delay_ms) != 0) {
+            LISA_UI_LOGE("Failed to schedule reboot after %u ms", reboot->delay_ms);
+        }
+    } else {
+        lisa_ui_toast_show("请手动重启设备完成更新");
+    }
+}
+
+static void voice_cloud_resource_update_reboot_received(void *unused, uint32_t msg_id, void *data, uint32_t len,
+                                                        void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (!data || len < sizeof(voice_msg_cloud_reboot_t)) {
+        LISA_UI_LOGE("Invalid resource update reboot message data");
+        return;
+    }
+
+    voice_msg_cloud_reboot_t reboot = *(voice_msg_cloud_reboot_t *)data;
+
+    LISA_UI_LOGI("Resource update reboot received, auto_reboot=%u, delay_ms=%u",
+                 reboot.auto_reboot, reboot.delay_ms);
+
+    if (lisa_ui_invoke_ui_delayed(voice_resource_update_reboot_ui_worker, &reboot, sizeof(reboot),
+                                  0) != 0) {
+        LISA_UI_LOGE("Failed to enqueue resource update reboot UI worker");
+    }
 }
 
 static void voice_cloud_standby_texts_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -722,7 +876,7 @@ int model_voice_init(void)
     if (app_datas->voice_work_mode & VOICE_WORK_MODE_BUTTON_WAKEUP) {
         model_voice_ctx.wakeup_mode = MODEL_VOICE_WAKEUP_MODE_BUTTON;
     } else {
-        if (app_datas->full_duplex) {
+        if (app_interaction_mode_is_continuous(app_datas->int_mode)) {
             model_voice_ctx.wakeup_mode = MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI;
         } else {
             model_voice_ctx.wakeup_mode = MODEL_VOICE_WAKEUP_MODE_VOICE_SINGLE;
@@ -760,13 +914,17 @@ int model_voice_init(void)
     voice_msg_sub(VOICE_MSG_BUTTON_IMAGE_RECOGNITION, voice_button_image_recognition, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_IMAGE_RECOGNITION, voice_mcp_image_recognition, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_IMAGE_URL, voice_mcp_image_url_received, NULL);
+    voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_START, voice_app_camera_preview_start, NULL);
+    voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, voice_app_camera_preview_exit, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_STANDBY_TEXTS, voice_cloud_standby_texts_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SHOW_QRCODE, voice_cloud_show_qrcode_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_OPEN_INFO, voice_cloud_open_info_received, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_RESOURCE_UPDATE_REBOOT, voice_cloud_resource_update_reboot_received, NULL);
 
 #ifdef CONFIG_OTA
     voice_msg_sub(VOICE_MSG_OTA_CHECKING, voice_cloud_ota_state_change, NULL);
     voice_msg_sub(VOICE_MSG_OTA_UPDATING, voice_cloud_ota_state_change, NULL);
+    voice_msg_sub(VOICE_MSG_OTA_PACKAGE_INFO_FAILED, voice_cloud_ota_state_change, NULL);
     voice_msg_sub(VOICE_MSG_OTA_UP_TO_DATE, voice_cloud_ota_state_change, NULL);
 #endif
     
@@ -862,6 +1020,8 @@ struct voice_img_upload_msg {
     uint32_t w;
     uint32_t h;
     uint8_t mode;
+    uint32_t upload_seq;
+    async_task_t *task;
     uint8_t mcp_id[64];
 };
 
@@ -875,6 +1035,55 @@ static void voice_img_rec(void *data, uint32_t len, struct voice_invoke_rsp *rsp
     struct voice_img_cloud_sync_msg *msg = (struct voice_img_cloud_sync_msg *)data;
     int r = voice_cloud_image_recognition(msg->jpg_img, msg->len);
     rsp->err = r;
+}
+
+static bool voice_img_upload_should_cancel(const struct voice_img_upload_msg *msg, const bool *should_stop)
+{
+    if (!msg) {
+        return true;
+    }
+
+    return (should_stop && *should_stop) || (msg->upload_seq != model_voice_ctx.img_upload_seq);
+}
+
+static void voice_img_upload_msg_free(struct voice_img_upload_msg *msg)
+{
+    if (!msg) {
+        return;
+    }
+
+    if (msg->data) {
+        lisa_ui_free(msg->data);
+    }
+
+    lisa_ui_free(msg);
+}
+
+static void model_voice_img_recognition_cancel_internal(const char *reason)
+{
+    async_task_t *task = model_voice_ctx.img_upload_task;
+    bool has_pending = false;
+
+    if (task != NULL || model_voice_ctx.img_rec_in_progress) {
+        has_pending = true;
+    }
+
+    if (!has_pending) {
+        return;
+    }
+
+    model_voice_ctx.img_rec_in_progress = 0;
+    model_voice_ctx.img_rec_task_id++;
+    model_voice_ctx.img_upload_seq++;
+    model_voice_ctx.img_upload_task = NULL;
+
+    if (task != NULL) {
+        async_task_stop(task);
+    }
+
+    voice_cloud_image_recognition_drop_pending_result();
+    service_image_waiting_cancel();
+    LISA_UI_LOGI("cancel image recognition/upload flow (%s)", reason ? reason : "unknown");
 }
 
 static cJSON *mcp_image_result_create(const char *url)
@@ -917,6 +1126,20 @@ static cJSON *mcp_image_result_create(const char *url)
     return result;
 }
 
+static void async_task_img_upload_complete(void *user_data, bool completed, bool interrupted)
+{
+    struct voice_img_upload_msg *msg = (struct voice_img_upload_msg *)user_data;
+
+    if (msg && model_voice_ctx.img_upload_task == msg->task) {
+        model_voice_ctx.img_upload_task = NULL;
+    }
+
+    LISA_UI_LOGI("image upload task completed, seq=%u, completed=%d, interrupted=%d",
+                 msg ? msg->upload_seq : 0U, completed, interrupted);
+
+    voice_img_upload_msg_free(msg);
+}
+
 static void async_task_img_upload(void *p, bool *should_stop)
 {
     struct voice_img_upload_msg *msg = (struct voice_img_upload_msg *)p;
@@ -924,11 +1147,25 @@ static void async_task_img_upload(void *p, bool *should_stop)
     uint8_t *jpeg_data = NULL;
     uint32_t jpeg_len = 0;
 
+    LISA_UI_LOGI("image upload task start, mode=%u, rgb565_len=%u, w=%u, h=%u",
+                 msg->mode, msg->len, msg->w, msg->h);
+
+    if (voice_img_upload_should_cancel(msg, should_stop)) {
+        LISA_UI_LOGI("image upload task canceled before jpeg encode, seq=%u", msg->upload_seq);
+        return;
+    }
+
     int ret = img_helper_rgb565_to_jpeg(msg->data, msg->len, msg->w, msg->h, &jpeg_data, &jpeg_len);
     if (ret != 0 || !jpeg_data) {
-        lisa_ui_free(msg->data);
-        lisa_ui_free(msg);
         LISA_UI_LOGE("Failed to encode JPEG: %d", ret);
+        return;
+    }
+
+    LISA_UI_LOGI("image upload jpeg encoded, mode=%u, jpeg_len=%u", msg->mode, jpeg_len);
+
+    if (voice_img_upload_should_cancel(msg, should_stop)) {
+        LISA_UI_LOGI("image upload task canceled after jpeg encode, seq=%u", msg->upload_seq);
+        img_helper_jpeg_free(jpeg_data);
         return;
     }
 
@@ -940,11 +1177,33 @@ static void async_task_img_upload(void *p, bool *should_stop)
             .jpg_img = jpeg_data,
             .len = jpeg_len,
         };
+        if (voice_img_upload_should_cancel(msg, should_stop)) {
+            LISA_UI_LOGI("image recognition canceled before cloud invoke, seq=%u", msg->upload_seq);
+            img_helper_jpeg_free(jpeg_data);
+            return;
+        }
         int r = voice_invoke_sync(voice_img_rec, &sync_msg, sizeof(struct voice_img_cloud_sync_msg),
                                   (struct voice_invoke_rsp *)&rsp, 1000);
+        LISA_UI_LOGI("image recognition sync invoke done, invoke_ret=%d, cloud_ret=%d", r, rsp.err);
     } else if (msg->mode == IMG_REC_MODE_MCP) {
         char *url = NULL;
+
+        if (voice_img_upload_should_cancel(msg, should_stop)) {
+            LISA_UI_LOGI("jpeg upload canceled before request, seq=%u", msg->upload_seq);
+            img_helper_jpeg_free(jpeg_data);
+            return;
+        }
+
         int upload_ret = voice_cloud_upload_jpeg_img(jpeg_data, jpeg_len, &url);
+        if (voice_img_upload_should_cancel(msg, should_stop)) {
+            LISA_UI_LOGI("jpeg upload canceled after request, seq=%u", msg->upload_seq);
+            if (url) {
+                voice_cloud_jpeg_img_url_free(url);
+            }
+            img_helper_jpeg_free(jpeg_data);
+            return;
+        }
+
         cJSON *result = mcp_image_result_create(url);
         if (result) {
             if (url && upload_ret == 0) {
@@ -962,14 +1221,29 @@ static void async_task_img_upload(void *p, bool *should_stop)
     }
 
     img_helper_jpeg_free(jpeg_data);
-    lisa_ui_free(msg->data);
-    lisa_ui_free(msg);
+}
+
+static void voice_app_camera_preview_exit(void *unused, uint32_t msg_id, void *data, uint32_t len,
+                                          void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)data;
+    (void)len;
+    (void)user_data;
+
+    model_voice_img_recognition_cancel_internal("camera preview exit");
 }
 #endif
 
 int model_voice_img_recognition(uint8_t *rgb565, uint32_t len, int width, int height)
 {
 #ifdef LISA_UI_PLATFORM_ARCS
+
+    LISA_UI_LOGI("queue image recognition, mode=%u, len=%u, w=%d, h=%d",
+                 model_voice_ctx.img_rec_mode, len, width, height);
+
+    model_voice_img_recognition_cancel_internal("replace running task");
 
     uint8_t *rgb565_cpy = lisa_ui_malloc(len);
     if (rgb565_cpy == NULL) {
@@ -989,15 +1263,28 @@ int model_voice_img_recognition(uint8_t *rgb565, uint32_t len, int width, int he
     msg->w = width;
     msg->h = height;
     msg->mode = model_voice_ctx.img_rec_mode;
+    msg->upload_seq = ++model_voice_ctx.img_upload_seq;
+    msg->task = NULL;
     memcpy(msg->mcp_id, model_voice_ctx.mcp_id, sizeof(msg->mcp_id));
 
-    async_task_t *async_task = async_task_create("img_rec", 4096, 5, async_task_img_upload, NULL, msg);
+    async_task_t *async_task = async_task_create("img_rec", 4096, 5, async_task_img_upload,
+                                                 async_task_img_upload_complete, msg);
     if (async_task == NULL) {
-        lisa_ui_free(rgb565_cpy);
+        voice_img_upload_msg_free(msg);
         return -1;
     }
 
-    async_task_start(async_task);
+    msg->task = async_task;
+    model_voice_ctx.img_upload_task = async_task;
+
+    if (async_task_start(async_task) != 0) {
+        model_voice_ctx.img_upload_task = NULL;
+        async_task_destroy(async_task);
+        voice_img_upload_msg_free(msg);
+        return -1;
+    }
+
+    LISA_UI_LOGI("image recognition async task started");
 
     return 0;
 #else

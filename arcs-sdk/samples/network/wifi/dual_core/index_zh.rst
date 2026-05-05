@@ -6,5 +6,5 @@ WiFi 双核示例
 .. toctree::
     :maxdepth: 1
 
-    cp/README.md
-    ap/README.md
+    README.md
+    remote/README.md

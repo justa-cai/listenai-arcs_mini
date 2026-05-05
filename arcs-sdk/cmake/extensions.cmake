@@ -254,11 +254,26 @@ endmacro()
 # 简介: 为目标生成调试信息，包括反汇编、ELF头、符号表等
 # 参数:
 # + target_name 目标
+#
+# 注意（macOS）：binutils 2.44 的 `objdump -d -S` 对中等规模 ELF 存在
+# O(N²)~O(N³) 的算法退化（每 4× 代码量时间膨胀 20~300 倍）。这个问题在
+# Linux 上因 per-op 常量低（malloc / vnode cache / syscall path）只表现为
+# 几秒到几分钟；在 Apple Silicon macOS 上 per-op 开销大 ~10×，会让
+# ninja "Linking C executable ..." 卡几十分钟甚至小时级（cmake 把
+# POST_BUILD 合并到 link step）。APPLE 分支下仅生成纯反汇编（不带 -S），
+# Linux 行为不变。需要源码交织时可手动对小范围跑：
+#     objdump -d -S --start-address=X --stop-address=Y <elf>
+if(APPLE)
+    set(_LISTENAI_OBJDUMP_DISASM_FLAGS -d)
+else()
+    set(_LISTENAI_OBJDUMP_DISASM_FLAGS -d -S)
+endif()
+
 macro(listenai_generate_debug_files target_name)
     add_custom_command(
         TARGET ${target_name} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E echo "-- Genarating file: ${target_name}.lst"
-        COMMAND ${CMAKE_OBJDUMP} -d -S ${target_name} > ${target_name}.lst
+        COMMAND ${CMAKE_OBJDUMP} ${_LISTENAI_OBJDUMP_DISASM_FLAGS} ${target_name} > ${target_name}.lst
         COMMAND ${CMAKE_READELF} -a ${target_name} > ${target_name}.relf
         COMMAND ${CMAKE_NM} -CSsnl -f sysv ${target_name} > ${target_name}.symb
         COMMAND ${CMAKE_SIZE} -B ${target_name}
@@ -345,7 +360,11 @@ macro(listenai_add_executable name)
         listenai_generate_debug_files(${name})
     endif()
     if(LISTENAI_ADD_BIN_HEADR)
-        listenai_generate_boot_header(${name})
+        set(_boot_hdr_args "")
+        if(LISTENAI_MKHDR_TARGET_CORE)
+            list(APPEND _boot_hdr_args TARGET_CORE)
+        endif()
+        listenai_generate_boot_header(${name} ${_boot_hdr_args})
     endif()
 
     # 立即扫描并添加模块，但延迟链接操作
@@ -368,12 +387,168 @@ macro(listenai_add_executable name)
     set(LISTENAI_EXECUTABLE_COMPLETED TRUE)
 endmacro()
 
+macro(listenai_add_boot_only name)
+    include(ExternalProject)
+
+    if(NOT DEFINED BOOT_STANDALONE_UBOOT_ROOT)
+        set(BOOT_STANDALONE_UBOOT_ROOT "${ARCS_SDK_BASE}/system/uboot")
+    endif()
+
+    if(NOT DEFINED BOOT_STANDALONE_CONFIG_DEFAULT)
+        set(BOOT_STANDALONE_CONFIG_DEFAULT "${CMAKE_CURRENT_SOURCE_DIR}/prj.conf")
+    endif()
+
+    if(IS_ABSOLUTE "${BOOT_STANDALONE_CONFIG_DEFAULT}")
+        set(_boot_only_config_path "${BOOT_STANDALONE_CONFIG_DEFAULT}")
+    else()
+        get_filename_component(
+            _boot_only_config_path
+            "${BOOT_STANDALONE_CONFIG_DEFAULT}"
+            ABSOLUTE
+            BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}"
+        )
+    endif()
+
+    set(_boot_only_binary_dir "${CMAKE_BINARY_DIR}/boot")
+    set(_boot_only_output "${_boot_only_binary_dir}/${name}.bin")
+    set(_boot_only_app_config_file "${_boot_only_binary_dir}/app.config")
+    set(_boot_only_main_dot_config "${CMAKE_BINARY_DIR}/.config")
+    set(_boot_only_configs)
+    set(_boot_only_extra_args)
+
+    file(MAKE_DIRECTORY "${_boot_only_binary_dir}")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${_boot_only_config_path}"
+        "${_boot_only_main_dot_config}"
+    )
+
+    if(EXISTS "${_boot_only_main_dot_config}")
+        file(
+            STRINGS "${_boot_only_main_dot_config}" _boot_only_config_lines
+            REGEX "^(CONFIG_BOOT_|# CONFIG_BOOT_|CONFIG_COMPILE_OPTION_GENERATE_DEBUG_FILES=|# CONFIG_COMPILE_OPTION_GENERATE_DEBUG_FILES is not set)"
+            ENCODING "UTF-8"
+        )
+
+        foreach(_boot_only_line IN LISTS _boot_only_config_lines)
+            if(_boot_only_line MATCHES "^CONFIG_BOOT_HART=" OR
+               _boot_only_line MATCHES "^# CONFIG_BOOT_HART is not set")
+                continue()
+            endif()
+            list(APPEND _boot_only_configs "${_boot_only_line}")
+        endforeach()
+    else()
+        get_cmake_property(_boot_only_vars VARIABLES)
+        list(SORT _boot_only_vars)
+        foreach(_boot_only_var IN LISTS _boot_only_vars)
+            if(_boot_only_var MATCHES "^CONFIG_BOOT_" AND
+               NOT _boot_only_var STREQUAL "CONFIG_BOOT_HART")
+                list(APPEND _boot_only_configs "${_boot_only_var}=${${_boot_only_var}}")
+            endif()
+        endforeach()
+
+        if(DEFINED CONFIG_COMPILE_OPTION_GENERATE_DEBUG_FILES)
+            if(CONFIG_COMPILE_OPTION_GENERATE_DEBUG_FILES)
+                list(APPEND _boot_only_configs "CONFIG_COMPILE_OPTION_GENERATE_DEBUG_FILES=y")
+            else()
+                list(APPEND _boot_only_configs "# CONFIG_COMPILE_OPTION_GENERATE_DEBUG_FILES is not set")
+            endif()
+        endif()
+    endif()
+
+    file(WRITE "${_boot_only_app_config_file}" "")
+    foreach(_boot_only_config IN LISTS _boot_only_configs)
+        file(APPEND "${_boot_only_app_config_file}" "${_boot_only_config}\n")
+    endforeach()
+
+    set(_boot_only_fingerprint_input "")
+    if(EXISTS "${_boot_only_config_path}")
+        file(SHA256 "${_boot_only_config_path}" _boot_only_default_config_hash)
+        string(APPEND _boot_only_fingerprint_input "${_boot_only_default_config_hash}")
+    endif()
+    file(SHA256 "${_boot_only_app_config_file}" _boot_only_app_config_hash)
+    string(APPEND _boot_only_fingerprint_input ":${_boot_only_app_config_hash}")
+
+    set(_boot_only_config_files "${_boot_only_app_config_file}")
+    set(_boot_only_board_config "${CMAKE_CURRENT_SOURCE_DIR}/${BOARD}.conf")
+    if(EXISTS "${_boot_only_board_config}")
+        list(APPEND _boot_only_config_files "${_boot_only_board_config}")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${_boot_only_board_config}"
+        )
+        file(SHA256 "${_boot_only_board_config}" _boot_only_board_config_hash)
+        string(APPEND _boot_only_fingerprint_input ":${_boot_only_board_config_hash}")
+    endif()
+
+    if(_boot_only_fingerprint_input)
+        string(SHA256 _boot_only_config_fingerprint "${_boot_only_fingerprint_input}")
+        list(APPEND _boot_only_extra_args
+            -DBOOT_STANDALONE_CONFIG_FINGERPRINT=${_boot_only_config_fingerprint}
+        )
+    endif()
+
+    string(REPLACE ";" "|" _boot_only_config_files_arg "${_boot_only_config_files}")
+
+    set(LISTENAI_MKHDR_TARGET_CORE FALSE)
+    if(EXISTS "${_boot_only_config_path}")
+        file(STRINGS "${_boot_only_config_path}" _boot_only_prj_lines)
+        foreach(_line IN LISTS _boot_only_prj_lines)
+            if(_line MATCHES "^CONFIG_BOOT_APP_CORE_AUTO=y")
+                set(LISTENAI_MKHDR_TARGET_CORE TRUE)
+            endif()
+        endforeach()
+    endif()
+
+    ExternalProject_Add(
+        boot_external
+        SOURCE_DIR ${BOOT_STANDALONE_UBOOT_ROOT}
+        BINARY_DIR ${_boot_only_binary_dir}
+        LIST_SEPARATOR "|"
+        CMAKE_ARGS
+            -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+            -DCHIP=${CHIP}
+            -DBOARD=${BOARD}
+            -DARCS_SDK_BASE=${ARCS_SDK_BASE}
+            -DLISTENAI_TOOLS_PATH=${LISTENAI_TOOLS_PATH}
+            -DBOOT_STANDALONE_PROJECT_NAME=${name}
+            -DBOOT_STANDALONE_CONFIG_DEFAULT=${_boot_only_config_path}
+            -DCONFIG_FILES=${_boot_only_config_files_arg}
+            ${_boot_only_extra_args}
+        BUILD_COMMAND ${CMAKE_COMMAND} --build .
+        INSTALL_COMMAND ""
+    )
+
+    add_custom_target(
+        boot_only_artifact
+        ALL
+        COMMAND ${CMAKE_COMMAND} -E echo "-- Generating boot.bin"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${_boot_only_output}
+            ${CMAKE_BINARY_DIR}/boot.bin
+        DEPENDS boot_external
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    )
+endmacro()
+
 # 为可执行文件添加listenai boot header
 macro(listenai_generate_boot_header target_name)
+    cmake_parse_arguments(_BOOT_HDR "TARGET_CORE" "" "" ${ARGN})
+    set(_mkhdr_flags_arg "")
+    if(_BOOT_HDR_TARGET_CORE AND DEFINED CONFIG_HARTID)
+        execute_process(
+            COMMAND ${LISTENAI_TOOLS_MKHDR} -h
+            OUTPUT_VARIABLE _mkhdr_help
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        if(_mkhdr_help MATCHES "-f ")
+            set(_mkhdr_flags_arg -f ${CONFIG_HARTID})
+        else()
+            message(WARNING "mkhdr does not support -f (target_core); update mkhdr to write boot core into image header")
+        endif()
+    endif()
     add_custom_target(
         mkhdr ALL
-        COMMAND ${CMAKE_COMMAND} -E echo "-- Genarating ListenAI Boot Header for ${target_name}.bin"
-        COMMAND ${LISTENAI_TOOLS_MKHDR} ${target_name}.bin
+        COMMAND ${CMAKE_COMMAND} -E echo "-- Generating ListenAI Boot Header for ${target_name}.bin"
+        COMMAND ${LISTENAI_TOOLS_MKHDR} ${_mkhdr_flags_arg} ${target_name}.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
     add_dependencies(mkhdr ${target_name})
@@ -456,7 +631,7 @@ endmacro()
 # ---------------------------------------------------------------------------
 # Relocate library, file, or named sections to a target memory region.
 # Usage:
-#   listenai_code_relocate(LIBRARY <lib_name> LOCATION <location>)
+#   listenai_code_relocate(LIBRARY <lib_name> LOCATION <location> [EXCLUDE_OBJECTS <obj1> ...])
 #   listenai_code_relocate(FILES <file1> [file2 ...] LOCATION <location>)
 #   listenai_code_relocate(SECTIONS <sec1> [sec2 ...] LOCATION <location>)
 #
@@ -475,7 +650,7 @@ endmacro()
 #   DTCM  -> DTCM_DATA + DTCM_BSS  (mapped to .dtcm + .dtcm.bss)
 # ---------------------------------------------------------------------------
 function(listenai_code_relocate)
-    cmake_parse_arguments(_CR "" "LIBRARY;LOCATION" "FILES;SECTIONS" ${ARGN})
+    cmake_parse_arguments(_CR "" "LIBRARY;LOCATION" "FILES;SECTIONS;EXCLUDE_OBJECTS" ${ARGN})
 
     if(NOT _CR_LOCATION)
         message(FATAL_ERROR "listenai_code_relocate: LOCATION is required")
@@ -483,8 +658,8 @@ function(listenai_code_relocate)
 
     # --- SECTIONS mode: collect named sections into a target ---
     if(_CR_SECTIONS)
-        if(_CR_LIBRARY OR _CR_FILES)
-            message(FATAL_ERROR "listenai_code_relocate: SECTIONS cannot be combined with LIBRARY or FILES")
+        if(_CR_LIBRARY OR _CR_FILES OR _CR_EXCLUDE_OBJECTS)
+            message(FATAL_ERROR "listenai_code_relocate: SECTIONS cannot be combined with LIBRARY, FILES, or EXCLUDE_OBJECTS")
         endif()
         # Map LOCATION to the single relocate target property
         string(TOLOWER "${_CR_LOCATION}" _loc_lower)
@@ -517,6 +692,9 @@ function(listenai_code_relocate)
     endif()
     if(_CR_LIBRARY AND _CR_FILES)
         message(FATAL_ERROR "listenai_code_relocate: LIBRARY and FILES are mutually exclusive")
+    endif()
+    if(_CR_EXCLUDE_OBJECTS AND NOT _CR_LIBRARY)
+        message(FATAL_ERROR "listenai_code_relocate: EXCLUDE_OBJECTS requires LIBRARY mode")
     endif()
 
     # --- Expand aggregate locations to granular targets ---
@@ -551,28 +729,37 @@ function(listenai_code_relocate)
 
     # --- Build the wildcard prefix (archive or object file) ---
     if(_CR_LIBRARY)
-        # Library pattern: *lib<name>.a:*
-        set(_prefix "*lib${_CR_LIBRARY}.a:*")
+        set(_archive_prefix "*lib${_CR_LIBRARY}.a:")
+        set(_exclude_patterns "")
+        foreach(_member ${_CR_EXCLUDE_OBJECTS})
+            list(APPEND _exclude_patterns "${_archive_prefix}${_member}")
+        endforeach()
+        string(REPLACE ";" " " _exclude_members "${_exclude_patterns}")
     endif()
 
     # --- Map each target to its input section patterns and register ---
     foreach(_target ${_targets})
         # Determine input section patterns for this target
         if(_target MATCHES "text$" OR _target STREQUAL "itcm")
-            set(_sections "(.text .text.* .stext .stext.*)")
+            set(_section_patterns ".text .text.* .stext .stext.*")
         elseif(_target MATCHES "rodata$")
-            set(_sections "(.rodata .rodata.* .srodata .srodata.*)")
+            set(_section_patterns ".rodata .rodata.* .srodata .srodata.*")
         elseif(_target MATCHES "_data$" OR _target STREQUAL "dtcm_data")
-            set(_sections "(.data .data.* .sdata .sdata.*)")
+            set(_section_patterns ".data .data.* .sdata .sdata.*")
         elseif(_target MATCHES "bss$")
-            set(_sections "(.bss .bss.* .sbss .sbss.* COMMON)")
+            set(_section_patterns ".bss .bss.* .sbss .sbss.* COMMON")
         else()
             message(FATAL_ERROR "listenai_code_relocate: internal error - unknown target '${_target}'")
         endif()
 
         if(_CR_LIBRARY)
+            if(_exclude_members)
+                set(_entry "EXCLUDE_FILE (${_exclude_members}) ${_archive_prefix}*(${_section_patterns})")
+            else()
+                set(_entry "${_archive_prefix}*(${_section_patterns})")
+            endif()
             set_property(GLOBAL APPEND PROPERTY
-                LISTENAI_RELOCATE_${_target} "${_prefix}${_sections}")
+                LISTENAI_RELOCATE_${_target} "${_entry}")
         else()
             # File-level: one entry per file
             foreach(_file ${_CR_FILES})
@@ -580,7 +767,7 @@ function(listenai_code_relocate)
                 # Match both .c.obj and .c.o patterns
                 set_property(GLOBAL APPEND PROPERTY
                     LISTENAI_RELOCATE_${_target}
-                    "*${_basename}*${_sections}")
+                    "*${_basename}*(${_section_patterns})")
             endforeach()
         endif()
     endforeach()

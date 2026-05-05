@@ -3,6 +3,10 @@
 
 #define TAG "volume"
 
+#include "FreeRTOS.h"
+#include "queue.h"
+#include "task.h"
+
 #include "lisa_log.h"
 #include "lisa_kv.h"
 #include "kv.h"
@@ -10,6 +14,11 @@
 #include "voice_player_comm.h"
 
 #define DEFAULT_VOLUME 50
+#define VOLUME_APPLY_QUEUE_SIZE 1
+#define VOLUME_APPLY_TASK_STACK_SIZE 2048
+#define VOLUME_APPLY_TASK_PRIORITY 5
+
+static QueueHandle_t s_volume_apply_queue = NULL;
 
 static int service_volume_clamp(int volume)
 {
@@ -50,8 +59,72 @@ static void service_volume_apply(int volume)
     }
 }
 
+static void service_volume_apply_task_entry(void *pvParameters)
+{
+    int volume = DEFAULT_VOLUME;
+
+    while (1) {
+        if (xQueueReceive(s_volume_apply_queue, &volume, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+
+        LOGI("Applying volume asynchronously: %d", volume);
+        service_volume_apply(volume);
+    }
+}
+
+static int service_volume_async_init(void)
+{
+    if (s_volume_apply_queue != NULL) {
+        return 0;
+    }
+
+    s_volume_apply_queue = xQueueCreate(VOLUME_APPLY_QUEUE_SIZE, sizeof(int));
+    if (s_volume_apply_queue == NULL) {
+        LOGE("failed to create volume apply queue");
+        return -1;
+    }
+
+    BaseType_t ret = xTaskCreate(
+        service_volume_apply_task_entry,
+        "volume_apply",
+        VOLUME_APPLY_TASK_STACK_SIZE,
+        NULL,
+        VOLUME_APPLY_TASK_PRIORITY,
+        NULL
+    );
+    if (ret != pdPASS) {
+        LOGE("failed to create volume apply task");
+        vQueueDelete(s_volume_apply_queue);
+        s_volume_apply_queue = NULL;
+        return -1;
+    }
+
+    return 0;
+}
+
+static void service_volume_apply_async(int volume)
+{
+    volume = service_volume_clamp(volume);
+
+    if (s_volume_apply_queue == NULL) {
+        LOGW("volume apply queue not ready, fallback to sync apply");
+        service_volume_apply(volume);
+        return;
+    }
+
+    if (xQueueOverwrite(s_volume_apply_queue, &volume) != pdPASS) {
+        LOGW("failed to enqueue volume apply, fallback to sync apply");
+        service_volume_apply(volume);
+    }
+}
+
 void service_volume_init(void)
 {
+    if (service_volume_async_init() != 0) {
+        LOGW("volume async apply init failed, keep sync mode");
+    }
+
     service_volume_restore_from_kv();
 
     LOGI("Volume service initialized");
@@ -62,7 +135,7 @@ void service_volume_set(int volume)
     volume = service_volume_clamp(volume);
 
     lisa_kv_set_int(KV_KEY_USER_VOLUME, volume);
-    service_volume_apply(volume);
+    service_volume_apply_async(volume);
 
     LOGI("Volume set to %d", volume);
 }

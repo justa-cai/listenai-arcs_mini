@@ -18,8 +18,9 @@
 #include "netcfg_ble.h"
 #include "netcfg_bles.h"
 #include "ble_gap.h"
-#include "wifi_manager/wifi_manager.h"
+#include "ble_plf_config.h"
 #include "voice_msg.h"
+#include "sys_network_manager.h"
 
 #if defined(CONFIG_CLOUD_PRODUCT_ID_DEFAULT)
 #define PRODUCT_ID CONFIG_CLOUD_PRODUCT_ID_DEFAULT
@@ -54,14 +55,55 @@ const uint8_t *lisa_bt_get_adv_data(uint8_t *len)
  */
 
 static lisa_ble_netcfg_handler_t s_netcfg_handler;
+static bool s_ble_connected;
+static uint8_t s_ble_conidx;
 
 void lisa_ble_netcfg_set_handler(lisa_ble_netcfg_handler_t handler)
 {
     s_netcfg_handler = handler;
 }
 
+static void app_ble_on_connected(uint8_t conidx, uint16_t conhdl, const gap_bdaddr_t *peer_addr)
+{
+    (void)conhdl;
+    (void)peer_addr;
+
+    s_ble_connected = true;
+    s_ble_conidx = conidx;
+    LISA_LOGI(TAG, "BLE connected, conidx=%u", conidx);
+}
+
 void netcfg_bles_con_cleanup(uint8_t conidx, uint16_t reason)
 {
+    LISA_LOGI(TAG, "BLE disconnected, conidx=%u, reason=0x%04X", conidx, reason);
+    if (s_ble_connected && s_ble_conidx == conidx) {
+        s_ble_connected = false;
+    }
+    netcfg_bles_set_state(NETCFG_BLE_IDLE);
+}
+
+static void app_ble_on_disconnected(uint8_t conidx, uint16_t conhdl, uint16_t reason)
+{
+    (void)conhdl;
+    netcfg_bles_con_cleanup(conidx, reason);
+}
+
+static void app_ble_on_bond(uint8_t conidx, uint8_t info, uint8_t value)
+{
+    LISA_LOGI(TAG, "BLE bond event, conidx=%u, info=%u, value=%u", conidx, info, value);
+}
+
+void app_ble_netcfg_prepare(void)
+{
+    lisa_ble_adv_stop(0);
+    if (s_ble_connected) {
+        LISA_LOGI(TAG, "Disconnect current BLE link before netcfg, conidx=%u", s_ble_conidx);
+        lisa_ble_disconnect(s_ble_conidx, 0x13);
+    }
+
+    LISA_LOGI(TAG, "Clear BLE bond info before netcfg");
+    ble_gap_delete_bond(NULL);
+    bt_stack_nvs_del(NVS_ID_PEER_ADDRESS);
     netcfg_bles_set_state(NETCFG_BLE_IDLE);
 }
 
@@ -207,12 +249,11 @@ uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op
 
 static int netcfg_wifi_connect_handler(const char *ssid, const char *pwd)
 {
-    wifi_mgr_sta_config_t sta_config = { 0 };
-    strncpy(sta_config.ssid, ssid, sizeof(sta_config.ssid) - 1);
-    strncpy(sta_config.pwd, pwd, sizeof(sta_config.pwd) - 1);
-    LISA_LOGI(TAG, "netcfg wifi connect ssid:%s", ssid);
-    int result = wifi_mgr_sta_connect(&sta_config, false);
-    LISA_LOGI(TAG, "netcfg wifi connect result:%d", result);
+    LISA_LOGI(TAG, "netcfg wifi apply ssid:%s", ssid);
+
+    int result = sys_network_connect_wifi(ssid, pwd, NULL);
+
+    LISA_LOGI(TAG, "netcfg wifi apply result:%d", result);
     if (result == 0) {
         voice_msg_pub(VOICE_MSG_BLE_CONNECT_DONE, NULL, 0);
     }
@@ -221,5 +262,10 @@ static int netcfg_wifi_connect_handler(const char *ssid, const char *pwd)
 
 void app_ble_netcfg_init(void)
 {
+    s_ble_connected = false;
+    s_ble_conidx = 0;
+    lisa_ble_register_conn_cb(app_ble_on_connected);
+    lisa_ble_register_disc_cb(app_ble_on_disconnected);
+    lisa_ble_register_bond_cb(app_ble_on_bond);
     lisa_ble_netcfg_set_handler(netcfg_wifi_connect_handler);
 }

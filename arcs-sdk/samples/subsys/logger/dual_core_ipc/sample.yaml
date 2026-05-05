@@ -1,0 +1,13 @@
+tests:
+  samples.subsys.logger.dual_core_ipc:
+    programmer: arcs
+    runner: uart
+    build_extra_args: ""
+    images:
+      - file: "remote/dual_core_ipc_ap.bin"
+        address: "0x0"
+      - file: "dual_core_ipc_cp.bin"
+        address: "0x80000"
+    log_analyzer:
+      type: "regex"
+      pattern: "AP IPC log sample passed"

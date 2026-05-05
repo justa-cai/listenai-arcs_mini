@@ -833,8 +833,8 @@ int app_netdev_register(const char *name, uint32_t priority)
     if (strncmp(name, "wifi0", 5) == 0 || strncmp(name, "wlan0", 5) == 0) {
         /* WiFi/lwIP device */
         return netdev_lwip_register(name, priority);
-    } else if (strncmp(name, "ml307", 5) == 0) {
-        /* AT-based 4G/LTE device */
+    } else if (strncmp(name, "ml", 2) == 0 || strncmp(name, "ec", 2) == 0) {
+        /* AT-based 4G/LTE device (ML307, EC801E, etc.) */
         #if CONFIG_LISA_MODEM
         return netdev_at_register(name, priority);
         #else
@@ -870,8 +870,9 @@ int netdev_unregister_by_name(const char *name)
     }
     else if (strncmp(name, "4g", 2) == 0 ||
              strncmp(name, "lte", 3) == 0 ||
-             strncmp(name, "ml", 2) == 0) {
-        /* AT-based 4G/LTE device */
+             strncmp(name, "ml", 2) == 0 ||
+             strncmp(name, "ec", 2) == 0) {
+        /* AT-based 4G/LTE device (ML307, EC801E, etc.) */
         return netdev_at_unregister(name);
     }
     else {

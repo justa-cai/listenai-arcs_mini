@@ -1,0 +1,3 @@
+tests:
+  samples.usb.host.cherryusb_audio:
+    build_only: true

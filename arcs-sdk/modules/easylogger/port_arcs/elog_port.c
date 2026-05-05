@@ -260,7 +260,9 @@ size_t elog_port_read_log_then_output(void)
     get_log_size = elog_async_get_log(poll_get_buf, POLL_GET_BUF_SIZE);
 #endif
     if (get_log_size) {
+        elog_port_output_lock();
         elog_port_output(poll_get_buf, get_log_size);
+        elog_port_output_unlock();
     }
     return get_log_size;
 }

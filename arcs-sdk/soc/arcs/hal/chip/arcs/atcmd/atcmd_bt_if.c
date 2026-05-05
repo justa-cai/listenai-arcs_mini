@@ -36,6 +36,8 @@
 #ifdef CFG_AMP_IPC
 #include "bt_ipc_api.h"
 #endif
+#include "bt_stack_hal.h"
+#include "bt_app_hal.h"
 
 /*
  * MACROS
@@ -76,6 +78,9 @@ void* ble_scan_timer = NULL;
 #if (BT_EMB_PRESENT)
 #if (BT_STACK_PRESENT)
 extern void bt_classic_scan_enable(uint8_t enable);
+
+extern void bt_gap_delete_bond(gap_bdaddr_t *bdaddr);
+
 #endif
 
 extern bool lm_dut_mode_en_set(uint8_t enable);
@@ -104,9 +109,13 @@ extern uint8_t app_ble_disconnect(uint8_t conidx, uint8_t reason);
 extern uint8_t lld_test_start(void* params);
 extern uint8_t lld_test_stop(void);
 extern uint8_t llm_get_link_id(struct bd_addr *p_bd_addr);
-
 #endif
 
+extern void rf_start_test_tone(uint16_t channel, uint8_t power);
+extern void uart_init(void);
+extern int hci_set_evt_filter_cmd_handler(void const *param, uint16_t opcode);
+extern void rf_set_tx_power(uint8_t power);
+extern void rf_stop_test_tone();
 
 #define  PARAM_ID_DEVICE_NAME                 (0x02)
 
@@ -125,7 +134,7 @@ extern uint8_t llm_get_link_id(struct bd_addr *p_bd_addr);
 bt_at_cmd_t *atcmd_msg_alloc( btos_event_t *ev, uint32_t size)
 {
 #ifdef CFG_AMP_IPC
-    btos_malloc_api(&(ev->msg_body), sizeof(btos_msg_t)+size);
+    btos_malloc_api((void**)&(ev->msg_body), sizeof(btos_msg_t)+size);
 
     CLOGD("atcmd_msg_alloc:0x%x, local:0x%x", ev->msg_body, &(ev->msg_body));
 
@@ -201,7 +210,7 @@ void atcmd_ble_name_handler(uint8_t *name)
     uint8_t length = BD_NAME_SIZE;
     CLOGD("at_ble_name_handler");
     #if CFG_NVS
-    nvds_put(PARAM_ID_DEVICE_NAME, &length, name);
+    nvds_put(PARAM_ID_DEVICE_NAME, length, name);
     #endif
 }
 
@@ -1287,6 +1296,7 @@ uint8_t atcmd_bt_hci_mode_send()
 
 }
 
+extern void* lsip_eif_get(uint8_t idx);
 uint32_t atcmd_bt_hci_mode_handler()
 {
     uint8_t status = CO_ERROR_NO_ERROR;
@@ -1300,7 +1310,7 @@ uint32_t atcmd_bt_hci_mode_handler()
     uart_init();
 
     // hci init
-    extern void h4tl_init(uint8_t tl_itf, void * uart_env_p);
+    extern void h4tl_init(uint8_t tl_itf, void* eif);
     h4tl_init(0, lsip_eif_get(0));
 
     return status;

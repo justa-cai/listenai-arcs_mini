@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+
+osource "$ARCS_BASE/Kconfig"
+
+choice SAMPLE_BOOT_OTA_TRIGGER_SOURCE
+	prompt "APP-only OTA trigger source"
+	default SAMPLE_BOOT_OTA_TRIGGER_FLASH
+
+config SAMPLE_BOOT_OTA_TRIGGER_FLASH
+	bool "Trigger OTA from flash payload"
+
+config SAMPLE_BOOT_OTA_FLASH_PACKAGE_SIZE
+	hex "Flash OTA package size"
+	depends on SAMPLE_BOOT_OTA_TRIGGER_FLASH
+	default 0xFDE4
+	help
+	  OTA package size passed to uboot_ota_start_from_flash().
+	  The default matches the txz generated from the static res/ payload.
+
+config SAMPLE_BOOT_OTA_TRIGGER_TF
+	bool "Trigger OTA from TF payload path"
+
+endchoice
+
+config SAMPLE_BOOT_OTA_TRIGGER_TF_PATH
+	string "TF OTA package path"
+	depends on SAMPLE_BOOT_OTA_TRIGGER_TF
+	default "download/update.txz"
+	help
+	  OTA package path passed to uboot_ota_start_from_tf().
+	  The boot side normalizes path prefixes internally.

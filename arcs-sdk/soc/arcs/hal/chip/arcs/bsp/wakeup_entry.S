@@ -8,6 +8,38 @@
 
 .extern pm_sleep_startup
 
+
+#if 1
+.section .text
+.globl __light_sleep_entry
+.type __light_sleep_entry, @function
+__light_sleep_entry:
+    /* Set LDO_AON_VTRIM to 0.*/
+    li      a0, 0x480000d4
+    lw      a1, 0(a0)
+    li      a2, 0x7E
+    not     a2, a2
+    and     a1, a1, a2
+    sw      a1, 0(a0)
+
+    /* To utilize the necessary 100μs transition time,
+     * the system executes instructions from Flash memory
+     */
+    /* ===== Startup Stage 1 ===== */
+    /* Disable Global Interrupt */
+    csrc CSR_MSTATUS, MSTATUS_MIE
+
+    /* Initialize GP and TP */
+    .option push
+    .option norelax
+    la gp, __global_pointer$
+    la tp, __tls_base
+    .option pop
+    la sp, _sp
+
+    call  sleep_wakeup
+#else
+
 .section .ramcode
 .globl __light_sleep_entry
 .type __light_sleep_entry, @function
@@ -22,9 +54,12 @@ __light_sleep_entry:
     la gp, __global_pointer$
     la tp, __tls_base
     .option pop
-
     la sp, _sp
+#endif
 
+.section .ramcode
+.type sleep_wakeup, @function
+sleep_wakeup:
     /*
      * Set the the NMI base mnvec to share
      * with mtvec by setting CSR_MMISC_CTL
@@ -39,7 +74,6 @@ __light_sleep_entry:
      */
     la t0, vector_base /* vector_base */
     csrw CSR_MTVT, t0
-
     /*
      * Set ECLIC non-vector entry to be controlled
      * by mtvt2 CSR register.
@@ -49,6 +83,7 @@ __light_sleep_entry:
     la t0, irq_entry
     csrw CSR_MTVT2, t0
     csrs CSR_MTVT2, 0x1
+
 
     /*
      * When all initialization steps done
@@ -76,6 +111,7 @@ __light_sleep_entry:
     csrs mstatus, t0
 #endif
 
+
 #if defined(__riscv_vector)
     /* Enable Vector, and set state to initial */
     li t0, MSTATUS_VS
@@ -93,27 +129,24 @@ __light_sleep_entry:
     li a1, BOOT_HARTID
     bne a0, a1, __skip_init
 #endif
-#if 0
-    /* Call global constructors */
-    la a0, __libc_fini_array
 
-    call atexit
-
-    /* Call C/C++ constructor start up code */
-    call __libc_init_array
-#endif
     /* BPU cold bringup need time, so enable BPU before enter to main */
     li t0, MMISC_CTL_BPU
     csrs CSR_MMISC_CTL, t0
 
     call pm_sleep_startup
 
-.extern __stack_store_repo
+
+.section .bss
+.align 2
+__light_sleep_stash:
+    .space 4
+
 .section .ramcode
-.globl __idle_save
-.type __idle_save, @function
-__idle_save:
-    add	sp,sp,-104
+.globl __light_sleep_save
+.type __light_sleep_save, @function
+__light_sleep_save:
+    add	sp,sp,-112
     sw ra,0(sp)
     sw tp,4(sp)
     sw t0,8(sp)
@@ -140,15 +173,17 @@ __idle_save:
     sw s6,92(sp)
     sw s7,96(sp)
     sw s8,100(sp)
-    la t0, __stack_store_repo
+    sw s9,104(sp)
+    sw s10,108(sp)
+    la t0, __light_sleep_stash
     sw sp,0(t0)
     wfi
 
 .section .ramcode
-.globl __idle_restore
-.type __idle_restore, @function
-__idle_restore:
-    la a0, __stack_store_repo
+.globl __light_sleep_restore
+.type __light_sleep_restore, @function
+__light_sleep_restore:
+    la a0, __light_sleep_stash
     la t0, _sp
     csrw mscratch, t0
     lw sp, 0(a0)
@@ -178,11 +213,13 @@ __idle_restore:
     lw s6,92(sp)
     lw s7,96(sp)
     lw s8,100(sp)
-    add sp,sp,104
+    lw s9,104(sp)
+    lw s10,108(sp)
+    add sp,sp,112
     ret
 
-    .section .text.mem_copy
-    .globl mem_copy
+.section .text.mem_copy
+.globl mem_copy
 mem_copy:
     mv      t2, a0
     beqz    a2, .done

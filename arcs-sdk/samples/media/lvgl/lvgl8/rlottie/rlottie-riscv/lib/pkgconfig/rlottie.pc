@@ -1,0 +1,6 @@
+Name: rlottie
+Description: A rlottie library
+Version: 0.2
+Requires:
+Libs: -L/home/tanha/workspace/ls26/voiceassistant/arcs-sdk/samples/media/lvgl/lvgl8/rlottie/rlottie-riscv/lib -lrlottie
+Cflags: -I/home/tanha/workspace/ls26/voiceassistant/arcs-sdk/samples/media/lvgl/lvgl8/rlottie/rlottie-riscv/include

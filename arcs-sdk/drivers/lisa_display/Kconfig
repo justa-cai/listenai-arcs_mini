@@ -47,18 +47,50 @@ config LISA_DISPLAY_CPDMA_ROTATE
 		This provides better performance than SRAM-based rotation.
 
 config LISA_DISPLAY_CPDMA_CH
-	int "CPDMA channel"
+	int "CPDMA channel for display 0"
 	default 2
 	range 0 3
 	depends on LISA_DISPLAY_CPDMA_ROTATE
 	help
-		Select the CPDMA channel to be used for display rotation.
+		Select the CPDMA channel used by display 0 rotation.
+		In independent rotate mode, this channel is dedicated to display 0.
+
+config LISA_DISPLAY_CPDMA_CH_1
+	int "CPDMA channel for display 1"
+	default 3
+	range 0 3
+	depends on LISA_DISPLAY_CPDMA_ROTATE && LISA_DISPLAY_DUAL_INDEPENDENT_ROTATE
+	help
+		Select the CPDMA channel used by display 1 rotation.
+		This must be different from CONFIG_LISA_DISPLAY_CPDMA_CH to allow
+		both displays to perform DMA rotation in parallel.
 
 config LISA_DISPLAY_COLOR_INVERT
 	bool "Enable LCD color invert"
 	default y
 	help
 		If enabled, LCD color will be inverted.
+
+config LISA_DUAL_DISPLAY
+	bool "Enable Dual Display Support"
+	help
+		Enable support for dual display (two independent displays).
+		Each display can use different panel drivers and configurations.
+
+config LISA_DISPLAY_DUAL_INDEPENDENT_ROTATE
+	bool "Enable Independent Rotation Resources Per Display"
+	depends on LISA_DUAL_DISPLAY
+	help
+		When enabled, each display instance has its own rotation buffers
+		and mutex, allowing both displays to perform rotation simultaneously
+		without contention. This doubles the rotation buffer memory usage.
+
+		When disabled, all display instances share one set of rotation
+		buffers and mutex (default behavior).
+
+		Note: In independent mode with CPDMA enabled, each display uses
+		a dedicated CPDMA channel (CONFIG_LISA_DISPLAY_CPDMA_CH and
+		CONFIG_LISA_DISPLAY_CPDMA_CH_1), so DMA transfers run in parallel.
 
 endif # LISA_DISPLAY_DEVICE
 

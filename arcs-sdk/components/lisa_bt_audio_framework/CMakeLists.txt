@@ -43,6 +43,8 @@ if(CONFIG_LISA_BT_AUDIO_FRAMEWORK)
     if(CONFIG_LISA_BT_AUDIO_INTERFACE_LOCAL)
         listenai_library_sources(
             interfaces/lisa_audio_interface.c
+            interfaces/lisa_audio_resampler.c
+            interfaces/lisa_audio_playback_resample.c
         )
     endif()
     

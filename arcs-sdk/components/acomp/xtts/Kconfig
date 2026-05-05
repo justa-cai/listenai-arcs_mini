@@ -27,6 +27,14 @@ if ACOMP_XTTS
 		int "XTTS CRF size (bytes)"
 		default 7791842
 
+	config ACOMP_XTTS_RES_FRONT_USER_EMMC_ADDR
+		hex "XTTS front user dict eMMC address"
+		default 0x360c000
+
+	config ACOMP_XTTS_RES_FRONT_USER_SIZE
+		int "XTTS front user dict size (bytes)"
+		default 3082688
+
 	config ACOMP_XTTS_RES_REAR_EMMC_ADDR
 		hex "XTTS rear model eMMC address"
 		default 0x7d00000

@@ -1099,7 +1099,7 @@ void rf_start_test_tone(uint16_t channel, uint8_t power)
     RFIF->REG_TX_DAC_LOGIC1.bit.REG_RFDAC_DACIN_Q = 2048;
 }
 
-void rf_stop_test_tone()
+void rf_stop_test_tone(void)
 {
     //  auto end, wifi end
     RFIF->REG_CTRL0.bit.AUTO_END = 1;
@@ -1189,6 +1189,7 @@ RF_OPS rf_ops = {
     #if defined(WCN_TYPE_WF)
     .calc_temp = ls_calc_temp,
     .temp_rf_por_config = ls_temp_rf_por_config,
+    .get_wf_factory_partition_addr = nv_fixzone_get_wf_conf_base_addr,
     #endif
 };
 

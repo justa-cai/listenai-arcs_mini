@@ -1,4 +1,0 @@
-tests:
-  samples.drivers.ic_mutex.crypto.cp:
-    build_only: true
-

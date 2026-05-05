@@ -5,8 +5,9 @@
  */
 #pragma once
 
-#define MULTI_HEAP_FREERTOS 1// by danny
-
+#ifdef CONFIG_MODULE_FREERTOS
+#define MULTI_HEAP_FREERTOS 1
+#endif
 
 #ifdef MULTI_HEAP_FREERTOS
 
@@ -76,6 +77,9 @@ inline static void multi_heap_assert(bool condition, const char *format, int lin
 #else // MULTI_HEAP_FREERTOS
 
 #include <assert.h>
+#include <stdint.h>
+
+typedef uint32_t multi_heap_lock_t;
 
 #define MULTI_HEAP_PRINTF printf
 #define MULTI_HEAP_STDERR_PRINTF(MSG, ...) fprintf(stderr, MSG, __VA_ARGS__)
@@ -89,5 +93,10 @@ inline static void multi_heap_assert(bool condition, const char *format, int lin
 #define MULTI_HEAP_BLOCK_OWNER
 #define MULTI_HEAP_SET_BLOCK_OWNER(HEAD)
 #define MULTI_HEAP_GET_BLOCK_OWNER(HEAD) (NULL)
+#define MULTI_HEAP_ADD_BLOCK_OWNER_OFFSET(HEAD) (HEAD)
+#define MULTI_HEAP_REMOVE_BLOCK_OWNER_OFFSET(HEAD) (HEAD)
+#define MULTI_HEAP_ADD_BLOCK_OWNER_SIZE(SIZE) (SIZE)
+#define MULTI_HEAP_REMOVE_BLOCK_OWNER_SIZE(SIZE) (SIZE)
+#define MULTI_HEAP_BLOCK_OWNER_SIZE() 0
 
 #endif // MULTI_HEAP_FREERTOS

@@ -11,8 +11,8 @@
  * 本示例演示如何使用 LISA RTC 驱动的闹钟功能：
  * 1. 初始化RTC设备
  * 2. 设置当前时间
- * 3. 配置闹钟在10秒后触发
- * 4. 等待闹钟事件
+ * 3. 配置闹钟在3秒后触发
+ * 4. 在任务上下文等待闹钟事件
  */
 
 #define LOG_TAG "sample"
@@ -36,6 +36,8 @@ static volatile bool alarm_triggered = false;
  */
 static void rtc_event_callback(uint32_t event, void *user_data)
 {
+    (void)user_data;
+
     if (event & LISA_RTC_EVENT_ALARM) {
         LISA_LOGI(LOG_TAG, "Alarm triggered!");
         alarm_triggered = true;
@@ -149,4 +151,3 @@ int main(int argc, char **argv)
 
     return 0;
 }
-

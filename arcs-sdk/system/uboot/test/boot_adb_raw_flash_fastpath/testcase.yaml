@@ -1,0 +1,5 @@
+tests:
+  test.boot_adb_raw_flash_fastpath:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"

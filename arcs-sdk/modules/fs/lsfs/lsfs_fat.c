@@ -693,14 +693,21 @@ static MKFS_PARM def_cfg = {
 static int fatfs_mkfs(const char* dev, void *cfg, int flags)
 {
 	FRESULT res;
-	uint8_t work[FF_MAX_SS];
+	uint8_t *work;
 	MKFS_PARM *mkfs_opt = &def_cfg;
 
 	if (cfg != NULL) {
 		mkfs_opt = (MKFS_PARM *)cfg;
 	}
 
-	res = f_mkfs((char *)dev, mkfs_opt, work, sizeof(work));
+	work = FS_ENV_MEM_MALLOC(FF_MAX_SS);
+	if (work == NULL) {
+		return -ENOMEM;
+	}
+
+	res = f_mkfs((char *)dev, mkfs_opt, work, FF_MAX_SS);
+
+	FS_ENV_MEM_FREE(work);
 
 	return translate_error(res);
 }

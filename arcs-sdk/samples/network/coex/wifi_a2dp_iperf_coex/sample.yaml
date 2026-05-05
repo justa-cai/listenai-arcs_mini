@@ -1,0 +1,3 @@
+tests:
+  samples.network.coex.wifi_a2dp_iperf_coex:
+    build_only: true

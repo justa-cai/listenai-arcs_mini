@@ -149,7 +149,7 @@ void adb_service_write_remote(struct adb_service *s, uint8_t *data, int len)
 	}
 }
 
-void adb_service_close(uint32_t local_id, uint32_t remote_id)
+static void adb_service_close_internal(uint32_t local_id, uint32_t remote_id, bool send_close)
 {
 	struct adb_service *s = adb_service_find(local_id, remote_id);
 
@@ -160,7 +160,9 @@ void adb_service_close(uint32_t local_id, uint32_t remote_id)
 			s->hd->close(s);
 		}
 
-		adb_close(local_id, remote_id);
+		if (send_close) {
+			adb_close(local_id, remote_id);
+		}
 		ADB_LOGI("adb service close, %p, %p\n", s->hd, s->hd->write);
 		s->used = 0;
 		s->hd = NULL;
@@ -170,6 +172,15 @@ void adb_service_close(uint32_t local_id, uint32_t remote_id)
 	}
 }
 
+void adb_service_close(uint32_t local_id, uint32_t remote_id)
+{
+    adb_service_close_internal(local_id, remote_id, true);
+}
+
+void adb_service_close_remote(uint32_t local_id, uint32_t remote_id)
+{
+    adb_service_close_internal(local_id, remote_id, false);
+}
 void adb_service_close_all(void)
 {
 	int i;

@@ -4,4 +4,4 @@ tests:
     runner: uart
     log_analyzer:
       type: "regex"
-      pattern: "EVENT_WIFI_INIT_DONE"
+      pattern: "wifi scan ap_num: [1-9]\\d*"

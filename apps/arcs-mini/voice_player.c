@@ -4,6 +4,8 @@
 #include "sys_init.h"
 #include "voice_msg.h"
 #include "app_datas.h"
+#include "sys_network_manager.h"
+#include "sys_wifi.h"
 
 #include "tone.h"
 #include "app_tone.h"
@@ -14,6 +16,7 @@
 #include "service_alarm.h"
 #include "alarm_ring.h"
 #include "FreeRTOS.h"
+#include "task.h"
 #include "timers.h"
 #include "sysutils.h"
 #include "queue.h"
@@ -36,6 +39,8 @@ static QueueHandle_t s_async_play_queue = NULL;
 static TaskHandle_t s_async_play_task = NULL;
 
 static bool s_disconnect_tone_played = false;
+static bool s_cloud_reconnect_pending = false;
+static bool s_cloud_success_tone_played = false;
 static bool s_content_hold_for_tts = false;
 static bool s_resume_music_after_voice = false;
 static bool s_alarm_session_active = false;
@@ -198,6 +203,64 @@ static void voice_player_play_wakeup_tone(void)
     }
 
     app_player_play(tone_player, tone_url);
+}
+
+static void voice_player_play_network_success_tone(void)
+{
+    static TickType_t s_network_success_tone_tick = 0;
+    TickType_t now = xTaskGetTickCount();
+
+    if (s_network_success_tone_tick != 0 &&
+        (now - s_network_success_tone_tick) < pdMS_TO_TICKS(3000U)) {
+        return;
+    }
+
+    app_player_play(tone_player, app_tone_get_url(TONE_ID_59));
+    s_network_success_tone_tick = now;
+}
+
+static void voice_player_handle_cloud_connect_success(bool force_play)
+{
+    s_disconnect_tone_played = false;
+
+    if (!force_play && !s_cloud_reconnect_pending) {
+        return;
+    }
+
+    if (s_cloud_success_tone_played) {
+        s_cloud_reconnect_pending = false;
+        return;
+    }
+
+    voice_player_play_network_success_tone();
+    s_cloud_success_tone_played = true;
+    s_cloud_reconnect_pending = false;
+}
+
+static bool voice_player_should_skip_disconnect_tone(const sys_network_status_t *network_status,
+                                                     bool network_status_ok)
+{
+    if (network_status_ok && network_status->switching) {
+        return true;
+    }
+
+    if (sys_wifi_get_user_force_provision()) {
+        s_disconnect_tone_played = false;
+        s_cloud_reconnect_pending = false;
+        s_cloud_success_tone_played = false;
+        LOGI("skip network disconnect tone during user WiFi provisioning flow");
+        return true;
+    }
+
+    if (sys_wifi_get_force_provision()) {
+        s_disconnect_tone_played = false;
+        s_cloud_reconnect_pending = false;
+        s_cloud_success_tone_played = false;
+        LOGI("skip network disconnect tone during WiFi force provisioning");
+        return true;
+    }
+
+    return false;
 }
 
 static void hold_content_until_tts_playing(void)
@@ -432,6 +495,8 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
 {
 
     struct app_datas *app_datas = get_app_datas();
+    sys_network_status_t network_status = {0};
+    bool network_status_ok = sys_network_get_status(&network_status) == 0;
 
     if (app_datas == NULL) {
         LOGW("Invalid app_datas");
@@ -449,7 +514,7 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
 
         if (app_datas->voice_cloud_connected == 1) {
             voice_player_play_wakeup_tone();
-        } else if (!app_datas->wifi_connected) {
+        } else if (!network_status_ok || !network_status.connected) {
             app_player_play(tone_player, app_tone_get_url(TONE_ID_64));
         } else if (app_datas->auth_failed) {
             app_player_play(tone_player, app_tone_get_url(TONE_ID_105));
@@ -468,7 +533,7 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
 
         if (app_datas->voice_cloud_connected == 1) {
             voice_player_play_wakeup_tone();
-        } else if (!app_datas->wifi_connected) {
+        } else if (!network_status_ok || !network_status.connected) {
             app_player_play(tone_player, app_tone_get_url(TONE_ID_64));
         } else if (app_datas->auth_failed) {
             app_player_play(tone_player, app_tone_get_url(TONE_ID_105));
@@ -478,16 +543,23 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
     } break;
     case VOICE_MSG_CLOUD_CLOUD_AUTH_SUCCESS: {
         app_datas->auth_failed = 0;
-        s_disconnect_tone_played = false;
-        app_player_play(tone_player, app_tone_get_url(TONE_ID_59));
+        voice_player_handle_cloud_connect_success(true);
     } break;
     case VOICE_MSG_CLOUD_CLOUD_AUTH_FAILED: {
         app_datas->auth_failed = 1;
         app_player_play(tone_player, app_tone_get_url(TONE_ID_105));
     } break;
+    case VOICE_MSG_CLOUD_CONNECTED: {
+        voice_player_handle_cloud_connect_success(false);
+    } break;
     case VOICE_MSG_CLOUD_DISCONNECTED: {
+        if (voice_player_should_skip_disconnect_tone(&network_status, network_status_ok)) {
+            break;
+        }
+        s_cloud_reconnect_pending = true;
+        s_cloud_success_tone_played = false;
         if (!s_disconnect_tone_played) {
-            if(app_datas->wifi_connected) {
+            if (network_status_ok && network_status.connected) {
                 app_player_play(tone_player, app_tone_get_url(TONE_ID_65));
             } else {
                 app_player_play(tone_player, app_tone_get_url(TONE_ID_60));
@@ -495,10 +567,19 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
             s_disconnect_tone_played = true;
         }
     } break;
-    case VOICE_MSG_WIFI_CONNECTED:{
-        s_disconnect_tone_played = false;
+    case VOICE_MSG_SYSTEM_NETWORK_CONNECTED: {
     } break;
-    case VOICE_MSG_WIFI_DISCONNECTED: {
+    case VOICE_MSG_SYSTEM_NETWORK_PROBE_SUCCESS: {
+        if (s_disconnect_tone_played) {
+            s_disconnect_tone_played = false;
+            voice_player_play_network_success_tone();
+        }
+    } break;
+    case VOICE_MSG_SYSTEM_NETWORK_DISCONNECTED: {
+        if (voice_player_should_skip_disconnect_tone(&network_status, network_status_ok)) {
+            break;
+        }
+
         if (!s_disconnect_tone_played) {
             app_player_play(tone_player, app_tone_get_url(TONE_ID_60));
             s_disconnect_tone_played = true;
@@ -737,11 +818,13 @@ void voice_player_ready(void *unused, uint32_t msg_id, void *data, uint32_t len,
 
     voice_msg_sub(VOICE_MSG_WAKEUP_BUTTON_START, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_WAKEUP_KEYWORD, voice_player_play_msg, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_CONNECTED, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_CLOUD_AUTH_SUCCESS, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_CLOUD_AUTH_FAILED, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_DISCONNECTED, voice_player_play_msg, NULL);
-    voice_msg_sub(VOICE_MSG_WIFI_DISCONNECTED, voice_player_play_msg, NULL);
-    voice_msg_sub(VOICE_MSG_WIFI_CONNECTED, voice_player_play_msg, NULL);
+    voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_CONNECTED, voice_player_play_msg, NULL);
+    voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_DISCONNECTED, voice_player_play_msg, NULL);
+    voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_PROBE_SUCCESS, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_URL, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_STARTING, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_IAT_UPDATE, voice_player_play_msg, NULL);

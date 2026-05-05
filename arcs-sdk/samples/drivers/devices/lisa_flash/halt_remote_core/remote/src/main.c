@@ -30,7 +30,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "ipc_slave.h"
 #include "IOMuxManager.h"
 
 #define TAG "remote_main"
@@ -48,25 +47,20 @@ void ipc_utils_after_resume_by_peer_core(void)
 
 int main(int argc, char **argv)
 {
+    uint32_t heartbeat = 0;
+
     LISA_LOGI(TAG, "\n========================================");
     LISA_LOGI(TAG, "=== LISA Flash Dual-Core Example ===");
     LISA_LOGI(TAG, "===      (AP Core - Remote)        ===");
     LISA_LOGI(TAG, "========================================");
     LISA_LOGI(TAG, "Observe the log messages indicating halt and resume events.\n");
+    LISA_LOGI(TAG, "AP flash ready");
 
     while (1) {
-
+        LISA_LOGI(TAG, "AP heartbeat %lu", (unsigned long)heartbeat++);
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
     return 0;
-}
-
-static int app_ipc_init(void)
-{
-    ipc_mem_init(0);
-    ic_lock_init();
-    ipc_slave_init(NULL);
-    LISA_LOGI(TAG, "IPC remote initialized.\n");
 }
 
 static int boot_cp(void)
@@ -79,5 +73,4 @@ static int boot_cp(void)
     LISA_LOGI(TAG, "CP core booted.\n");
 }
 
-SYS_INIT(boot_cp, SYS_INIT_LEVEL_PRE_DEVICES_INIT, 0);  /* 优先级 */
-SYS_INIT(app_ipc_init, SYS_INIT_LEVEL_PRE_DEVICES_INIT, 1); /* 优先级 */
+SYS_INIT(boot_cp, SYS_INIT_LEVEL_PRE_DEVICES_INIT, 1);      /* 优先级 */

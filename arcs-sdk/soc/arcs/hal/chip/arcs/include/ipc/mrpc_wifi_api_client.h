@@ -25,8 +25,6 @@ ls_err_t wifi_get_scan_result(wifi_scan_result_t ** scan_results, int8_t * cnt);
 
 ls_err_t wifi_get_sta_scanlist_nums(int * ap_num);
 
-ls_err_t wifi_get_ipv4_addr(uint32_t * addr, uint32_t * mask, uint32_t * gw, uint32_t * dns);
-
 ls_err_t wifi_get_ap_rssi(int * rssi);
 
 ls_err_t wifi_sta_aid_get(uint16_t * aid);

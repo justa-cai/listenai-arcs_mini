@@ -2,6 +2,7 @@
 config ARCS_HAL_IPC
     bool "Enable ARCS HAL IPC"
     select ARCS_HAL_IC_LOCK
+    select RTOS_AL
     default n
     help
         Enable IPC (Inter-Process Communication) support
@@ -156,5 +157,45 @@ if ARCS_HAL_IPC
         depends on ARCS_HAL_FLASH_IF
         help
             Enable flash agent
+
+    config ARCS_HAL_IPC_PRINT
+        bool "Enable IPC log forwarding"
+        default n
+        help
+            Enable AP-to-CP IPC log forwarding. When enabled on IPC slave
+            builds, AP-side logs are forwarded to the peer core for printing.
+            When enabled on IPC master builds, the peer-side print receive
+            path is enabled.
+
+    if ARCS_HAL_IPC_PRINT
+
+    config ARCS_HAL_IPC_PRINT_BUF_SIZE
+        hex "IPC log ring buffer size"
+        default 0x00000400
+        help
+            Shared IPC debug ring buffer size for forwarded log bytes.
+
+    config ARCS_HAL_IPC_PRINT_NOTIFY_THRESHOLD
+        int "IPC log notify threshold"
+        default 128
+        help
+            Minimum pending IPC log bytes before the sender actively notifies
+            the peer core to drain the shared log ring buffer.
+
+    config ARCS_HAL_IPC_PRINT_POLL_TIMEOUT_MS
+        int "IPC log poll timeout (ms)"
+        default 3000
+        help
+            Maximum wait time for the IPC print receive task before it wakes up
+            and polls the shared log ring buffer again.
+
+    config ARCS_HAL_IPC_PRINT_SOURCE_TAG
+        string "IPC log source tag"
+        default "AP"
+        help
+            Source tag prepended on the IPC master side when printing
+            forwarded peer-core logs.
+
+    endif
 
 endif

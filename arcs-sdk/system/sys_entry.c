@@ -100,9 +100,11 @@ __attribute__((weak, noreturn)) void system_entry(void)
     sysheap_init();
 #endif
 
+#if CONFIG_CONSOLE
     /* heap 可用后初始化 console（创建互斥锁等） */
     extern void console_init(void);
     console_init();
+#endif
 
     /* 日志系统初始化, 此时可用日志系统 */
 #if CONFIG_LOG

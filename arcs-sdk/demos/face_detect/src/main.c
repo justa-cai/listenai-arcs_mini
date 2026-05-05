@@ -71,7 +71,7 @@ static void fd_event_handler(uint32_t event, void *event_data, uint32_t event_da
 {
 
     if (event & FD_CB_EVENT_ENGINE_RLT) {
-        LISA_LOGI(TAG, "fd result:%d,%s", event_data_len, (char *)event_data);
+        LISA_LOGI(TAG, "fd result:%d,%p", event_data_len, (char *)event_data);
 
         uint8_t *fd_result = psram_malloc_align(32, event_data_len);
         if (fd_result == NULL) {
@@ -98,9 +98,11 @@ static void adc_button_callback(button_event_t evt, button_adc_config_t *user_da
 
     if ((evt != LISA_BTN_PRESS_CLICK) 
 #if CONFIG_ONLY_FACE_REGISTER
-    || (user_data->button_index > 1)
+    /* 如果是人脸注册+自动比对的场景，则只有按键key1有效，按键key2和key3不处理。key1注册完成后，业务会自动进行人脸比对 */
+    || (user_data->button_index > 0)  
 #else
-    || (user_data->button_index > 2)
+    /* 如果是人脸注册+手动比对场景，则按键key1用来注册，按键key2用来比对，按键key3用来切换原图/灰度图显示。key1注册完后，需要手动按key2进行人脸比对 */
+    || (user_data->button_index > 2) 
 #endif
     ) {
         return;

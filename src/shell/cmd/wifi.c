@@ -4,14 +4,56 @@
 #include "cmd.h"
 #include "stddef.h"
 #include "string.h"
+#include "sys_network_manager.h"
 // #include "listen_wifi.h"
 #if CONFIG_WIFI_MANAGER
 #include "wifi_manager/wifi_manager.h"
+#include "wifi_manager/wifi_manager_storage.h"
 #endif
 
 static int wifi_cmd_help(int argc, char **argv);
 static int wifi_list(int argc, char **argv);
 static int wifi_scan(int argc, char **argv);
+
+#if CONFIG_WIFI_MANAGER
+static int wifi_save_ap_storage_only(wifi_mgr_sta_config_t *sta_cfg)
+{
+    int ret = wifi_mgr_storage_save_ap(sta_cfg);
+    wifi_mgr_ops_t *ops;
+    wifi_storage_ctx_t storage_ctx = {0};
+    void *mutex;
+
+    if (ret == 0) {
+        return 0;
+    }
+
+    ops = wifi_mgr_ops_get();
+    if (ops == NULL || ops->mem_ops == NULL || ops->os_ops == NULL) {
+        return ret;
+    }
+
+    mutex = ops->os_ops->mutex_create();
+    if (mutex == NULL) {
+        return ret;
+    }
+
+    wifi_storage_ops_t storage_ops = {
+        .malloc = ops->mem_ops->malloc,
+        .calloc = ops->mem_ops->calloc,
+        .free = ops->mem_ops->free,
+        .mutex_lock = ops->os_ops->mutex_lock,
+        .mutex_unlock = ops->os_ops->mutex_unlock,
+    };
+
+    if (wifi_storage_init(&storage_ctx, &storage_ops, mutex) == 0) {
+        ret = wifi_storage_save_ap(&storage_ctx, sta_cfg);
+        (void)wifi_storage_deinit(&storage_ctx);
+    }
+
+    ops->os_ops->mutex_delete(mutex);
+    return ret;
+}
+#endif
 
 static int wifi_connect(int argc, char **argv)
 {
@@ -35,11 +77,25 @@ static int wifi_connect(int argc, char **argv)
 
 #if CONFIG_WIFI_MANAGER
     wifi_mgr_sta_config_t sta_cfg = {0};
+    sys_network_status_t network_status;
+
+
     snprintf(sta_cfg.ssid, sizeof(sta_cfg.ssid), "%s", ssid);
-    
+
     // 如果提供了密码，则设置密码
     if (pwd != NULL) {
         snprintf(sta_cfg.pwd, sizeof(sta_cfg.pwd), "%s", pwd);
+    }
+
+    if (sys_network_get_status(&network_status) == 0 &&
+        network_status.active_bearer == SYS_NETWORK_BEARER_MODEM) {
+        printf("4G network active, save wifi ap only\n");
+        int ret = wifi_save_ap_storage_only(&sta_cfg);
+        if (ret != 0) {
+            printf("wifi save ap error %d", ret);
+            return -1;
+        }
+        return 0;
     }
 
     int ret = wifi_mgr_sta_connect(&sta_cfg, true);

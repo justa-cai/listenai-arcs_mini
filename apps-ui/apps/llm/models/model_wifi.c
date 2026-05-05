@@ -99,6 +99,7 @@ static model_wifi_status_t convert_wifi_status(wifi_mgr_connection_status_t stat
         case WIFI_MGR_STA_CONNECTING:
             return MODEL_WIFI_STATUS_CONNECTING;
         case WIFI_MGR_STA_DISCONNECTED:
+        case WIFI_MGR_STA_CONNECT_FAILED:
             return MODEL_WIFI_STATUS_DISCONNECTED;
         default:
             return MODEL_WIFI_STATUS_UNKNOWN;

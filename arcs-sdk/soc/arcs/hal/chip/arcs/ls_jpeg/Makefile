@@ -21,4 +21,6 @@ SSRCS	=
 #includings and flags
 CFLAGS = -I. \
 
+#CFLAGS += -DPIXEL_REBUILD_BY_HW
+
 include $(TOPDIR)/rules.mk

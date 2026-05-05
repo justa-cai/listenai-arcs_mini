@@ -11,3 +11,5 @@ LVGL 示例
     lvgl7/widgets/README.md
     lvgl8/benchmark/README.md
     lvgl8/widgets/README.md
+    lvgl8/widgets_dual/README.md
+    lvgl8/benchmark_dual/README.md

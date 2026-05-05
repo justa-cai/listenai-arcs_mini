@@ -68,7 +68,9 @@ extern bool HAL_PMU_Is_PowerOn(void);
 
 extern volatile pmu_wakeupsrc_t wakeup_cause;
 
+extern void lsip_wakeup(void);
 
+extern void ble_task_init();
 
 void ls_chip_sleep_init(void)
 {
@@ -189,6 +191,12 @@ void lsip_rccali_start(void)
   return;
 }
 
+void ls_rc_int_clear(void)
+{
+    AON_CTRL_P->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_CLR = 1;// first clean rccal inner irq
+    clear_IRQ(IRQ_RCCAL_DONE_VECTOR);
+}
+
 void lsip_rccali_irq_handle(void)
 {
     PTCH_FST(void, lsip_rccali_irq_handle);
@@ -216,12 +224,6 @@ void lsip_rccali_irq_handle(void)
     return;
 }
 
-
-void ls_rc_int_clear(void)
-{
-    AON_CTRL_P->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_CLR = 1;// first clean rccal inner irq
-    clear_IRQ(IRQ_RCCAL_DONE_VECTOR);
-}
 
 // if bt wakeup is triggered by software, should clean before enter sleep
 void hal_sw_trigger_clean(void)

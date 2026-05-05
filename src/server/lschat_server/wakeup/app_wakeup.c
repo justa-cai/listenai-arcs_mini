@@ -41,6 +41,7 @@
 static bool s_wakeup_started = false;
 #endif
 static bool s_audio_inited = false;
+static bool s_wakeup_feed_enabled = false;
 
 lisa_device_t *g_audio_dev = NULL;
 #ifdef CONFIG_BOARD_ARCS_MINI
@@ -264,6 +265,10 @@ static void audio_stream_callback(const lisa_audio_event_t *event, void *user_da
     uint32_t buf_size;
     uint16_t desc_idx;
     ref_in_t *algo_ref_data = NULL;
+
+    if (!s_wakeup_feed_enabled) {
+        return;
+    }
 
     bool has_record = (event->record_buffer != NULL && event->record_samples > 0);
     if (!has_record) {
@@ -624,6 +629,7 @@ int app_wakeup_init(struct wakeup_algo_resources *algo_res)
                         algo_res->wrap.addr != NULL && algo_res->wrap.size > 0);
     if (!wakeup_res_valid) {
         LISA_LOGW(TAG, "Wakeup resources invalid, skip wakeup engine init");
+        s_wakeup_feed_enabled = false;
 #if CONFIG_BOARD_ARCS_MINI
         s_wakeup_started = false;
 #endif
@@ -670,30 +676,20 @@ int app_wakeup_init(struct wakeup_algo_resources *algo_res)
                                 | WAKEUP_CB_EVENT_ENGINE_SWITCH_MODE,
                            wakeup_event_handler, NULL);
 
-    acomp_ipc_prepare_t *prepare;
-    uint32_t size;
+    const acomp_wakeup_resource_config_t wakeup_config = {
+        .mlp = {
+            .storage = ACOMP_WAKEUP_RES_STORAGE_FLASH,
+            .addr = (uintptr_t)algo_res->mlp.addr,
+            .size = algo_res->mlp.size,
+        },
+        .wrap = {
+            .storage = ACOMP_WAKEUP_RES_STORAGE_FLASH,
+            .addr = (uintptr_t)algo_res->wrap.addr,
+            .size = algo_res->wrap.size,
+        },
+    };
 
-    size = sizeof(acomp_ipc_prepare_t) + sizeof(acomp_res_item_t) * ACOMP_WAKEUP_RES_NUMBER;
-    size = ALIGN_SIZE(size);
-
-    prepare = psram_malloc_align(IPC_ALIGN_SIZE, size);
-    if (prepare == NULL) {
-        LOGE("prepare mem alloc failed");
-        return -1;
-    }
-
-    prepare->number = ACOMP_WAKEUP_RES_NUMBER;
-    prepare->item[0].index = WAKEUP_INDEX_CAE_ESR_MLP;
-    prepare->item[0].addr = algo_res->mlp.addr;
-    prepare->item[0].offset = 0;
-    prepare->item[0].size = algo_res->mlp.size;
-
-    prepare->item[1].index = WAKEUP_INDEX_AI_WRAP;
-    prepare->item[1].addr = algo_res->wrap.addr;
-    prepare->item[1].offset = 0;
-    prepare->item[1].size = algo_res->wrap.size;
-
-    ret = acomp_wakeup_prepare_with_config(prepare);
+    ret = acomp_wakeup_prepare_with_resources(&wakeup_config);
     LISA_LOGI(TAG, "acomp_wakeup_prepare ret:%d", ret);
     ret = acomp_wakeup_start();
     LISA_LOGI(TAG, "acomp_wakeup_start ret:%d", ret);
@@ -738,6 +734,8 @@ int app_wakeup_init(struct wakeup_algo_resources *algo_res)
         return -1;
     }
 
+    s_wakeup_feed_enabled = true;
+
 #if CONFIG_BOARD_ARCS_MINI
     s_wakeup_started = true;
 #endif
@@ -751,8 +749,14 @@ int app_wakeup_stop(void)
     if (!s_wakeup_started) {
         return 0;
     }
-    
-    acomp_wakeup_stop();
+
+    s_wakeup_feed_enabled = false;
+
+    (void)acomp_wakeup_stream_ch_disable(WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX);
+#if WAKEUP_AUDIO_OUT_STREAM
+    (void)acomp_wakeup_stream_ch_disable(WAKEUP_AUDIO_OUT_STREAM_CH_INDEX);
+#endif
+    (void)acomp_wakeup_stop();
     s_wakeup_started = false;
 
     return 0;

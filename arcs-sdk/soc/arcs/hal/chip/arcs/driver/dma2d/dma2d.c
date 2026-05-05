@@ -88,6 +88,7 @@ typedef struct _csk_dma2d_ch_info {
 static csk_dma2d_ch_info_t dma2d_ch_info[CSK_DMA2D_MAX_CHANNEL_NUM] = {0};
 
 static volatile uint8_t DMA2D_GLB_FLAG = 0;
+extern volatile uint8_t GPDMA_ALLCHN_FLAG;
 
 static void DMA2D_IRQ_Handler(void);
 
@@ -914,14 +915,21 @@ DMA2D_GetCnt(csk_dma2d_ch_t ch, uint32_t *sample_len) {
 
 int32_t
 DMA2D_Initialize(void) {
-    if (DMA2D_GLB_FLAG == 0){
-
+    if (0 == GPDMA_ALLCHN_FLAG) {
         // Rest DMA2D module
         IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
+        __HAL_CRM_GPDMA_CLK_ENABLE();
+    }
+    GPDMA_ALLCHN_FLAG++;
+
+    if (DMA2D_GLB_FLAG == 0){
+
+//        // Rest DMA2D module
+//        IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
 
         memset(dma2d_ch_info, 0, sizeof(dma2d_ch_info));
 
-        __HAL_CRM_GPDMA_CLK_ENABLE();
+//        __HAL_CRM_GPDMA_CLK_ENABLE();
 
         // Clear DMA2D interrupt
         IP_DMA2D->REG_DMA_IMAGE_INT_CLR.bit.CFG_IMAGE_BLOCK_FINISH_CLR = 0xF;
@@ -948,6 +956,47 @@ DMA2D_Initialize(void) {
     }
 
     DMA2D_GLB_FLAG++;
+
+    return CSK_DRIVER_OK;
+}
+
+int32_t
+DMA2D_Uninitialize(void){
+    DMA2D_GLB_FLAG--;
+
+    if (DMA2D_GLB_FLAG == 0){
+//        // Device reset
+//        IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
+
+        // Disable DMA2D interrupt
+        IP_DMA2D->REG_DMA_IMAGE_INT_EN.bit.CFG_IMAGE_BLOCK_FINISH_INT_EN = 0x0;
+        IP_DMA2D->REG_DMA_IMAGE_INT_EN.bit.CFG_IMAGE_HALF_BLOCK_FINISH_INT_EN = 0x0;
+
+        // Disable interrupt
+        disable_IRQ(IRQ_DMAC_GP_IMG_VECTOR);
+        // Unregister interrupt
+        register_ISR(IRQ_DMAC_GP_IMG_VECTOR, NULL, NULL);
+
+        // clear information
+        memset(dma2d_ch_info, 0, sizeof(dma2d_ch_info));
+
+        // clear channel configure
+        IP_DMA2D->REG_DMA_CH_CLR.bit.CFG_CH_CLR = 0x3C0;
+
+//        __HAL_CRM_GPDMA_CLK_DISABLE();
+
+        uint8_t i = 0;
+        for (i = 6; i < CSK_DMA2D_MAX_CHANNEL_NUM; i++) {
+            dma2d_ch_info[i].status = dma2d_status_init;
+        }
+    }
+
+    GPDMA_ALLCHN_FLAG--;
+    if (0 == GPDMA_ALLCHN_FLAG) {
+        // Device reset
+        IP_AP_CFG->REG_SW_RESET.bit.DMAC_GP_RESET = 1;
+        __HAL_CRM_GPDMA_CLK_DISABLE();
+    }
 
     return CSK_DRIVER_OK;
 }

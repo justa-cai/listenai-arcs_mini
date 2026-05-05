@@ -1666,7 +1666,7 @@ __STATIC int8_t wf_cali_rxiq_measure(int32_t *Isq, int32_t *Qsq, int32_t *IxQ)
     return 0;
 }
 
-int32_t wf_cali_read_hw_power()
+int32_t wf_cali_read_hw_power(void)
 {
     int32_t i2, q2;
 
@@ -1676,7 +1676,7 @@ int32_t wf_cali_read_hw_power()
     return (i2 + q2);
 }
 
-int32_t wf_cali_read_hw_power_without_dc()
+int32_t wf_cali_read_hw_power_without_dc(void)
 {
     int32_t i2, q2, i, q;
     int32_t power;

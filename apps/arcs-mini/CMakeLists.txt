@@ -35,6 +35,38 @@ add_subdirectory(misc)
 
 listenai_add_executable(${PROJECT_NAME})
 
+# res 目录命名约定：<app-name>[_variant]，BOARD 去掉 "arcs_mini" 前缀后即变体后缀
+string(REGEX REPLACE "^arcs_mini" "" _VARIANT_SUFFIX ${BOARD})
+set(RES_DIR ${PROJECT_TOP_DIR}/res/arcs-mini${_VARIANT_SUFFIX})
+set(COMBINED_HEX ${CMAKE_BINARY_DIR}/${PROJECT_NAME}${_VARIANT_SUFFIX}.combined.hex)
+set(OTA_TXZ ${CMAKE_BINARY_DIR}/${PROJECT_NAME}${_VARIANT_SUFFIX}-v${PROJECT_VERSION_STR}.ota.txz)
+
+find_program(PYTHON3 python3 REQUIRED)
+add_custom_target(
+    combined_hex ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "-- Generating combined hex: ${COMBINED_HEX}"
+    COMMAND ${PYTHON3} ${PROJECT_TOP_DIR}/tools/make_package.py
+        --format hex
+        --partition-table ${RES_DIR}/partition_table.json
+        --var BUILD_DIR=${CMAKE_BINARY_DIR}
+        ${COMBINED_HEX}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+add_dependencies(combined_hex ${PROJECT_NAME})
+
+add_custom_target(
+    ota_txz ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "-- Generating ota txz: ${OTA_TXZ}"
+    COMMAND ${PYTHON3} ${PROJECT_TOP_DIR}/tools/make_package.py
+        --format ota
+        --partition-table ${RES_DIR}/partition_table.json
+        --var BUILD_DIR=${CMAKE_BINARY_DIR}
+        --ota-version ${PROJECT_VERSION_STR}
+        ${OTA_TXZ}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+add_dependencies(ota_txz ${PROJECT_NAME})
+
 # add_subdirectory(msgs)
 # add_subdirectory(recognize)
 
@@ -42,6 +74,7 @@ target_sources(
     ${PROJECT_NAME} PRIVATE
     main.c
     voice_player.c
+    button_camera_preview.c
 )
 
 target_link_options(${PROJECT_NAME} PRIVATE

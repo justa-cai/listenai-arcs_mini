@@ -1,5 +1,7 @@
 #define LOG_TAG "sys_heap"
+#if CONFIG_LOG
 #include <lisa_log.h>
+#endif
 #include <string.h>
 #include "cache.h"
 
@@ -65,16 +67,20 @@ size_t soc_get_available_memory_regions(soc_memory_region_t *regions)
 
 static void heap_travel_cb(void *start, void *end, multi_heap_info_t *info)
 {
+#if CONFIG_LOG
     LISA_LOGI(LOG_TAG, "%p %p %12d %12d %12d %12d %12d %12d %12d\n", start, end, info->allocated_blocks, info->free_blocks,
           info->total_blocks, info->largest_free_block, info->total_allocated_bytes, info->total_free_bytes,
           info->minimum_free_bytes);
+#endif
 }
 
 void heap_summary_info(void)
 {
     void heap_caps_travel(void (*callback)(void *, void *, multi_heap_info_t *));
+#if CONFIG_LOG
     LISA_LOGI(LOG_TAG, "%10s %10s %12s %12s %12s %12s %12s %12s %12s\n", "[Start]", "[End]", "[Alloc/BK]", "[Free/BK]", "[Total/BK]",
           "[MaxFree/BK]", "[Alloc/B]", "[Free/B]", "[MinFree/B]");
+#endif
     heap_caps_travel(heap_travel_cb);
 }
 

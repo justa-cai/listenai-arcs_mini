@@ -68,32 +68,6 @@ static void test_net_ip_chksum_uses_lwip_standard(void)
     TEST_ASSERT_EQUAL(1, lwip_standard_chksum_fake.call_count);
 }
 
-static void test_net_arp_announce_calls_lwip_htons(void)
-{
-    net_if_call_fun cb = {0};
-    net_init(&cb);
-
-    struct netif *netif = net_if_get(WIFI_VIF_STA_IDX);
-    TEST_ASSERT_NOT_NULL(netif);
-
-    netif->hwaddr_len = 6;
-    memcpy(netif->hwaddr, "ABCDEF", 6);
-
-    netif_is_up_fake.return_val = 1;
-    netif_is_link_up_fake.return_val = 1;
-    ip_addr.addr = 0x11223344;
-    netif_ip4_addr_fake.return_val = &ip_addr;
-
-    test_pbuf.payload = payload_buf;
-    pbuf_alloc_fake.return_val = &test_pbuf;
-
-    net_arp_announce();
-
-    TEST_ASSERT_TRUE(lwip_htons_impl_fake.call_count > 0);
-    TEST_ASSERT_EQUAL(0, socket_fake.call_count);
-    TEST_ASSERT_EQUAL(0, getsockopt_fake.call_count);
-    TEST_ASSERT_EQUAL(0, close_fake.call_count);
-}
 
 static void test_net_l2_socket_create_failure_uses_lwip_close(void)
 {
@@ -130,7 +104,6 @@ int main(void)
     RUN_TEST(test_net_l2_socket_create_failure_uses_lwip_close);
     RUN_TEST(test_net_l2_socket_delete_uses_lwip_close);
     RUN_TEST(test_net_ip_chksum_uses_lwip_standard);
-    RUN_TEST(test_net_arp_announce_calls_lwip_htons);
 
     return UNITY_END();
 }

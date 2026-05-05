@@ -183,7 +183,9 @@ int ic_message_init(void)
 #ifndef CONFIG_ARCS_HAL_IC_MUTEX
 	RPC_Client_init();
 	IC_Proxy_init();
-	RPC_Client_Start();
+	if (RPC_Client_Start() != 0) {
+		return IC_MESSAGE_ERR_URPC;
+	}
 #else
     IC_System_initialize();
     IC_System_sync();

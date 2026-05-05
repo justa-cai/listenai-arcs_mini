@@ -49,15 +49,25 @@
 extern uint8_t ld_acl_tx_power_level_get(uint8_t link_id);
 extern void    ld_acl_tx_power_level_set(uint8_t link_id, uint8_t tx_pwr_index);
 
+#if (BQB_TEST_EN && BQB_TEST_LE_EN)
+#define TX_PPA_GAIN_BT_0_DBM  (-17)
+#define TX_PPA_GAIN_BT_1_DBM  (-12)
+#define TX_PPA_GAIN_BT_2_DBM  (-8)
+#define TX_PPA_GAIN_BT_3_DBM  (-5)
+#define TX_PPA_GAIN_BT_4_DBM  (-2)
+#define TX_PPA_GAIN_BT_5_DBM  (1)
+#define TX_PPA_GAIN_BT_6_DBM  (4)
+#define TX_PPA_GAIN_BT_7_DBM  (7)
+#else
 #define TX_PPA_GAIN_BT_0_DBM  (-18)
 #define TX_PPA_GAIN_BT_1_DBM  (-10)
-#define TX_PPA_GAIN_BT_2_DBM  (-7)
-#define TX_PPA_GAIN_BT_3_DBM  (-3)
-#define TX_PPA_GAIN_BT_4_DBM  (0)
-#define TX_PPA_GAIN_BT_5_DBM  (3)
-#define TX_PPA_GAIN_BT_6_DBM  (6)
-#define TX_PPA_GAIN_BT_7_DBM  (9)
-
+#define TX_PPA_GAIN_BT_2_DBM  (-6)
+#define TX_PPA_GAIN_BT_3_DBM  (-2)
+#define TX_PPA_GAIN_BT_4_DBM  (1)
+#define TX_PPA_GAIN_BT_5_DBM  (4)
+#define TX_PPA_GAIN_BT_6_DBM  (7)
+#define TX_PPA_GAIN_BT_7_DBM  (10)
+#endif
 
 #if 1
 /**
@@ -159,13 +169,13 @@ __STATIC int8_t bt_rf_txpwr_dbm_get(uint8_t txpwr_idx, uint8_t modulation)
 {
     /* // ble 1M, 2M
     RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -18.4
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 2;  // -10.7
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 3;  // -7.6
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 4;  // -3.5
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // 0.0
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 10; // 3.5
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 14; // 6.3
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 16; // 9.1 */
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 3;  // -10
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 4;  // -6
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 7;  // -2
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 9;  // 1
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 13; // 4
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 18; // 7
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 25; // 10 */
 
 
 
@@ -309,13 +319,13 @@ __STATIC uint8_t bt_rf_txpwr_cs_get (int8_t txpwr_dbm, uint8_t option)
 
     /* // ble 1M, 2M
     RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -18.4
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 2;  // -10.7
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 3;  // -7.6
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 4;  // -3.5
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // 0.0
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 10; // 3.5
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 14; // 6.3
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 16; // 9.1 */
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 3;  // -10
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 4;  // -6
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 7;  // -2
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 9;  // 1
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 13; // 4
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 18; // 7
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 25; // 10 */
 
 
     //if tx power config modify, this must be modified
@@ -359,10 +369,18 @@ uint8_t bt_rf_api_init(struct ble_rf_api *api)
     rf_api_p->reset = bt_rf_reset;
     rf_api_p->rssi_convert = bt_rf_rssi_convert;
     rf_api_p->txpwr_cs_get = bt_rf_txpwr_cs_get;
-
-    rf_api_p->rssi_high_thr = -10;
-    rf_api_p->rssi_low_thr = -30;
+    #if (BQB_TEST_EN && BQB_TEST_LE_EN)
+    rf_api_p->rssi_high_thr = -37;
+    rf_api_p->rssi_low_thr = -67;
     rf_api_p->rssi_interf_thr = -50;
+    //rf_api_p->rssi_high_thr = -40;
+    //rf_api_p->rssi_low_thr = -70;
+    //rf_api_p->rssi_interf_thr = -50;
+    #else
+    rf_api_p->rssi_high_thr = -20;
+    rf_api_p->rssi_low_thr = -60;
+    rf_api_p->rssi_interf_thr = -80;
+    #endif
 //#if defined(BLE_EMB_PRESENT)
     rf_api_p->force_agc_enable = bt_rf_force_agc_enable;
 //#endif //CFG_BLE

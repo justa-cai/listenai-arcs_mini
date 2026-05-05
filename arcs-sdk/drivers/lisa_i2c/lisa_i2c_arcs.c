@@ -24,6 +24,7 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "semphr.h"
 
 #define DEVICE_LOCK(priv)                                                                                              \
     do {                                                                                                               \
@@ -45,7 +46,7 @@ typedef struct {
     lisa_mutex_t *mutex;                 /* 互斥锁 */
     lisa_i2c_config_t config;            /* 当前配置 */
     volatile uint32_t event_flags;        /* 事件标志（用于同步） */
-    volatile TaskHandle_t waiting_task;   /* 等待传输完成的任务句柄 */
+    SemaphoreHandle_t xfer_sem;          /* 传输完成信号量（独立于调用者的 task notification） */
 } lisa_i2c_priv_t;
 
 /* ===== I2C 设备静态实例 ===== */
@@ -64,10 +65,9 @@ static void i2c0_event_callback(uint32_t event, void *workspace)
     lisa_i2c_priv_t *priv = (lisa_i2c_priv_t *)workspace;
     if (priv) {
         priv->event_flags |= event;
-        TaskHandle_t task = priv->waiting_task;
-        if (task) {
+        if (priv->xfer_sem) {
             BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-            vTaskNotifyGiveFromISR(task, &xHigherPriorityTaskWoken);
+            xSemaphoreGiveFromISR(priv->xfer_sem, &xHigherPriorityTaskWoken);
             portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
         }
     }
@@ -80,10 +80,9 @@ static void i2c1_event_callback(uint32_t event, void *workspace)
     lisa_i2c_priv_t *priv = (lisa_i2c_priv_t *)workspace;
     if (priv) {
         priv->event_flags |= event;
-        TaskHandle_t task = priv->waiting_task;
-        if (task) {
+        if (priv->xfer_sem) {
             BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-            vTaskNotifyGiveFromISR(task, &xHigherPriorityTaskWoken);
+            xSemaphoreGiveFromISR(priv->xfer_sem, &xHigherPriorityTaskWoken);
             portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
         }
     }
@@ -167,24 +166,15 @@ static int wait_for_transfer(lisa_i2c_priv_t *priv, uint32_t timeout_ms, bool is
         return ret;
     }
 
-    /* 注册当前任务，等待 ISR 通知 */
-    priv->waiting_task = xTaskGetCurrentTaskHandle();
-
-    /* 再次检查（防止在赋值 waiting_task 前 ISR 已触发） */
-    ret = check_transfer_events(priv, is_probe);
-    if (ret != -1) {
-        priv->waiting_task = NULL;
-        return ret;
-    }
-
-    /* 阻塞等待 ISR 通知，带超时 */
+    /* 阻塞等待 ISR 通过信号量通知，带超时
+     * 使用独立信号量而非 task notification，避免与调用方任务的其他
+     * notification 来源（如 GPIO 中断）冲突导致假唤醒。
+     */
     TickType_t ticks = pdMS_TO_TICKS(timeout_ms);
     if (ticks == 0) {
         ticks = 1;
     }
-    ulTaskNotifyTake(pdTRUE, ticks);
-
-    priv->waiting_task = NULL;
+    xSemaphoreTake(priv->xfer_sem, ticks);
 
     /* 检查最终事件 */
     ret = check_transfer_events(priv, is_probe);
@@ -323,8 +313,14 @@ static int arcs_i2c_transfer(lisa_device_t *dev, lisa_i2c_msg_t *msgs, uint32_t 
         /* 判断是否为读操作（通过 LISA_I2C_FLAG_READ 标志） */
         bool is_write = !(msg->flags & LISA_I2C_FLAG_READ);
 
-        /* 清除事件标志 */
+        /* 清除事件标志，并排空上一条消息可能残留的信号量
+         * 场景：上一条消息的 ISR 在快速路径检查前已完成，
+         * wait_for_transfer 通过快速路径返回但未 take 信号量，
+         * 导致信号量处于 "given" 状态。若不排空，下一条消息的
+         * xSemaphoreTake 会立即返回，造成假超时。
+         */
         priv->event_flags = 0;
+        xSemaphoreTake(priv->xfer_sem, 0);
 
         /* 判断是否发送 STOP 条件 */
         bool xfer_pending = (msg->flags & LISA_I2C_FLAG_NO_STOP) ? true : false;
@@ -497,6 +493,13 @@ static int arcs_i2c0_init(void)
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
+    /* 创建传输完成信号量 */
+    i2c0_priv.xfer_sem = xSemaphoreCreateBinary();
+    if (!i2c0_priv.xfer_sem) {
+        LISA_LOGE(LOG_TAG, "Failed to create I2C0 transfer semaphore");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
     /* 初始化 HAL I2C */
     if (I2C_Initialize(i2c0_priv.hal_handler, i2c0_event_callback, &i2c0_priv) != 0) {
         LISA_LOGE(LOG_TAG, "Failed to initialize I2C0");
@@ -555,6 +558,13 @@ static int arcs_i2c1_init(void)
     i2c1_priv.mutex = lisa_mutex_create();
     if (!i2c1_priv.mutex) {
         LISA_LOGE(LOG_TAG, "Failed to create mutex");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    /* 创建传输完成信号量 */
+    i2c1_priv.xfer_sem = xSemaphoreCreateBinary();
+    if (!i2c1_priv.xfer_sem) {
+        LISA_LOGE(LOG_TAG, "Failed to create I2C1 transfer semaphore");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 

@@ -56,4 +56,5 @@
     lisa_i2s/slave_tx/README.md
     lisa_i2s/slave_rx/README.md
     lisa_i2s/slave_rx_tx/README.md
+    lisa_display/dual_display/README.md
 

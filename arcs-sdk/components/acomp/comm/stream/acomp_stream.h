@@ -49,6 +49,8 @@ typedef struct{
     acomp_stream_direction_e direction;
     uint32_t idx;
     struct virtqueue* vq;               /* Associated virtqueue */
+    void* shared_mem_ptr;               /* Backing ring/buffer memory owned by this channel */
+    uint32_t shared_mem_size;           /* Size of owned shared memory */
     uint32_t kick_policy;                /* Kick policy */
     uint32_t kick_count;                 /* Kick count */
     void* user_priv;                    /* User private data */

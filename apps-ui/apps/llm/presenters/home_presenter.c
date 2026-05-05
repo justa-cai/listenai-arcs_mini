@@ -1,7 +1,10 @@
+#include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "home_camera_preview_presenter.h"
+#include "home_presenter.h"
 #include "lisa_ui.h"
 #include "lisa_ui_nav_scr.h"
 #include "lisa_ui_nav_scr_ids.h"
@@ -14,6 +17,7 @@
 #include "lisa_ui_llm_primary.h"
 #include "emoji_anim.h"
 #include "model_camera.h"
+#include "model_modem.h"
 #include "model_wifi.h"
 #include "model_battery.h"
 #include "model_common.h"
@@ -21,51 +25,15 @@
 #include "display/lv_img_net_loader.h"
 
 #ifdef LISA_UI_PLATFORM_ARCS
+#include "app_datas.h"
 #include "lisa_kv.h"
 #include "kv_user.h"
 #endif
 
-#define WORK_TYPE_VOICE 0
-#define WORK_TYPE_IMG_REC 1
-#define HOME_EMOJI_NAME_MAX 64
 #define HOME_STANDBY_SLEEP_DELAY_MS_DEFAULT (30 * 1000U)
-#define HOME_STANDBY_DIM_BRIGHTNESS 2
-
-struct home_nav_scr_data {
-    lv_obj_t *view;
-    lv_timer_t *anim_timer;
-    lv_timer_t *oneshot_emoji_timer;
-    lv_timer_t *wifi_status_timer;
-    lv_timer_t *camera_capture_timer;
-    lv_timer_t *img_hide_timer;
-    lv_timer_t *standby_text_timer;
-    lv_timer_t *standby_sleep_timer;
-    uint32_t standby_text_index;
-    lv_img_dsc_t img;
-    lv_img_dsc_t *net_img;
-    uint8_t *cap_buf;
-    uint32_t cap_buf_size;
-    uint8_t img_rec_running;
-    uint8_t img_rec_in_progress;
-    uint8_t img_rec_triggered;
-    uint8_t img_rec_is_mcp;
-    uint8_t img_rec_is_button;
-    uint8_t mcp_emoji_running;
-    uint8_t mcp_loading;
-    uint8_t finished;
-    uint8_t speaking;
-    uint8_t work_type;
-    uint8_t oneshot_emoji_running;
-    uint8_t standby_sleep_active;
-    uint8_t standby_after_tts_pending;
-    uint8_t standby_sleep_restore_brightness;
-    model_battery_status_t last_battery_status;
-    char current_emoji_name[HOME_EMOJI_NAME_MAX];
-    char oneshot_restore_emoji_name[HOME_EMOJI_NAME_MAX];
-};
+#define HOME_STANDBY_DIM_BRIGHTNESS 30
 
 static void img_hide_timer_cb(lv_timer_t *timer);
-static void hide_img_now(struct home_nav_scr_data *scr_data);
 
 static void show_emoji_anim(struct home_nav_scr_data *d, const char *emoji_name, uint8_t imm);
 static void show_oneshot_emoji_once(struct home_nav_scr_data *d, const char *emoji_name);
@@ -94,7 +62,6 @@ static void model_voice_on_show_qrcode(void *arg);
 static void model_voice_on_standby_texts_changed(void *arg);
 static void model_voice_on_wakeup_mode_changed(void *arg, model_voice_wakeup_mode_t mode);
 static void standby_text_timer_cb(lv_timer_t *timer);
-static void standby_text_timer_update(struct home_nav_scr_data *scr_data);
 static void standby_sleep_timer_cb(lv_timer_t *timer);
 static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const char *status_text, uint8_t imm);
 static bool home_try_enter_standby_after_tts(struct home_nav_scr_data *scr_data);
@@ -106,8 +73,8 @@ static void home_update_full_duplex_icon(struct home_nav_scr_data *scr_data);
 static void home_update_alarm_icon(struct home_nav_scr_data *scr_data);
 static void home_update_battery_icon(struct home_nav_scr_data *scr_data);
 static void oneshot_emoji_timer_cb(lv_timer_t *timer);
-static void home_handle_activity(struct home_nav_scr_data *scr_data);
 static void home_schedule_standby_sleep(struct home_nav_scr_data *scr_data);
+static void home_update_network_icon(struct home_nav_scr_data *scr_data);
 
 static uint32_t home_get_standby_sleep_delay_ms(void)
 {
@@ -140,35 +107,6 @@ static void home_show_pending_alarm_toast(void)
     }
 }
 
-static int rotate_rgb565_cw90_inplace(uint8_t *rgb565_buf, uint16_t width, uint16_t height)
-{
-    if (!rgb565_buf || width == 0 || height == 0) {
-        return -1;
-    }
-
-    uint32_t pixel_count = (uint32_t)width * (uint32_t)height;
-    uint32_t buffer_size = pixel_count * sizeof(uint16_t);
-    uint16_t *src = (uint16_t *)rgb565_buf;
-    uint16_t *rotated = lisa_ui_malloc(buffer_size);
-
-    if (!rotated) {
-        return -2;
-    }
-
-    for (uint32_t y = 0; y < height; y++) {
-        for (uint32_t x = 0; x < width; x++) {
-            uint32_t dst_x = (uint32_t)height - 1 - y;
-            uint32_t dst_y = x;
-            rotated[dst_y * height + dst_x] = src[y * width + x];
-        }
-    }
-
-    memcpy(rgb565_buf, rotated, buffer_size);
-    lisa_ui_free(rotated);
-
-    return 0;
-}
-
 static const void *battery_power_icons[] = {
     &icons_ic_status_power0_png,
     &icons_ic_status_power1_png,
@@ -193,6 +131,14 @@ static const void *battery_charging_icons[] = {
     &icons_ic_status_charging7_png,
     &icons_ic_status_charging8_png,
     &icons_ic_status_charging9_png,
+};
+
+static const void *network_modem_icons[] = {
+    &icons_ic_status_modem_lvl_0_png,
+    &icons_ic_status_modem_lvl_1_png,
+    &icons_ic_status_modem_lvl_2_png,
+    &icons_ic_status_modem_lvl_3_png,
+    &icons_ic_status_modem_lvl_4_png,
 };
 
 const struct model_voice_cb model_voice_cbs = {
@@ -227,13 +173,33 @@ const struct model_voice_cb model_voice_cbs = {
 
 static void home_update_full_duplex_icon(struct home_nav_scr_data *scr_data)
 {
+    const void *icon = NULL;
+    bool visible = false;
+
     if (!scr_data || !scr_data->view) {
         return;
     }
 
+#ifdef LISA_UI_PLATFORM_ARCS
+    struct app_datas *app_datas = get_app_datas();
+    if (app_datas && app_interaction_mode_is_continuous(app_datas->int_mode)) {
+        visible = true;
+        icon = app_interaction_mode_supports_barge_in(app_datas->int_mode) ?
+            &icons_ic_status_duplex_interruptible_png :
+            &icons_ic_status_duplex_non_interruptible_png;
+    }
+#else
     model_voice_wakeup_mode_t mode = model_voice_wakeup_mode_get();
-    bool is_full_duplex = (mode == MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI);
-    lisa_ui_llm_primary_set_full_duplex_icon_visible(scr_data->view, is_full_duplex);
+    if (mode == MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI) {
+        visible = true;
+        icon = &icons_ic_status_duplex_interruptible_png;
+    }
+#endif
+
+    if (icon) {
+        lisa_ui_llm_primary_set_full_duplex_icon_img(scr_data->view, icon);
+    }
+    lisa_ui_llm_primary_set_full_duplex_icon_visible(scr_data->view, visible);
 }
 
 static void home_update_alarm_icon(struct home_nav_scr_data *scr_data)
@@ -317,6 +283,31 @@ static void home_stop_standby_sleep_timer(struct home_nav_scr_data *scr_data)
     }
 }
 
+static void home_camera_preview_uploading_clear(struct home_nav_scr_data *scr_data)
+{
+    lv_obj_t *content_label = NULL;
+    const char *content_text = NULL;
+
+    if (!scr_data || !model_camera_preview_is_result_tts_ready(&scr_data->camera_preview) ||
+        !scr_data->view) {
+        return;
+    }
+
+    content_label = lisa_ui_llm_primary_content_label_get(scr_data->view);
+    if (!content_label) {
+        return;
+    }
+
+    content_text = lv_textarea_get_text(content_label);
+    if (!content_text || strcmp(content_text, "正在上传照片...") != 0) {
+        return;
+    }
+
+    LISA_UI_LOGI("voice photo: clear uploading text and switch status to listening");
+    lisa_ui_llm_primary_set_content_text(scr_data->view, "");
+    lv_obj_set_style_translate_y(content_label, 0, LV_PART_MAIN);
+}
+
 static bool home_is_standby_idle(struct home_nav_scr_data *scr_data)
 {
     if (!scr_data || !scr_data->view) {
@@ -332,7 +323,8 @@ static bool home_is_standby_idle(struct home_nav_scr_data *scr_data)
     }
 
     if (scr_data->img_rec_running || scr_data->img_rec_in_progress ||
-        scr_data->work_type == WORK_TYPE_IMG_REC) {
+        model_camera_preview_is_active(&scr_data->camera_preview) ||
+        camera_preview_is_camera_work_type(scr_data->work_type)) {
         return false;
     }
 
@@ -350,7 +342,7 @@ static void home_restore_standby_brightness(struct home_nav_scr_data *scr_data)
     show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 1);
 }
 
-static void home_handle_activity(struct home_nav_scr_data *scr_data)
+void home_handle_activity(struct home_nav_scr_data *scr_data)
 {
     if (!scr_data) {
         return;
@@ -427,6 +419,59 @@ static void home_update_battery_icon(struct home_nav_scr_data *scr_data)
     lisa_ui_llm_primary_set_battery_img(scr_data->view, icon);
 }
 
+static const void *home_select_modem_icon(const model_modem_info_t *info)
+{
+    if (!info || !info->active || !info->connected) {
+        return &icons_ic_status_modem_no_network_png;
+    }
+
+    uint8_t level = info->signal_level;
+    if (level == 0) {
+        return &icons_ic_status_modem_no_network_png;
+    }
+
+    if (level > (sizeof(network_modem_icons) / sizeof(network_modem_icons[0]))) {
+        level = sizeof(network_modem_icons) / sizeof(network_modem_icons[0]);
+    }
+
+    return network_modem_icons[level - 1];
+}
+
+static const void *home_select_network_icon(const model_modem_info_t *info)
+{
+    model_wifi_status_t wifi_status = model_wifi_get_status();
+
+    if (!info) {
+        return &icons_ic_status_wifi_no_connect_png;
+    }
+
+    if (!info->active && wifi_status == MODEL_WIFI_STATUS_CONNECTED) {
+        return &icons_ic_status_wifi_lvl_3_png;
+    }
+
+    if (info->active) {
+        return home_select_modem_icon(info);
+    }
+
+    return info->preferred ? &icons_ic_status_modem_no_network_png
+                           : &icons_ic_status_wifi_no_connect_png;
+}
+
+static void home_update_network_icon(struct home_nav_scr_data *scr_data)
+{
+    model_modem_info_t info;
+
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+    if (model_modem_poll() != 0 || model_modem_get_info(&info) != 0) {
+        return;
+    }
+
+    lisa_ui_llm_primary_set_wifi_img(scr_data->view, home_select_network_icon(&info));
+}
+
 static void model_battery_on_battery_status_update(const model_battery_info_t *info, void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
@@ -450,7 +495,7 @@ static void model_battery_on_battery_status_update(const model_battery_info_t *i
     lisa_ui_llm_primary_set_battery_img(scr_data->view, icon);
 }
 
-static void standby_text_timer_update(struct home_nav_scr_data *scr_data)
+void standby_text_timer_update(struct home_nav_scr_data *scr_data)
 {
     if (!scr_data || !scr_data->view) {
         return;
@@ -460,7 +505,8 @@ static void standby_text_timer_update(struct home_nav_scr_data *scr_data)
     uint32_t interval_ms = model_voice_standby_text_interval_ms_get();
 
     bool allow_play = true;
-    if (scr_data->img_rec_running || scr_data->work_type == WORK_TYPE_IMG_REC) {
+    if (scr_data->img_rec_running || model_camera_preview_is_active(&scr_data->camera_preview) ||
+        camera_preview_is_camera_work_type(scr_data->work_type)) {
         allow_play = false;
     }
     if (model_voice_cloud_is_running()) {
@@ -519,7 +565,8 @@ static void model_voice_on_standby_texts_changed(void *arg)
     scr_data->standby_text_index = 0;
     standby_text_timer_update(scr_data);
 
-    if (scr_data->img_rec_running || scr_data->work_type == WORK_TYPE_IMG_REC) {
+    if (scr_data->img_rec_running || model_camera_preview_is_active(&scr_data->camera_preview) ||
+        camera_preview_is_camera_work_type(scr_data->work_type)) {
         return;
     }
     if (model_voice_cloud_is_running()) {
@@ -535,123 +582,17 @@ static void model_voice_on_standby_texts_changed(void *arg)
     }
 }
 
-static void camera_capture_timer_callback(lv_timer_t *timer)
-{
-    if (!timer || !timer->user_data) {
-        return;
-    }
-
-    struct home_nav_scr_data *d = timer->user_data;
-    uint16_t width = 0;
-    uint16_t height = 0;
-    uint32_t image_size = 0;
-    int ret = 0;
-
-    if (!d->view) {
-        lv_timer_pause(timer);
-        return;
-    }
-
-    /* 如果识别已触发，停止预览拍照 */
-    if (!d->img_rec_running) {
-        lv_timer_pause(timer);
-        return;
-    }
-
-    d->img.header.cf = LV_IMG_CF_TRUE_COLOR;
-    d->img.header.always_zero = 0;
-    d->img.header.reserved = 0;
-
-    ret = model_camera_get_framesize(&width, &height);
-    if (ret != 0 || width == 0 || height == 0) {
-        LISA_UI_LOGE("Get camera frame size failed: ret=%d, w=%u, h=%u", ret, width, height);
-        d->img_rec_running = false;
-        d->img_rec_triggered = false;
-        lv_timer_pause(timer);
-        return;
-    }
-
-    image_size = (uint32_t)width * (uint32_t)height * 2U;
-    if (image_size == 0) {
-        LISA_UI_LOGE("Invalid image size, w=%u, h=%u", width, height);
-        d->img_rec_running = false;
-        d->img_rec_triggered = false;
-        lv_timer_pause(timer);
-        return;
-    }
-
-    if (d->cap_buf == NULL || d->cap_buf_size < image_size) {
-        if (d->cap_buf != NULL) {
-            lisa_ui_free(d->cap_buf);
-            d->cap_buf = NULL;
-            d->cap_buf_size = 0;
-        }
-
-        d->cap_buf = lisa_ui_malloc(image_size);
-        if (!d->cap_buf) {
-            LISA_UI_LOGE("Failed to alloc capture buffer: %u", image_size);
-            d->img_rec_running = false;
-            d->img_rec_triggered = false;
-            lv_timer_pause(timer);
-            return;
-        }
-        d->cap_buf_size = image_size;
-    }
-
-    ret = model_camera_capture(d->cap_buf, image_size);
-    if (ret != 0) {
-        LISA_UI_LOGE("Camera capture failed: %d", ret);
-        d->img_rec_running = false;
-        d->img_rec_triggered = false;
-        lv_timer_pause(timer);
-        return;
-    }
-
-    /* 预览阶段立即旋转并显示竖向图片，提升用户体验 */
-    uint16_t display_width = width;
-    uint16_t display_height = height;
-    int rotate_ret = rotate_rgb565_cw90_inplace(d->cap_buf, width, height);
-    if (rotate_ret == 0) {
-        display_width = height;
-        display_height = width;
-    } else {
-        LISA_UI_LOGW("Rotate preview image failed: %d", rotate_ret);
-    }
-
-    d->img.data = d->cap_buf;
-    d->img.data_size = image_size;
-    d->img.header.w = display_width;
-    d->img.header.h = display_height;
-
-    lisa_ui_llm_primary_img_show(d->view, &d->img);
-}
-
 static void img_hide_timer_cb(lv_timer_t *timer)
 {
     struct home_nav_scr_data *scr_data = timer->user_data;
 
     if (scr_data) {
-        hide_img_now(scr_data);
+        camera_preview_hide(scr_data);
     }
 
     lv_timer_del(timer);
 
     scr_data->img_hide_timer = NULL;
-}
-
-static void hide_img_now(struct home_nav_scr_data *scr_data)
-{
-    if (!scr_data || !scr_data->view) {
-        return;
-    }
-
-    lisa_ui_llm_primary_img_hide(scr_data->view);
-    if (scr_data->work_type == WORK_TYPE_IMG_REC) {
-        scr_data->work_type = WORK_TYPE_VOICE;
-    }
-    scr_data->img_rec_running = false;
-    scr_data->img_rec_in_progress = false;
-    scr_data->img_rec_triggered = false;
 }
 
 static void model_voice_on_image_preview(void *arg)
@@ -670,6 +611,12 @@ static void model_voice_on_image_preview(void *arg)
     }
 
     home_handle_activity(scr_data);
+
+    if (model_camera_preview_is_active(&scr_data->camera_preview) ||
+        scr_data->work_type == WORK_TYPE_CAMERA) {
+        LISA_UI_LOGI("photo preview active, ignore image preview");
+        return;
+    }
 
     /* 如果识图任务正在进行，忽略按键预览 */
     if (scr_data->img_rec_in_progress) {
@@ -708,6 +655,7 @@ static void model_voice_on_image_preview(void *arg)
 
     /* 识图过程中不显示本地唤醒提示文案 */
     lisa_ui_llm_primary_set_content_text(scr_data->view, "");
+    scr_data->finished = 0;
     scr_data->work_type = WORK_TYPE_IMG_REC;
     scr_data->img_rec_is_mcp = model_voice_img_rec_is_mcp() ? 1 : 0;
     scr_data->img_rec_is_button = model_voice_img_rec_is_mcp() ? 0 : 1;
@@ -715,7 +663,7 @@ static void model_voice_on_image_preview(void *arg)
     standby_text_timer_update(scr_data);
 
     if (scr_data->camera_capture_timer == NULL) {
-        scr_data->camera_capture_timer = lv_timer_create(camera_capture_timer_callback, 60, scr_data);
+        scr_data->camera_capture_timer = lv_timer_create(camera_preview_capture_timer_cb, 60, scr_data);
     } else {
         lv_timer_resume(scr_data->camera_capture_timer);
     }
@@ -754,6 +702,7 @@ static void model_voice_on_image_url(void *arg, const char *url)
     }
 
     scr_data->net_img = img_dsc;
+    lisa_ui_llm_primary_set_content_text(scr_data->view, "");
     lisa_ui_llm_primary_img_show(scr_data->view, scr_data->net_img);
     lisa_ui_llm_primary_img_hint_show(scr_data->view, "图片可在小聆AI小程序中查看");
     scr_data->work_type = WORK_TYPE_IMG_REC;
@@ -765,6 +714,15 @@ static void model_voice_on_image_url(void *arg, const char *url)
 
 static void model_voice_on_info_show(void *arg)
 {
+    int top_id = lisa_ui_nav_scr_get_top_id();
+
+    if (top_id == LISA_UI_NAV_SCR_ID_INFO) {
+        LISA_UI_LOGI("Info page already on top, reopen to refresh content");
+        if (lisa_ui_nav_scr_nav_back() != 0) {
+            LISA_UI_LOGW("Failed to refresh info page: nav_back failed");
+        }
+    }
+
     if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_INFO) {
         lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_INFO);
     }
@@ -793,6 +751,10 @@ static void model_voice_on_ota_state_change(const ota_state_t *state, void *arg)
         if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_OTA) {
             lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_OTA);
         }
+    } else if (state->state == OTA_STATE_PACKAGE_INFO_FAILED) {
+        if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_OTA) {
+            lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_OTA);
+        }
     } else if (state->state == OTA_STATE_UP_TO_DATE) {
         // lisa_ui_toast_show("已是最新版本");
     }
@@ -809,18 +771,11 @@ static void anim_timer_callback(lv_timer_t *timer)
     d->mcp_emoji_running = false;
 }
 
-static void wifi_status_timer_callback(lv_timer_t *timer)
+static void network_status_timer_callback(lv_timer_t *timer)
 {
     struct home_nav_scr_data *d = timer->user_data;
 
-    model_wifi_status_t wifi_status = model_wifi_get_status();
-
-    if (wifi_status == MODEL_WIFI_STATUS_CONNECTED) {
-        lisa_ui_llm_primary_set_wifi_img(d->view, &icons_ic_status_wifi_lvl_3_png);
-    } else {
-        lisa_ui_llm_primary_set_wifi_img(d->view, &icons_ic_status_wifi_no_connect_png);
-    }
-
+    home_update_network_icon(d);
     home_update_alarm_icon(d);
 }
 
@@ -835,6 +790,12 @@ static void model_voice_on_image_rec(void *arg)
 
     if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
         LISA_UI_LOGI("on image recv, skip");
+        return;
+    }
+
+    if (model_camera_preview_is_active(&scr_data->camera_preview) ||
+        scr_data->work_type == WORK_TYPE_CAMERA) {
+        LISA_UI_LOGI("photo preview active, ignore image recognition");
         return;
     }
 
@@ -890,7 +851,7 @@ static void model_voice_on_image_rec(void *arg)
     if (frame_ret != 0 || width == 0 || height == 0) {
         LISA_UI_LOGE("Get frame size failed before recognition: ret=%d, w=%u, h=%u", frame_ret, width, height);
         lisa_ui_toast_show(_("recognition error"));
-        hide_img_now(scr_data);
+        camera_preview_hide(scr_data);
         return;
     }
 
@@ -898,7 +859,7 @@ static void model_voice_on_image_rec(void *arg)
     if (image_size == 0 || scr_data->cap_buf_size < image_size) {
         LISA_UI_LOGE("Invalid image buffer size: cap=%u, need=%u", scr_data->cap_buf_size, image_size);
         lisa_ui_toast_show(_("recognition error"));
-        hide_img_now(scr_data);
+        camera_preview_hide(scr_data);
         return;
     }
 
@@ -917,6 +878,7 @@ static void model_voice_on_image_rec(void *arg)
     scr_data->img.data_size = image_size;
     scr_data->img.header.w = image_width;
     scr_data->img.header.h = image_height;
+    lisa_ui_llm_primary_set_content_text(scr_data->view, "");
     lisa_ui_llm_primary_img_show(scr_data->view, &scr_data->img);
     LISA_UI_LOGI("Image displayed for recognition");
     
@@ -944,6 +906,16 @@ static void model_voice_on_image_rec(void *arg)
 static void model_voice_on_tts_player_playing(void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
+    lv_obj_t *content_label = NULL;
+    const char *content_text = NULL;
+    bool supports_barge_in = false;
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    struct app_datas *app_datas = get_app_datas();
+    if (app_datas != NULL) {
+        supports_barge_in = app_interaction_mode_supports_barge_in(app_datas->int_mode);
+    }
+#endif
 
     scr_data->speaking = 1;
     home_stop_standby_sleep_timer(scr_data);
@@ -951,6 +923,42 @@ static void model_voice_on_tts_player_playing(void *arg)
 
     if (scr_data->finished) {
         return;
+    }
+
+    content_label = lisa_ui_llm_primary_content_label_get(scr_data->view);
+    if (content_label) {
+        content_text = lv_textarea_get_text(content_label);
+    }
+
+    if (scr_data && model_camera_preview_is_result_active(&scr_data->camera_preview)) {
+        if (!model_camera_preview_is_result_tts_ready(&scr_data->camera_preview)) {
+            LISA_UI_LOGI("voice photo: non-result TTS playing, keep uploading UI");
+            standby_text_timer_update(scr_data);
+            return;
+        }
+
+        model_camera_preview_mark_result_tts_started(&scr_data->camera_preview);
+        model_camera_preview_publish_state(&scr_data->camera_preview);
+        home_camera_preview_uploading_clear(scr_data);
+        LISA_UI_LOGI("voice photo: result TTS started, keep status at listening");
+        lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
+        standby_text_timer_update(scr_data);
+        return;
+    }
+
+    if (content_text && strcmp(content_text, "正在上传照片...") == 0) {
+        lisa_ui_llm_primary_set_content_text(scr_data->view, "");
+        lv_obj_set_style_translate_y(content_label, 0, LV_PART_MAIN);
+    }
+
+    if (scr_data->mcp_emoji_running || strcmp(scr_data->current_emoji_name, EMOJI_NAME_WAIT) == 0) {
+        if (supports_barge_in) {
+            LISA_UI_LOGI("tts playing in barge-in mode, show wakeup emoji");
+            show_emoji_anim(scr_data, EMOJI_NAME_WAKEUP, 1);
+        } else if (scr_data->anim_timer) {
+            LISA_UI_LOGI("tts playing, pause emoji restore timer");
+            lv_timer_pause(scr_data->anim_timer);
+        }
     }
 
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("speaking"));
@@ -964,12 +972,34 @@ static void model_voice_on_tts_player_stoped(void *arg)
 
     scr_data->speaking = 0;
 
+    if (scr_data && model_camera_preview_is_result_active(&scr_data->camera_preview)) {
+        if (!model_camera_preview_is_result_tts_ready(&scr_data->camera_preview)) {
+            LISA_UI_LOGI("voice photo: prompt TTS finished, keep waiting for recognition result");
+            return;
+        }
+
+        if (!model_camera_preview_is_result_tts_started(&scr_data->camera_preview)) {
+            LISA_UI_LOGI("voice photo: result TTS queued but not started yet, ignore stop");
+            return;
+        }
+
+        LISA_UI_LOGI("voice photo: result TTS playback finished, reset home UI");
+        home_reset(scr_data);
+        return;
+    }
+
+    if (scr_data && model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("tts stopped while photo preview is active, keep preview");
+        scr_data->standby_after_tts_pending = 0;
+        return;
+    }
+
     if (scr_data->img_rec_is_button) {
         if (model_voice_cloud_is_running()) {
             voice_cloud_chat_stop();
         }
 
-        hide_img_now(scr_data);
+        camera_preview_hide(scr_data);
         scr_data->img_rec_is_button = 0;
 
         if (!model_voice_cloud_is_running()) {
@@ -985,7 +1015,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
 
     if (scr_data->work_type == WORK_TYPE_IMG_REC) {
         /* Hide image after TTS playback completes (both single and full duplex mode) */
-        hide_img_now(scr_data);
+        camera_preview_hide(scr_data);
 
         /* In full duplex mode, set status to listening if session is still running */
         if (model_voice_cloud_is_running()) {
@@ -998,6 +1028,12 @@ static void model_voice_on_tts_player_stoped(void *arg)
         }
     } else {
         if (model_voice_cloud_is_running()) {
+            if (scr_data->mcp_emoji_running ||
+                strcmp(scr_data->current_emoji_name, EMOJI_NAME_WAIT) == 0) {
+                LISA_UI_LOGI("tts stopped, restore wakeup emoji after wait");
+                show_emoji_anim(scr_data, EMOJI_NAME_WAKEUP, 1);
+                scr_data->mcp_emoji_running = 0;
+            }
             lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
         } else {
             const char *init_status =
@@ -1109,8 +1145,17 @@ static void model_voice_on_start(void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
 
+    if (scr_data && model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("cancel photo preview because voice start arrived");
+    }
+
+    if (scr_data && model_camera_preview_is_result_tts_ready(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("ignore internal voice start while photo result TTS is active");
+        return;
+    }
+
     home_handle_activity(scr_data);
-    lisa_ui_llm_primary_img_hide(scr_data->view);
+    camera_preview_hide(scr_data);
     show_emoji_anim(scr_data, EMOJI_NAME_WAKEUP, 1);
 
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
@@ -1144,13 +1189,10 @@ static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const c
             model_voice_cloud_is_connected() ? _("Please wake me") : _("service disconnected");
     }
 
-    /* Clear transient image-rec state before switching back to standby UI. */
-    if (scr_data->work_type == WORK_TYPE_IMG_REC) {
-        lisa_ui_llm_primary_img_hide(scr_data->view);
-        scr_data->work_type = WORK_TYPE_VOICE;
-        scr_data->img_rec_running = false;
-        scr_data->img_rec_in_progress = false;
-        scr_data->img_rec_triggered = false;
+    /* Clear transient camera state before switching back to standby UI. */
+    if (model_camera_preview_is_active(&scr_data->camera_preview) ||
+        camera_preview_is_camera_work_type(scr_data->work_type)) {
+        camera_preview_hide(scr_data);
     }
 
     lisa_ui_llm_primary_set_content_text(scr_data->view, model_voice_role_propmt_get());
@@ -1166,6 +1208,12 @@ static bool home_try_enter_standby_after_tts(struct home_nav_scr_data *scr_data)
     uint8_t mode;
 
     if (!scr_data || !scr_data->standby_after_tts_pending) {
+        return false;
+    }
+
+    if (scr_data && model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("skip standby after tts while photo preview is active");
+        scr_data->standby_after_tts_pending = 0;
         return false;
     }
 
@@ -1197,6 +1245,12 @@ static void finished_tiemr_callback(lv_timer_t *timer)
 
     LISA_UI_LOGI("finished_tiemr_callback, speaking: %d", scr_data->speaking);
 
+    if (scr_data && model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("finished timer ignored while photo preview is active");
+        lv_timer_del(timer);
+        return;
+    }
+
     if (!scr_data->speaking && !model_voice_cloud_is_running()) {
         enter_standby(scr_data);
     }
@@ -1214,6 +1268,18 @@ static void model_voice_on_finished(void *arg)
     // 如果在闹钟响铃页面，不进入待机
     if (lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_ALARM_RING) {
         LISA_UI_LOGI("on finished, but on alarm ring page, skip enter_standby");
+        return;
+    }
+
+    if (scr_data && model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("on finished while photo preview is active, keep current state");
+        scr_data->standby_after_tts_pending = 0;
+        return;
+    }
+
+    if (scr_data && model_camera_preview_is_result_active(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("on finished while voice photo result is active, keep current state");
+        scr_data->standby_after_tts_pending = 0;
         return;
     }
 
@@ -1240,16 +1306,40 @@ static void model_voice_on_finished(void *arg)
 static void model_voice_on_tts_text_start(void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
+
+    if (!scr_data || scr_data->finished) {
+        return;
+    }
+
+    if (!scr_data || !model_camera_preview_is_result_tts_ready(&scr_data->camera_preview)) {
+        return;
+    }
+
+    LISA_UI_LOGI("voice photo: TTS text started");
+    home_camera_preview_uploading_clear(scr_data);
+    lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
 }
 
 static void model_voice_on_tts_text_end(void *arg)
 {
-    struct home_nav_scr_data *scr_data = arg;
+    (void)arg;
 }
 
 static void model_voice_on_tts_text_update(const char *text, void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
+
+    if (!scr_data || scr_data->finished || !text || text[0] == '\0') {
+        return;
+    }
+
+    if (!scr_data || !model_camera_preview_is_result_tts_ready(&scr_data->camera_preview)) {
+        return;
+    }
+
+    LISA_UI_LOGI("voice photo: TTS text update received, len=%u", (unsigned)strlen(text));
+    home_camera_preview_uploading_clear(scr_data);
+    lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
 }
 
 static void model_voice_on_iat_text_start(void *arg)
@@ -1257,6 +1347,11 @@ static void model_voice_on_iat_text_start(void *arg)
     struct home_nav_scr_data *scr_data = arg;
 
     if (scr_data->finished) {
+        return;
+    }
+
+    if (scr_data && model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("ignore iat start while photo preview is active");
         return;
     }
 
@@ -1268,6 +1363,11 @@ static void model_voice_on_iat_text_end(void *arg)
     struct home_nav_scr_data *scr_data = arg;
 
     if (scr_data->finished) {
+        return;
+    }
+
+    if (scr_data && model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("ignore iat end while photo preview is active");
         return;
     }
 
@@ -1288,8 +1388,13 @@ static void model_voice_on_iat_text_update(const char *text, void *arg)
         return;
     }
 
-    if (scr_data->work_type == WORK_TYPE_IMG_REC) {
-        hide_img_now(scr_data);
+    if (scr_data && model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("ignore iat update while photo preview is active");
+        return;
+    }
+
+    if (camera_preview_is_camera_work_type(scr_data->work_type)) {
+        camera_preview_hide(scr_data);
     }
 
     lisa_ui_llm_primary_set_content_text(scr_data->view, text);
@@ -1304,7 +1409,8 @@ static void model_voice_on_standby_text_update(void *arg, const char *text, bool
         return;
     }
 
-    if (scr_data->img_rec_running || scr_data->work_type == WORK_TYPE_IMG_REC) {
+    if (scr_data->img_rec_running || model_camera_preview_is_active(&scr_data->camera_preview) ||
+        camera_preview_is_camera_work_type(scr_data->work_type)) {
         return;
     }
 
@@ -1314,13 +1420,13 @@ static void model_voice_on_standby_text_update(void *arg, const char *text, bool
 static void model_voice_on_wakeup_mode_changed(void *arg, model_voice_wakeup_mode_t mode)
 {
     struct home_nav_scr_data *scr_data = arg;
+    (void)mode;
 
     if (!scr_data || !scr_data->view) {
         return;
     }
 
-    bool is_full_duplex = (mode == MODEL_VOICE_WAKEUP_MODE_VOICE_MULTI);
-    lisa_ui_llm_primary_set_full_duplex_icon_visible(scr_data->view, is_full_duplex);
+    home_update_full_duplex_icon(scr_data);
 }
 
 #ifndef CONFIG_BOARD_ARCS_MINI
@@ -1438,7 +1544,7 @@ static void oneshot_emoji_timer_cb(lv_timer_t *timer)
     }
 }
 
-static void home_reset(struct home_nav_scr_data *scr_data)
+void home_reset(struct home_nav_scr_data *scr_data)
 {
     const char *iat_text = model_voice_last_iat_text_get();
     const char *init_status =
@@ -1447,7 +1553,7 @@ static void home_reset(struct home_nav_scr_data *scr_data)
     home_handle_activity(scr_data);
     home_stop_oneshot_emoji(scr_data);
     scr_data->oneshot_restore_emoji_name[0] = '\0';
-    hide_img_now(scr_data);
+    camera_preview_hide(scr_data);
     if (model_voice_cloud_is_running()) {
         scr_data->finished = 0;
         if (iat_text && iat_text[0] != '\0') {
@@ -1467,6 +1573,7 @@ static void home_reset(struct home_nav_scr_data *scr_data)
         lv_timer_pause(scr_data->anim_timer);
         standby_text_timer_update(scr_data);
     }
+    home_update_network_icon(scr_data);
 }
 
 static int home_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
@@ -1474,12 +1581,14 @@ static int home_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
     LISA_UI_LOGD("nav scr open, id: %d", scr->unique_id);
 
     model_voice_init();
+    model_camera_preview_evt_init();
     #if !CONFIG_LISA_MODEM
     int cam_init_ret = model_camera_init();
     if (cam_init_ret != 0) {
         LISA_UI_LOGW("Camera init failed on home open: %d", cam_init_ret);
     }
     #endif
+    model_modem_init();
     model_wifi_init();
 
     struct home_nav_scr_data *scr_data = lisa_ui_malloc(sizeof(struct home_nav_scr_data));
@@ -1489,6 +1598,7 @@ static int home_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
     }
     memset(scr_data, 0, sizeof(struct home_nav_scr_data));
     scr_data->last_battery_status = MODEL_BATTERY_STATUS_UNKNOWN;
+    model_camera_preview_init(&scr_data->camera_preview);
 
     scr_data->view = lisa_ui_llm_primary_create(lv_scr_act());
 #ifndef CONFIG_BOARD_ARCS_MINI
@@ -1497,8 +1607,8 @@ static int home_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
 
     scr_data->anim_timer = lv_timer_create(anim_timer_callback, 5000, scr_data);
     lv_timer_pause(scr_data->anim_timer);
-    lisa_ui_llm_primary_set_wifi_img(scr_data->view, &icons_ic_status_wifi_no_connect_png);
-    scr_data->wifi_status_timer = lv_timer_create(wifi_status_timer_callback, 200, scr_data);
+    home_update_network_icon(scr_data);
+    scr_data->network_status_timer = lv_timer_create(network_status_timer_callback, 1000, scr_data);
     scr_data->standby_text_timer = NULL;
     scr_data->standby_sleep_restore_brightness = model_common_brightness_get();
 
@@ -1508,6 +1618,7 @@ static int home_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
     *data = scr_data;
 
     model_voice_cb_register(&model_voice_cbs, scr_data);
+    model_camera_preview_cb_register(&home_camera_preview_presenter_cbs, scr_data);
 
     return 0;
 }
@@ -1540,8 +1651,8 @@ static int home_nav_scr_pause(const struct lisa_ui_nav_scr *scr, void *data)
         lv_obj_add_flag(scr_data->view, LV_OBJ_FLAG_HIDDEN);
     }
 
-    if (scr_data && scr_data->wifi_status_timer) {
-        lv_timer_pause(scr_data->wifi_status_timer);
+    if (scr_data && scr_data->network_status_timer) {
+        lv_timer_pause(scr_data->network_status_timer);
     }
 
     if (scr_data && scr_data->camera_capture_timer) {
@@ -1549,15 +1660,10 @@ static int home_nav_scr_pause(const struct lisa_ui_nav_scr *scr, void *data)
     }
 
     home_handle_activity(scr_data);
-
-    /* 页面切换时重置识图标志，确保下次返回可以继续识图 */
     if (scr_data) {
-        scr_data->img_rec_running = false;
-        scr_data->img_rec_in_progress = false;
-        scr_data->img_rec_triggered = false;
-        LISA_UI_LOGI("Page paused, img_rec_running flag reset");
+        camera_preview_hide(scr_data);
+        LISA_UI_LOGI("Page paused, camera preview state reset");
     }
-
 
     if (!model_voice_cloud_is_running()) {
         model_voice_off();
@@ -1575,8 +1681,8 @@ static int home_nav_scr_resume(const struct lisa_ui_nav_scr *scr, void *data)
         lv_obj_clear_flag(scr_data->view, LV_OBJ_FLAG_HIDDEN);
     }
 
-    if (scr_data && scr_data->wifi_status_timer) {
-        lv_timer_resume(scr_data->wifi_status_timer);
+    if (scr_data && scr_data->network_status_timer) {
+        lv_timer_resume(scr_data->network_status_timer);
     }
 
     model_voice_on();
@@ -1591,6 +1697,7 @@ static int home_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *data)
     LISA_UI_LOGD("nav scr close, id: %d", scr->unique_id);
 
     model_voice_cb_unregister(&model_voice_cbs);
+    model_camera_preview_cb_unregister(&home_camera_preview_presenter_cbs);
     model_battery_cb_unregister(model_battery_on_battery_status_update);
 
     struct home_nav_scr_data *scr_data = (struct home_nav_scr_data *)data;
@@ -1601,13 +1708,17 @@ static int home_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *data)
             lv_timer_del(scr_data->anim_timer);
             scr_data->anim_timer = NULL;
         }
-        if (scr_data->wifi_status_timer != NULL) {
-            lv_timer_del(scr_data->wifi_status_timer);
-            scr_data->wifi_status_timer = NULL;
+        if (scr_data->network_status_timer != NULL) {
+            lv_timer_del(scr_data->network_status_timer);
+            scr_data->network_status_timer = NULL;
         }
         if (scr_data->camera_capture_timer != NULL) {
             lv_timer_del(scr_data->camera_capture_timer);
             scr_data->camera_capture_timer = NULL;
+        }
+        if (scr_data->camera_preview_countdown_timer != NULL) {
+            lv_timer_del(scr_data->camera_preview_countdown_timer);
+            scr_data->camera_preview_countdown_timer = NULL;
         }
         if (scr_data->standby_text_timer != NULL) {
             lv_timer_del(scr_data->standby_text_timer);

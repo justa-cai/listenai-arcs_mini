@@ -1,0 +1,26 @@
+cmake_minimum_required(VERSION 3.19)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+find_package(listenai-cmake REQUIRED HINTS $ENV{ARCS_BASE})
+
+project(arcs)
+
+listenai_add_executable(${PROJECT_NAME})
+
+target_sources(${PROJECT_NAME} PRIVATE
+    src/main.c
+    src/video_display.c
+)
+
+listenai_include_directories(
+    src
+)
+
+listenai_code_relocate(LIBRARY chryusb LOCATION PSRAM)
+
+target_compile_options(${PROJECT_NAME} PRIVATE
+    -Os
+)
+
+listenai_code_relocate(LIBRARY chryusb LOCATION PSRAM)

@@ -1229,6 +1229,16 @@ void bt_gap_discover_create(uint8_t own_addr_type);
  */
 void bt_gap_discover_start(uint8_t disc_mode, uint8_t max_count, bool get_name);
 
+
+/**
+ * Enable gap bt discover stop
+ *
+ * @param  None
+ *
+ * @return None.
+ */
+void bt_gap_discover_stop(void);
+
 /**
  * Enable gap bt connect
  *
@@ -1259,6 +1269,36 @@ void bt_gap_connect_cancel(void);
  */
 void bt_classic_scan_enable(uint8_t enable);
 #endif//(BT_STACK_PRESENT)
+
+
+/**
+ * Enable bt gap auth req
+ *
+ * @param conidx
+ * @param sec_lvl
+ *
+ * @return None.
+ */
+void bt_gap_auth_req(uint8_t conidx, uint8_t sec_lvl);
+
+/**
+ * Enable bt gap save lk mem to nvs
+ *
+ * @param conidx
+ *
+ * @return None.
+ */
+void bt_gap_save_lk_mem_to_nvs(uint8_t conidx);
+
+/**
+ * Enable bt set asic cvsd en
+ *
+ * @param en
+ *
+ * @return None.
+ */
+void app_bt_set_asic_cvsd_en(uint8_t en);
+
 
 #endif//BLE_GAP_H_
 

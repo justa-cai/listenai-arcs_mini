@@ -1,0 +1,14 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if ACOMP_TUNER
+
+	config ACOMP_TUNER_STREAM_BUFFER_SIZE
+		int "Tuner stream buffer size"
+		default 2560
+
+	config ACOMP_TUNER_STREAM_NUM_DESCS
+		int "Tuner stream descriptor count"
+		default 16
+
+endif

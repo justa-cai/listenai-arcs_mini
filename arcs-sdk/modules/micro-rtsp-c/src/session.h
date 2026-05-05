@@ -5,6 +5,7 @@
 
 void rtsp_session_init(rtsp_session_t* session, int client, rtsp_streamer_t* streamer);
 void rtsp_session_deinit(rtsp_session_t* session);
+int rtsp_session_send(rtsp_session_t* session, const void *buf, size_t len);
 
 rtsp_command rtsp_session_handle_request(rtsp_session_t* session, char* request, uint32_t request_size);
 

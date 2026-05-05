@@ -7,8 +7,14 @@
 #include "Driver_GPADC.h"
 #include "IOMuxManager.h"
 #include "board.h"
+#ifdef CONFIG_OTA
+#include "ota_manager.h"
+#endif
 
 #define TAG "service_button"
+#define MINI_POWER_KEY_SHORT_PRESS_MS 800U
+#define MINI_POWER_KEY_LONG_PRESS_MS 1600U
+#define MINI_POWER_KEY_LONG_HOLD_MS 1600U
 
 extern void factory_reset(void);
 
@@ -52,11 +58,19 @@ static voice_msg_button_action_t map_lisa_btn_event(lisa_btn_event_t lisa_event)
 
 static void publish_button_event(uint8_t btn_id, lisa_btn_event_t action)
 {
+#ifdef CONFIG_OTA
+    ota_state_e ota_state = ota_manager_get_state();
+    if (ota_state == OTA_STATE_CHECKING || ota_state == OTA_STATE_UPDATING) {
+        LISA_LOGI(TAG, "Ignore button %d action=%d during OTA state=%d", btn_id, action, ota_state);
+        return;
+    }
+#endif
+
     voice_msg_button_evt_t evt = {
         .button_id = btn_id,
         .action = map_lisa_btn_event(action),
     };
-
+    service_image_waiting_cancel();
     LISA_LOGI(TAG, "[Button %d] action=%d", btn_id, action);
     voice_msg_pub(VOICE_MSG_BUTTON_CHANGE, &evt, sizeof(evt));
 }
@@ -144,9 +158,9 @@ int service_button_init(void)
         .buttons = &mini_power_key_gpio,
         .time_config =
             {
-                .short_press_time = 1500,
-                .long_press_time = 3000,
-                .long_hold_time = 3000,
+                .short_press_time = MINI_POWER_KEY_SHORT_PRESS_MS,
+                .long_press_time = MINI_POWER_KEY_LONG_PRESS_MS,
+                .long_hold_time = MINI_POWER_KEY_LONG_HOLD_MS,
                 .scan_period = 20,
             },
         .callback = evb_button_event_callback,

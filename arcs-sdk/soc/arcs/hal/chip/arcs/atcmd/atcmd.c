@@ -289,7 +289,12 @@ int atcmd_help(int type, char *params)
     atcmd_lwip_help();
 #endif
 #if defined(AT_TYPE_BT)
+#if BLE_HOST_AT_CMD
+    atcmd_ble_host_help();
+    atcmd_ble_gatt_help();
+#else
     atcmd_bt_help();
+#endif
 #endif
     return ATCMD_OK;
 }
@@ -413,6 +418,11 @@ void atcmd_init(void)
     atcmd_lwip_register();
 #endif
 #if defined(AT_TYPE_BT)
+
+// #if BLE_HOST_AT_CMD
+    //atcmd_ble_host_register();
+    //atcmd_ble_gatt_register();
+// #else
     atcmd_bt_register();
 #endif
 }

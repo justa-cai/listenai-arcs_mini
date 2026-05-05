@@ -127,6 +127,7 @@ static void audio_source_task(void *pvParameters)
     }
     
     audio_task_handle = NULL;
+    g_audio_start = false;
     LOGI("Audio source task stopped");
     vTaskDelete(NULL);
 }
@@ -179,7 +180,7 @@ static void open_complete_handler(const bt_audio_format_t format)
 
 static int cmd_bt_inquiry(void)
 {
-    return lisa_bluetooth_inquiry_start(GAPM_DISC_TYPE_GEN_DISC, 5);
+    return lisa_bluetooth_inquiry_start(GAPM_DISC_TYPE_GEN_DISC, MAX_DISCOVERED_DEVICES);
 }
 
 static int cmd_bt_connect(int argc, char *argv[])
@@ -197,6 +198,25 @@ static int cmd_bt_connect(int argc, char *argv[])
      ret = lisa_bluetooth_connect_by_name(device_name);
      if (ret != 0) {
          LOGE("Failed to connect to device '%s': %d", device_name, ret);
+     }
+     return ret;
+}
+
+static int cmd_bt_connect_by_index(int argc, char *argv[])
+{
+    int ret;
+    
+    if (argc < 2) {
+        LOGE("Usage: bt_connect_index <device_index>");
+        return -1;
+    }
+
+    uint8_t device_index = atoi(argv[1]);
+    LOGI("Connecting to device at index: %d", device_index);
+    
+     ret = lisa_bluetooth_connect_by_index(device_index);
+     if (ret != 0) {
+         LOGE("Failed to connect to device at index %d: %d", device_index, ret);
      }
      return ret;
 }
@@ -305,6 +325,10 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
 
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  bt_connect, cmd_bt_connect, bt connect to device by name);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
+                 bt_connect_index, cmd_bt_connect_by_index, bt connect to device by index);
+
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  bt_audio_start, cmd_bt_audio_start, start bt audio);
 

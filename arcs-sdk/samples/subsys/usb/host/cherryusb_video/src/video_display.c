@@ -236,13 +236,21 @@ void video_display_update(uint8_t dev_idx,
         return;
     }
 
-    display_msg_t *msg = psram_malloc(sizeof(display_msg_t));
+    /*
+     * MJPEG 帧需要拷贝数据，因为 frame_buf 在回调返回后会被 USB 立即覆盖。
+     * UNCOMPRESSED(YUY2) 也存在同样问题，一并拷贝。
+     */
+    uint32_t alloc_size = sizeof(display_msg_t) + frame_size;
+    display_msg_t *msg = psram_malloc(alloc_size);
     if (!msg) {
         return;
     }
 
+    uint8_t *data_copy = (uint8_t *)msg + sizeof(display_msg_t);
+    memcpy(data_copy, frame_buf, frame_size);
+
     msg->dev_idx    = dev_idx;
-    msg->frame_buf  = frame_buf;
+    msg->frame_buf  = data_copy;
     msg->frame_size = frame_size;
     msg->width      = width;
     msg->height     = height;

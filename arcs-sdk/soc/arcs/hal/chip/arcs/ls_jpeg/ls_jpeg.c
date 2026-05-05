@@ -225,9 +225,7 @@ void jpeg_reg_dump(void)
 
 void jpeg_reset(void)
 {
-    ap_cfg_video_clk_enable();
-    ap_cfg_jpeg_clk_enable();
-    ap_cfg_jpeg_reset();
+    Jpeg_Reset();
 }
 
 
@@ -572,6 +570,207 @@ int32_t jpeg_decode_gpdma_stop(csk_gpdma_ch_t in_ch, csk_gpdma_ch_t out_ch)
 
     return ret;
 }
+
+#ifndef PIXEL_REBUILD_BY_HW     /* pixel rebuild by software,support gray/yuv444/yuv422/yuv420 */
+int32_t jpeg_decode_dma2d_init(csk_dma2d_ch_t in_ch, csk_dma2d_ch_t out_ch, Jpeg_EncoderCfg *dec_cfg)
+{
+    int32_t ret;
+
+    csk_dma2d_init_t jpeg_dec_input = {
+        .dma_ch = in_ch,
+        .burst_len = gpdma_burst_len_8spl,
+        .src_mode = address_mode_normal,
+        .dst_mode = address_mode_normal,
+        .tfr_mode = tfr_mode_m2p,
+        .src_inc_mode = inc_mode_increase,
+        .dst_inc_mode = inc_mode_fix,
+        .prio_lvl = prio_mode_vhigh,
+        .sample_unit = gpdma_sample_unit_word,
+        .handshake = jpg_e_hs_num6,
+    };
+    csk_dma2d_init_t jpeg_dec_output = {
+        .dma_ch = out_ch,
+        .burst_len = gpdma_burst_len_8spl,
+        .src_mode = address_mode_normal,
+        .dst_mode = address_mode_normal,
+        .tfr_mode = tfr_mode_p2m,
+        .src_inc_mode = inc_mode_fix,
+        .dst_inc_mode = inc_mode_increase,
+        .prio_lvl = prio_mode_vhigh,
+        .sample_unit = gpdma_sample_unit_word,
+        .handshake = jpg_p_hs_num7,
+    };
+
+    jpeg_gpdma_input_finish_cnt = 0;
+    jpeg_gpdma_output_finish_cnt = 0;
+
+    ret = DMA2D_Initialize();
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Config(&jpeg_dec_input, NULL, NULL);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Config(&jpeg_dec_output, jpeg_gpdma_output_callback, NULL);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    return ret;
+}
+
+int32_t jpeg_decode_dma2d_start(csk_dma2d_ch_t in_ch, void *in_buf, uint32_t in_size_word, csk_dma2d_ch_t out_ch, void *out_buf, uint32_t out_size_word)
+{
+    int32_t ret;
+
+    CHECK_POINT_NOT_NULL(in_buf);
+    CHECK_POINT_NOT_NULL(out_buf);
+
+    jpeg_gpdma_input_finish_cnt = 0;
+    jpeg_gpdma_output_finish_cnt = 0;
+
+    ret = DMA2D_Start_Normal(out_ch, (uint32_t*)Jpeg0_PixelBuf(), out_buf, out_size_word);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Start_Normal(in_ch, (uint32_t*)in_buf, (uint32_t*)Jpeg0_ECSBuf(), in_size_word);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    return ret;
+}
+
+int32_t jpeg_decode_dma2d_stop(csk_dma2d_ch_t in_ch, csk_dma2d_ch_t out_ch)
+{
+    int32_t ret;
+
+    ret = DMA2D_Stop(in_ch);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Stop(out_ch);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    return ret;
+}
+#else     /* pixel rebuild by hardware,support gray/yuv444/yuv422 */
+int32_t jpeg_decode_dma2d_init(csk_dma2d_ch_t in_ch, csk_dma2d_ch_t transfer_ch, csk_dma2d_ch_t out_ch, Jpeg_EncoderCfg *dec_cfg)
+{
+    int32_t ret;
+
+    csk_dma2d_init_t jpeg_dec_input = {
+        .dma_ch = in_ch,
+        .burst_len = gpdma_burst_len_8spl,
+        .src_mode = address_mode_normal,
+        .dst_mode = address_mode_normal,
+        .tfr_mode = tfr_mode_m2p,
+        .src_inc_mode = inc_mode_increase,
+        .dst_inc_mode = inc_mode_fix,
+        .prio_lvl = prio_mode_vhigh,
+        .sample_unit = gpdma_sample_unit_word,
+        .handshake = jpg_e_hs_num6,
+    };
+    csk_dma2d_init_t jpeg_dec_transfer = {
+        .dma_ch = transfer_ch,
+        .burst_len = gpdma_burst_len_8spl,
+        .src_mode = address_mode_normal,
+        .dst_mode = address_mode_pipo,
+        .tfr_mode = tfr_mode_p2m,
+        .src_inc_mode = inc_mode_fix,
+        .dst_inc_mode = inc_mode_increase,
+        .prio_lvl = prio_mode_vhigh,
+        .sample_unit = gpdma_sample_unit_word,
+        .handshake = jpg_p_hs_num7,
+    };
+    csk_dma_2d_image_cfg_t jpeg_dec_transfer_img = {
+        .img_output_fromat_transfer = csk_image_format_transfer_bypass,
+        .image_yuv422_rotate_mode = csk_image_yuv422_no_rotate,
+        .img_zoom_scale = csk_image_zoom_scale_1_to_1,
+        .img_jpeg_2d_type = csk_jpeg_dec_2d_transfer
+    };
+    csk_dma2d_init_t jpeg_dec_output = {
+        .dma_ch = out_ch,
+        .burst_len = gpdma_burst_len_8spl,
+        .src_mode = address_mode_normal,
+        .dst_mode = address_mode_normal,
+        .tfr_mode = tfr_mode_m2m,
+        .src_inc_mode = inc_mode_increase,
+        .dst_inc_mode = inc_mode_increase,
+        .prio_lvl = prio_mode_vhigh,
+        .sample_unit = gpdma_sample_unit_word,
+        .handshake = qspi_hs_num0,
+        .rd_done_ack = read_done_ack_enable,
+        .trigger_ch = transfer_ch,
+    };
+    csk_dma_2d_image_cfg_t jpeg_dec_output_img = {
+        .img_output_fromat_transfer = csk_image_format_transfer_bypass,
+        .image_yuv422_rotate_mode = csk_image_yuv422_no_rotate,
+        .img_zoom_scale = csk_image_zoom_scale_1_to_1,
+        .img_jpeg_2d_type = csk_jpeg_dec_pack
+    };
+
+    jpeg_gpdma_input_finish_cnt = 0;
+    jpeg_gpdma_output_finish_cnt = 0;
+
+    ret = DMA2D_Initialize();
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Config(&jpeg_dec_input, NULL, NULL);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Config(&jpeg_dec_transfer, jpeg_gpdma_output_callback, NULL);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+    jpeg_dec_transfer_img.img_width = dec_cfg->width;
+    jpeg_dec_transfer_img.img_height = dec_cfg->height;
+    jpeg_img_format_switch(&jpeg_dec_transfer_img, dec_cfg);
+    ret = DMA2D_Image_Config_Extend(transfer_ch, &jpeg_dec_transfer_img);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Config(&jpeg_dec_output, NULL, NULL);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+    jpeg_dec_output_img.img_width = dec_cfg->width;
+    jpeg_dec_output_img.img_height = dec_cfg->height;
+    jpeg_img_format_switch(&jpeg_dec_output_img, dec_cfg);
+    ret = DMA2D_Image_Config_Extend(out_ch, &jpeg_dec_output_img);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    return ret;
+}
+
+int32_t jpeg_decode_dma2d_start(csk_dma2d_ch_t in_ch, void *in_buf, uint32_t in_size_word, csk_dma2d_ch_t transfer_ch, void *transfer_buf[2], uint32_t transfer_size_word, csk_dma2d_ch_t out_ch, void *out_buf, uint32_t out_size_word)
+{
+    int32_t ret;
+
+    CHECK_POINT_NOT_NULL(in_buf);
+    CHECK_POINT_NOT_NULL(transfer_buf[0]);
+    CHECK_POINT_NOT_NULL(transfer_buf[1]);
+    CHECK_POINT_NOT_NULL(out_buf);
+
+    jpeg_gpdma_input_finish_cnt = 0;
+    jpeg_gpdma_output_finish_cnt = 0;
+
+    ret = DMA2D_Start_PiPo(out_ch, transfer_buf[0], transfer_buf[1], out_buf, NULL, transfer_size_word, transfer_size_word);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Start_PiPo(transfer_ch, (uint32_t*)Jpeg0_PixelBuf(), NULL, transfer_buf[0], transfer_buf[1], out_size_word, out_size_word);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Start_Normal(in_ch, (uint32_t*)in_buf, (uint32_t*)Jpeg0_ECSBuf(), in_size_word);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    return ret;
+}
+
+int32_t jpeg_decode_dma2d_stop(csk_dma2d_ch_t in_ch, csk_dma2d_ch_t transfer_ch, csk_dma2d_ch_t out_ch)
+{
+    int32_t ret;
+
+    ret = DMA2D_Stop(in_ch);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Stop(transfer_ch);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    ret = DMA2D_Stop(out_ch);
+    CHECK_RET_EQ(ret, CSK_DRIVER_OK);
+
+    return ret;
+}
+#endif
 
 uint32_t jpeg_image_size(uint16_t width, uint16_t height, Jpeg_emFormatIn format)
 {
@@ -1345,7 +1544,7 @@ error1:
     return ret;
 }
 
-uint32_t jpeg_decoder_pixel_build_gray(const uint8_t *in_buf, uint8_t *out_buf, Jpeg_DecoderCfg *dec_cfg, Jpeg_InitTypeDef *jpeg_dec_cfg)
+uint32_t jpeg_decoder_pixel_build_gray(const uint8_t *in_buf, uint8_t *out_buf, Jpeg_InitTypeDef *jpeg_dec_cfg)
 {
     uint16_t x = 0;
     uint16_t y = 0;
@@ -1407,7 +1606,7 @@ uint32_t jpeg_decoder_pixel_build_gray(const uint8_t *in_buf, uint8_t *out_buf, 
 }
 
 
-uint32_t jpeg_decoder_pixel_build_yuv(const uint8_t *in_buf, uint8_t *out_buf, Jpeg_DecoderCfg *dec_cfg, Jpeg_InitTypeDef *jpeg_dec_cfg)
+uint32_t jpeg_decoder_pixel_build_yuv(const uint8_t *in_buf, uint8_t *out_buf, Jpeg_InitTypeDef *jpeg_dec_cfg)
 {
     uint16_t x = 0;
     uint16_t y = 0;
@@ -1663,12 +1862,299 @@ uint32_t jpeg_decoder_pixel_build_yuv(const uint8_t *in_buf, uint8_t *out_buf, J
     return ret;
 }
 
-uint32_t jpeg_decoder_pixel_build(const uint8_t *in_buf, uint8_t *out_buf, Jpeg_DecoderCfg *dec_cfg, Jpeg_InitTypeDef *jpeg_dec_cfg)
+uint32_t jpeg_decoder_pixel_build(const uint8_t *in_buf, uint8_t *out_buf, Jpeg_InitTypeDef *jpeg_dec_cfg)
 {
     if (JPEG_DECODE_IN_FORMAT_GRAY == jpeg_dec_cfg->format_in)
-        return jpeg_decoder_pixel_build_gray(in_buf, out_buf, dec_cfg, jpeg_dec_cfg);
+        return jpeg_decoder_pixel_build_gray(in_buf, out_buf, jpeg_dec_cfg);
     else
-        return jpeg_decoder_pixel_build_yuv(in_buf, out_buf, dec_cfg, jpeg_dec_cfg);
+        return jpeg_decoder_pixel_build_yuv(in_buf, out_buf, jpeg_dec_cfg);
+}
+
+uint8_t jpeg_pixel_bitw(Jpeg_emFormatIn format)
+{
+    uint8_t bitw = 1;
+
+    switch(format)
+    {
+        case JPEG_DECODE_IN_FORMAT_YUV444:
+            bitw = 3;
+            break;
+        case JPEG_DECODE_IN_FORMAT_YUV422:
+            bitw = 2;
+            break;
+        case JPEG_DECODE_IN_FORMAT_YUV420:
+        case JPEG_DECODE_IN_FORMAT_YUV411:
+            bitw = 1;
+            break;
+        case JPEG_DECODE_IN_FORMAT_GRAY:
+            bitw = 1;
+            break;
+        default:
+            break;
+    }
+
+    return bitw;
+}
+
+uint32_t jpeg_decoder_pixel_build_ext(const uint8_t *in_buf, uint8_t *out_buf, Jpeg_InitTypeDef *jpeg_dec_cfg)
+{
+    uint16_t x = 0;
+    uint16_t y = 0;
+    uint16_t i = 0;
+    uint16_t j = 0;
+    uint8_t yb[16][16],cbb[8][8],crb[8][8];
+    uint8_t *block_buf_ptr = NULL;
+    uint8_t *block_buf[16] = {NULL};
+    uint32_t linesize = 0;
+    uint32_t linesize_align = 0;
+    uint32_t pix_index = 0;
+    uint32_t line_index = 0;
+    int32_t ret = CSK_DRIVER_OK;
+    uint8_t pixel_bw = jpeg_pixel_bitw(jpeg_dec_cfg->format_in);
+    uint8_t pixel_bw_c = 2;
+    uint32_t line_index_c = 0;
+    uint8_t *block_buf_ptr_c = NULL;
+    uint8_t *block_buf_c[8] = {NULL};
+    uint8_t *out_buf_c = NULL;
+
+    /* Allocate memory for pixel block lines buffer */
+    if (JPEG_DECODE_IN_FORMAT_YUV420 == jpeg_dec_cfg->format_in)
+    {
+        out_buf_c = out_buf + jpeg_dec_cfg->img_width * jpeg_dec_cfg->img_height;
+        linesize = jpeg_dec_cfg->img_width;
+        linesize_align = jpeg_dec_cfg->img_width_align;
+        if (NULL == (block_buf_ptr_c = (uint8_t *)malloc(8*linesize_align)))
+        {
+            CLOGD("[%s:%d]malloc failed:size=%u", __func__, __LINE__, 8*linesize_align);
+            return CSK_DRIVER_ERROR;
+        }
+        for (i = 0; i < 8; i++)
+        {
+            block_buf_c[i] = block_buf_ptr_c + i * linesize_align;
+        }
+    }
+    else
+    {
+        linesize = jpeg_image_size(jpeg_dec_cfg->img_width, 1, jpeg_dec_cfg->format_in);
+        linesize_align = jpeg_image_size(jpeg_dec_cfg->img_width_align, 1, jpeg_dec_cfg->format_in);
+    }
+    if (NULL == (block_buf_ptr = (uint8_t *)malloc(jpeg_dec_cfg->sampling_v*linesize_align)))
+    {
+        CLOGD("[%s:%d]malloc failed:size=%u", __func__, __LINE__, jpeg_dec_cfg->sampling_v*linesize_align);
+        return CSK_DRIVER_ERROR;
+    }
+    for (i = 0; i < jpeg_dec_cfg->sampling_v; i++)
+    {
+        block_buf[i] = block_buf_ptr + i * linesize_align;
+    }
+
+    for(y = 0; y < jpeg_dec_cfg->img_height_align; y += jpeg_dec_cfg->sampling_v)
+    {
+        for(x = 0; x < jpeg_dec_cfg->img_width_align; x += jpeg_dec_cfg->sampling_h)
+        {
+            line_index = pixel_bw*x;
+            if (JPEG_DECODE_IN_FORMAT_GRAY == jpeg_dec_cfg->format_in)
+            {
+                /* Grab a pixel block for each component */
+                for(i = 0; i < jpeg_dec_cfg->sampling_v; i++)
+                {
+                    for(j = 0; j < jpeg_dec_cfg->sampling_h; j++)
+                    {
+                        block_buf[i][line_index+j*pixel_bw] = in_buf[pix_index++];
+                    }
+                }
+            }
+            else
+            {
+                if (CSK_JPEG_BLOCK_BASIC_PIXEL_NUM == jpeg_dec_cfg->sampling_h && CSK_JPEG_BLOCK_BASIC_PIXEL_NUM == jpeg_dec_cfg->sampling_v) /* 0x11 yuv444 */
+                {
+                    /* Input Y blocks */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            yb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Input Cb block */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            cbb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Input Cr block */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            crb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Grab a pixel block for each component */
+                    for(i = 0; i < jpeg_dec_cfg->sampling_v; i++)
+                    {
+                        for(j = 0; j < jpeg_dec_cfg->sampling_h; j++)
+                        {
+                            block_buf[i][line_index+j*pixel_bw] = yb[i][j];
+                            block_buf[i][line_index+j*pixel_bw+1] = cbb[i][j];
+                            block_buf[i][line_index+j*pixel_bw+2] = crb[i][j];
+                        }
+                    }
+                }
+                else if ((2*CSK_JPEG_BLOCK_BASIC_PIXEL_NUM) == jpeg_dec_cfg->sampling_h && (2*CSK_JPEG_BLOCK_BASIC_PIXEL_NUM) == jpeg_dec_cfg->sampling_v) /* 0x22 yuv420 */
+                {
+                    /* Input 4 Y blocks */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            yb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 8; j < 16; j++)
+                        {
+                            yb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+                    for(i = 8; i < 16; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            yb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+                    for(i = 8; i < 16; i++)
+                    {
+                        for(j = 8; j < 16; j++)
+                        {
+                            yb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Input Cb block */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            cbb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Input Cr block */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            crb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Grab a pixel block for each component */
+                    for(i = 0; i < jpeg_dec_cfg->sampling_v; i++)
+                    {
+                        for(j = 0; j < jpeg_dec_cfg->sampling_h; j++)
+                        {
+                            block_buf[i][line_index+j*pixel_bw] = yb[i][j];
+                        }
+                    }
+
+                    line_index_c = pixel_bw_c*x/2;
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            block_buf_c[i][line_index_c+j*pixel_bw_c] = cbb[i][j];
+                            block_buf_c[i][line_index_c+j*pixel_bw_c+1] = crb[i][j];
+                        }
+                    }
+                }
+                else /* 0x21 yuv422 */
+                {
+                    /* Input 2 Y blocks */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            yb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 8; j < 16; j++)
+                        {
+                            yb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Input Cb block */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            cbb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Input Cr block */
+                    for(i = 0; i < 8; i++)
+                    {
+                        for(j = 0; j < 8; j++)
+                        {
+                            crb[i][j] = in_buf[pix_index++];
+                        }
+                    }
+
+                    /* Grab a pixel block for each component */
+                    for(i = 0; i < jpeg_dec_cfg->sampling_v; i++)
+                    {
+                        for(j = 0; j < jpeg_dec_cfg->sampling_h; j++)
+                        {
+                            block_buf[i][line_index+j*pixel_bw] = yb[i][j];
+                            if (0 == j%2)
+                                block_buf[i][line_index+j*pixel_bw+1] = cbb[i][j/2];
+                            else
+                                block_buf[i][line_index+j*pixel_bw+1] = crb[i][j/2];
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Output the line buffer */
+        uint16_t v_tmp = jpeg_dec_cfg->sampling_v;
+        if ((y + jpeg_dec_cfg->sampling_v) > jpeg_dec_cfg->img_height)
+        {
+            v_tmp -= (jpeg_dec_cfg->img_height_align - jpeg_dec_cfg->img_height);
+        }
+        for (i = 0; i < v_tmp; i++)
+        {
+            memcpy(out_buf, block_buf[i], linesize);
+            out_buf += linesize;
+        }
+        if (JPEG_DECODE_IN_FORMAT_YUV420 == jpeg_dec_cfg->format_in)
+        {
+            v_tmp /= 2;
+            for (i = 0; i < v_tmp; i++)
+            {
+                memcpy(out_buf_c, block_buf_c[i], linesize);
+                out_buf_c += linesize;
+            }
+        }
+    }
+
+    if (block_buf_ptr)
+        free(block_buf_ptr);
+    if (block_buf_ptr_c)
+        free(block_buf_ptr_c);
+
+    return ret;
 }
 
 uint32_t jpeg_decoder_parse_jpg(const uint8_t *in_buf, uint32_t in_size, uint8_t **ecs_buf, uint8_t **ecs_buf_ori, Jpeg_InitTypeDef *jpeg_dec_cfg, uint32_t *qtable, uint32_t *huffmin, uint32_t *huffbase, uint32_t *huffsymbol)
@@ -1677,7 +2163,6 @@ uint32_t jpeg_decoder_parse_jpg(const uint8_t *in_buf, uint32_t in_size, uint8_t
     uint32_t i = 0;
     uint32_t j = 0;
     uint32_t index = 0;
-    uint32_t ecs_index = 0;
     uint8_t *jpeg_data = (uint8_t*)in_buf;
     uint8_t *ecs_data = NULL;
     uint8_t *ecs_data_ori = NULL;
@@ -1695,14 +2180,6 @@ uint32_t jpeg_decoder_parse_jpg(const uint8_t *in_buf, uint32_t in_size, uint8_t
     uint32_t code = 0;
     uint16_t lh = 0;
     uint32_t start_index = 0;
-
-    if (NULL == (ecs_data_ori = (uint8_t*)malloc(in_size + CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1)))
-    {
-        CLOGD("[%s:%d]malloc failed:size=%u", __func__, __LINE__, in_size);
-        return CSK_DRIVER_ERROR;
-    }
-    ecs_data = (uint8_t*)(((size_t)ecs_data_ori + CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1) & ~(CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1));
-    memset(ecs_data, 0, in_size);
 
     while(index < in_size)
     {
@@ -1779,26 +2256,17 @@ uint32_t jpeg_decoder_parse_jpg(const uint8_t *in_buf, uint32_t in_size, uint8_t
                     jpeg_dec_cfg->ht_index[i] = jpeg_data[index+2];
                     index += 2;
                 }
-                index += 3; /* Ss-8bit  Se-8bit  Ah-4bit Ai-4bit */
-                for(;;)
+                index += 4; /* Ss-8bit  Se-8bit  Ah-4bit Ai-4bit  ecs[0] */
+                jpeg_dec_cfg->ecs_size = in_size - index;
+                if (NULL == (ecs_data_ori = (uint8_t*)malloc(jpeg_dec_cfg->ecs_size + CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1)))
                 {
-                    index++;
-                    if (0xff == jpeg_data[index])
-                    {
-                        index++;
-                        if((jpeg_data[index] != 0x00) && ((jpeg_data[index]&0xf8) != 0xd0))
-                        {
-                            ecs_data[ecs_index++] = 0xff;
-                            ecs_data[ecs_index++] = 0xd9;
-                            goto marker;
-                        }
-                        else
-                        {
-                            ecs_data[ecs_index++] = 0xff;
-                        }
-                    }
-                    ecs_data[ecs_index++] = jpeg_data[index];
+                    CLOGD("[%s:%d]malloc failed:size=%u", __func__, __LINE__, jpeg_dec_cfg->ecs_size);
+                    return CSK_DRIVER_ERROR;
                 }
+                ecs_data = (uint8_t*)(((size_t)ecs_data_ori + CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1) & ~(CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1));
+                memcpy(ecs_data, in_buf + index, jpeg_dec_cfg->ecs_size);
+                HAL_FlushDCache_by_Addr((uint32_t*)ecs_data, jpeg_dec_cfg->ecs_size);
+                index = in_size;
             }break;
 
             case 0xdd : /* DRI */
@@ -1954,8 +2422,6 @@ uint32_t jpeg_decoder_parse_jpg(const uint8_t *in_buf, uint32_t in_size, uint8_t
         }
     }
 
-    HAL_FlushDCache_by_Addr((uint32_t*)ecs_data, ecs_index);
-    jpeg_dec_cfg->ecs_size = ecs_index;
     *ecs_buf = ecs_data;
     *ecs_buf_ori = ecs_data_ori;
 
@@ -1967,7 +2433,7 @@ uint32_t jpeg_decoder_parse_jpg(const uint8_t *in_buf, uint32_t in_size, uint8_t
 }
 
 
-uint32_t jpeg_decoder(const uint8_t *in_buf, uint32_t in_size, uint8_t *out_buf, uint16_t *width, uint16_t *height, Jpeg_DecoderCfg dec_cfg)
+uint32_t jpeg_decoder(const uint8_t *in_buf, uint32_t in_size, uint8_t *out_buf, Jpeg_EncoderCfg *dec_cfg)
 {
     int32_t ret = CSK_DRIVER_OK;
     uint32_t timeout = 0;
@@ -2014,9 +2480,9 @@ uint32_t jpeg_decoder(const uint8_t *in_buf, uint32_t in_size, uint8_t *out_buf,
     timeout = 1000000;    // us
     CHECK_EQ_TIMEOUT_EXIT(jpeg_gpdma_output_finish_cnt_get(), 0, timeout, error0);
 
-    *width = jpeg_dec_cfg.img_width;
-    *height = jpeg_dec_cfg.img_height;
-    jpeg_decoder_pixel_build(pix_output_buffer, out_buf, &dec_cfg, &jpeg_dec_cfg);
+    dec_cfg->width = jpeg_dec_cfg.img_width;
+    dec_cfg->height = jpeg_dec_cfg.img_height;
+    jpeg_decoder_pixel_build(pix_output_buffer, out_buf, &jpeg_dec_cfg);
 
 error0:
     //gpdma_reg_dump(gp_dma_ch2);
@@ -2052,6 +2518,188 @@ error1:
         pix_output_buffer_ori = NULL;
     }
 
+    return ret;
+}
+
+uint32_t jpeg_decoder_ext(const uint8_t *in_buf, uint32_t in_size, uint8_t *out_buf, Jpeg_EncoderCfg *dec_cfg)
+{
+#ifndef PIXEL_REBUILD_BY_HW     /* pixel rebuild by software,support gray/yuv444/yuv422/yuv420 */
+    int32_t ret = CSK_DRIVER_OK;
+    uint8_t i = 0;
+    uint32_t timeout = 0;
+    uint8_t *ecs_data = NULL;
+    uint8_t *ecs_data_ori = NULL;
+    uint8_t *pipo_buf[2] = {NULL, NULL};
+    uint8_t *pipo_buf_ori[2] = {NULL, NULL};
+    uint32_t pipo_buf_len = 0;
+    uint8_t *pix_output_buffer = NULL;
+    uint8_t *pix_output_buffer_ori = NULL;
+    Jpeg_InitTypeDef jpeg_dec_cfg;
+    Jpeg_EncoderCfg dec_cfg_ext;
+    memset(&jpeg_dec_cfg, 0, sizeof(jpeg_dec_cfg));
+    memset(&dec_cfg_ext, 0, sizeof(dec_cfg_ext));
+
+    /* parsing jpeg data,get ecs/qt/ */
+    if (CSK_DRIVER_OK != (ret = jpeg_decoder_parse_jpg(in_buf, in_size, &ecs_data, &ecs_data_ori, &jpeg_dec_cfg, jpeg_dec_qtable_golden, jpeg_dec_min_table_golden, jpeg_dec_base_table_golden, jpeg_dec_symbol_table_golden)))
+    {
+        CLOGD("[%s:%d]jpeg_decoder_parse_jpg failed,ret=%d", __func__, __LINE__, ret);
+        return ret;
+    }
+
+    jpeg_dec_cfg.mode = JPEG_MODE_DECODE;
+    jpeg_dec_cfg.pixel_size = jpeg_image_size(jpeg_dec_cfg.img_width_align, jpeg_dec_cfg.img_height_align, jpeg_dec_cfg.format_in);
+    jpeg_dec_cfg.src_size = jpeg_dec_cfg.ecs_size;
+
+    jpeg_init(&jpeg_dec_cfg);
+    jpeg_send_base_table(jpeg_dec_base_table_golden, sizeof(jpeg_dec_base_table_golden)/sizeof(uint32_t));
+    jpeg_send_min_table(jpeg_dec_min_table_golden, sizeof(jpeg_dec_min_table_golden)/sizeof(uint32_t));
+    jpeg_send_symbol_table(jpeg_dec_symbol_table_golden, sizeof(jpeg_dec_symbol_table_golden)/sizeof(uint32_t));
+    jpeg_send_quantization_table(jpeg_dec_qtable_golden, sizeof(jpeg_dec_qtable_golden)/sizeof(uint32_t) / 2);
+    jpeg_start();
+
+    dec_cfg_ext.width = jpeg_dec_cfg.img_width;
+    dec_cfg_ext.height = jpeg_dec_cfg.img_height;
+    dec_cfg_ext.input_format = jpeg_dec_cfg.format_in;
+
+    if (NULL == (pix_output_buffer_ori = (uint8_t*)malloc(jpeg_dec_cfg.pixel_size + CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1)))
+    {
+        CLOGD("[%s:%d]malloc pix_output_buffer failed:size=%u", __func__, __LINE__, jpeg_dec_cfg.pixel_size);
+        goto error1;
+    }
+    pix_output_buffer = (uint8_t*)(((size_t)pix_output_buffer_ori + CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1) & ~(CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1));
+    memset(pix_output_buffer, 0, jpeg_dec_cfg.pixel_size);
+    jpeg_decode_dma2d_init(dma_2d_ch6, dma_2d_ch8, &dec_cfg_ext);
+    jpeg_decode_dma2d_start(dma_2d_ch6, (void*)ecs_data, jpeg_dec_cfg.ecs_size/sizeof(uint32_t) + 1, dma_2d_ch8, (void*)pix_output_buffer, jpeg_dec_cfg.pixel_size/sizeof(uint32_t));
+    HAL_FlushDCache_by_Addr((uint32_t*)pix_output_buffer, jpeg_dec_cfg.pixel_size);
+
+    /* wait done */
+    timeout = 1000000;	  // us
+    CHECK_EQ_TIMEOUT_EXIT(jpeg_gpdma_output_finish_cnt_get(), 0, timeout, error0);
+
+    dec_cfg->width = jpeg_dec_cfg.img_width;
+    dec_cfg->height = jpeg_dec_cfg.img_height;
+    dec_cfg->input_format = jpeg_dec_cfg.format_in;
+    jpeg_decoder_pixel_build_ext(pix_output_buffer, out_buf, &jpeg_dec_cfg);
+
+    error0:
+    jpeg_decode_dma2d_stop(dma_2d_ch6, dma_2d_ch8);
+    error1:
+    jpeg_reg_dump();
+    jpeg_stop();
+    jpeg_deinit();
+
+    CLOGD("jpeg_dec_jpeg_buffer:		 0x%08x", in_buf);
+    CLOGD("jpeg_dec_ecs_buffer: 		 0x%08x,0x%08x,size=%u", ecs_data, ecs_data_ori, jpeg_dec_cfg.ecs_size);
+    CLOGD("jpeg_dec_pixout_buffer:       0x%08x,0x%08x", pix_output_buffer, pix_output_buffer_ori);
+    CLOGD("jpeg_dec_out_buffer: 		 0x%08x", out_buf);
+    CLOGD("qtable=0x%08x,base=0x%08x,min=0x%08x,symbol=0x%08x", jpeg_dec_qtable_golden, jpeg_dec_base_table_golden, jpeg_dec_min_table_golden, jpeg_dec_symbol_table_golden);
+
+    if(ret == 0)
+        CLOGD("[%s:%d] test SUCCESS", __func__, __LINE__);
+    else
+        CLOGD("[%s:%d] test FAILED", __func__, __LINE__);
+
+    /* release mem */
+    if (ecs_data_ori)
+    {
+        free(ecs_data_ori);
+        ecs_data = NULL;
+        ecs_data_ori = NULL;
+    }
+    if (pix_output_buffer_ori)
+    {
+        free(pix_output_buffer_ori);
+        pix_output_buffer = NULL;
+        pix_output_buffer_ori = NULL;
+    }
+
+#else     /* pixel rebuild by hardware,support gray/yuv444/yuv422 */
+
+    int32_t ret = CSK_DRIVER_OK;
+    uint8_t i = 0;
+    uint32_t timeout = 0;
+    uint8_t *ecs_data = NULL;
+    uint8_t *ecs_data_ori = NULL;
+    uint8_t *pipo_buf[2] = {NULL, NULL};
+    uint8_t *pipo_buf_ori[2] = {NULL, NULL};
+    uint32_t pipo_buf_len = 0;
+    Jpeg_InitTypeDef jpeg_dec_cfg;
+    memset(&jpeg_dec_cfg, 0, sizeof(jpeg_dec_cfg));
+
+    /* parsing jpeg data,get ecs/qt/ */
+    if (CSK_DRIVER_OK != (ret = jpeg_decoder_parse_jpg(in_buf, in_size, &ecs_data, &ecs_data_ori, &jpeg_dec_cfg, jpeg_dec_qtable_golden, jpeg_dec_min_table_golden, jpeg_dec_base_table_golden, jpeg_dec_symbol_table_golden)))
+    {
+        CLOGD("[%s:%d]jpeg_decoder_parse_jpg failed,ret=%d", __func__, __LINE__, ret);
+        return ret;
+    }
+
+    jpeg_dec_cfg.mode = JPEG_MODE_DECODE;
+    jpeg_dec_cfg.pixel_size = jpeg_image_size(jpeg_dec_cfg.img_width_align, jpeg_dec_cfg.img_height_align, jpeg_dec_cfg.format_in);
+    jpeg_dec_cfg.src_size = jpeg_dec_cfg.ecs_size;
+
+    jpeg_init(&jpeg_dec_cfg);
+    jpeg_send_base_table(jpeg_dec_base_table_golden, sizeof(jpeg_dec_base_table_golden)/sizeof(uint32_t));
+    jpeg_send_min_table(jpeg_dec_min_table_golden, sizeof(jpeg_dec_min_table_golden)/sizeof(uint32_t));
+    jpeg_send_symbol_table(jpeg_dec_symbol_table_golden, sizeof(jpeg_dec_symbol_table_golden)/sizeof(uint32_t));
+    jpeg_send_quantization_table(jpeg_dec_qtable_golden, sizeof(jpeg_dec_qtable_golden)/sizeof(uint32_t) / 2);
+    jpeg_start();
+
+    dec_cfg->width = jpeg_dec_cfg.img_width;
+    dec_cfg->height = jpeg_dec_cfg.img_height;
+    dec_cfg->input_format = jpeg_dec_cfg.format_in;
+
+    pipo_buf_len = jpeg_image_size(jpeg_dec_cfg.img_width_align, jpeg_dec_cfg.sampling_v, jpeg_dec_cfg.format_in);
+    for (i = 0; i < 2; i++)
+    {
+        if (NULL == (pipo_buf_ori[i] = (uint8_t*)malloc(pipo_buf_len + CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1)))
+        {
+            CLOGD("[%s:%d]malloc pipo_buf failed:size=%u", __func__, __LINE__, pipo_buf_len);
+            goto error1;
+        }
+        pipo_buf[i] = (uint8_t*)(((size_t)pipo_buf_ori[i] + CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1) & ~(CSK_JPEG_GPDMA_ADDR_ALIGNMENT - 1));
+        memset(pipo_buf[i], 0, pipo_buf_len);
+    }
+    jpeg_decode_dma2d_init(dma_2d_ch6, dma_2d_ch7, dma_2d_ch8, dec_cfg);
+    jpeg_decode_dma2d_start(dma_2d_ch6, (void*)ecs_data, jpeg_dec_cfg.ecs_size/sizeof(uint32_t) + 1, dma_2d_ch7, (void**)pipo_buf, pipo_buf_len/sizeof(uint32_t), dma_2d_ch8, (void*)out_buf, jpeg_dec_cfg.pixel_size/sizeof(uint32_t));
+    HAL_FlushDCache_by_Addr((uint32_t*)out_buf, jpeg_dec_cfg.pixel_size);
+
+    /* wait done */
+    timeout = 1000000;	  // us
+    CHECK_EQ_TIMEOUT_EXIT(jpeg_gpdma_output_finish_cnt_get(), 0, timeout, error0);
+
+    error0:
+    jpeg_decode_dma2d_stop(dma_2d_ch6, dma_2d_ch7, dma_2d_ch8);
+    error1:
+    jpeg_reg_dump();
+    jpeg_stop();
+    jpeg_deinit();
+
+    CLOGD("jpeg_dec_jpeg_buffer:		 0x%08x", in_buf);
+    CLOGD("jpeg_dec_ecs_buffer: 		 0x%08x,0x%08x,size=%u", ecs_data, ecs_data_ori, jpeg_dec_cfg.ecs_size);
+    CLOGD("jpeg_dec_pipo_buffer:		 0x%08x,0x%08x,0x%08x,0x%08x", pipo_buf[0], pipo_buf_ori[0], pipo_buf[1], pipo_buf_ori[1]);
+    CLOGD("jpeg_dec_out_buffer: 		 0x%08x", out_buf);
+    CLOGD("qtable=0x%08x,base=0x%08x,min=0x%08x,symbol=0x%08x", jpeg_dec_qtable_golden, jpeg_dec_base_table_golden, jpeg_dec_min_table_golden, jpeg_dec_symbol_table_golden);
+
+    if(ret == 0)
+        CLOGD("[%s:%d] test SUCCESS", __func__, __LINE__);
+    else
+        CLOGD("[%s:%d] test FAILED", __func__, __LINE__);
+
+    /* release mem */
+    if (ecs_data_ori)
+    {
+        free(ecs_data_ori);
+        ecs_data = NULL;
+        ecs_data_ori = NULL;
+    }
+    for (i = 0; i < 2; i++)
+    {
+        if (pipo_buf_ori[i])
+        {
+            free(pipo_buf_ori[i]);
+        }
+    }
+#endif
     return ret;
 }
 

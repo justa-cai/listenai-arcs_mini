@@ -1,4 +1,3 @@
-#include "quota_qrcode_presenter.h"
 #include "quota_qrcode_view.h"
 #include "model_qrcode.h"
 #include "lisa_ui.h"

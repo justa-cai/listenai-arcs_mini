@@ -67,8 +67,8 @@ typedef uint16_t TickType_t;
 #define portMAX_DELAY           ( TickType_t )0xffff
 #else
 /* RISC-V TIMER is 64-bit long */
-typedef uint64_t TickType_t;
-#define portMAX_DELAY           ( TickType_t )0xFFFFFFFFFFFFFFFFULL
+typedef uint32_t TickType_t;
+#define portMAX_DELAY           ( TickType_t )0xFFFFFFFFU
 #endif
 /*-----------------------------------------------------------*/
 

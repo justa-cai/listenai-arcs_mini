@@ -81,12 +81,18 @@ acomp_stream_channel_t* acomp_stream_ipc_channel_create(acomp_stream_t* stream,u
 
     if(!channel){
         LISA_LOGE(TAG, "Failed to create channel %d", chn);
+        psram_free(mem_ptr);
         return NULL;
     }
+    channel->shared_mem_ptr = mem_ptr;
+    channel->shared_mem_size = mem_size;
 
     ipc_desc = psram_malloc_align(chn_desc.ring.align, sizeof(acomp_ipc_stream_create_desc_t));
     if (ipc_desc == NULL) {
         LISA_LOGE(TAG, "Failed to allocate ipc stream create memory");
+        psram_free(mem_ptr);
+        channel->shared_mem_ptr = NULL;
+        channel->shared_mem_size = 0;
         stream->ops.channel_destroy(channel);
         return NULL;
     }
@@ -103,6 +109,10 @@ acomp_stream_channel_t* acomp_stream_ipc_channel_create(acomp_stream_t* stream,u
     ret = acomp_ipc_build_frame_send_sync(dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
                                         ACOMP_IPC_CMD_STREAM_CREATE, 0, ipc_desc, sizeof(acomp_ipc_stream_create_desc_t));
     if(ret != ACOMP_ERR_OK){
+        psram_free(ipc_desc);
+        psram_free(mem_ptr);
+        channel->shared_mem_ptr = NULL;
+        channel->shared_mem_size = 0;
         stream->ops.channel_destroy(channel);
         return NULL;
     }
@@ -111,6 +121,53 @@ acomp_stream_channel_t* acomp_stream_ipc_channel_create(acomp_stream_t* stream,u
 }
 
 
-int acomp_stream_ipc_channel_destroy(uint32_t chn){
-    
+int acomp_stream_ipc_channel_destroy(acomp_stream_t* stream, uint32_t dev_index, uint32_t chn){
+    acomp_ipc_stream_destroy_desc_t ipc_desc;
+    acomp_stream_channel_t *channel;
+    int ret;
+
+    if (stream == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    if (chn >= ACOMP_STREAM_MAX_CHANNEL) {
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    channel = stream->ch[chn];
+    if (channel == NULL) {
+        return ACOMP_ERR_OK;
+    }
+
+    memset(&ipc_desc, 0, sizeof(ipc_desc));
+    ipc_desc.index = chn;
+    ret = acomp_ipc_build_frame_send_sync(dev_index,
+                                          ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
+                                          ACOMP_IPC_CMD_STREAM_DESTROY,
+                                          0,
+                                          &ipc_desc,
+                                          sizeof(ipc_desc));
+    if (ret != ACOMP_ERR_OK) {
+        LISA_LOGE(TAG, "destroy remote stream chn(%u) failed: %d", chn, ret);
+        return ret;
+    }
+
+    if (channel->shared_mem_ptr != NULL) {
+        psram_free(channel->shared_mem_ptr);
+        channel->shared_mem_ptr = NULL;
+        channel->shared_mem_size = 0;
+    }
+
+    if (stream->ops.channel_destroy == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    ret = stream->ops.channel_destroy(channel);
+    if (ret != ACOMP_STREAM_SUCCESS) {
+        LISA_LOGE(TAG, "destroy local stream chn(%u) failed: %d", chn, ret);
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    stream->ch[chn] = NULL;
+    return ACOMP_ERR_OK;
 }

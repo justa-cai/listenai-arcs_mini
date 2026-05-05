@@ -44,9 +44,21 @@ if ARCS_HAL_LSF
         default y
 endif
 
+config ARCS_HAL_CRYPTO
+    bool "Enable ARCS HAL Crypto (HSU/AES/ECC/RSA/SHA)"
+    default n
+
 config ARCS_HAL_DCACHE_COHERENT
     bool "Enable ARCS HAL DCACHE COHERENT"
     default y
+
+config ARCS_HAL_SDMMC_SDNAND_COMPAT
+    bool "Enable SD NAND compatibility for SDMMC HAL"
+    default n
+    help
+        Enable SD NAND specific timing and initialization adjustments in the
+        SDMMC HAL. Leave this disabled for the default eMMC configuration and
+        enable it only in product prj.conf files that use SD NAND.
 
 config DUAL_FLASH
     bool "Enable ARCS HAL Dual Flash"

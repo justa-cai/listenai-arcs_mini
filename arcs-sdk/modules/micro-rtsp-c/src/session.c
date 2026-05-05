@@ -8,11 +8,15 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include "rtsp.h"
+#include "rtsp_streamer_timing.h"
 #include "streamer.h"
 #include "session.h"
+#include "session_send_policy.h"
+#include "streamer_transport_policy.h"
 
 #define RTSP_WRITE_RESPONSE(format, ...) snprintf(response, sizeof(response), format, __VA_ARGS__)
 
@@ -21,11 +25,102 @@ static char sdp_buf[1024];
 static char url_buf[1024];
 
 bool rtsp_session_parse_request(rtsp_session_t* session, char* request, uint32_t request_size);
+char const* rtsp_session_generate_date_header(void);
+
+static void rtsp_session_send_status(rtsp_session_t* session, const char *status)
+{
+	static char response[256];
+
+	RTSP_WRITE_RESPONSE(
+		"RTSP/1.0 %s\r\nCSeq: %u\r\n"
+		"%s\r\n\r\n",
+		status,
+		session->cseq,
+		rtsp_session_generate_date_header()
+	);
+
+	rtsp_session_send(session, response, strlen(response));
+}
 
 void rtsp_session_handle_command_option(rtsp_session_t* session);
 void rtsp_session_handle_command_describe(rtsp_session_t* session);
 void rtsp_session_handle_command_setup(rtsp_session_t* session);
 void rtsp_session_handle_command_play(rtsp_session_t* session);
+void rtsp_session_handle_command_teardown(rtsp_session_t* session);
+
+static int rtsp_socket_send_all(int sock, const void *buf, size_t len) {
+	const uint8_t *ptr = (const uint8_t *)buf;
+	size_t sent = 0;
+
+	while (sent < len) {
+		int ret = send(sock, ptr + sent, len - sent, 0);
+		if (ret <= 0) {
+			return -1;
+		}
+		sent += (size_t)ret;
+	}
+
+	return 0;
+}
+
+static void rtsp_socket_configure_media_client(int sock) {
+	int flag = 1;
+
+#ifdef TCP_NODELAY
+	if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag)) != 0) {
+		printf("+ rtsp set TCP_NODELAY failed: sock=%d errno=%d\n", sock, errno);
+	}
+#endif
+}
+
+static void rtsp_socket_set_send_timeout(int sock, uint32_t timeout_ms) {
+	struct timeval tv;
+
+	tv.tv_sec = (long)(timeout_ms / 1000U);
+	tv.tv_usec = (long)((timeout_ms % 1000U) * 1000U);
+
+	if (setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)) != 0) {
+		printf("+ rtsp set send timeout failed: sock=%d timeout=%u errno=%d\n",
+		       sock, timeout_ms, errno);
+	}
+}
+
+int rtsp_session_send(rtsp_session_t* session, const void *buf, size_t len) {
+	int ret;
+	int saved_errno = 0;
+	uint32_t timeout_ms;
+	bool is_media_packet;
+
+	if (session == NULL || buf == NULL || len == 0) {
+		return -1;
+	}
+
+	is_media_packet = rtsp_send_policy_is_interleaved_media_packet(buf, len);
+	timeout_ms = rtsp_send_policy_timeout_ms(buf, len);
+
+	if (session->send_lock != NULL) {
+		rtos_mutex_lock(session->send_lock);
+	}
+
+	rtsp_socket_set_send_timeout(session->client, timeout_ms);
+	ret = rtsp_socket_send_all(session->client, buf, len);
+	if (ret != 0) {
+		saved_errno = errno;
+		if (!session->is_stopped) {
+			printf("+ rtsp %s send failed: session=%d timeout=%u errno=%d, stopping session\n",
+			       is_media_packet ? "media" : "control",
+			       session->id, timeout_ms, saved_errno);
+			session->is_stopped = true;
+		}
+		errno = saved_errno;
+	}
+
+	if (session->send_lock != NULL) {
+		rtos_mutex_unlock(session->send_lock);
+	}
+
+	return ret;
+}
 
 
 
@@ -57,12 +152,23 @@ void rtsp_session_init(rtsp_session_t* session, int client, rtsp_streamer_t* str
 	session->command.type = RTSP_UNKNOWN;
 	session->is_debug = false;
 	session->peer_addr = 0;
+	session->send_lock = NULL;
+	if (rtos_mutex_create(&session->send_lock) != 0) {
+		session->send_lock = NULL;
+	}
+	rtsp_socket_configure_media_client(client);
 }
 
 void rtsp_session_deinit(rtsp_session_t* session) {
-	rtsp_streamer_deinit_udp_transport(session->streamer);
-	if (session->streamer->audio_enabled) {
-		rtsp_streamer_deinit_audio_udp_transport(session->streamer);
+	if (rtsp_streamer_close_udp_transport_on_session_deinit()) {
+		rtsp_streamer_deinit_udp_transport(session->streamer);
+		if (session->streamer->audio_enabled) {
+			rtsp_streamer_deinit_audio_udp_transport(session->streamer);
+		}
+	}
+	if (session->send_lock != NULL) {
+		rtos_mutex_delete(session->send_lock);
+		session->send_lock = NULL;
 	}
 	close(session->client);
 }
@@ -321,20 +427,20 @@ bool rtsp_session_parse_request(rtsp_session_t* session, char* request, uint32_t
 					return false;
 
 				last_char = *next_part;
+				*next_part = '\0';
 
 				if (0 == strncmp(cursor, "client_port=", 12)) {
-					char *p = (cursor += 12);
+					unsigned int rtp_port = 0;
+					unsigned int rtcp_port = 0;
+					int ports = sscanf(cursor + 12, "%u-%u", &rtp_port, &rtcp_port);
 
-					while (isdigit(*p))
-						++p;
-
-					if (p == cursor)
+					if (ports <= 0 || rtp_port == 0U)
 						return false;
 
-					*p = '\0';
-
-					session->rtp_port = atoi(cursor);
-					session->rtcp_port = session->rtp_port + 1;
+					session->rtp_port = (uint16_t)rtp_port;
+					session->rtcp_port = (ports >= 2 && rtcp_port != 0U) ?
+					                     (uint16_t)rtcp_port :
+					                     (uint16_t)(session->rtp_port + 1U);
 
 					if (session->is_debug) printf("+ got client port: %u\n", session->rtp_port);
 				}
@@ -373,9 +479,7 @@ rtsp_command rtsp_session_handle_request(rtsp_session_t* session, char* request,
 				rtsp_session_handle_command_play(session);
 				break;
 			case RTSP_TEARDOWN:
-				// TEARDOWN handled in rtsp_session_start by setting is_stopped
-				printf("+ TEARDOWN received, stopping session\n");
-				session->is_stopped = true;
+				rtsp_session_handle_command_teardown(session);
 				break;
 			default:
 				printf("handle_request: unknown command type: %d\n", session->command.type);
@@ -397,7 +501,7 @@ void rtsp_session_handle_command_option(rtsp_session_t* session) {
 		session->cseq
 	);
 
-	send(session->client, response, strlen(response), 0);
+	rtsp_session_send(session, response, strlen(response));
 }
 
 bool rtsp_session_validate_stream_id(rtsp_session_t* session) {
@@ -438,7 +542,7 @@ void rtsp_session_handle_command_describe(rtsp_session_t* session) {
 			rtsp_session_generate_date_header()
 		);
 
-		send(session->client, response, strlen(response), 0);
+		rtsp_session_send(session, response, strlen(response));
 		return;
 	}
 
@@ -486,12 +590,13 @@ void rtsp_session_handle_command_describe(rtsp_session_t* session) {
 		snprintf(sdp_buf + sdp_offset, sizeof(sdp_buf) - sdp_offset,
 		  "m=audio 0 RTP/AVP %u\r\n"
 		  "c=IN IP4 0.0.0.0\r\n"
-		  "a=rtpmap:%u %s/%u\r\n"
+		  "a=rtpmap:%u %s/%u/%u\r\n"
 		  "a=control:track2\r\n",
 		  session->streamer->audio_config.payload_type,
 		  session->streamer->audio_config.payload_type,
 		  session->streamer->audio_config.codec_name,
-		  session->streamer->audio_config.sample_rate
+		  session->streamer->audio_config.sample_rate,
+		  session->streamer->audio_config.channels
 		);
 	}
 
@@ -524,7 +629,8 @@ void rtsp_session_handle_command_describe(rtsp_session_t* session) {
 		printf("+ DESCRIBE response (%d bytes):\n%s\n", (int)strlen(response), response);
 	}
 
-	int sent = send(session->client, response, strlen(response), 0);
+	int sent = rtsp_session_send(session, response, strlen(response)) == 0 ?
+	           (int)strlen(response) : -1;
 
 	if (session->is_debug) {
 		printf("+ DESCRIBE sent: %d bytes (expected %d)\n", sent, (int)strlen(response));
@@ -560,8 +666,14 @@ void rtsp_session_handle_command_setup(rtsp_session_t* session) {
 	if (is_audio_track && session->streamer->audio_enabled) {
 		// Initialize audio transport
 		if (!session->is_tcp_transport) {
+			if (session->rtp_port == 0 || session->rtcp_port == 0) {
+				printf("+ invalid audio UDP transport: missing client_port\n");
+				rtsp_session_send_status(session, "461 Unsupported Transport");
+				return;
+			}
 			if (!rtsp_streamer_init_audio_udp_transport(session->streamer)) {
 				printf("+ failed to init audio UDP transport\n");
+				rtsp_session_send_status(session, "461 Unsupported Transport");
 				return;
 			}
 		}
@@ -589,8 +701,15 @@ void rtsp_session_handle_command_setup(rtsp_session_t* session) {
 		}
 	} else {
 		// Video track (track1) - original logic
+		if (!session->is_tcp_transport &&
+		    (session->rtp_port == 0 || session->rtcp_port == 0)) {
+			printf("+ invalid video UDP transport: missing client_port\n");
+			rtsp_session_send_status(session, "461 Unsupported Transport");
+			return;
+		}
 		if (!rtsp_session_init_transport(session)) {
 			printf("+ failed to init session transport\n");
+			rtsp_session_send_status(session, "461 Unsupported Transport");
 			return;
 		}
 
@@ -627,15 +746,21 @@ void rtsp_session_handle_command_setup(rtsp_session_t* session) {
 		session->id
 	);
 
-	send(session->client, response, strlen(response), 0);
+	rtsp_session_send(session, response, strlen(response));
 }
 
 void rtsp_session_handle_command_play(rtsp_session_t* session) {
 	static char response[1024];
 	static char rtp_info[512];
+	bool starting_stream;
+
+	starting_stream = !session->is_streaming;
 
 	// Enable streaming
 	session->is_streaming = true;
+	if (starting_stream) {
+		rtsp_streamer_reset_media_timing(session->streamer);
+	}
 
 	if (session->is_debug) {
 		printf("+ PLAY: enabled streaming (is_streaming=%d, is_tcp=%d, video_port=%d, audio_port=%d)\n",
@@ -668,7 +793,24 @@ void rtsp_session_handle_command_play(rtsp_session_t* session) {
 		rtp_info
 	);
 
-	send(session->client, response, strlen(response), 0);
+	rtsp_session_send(session, response, strlen(response));
+}
+
+void rtsp_session_handle_command_teardown(rtsp_session_t* session) {
+	static char response[1024];
+
+	RTSP_WRITE_RESPONSE(
+		"RTSP/1.0 200 OK\r\nCSeq: %u\r\n"
+		"%s\r\n"
+		"Session: %i\r\n\r\n",
+		session->cseq,
+		rtsp_session_generate_date_header(),
+		session->id
+	);
+
+	rtsp_session_send(session, response, strlen(response));
+	printf("+ TEARDOWN received, stopping session\n");
+	session->is_stopped = true;
 }
 
 static inline int rtsp_client_read_tm(int client, char *buf, size_t size, uint32_t timeout_ms) {
@@ -748,7 +890,7 @@ bool rtsp_session_start(rtsp_session_t* session, uint32_t read_timeout_ms) {
 
 			if (state == HDR_STATE_INVALID) {
 				int len = snprintf(received, sizeof(received), "RTSP/1.0 400 Bad Request\r\nCSeq: %u\r\n\r\n", session->cseq);
-				send(session->client, received, len, 0);
+				rtsp_session_send(session, received, len);
 				buf_pos = 0;
 				return false;
 			}

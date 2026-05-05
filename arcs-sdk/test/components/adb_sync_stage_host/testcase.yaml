@@ -1,0 +1,5 @@
+tests:
+  test.adb_sync_stage_host:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"

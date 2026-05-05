@@ -29,7 +29,7 @@ config MEM_HEAP_SIZE
 menu "SRAM"
 config MEM_SRAM_BASE
 	hex "base address"
-	default 0x20049000 if ARCS_AP_CORE
+	default 0x20034800 if ARCS_AP_CORE
 	default 0x20010000
 	help
 		SoC SRAM 起始地址。AP/CP 核心使用不同的 SRAM 窗口。
@@ -37,19 +37,20 @@ config MEM_SRAM_BASE
 
 config MEM_SRAM_SIZE
 	hex "size"
-	default 0x0000F800 if ARCS_AP_CORE
-	default 0x00030000
+	default 0x00013800 if ARCS_AP_CORE
+	default 0x00024800
 	help
 		SoC SRAM 大小。
-		CP 默认 192KB（0x20010000-0x20040000）。
-		AP 默认 62KB（0x20049000-0x20058800）。
+		CP 默认 146KB（0x20010000-0x20034800）。
+		AP 默认 78KB（0x20034800-0x20048000）。
 		双核分区时可按核心调整。
 endmenu
 
 menu "PSRAM"
 config MEM_PSRAM_BASE
 	hex "base address"
-	default 0x28000000
+	default 0x28000000 if ARCS_AP_CORE
+	default 0x28800000 if ARCS_CP_CORE
 	help
 		外部 PSRAM 起始地址，由芯片硬件决定。
 		仅双核内存分区场景可覆盖。
@@ -117,14 +118,14 @@ config MEM_LUNA_SIZE
 
 config MEM_LUNA_SHARED_BASE
 	hex "shared memory base address"
-	default 0x20042000
+	default 0x20048000
 	help
-		LUNA 共享内存起始地址，必须在 0x20040000 起始的 64KB 区域内。
+		LUNA 共享内存起始地址，必须在 0x20040000 起始的 448KB 区域内。
 		双核分区时需在 prj.conf 中根据内存分区覆盖。
 
 config MEM_LUNA_SHARED_SIZE
 	hex "shared memory size"
-	default 0x00007000
+	default 0x00006000
 	help
 		LUNA 共享内存大小。设为 0 可禁用 LUNA 共享内存区域。
 endmenu
@@ -148,10 +149,10 @@ config MEM_IPC_ISOLATED
 
 config MEM_IPC_BASE
 	hex "base address"
-	default 0x20040000
+	default 0x2004E000
 	depends on MEM_IPC_ISOLATED
 	help
-		IPC 共享内存起始地址。位于 CP SRAM 之后（0x20040000）。
+		IPC 共享内存起始地址。位于 LUNA 共享内存之后（0x2004E000）。
 		通常无需覆盖。
 
 config MEM_IPC_SIZE
@@ -163,16 +164,16 @@ endmenu
 menu "Algorithm RAM"
 config MEM_APRAM_BASE
 	hex "base address"
-	default 0x20058800
+	default 0x20050000
 	help
 		算法专用 SRAM 起始地址。
 		双核分区时需在 prj.conf 中根据内存布局覆盖。
 
 config MEM_APRAM_SIZE
 	hex "size"
-	default 0x00057800
+	default 0x00060000
 	help
-		算法专用 SRAM 大小（默认 350KB）。设为 0 表示不使用。
+		算法专用 SRAM 大小（默认 384KB）。设为 0 表示不使用。
 		不同项目可按需调整，注意避免与其他 SRAM 区域重叠。
 endmenu
 

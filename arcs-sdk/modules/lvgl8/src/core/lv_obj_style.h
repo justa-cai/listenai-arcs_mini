@@ -202,7 +202,11 @@ lv_part_t lv_obj_style_get_selector_part(lv_style_selector_t selector);
 
 #include "lv_obj_style_gen.h"
 
-static inline __attribute__((always_inline)) void lv_obj_set_style_pad_all(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
+#ifndef LVGL_FUNC_ALWAYS_INLINE
+    #define LVGL_FUNC_ALWAYS_INLINE __attribute__((always_inline))
+#endif
+
+static inline LVGL_FUNC_ALWAYS_INLINE void lv_obj_set_style_pad_all(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
 {
     lv_obj_set_style_pad_left(obj, value, selector);
     lv_obj_set_style_pad_right(obj, value, selector);
@@ -210,25 +214,25 @@ static inline __attribute__((always_inline)) void lv_obj_set_style_pad_all(struc
     lv_obj_set_style_pad_bottom(obj, value, selector);
 }
 
-static inline __attribute__((always_inline)) void lv_obj_set_style_pad_hor(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
+static inline LVGL_FUNC_ALWAYS_INLINE void lv_obj_set_style_pad_hor(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
 {
     lv_obj_set_style_pad_left(obj, value, selector);
     lv_obj_set_style_pad_right(obj, value, selector);
 }
 
-static inline __attribute__((always_inline)) void lv_obj_set_style_pad_ver(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
+static inline LVGL_FUNC_ALWAYS_INLINE void lv_obj_set_style_pad_ver(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
 {
     lv_obj_set_style_pad_top(obj, value, selector);
     lv_obj_set_style_pad_bottom(obj, value, selector);
 }
 
-static inline __attribute__((always_inline)) void lv_obj_set_style_pad_gap(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
+static inline LVGL_FUNC_ALWAYS_INLINE void lv_obj_set_style_pad_gap(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
 {
     lv_obj_set_style_pad_row(obj, value, selector);
     lv_obj_set_style_pad_column(obj, value, selector);
 }
 
-static inline __attribute__((always_inline)) void lv_obj_set_style_size(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
+static inline LVGL_FUNC_ALWAYS_INLINE void lv_obj_set_style_size(struct _lv_obj_t * obj, lv_coord_t value, lv_style_selector_t selector)
 {
     lv_obj_set_style_width(obj, value, selector);
     lv_obj_set_style_height(obj, value, selector);
@@ -236,7 +240,7 @@ static inline __attribute__((always_inline)) void lv_obj_set_style_size(struct _
 
 lv_text_align_t lv_obj_calculate_style_text_align(const struct _lv_obj_t * obj, lv_part_t part, const char * txt);
 
-static inline __attribute__((always_inline)) lv_coord_t lv_obj_get_style_transform_zoom_safe(const struct _lv_obj_t * obj, uint32_t part)
+static inline LVGL_FUNC_ALWAYS_INLINE lv_coord_t lv_obj_get_style_transform_zoom_safe(const struct _lv_obj_t * obj, uint32_t part)
 {
     int16_t zoom = lv_obj_get_style_transform_zoom(obj, part);
     return zoom != 0 ? zoom : 1;

@@ -132,7 +132,7 @@ static void QSPI_LCD_Reset(void)
     ap_cfg_qspi1_clk_enable();
 
     ap_cfg_qspi1_clk_sel();
-    ap_cfg_qspi1_clk_div_m(2);
+    ap_cfg_qspi1_clk_div_m(1);
     ap_cfg_qspi1_clk_div_n(1);
     ap_cfg_qspi1_clk_inv();
 
@@ -540,8 +540,10 @@ void QSPI_LCD_Wait_Done(void *spi_dev)
     // wait ENDINT ISR is called if ENDINT is enabled, otherwise
     // wait all TX data is fetched from RAM into TX FIFO (NOT sent out on SPI data line), or
     // wait all RX data is fetched from RX FIFO into RAM (already received in on SPI data line)
+
+    while(!spi->reg->REG_STATUS.bit.TXEMPTY);
 #if 1
-    while (spi->info->status.bit.busy);
+    while(spi->info->status.bit.busy);
 #else
     uint32_t timeout = 60000;
     while (spi->info->status.bit.busy)
@@ -799,6 +801,7 @@ QSPI_LCD_SetDMASize(void *spi_dev, uint32_t num)
     }
 
     spi->reg->REG_LCD_TX.all = num;            // byte
+    spi->reg->REG_TRANSCTRL.bit.TRANSMODE = SPI_TRANSMODE_WRONLY;
     spi->reg->REG_TRANSCTRL.bit.RDTRANCNT = 511;
     spi->reg->REG_TRANSCTRL.bit.WRTRANCNT = 511;
     spi->reg->REG_CMD.all = 0x12;

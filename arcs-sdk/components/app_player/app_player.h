@@ -38,6 +38,13 @@ typedef enum {
  */
 typedef int (*app_player_pa_ctrl_cb_t)(int onoff);
 
+/**
+ * @brief PCM 输出回调函数类型
+ * @param data  PCM 数据指针
+ * @param size  数据大小（字节）
+ */
+typedef void (*app_player_pcm_output_cb_t)(char *data, int size);
+
 // ==================== 音频焦点管理类型（可选功能） ====================
 
 #ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
@@ -106,7 +113,8 @@ typedef struct {
  * @brief app_player 初始化配置结构体
  */
 typedef struct {
-    app_player_pa_ctrl_cb_t pa_ctrl_callback;  /**< PA 控制回调函数（必填） */
+    app_player_pa_ctrl_cb_t pa_ctrl_callback;      /**< PA 控制回调函数（必填） */
+    app_player_pcm_output_cb_t pcm_output_callback; /**< PCM 输出回调（可选，NULL 则使用默认 lisa_audio） */
 
 #ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
     const app_player_focus_channel_config_t *focus_configs; /**< 焦点通道配置数组（可选） */

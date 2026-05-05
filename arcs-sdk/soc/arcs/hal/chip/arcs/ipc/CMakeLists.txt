@@ -30,6 +30,7 @@ if(CONFIG_ARCS_HAL_IPC)
     )
 
     listenai_include_directories(
+        ${ARCS_HAL_LIB_PATH}/chip/arcs/ipc
         ${ARCS_HAL_LIB_PATH}/chip/arcs/include/ipc/ipc_core
         ${ARCS_HAL_LIB_PATH}/chip/arcs/ipc/ipc_core
         ${ARCS_HAL_LIB_PATH}/chip/arcs/ipc/ipc_utils

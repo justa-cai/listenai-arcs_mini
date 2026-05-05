@@ -1,0 +1,7 @@
+tests:
+  samples.lvgl8.rlottie:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "LVGL8 rlottie start"

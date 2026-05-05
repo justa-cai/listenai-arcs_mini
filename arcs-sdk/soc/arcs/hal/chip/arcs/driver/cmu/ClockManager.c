@@ -2696,7 +2696,7 @@ uint32_t CRM_GetDualtimerFreq(){
 #if (IC_BOARD == 0)
     return IC_BOARD_FPGA_FIX_FREQ;
 #else
-    return  CRM_GetCmn32kSrcFreq();
+    return  CRM_GetCmn32kSrcFreq() / 2;
 #endif
 }
 /**

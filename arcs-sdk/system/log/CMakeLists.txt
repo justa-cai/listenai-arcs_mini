@@ -1,3 +1,5 @@
+if (CONFIG_LOG)
+
 listenai_library_sources(
     lisa_log.c
 )
@@ -15,3 +17,4 @@ if (DEFINED CONFIG_LOG_BACKEND_SEGGER_RTT)
 endif()
 
 listenai_include_directories(./)
+endif()

@@ -56,6 +56,15 @@ bool power_is_usb_plugged(void);
  */
 void power_shutdown(void);
 
+/**
+ * @brief 软复位进 boot（保 AON 让 stage0 能看到 boot_info）
+ *
+ * 复位前用 AON IOMUX 的 force-output 把 PWR_LOCK latch 锁到高，让 CMN SW
+ * reset 过程中 GPIO peripheral 掉 drive 的窗口也不会放开 MOSFET，电池
+ * 模式下机器不会因此掉电。不会返回。
+ */
+void power_reboot_soft(void) __attribute__((noreturn));
+
 #ifdef __cplusplus
 }
 #endif

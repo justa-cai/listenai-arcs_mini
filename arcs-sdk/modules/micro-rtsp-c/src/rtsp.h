@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <sys/types.h>
+#include "rtos_al.h"
 #include "linked_list.h"
 
 #define RTSP_BUFFER_SIZE	10000
@@ -100,6 +101,7 @@ typedef struct {
 	uint16_t audio_rtp_port;
 	uint16_t audio_rtcp_port;
 	uint32_t peer_addr;
+	rtos_mutex send_lock;
 } rtsp_session_t;
 
 #endif // __RTSP__H

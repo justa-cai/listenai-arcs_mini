@@ -8,7 +8,7 @@
 #ifndef BT_SINK_H_
 #define BT_SINK_H_
 
-#include "../bt_audio_types.h"
+#include "bt_audio_types.h"
 
 #ifdef __cplusplus
 extern "C" {

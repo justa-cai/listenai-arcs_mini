@@ -57,6 +57,10 @@ static struct netif_handle net_if_handle;
 #error "PBUF_LINK_ENCAPSULATION_HLEN must be at least NET_AL_TX_HEADROOM"
 #endif
 
+static uint32_t net_keep_alive_period = NET_KEEP_ALIVE_PERIOD;
+static uint32_t net_keep_alive_period_current;
+static rtos_timer net_arp_timer_handle;
+
 #ifdef TX_BUF_COPY
 rtos_queue net_tx_queue_buf;
 rtos_queue net_tx_queue_short_buf;
@@ -1195,7 +1199,7 @@ static int32_t net_etharp_send(struct netif *netif, const struct eth_addr *ethsr
     return result;
 }
 
-void net_arp_announce(void)
+static void net_arp_announce(void)
 {
     struct netif *netif;
     const ip4_addr_t *ipaddr;
@@ -1207,4 +1211,44 @@ void net_arp_announce(void)
         net_etharp_send(netif, (struct eth_addr *)netif->hwaddr, &ethbroadcast,
                     (struct eth_addr *)netif->hwaddr, ipaddr, &ethzero, ipaddr, ARP_REQUEST);
     }
+}
+
+static void net_keep_alive_cb(rtos_timer timer)
+{
+    net_arp_announce();
+    if (net_keep_alive_period_current != net_keep_alive_period)
+    {
+        net_keep_alive_period_current = net_keep_alive_period;
+        rtos_timer_schedule(timer, net_keep_alive_period_current);
+    }
+}
+
+int32_t net_set_keep_alive_period(uint32_t period)
+{
+    net_keep_alive_period = period;
+
+    return 0;
+}
+
+int32_t net_enable_keep_alive(void)
+{
+    if (net_arp_timer_handle == NULL)
+    {
+        net_arp_timer_handle = rtos_timer_create(NULL, true, 1, net_keep_alive_cb);
+        net_keep_alive_period_current = 1;
+        rtos_timer_start(net_arp_timer_handle);
+    }
+
+    return 0;
+}
+
+int32_t net_disable_keep_alive(void)
+{
+    if (net_arp_timer_handle != NULL)
+    {
+        rtos_timer_stop(net_arp_timer_handle);
+        net_arp_timer_handle = NULL;
+    }
+
+    return 0;
 }

@@ -32,12 +32,22 @@ static int service_brightness_clamp(int brightness)
     return brightness;
 }
 
+static int service_brightness_to_hw(int brightness)
+{
+    brightness = service_brightness_clamp(brightness);
+    if (brightness == 0 || brightness == 100) {
+        return brightness;
+    }
+
+    return (brightness * brightness + 99) / 100;
+}
+
 static void service_brightness_apply(int brightness)
 {
     brightness = service_brightness_clamp(brightness);
 
     if (s_display_device) {
-        int hw_brightness = brightness;
+        int hw_brightness = service_brightness_to_hw(brightness);
         lisa_display_set_brightness(s_display_device, hw_brightness);
         LOGI("Brightness set to %d (hw: %d)", brightness, hw_brightness);
     } else {

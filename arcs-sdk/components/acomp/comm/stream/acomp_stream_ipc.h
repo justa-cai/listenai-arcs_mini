@@ -20,6 +20,7 @@ typedef struct{
 }acomp_stream_chn_create_desc_t;
 
 acomp_stream_channel_t* acomp_stream_ipc_channel_create(acomp_stream_t* stream,uint32_t chn,uint32_t dev_index,acomp_stream_chn_create_desc_t *desc);
+int acomp_stream_ipc_channel_destroy(acomp_stream_t* stream, uint32_t dev_index, uint32_t chn);
 
 #ifdef __cplusplus
     }

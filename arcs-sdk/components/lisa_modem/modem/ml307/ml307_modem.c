@@ -255,10 +255,26 @@ static void ml307_modem_urc_handler(const char *command, at_arg_value_t *argumen
         }
     }
     /* +MDNSGIP: "<domain>","<ip>" - DNS resolution response */
-    else if (strcmp(command, "MDNSGIP") == 0 && arg_count >= 2) {
-        if (arguments[1].type == AT_ARG_TYPE_STRING &&
-            arguments[1].data.string_val.value) {
-            strncpy(modem.dns_resolved_ip, arguments[1].data.string_val.value, sizeof(modem.dns_resolved_ip) - 1);
+else if (strcmp(command, "MDNSGIP") == 0 && arg_count >= 2) {
+        const char *selected_ip = NULL;
+        for (size_t i = 1; i < arg_count; i++) {
+            if (arguments[i].type != AT_ARG_TYPE_STRING ||
+                !arguments[i].data.string_val.value) {
+                continue;
+            }
+            const char *ip = arguments[i].data.string_val.value;
+            /* IPv4: contains '.' but not ':' */
+            if (strchr(ip, '.') && !strchr(ip, ':')) {
+                selected_ip = ip;
+                break;
+            }
+            /* Remember first address as fallback (may be IPv6) */
+            if (!selected_ip) {
+                selected_ip = ip;
+            }
+        }
+        if (selected_ip) {
+            strncpy(modem.dns_resolved_ip, selected_ip, sizeof(modem.dns_resolved_ip) - 1);
             modem.dns_resolved_ip[sizeof(modem.dns_resolved_ip) - 1] = '\0';
             xEventGroupSetBits(modem.event_group, NETWORK_EVENT_DNS_READY);
             LISA_LOGI(TAG, "DNS resolved: %s", modem.dns_resolved_ip);

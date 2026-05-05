@@ -111,6 +111,13 @@ void newriu_init(void)
 
 }
 
+#if defined(WCN_TYPE_WF) && defined(WCN_TYPE_BT)
+extern void coex_wifi_ops_register(void *w2b_evt_hdl, unsigned int *btflags, int (*bt_register)(void *, unsigned int *));
+extern unsigned int *coex_get_btflags_ptr(void);
+extern int coex_wifi2bt_event_handler(uint8_t op_idx, uint8_t level, int time_offset_us, int dur_us, void *args);
+extern int coex_bt_register(void *b2w_evt_hdl, unsigned int *wififlags);
+#endif
+
 
 void wf_soc_init(void)
 {
@@ -183,5 +190,10 @@ void wf_soc_init(void)
     IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC = 1;
     //IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG = 5;
 #endif
+
+#if defined(WCN_TYPE_WF) && defined(WCN_TYPE_BT) && defined(WCN_TYPE_BT_DUAL)
+    coex_wifi_ops_register(coex_wifi2bt_event_handler, coex_get_btflags_ptr(), coex_bt_register);
+#endif
+
 }
 

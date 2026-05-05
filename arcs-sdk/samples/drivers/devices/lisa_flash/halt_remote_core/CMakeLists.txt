@@ -4,14 +4,14 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(listenai-cmake REQUIRED HINTS $ENV{ARCS_BASE})
 
-# CP Core (Master) - Main project
-project(arcs)
+set(LISA_FLASH_HALT_REMOTE_CORE_CP_TARGET lisa_flash_halt_remote_core_cp)
+set(LISA_FLASH_HALT_REMOTE_CORE_AP_TARGET lisa_flash_halt_remote_core_ap)
+
+project(${LISA_FLASH_HALT_REMOTE_CORE_CP_TARGET})
 
 listenai_add_executable(${PROJECT_NAME})
-
 target_sources(${PROJECT_NAME} PRIVATE src/main.c)
 
-# Build Remote Core (AP) as external project
 include(ExternalProject)
 
 ExternalProject_Add(
@@ -28,39 +28,32 @@ ExternalProject_Add(
     INSTALL_COMMAND ""
 )
 
-# Add dependency to ensure remote core is built
 add_dependencies(${PROJECT_NAME} remote_core)
 
-# Merge binaries
 find_program(PYTHON3 python3 REQUIRED)
 set(MERGE_SCRIPT "$ENV{ARCS_BASE}/tools/scripts/merge_bins.py")
 
-# Read CONFIG_MEM_FLASH_BASE from prj.conf
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/prj.conf" PRJ_CONF REGEX "^CONFIG_MEM_FLASH_BASE=")
 string(REGEX REPLACE "^CONFIG_MEM_FLASH_BASE=(0x[0-9a-fA-F]+)" "\\1" FLASH_BASE_ADDR ${PRJ_CONF})
 
 if(NOT FLASH_BASE_ADDR)
-    message(WARNING "CONFIG_MEM_FLASH_BASE not found in prj.conf, using default offset 0x80000")
     set(FLASH_OFFSET "0x80000")
 else()
-    # Calculate offset: CONFIG_MEM_FLASH_BASE - 0x30000000
     math(EXPR FLASH_OFFSET "${FLASH_BASE_ADDR} - 0x30000000" OUTPUT_FORMAT HEXADECIMAL)
-    message(STATUS "Found FLASH_BASE_ADDR=${FLASH_BASE_ADDR}, calculated offset=${FLASH_OFFSET}")
 endif()
 
 add_custom_target(merge_images ALL
     COMMAND ${PYTHON3} ${MERGE_SCRIPT}
             --output ${CMAKE_CURRENT_BINARY_DIR}/merged.bin
-            --bin 0x00000 ${CMAKE_CURRENT_BINARY_DIR}/remote/remote.bin
+            --bin 0x00000 ${CMAKE_CURRENT_BINARY_DIR}/remote/${LISA_FLASH_HALT_REMOTE_CORE_AP_TARGET}.bin
             --bin ${FLASH_OFFSET} ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}.bin
-    COMMENT "Merging remote.bin and ${PROJECT_NAME}.bin into merged.bin"
     DEPENDS ${PROJECT_NAME} remote_core
+    COMMENT "Merging ${LISA_FLASH_HALT_REMOTE_CORE_AP_TARGET}.bin and ${PROJECT_NAME}.bin into merged.bin"
 )
 
-# Print build information
 message(STATUS "========================================")
 message(STATUS "LISA Flash Dual-Core Example")
 message(STATUS "========================================")
 message(STATUS "CP Core (Master): ${PROJECT_NAME}")
-message(STATUS "Remote Core (AP): lisa_flash_dual_core_ap")
+message(STATUS "Remote Core (AP): ${LISA_FLASH_HALT_REMOTE_CORE_AP_TARGET}")
 message(STATUS "========================================")

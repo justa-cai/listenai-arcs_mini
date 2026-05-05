@@ -1,0 +1,12 @@
+tests:
+  samples.network.coex.dual_core.wifi_ble_netcfg:
+    programmer: arcs
+    runner: uart
+    images:
+      - file: "remote/ap.bin"
+        address: "0x0"
+      - file: "arcs.bin"
+        address: "0x800000"
+    log_analyzer:
+      type: "regex"
+      pattern: "WiFi BLE netcfg sample ready"

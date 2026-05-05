@@ -228,6 +228,7 @@ typedef enum {
 struct cat_io_interface {
         int (*write)(char ch); /* write char to output stream. return 1 if byte wrote successfully. */
         int (*read)(char *ch); /* read char from input stream. return 1 if byte read successfully. */
+        int (*notify)(void); /* notify transport that pending unsolicited data should be processed immediately. */
 };
 
 /* structure with mutex interface functions */

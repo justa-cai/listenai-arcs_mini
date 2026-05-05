@@ -16,6 +16,7 @@
 #define MAX_PAYLOAD 4096
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 struct message {
@@ -32,7 +33,7 @@ typedef struct {
     uint8_t data[0];
 } adb_packet_t;
 
-void adb_init(void);
+bool adb_init(void);
 void adb_reset(void);
 void adb_close(uint32_t local_id, uint32_t remote_id);
 void adb_write(uint32_t local_id, uint32_t remote_id, uint8_t *data, uint32_t len);

@@ -220,6 +220,7 @@ typedef union {
  * @brief Display 总线配置结构体
  */
 typedef struct {
+    const char *panel_name;                         /* Panel 设备名称 (如 "st7789p3", "axs15231b") */
     lisa_display_bus_type_t bus_type;               /* 总线类型 */
     lisa_display_bus_config_u bus_config;           /* 总线配置 */
 

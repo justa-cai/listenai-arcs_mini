@@ -14,8 +14,12 @@ drivers/lisa_display/panels/
 ├── Kconfig                 # Panel 选择配置
 ├── Kconfig.st7789p3        # ST7789P3 参数配置
 ├── Kconfig.axs15231b       # AXS15231B 参数配置
+├── Kconfig.st7701s         # ST7701S 参数配置
+├── Kconfig.nv3030b         # NV3030B 参数配置
 ├── panel_st7789p3.c        # ST7789P3 驱动实现
 ├── panel_axs15231b.c       # AXS15231B 驱动实现
+├── panel_st7701s.c         # ST7701S 驱动实现
+├── panel_nv3030b.c         # NV3030B 驱动实现
 └── README.md               # 本文档
 ```
 
@@ -316,4 +320,3 @@ Panel 抽象层提供以下辅助函数，可在驱动中直接使用：
 ## 参考资料
 
 - 芯片数据手册（Datasheet）
-

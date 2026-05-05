@@ -163,6 +163,24 @@ int lisa_bluetooth_connect_by_name(const char *name)
     return -1;  // 未找到设备
 }
 
+int lisa_bluetooth_connect_by_index(uint8_t index)
+{
+    if (index >= g_discovered_count) {
+        LISA_LOGE(TAG, "Invalid index: %d", index);
+        return -2;  // 无效参数
+    }
+    
+    LISA_LOGI(TAG, "Connecting to device at index: %d", index);
+    LISA_LOGI(TAG, "Device name: %.*s", g_discovered_devices[index].name_len, g_discovered_devices[index].name);
+    LISA_LOGI(TAG, "Device addr: %02X:%02X:%02X:%02X:%02X:%02X", 
+            g_discovered_devices[index].addr.addr[0], g_discovered_devices[index].addr.addr[1],
+            g_discovered_devices[index].addr.addr[2], g_discovered_devices[index].addr.addr[3],
+            g_discovered_devices[index].addr.addr[4], g_discovered_devices[index].addr.addr[5]);
+    app_bt_inq_stop();
+    app_bt_conn(g_discovered_devices[index].addr, 2, g_discovered_devices[index].clk_off, 0);
+    return 0;
+}
+
 int lisa_bluetooth_get_discovered_devices(const lisa_bt_discovery_info_t **list, uint8_t *count)
 {
     if (!list || !count) {
@@ -245,6 +263,62 @@ bool lisa_ble_notify_key_req(uint8_t conidx, uint8_t key_type, uint32_t passkey)
 void lisa_ble_key_confirm(uint8_t conidx, uint8_t accept, uint32_t passkey)
 {
     ble_gap_key_cfm(conidx, accept, passkey);
+}
+
+/* ======== BT Classic callbacks ======== */
+
+static lisa_bt_classic_conn_cb_t s_bt_classic_conn_cb = NULL;
+static lisa_bt_classic_disc_cb_t s_bt_classic_disc_cb = NULL;
+static lisa_bt_classic_avrcp_cb_t s_bt_classic_avrcp_cb = NULL;
+
+void lisa_bt_classic_register_conn_cb(lisa_bt_classic_conn_cb_t cb)
+{
+    s_bt_classic_conn_cb = cb;
+}
+
+void lisa_bt_classic_register_disc_cb(lisa_bt_classic_disc_cb_t cb)
+{
+    s_bt_classic_disc_cb = cb;
+}
+
+void lisa_bt_classic_register_avrcp_cb(lisa_bt_classic_avrcp_cb_t cb)
+{
+    s_bt_classic_avrcp_cb = cb;
+}
+
+void lisa_bt_classic_notify_connected(uint8_t conidx, uint16_t conhdl, const gap_bdaddr_t *peer_addr)
+{
+    if (s_bt_classic_conn_cb) {
+        s_bt_classic_conn_cb(conidx, conhdl, peer_addr);
+    }
+}
+
+void lisa_bt_classic_notify_disconnected(uint8_t conidx, uint16_t conhdl, uint16_t reason)
+{
+    if (s_bt_classic_disc_cb) {
+        s_bt_classic_disc_cb(conidx, conhdl, reason);
+    }
+}
+
+void lisa_bt_classic_notify_avrcp_key(uint8_t conidx, uint8_t key_id)
+{
+    if (s_bt_classic_avrcp_cb) {
+        s_bt_classic_avrcp_cb(conidx, key_id);
+    }
+}
+
+static lisa_bt_classic_profile_cb_t s_bt_classic_profile_cb = NULL;
+
+void lisa_bt_classic_register_profile_cb(lisa_bt_classic_profile_cb_t cb)
+{
+    s_bt_classic_profile_cb = cb;
+}
+
+void lisa_bt_classic_notify_profile(uint8_t conidx, int profile, bool connected)
+{
+    if (s_bt_classic_profile_cb) {
+        s_bt_classic_profile_cb(conidx, profile, connected);
+    }
 }
 
 int lisa_bluetooth_init(lisa_bluetooth_enable_cmp_cb_t cb)

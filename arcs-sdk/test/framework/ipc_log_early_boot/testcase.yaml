@@ -1,0 +1,12 @@
+tests:
+  test.framework.ipc_log_early_boot:
+    programmer: arcs
+    runner: uart
+    images:
+      - file: "remote/ipc_log_early_boot_ap.bin"
+        address: "0x0"
+      - file: "ipc_log_early_boot_cp.bin"
+        address: "0x80000"
+    log_analyzer:
+      type: "regex"
+      pattern: "AP early boot IPC log passed"

@@ -23,6 +23,7 @@ typedef struct {
 
 static void ota_view_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
 static void ota_view_destructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
+static void ota_view_show_checking(lisa_ui_ota_view_t *view, const ota_state_t *state);
 
 const lv_obj_class_t lisa_ui_ota_view_class = {
     .base_class = &lisa_ui_llm_base_class,
@@ -48,7 +49,7 @@ static void ota_view_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj)
     }
 
     view->status_label = lv_label_create(container);
-    lv_label_set_text(view->status_label, "正在检查更新…");
+    lv_label_set_text(view->status_label, "正在获取更新信息…");
     lv_obj_set_style_text_color(view->status_label, lv_color_white(), 0);
     lv_obj_set_style_text_font(view->status_label, &lv_font_chinese_16, 0);
     lv_obj_set_width(view->status_label, lv_pct(100));
@@ -74,6 +75,23 @@ static void ota_view_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj)
     lv_obj_align(view->eta_label, LV_ALIGN_BOTTOM_MID, 0, -12);
 }
 
+static void ota_view_show_checking(lisa_ui_ota_view_t *view, const ota_state_t *state)
+{
+    const char *status_text = "正在检查更新…";
+
+    if (view == NULL) {
+        return;
+    }
+
+    if (state != NULL) {
+        status_text = (state->target == OTA_TARGET_APP) ? "正在检查系统更新…" : "正在检查资源更新…";
+    }
+
+    lv_label_set_text_static(view->status_label, status_text);
+    lv_label_set_text_static(view->progress_label, "");
+    lv_label_set_text_static(view->eta_label, "");
+}
+
 static void ota_view_destructor(const lv_obj_class_t *class_p, lv_obj_t *obj)
 {
     (void)class_p;
@@ -90,6 +108,8 @@ lv_obj_t *lisa_ui_ota_view_create(lv_obj_t *parent)
 static const char *ota_target_name(ota_target_e target)
 {
     switch (target) {
+    case OTA_TARGET_APP:
+        return "固件";
     case OTA_TARGET_WAKE_WORD:
         return "唤醒词";
     case OTA_TARGET_PROMPT_TONE:
@@ -118,9 +138,14 @@ void lisa_ui_ota_view_update(lv_obj_t *obj, const ota_state_t *state)
 
     lisa_ui_ota_view_t *view = (lisa_ui_ota_view_t *)obj;
     switch (state->state) {
+    case OTA_STATE_CHECKING:
+        ota_view_show_checking(view, state);
+        break;
     case OTA_STATE_UPDATING: {
         // 第一行：N/M 正在更新XXX…
-        if (state->update_total > 0) {
+        if (state->target == OTA_TARGET_APP) {
+            snprintf(view->status_text, sizeof(view->status_text), "正在下载系统更新…");
+        } else if (state->update_total > 1) {
             snprintf(view->status_text, sizeof(view->status_text), "%u/%u 正在更新%s…",
                      state->update_index, state->update_total, ota_target_name(state->target));
         } else {
@@ -130,11 +155,16 @@ void lisa_ui_ota_view_update(lv_obj_t *obj, const ota_state_t *state)
         lv_label_set_text_static(view->status_label, view->status_text);
 
         // 第二行：已下载 / 总大小
+        char processed_str[16];
+        char total_str[16];
         if (state->bytes_total > 0) {
-            char processed_str[16], total_str[16];
             ota_view_format_size(processed_str, sizeof(processed_str), state->bytes_processed);
             ota_view_format_size(total_str, sizeof(total_str), state->bytes_total);
             snprintf(view->progress_text, sizeof(view->progress_text), "%s / %s", processed_str, total_str);
+            lv_label_set_text_static(view->progress_label, view->progress_text);
+        } else if (state->bytes_processed > 0) {
+            ota_view_format_size(processed_str, sizeof(processed_str), state->bytes_processed);
+            snprintf(view->progress_text, sizeof(view->progress_text), "已下载 %s", processed_str, total_str);
             lv_label_set_text_static(view->progress_label, view->progress_text);
         } else {
             lv_label_set_text_static(view->progress_label, "");
@@ -163,7 +193,11 @@ void lisa_ui_ota_view_update(lv_obj_t *obj, const ota_state_t *state)
         break;
     }
     case OTA_STATE_SUCCESSED:
-        lv_label_set_text_static(view->status_label, "更新完毕");
+        if (state->target == OTA_TARGET_APP) {
+            lv_label_set_text_static(view->status_label, "下载完毕");
+        } else {
+            lv_label_set_text_static(view->status_label, "更新完毕");
+        }
         lv_label_set_text_static(view->progress_label, "");
         if (state->reboot == OTA_REBOOT_STRATEGY_AUTO) {
             lv_label_set_text_static(view->eta_label, "正在重启…");
@@ -172,13 +206,26 @@ void lisa_ui_ota_view_update(lv_obj_t *obj, const ota_state_t *state)
         }
         break;
     case OTA_STATE_FAILED:
-        lv_label_set_text_static(view->status_label, "更新失败");
+        if (state->target == OTA_TARGET_APP) {
+            lv_label_set_text_static(view->status_label, "系统更新下载失败");
+        } else {
+            lv_label_set_text_static(view->status_label, "更新失败");
+        }
         lv_label_set_text_static(view->progress_label, "");
         if (state->reboot == OTA_REBOOT_STRATEGY_AUTO) {
-            lv_label_set_text_static(view->eta_label, "正在重启…");
+            if (state->target != OTA_TARGET_APP) { // APP 更新失败不重启
+                lv_label_set_text_static(view->eta_label, "正在重启…");
+            } else{
+                lv_label_set_text_static(view->eta_label, "");
+            }
         } else {
             lv_label_set_text_static(view->eta_label, "请手动重启设备");
         }
+        break;
+    case OTA_STATE_PACKAGE_INFO_FAILED:
+        lv_label_set_text_static(view->status_label, "获取更新信息失败");
+        lv_label_set_text_static(view->progress_label, "");
+        lv_label_set_text_static(view->eta_label, "请检查网络环境");
         break;
     default:
         break;

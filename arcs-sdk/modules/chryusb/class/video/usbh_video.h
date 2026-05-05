@@ -17,6 +17,11 @@
 #define CONFIG_USBH_VIDEO_BULK_CHUNK_SIZE 512
 #endif
 
+/* Number of ISO packets per URB for ISO streaming */
+#ifndef CONFIG_USBH_VIDEO_ISO_PACKETS_PER_URB
+#define CONFIG_USBH_VIDEO_ISO_PACKETS_PER_URB 32
+#endif
+
 struct usbh_video_resolution {
     uint16_t wWidth;
     uint16_t wHeight;
@@ -76,6 +81,10 @@ struct usbh_video {
     void *frame_cb_arg;                      /* user argument forwarded to frame_cb */
     struct usbh_urb bulkin_urb;              /* URB for bulk IN streaming */
 
+    /* ISO streaming state */
+    struct usbh_urb *isoin_urb;              /* dynamically allocated ISO URB (with iso_packet[]) */
+    uint8_t *isoin_data_buf;                 /* ISO data buffer */
+
     void *user_data;
 };
 
@@ -99,15 +108,15 @@ void usbh_video_run(struct usbh_video *video_class);
 void usbh_video_stop(struct usbh_video *video_class);
 
 /**
- * Start bulk video streaming.
+ * Start video streaming (bulk or ISO, depending on the device).
  *
  * @param video_class   video instance (must be opened via usbh_video_open first)
  * @param frame_buf     caller-provided buffer for assembled frames (DMA-safe, PSRAM ok)
  * @param frame_bufsize size of frame_buf in bytes
- * @param chunk_buf     caller-provided DMA staging buffer for one UVC payload unit (must be
- *                      DMA-safe and aligned to CONFIG_USB_ALIGN_SIZE).  Size should be at
- *                      least video_class->probe.dwMaxPayloadTransferSize bytes.
- * @param chunk_bufsize size of chunk_buf in bytes
+ * @param chunk_buf     caller-provided DMA staging buffer for one UVC payload unit (bulk mode only;
+ *                      must be DMA-safe and aligned to CONFIG_USB_ALIGN_SIZE).
+ *                      Ignored in ISO mode — pass NULL.
+ * @param chunk_bufsize size of chunk_buf in bytes (ignored in ISO mode — pass 0)
  * @param cb            callback invoked once per complete UVC frame
  * @param arg           opaque argument forwarded to cb
  * @return 0 on success, negative on error
@@ -121,7 +130,7 @@ int usbh_video_start_streaming(struct usbh_video *video_class,
                                void *arg);
 
 /**
- * Stop bulk video streaming. Cancels the pending URB and clears streaming state.
+ * Stop video streaming. Cancels the pending URB and clears streaming state.
  *
  * @param video_class   video instance
  * @return 0 on success, negative on error

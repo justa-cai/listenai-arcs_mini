@@ -64,24 +64,23 @@ static void usbh_video_class_free(struct usbh_video *video_class)
 
 int usbh_video_get(struct usbh_video *video_class, uint8_t request, uint8_t intf, uint8_t entity_id, uint8_t cs, uint8_t *buf, uint16_t len)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
     int ret;
     uint8_t retry;
 
     if (!video_class || !video_class->hport) {
         return -USB_ERR_INVAL;
     }
-    setup = video_class->hport->setup;
 
-    setup->bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
-    setup->bRequest = request;
-    setup->wValue = cs << 8;
-    setup->wIndex = (entity_id << 8) | intf;
-    setup->wLength = len;
+    setup.bmRequestType = USB_REQUEST_DIR_IN | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
+    setup.bRequest = request;
+    setup.wValue = cs << 8;
+    setup.wIndex = (entity_id << 8) | intf;
+    setup.wLength = len;
 
     retry = 0;
     while (1) {
-        ret = usbh_control_transfer(video_class->hport, setup, g_video_buf);
+        ret = usbh_control_transfer(video_class->hport, &setup, g_video_buf);
         if (ret > 0) {
             break;
         }
@@ -101,23 +100,22 @@ int usbh_video_get(struct usbh_video *video_class, uint8_t request, uint8_t intf
 
 int usbh_video_set(struct usbh_video *video_class, uint8_t request, uint8_t intf, uint8_t entity_id, uint8_t cs, uint8_t *buf, uint16_t len)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
     int ret;
 
     if (!video_class || !video_class->hport) {
         return -USB_ERR_INVAL;
     }
-    setup = video_class->hport->setup;
 
-    setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
-    setup->bRequest = request;
-    setup->wValue = cs << 8;
-    setup->wIndex = (entity_id << 8) | intf;
-    setup->wLength = len;
+    setup.bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_CLASS | USB_REQUEST_RECIPIENT_INTERFACE;
+    setup.bRequest = request;
+    setup.wValue = cs << 8;
+    setup.wIndex = (entity_id << 8) | intf;
+    setup.wLength = len;
 
     memcpy(g_video_buf, buf, len);
 
-    ret = usbh_control_transfer(video_class->hport, setup, g_video_buf);
+    ret = usbh_control_transfer(video_class->hport, &setup, g_video_buf);
     usb_osal_msleep(50);
     return ret;
 }
@@ -150,7 +148,7 @@ int usbh_video_open(struct usbh_video *video_class,
                     uint16_t wHeight,
                     uint8_t altsetting)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
     struct usb_endpoint_descriptor *ep_desc;
     uint8_t mult;
     uint16_t mps;
@@ -164,7 +162,6 @@ int usbh_video_open(struct usbh_video *video_class,
     if (!video_class || !video_class->hport) {
         return -USB_ERR_INVAL;
     }
-    setup = video_class->hport->setup;
 
     if (video_class->is_opened) {
         return 0;
@@ -255,13 +252,13 @@ int usbh_video_open(struct usbh_video *video_class,
 
     step = 8;
     if (!video_class->is_bulk) {
-        setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_STANDARD | USB_REQUEST_RECIPIENT_INTERFACE;
-        setup->bRequest = USB_REQUEST_SET_INTERFACE;
-        setup->wValue = altsetting;
-        setup->wIndex = video_class->data_intf;
-        setup->wLength = 0;
+        setup.bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_STANDARD | USB_REQUEST_RECIPIENT_INTERFACE;
+        setup.bRequest = USB_REQUEST_SET_INTERFACE;
+        setup.wValue = altsetting;
+        setup.wIndex = video_class->data_intf;
+        setup.wLength = 0;
 
-        ret = usbh_control_transfer(video_class->hport, setup, NULL);
+        ret = usbh_control_transfer(video_class->hport, &setup, NULL);
         if (ret < 0) {
             goto errout;
         }
@@ -292,33 +289,32 @@ errout:
 
 int usbh_video_close(struct usbh_video *video_class)
 {
-    struct usb_setup_packet *setup;
+    struct usb_setup_packet setup;
     int ret = 0;
 
     if (!video_class || !video_class->hport) {
         return -USB_ERR_INVAL;
     }
-    setup = video_class->hport->setup;
 
     USB_LOG_INFO("Close video device\r\n");
 
     video_class->is_opened = false;
 
     if (video_class->is_bulk) {
-        setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_STANDARD | USB_REQUEST_RECIPIENT_ENDPOINT;
-        setup->bRequest = USB_REQUEST_CLEAR_FEATURE;
-        setup->wValue = USB_FEATURE_ENDPOINT_HALT;
-        setup->wIndex = video_class->bulkin->bEndpointAddress;
-        setup->wLength = 0;
+        setup.bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_STANDARD | USB_REQUEST_RECIPIENT_ENDPOINT;
+        setup.bRequest = USB_REQUEST_CLEAR_FEATURE;
+        setup.wValue = USB_FEATURE_ENDPOINT_HALT;
+        setup.wIndex = video_class->bulkin->bEndpointAddress;
+        setup.wLength = 0;
     } else {
-        setup->bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_STANDARD | USB_REQUEST_RECIPIENT_INTERFACE;
-        setup->bRequest = USB_REQUEST_SET_INTERFACE;
-        setup->wValue = 0;
-        setup->wIndex = video_class->data_intf;
-        setup->wLength = 0;
+        setup.bmRequestType = USB_REQUEST_DIR_OUT | USB_REQUEST_STANDARD | USB_REQUEST_RECIPIENT_INTERFACE;
+        setup.bRequest = USB_REQUEST_SET_INTERFACE;
+        setup.wValue = 0;
+        setup.wIndex = video_class->data_intf;
+        setup.wLength = 0;
     }
 
-    ret = usbh_control_transfer(video_class->hport, setup, NULL);
+    ret = usbh_control_transfer(video_class->hport, &setup, NULL);
     if (ret < 0) {
         return ret;
     }
@@ -653,6 +649,46 @@ static void usbh_video_bulkin_callback(void *arg, int nbytes)
     usbh_submit_urb(&video_class->bulkin_urb);
 }
 
+static void usbh_video_isoin_callback(void *arg, int nbytes)
+{
+    struct usbh_video *video_class = (struct usbh_video *)arg;
+    struct usbh_urb *urb = video_class->isoin_urb;
+
+    if (!video_class->streaming) {
+        return;
+    }
+
+    if (nbytes < 0) {
+        USB_LOG_WRN("ISO video URB error: %d\r\n", nbytes);
+        /* Unlike bulk, ISO errors are normal (missed microframes), keep going */
+    } else {
+        for (uint32_t i = 0; i < urb->num_of_iso_packets; i++) {
+            struct usbh_iso_frame_packet *pkt = &urb->iso_packet[i];
+            if (pkt->actual_length > 0 && pkt->errorcode == 0) {
+                usbh_video_process_payload(video_class,
+                                           pkt->transfer_buffer,
+                                           pkt->actual_length);
+            }
+        }
+    }
+
+    if (!video_class->streaming) {
+        return;
+    }
+
+    /* Reset iso_packet for next round and resubmit */
+    for (uint32_t i = 0; i < urb->num_of_iso_packets; i++) {
+        urb->iso_packet[i].actual_length = 0;
+        urb->iso_packet[i].errorcode = 0;
+    }
+    urb->errorcode = 0;
+    int ret = usbh_submit_urb(urb);
+    if (ret < 0) {
+        USB_LOG_ERR("ISO video resubmit failed: %d\r\n", ret);
+        video_class->streaming = false;
+    }
+}
+
 int usbh_video_start_streaming(struct usbh_video *video_class,
                                uint8_t *frame_buf,
                                uint32_t frame_bufsize,
@@ -664,42 +700,100 @@ int usbh_video_start_streaming(struct usbh_video *video_class,
     if (!video_class || !video_class->hport || !video_class->is_opened) {
         return -USB_ERR_INVAL;
     }
-    if (!frame_buf || frame_bufsize == 0 || !chunk_buf || chunk_bufsize == 0 || !cb) {
+    if (!frame_buf || frame_bufsize == 0 || !cb) {
         return -USB_ERR_INVAL;
     }
-    if (!video_class->is_bulk) {
-        return -USB_ERR_NOTSUPP;
+    if (video_class->is_bulk && (!chunk_buf || chunk_bufsize == 0)) {
+        return -USB_ERR_INVAL;
     }
     if (video_class->streaming) {
         return 0;
     }
 
-    uint32_t needed = video_class->probe.dwMaxPayloadTransferSize;
-    if (needed > 0 && chunk_bufsize < needed) {
-        USB_LOG_WRN("chunk_buf (%u B) < dwMaxPayloadTransferSize (%u B), may split payloads\r\n",
-                    chunk_bufsize, needed);
-    }
-
     video_class->frame_buf = frame_buf;
     video_class->frame_bufsize = frame_bufsize;
-    video_class->chunk_buf = chunk_buf;
-    video_class->chunk_size = USB_ALIGN_UP(chunk_bufsize, CONFIG_USB_ALIGN_SIZE);
     video_class->frame_cb = cb;
     video_class->frame_cb_arg = arg;
     video_class->frame_offset = 0;
     video_class->last_fid = 0xFF;
-    video_class->bulk_error_count = 0;
 
-    usbh_bulk_urb_fill(&video_class->bulkin_urb,
-                       video_class->hport,
-                       video_class->bulkin,
-                       video_class->chunk_buf,
-                       video_class->chunk_size,
-                       0,
-                       usbh_video_bulkin_callback,
-                       video_class);
+    int ret;
 
-    int ret = usbh_submit_urb(&video_class->bulkin_urb);
+    if (video_class->is_bulk) {
+        uint32_t needed = video_class->probe.dwMaxPayloadTransferSize;
+        if (needed > 0 && chunk_bufsize < needed) {
+            USB_LOG_WRN("chunk_buf (%u B) < dwMaxPayloadTransferSize (%u B), may split payloads\r\n",
+                        chunk_bufsize, needed);
+        }
+
+        video_class->chunk_buf = chunk_buf;
+        video_class->chunk_size = USB_ALIGN_UP(chunk_bufsize, CONFIG_USB_ALIGN_SIZE);
+        video_class->bulk_error_count = 0;
+
+        usbh_bulk_urb_fill(&video_class->bulkin_urb,
+                           video_class->hport,
+                           video_class->bulkin,
+                           video_class->chunk_buf,
+                           video_class->chunk_size,
+                           0,
+                           usbh_video_bulkin_callback,
+                           video_class);
+
+        ret = usbh_submit_urb(&video_class->bulkin_urb);
+    } else {
+        /* ISO mode */
+        uint32_t num_packets = CONFIG_USBH_VIDEO_ISO_PACKETS_PER_URB;
+        uint16_t mps = video_class->isoin_mps;
+        uint32_t buf_size = mps * num_packets;
+        struct usbh_urb *urb;
+        uint8_t *data_buf;
+
+        urb = usb_osal_malloc(sizeof(struct usbh_urb) + sizeof(struct usbh_iso_frame_packet) * num_packets);
+        if (!urb) {
+            return -USB_ERR_NOMEM;
+        }
+        memset(urb, 0, sizeof(struct usbh_urb) + sizeof(struct usbh_iso_frame_packet) * num_packets);
+
+        data_buf = usb_osal_malloc(buf_size);
+        if (!data_buf) {
+            usb_osal_free(urb);
+            return -USB_ERR_NOMEM;
+        }
+        memset(data_buf, 0, buf_size);
+
+        urb->hport = video_class->hport;
+        urb->ep = video_class->isoin;
+        urb->transfer_buffer = data_buf;
+        urb->transfer_buffer_length = buf_size;
+        urb->timeout = 0;
+        urb->complete = usbh_video_isoin_callback;
+        urb->arg = video_class;
+        urb->num_of_iso_packets = num_packets;
+
+        for (uint32_t i = 0; i < num_packets; i++) {
+            urb->iso_packet[i].transfer_buffer = data_buf + i * mps;
+            urb->iso_packet[i].transfer_buffer_length = mps;
+            urb->iso_packet[i].actual_length = 0;
+            urb->iso_packet[i].errorcode = 0;
+        }
+
+        video_class->isoin_urb = urb;
+        video_class->isoin_data_buf = data_buf;
+
+        ret = usbh_submit_urb(urb);
+        if (ret < 0) {
+            usb_osal_free(data_buf);
+            usb_osal_free(urb);
+            video_class->isoin_urb = NULL;
+            video_class->isoin_data_buf = NULL;
+            USB_LOG_ERR("ISO video submit failed: %d\r\n", ret);
+            return ret;
+        }
+
+        USB_LOG_INFO("Video ISO streaming started (mps=%u, packets=%lu)\r\n",
+                     mps, (unsigned long)num_packets);
+    }
+
     if (ret == 0) {
         video_class->streaming = true;
     }
@@ -718,10 +812,23 @@ int usbh_video_stop_streaming(struct usbh_video *video_class)
     video_class->streaming = false;
     video_class->frame_offset = 0;
     video_class->last_fid = 0xFF;
-    video_class->chunk_buf = NULL;
-    video_class->chunk_size = 0;
 
-    usbh_kill_urb(&video_class->bulkin_urb);
+    if (video_class->is_bulk) {
+        video_class->chunk_buf = NULL;
+        video_class->chunk_size = 0;
+        usbh_kill_urb(&video_class->bulkin_urb);
+    } else {
+        if (video_class->isoin_urb) {
+            usbh_kill_urb(video_class->isoin_urb);
+            usb_osal_free(video_class->isoin_urb);
+            video_class->isoin_urb = NULL;
+        }
+        if (video_class->isoin_data_buf) {
+            usb_osal_free(video_class->isoin_data_buf);
+            video_class->isoin_data_buf = NULL;
+        }
+    }
+
     return 0;
 }
 

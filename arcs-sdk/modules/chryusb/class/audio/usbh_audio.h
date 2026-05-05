@@ -12,6 +12,21 @@
 #define CONFIG_USBHOST_AUDIO_MAX_STREAMS 3
 #endif
 
+#ifndef CONFIG_USBH_AUDIO_ISO_PACKETS_PER_URB
+#define CONFIG_USBH_AUDIO_ISO_PACKETS_PER_URB 32
+#endif
+
+struct usbh_audio;
+
+/* ISO IN: called when data is received (recording) */
+typedef void (*usbh_audio_data_callback_t)(struct usbh_audio *audio_class,
+                                           uint8_t *data, uint32_t len, void *arg);
+
+/* ISO OUT: called to fill buffer before sending (playback).
+ * App must write exactly 'len' bytes into 'buf'. */
+typedef void (*usbh_audio_playback_callback_t)(struct usbh_audio *audio_class,
+                                               uint8_t *buf, uint32_t len, void *arg);
+
 struct usbh_audio_ac_msg {
     struct audio_cs_if_ac_input_terminal_descriptor ac_input;
     struct audio_cs_if_ac_feature_unit_descriptor ac_feature_unit;
@@ -51,6 +66,20 @@ struct usbh_audio {
     struct usbh_audio_as_msg as_msg_table[CONFIG_USBHOST_AUDIO_MAX_STREAMS];
 
     void *user_data;
+
+    /* ISO IN streaming state (recording) */
+    bool streaming_in;
+    struct usbh_urb *isoin_urb;
+    uint8_t *isoin_data_buf;
+    usbh_audio_data_callback_t data_cb;
+    void *data_cb_arg;
+
+    /* ISO OUT streaming state (playback) */
+    bool streaming_out;
+    struct usbh_urb *isoout_urb;
+    uint8_t *isoout_data_buf;
+    usbh_audio_playback_callback_t playback_cb;
+    void *playback_cb_arg;
 };
 
 #ifdef __cplusplus
@@ -61,6 +90,14 @@ int usbh_audio_open(struct usbh_audio *audio_class, const char *name, uint32_t s
 int usbh_audio_close(struct usbh_audio *audio_class, const char *name);
 int usbh_audio_set_volume(struct usbh_audio *audio_class, const char *name, uint8_t ch, int volume_db);
 int usbh_audio_set_mute(struct usbh_audio *audio_class, const char *name, uint8_t ch, bool mute);
+
+int usbh_audio_start_streaming(struct usbh_audio *audio_class,
+                               usbh_audio_data_callback_t cb, void *arg);
+int usbh_audio_start_playback(struct usbh_audio *audio_class,
+                               usbh_audio_playback_callback_t cb, void *arg);
+int usbh_audio_stop_streaming(struct usbh_audio *audio_class);
+
+void usbh_audio_list_module(struct usbh_audio *audio_class);
 
 void usbh_audio_run(struct usbh_audio *audio_class);
 void usbh_audio_stop(struct usbh_audio *audio_class);

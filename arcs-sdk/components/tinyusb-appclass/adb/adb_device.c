@@ -14,6 +14,46 @@
 
 static adb_interface_t adb_itf = {0};
 
+static void adb_dev_recv_release(void)
+{
+#if !defined(CONFIG_BOOT_ADB)
+    if (adb_itf.rx_buf != NULL && adb_itf.rx_buf != adb_itf.epout_buf) {
+        ADB_FREE(adb_itf.rx_buf);
+    }
+#endif
+
+    adb_itf.rx_buf = NULL;
+    adb_itf.rx_len = 0U;
+}
+
+static void adb_dev_recv_prepare(void)
+{
+    adb_dev_recv_release();
+
+#if !defined(CONFIG_BOOT_ADB)
+    adb_itf.rx_buf = ADB_MALLOC(ADB_EP_OUT_XFER_BUFSIZE);
+    if (adb_itf.rx_buf != NULL) {
+        adb_itf.rx_len = ADB_EP_OUT_XFER_BUFSIZE;
+        ADB_LOGI("Using dynamic ADB OUT buffer, size: %u\n", adb_itf.rx_len);
+        return;
+    }
+
+    ADB_LOGW("ADB dynamic OUT buffer alloc failed, fallback to static %u-byte buffer\n", ADB_EP_OUT_BUFSIZE);
+#endif
+
+    adb_itf.rx_buf = adb_itf.epout_buf;
+    adb_itf.rx_len = ADB_EP_OUT_BUFSIZE;
+}
+
+static bool adb_dev_recv_submit(uint8_t rhport)
+{
+    if (adb_itf.rx_buf == NULL || adb_itf.rx_len == 0U) {
+        return false;
+    }
+
+    return usbd_edpt_xfer(rhport, adb_itf.ep_out, adb_itf.rx_buf, adb_itf.rx_len);
+}
+
 bool adb_dev_send(uint8_t *buf, uint32_t len)
 {
     xSemaphoreTake(adb_itf.tx_ready_sem, portMAX_DELAY);
@@ -23,6 +63,17 @@ bool adb_dev_send(uint8_t *buf, uint32_t len)
     }
 
     return usbd_edpt_xfer(0, adb_itf.ep_in, buf, len);
+}
+
+bool adb_dev_recv_arm(uint8_t *buf, uint32_t len)
+{
+    if (buf == NULL || len == 0U) {
+        return false;
+    }
+
+    adb_itf.rx_buf = buf;
+    adb_itf.rx_len = len;
+    return true;
 }
 
 void adb_dev_init(void)
@@ -37,10 +88,12 @@ void adb_dev_init(void)
 
     /* give initial value */
     xSemaphoreGive(adb_itf.tx_ready_sem);
+    adb_dev_recv_prepare();
 }
 
 bool adb_dev_deinit(void)
 {
+    adb_dev_recv_release();
     memset(&adb_itf, 0, sizeof(adb_interface_t));
 
     return true;
@@ -52,6 +105,7 @@ void adb_dev_reset(uint8_t rhport)
 
     /* give initial value */
     xSemaphoreGive(adb_itf.tx_ready_sem);
+    adb_dev_recv_prepare();
 }
 
 uint16_t adb_dev_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uint16_t max_len)
@@ -88,7 +142,7 @@ uint16_t adb_dev_open(uint8_t rhport, tusb_desc_interface_t const *itf_desc, uin
 
     ADB_LOGI("Configured ADB interface: IN EP 0x%02x, OUT EP 0x%02x\n", adb_itf.ep_in, adb_itf.ep_out);
 
-    if (!usbd_edpt_xfer(rhport, adb_itf.ep_out, adb_itf.epout_buf, ADB_EP_BUFSIZE)) {
+    if (!adb_dev_recv_submit(rhport)) {
         ADB_LOGE("Failed to xfer OUT EP 0x%02x\n", adb_itf.ep_out);
     }
 
@@ -150,10 +204,10 @@ bool adb_dev_xfer_cb(uint8_t rhport, uint8_t ep_addr, xfer_result_t result, uint
     if (ep_addr == adb->ep_out) {
         ADB_LOGD("RX completed: %d bytes\n", xferred_bytes);
         if (adb_dev_recv_cb) {
-            adb_dev_recv_cb(adb->epout_buf, (uint16_t)xferred_bytes);
+            adb_dev_recv_cb(adb->rx_buf, (uint16_t)xferred_bytes);
         }
 
-        bool ret = usbd_edpt_xfer(rhport, adb->ep_out, adb->epout_buf, ADB_EP_BUFSIZE);
+        bool ret = adb_dev_recv_submit(rhport);
         assert(ret);
     }
 

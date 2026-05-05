@@ -13,6 +13,11 @@
 #include "lisa_kv.h"
 #include "power_manager.h"
 #include "app_wakeup.h"
+#include "project_version.h"
+#include "uboot_features_api.h"
+#include "uboot_ota_api.h"
+#include "arcs_ap_base.h"  /* CMN_FLASH_REGION */
+#include "battery.h"
 
 #include "ota_manager.h"
 #include "ota_api.h"
@@ -21,6 +26,9 @@
 #include "kv_sys.h"
 #include "kv_user.h"
 
+#define OTA_FAILURE_UI_DISPLAY_MS 3000U
+
+static int ota_manager_app_update(const ota_app_package_t *pkg);
 static int ota_manager_wake_word_update(void);
 static int ota_manager_prompt_tone_update(void);
 static int ota_manager_emoji_update(void);
@@ -48,6 +56,9 @@ static void ota_manager_publish_state_event(void)
         break;
     case OTA_STATE_FAILED:
         evt = VOICE_MSG_OTA_FAILED;
+        break;
+    case OTA_STATE_PACKAGE_INFO_FAILED:
+        evt = VOICE_MSG_OTA_PACKAGE_INFO_FAILED;
         break;
     case OTA_STATE_UP_TO_DATE:
         evt = VOICE_MSG_OTA_UP_TO_DATE;
@@ -84,12 +95,79 @@ static void ota_manager_notify_progress(uint32_t bytes_processed, uint32_t bytes
 
 static void ota_manager_update_reboot_strategy(void)
 {
-    s_ota_state.reboot = power_is_usb_plugged() ? OTA_REBOOT_STRATEGY_AUTO : OTA_REBOOT_STRATEGY_MANUAL;
+    /* 老 boot 下 sys_platform_sw_full_reset 会让 VCC 掉电，纯电池供电
+     * 里 AUTO 变成静悄悄关机，所以原来降级成 MANUAL 让用户手动重启。
+     * 新 boot 支持正确的软重启回 app，无需区分供电方式，直接 AUTO。*/
+    if (uboot_features_has(UBOOT_FEATURE_POWER_GUARD)) {
+        s_ota_state.reboot = OTA_REBOOT_STRATEGY_AUTO;
+    } else {
+        s_ota_state.reboot = power_is_usb_plugged() ? OTA_REBOOT_STRATEGY_AUTO : OTA_REBOOT_STRATEGY_MANUAL;
+    }
+}
+
+static void ota_manager_do_reboot(void)
+{
+    if (s_ota_state.reboot == OTA_REBOOT_STRATEGY_AUTO) {
+        vTaskDelay(pdMS_TO_TICKS(3000));
+        power_reboot_soft();
+    } else if (s_ota_state.reboot == OTA_REBOOT_STRATEGY_MANUAL) {
+        while (1) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+}
+
+/*
+ * 根据 boot 报告的上一次 OTA 结果，对账 APP 侧记下的 package_id，决定是否把
+ * 那个 package 拉进黑名单，避免"下载 → boot 失败 → 重启 → 再下载相同坏包"
+ * 的死循环。在每轮 OTA 检查最前面调用一次即可。
+ *
+ * 用 package_id（服务端数据库 id）而非 version_number：服务端把坏包替换成
+ * 同版本新包时 id 会变，新 id 不在黑名单里，能自动放行新尝试。
+ */
+static void ota_manager_reconcile_last_attempt(void)
+{
+    char *pending = NULL;
+    lisa_kv_get_string(KV_KEY_SYS_OTA_PENDING_PKG, &pending);
+    if (pending == NULL || pending[0] == '\0') {
+        lisa_kv_free(pending);
+        return;
+    }
+
+    uboot_ota_failure_info_t info;
+    if (uboot_ota_get_last_failure(&info) != 0) {
+        info.reason = UBOOT_OTA_FAILURE_NONE;
+    }
+
+    if (info.reason == UBOOT_OTA_FAILURE_NONE) {
+        LISA_LOGI(TAG, "App OTA pkg=%s applied OK, clear pending and blacklist", pending);
+        /* 成功升级到 pending 包，遗留的黑名单项已经失去意义，一起清掉 */
+        lisa_kv_set_string(KV_KEY_SYS_OTA_FAILED_PKG, "");
+    } else {
+        LISA_LOGW(TAG, "App OTA pkg=%s failed at boot (reason=%d detail=%d), blacklist", pending, info.reason,
+                  info.detail);
+        lisa_kv_set_string(KV_KEY_SYS_OTA_FAILED_PKG, pending);
+    }
+    lisa_kv_set_string(KV_KEY_SYS_OTA_PENDING_PKG, "");
+    lisa_kv_free(pending);
+}
+
+static bool ota_manager_is_blacklisted(const char *package_id)
+{
+    if (!package_id || package_id[0] == '\0') {
+        return false;
+    }
+    char *failed = NULL;
+    lisa_kv_get_string(KV_KEY_SYS_OTA_FAILED_PKG, &failed);
+    bool hit = (failed != NULL && failed[0] != '\0' && strcmp(failed, package_id) == 0);
+    lisa_kv_free(failed);
+    return hit;
 }
 
 static int _ota_manager_check_all(void)
 {
     int ret;
+    int skip_app_update = 0;
     int skip_wake_word_update = 0;
     int skip_prompt_tone_update = 0;
     int skip_emoji_update = 0;
@@ -101,7 +179,67 @@ static int _ota_manager_check_all(void)
 
     uint32_t start_time = xTaskGetTickCount();
 
-    // TODO: check app update first
+    /* 先把上一次 uboot 尝试的结果对账到 KV，必要时拉黑坏的 package_id */
+    ota_manager_reconcile_last_attempt();
+
+    /*
+     * Phase 0: 检查并应用系统 OTA。
+     * 系统升级必须先于资源升级：boot 应用新 CP 固件后，下一轮开机再由新固件去更新
+     * 资源包。若此处系统 OTA 启动成功，函数会重启而不返回。
+     */
+    if (lisa_kv_get_int(KV_KEY_USER_DISABLE_APP_UPDATE, &skip_app_update) != 0) {
+        skip_app_update = 0;
+    }
+
+    /* 老 boot 不消费 control store，app 升级无法落地；资源包升级不受影响 */
+    if (!skip_app_update && !uboot_features_has(UBOOT_FEATURE_OTA)) {
+        LISA_LOGI(TAG, "Skip app OTA: boot lacks OTA support");
+        skip_app_update = 1;
+    }
+
+    /* 电池供电且剩余 < 50% 时跳过系统 OTA，避免升级过程中掉电变砖。
+     * USB 已插入时不看电量；机器没带电池的情况下也按"非电池供电"处理。 */
+    if (!skip_app_update && !power_is_usb_plugged() &&
+        battery_get_status() != BATTERY_STATUS_NO_BATTERY) {
+        uint8_t pct = battery_get_pct_raw();
+        if (pct < 50) {
+            LISA_LOGI(TAG, "Skip app OTA: on battery and pct=%u%% < 50%%", pct);
+            skip_app_update = 1;
+        }
+    }
+
+    if (skip_app_update) {
+        LISA_LOGI(TAG, "App OTA disabled, skip");
+    } else {
+        s_ota_state.target = OTA_TARGET_APP;
+        ota_manager_notify_state(OTA_STATE_CHECKING);
+
+        ota_app_package_t app_pkg;
+        ret = ota_api_check_app(&app_pkg);
+        if (ret == 0 && app_pkg.available && ota_manager_is_blacklisted(app_pkg.package_id)) {
+            LISA_LOGW(TAG, "Skip app OTA: package_id=%s is blacklisted (prior boot failed to apply it)",
+                      app_pkg.package_id);
+        } else if (ret == 0 && app_pkg.available) {
+            LISA_LOGI(TAG, "App OTA available (v%s -> v%s), applying before resources", PROJECT_VERSION_STR,
+                      app_pkg.version);
+
+            s_ota_state.update_total = 1;
+            s_ota_state.update_index = 1;
+
+            if (ota_manager_app_update(&app_pkg) < 0) {
+                LISA_LOGE(TAG, "App OTA failed, will retry next boot");
+                vTaskDelay(pdMS_TO_TICKS(OTA_FAILURE_UI_DISPLAY_MS)); // 展示失败UI提醒用户
+                /* 系统 OTA 失败不应阻塞本次资源检查，继续往下走 */
+            }
+            /* ota_manager_app_update 成功路径中会触发重启，不会返回 */
+        } else if (ret < 0) {
+            LISA_LOGW(TAG, "App OTA check failed (%d), proceed with resource check", ret);
+            ota_manager_notify_state(OTA_STATE_PACKAGE_INFO_FAILED);
+            vTaskDelay(pdMS_TO_TICKS(OTA_FAILURE_UI_DISPLAY_MS)); // 展示失败UI提醒用户
+        } else {
+            LISA_LOGI(TAG, "App OTA: already up-to-date");
+        }
+    }
 
     memset(&dev_conf, 0, sizeof(ota_dev_conf_t));
 
@@ -128,8 +266,10 @@ static int _ota_manager_check_all(void)
 
         ret = ota_api_get_dev_conf(&dev_conf);
         if (ret < 0) {
-            LISA_LOGW(TAG, "Get resource info failed (%d), assumed up-to-date", ret);
-            goto up_to_date;
+            LISA_LOGW(TAG, "Get resource info failed (%d), trigger re-probe", ret);
+            ota_manager_notify_state(OTA_STATE_PACKAGE_INFO_FAILED);
+            vTaskDelay(pdMS_TO_TICKS(OTA_FAILURE_UI_DISPLAY_MS)); // 展示失败UI提醒用户
+            return ret;
         }
 
         // Phase 1: 检查哪些资源需要更新
@@ -252,15 +392,7 @@ up_to_date:
     return 0;
 
 reboot:
-    if (s_ota_state.reboot == OTA_REBOOT_STRATEGY_AUTO) {
-        vTaskDelay(pdMS_TO_TICKS(3000));
-        extern void sys_platform_sw_full_reset(void);
-        sys_platform_sw_full_reset();
-    } else if (s_ota_state.reboot == OTA_REBOOT_STRATEGY_MANUAL) {
-        while (1) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
-    }
+    ota_manager_do_reboot();
 
     return ret;
 }
@@ -270,6 +402,11 @@ static void ota_manager_check_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(500)); // 等待系统稳定后再执行 OTA 检查
     _ota_manager_check_all();
     lisa_thread_delete(NULL);
+}
+
+ota_state_e ota_manager_get_state(void)
+{
+    return s_ota_state.state;
 }
 
 int ota_manager_check_all(void)
@@ -282,6 +419,113 @@ int ota_manager_check_all(void)
     lisa_thread_create(&attr, ota_manager_check_task, NULL);
 
     return 0;
+}
+
+static int ota_manager_app_download_cb(void *user, uint32_t chunk_offset, const uint8_t *data, uint32_t size,
+                                       uint32_t total)
+{
+    (void)user;
+
+    int ret = ota_flash_update_step(OTA_PART_APP_STAGING, chunk_offset, data, size);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Write staging failed at offset %u, size %u (%d)", chunk_offset, size, ret);
+        return ret;
+    }
+
+    uint32_t downloaded = chunk_offset + size;
+    if (total > 0 && total > s_ota_state.bytes_total) {
+        s_ota_state.bytes_total = total;
+    }
+    ota_manager_notify_progress(downloaded, s_ota_state.bytes_total);
+
+    return 0;
+}
+
+/**
+ * 下载系统 OTA 包，写入 Flash 暂存区，然后请求 boot 应用升级并重启。
+ *
+ * 成功路径不会返回（会触发软复位）。
+ *
+ * @return < 0 表示失败
+ */
+static int ota_manager_app_update(const ota_app_package_t *pkg)
+{
+    int ret;
+
+    s_ota_state.bytes_processed = 0;
+    /* 服务端不返回包大小，无法提前知道总长度；先设为 0，下载进度按已下载量展示 */
+    s_ota_state.bytes_total = 0;
+    download_start_tick = xTaskGetTickCount();
+    ota_manager_notify_state(OTA_STATE_UPDATING);
+
+    LISA_LOGI(TAG, "Begin download app OTA from %s", pkg->url);
+
+    ret = ota_flash_update_begin(OTA_PART_APP_STAGING, OTA_FLASH_SIZE_UNKNOWN);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Begin staging failed (%d)", ret);
+        ota_manager_update_reboot_strategy();
+        ota_manager_notify_state(OTA_STATE_FAILED);
+        goto fail;
+    }
+
+    ret = ota_api_download_app(pkg, ota_manager_app_download_cb, NULL);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Download app OTA failed (%d)", ret);
+        ota_flash_update_finish(OTA_PART_APP_STAGING);  /* 释放 mutex，忽略返回值 */
+        ota_manager_update_reboot_strategy();
+        ota_manager_notify_state(OTA_STATE_FAILED);
+        goto fail;
+    }
+
+    ret = ota_flash_update_finish(OTA_PART_APP_STAGING);
+    if (ret < 0) {
+        LISA_LOGE(TAG, "Finish staging failed (%d)", ret);
+        ota_manager_update_reboot_strategy();
+        ota_manager_notify_state(OTA_STATE_FAILED);
+        goto fail;
+    }
+
+    uint32_t package_size = (uint32_t)ret;
+    const void *mapped = NULL;
+    ota_flash_get(OTA_PART_APP_STAGING, &mapped, NULL);
+    uint32_t flash_offset = (uint32_t)mapped - CMN_FLASH_REGION;
+    LISA_LOGI(TAG, "Staged app OTA: %u bytes at flash offset 0x%08X", package_size, flash_offset);
+
+    /* 最终 100% 进度 */
+    s_ota_state.bytes_processed = package_size;
+    s_ota_state.bytes_total = package_size;
+    s_ota_state.elapsed_ms = pdTICKS_TO_MS(xTaskGetTickCount() - download_start_tick);
+    ota_manager_publish_state_event();
+
+    /* 记录本次尝试的 package_id，重启回来后由 reconcile 用 boot 的失败报告
+     * 给它盖章"成功"或"拉黑"。package_id 缺失时无法追踪，直接跳过记录，后续
+     * 也就享受不到黑名单保护。 */
+    if (pkg->package_id[0] != '\0') {
+        lisa_kv_set_string(KV_KEY_SYS_OTA_PENDING_PKG, pkg->package_id);
+    } else {
+        LISA_LOGW(TAG, "App OTA package_id missing, cannot track failure for blacklist");
+    }
+
+    /* 交给 boot：设置 OTA request 后软重启；成功则 boot 下次启动接管升级 */
+    ret = uboot_ota_start_from_flash(flash_offset, package_size);
+    if (ret != 0) {
+        LISA_LOGE(TAG, "uboot_ota_start_from_flash failed (%d)", ret);
+        /* 请求压根没写进 control store，把刚才记下的 pending 清掉，
+         * 否则下次重启时 reconcile 会把 boot 无关的上次失败记录挂在它头上 */
+        lisa_kv_set_string(KV_KEY_SYS_OTA_PENDING_PKG, "");
+        ota_manager_update_reboot_strategy();
+        ota_manager_notify_state(OTA_STATE_FAILED);
+        goto fail;
+    }
+
+    LISA_LOGI(TAG, "App OTA request saved, rebooting into boot recovery");
+    ota_manager_update_reboot_strategy();
+    ota_manager_notify_state(OTA_STATE_SUCCESSED);
+
+    ota_manager_do_reboot();
+
+fail:
+    return ret;
 }
 
 static int ota_manager_wake_word_download_cb(const ota_res_info_t *res_info, uint32_t offset, const uint8_t *data,

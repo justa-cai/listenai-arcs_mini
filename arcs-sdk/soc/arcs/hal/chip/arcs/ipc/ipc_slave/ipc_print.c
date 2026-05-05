@@ -16,6 +16,7 @@
 #include "rtos_al.h"
 #include "ls_rtos.h"
 #include "ipc.h"
+#include "ipc_print_policy.h"
 
 
 
@@ -29,6 +30,8 @@ int32_t ipc_dbg_output(char *string, int32_t len)
 {
     char *ptr = string;
     uint32_t state, pos = 0;
+    uint32_t notify_threshold = ipc_print_notify_threshold_get();
+    uint32_t pending_bytes;
     volatile struct ipc_dbg_tag *dbg_buffer = &ipc_shared_env.dbg_buffer;
 
     if (dbg_buffer->pattern != IPC_PATTERN1)
@@ -77,19 +80,22 @@ int32_t ipc_dbg_output(char *string, int32_t len)
                     : "r"(len)
                     : "memory");
 
-    if ((dbg_buffer->write_pos - dbg_buffer->read_pos) > 128)
+    pending_bytes = dbg_buffer->write_pos - dbg_buffer->read_pos;
+
+    if (pending_bytes > notify_threshold)
     {
         int32_t i = 0, time = 400;
 
-        if (!(dbg_buffer->status == IPC_DBG_STATUS_ACTIVE) && (last_read_pos != dbg_buffer->read_pos))
+        if (ipc_print_should_notify(pending_bytes, dbg_buffer->status == IPC_DBG_STATUS_ACTIVE,
+                                    last_read_pos != dbg_buffer->read_pos))
         {
             ipc_send_notify(IPC_EVT_PRINT);
             last_read_pos = dbg_buffer->read_pos;
         }
-        if ((dbg_buffer->write_pos - dbg_buffer->read_pos) > (dbg_buffer->buffer_size >> 1))
+        if (pending_bytes > (dbg_buffer->buffer_size >> 1))
             time = 4000;
 
-        while ((i++ < time) && ((dbg_buffer->write_pos - dbg_buffer->read_pos) > 128));
+        while ((i++ < time) && ((dbg_buffer->write_pos - dbg_buffer->read_pos) > notify_threshold));
     }
 
     return 0;

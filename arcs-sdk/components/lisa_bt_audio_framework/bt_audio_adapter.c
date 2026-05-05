@@ -11,6 +11,7 @@
 #include "bt_audio_adapter.h"
 #include "bt_os_task.h"
 #include "aud_common.h"
+#include "bt_api.h"
 #include "bt_music_hal.h"
 #include "bt_call_hal.h"
 #include "bt_stack_hal.h"
@@ -261,7 +262,7 @@ static void bt_audio_adapter_send_data_confirm(const void *pkt_data, size_t len)
     
     memcpy(cfm_ev.msg_body->param, pkt_data, len);
     
-    if (btos_send_event(task_id, &cfm_ev, BTOS_TASK_MAX_DELAY) == 0) {
+    if (btos_send_event(task_id, &cfm_ev, BTOS_TASK_MAX_DELAY) == pdFALSE) {
         LISA_LOGE(TAG, "Failed to send data confirm event");
         btos_free(cfm_ev.msg_body);
     }
@@ -280,7 +281,7 @@ int bt_audio_adapter_send_frames(uint8_t conidx, const uint8_t *data,
     }
     
     if (g_current_profile == BT_PROFILE_A2DP) {
-        extern uint8_t app_a2dp_send_media_to_peer(uint8_t conidx, uint8_t frame_num, 
+        extern void app_a2dp_send_media_to_peer(uint8_t conidx, uint8_t frame_num, 
                                                     uint16_t len, uint8_t *data);
         
 #if BT_MUSIC_PRESENT
@@ -326,7 +327,7 @@ int bt_audio_adapter_start_audio_stream(bt_audio_profile_e profile)
     /* 根据 profile 类型调用对应的启动函数 */
     if (profile == BT_PROFILE_A2DP) {
         /* A2DP Source: 启动音乐流 */
-        extern uint8_t app_a2dp_start(uint8_t conidx);
+        extern void app_a2dp_start(uint8_t conidx);
         app_a2dp_start(conidx);
         LISA_LOGI(TAG, "A2DP stream start requested");
         
@@ -363,7 +364,7 @@ int bt_audio_adapter_stop_audio_stream(bt_audio_profile_e profile)
     } else if (profile == BT_PROFILE_HFP) {
         /* HFP AG: 断开 SCO */
         app_hfp_call_end(conidx, 0);
-        app_hfp_call_remove_audio(conidx, 0);
+        app_hfp_call_remove_audio(conidx, CO_ERROR_REMOTE_USER_TERM_CON);
         LISA_LOGI(TAG, "HFP SCO disconnect requested");
     }
 }

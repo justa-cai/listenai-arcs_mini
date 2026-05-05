@@ -7,6 +7,7 @@
 #include "model_voice.h"
 #include "model_wifi.h"
 #include "model_qrcode.h"
+#include "model_modem.h"
 #include "model_alarm.h"
 #include "model_battery.h"
 
@@ -34,6 +35,7 @@ static int lisa_ui_model_init(void)
     // model_camera_init();
     model_qrcode_init();
     model_battery_init();
+    model_modem_init();
 
     return 0;
 }

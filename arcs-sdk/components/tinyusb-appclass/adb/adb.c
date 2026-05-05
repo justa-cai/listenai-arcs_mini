@@ -215,7 +215,7 @@ static void adb_packet_received_cb(adb_packet_t *p)
 		uint32_t remote_id = p->msg.arg0;
 
 		ADB_LOGI("adb close, local_id:%d, remote_id:%d\n", local_id, remote_id);
-		adb_service_close(local_id, remote_id);
+		adb_service_close_remote(local_id, remote_id);
 		adb_packet_free(p);
 	} break;
 	case A_WRTE: {
@@ -315,7 +315,7 @@ static void adb_recv_handle(uint8_t *buf, uint32_t len)
 {
 	struct adb_recv_msg msg;
 
-	if (adb_rx_queue == NULL) {
+	if (adb_rx_queue == NULL || len == 0) {
 		return;
 	}
 
@@ -349,25 +349,33 @@ void adb_reset(void)
 	}
 }
 
-void adb_init(void)
+bool adb_init(void)
 {
 	adb_rx_queue = xQueueCreate(50, sizeof(struct adb_recv_msg));
 	if (adb_rx_queue == NULL) {
 		ADB_LOGE("adb recv queue create failed\n");
-		return;
+		return false;
 	}
 
 	adb_msg_send_lock = xSemaphoreCreateMutex();
 	if (adb_msg_send_lock == NULL) {
 		ADB_LOGE("adb mutex create failed\n");
-		return;
+		vQueueDelete(adb_rx_queue);
+		adb_rx_queue = NULL;
+		return false;
 	}
 
 	if (xTaskCreate(adb_rx_task, "adb_rx", 1024 * 2, NULL, CONFIG_ADB_TASK_PRIORITY, NULL) != pdPASS) {
 		ADB_LOGE("adb task create failed\n");
-		return;
+        vSemaphoreDelete(adb_msg_send_lock);
+        adb_msg_send_lock = NULL;
+        vQueueDelete(adb_rx_queue);
+        adb_rx_queue = NULL;
+		return false;
 	}
 
 	/* register callback last, after all infrastructure is ready */
 	adb_dev_recv_cb_set(adb_recv_handle);
+
+	return true;
 }

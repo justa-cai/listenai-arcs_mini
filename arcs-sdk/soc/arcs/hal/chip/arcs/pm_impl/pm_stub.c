@@ -7,7 +7,12 @@
 #include "pm_impl.h"
 #include <stdint.h>
 
-int32_t pm_peripheral_register(pm_peripheral_dev_t *pm_dev)
+int32_t pm_device_register(int32_t dev_id, pm_handler_ops_t *ops)
+{
+    return 0;
+}
+
+int32_t pm_device_unregister(int32_t dev_id)
 {
     return 0;
 }

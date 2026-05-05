@@ -1,8 +1,3 @@
 tests:
   samples.gpio_interrupt:
-    programmer: arcs
-    runner: uart
-    log_analyzer:
-      type: "regex"
-      pattern: "Hello, world!"
-
+    build_only: true

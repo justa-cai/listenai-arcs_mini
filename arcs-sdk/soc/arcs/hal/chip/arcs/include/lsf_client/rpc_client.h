@@ -27,8 +27,8 @@ extern urpc_endpoint RPC_Client_eps[];
 // 初始化以供挂接handler, 不启动.
 void RPC_Client_init(void);
 
-// 启动, 并与Server同步.
-void RPC_Client_Start(void);
+// 启动, 并与Server同步. 返回 0 表示连接成功, -1 表示超时放弃.
+int32_t RPC_Client_Start(void);
 
 #ifdef __cplusplus
 }

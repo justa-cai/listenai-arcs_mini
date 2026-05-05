@@ -60,6 +60,8 @@
 #define PLAYBACK_TASK_PRIORITY CONFIG_LISA_BT_AUDIO_PLAYBACK_TASK_PRIORITY
 #define UPLINK_TASK_STACK_SIZE CONFIG_LISA_BT_AUDIO_ENCODE_TASK_STACK_SIZE
 #define UPLINK_TASK_PRIORITY CONFIG_LISA_BT_AUDIO_ENCODE_TASK_PRIORITY
+#define UPLINK_QUEUE_SEND_WAIT_MS 50
+#define UPLINK_QUEUE_SEND_RETRY_COUNT 20
 
 /**
  * @brief 根据音频格式计算缓冲区大小
@@ -536,12 +538,12 @@ cleanup:
             }
         }
         
-        /* 任务已退出，安全清理资源 */
-        if (sess->uplink.encoded_frame_queue) {
+        /* 仅在线程已退出后清理资源，避免删除仍在等待的queue。 */
+        if (!sess->uplink.uplink_task && sess->uplink.encoded_frame_queue) {
             vQueueDelete(sess->uplink.encoded_frame_queue);
             sess->uplink.encoded_frame_queue = NULL;
         }
-        if (sess->uplink.pcm_ringbuf.buffer) {
+        if (!sess->uplink.uplink_task && sess->uplink.pcm_ringbuf.buffer) {
             psram_free(sess->uplink.pcm_ringbuf.buffer);
             sess->uplink.pcm_ringbuf.buffer = NULL;
         }
@@ -620,12 +622,12 @@ bt_audio_error_t bt_audio_session_stop(bt_audio_session_handle_t session)
             }
         }
         
-        /* 清空缓冲区和队列（任务已停止，安全操作）*/
-        if (sess->uplink.encoded_frame_queue) {
+        /* 仅在线程已退出后清理资源，避免删除仍在等待的queue。 */
+        if (!sess->uplink.uplink_task && sess->uplink.encoded_frame_queue) {
             vQueueDelete(sess->uplink.encoded_frame_queue);
             sess->uplink.encoded_frame_queue = NULL;
         }
-        if (sess->uplink.pcm_ringbuf.buffer) {
+        if (!sess->uplink.uplink_task && sess->uplink.pcm_ringbuf.buffer) {
             psram_free(sess->uplink.pcm_ringbuf.buffer);
             sess->uplink.pcm_ringbuf.buffer = NULL;
         }
@@ -1169,9 +1171,9 @@ static void uplink_encode_task(void *param)
                                         pcm_buffer, pcm_frame_size);
         
         if (pcm_len < pcm_frame_size) {
-            /* 数据不足一帧，等待更多数据 */
-            vTaskDelay(pdMS_TO_TICKS(5));
-            continue;
+            /* 数据不足一帧，填充静音后继续编码，防止 BT 链路因无数据而断开 */
+            memset(pcm_buffer + pcm_len, 0, pcm_frame_size - pcm_len);
+
         }
         
         /* 2. 编码一帧PCM */
@@ -1189,9 +1191,22 @@ static void uplink_encode_task(void *param)
             continue;
         }
         
-        /* 3. 将编码帧放入队列 */
+        /* 3. 将编码帧放入队列，短超时重试兼顾stop响应和满队列丢帧。 */
         frame.length = enc_len;
-        if (xQueueSend(sess->uplink.encoded_frame_queue, &frame, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        bool queued = false;
+        uint32_t retries = UPLINK_QUEUE_SEND_RETRY_COUNT;
+        while (sess->uplink.uplink_running &&
+               sess->uplink.encoded_frame_queue &&
+               retries-- > 0) {
+            if (xQueueSend(sess->uplink.encoded_frame_queue,
+                           &frame,
+                           pdMS_TO_TICKS(UPLINK_QUEUE_SEND_WAIT_MS)) == pdTRUE) {
+                queued = true;
+                break;
+            }
+        }
+
+        if (!queued && sess->uplink.uplink_running && sess->uplink.encoded_frame_queue) {
             LISA_LOGW(TAG, "Encoded frame queue full, dropped frame (%u bytes)", enc_len);
             sess->stats.dropped_frames++;
         }

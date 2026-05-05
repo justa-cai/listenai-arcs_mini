@@ -320,8 +320,6 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
  */
 #define LWIP_TCP_SACK_OUT               1
 
-
-
 /**
  * LWIP_TCP_RTO_TIME: Initial TCP retransmission timeout (ms).
  * This defaults to 3 seconds as traditionally defined in the TCP protocol.

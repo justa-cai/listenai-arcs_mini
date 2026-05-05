@@ -16,12 +16,6 @@
 /* ST7789P3 特定命令（非标准 MIPI DCS）*/
 // 可在此添加芯片特定命令宏
 
-/* 私有数据结构 */
-struct panel_st7789p3_priv {
-    lisa_display_orientation_t orientation;
-};
-
-
 /* 初始化序列 */
 static const uint8_t init_sequence[] = {
     // cmd, len, data...
@@ -47,20 +41,12 @@ static const uint8_t init_sequence[] = {
 
 static int st7789p3_init(lisa_display_panel_t *panel)
 {
-    // 分配私有数据
-    struct panel_st7789p3_priv *priv = NULL;
-    priv = lisa_mem_alloc(sizeof(*priv));
-    if (!priv) {
-        return LISA_DEVICE_ERR_NO_MEM;
-    }
-
-    panel->priv_data         = priv;
+    panel->priv_data         = NULL;
     panel->caps.width        = CONFIG_PANEL_ST7789P3_WIDTH;
     panel->caps.height       = CONFIG_PANEL_ST7789P3_HEIGHT;
     panel->caps.pixel_format = LISA_DISPLAY_PIXEL_FORMAT_RGB_565;
     panel->caps.orientation  = LISA_DISPLAY_ORIENTATION_0;
     panel->caps.supported_pixel_formats = (1U << LISA_DISPLAY_PIXEL_FORMAT_RGB_565);
-    priv->orientation = LISA_DISPLAY_ORIENTATION_0;
 
     // 硬件复位
     if (panel->rst_gpio) {
@@ -167,11 +153,7 @@ static int st7789p3_set_brightness(lisa_display_panel_t *panel, uint8_t brightne
 
 static int st7789p3_set_orientation(lisa_display_panel_t *panel, lisa_display_orientation_t orientation)
 {
-    struct panel_st7789p3_priv *priv = (struct panel_st7789p3_priv *)panel->priv_data;
-
     panel->caps.orientation = orientation;
-    priv->orientation = orientation;
-
     return LISA_DEVICE_OK;
 }
 
@@ -191,4 +173,5 @@ int panel_st7789p3_device_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(lcd_panel, &lisa_display_st7789p3_driver, NULL, NULL, &panel_st7789p3_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);
+LISA_DEVICE_REGISTER(st7789p3, &lisa_display_st7789p3_driver, NULL, NULL, &panel_st7789p3_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);
+

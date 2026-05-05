@@ -254,9 +254,8 @@ int acomp_wsp_stream_ch_disable(int chn){
         return ACOMP_ERR_INVALID_ARG;
     }
 
-    ret = acomp_stream_ipc_channel_destroy(chn);
+    ret = acomp_stream_ipc_channel_destroy(wsp_handle->stream, wsp_handle->dev_index, (uint32_t)chn);
     LISA_LOGI(TAG,"acomp_wsp_stream_ch_disable chn index(%d),ret(%d)",chn,ret);
-    wsp_handle->stream->ch[chn] = NULL;
     return ret;
 }
 

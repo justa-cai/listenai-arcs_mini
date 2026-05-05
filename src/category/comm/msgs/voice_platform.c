@@ -5,6 +5,7 @@
 #include "voice_msg.h"
 #include "lisa_log.h"
 #include "sys_init.h"
+#include "sys_network_manager.h"
 #include "voice_cloud.h"
 #ifdef CONFIG_OTA
 #include "ota_manager.h"
@@ -25,7 +26,6 @@ static void do_voice_cloud_connect(void)
 {
     struct app_datas *app_datas = get_app_datas();
     assert(app_datas != NULL);
-    app_datas->network_connected = 1;
 
     if (!app_datas->voice_cloud_connected) {
         struct voice_cloud_connect_config connect_config = {
@@ -53,6 +53,15 @@ static void do_voice_cloud_connect(void)
 
 static void voice_system_network_probe_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
+    struct app_datas *app_datas = get_app_datas();
+    sys_network_status_t status;
+    assert(app_datas != NULL);
+
+    if (sys_network_get_status(&status) != 0 || status.active_bearer == SYS_NETWORK_BEARER_NONE) {
+        LOGI("ignore stale network probe success");
+        return;
+    }
+
     LOGI("network probe success");
 #ifdef CONFIG_OTA
     ota_manager_check_all();
@@ -63,17 +72,28 @@ static void voice_system_network_probe_success(void *unused, uint32_t msg_id, vo
 
 static void voice_system_network_probe_fail(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
-    LOGI("network probe fail");
     struct app_datas *app_datas = get_app_datas();
+    sys_network_status_t status;
     assert(app_datas != NULL);
 
-    app_datas->network_connected = 0;
+    if (sys_network_get_status(&status) != 0 || status.active_bearer == SYS_NETWORK_BEARER_NONE) {
+        LOGI("ignore stale network probe fail");
+        return;
+    }
+
+    LOGI("network probe fail");
 }
 
 #ifdef CONFIG_OTA
 static void voice_ota_up_to_date(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     do_voice_cloud_connect();
+}
+
+static void voice_ota_package_info_failed(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    LOGI("package info fetch failed, retry from network probe");
+    network_probe_start();
 }
 #endif
 
@@ -86,6 +106,7 @@ int voice_platform_evt_init(void)
     voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_PROBE_FAIL, voice_system_network_probe_fail, NULL);
 #ifdef CONFIG_OTA
     voice_msg_sub(VOICE_MSG_OTA_UP_TO_DATE, voice_ota_up_to_date, NULL);
+    voice_msg_sub(VOICE_MSG_OTA_PACKAGE_INFO_FAILED, voice_ota_package_info_failed, NULL);
 #endif
 
     return 0;

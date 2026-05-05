@@ -23,9 +23,49 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "user_fs.h"
+#include "lisa_device.h"
 #include "lisa_sdmmc.h"
 #include "IOMuxManager.h"
+#include "lsfs.h"
+#include "disk/disk_access.h"
+#include "log_print.h"
+#if CONFIG_LVFS
+#include "lvfs.h"
+#endif
+
+#define SDMMC_CLK_PAD   CSK_IOMUX_PAD_A
+#define SDMMC_CLK_PIN   6
+#define SDMMC_CMD_PAD   CSK_IOMUX_PAD_A
+#define SDMMC_CMD_PIN   7
+#define SDMMC_DAT0_PAD  CSK_IOMUX_PAD_A
+#define SDMMC_DAT0_PIN  5
+#define SDMMC_DAT1_PAD  CSK_IOMUX_PAD_A
+#define SDMMC_DAT1_PIN  4
+#define SDMMC_DAT2_PAD  CSK_IOMUX_PAD_A
+#define SDMMC_DAT2_PIN  9
+#define SDMMC_DAT3_PAD  CSK_IOMUX_PAD_A
+#define SDMMC_DAT3_PIN  8
+#define SDMMC_FUNC      CSK_IOMUX_FUNC_ALTER15
+
+#define DISK_MOUNT_POINT "/SD:"
+
+static struct lsfs_mount_t s_lsfs_mnt = {
+    .type = LSFS_FATFS,
+    .mnt_point = DISK_MOUNT_POINT,
+    .fs_data = NULL,
+};
+
+#ifdef CONFIG_BOARD_ARCS_EVB
+static void lisa_sdio_pinmux(void)
+{
+    IOMuxManager_PinConfigure(SDMMC_CLK_PAD,  SDMMC_CLK_PIN,  SDMMC_FUNC);
+    IOMuxManager_PinConfigure(SDMMC_CMD_PAD,  SDMMC_CMD_PIN,  SDMMC_FUNC);
+    IOMuxManager_PinConfigure(SDMMC_DAT0_PAD, SDMMC_DAT0_PIN, SDMMC_FUNC);
+    IOMuxManager_PinConfigure(SDMMC_DAT1_PAD, SDMMC_DAT1_PIN, SDMMC_FUNC);
+    IOMuxManager_PinConfigure(SDMMC_DAT2_PAD, SDMMC_DAT2_PIN, SDMMC_FUNC);
+    IOMuxManager_PinConfigure(SDMMC_DAT3_PAD, SDMMC_DAT3_PIN, SDMMC_FUNC);
+}
+#endif
 
 void setUp(void)
 {
@@ -202,18 +242,50 @@ void test_getcwd(void)
 }
 
 
+static int fs_init(void)
+{
+    int ret;
+
+#ifdef CONFIG_BOARD_ARCS_EVB
+    lisa_sdio_pinmux();
+#endif
+
+    lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
+    disk_init(NULL);
+#if CONFIG_LVFS
+    lvfs_init();
+#endif
+    lsfs_init();
+
+    /*
+     * stdio_func uses the TF card as disposable test media. Reset the FAT
+     * volume on every run so leftover state from earlier jobs does not affect
+     * rename/remove assertions.
+     */
+    ret = lsfs_mkfs(s_lsfs_mnt.type, &s_lsfs_mnt.mnt_point[1], NULL, 0);
+    if (ret != 0) {
+        CLOG("Failed to format filesystem: %d", ret);
+        return ret;
+    }
+
+    ret = lsfs_mount(&s_lsfs_mnt);
+    if (ret != 0) {
+        CLOG("Failed to mount filesystem after mkfs: %d", ret);
+        return ret;
+    }
+
+#if CONFIG_LVFS
+    lvfs_chdrive(DISK_MOUNT_POINT);
+    lvfs_chdir(DISK_MOUNT_POINT);
+#endif
+
+    return 0;
+}
+
 /*=======MAIN=====*/
 int main(void)
 {
-    /* Configure SDMMC pins (same as lisa_disk test) */
-    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 6, CSK_IOMUX_FUNC_ALTER15); /* CLK */
-    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 7, CSK_IOMUX_FUNC_ALTER15); /* CMD */
-    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 5, CSK_IOMUX_FUNC_ALTER15); /* DAT0 */
-    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 4, CSK_IOMUX_FUNC_ALTER15); /* DAT1 */
-    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 9, CSK_IOMUX_FUNC_ALTER15); /* DAT2 */
-    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, 8, CSK_IOMUX_FUNC_ALTER15); /* DAT3 */
-
-    user_fs_init();
+    fs_init();
 
     printf("user fs init complete\n");
 
