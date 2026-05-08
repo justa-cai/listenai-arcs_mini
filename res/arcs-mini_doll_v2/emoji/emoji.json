@@ -69,7 +69,8 @@
       "loop": {
         "path": "/睡觉/frame-%06d.png",
         "range": [0, 5],
-        "interval_ms": 100
+        "interval_ms": 100,
+        "interval_overrides": [[0, 2500]]
       }
     },
     {
@@ -93,6 +94,10 @@
     {
       "name": "neutral",
       "alias": "无表情"
+    },
+    {
+      "name": "sleepy",
+      "alias": "睡觉"
     }
   ]
 }

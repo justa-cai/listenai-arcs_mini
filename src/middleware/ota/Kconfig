@@ -1,3 +1,23 @@
 config OTA
     bool "Enable online resources update"
     default n
+
+if OTA
+
+config OTA_DISABLE_APP_UPDATE
+    bool "Force disable app OTA update"
+    default n
+
+config OTA_DISABLE_WAKEWORD_UPDATE
+    bool "Force disable wake word OTA update"
+    default n
+
+config OTA_DISABLE_TONE_UPDATE
+    bool "Force disable prompt tone OTA update"
+    default n
+
+config OTA_DISABLE_EMOJI_UPDATE
+    bool "Force disable emoji OTA update"
+    default n
+
+endif

@@ -38,6 +38,16 @@ static uint16_t s_clear_buf[BOOT_DISPLAY_WIDTH * BOOT_DISPLAY_CLEAR_ROWS];
 __attribute__((section(".psram.bss")))
 static uint16_t s_bar_buf[BOOT_OTA_BAR_WIDTH * BOOT_OTA_BAR_HEIGHT];
 
+/* charging UI 上指向 POWER_KEY (屏幕左侧那颗) 的提示箭头：贴在屏幕
+ * 左边缘的填充三角形，顶点在 x=0。距底距离用宏控制以便对齐物理按键。
+ * H = 2W - 1 时斜边正好 45°，每行 x_min 单调减/增 1 像素，没有台阶。*/
+#define BOOT_POWER_KEY_HINT_WIDTH         11
+#define BOOT_POWER_KEY_HINT_HEIGHT        21
+#define BOOT_POWER_KEY_HINT_BOTTOM_OFFSET 9
+
+__attribute__((section(".psram.bss")))
+static uint16_t s_power_key_hint_buf[BOOT_POWER_KEY_HINT_WIDTH * BOOT_POWER_KEY_HINT_HEIGHT];
+
 /* 复制 ST7789P3 内置初始化序列，把 MADCTL 由 0x00 改成 0x60 (MV=1, MX=1)，
  * 让硬件扫描方向直接旋转 90° CW，省掉 CPU 旋转 buffer。*/
 static const uint8_t s_panel_init_seq[] = {
@@ -150,10 +160,51 @@ void boot_display_show_recovery(void)
                         BOOT_RECOVERY_IMG_HEIGHT, sizeof(boot_recovery_img_data));
 }
 
+static void draw_power_key_hint(void)
+{
+    if (s_display_device == NULL) {
+        return;
+    }
+
+    /* 行 y 处填充区间 [x_min, W-1]，x_min 随到垂直中线的距离线性增大。
+     * 用 2*y - (H-1) 度量距离，奇偶 H 都能得到对称三角形。*/
+    const int center2 = BOOT_POWER_KEY_HINT_HEIGHT - 1;
+    const int span = BOOT_POWER_KEY_HINT_WIDTH - 1;
+    for (uint16_t y = 0; y < BOOT_POWER_KEY_HINT_HEIGHT; y++) {
+        int dist2 = (int)y * 2 - center2;
+        if (dist2 < 0) {
+            dist2 = -dist2;
+        }
+        int x_min = dist2 * span / center2;
+        for (uint16_t x = 0; x < BOOT_POWER_KEY_HINT_WIDTH; x++) {
+            s_power_key_hint_buf[y * BOOT_POWER_KEY_HINT_WIDTH + x] =
+                (x >= (uint16_t)x_min) ? 0xFFFFu : 0x0000u;
+        }
+    }
+
+    /* boot 编译时未定义 CONFIG_DCACHE_ENABLE，SDK 里 lisa_display / lisa_spi
+     * 的 cache flush 全被预处理掉，DCache 又是 non-coherent，所以这里要手动
+     * 把 buffer flush 到 PSRAM，否则 SPI DMA 读到的还是 scatload 后的全零。*/
+    extern void HAL_FlushDCache_by_Addr(uint32_t *addr, uint32_t dsize);
+    HAL_FlushDCache_by_Addr((uint32_t *)s_power_key_hint_buf, sizeof(s_power_key_hint_buf));
+
+    lisa_display_buffer_desc_t desc = {
+        .width = BOOT_POWER_KEY_HINT_WIDTH,
+        .height = BOOT_POWER_KEY_HINT_HEIGHT,
+        .pitch = BOOT_POWER_KEY_HINT_WIDTH,
+        .buf_size = sizeof(s_power_key_hint_buf),
+    };
+
+    uint16_t hint_y = BOOT_DISPLAY_HEIGHT - BOOT_POWER_KEY_HINT_BOTTOM_OFFSET
+                      - BOOT_POWER_KEY_HINT_HEIGHT;
+    lisa_display_write(s_display_device, 0, hint_y, &desc, s_power_key_hint_buf);
+}
+
 void boot_display_show_charging(void)
 {
     show_centered_image(boot_charging_img_data, BOOT_CHARGING_IMG_WIDTH,
                         BOOT_CHARGING_IMG_HEIGHT, sizeof(boot_charging_img_data));
+    draw_power_key_hint();
 }
 
 void boot_display_show_ota(void)

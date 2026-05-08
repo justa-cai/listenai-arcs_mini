@@ -93,7 +93,7 @@ static void voice_ota_up_to_date(void *unused, uint32_t msg_id, void *data, uint
 static void voice_ota_package_info_failed(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     LOGI("package info fetch failed, retry from network probe");
-    network_probe_start();
+    // network_probe_start();
 }
 #endif
 
