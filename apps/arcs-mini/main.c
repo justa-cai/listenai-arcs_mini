@@ -206,6 +206,20 @@ static void voice_system_network_probe_success(void *unused, uint32_t msg_id, vo
     // 这里可以初始化需要网络的服务
 }
 
+static void voice_cloud_connected(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)data;
+    (void)len;
+    (void)user_data;
+
+    if (!sys_wifi_get_user_force_provision() && sys_wifi_get_force_provision()) {
+        LISA_LOGI(TAG, "WS connected, exit forced WiFi provisioning");
+        sys_wifi_set_force_provision(false);
+    }
+}
+
 static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     if (sys_network_on_cloud_auth_success() != 0) {
@@ -394,6 +408,7 @@ int main(int argc, char **argv)
     button_camera_preview_init();
 
     voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_PROBE_SUCCESS, voice_system_network_probe_success, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_CONNECTED, voice_cloud_connected, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_CLOUD_AUTH_SUCCESS , voice_cloud_auth_success, NULL);
     voice_msg_sub(VOICE_MSG_BUTTON_CHANGE, button_changed, NULL);
     voice_msg_sub(VOICE_MSG_WIFI_DISCONNECTED, voice_wifi_provision_guard, NULL);

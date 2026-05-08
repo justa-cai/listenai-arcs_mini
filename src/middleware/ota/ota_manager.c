@@ -187,9 +187,13 @@ static int _ota_manager_check_all(void)
      * 系统升级必须先于资源升级：boot 应用新 CP 固件后，下一轮开机再由新固件去更新
      * 资源包。若此处系统 OTA 启动成功，函数会重启而不返回。
      */
+#ifdef CONFIG_OTA_DISABLE_APP_UPDATE
+    skip_app_update = 1;
+#else
     if (lisa_kv_get_int(KV_KEY_USER_DISABLE_APP_UPDATE, &skip_app_update) != 0) {
         skip_app_update = 0;
     }
+#endif
 
     /* 老 boot 不消费 control store，app 升级无法落地；资源包升级不受影响 */
     if (!skip_app_update && !uboot_features_has(UBOOT_FEATURE_OTA)) {
@@ -228,14 +232,13 @@ static int _ota_manager_check_all(void)
 
             if (ota_manager_app_update(&app_pkg) < 0) {
                 LISA_LOGE(TAG, "App OTA failed, will retry next boot");
-                vTaskDelay(pdMS_TO_TICKS(OTA_FAILURE_UI_DISPLAY_MS)); // 展示失败UI提醒用户
-                /* 系统 OTA 失败不应阻塞本次资源检查，继续往下走 */
+                ota_manager_update_reboot_strategy();
+                ota_manager_notify_state(OTA_STATE_FAILED);
+                goto reboot;
             }
             /* ota_manager_app_update 成功路径中会触发重启，不会返回 */
         } else if (ret < 0) {
             LISA_LOGW(TAG, "App OTA check failed (%d), proceed with resource check", ret);
-            ota_manager_notify_state(OTA_STATE_PACKAGE_INFO_FAILED);
-            vTaskDelay(pdMS_TO_TICKS(OTA_FAILURE_UI_DISPLAY_MS)); // 展示失败UI提醒用户
         } else {
             LISA_LOGI(TAG, "App OTA: already up-to-date");
         }
@@ -243,20 +246,32 @@ static int _ota_manager_check_all(void)
 
     memset(&dev_conf, 0, sizeof(ota_dev_conf_t));
 
+#ifdef CONFIG_OTA_DISABLE_WAKEWORD_UPDATE
+    skip_wake_word_update = 1;
+#else
     ret = lisa_kv_get_int(KV_KEY_USER_DISABLE_WAKEWORD_UPDATE, &skip_wake_word_update);
     if (ret != 0) {
         skip_wake_word_update = 0;
     }
+#endif
 
+#ifdef CONFIG_OTA_DISABLE_TONE_UPDATE
+    skip_prompt_tone_update = 1;
+#else
     ret = lisa_kv_get_int(KV_KEY_USER_DISABLE_TONE_UPDATE, &skip_prompt_tone_update);
     if (ret != 0) {
         skip_prompt_tone_update = 0;
     }
+#endif
 
+#ifdef CONFIG_OTA_DISABLE_EMOJI_UPDATE
+    skip_emoji_update = 1;
+#else
     ret = lisa_kv_get_int(KV_KEY_USER_DISABLE_EMOJI_UPDATE, &skip_emoji_update);
     if (ret != 0) {
         skip_emoji_update = 0;
     }
+#endif
 
     if (skip_wake_word_update && skip_prompt_tone_update && skip_emoji_update) {
         LISA_LOGI(TAG, "Skip all resource updates as per user settings");
@@ -266,10 +281,8 @@ static int _ota_manager_check_all(void)
 
         ret = ota_api_get_dev_conf(&dev_conf);
         if (ret < 0) {
-            LISA_LOGW(TAG, "Get resource info failed (%d), trigger re-probe", ret);
-            ota_manager_notify_state(OTA_STATE_PACKAGE_INFO_FAILED);
-            vTaskDelay(pdMS_TO_TICKS(OTA_FAILURE_UI_DISPLAY_MS)); // 展示失败UI提醒用户
-            return ret;
+            LISA_LOGW(TAG, "Get resource info failed (%d)", ret);
+            goto up_to_date;
         }
 
         // Phase 1: 检查哪些资源需要更新

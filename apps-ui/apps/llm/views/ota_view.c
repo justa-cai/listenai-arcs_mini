@@ -213,11 +213,7 @@ void lisa_ui_ota_view_update(lv_obj_t *obj, const ota_state_t *state)
         }
         lv_label_set_text_static(view->progress_label, "");
         if (state->reboot == OTA_REBOOT_STRATEGY_AUTO) {
-            if (state->target != OTA_TARGET_APP) { // APP 更新失败不重启
-                lv_label_set_text_static(view->eta_label, "正在重启…");
-            } else{
-                lv_label_set_text_static(view->eta_label, "");
-            }
+            lv_label_set_text_static(view->eta_label, "正在重启…");
         } else {
             lv_label_set_text_static(view->eta_label, "请手动重启设备");
         }

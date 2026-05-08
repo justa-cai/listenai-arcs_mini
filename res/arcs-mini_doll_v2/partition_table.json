@@ -1,4 +1,5 @@
 {
+    "flash_base": "0x30000000",
     "images": [
         {
             "name": "boot",
@@ -7,10 +8,16 @@
             "tags": ["lpk"]
         },
         {
+            "name": "boot_control",
+            "addr": "0x03E000",
+            "size": 4096,
+            "tags": []
+        },
+        {
             "name": "ap",
             "addr": "0x040000",
             "file": "../arcs-mini/ap.bin",
-            "tags": ["lpk", "hex"]
+            "tags": ["lpk", "hex", "ota"]
         },
         {
             "name": "tone",
@@ -40,9 +47,25 @@
             "name": "app",
             "addr": "0x600000",
             "file": "${BUILD_DIR}/arcs-mini.bin",
-            "tags": ["lpk", "hex"]
+            "tags": ["lpk", "hex", "ota"]
+        },
+        {
+            "name": "ota",
+            "addr": "0xA00000",
+            "size": 5242880,
+            "tags": []
+        },
+        {
+            "name": "kv",
+            "addr": "0xF00000",
+            "size": 1048576,
+            "tags": []
         }
     ],
     "lpk": {},
-    "hex": {}
+    "hex": {},
+    "ota": {
+        "app_name": "arcs-mini_doll_v2",
+        "staging_partition": "ota"
+    }
 }

@@ -673,6 +673,10 @@ bool sys_wifi_get_force_provision(void)
         return false;
     }
 
+    if (s_wifi.force_provision) {
+        return true;
+    }
+
     if (!sys_wifi_has_ap()) {
         return true;
     }

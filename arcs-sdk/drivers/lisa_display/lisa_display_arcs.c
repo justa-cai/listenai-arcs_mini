@@ -107,6 +107,9 @@ static const char *arcs_get_default_panel_name(void)
     return "axs15231b";
 #elif defined(CONFIG_LISA_DISPLAY_PANEL_ST7701S)
     return "st7701s";
+#elif defined(CONFIG_LISA_DISPLAY_PANEL_GC9A01) || \
+      defined(CONFIG_LISA_DISPLAY_PANEL_GC9D01N)
+    return "gc9a01";
 #elif defined(CONFIG_LISA_DISPLAY_PANEL_NV3030B)
     return "nv3030b";
 #else
