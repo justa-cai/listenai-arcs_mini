@@ -4,14 +4,13 @@
 #include "lisa_mem.h"
 #include "FreeRTOS.h"
 #include "task.h"
+#include "app_datas.h"
 #include <string.h>
 #include <stdio.h>
 
 #define TAG "img_upload"
 
-#define API_HOST        "http://api.listenai.com"
 #define API_UPLOAD_PATH "/v1/device/assets"
-#define API_UPLOAD_URL  API_HOST API_UPLOAD_PATH
 
 static char *auth_header = NULL;
 static volatile char *upload_headers = NULL;
@@ -124,6 +123,19 @@ int voice_cloud_upload_jpeg_img(const uint8_t *jpeg_data, size_t jpeg_size, char
 
     LOGI("Starting JPG upload, size: %zu bytes", jpeg_size);
 
+    struct app_datas *app_data = get_app_datas();
+    if (!app_data) {
+        LOGE("app_data is NULL");
+        goto exit;
+    }
+
+    const char *host_suffix = "";
+    if (app_data->device_mode == DEVICE_MODE_STAGING) {
+        host_suffix = "staging-";
+    } else if (app_data->device_mode == DEVICE_MODE_INTEGRATION) {
+        host_suffix = "integration-";
+    }
+
     if (build_multipart_body(jpeg_data, jpeg_size, &multipart_body, &multipart_len, &boundary) != 0) {
         LOGE("Failed to build multipart body");
         goto exit;
@@ -144,7 +156,8 @@ int voice_cloud_upload_jpeg_img(const uint8_t *jpeg_data, size_t jpeg_size, char
         goto exit;
     }
 
-    strcpy(http_param->Uri, API_UPLOAD_URL);
+    snprintf(http_param->Uri, sizeof(http_param->Uri), "http://%sapi.listenai.com%s",
+             host_suffix, API_UPLOAD_PATH);
     http_param->HttpVerb = VerbPost;
     http_param->nTimeout = 10;
     http_param->pData = multipart_body;

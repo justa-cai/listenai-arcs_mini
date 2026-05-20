@@ -41,6 +41,7 @@ struct model_voice_context {
     uint32_t voice_en: 1;
     uint32_t running: 1;
     uint32_t tts_playing: 1;
+    uint32_t pushup_tts: 1;
     uint32_t img_rec_in_progress: 1;
 
     const struct model_voice_cb *cbs;
@@ -375,6 +376,17 @@ static void voice_cloud_tts_url_received(void *unused, uint32_t msg_id, void *da
 #ifdef LISA_UI_PLATFORM_ARCS
     LISA_UI_LOGI("Audio recognition stopped on TTS URL received");
 #endif
+    LISA_UI_INVOKE_UI_ARG_NONE({
+        model_voice_ctx.pushup_tts = 0;
+    });
+}
+
+static void voice_cloud_pushup_tts_url_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    LISA_UI_INVOKE_UI_ARG_NONE({
+        model_voice_ctx.pushup_tts = 1;
+        LISA_UI_LOGI("Pushup TTS URL received, suppress UI state changes");
+    });
 }
 
 static void voice_cloud_connected(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -456,7 +468,10 @@ static void voice_cloud_tts_player_playing(void *unused, uint32_t msg_id, void *
 {
     LISA_UI_INVOKE_UI_ARG_NONE({
         model_voice_ctx.tts_playing = 1;
-        LISA_UI_LOGI("TTS playing started, tts_playing=1");
+        LISA_UI_LOGI("TTS playing started, tts_playing=1, pushup=%d", model_voice_ctx.pushup_tts);
+        if (model_voice_ctx.pushup_tts) {
+            return;
+        }
         if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_tts_playing) {
             model_voice_ctx.cbs->on_tts_playing(model_voice_ctx.arg);
         }
@@ -467,7 +482,12 @@ static void voice_cloud_tts_player_stoped(void *unused, uint32_t msg_id, void *d
 {
     LISA_UI_INVOKE_UI_ARG_NONE({
         model_voice_ctx.tts_playing = 0;
-        LISA_UI_LOGI("TTS playing stopped, tts_playing=0, running=%d", model_voice_ctx.running);
+        LISA_UI_LOGI("TTS playing stopped, tts_playing=0, running=%d, pushup=%d",
+                     model_voice_ctx.running, model_voice_ctx.pushup_tts);
+        if (model_voice_ctx.pushup_tts) {
+            model_voice_ctx.pushup_tts = 0;
+            return;
+        }
         if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_tts_stoped) {
             model_voice_ctx.cbs->on_tts_stoped(model_voice_ctx.arg);
         }
@@ -582,11 +602,21 @@ static void voice_app_camera_preview_start(void *unused, uint32_t msg_id, void *
     }
 
     LISA_UI_INVOKE_UI_ARG_PTR(req, sizeof(*req), {
-        model_voice_ctx.img_rec_mode = IMG_REC_MODE_LSCHAT;
-        memset(model_voice_ctx.mcp_id, 0, sizeof(model_voice_ctx.mcp_id));
+        bool wants_url = _invoke_req->mode == VOICE_MSG_CAMERA_PREVIEW_MODE_MCP_PHOTO &&
+                         _invoke_req->sync;
 
-        LISA_UI_LOGI("camera preview request received, mode=%u, delay_ms=%u",
-                     _invoke_req->mode, _invoke_req->auto_capture_delay_ms);
+        if (wants_url) {
+            model_voice_ctx.img_rec_mode = IMG_REC_MODE_MCP;
+            strncpy(model_voice_ctx.mcp_id, _invoke_req->context_id,
+                    sizeof(model_voice_ctx.mcp_id) - 1);
+            model_voice_ctx.mcp_id[sizeof(model_voice_ctx.mcp_id) - 1] = '\0';
+        } else {
+            model_voice_ctx.img_rec_mode = IMG_REC_MODE_LSCHAT;
+            memset(model_voice_ctx.mcp_id, 0, sizeof(model_voice_ctx.mcp_id));
+        }
+
+        LISA_UI_LOGI("camera preview request received, mode=%u, sync=%u, delay_ms=%u",
+                     _invoke_req->mode, _invoke_req->sync, _invoke_req->auto_capture_delay_ms);
     });
 }
 
@@ -892,6 +922,7 @@ int model_voice_init(void)
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_STARTING, voice_cloud_session_starting, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_FINISHED, voice_cloud_session_finished, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_URL, voice_cloud_tts_url_received, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_PUSHUP_TTS_URL, voice_cloud_pushup_tts_url_received, NULL);
 
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_TEXT_START, voice_cloud_tts_txt, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_TEXT_UPDATE, voice_cloud_tts_txt, NULL);
@@ -1218,6 +1249,8 @@ static void async_task_img_upload(void *p, bool *should_stop)
         if (url) {
             voice_cloud_jpeg_img_url_free(url);
         }
+
+        voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
     }
 
     img_helper_jpeg_free(jpeg_data);

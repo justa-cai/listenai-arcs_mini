@@ -57,7 +57,8 @@ typedef enum {
 
 typedef struct {
     uint8_t mode;
-    uint8_t reserved[3];
+    uint8_t sync;
+    uint8_t reserved[2];
     uint32_t auto_capture_delay_ms;
     char context_id[64];
 } voice_msg_camera_preview_req_t;

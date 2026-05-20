@@ -28,6 +28,7 @@
 #include "timers.h"
 #include "lsc_objrec.h"
 #include "lsc_session_text.h"
+#include "lsc_base64.h"
 #include "project_version.h"
 
 /*缓存500ms的音频*/
@@ -355,6 +356,32 @@ static void lsc_pushup_msg_process(cJSON *data)
         return;
     }
 
+    if (cJSON_IsString(sub) && strcmp(sub->valuestring, "tts") == 0) {
+        cJSON *content = cJSON_GetObjectItem(data, "content");
+        if (content == NULL || !cJSON_IsString(content) || content->valuestring == NULL) {
+            LOGE("pushup tts content is null");
+            return;
+        }
+        int content_len = strlen(content->valuestring);
+        int dec_len = content_len / 4 * 3 + 8;
+        char *url = lisa_mem_alloc(dec_len);
+        if (url == NULL) {
+            LOGE("pushup tts url alloc failed");
+            return;
+        }
+        int out_len = 0;
+        if (lsc_base64_decode(content->valuestring, content_len, url, &out_len) != 0) {
+            LOGE("pushup tts url decode failed");
+            lisa_mem_free(url);
+            return;
+        }
+        url[out_len] = '\0';
+        LOGI("pushup tts url: %s", url);
+        voice_msg_pub(VOICE_MSG_CLOUD_PUSHUP_TTS_URL, url, out_len + 1);
+        lisa_mem_free(url);
+        return;
+    }
+
     cJSON *mp_guide = cJSON_GetObjectItem(data, "mp_guide");
     if (mp_guide == NULL) {
         LOGE("mp_guide is null");
@@ -422,10 +449,13 @@ static void lsc_raw_msg_process(cJSON *root)
     if (strcmp(action->valuestring, "result") == 0) {
         cJSON *nlp_origin = cJSON_GetObjectItem(data, "nlp_origin");
         cJSON *pushup = cJSON_GetObjectItem(root, "pushup");
+        cJSON *from = cJSON_GetObjectItem(root, "from");
+        bool is_pushup = (pushup != NULL) ||
+            (from != NULL && cJSON_IsString(from) && strcmp(from->valuestring, "pushup") == 0);
         if (nlp_origin != NULL && nlp_origin->valuestring
                 && strcmp(nlp_origin->valuestring, "emoji") == 0) {
             lsc_emoji_msg_process(data);
-        } else if (pushup != NULL) {
+        } else if (is_pushup) {
             lsc_pushup_msg_process(data);
         }
     }

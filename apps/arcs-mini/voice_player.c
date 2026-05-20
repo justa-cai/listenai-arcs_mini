@@ -588,7 +588,8 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
     case VOICE_MSG_BLE_CONNECT_DONE: {
         app_player_play(tone_player, app_tone_get_url(TONE_ID_72));
     } break;
-    case VOICE_MSG_CLOUD_TTS_URL: {
+    case VOICE_MSG_CLOUD_TTS_URL:
+    case VOICE_MSG_CLOUD_PUSHUP_TTS_URL: {
         if (data == NULL) {
             LOGE("Invalid data");
             break;
@@ -826,6 +827,7 @@ void voice_player_ready(void *unused, uint32_t msg_id, void *data, uint32_t len,
     voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_DISCONNECTED, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_PROBE_SUCCESS, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_URL, voice_player_play_msg, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_PUSHUP_TTS_URL, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_STARTING, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_IAT_UPDATE, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_FINISHED, voice_player_play_msg, NULL);
