@@ -45,17 +45,26 @@ static cJSON *take_photo_list(const char *name)
         return NULL;
     }
 
+    mcp_tool_info_add_property(tool, "sync",
+                               "是否阻塞等待拍照完成得到图片 URL。缺省为 false，大多数情况用不上，只有某些特殊需求才会传 true",
+                               "boolean", false);
+
     return tool;
 }
 
 static cJSON *take_photo_call(const char *id, const char *name, cJSON *args)
 {
-    (void)args;
     voice_msg_camera_preview_req_t req = {0};
+    bool sync = false;
 
     if (!id || id[0] == '\0') {
         LOGE("take photo failed: invalid mcp id");
         return take_photo_result_text(name, "拍照请求参数错误。", true);
+    }
+
+    cJSON *sync_arg = mcp_tool_call_args_get(args, "sync");
+    if (sync_arg && cJSON_IsTrue(sync_arg)) {
+        sync = true;
     }
 
     if (!service_camera_is_inited()) {
@@ -66,9 +75,10 @@ static cJSON *take_photo_call(const char *id, const char *name, cJSON *args)
         }
     }
 
-    LOGI("take photo request accepted, mode=mcp, delay_ms=%u", 3000U);
+    LOGI("take photo request accepted, mode=mcp, sync=%d, delay_ms=%u", (int)sync, 3000U);
 
     req.mode = VOICE_MSG_CAMERA_PREVIEW_MODE_MCP_PHOTO;
+    req.sync = sync ? 1 : 0;
     req.auto_capture_delay_ms = 3000;
     strncpy(req.context_id, id, sizeof(req.context_id) - 1);
 
@@ -79,6 +89,9 @@ static cJSON *take_photo_call(const char *id, const char *name, cJSON *args)
 
     LOGI("take photo preview start published");
 
+    if (sync) {
+        return NULL;
+    }
     return take_photo_result_text(name, "已完成操作", false);
 }
 

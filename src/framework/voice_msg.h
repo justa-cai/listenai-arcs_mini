@@ -194,6 +194,7 @@ enum {
     VOICE_MSG_CLOUD_SHOW_QRCODE,   /* char * json with url, message, err_code */
     VOICE_MSG_CLOUD_OPEN_INFO,
     VOICE_MSG_CLOUD_RESOURCE_UPDATE_REBOOT, /* voice_msg_cloud_reboot_t * */
+    VOICE_MSG_CLOUD_PUSHUP_TTS_URL,         /* char * 云端主动推送的 TTS URL，不属于会话 */
     VOICE_MSG_CLOUD_MAX,
 
     /* Player事件 */
