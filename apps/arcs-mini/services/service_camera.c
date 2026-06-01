@@ -1,6 +1,5 @@
 #include <stdint.h>
 #include <stdbool.h>
-#include <string.h>
 #include "lisa_log.h"
 #include "lisa_device.h"
 #include "lisa_camera.h"
@@ -15,6 +14,10 @@
 #define DVP_DEVICE    "dvp0"
 #define I2C_DEVICE    "i2c0"
 #define DMA_CHANNEL   4
+#define CAMERA_CAPTURE_WIDTH   640
+#define CAMERA_CAPTURE_HEIGHT  480
+#define CAMERA_OUTPUT_WIDTH    320
+#define CAMERA_OUTPUT_HEIGHT   240
 
 struct camera_context {
     uint32_t inited: 1;
@@ -24,6 +27,8 @@ struct camera_context {
     lisa_device_t *gpioa;
     lisa_device_t *gpiob;
     lisa_camera_pixel_format_t pixel_format;
+    uint16_t capture_width;
+    uint16_t capture_height;
     uint16_t width;
     uint16_t height;
 };
@@ -36,6 +41,8 @@ static struct camera_context cam_ctx = {
     .gpioa = NULL,
     .gpiob = NULL,
     .pixel_format = LISA_CAMERA_PIXFMT_RGB565,
+    .capture_width = 0,
+    .capture_height = 0,
     .width = 0,
     .height = 0,
 };
@@ -49,8 +56,34 @@ static void service_camera_context_reset(void)
     cam_ctx.gpioa = NULL;
     cam_ctx.gpiob = NULL;
     cam_ctx.pixel_format = LISA_CAMERA_PIXFMT_RGB565;
+    cam_ctx.capture_width = 0;
+    cam_ctx.capture_height = 0;
     cam_ctx.width = 0;
     cam_ctx.height = 0;
+}
+
+static inline uint32_t service_camera_frame_bytes(uint16_t width, uint16_t height)
+{
+    return (uint32_t)width * (uint32_t)height * 2U;
+}
+
+static void service_camera_resize_rgb565(uint8_t *dst, uint16_t dst_width, uint16_t dst_height,
+                                         const uint8_t *src, uint16_t src_width, uint16_t src_height)
+{
+    for (uint32_t dst_y = 0; dst_y < dst_height; dst_y++) {
+        uint32_t src_y = ((uint32_t)dst_y * src_height) / dst_height;
+        const uint8_t *src_row = src + src_y * src_width * 2U;
+        uint8_t *dst_row = dst + dst_y * dst_width * 2U;
+
+        for (uint32_t dst_x = 0; dst_x < dst_width; dst_x++) {
+            uint32_t src_x = ((uint32_t)dst_x * src_width) / dst_width;
+            const uint8_t *src_pixel = src_row + src_x * 2U;
+            uint8_t *dst_pixel = dst_row + dst_x * 2U;
+
+            dst_pixel[0] = src_pixel[1];
+            dst_pixel[1] = src_pixel[0];
+        }
+    }
 }
 
 int service_camera_init(void)
@@ -94,7 +127,7 @@ int service_camera_init(void)
                 .i2c_dev = cam_ctx.i2c_dev,
             },
         .xclk_freq_hz = 18000000,
-        .fb_count = 3,
+        .fb_count = 2,
         .enable_hmirror = false,
         .enable_vflip = false,
         .enable_colorbar = false,
@@ -125,13 +158,14 @@ int service_camera_init(void)
     lisa_camera_crop_t crop = {
         .x = 0,
         .y = 0,
-        .width = 320,
-        .height = 240,
+        .width = CAMERA_CAPTURE_WIDTH,
+        .height = CAMERA_CAPTURE_HEIGHT,
     };
 
     ret = lisa_camera_set_crop(cam_ctx.camera_dev, &crop);
     if (ret != LISA_DEVICE_OK) {
-        LISA_LOGE(TAG, "Failed to set crop: %d", ret);
+        LISA_LOGE(TAG, "Failed to set camera window size %ux%u: %d",
+                  CAMERA_CAPTURE_WIDTH, CAMERA_CAPTURE_HEIGHT, ret);
         return -5;
     }
 
@@ -151,9 +185,16 @@ int service_camera_init(void)
     lisa_camera_get_framesize(cam_ctx.camera_dev, &bus_config.width, &bus_config.height);
     bus_config.pixel_format = lisa_camera_get_pixformat(cam_ctx.camera_dev);
 
+    cam_ctx.capture_width = bus_config.width;
+    cam_ctx.capture_height = bus_config.height;
     cam_ctx.width = bus_config.width;
     cam_ctx.height = bus_config.height;
     cam_ctx.pixel_format = bus_config.pixel_format;
+
+    if (cam_ctx.capture_width > CAMERA_OUTPUT_WIDTH && cam_ctx.capture_height > CAMERA_OUTPUT_HEIGHT) {
+        cam_ctx.width = CAMERA_OUTPUT_WIDTH;
+        cam_ctx.height = CAMERA_OUTPUT_HEIGHT;
+    }
 
     ret = lisa_camera_attach_bus(cam_ctx.camera_dev, &bus_config);
     if (ret != LISA_DEVICE_OK) {
@@ -162,7 +203,9 @@ int service_camera_init(void)
     }
 
     cam_ctx.inited = 1;
-    LISA_LOGI(TAG, "Camera initialized: %ux%u, format=%d", cam_ctx.width, cam_ctx.height, cam_ctx.pixel_format);
+    LISA_LOGI(TAG, "Camera initialized: capture=%ux%u, output=%ux%u, format=%d",
+              cam_ctx.capture_width, cam_ctx.capture_height,
+              cam_ctx.width, cam_ctx.height, cam_ctx.pixel_format);
 
     return 0;
 }
@@ -177,41 +220,41 @@ int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
         return -1;
     }
 
-    if (buffer == NULL || buffer_len < cam_ctx.width * cam_ctx.height * 2) {
+    if (buffer == NULL || buffer_len < service_camera_frame_bytes(cam_ctx.width, cam_ctx.height)) {
         LISA_LOGE(TAG, "Invalid parameters");
         return -2;
+    }
+
+    if (cam_ctx.pixel_format != LISA_CAMERA_PIXFMT_RGB565) {
+        LISA_LOGE(TAG, "Unsupported pixel format: %d", cam_ctx.pixel_format);
+        return -3;
     }
 
     ret = lisa_camera_start(cam_ctx.camera_dev);
     if (ret != LISA_DEVICE_OK) {
         LISA_LOGE(TAG, "Failed to start camera: %d", ret);
-        return -3;
+        return -4;
     }
 
     ret = lisa_camera_capture(cam_ctx.camera_dev, &fb);
     if (ret != LISA_DEVICE_OK || fb == NULL) {
         LISA_LOGE(TAG, "Capture failed: %d", ret);
         lisa_camera_stop(cam_ctx.camera_dev);
-        return -4;
-    }
-
-    if (buffer_len < fb->len) {
-        LISA_LOGE(TAG, "Buffer len %d is smaller than fb len %d", buffer_len, fb->len);
-        lisa_camera_release_fb(cam_ctx.camera_dev, fb);
-        lisa_camera_stop(cam_ctx.camera_dev);
         return -5;
     }
 
-    memcpy(buffer, fb->buf, fb->len);
+    if (fb->buf == NULL || fb->width == 0 || fb->height == 0) {
+        LISA_LOGE(TAG, "Invalid frame buffer");
+        lisa_camera_release_fb(cam_ctx.camera_dev, fb);
+        lisa_camera_stop(cam_ctx.camera_dev);
+        return -6;
+    }
+
+    service_camera_resize_rgb565(buffer, cam_ctx.width, cam_ctx.height,
+                                 fb->buf, fb->width, fb->height);
 
     lisa_camera_release_fb(cam_ctx.camera_dev, fb);
     lisa_camera_stop(cam_ctx.camera_dev);
-
-    uint16_t *pixels = (uint16_t *)buffer;
-    for (uint32_t i = 0; i < cam_ctx.width * cam_ctx.height; i++) {
-        uint16_t pixel = pixels[i];
-        pixels[i] = (pixel >> 8) | (pixel << 8);
-    }
 
     return 0;
 }

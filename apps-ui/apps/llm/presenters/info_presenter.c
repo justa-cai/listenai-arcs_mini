@@ -9,10 +9,7 @@
 #include "lisa_ui_nav_scr_ids.h"
 #include "info_view.h"
 #include "model_qrcode.h"
-
-#ifdef LISA_UI_PLATFORM_ARCS
-#include "sys_network_manager.h"
-#endif
+#include "voice_cloud.h"
 
 struct info_nav_scr_data {
     lv_obj_t *view;          /**< Info view object */
@@ -24,15 +21,34 @@ struct info_nav_scr_data {
 
 static void auto_return_timer_cb(lv_timer_t *timer);
 
-static bool info_should_force_provision_page(void)
+static bool info_should_lock_page_by_cloud_state(void)
 {
-#ifdef LISA_UI_PLATFORM_ARCS
-    sys_network_status_t status;
+    voice_cloud_state_t cloud_state = voice_cloud_get_state();
 
-    return sys_network_get_status(&status) == 0 && status.wifi_provision_required;
-#else
-    return false;
-#endif
+    if (cloud_state == VOICE_CLOUD_STATE_CONNECTED) {
+        return false;
+    }
+
+    switch (cloud_state) {
+    case VOICE_CLOUD_STATE_CONNECTING:
+        LISA_UI_LOGI("Info page not locked: cloud state CONNECTING");
+        return false;
+    case VOICE_CLOUD_STATE_NO_NETWORK:
+        LISA_UI_LOGI("Keep info page: cloud state NO_NETWORK");
+        return true;
+    case VOICE_CLOUD_STATE_NO_INTERNET:
+        LISA_UI_LOGI("Keep info page: cloud state NO_INTERNET");
+        return true;
+    case VOICE_CLOUD_STATE_TOKEN_FAILED:
+        LISA_UI_LOGI("Keep info page: cloud state TOKEN_FAILED");
+        return true;
+    case VOICE_CLOUD_STATE_CONNECT_FAILED:
+        LISA_UI_LOGI("Keep info page: cloud state CONNECT_FAILED");
+        return true;
+    case VOICE_CLOUD_STATE_CONNECTED:
+    default:
+        return false;
+    }
 }
 
 static void info_auto_return_start(struct info_nav_scr_data *scr_data)
@@ -63,8 +79,8 @@ static void auto_return_timer_cb(lv_timer_t *timer)
         scr_data->auto_return = NULL;
     }
 
-    if (info_should_force_provision_page()) {
-        LISA_UI_LOGI("Provisioning page is locked, skip auto return");
+    if (info_should_lock_page_by_cloud_state()) {
+        LISA_UI_LOGI("Info page is locked by cloud state, skip auto return");
         return;
     }
 
@@ -82,7 +98,7 @@ static void retry_qr_timer_cb(lv_timer_t *timer)
     }
 
     qrcode_data_t qr_data;
-    if (model_qrcode_get_config_data(&qr_data) == 0) {
+    if (model_qrcode_get_data(&qr_data) == 0) {
         lisa_ui_info_view_set_top_text(scr_data->view, qr_data.top_text);
         lisa_ui_info_view_set_bottom_text(scr_data->view, qr_data.bottom_text);
 
@@ -106,7 +122,7 @@ static void guard_timer_cb(lv_timer_t *timer)
         return;
     }
 
-    if (info_should_force_provision_page()) {
+    if (info_should_lock_page_by_cloud_state()) {
         return;
     }
 
@@ -134,7 +150,7 @@ static int info_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
     }
 
     qrcode_data_t qr_data;
-    if (model_qrcode_get_config_data(&qr_data) == 0) {
+    if (model_qrcode_get_data(&qr_data) == 0) {
         lisa_ui_info_view_set_top_text(scr_data->view, qr_data.top_text);
         lisa_ui_info_view_set_bottom_text(scr_data->view, qr_data.bottom_text);
 
@@ -148,7 +164,7 @@ static int info_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
         LISA_UI_LOGE("Failed to get QR data from model");
     }
 
-    scr_data->provision_locked = info_should_force_provision_page();
+    scr_data->provision_locked = info_should_lock_page_by_cloud_state();
 
     if (scr_data->provision_locked) {
         scr_data->guard_timer = lv_timer_create(guard_timer_cb, 1000, scr_data);

@@ -10,6 +10,37 @@
 #include "mcp.h"
 #include "service_volume.h"
 
+static int volume_parse_value(const cJSON *value_json, int default_value)
+{
+    if (!value_json) {
+        return default_value;
+    }
+
+    if (cJSON_IsNumber(value_json)) {
+        return value_json->valueint;
+    }
+
+    if (cJSON_IsString(value_json) && value_json->valuestring) {
+        return atoi(value_json->valuestring);
+    }
+
+    return default_value;
+}
+
+static const char *volume_get_string_value(const cJSON *value_json)
+{
+    return value_json && cJSON_IsString(value_json) ? value_json->valuestring : NULL;
+}
+
+static int volume_to_percent(int value, const char *unit)
+{
+    if (unit && (strcmp(unit, "档") == 0 || strcmp(unit, "级") == 0)) {
+        return value * 10;
+    }
+
+    return value;
+}
+
 static int volume_parse_adjust_step(const char *value, const char *unit)
 {
     int step = 10;
@@ -26,6 +57,43 @@ static int volume_parse_adjust_step(const char *value, const char *unit)
     }
 
     return step;
+}
+
+static int volume_parse_adjust_step_json(const cJSON *value_json, const char *unit)
+{
+    int step = 10;
+
+    if (value_json) {
+        int parsed = volume_parse_value(value_json, 0);
+        if (parsed > 0) {
+            if (unit && strcmp(unit, "百分比") == 0) {
+                step = parsed;
+            } else {
+                step = parsed * 10;
+            }
+        }
+    }
+
+    return step;
+}
+
+static int volume_parse_set_target(const cJSON *value_json, const char *unit)
+{
+    const char *value = volume_get_string_value(value_json);
+
+    if (value) {
+        if (strcmp(value, "max") == 0) {
+            return 100;
+        }
+        if (strcmp(value, "min") == 0) {
+            return 0;
+        }
+        if (strcmp(value, "mid") == 0) {
+            return 50;
+        }
+    }
+
+    return volume_to_percent(volume_parse_value(value_json, service_volume_get()), unit);
 }
 
 static cJSON *volume_control_list(const char *name)
@@ -78,29 +146,27 @@ static cJSON *volume_control_call(const char *id, const char *name, cJSON *args)
     }
 
     const char *intent = intent_json->valuestring;
-    const char *value = value_json && cJSON_IsString(value_json) ? value_json->valuestring : NULL;
+    const char *value = volume_get_string_value(value_json);
     const char *unit = unit_json && cJSON_IsString(unit_json) ? unit_json->valuestring : "";
 
-    LOGI("Volume control: intent=%s, value=%s, unit=%s",
-         intent, value ? value : "null", unit);
+    if (value_json && cJSON_IsNumber(value_json)) {
+        LOGI("Volume control: intent=%s, value=%d, unit=%s",
+             intent, value_json->valueint, unit);
+    } else {
+        LOGI("Volume control: intent=%s, value=%s, unit=%s",
+             intent, value ? value : "null", unit);
+    }
 
     if (strcmp(intent, "set") == 0) {
-        if (value) {
-            if (strcmp(value, "max") == 0) {
-                service_volume_set(100);
-            } else if (strcmp(value, "min") == 0) {
-                service_volume_set(0);
-            } else if (strcmp(value, "mid") == 0) {
-                service_volume_set(50);
-            } else {
-                int target_vol = atoi(value);
-                service_volume_set(target_vol);
-            }
+        if (value_json) {
+            service_volume_set(volume_parse_set_target(value_json, unit));
         }
     } else if (strcmp(intent, "adjustUp") == 0) {
-        service_volume_adjust(volume_parse_adjust_step(value, unit));
+        service_volume_adjust(value ? volume_parse_adjust_step(value, unit) :
+                                    volume_parse_adjust_step_json(value_json, unit));
     } else if (strcmp(intent, "adjustDown") == 0) {
-        service_volume_adjust(-volume_parse_adjust_step(value, unit));
+        service_volume_adjust(value ? -volume_parse_adjust_step(value, unit) :
+                                    -volume_parse_adjust_step_json(value_json, unit));
     }
 
     cJSON *result = mcp_tool_call_result_create(name);
@@ -110,8 +176,11 @@ static cJSON *volume_control_call(const char *id, const char *name, cJSON *args)
 
     cJSON *content_array = cJSON_CreateArray();
     cJSON *content_item = cJSON_CreateObject();
+    int current_vol = service_volume_get();
+    char volume_text[64];
+    snprintf(volume_text, sizeof(volume_text), "已设置音量为%d%%", current_vol);
     cJSON_AddStringToObject(content_item, "type", "text");
-    cJSON_AddStringToObject(content_item, "text", "已完成操作");
+    cJSON_AddStringToObject(content_item, "text", volume_text);
     cJSON_AddItemToArray(content_array, content_item);
     cJSON_AddItemToObject(result, "content", content_array);
     cJSON_AddBoolToObject(result, "isError", false);

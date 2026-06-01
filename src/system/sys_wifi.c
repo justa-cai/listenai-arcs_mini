@@ -30,8 +30,7 @@ typedef struct {
     bool autoconnect_enabled;
     bool netdev_registered;
     bool dhcp_cb_registered;
-    bool force_provision;
-    bool user_force_provision;
+    sys_wifi_connect_result_t connect_result;
 } sys_wifi_status_t;
 
 static sys_wifi_status_t s_wifi = {0};
@@ -47,7 +46,44 @@ static int sys_wifi_init_sta_config(wifi_mgr_sta_config_t *sta_config,
                                     const char *ssid,
                                     const char *pwd,
                                     const char *bssid);
-static bool sys_wifi_has_ap(void);
+bool sys_wifi_has_ap(void);
+
+static bool sys_wifi_is_password_error_code(int code)
+{
+    return code == WIFI_ERROR_STA_AUTH_FAIL ||
+           code == WIFI_ERROR_WPA3_PWD_OR_AUTH_FAIL ||
+           code == WIFI_ERROR_FOUND_SSID_BUT_KEY_MISMATCH ||
+           code == WIFI_REASON_4WAY_HANDSHAKE_TIMEOUT;
+}
+
+static bool sys_wifi_is_password_error(const wifi_mgr_connection_info_t *connection_info)
+{
+    return sys_wifi_is_password_error_code(connection_info->error_code) ||
+           sys_wifi_is_password_error_code(connection_info->status_code) ||
+           sys_wifi_is_password_error_code(connection_info->reason);
+}
+
+static bool sys_wifi_is_no_ap_error_code(int code)
+{
+    return code == WIFI_ERROR_STA_CONNECT_NO_TARGET_AP;
+}
+
+static bool sys_wifi_is_no_ap_error(const wifi_mgr_connection_info_t *connection_info)
+{
+    return sys_wifi_is_no_ap_error_code(connection_info->error_code) ||
+           sys_wifi_is_no_ap_error_code(connection_info->status_code) ||
+           sys_wifi_is_no_ap_error_code(connection_info->reason);
+}
+
+static void sys_wifi_reset_connect_result(void)
+{
+    s_wifi.connect_result = SYS_WIFI_CONNECT_RESULT_SUCCESS;
+}
+
+static void sys_wifi_set_connect_result(sys_wifi_connect_result_t result)
+{
+    s_wifi.connect_result = result;
+}
 
 /* extern 声明 SDK nv_config.c 中的 MAC eFuse 接口 */
 extern int8_t nv_efuse_read_mac(uint8_t *mac_addr);
@@ -229,8 +265,7 @@ static void dhcp_status_callback(int vif_idx, bool success, uint32_t ip_addr, ui
 {
     if (success) {
         s_wifi.connected = true;
-        sys_wifi_set_force_provision(false);
-        sys_wifi_set_user_force_provision(false);
+        sys_wifi_set_connect_result(SYS_WIFI_CONNECT_RESULT_SUCCESS);
         voice_msg_pub(VOICE_MSG_WIFI_IP_GOT, NULL, 0);
         LISA_LOGI(TAG,"DHCP Success on VIF-%d: IP=%d.%d.%d.%d, Mask=%d.%d.%d.%d, GW=%d.%d.%d.%d",
              vif_idx,
@@ -239,6 +274,7 @@ static void dhcp_status_callback(int vif_idx, bool success, uint32_t ip_addr, ui
              gateway & 0xff, (gateway >> 8) & 0xff, (gateway >> 16) & 0xff, (gateway >> 24) & 0xff);
     } else {
         s_wifi.connected = false;
+        sys_wifi_set_connect_result(SYS_WIFI_CONNECT_RESULT_FAIL_IP);
         LISA_LOGI(TAG,"DHCP Failed on VIF-%d", vif_idx);
     }
 }
@@ -339,8 +375,7 @@ static void wifi_mgr_scan_done_cb(wifi_mgr_scan_info_t *aps_info, int ap_num, vo
     (void)arg;
 
     if (!s_wifi.started ||
-        s_wifi.connected ||
-        s_wifi.force_provision) {
+        s_wifi.connected) {
         return;
     }
 
@@ -372,10 +407,9 @@ static void wifi_mgr_scan_done_cb(wifi_mgr_scan_info_t *aps_info, int ap_num, vo
         return;
     }
 
-    sys_wifi_set_force_provision(true);
-    LISA_LOGI(TAG, "WiFi scan done, no saved AP available, enter force provisioning");
+    LISA_LOGI(TAG, "WiFi scan done, no saved AP available");
+    sys_wifi_set_connect_result(SYS_WIFI_CONNECT_RESULT_FAIL_NO_AP);
     voice_msg_pub(VOICE_MSG_WIFI_DISCONNECTED, NULL, 0);
-    voice_msg_pub(VOICE_MSG_WIFI_FORCE_PROVISION_REQUIRED, NULL, 0);
 }
 
 static void wifi_mgr_connection_cb(wifi_mgr_connection_info_t *connection_info, void *arg)
@@ -394,8 +428,7 @@ static void wifi_mgr_connection_cb(wifi_mgr_connection_info_t *connection_info, 
                 ls_dhcpc_start(WIFI_VIF_STA_IDX);
             } else {
                 s_wifi.connected = true;
-                sys_wifi_set_force_provision(false);
-                sys_wifi_set_user_force_provision(false);
+                sys_wifi_set_connect_result(SYS_WIFI_CONNECT_RESULT_SUCCESS);
                 voice_msg_pub(VOICE_MSG_WIFI_IP_GOT, NULL, 0);
             }
             
@@ -408,25 +441,21 @@ static void wifi_mgr_connection_cb(wifi_mgr_connection_info_t *connection_info, 
         case WIFI_MGR_STA_DISCONNECTED:
         case WIFI_MGR_STA_CONNECT_FAILED:
         {
-            bool was_connected = s_wifi.connected;
-            bool was_force_provision = s_wifi.force_provision;
-
             LISA_LOGI(TAG,"WiFi disconnected, stopping network interface");
             ls_dhcpc_stop(WIFI_VIF_STA_IDX);
             net_if_down(net_if_get(WIFI_VIF_STA_IDX));
             s_wifi.connected = false;
-            if (s_wifi.started &&
-                (s_wifi.autoconnect_requested || s_wifi.autoconnect_enabled) &&
-                sys_wifi_has_ap()) {
-                sys_wifi_set_force_provision(true);
+            if (sys_wifi_is_no_ap_error(connection_info)) {
+                sys_wifi_set_connect_result(SYS_WIFI_CONNECT_RESULT_FAIL_NO_AP);
+            } else if (sys_wifi_is_password_error(connection_info)) {
+                sys_wifi_set_connect_result(SYS_WIFI_CONNECT_RESULT_FAIL_PASSWORD);
+            } else {
+                sys_wifi_set_connect_result(SYS_WIFI_CONNECT_RESULT_FAIL_OTHER);
             }
+            LISA_LOGI(TAG, "WiFi connect result status:%d error:%d assoc:%d reason:%d",
+                      connection_info->status, connection_info->error_code,
+                      connection_info->status_code, connection_info->reason);
             voice_msg_pub(VOICE_MSG_WIFI_DISCONNECTED, NULL, 0);
-            if (!was_force_provision &&
-                s_wifi.force_provision &&
-                (connection_info->status == WIFI_MGR_STA_CONNECT_FAILED || !was_connected)) {
-                LISA_LOGI(TAG, "WiFi auto connect failed, enter force provisioning");
-                voice_msg_pub(VOICE_MSG_WIFI_FORCE_PROVISION_REQUIRED, NULL, 0);
-            }
             break;
         }
 
@@ -498,7 +527,6 @@ int sys_wifi_start(bool autoconnect)
 
     s_wifi.started = true;
     s_wifi.autoconnect_requested = autoconnect;
-    sys_wifi_set_force_provision(false);
 
     if (!s_wifi.ready) {
         return 0;
@@ -521,8 +549,6 @@ int sys_wifi_stop(void)
 {
     s_wifi.started = false;
     s_wifi.autoconnect_requested = false;
-    sys_wifi_set_force_provision(false);
-    sys_wifi_set_user_force_provision(false);
 
     sys_wifi_unregister_netdev();
 
@@ -550,9 +576,12 @@ int sys_wifi_connect(const char *ssid, const char *pwd, const char *bssid)
         return -1;
     }
 
-    sys_wifi_set_force_provision(false);
-    sys_wifi_set_user_force_provision(false);
     return wifi_mgr_sta_connect(&sta_config, false);
+}
+
+sys_wifi_connect_result_t sys_wifi_get_connect_result(void)
+{
+    return s_wifi.connect_result;
 }
 
 int sys_wifi_save_ap(const char *ssid, const char *pwd, const char *bssid)
@@ -569,10 +598,6 @@ int sys_wifi_save_ap(const char *ssid, const char *pwd, const char *bssid)
     }
 
     ret = wifi_mgr_storage_save_ap(&sta_config);
-    if (ret == 0) {
-        sys_wifi_set_force_provision(false);
-        sys_wifi_set_user_force_provision(false);
-    }
 
     return ret;
 }
@@ -608,7 +633,7 @@ int sys_wifi_clear_saved_aps(void)
     return 0;
 }
 
-static bool sys_wifi_has_ap(void)
+bool sys_wifi_has_ap(void)
 {
     wifi_mgr_sta_config_t ap = {0};
     int count = wifi_mgr_storage_search_ap(&ap, 1, SEARCH_ALL, NULL);
@@ -660,41 +685,4 @@ bool sys_wifi_is_started(void)
 bool sys_wifi_is_connected(void)
 {
     return s_wifi.connected;
-}
-
-void sys_wifi_set_force_provision(bool enabled)
-{
-    s_wifi.force_provision = enabled;
-}
-
-bool sys_wifi_get_force_provision(void)
-{
-    if (!s_wifi.started) {
-        return false;
-    }
-
-    if (s_wifi.force_provision) {
-        return true;
-    }
-
-    if (!sys_wifi_has_ap()) {
-        return true;
-    }
-
-    if (s_wifi.connected) {
-        return false;
-    }
-
-    return s_wifi.force_provision;
-}
-
-
-bool sys_wifi_get_user_force_provision(void)
-{
-    return s_wifi.user_force_provision;
-}
-
-void sys_wifi_set_user_force_provision(bool enabled)
-{
-    s_wifi.user_force_provision = enabled;
 }

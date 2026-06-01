@@ -13,6 +13,14 @@ config MCP_TOOL_CAMERA_ENABLE
     bool "Enable camera tool"
     default n
 
+config LSCHAT_WAKEUP_CLOUD_NOISE_GATE_THRESHOLD
+    int "Wakeup cloud audio noise gate threshold"
+    default 128
+    range 0 32767
+    help
+      Samples whose absolute amplitude is below this threshold are muted
+      before wakeup output audio is sent to cloud ASR.
+
 endif
 
 config AUDIO_DEFAULT_MIC_GAIN_A_DB

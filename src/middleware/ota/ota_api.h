@@ -38,6 +38,7 @@ int ota_api_download(const ota_res_info_t *res_info, ota_download_cb_t cb);
 
 #define OTA_APP_VERSION_LEN    32
 #define OTA_APP_PACKAGE_ID_LEN 64  /* 服务端侧包的数据库唯一 id；留足长度兼容 UUID/md5 等格式 */
+#define OTA_APP_RELEASE_NOTES_LEN 384
 
 typedef struct {
     bool available;
@@ -47,6 +48,8 @@ typedef struct {
     bool has_md5;                            /* md5_checksum 字段非空且格式正确时为 true；false 则跳过下载校验 */
     char md5[OTA_RES_MD5_LEN];
     char url[OTA_RES_URL_LEN];
+    uint32_t size;                           /* 可选字段，不存在时为 0 */
+    char release_notes[OTA_APP_RELEASE_NOTES_LEN];
 } ota_app_package_t;
 
 /**

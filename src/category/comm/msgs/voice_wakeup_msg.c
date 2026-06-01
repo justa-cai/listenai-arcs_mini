@@ -10,11 +10,18 @@
 #include "sys_network_manager.h"
 
 #include "voice_cloud.h"
+#include "service_image.h"
 
 #include "app_player.h"
 #include "tone.h"
 #include "voice_player_comm.h"
 #include "lisa_log.h"
+
+enum {
+    VOICE_WAKEUP_QR_STATUS_NOT_CONNECTED = 0,
+    VOICE_WAKEUP_QR_STATUS_BIND = 3,
+    VOICE_WAKEUP_QR_STATUS_AUTH_FAILED = 4,
+};
 
 static bool is_valid_keyword(char *keyword)
 {
@@ -25,26 +32,67 @@ static bool is_valid_keyword(char *keyword)
     return true;
 }
 
-static bool voice_wakeup_should_prompt_wifi_provision(void)
+static bool voice_wakeup_should_open_info(uint32_t *status_out)
 {
-    sys_network_status_t status;
+    uint32_t status = 0xFFFFFFFFU;
 
-    return sys_network_get_status(&status) == 0 && status.wifi_provision_required;
-}
-
-static void voice_wakeup_prompt_wifi_provision(void)
-{
-#if CONFIG_WIFI_MANAGER
-    static TickType_t s_last_prompt_tick = 0;
-    TickType_t now = xTaskGetTickCount();
-
-    if (s_last_prompt_tick == 0 || (now - s_last_prompt_tick) >= pdMS_TO_TICKS(1000)) {
-        app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
-        s_last_prompt_tick = now;
+    switch (voice_cloud_get_state()) {
+    case VOICE_CLOUD_STATE_CONNECTING:
+        return false;
+    case VOICE_CLOUD_STATE_NO_NETWORK:
+    case VOICE_CLOUD_STATE_NO_INTERNET:
+        status = VOICE_WAKEUP_QR_STATUS_NOT_CONNECTED;
+        break;
+    case VOICE_CLOUD_STATE_TOKEN_FAILED:
+        status = VOICE_WAKEUP_QR_STATUS_AUTH_FAILED;
+        break;
+    case VOICE_CLOUD_STATE_CONNECT_FAILED:
+        status = VOICE_WAKEUP_QR_STATUS_BIND;
+        break;
+    default:
+        return false;
     }
 
-    voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, NULL, 0);
+    if (status_out) {
+        *status_out = status;
+    }
+
+    return true;
+}
+
+static void voice_wakeup_prompt_cloud_info(uint32_t status)
+{
+#if CONFIG_WIFI_MANAGER
+    static TickType_t s_last_netcfg_prompt_tick = 0;
+    TickType_t now = xTaskGetTickCount();
+
+    switch (status) {
+    case VOICE_WAKEUP_QR_STATUS_AUTH_FAILED:
+        app_player_play(tone_player, app_tone_get_url(TONE_ID_105));
+        break;
+    case VOICE_WAKEUP_QR_STATUS_NOT_CONNECTED:
+        if (s_last_netcfg_prompt_tick == 0 ||
+            (now - s_last_netcfg_prompt_tick) >= pdMS_TO_TICKS(2000)) {
+            app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
+            s_last_netcfg_prompt_tick = now;
+        }
+        break;
+    default:
+        break;
+    }
+
+    voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, &status, sizeof(status));
+#else
+    (void)status;
 #endif
+}
+
+static bool voice_wakeup_is_button_ptt_action(voice_msg_button_action_t action)
+{
+    return action == VOICE_MSG_BUTTON_ACTION_PRESS_DOWN ||
+           action == VOICE_MSG_BUTTON_ACTION_SHORT_UP ||
+           action == VOICE_MSG_BUTTON_ACTION_LONG_UP ||
+           action == VOICE_MSG_BUTTON_ACTION_LONG_HOLD_UP;
 }
 
 static bool start_voice_cloud(struct app_datas *app_datas)
@@ -83,9 +131,31 @@ static bool start_voice_cloud(struct app_datas *app_datas)
     return voice_cloud_chat_start(&chat_config) == 0;
 }
 
+static bool voice_wakeup_tts_interrupt_needed(void)
+{
+    app_player_state_t state;
+
+    if (tts_player == NULL) {
+        return false;
+    }
+
+    state = app_player_get_state(tts_player);
+    return state == APP_PLAYER_STATE_PREPARING ||
+           state == APP_PLAYER_STATE_PREPARED ||
+           state == APP_PLAYER_STATE_PLAYING ||
+           state == APP_PLAYER_STATE_PAUSED;
+}
+
 static void interrupt_photo_flow(const char *source)
 {
     LOGI("interrupt photo flow by %s", source ? source : "unknown");
+    if (voice_wakeup_tts_interrupt_needed()) {
+        if (app_player_stop(tts_player) == APP_PLAYER_OK) {
+            LOGI("interrupt photo flow: stopped active tts");
+        } else {
+            LOGW("interrupt photo flow: stop tts failed");
+        }
+    }
     voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
 }
 
@@ -104,12 +174,14 @@ static void voice_wakeup_keyword(void *unused, uint32_t msg_id, void *data, uint
         return;
     }
 
-    if (voice_wakeup_should_prompt_wifi_provision()) {
-        LOGI("voice wakeup ignored: WiFi provisioning is required");
-        voice_wakeup_prompt_wifi_provision();
+    uint32_t info_status = 0;
+    if (voice_wakeup_should_open_info(&info_status)) {
+        LOGI("voice wakeup ignored: cloud unavailable status=%u", (unsigned)info_status);
+        voice_wakeup_prompt_cloud_info(info_status);
         return;
     }
 
+    service_image_waiting_cancel();
     interrupt_photo_flow("voice wakeup");
     start_voice_cloud(app_datas);
 }
@@ -135,8 +207,16 @@ static void voice_wakeup_button_event(void *unused, uint32_t msg_id, void *data,
         return;
     }
 
-    if (voice_wakeup_should_prompt_wifi_provision()) {
-        LOGI("button wakeup ignored: WiFi provisioning is required");
+    if (!voice_wakeup_is_button_ptt_action(evt->action)) {
+        return;
+    }
+
+    uint32_t info_status = 0;
+    if (voice_wakeup_should_open_info(&info_status)) {
+        if (evt->action == VOICE_MSG_BUTTON_ACTION_SHORT_UP) {
+            LOGI("button wakeup ignored: cloud unavailable status=%u", (unsigned)info_status);
+            voice_wakeup_prompt_cloud_info(info_status);
+        }
         return;
     }
 
@@ -169,6 +249,7 @@ static void voice_msg_btn_wakeup_start(void *unused, uint32_t msg_id, void *data
         return;
     }
 
+    service_image_waiting_cancel();
     interrupt_photo_flow("button wakeup");
     voice_cloud_audio_recognition_start();
 }

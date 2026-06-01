@@ -582,6 +582,7 @@ app_player_t *app_player_create(const char *name)
     player->state = APP_PLAYER_STATE_IDLE;
     player->last_evt = PLAYER_EVT_INIT;
     player->is_preparing = false;
+    player->stop_preparing_requested = false;
     player->wait_prepare_intercepted = false;
     player->pause_preparing = false;
     player->is_stream_mode = false;
@@ -798,12 +799,13 @@ int app_player_play_ex(app_player_t *player, const app_player_play_opt_t *opt)
     }
 
     PLAYER_MUTEX_LOCK(player->operation_lock, LISA_OS_WAIT_FOREVER);
+    /* 新一次播放开始，清除 preparing-stop 请求标志 */
+    player->stop_preparing_requested = false;
 
 #ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
     // 检查当前播放状态，如果已经在播放/准备中，先停止
     PlayerState lisa_state = lisa_player_get_state(player->hld);
-    if (lisa_state == PLAYER_ST_PLAYING || lisa_state == PLAYER_ST_PREPARED ||
-        lisa_state == PLAYER_ST_READY_TO_PLAY || lisa_state == PLAYER_ST_PAUSED) {
+    if (lisa_state == PLAYER_ST_PLAYING || lisa_state == PLAYER_ST_PAUSED) {
         LISA_LOGI(TAG, "Player %s already active (state=%d), stopping before new play",
                   player->name, lisa_state);
 
@@ -813,6 +815,39 @@ int app_player_play_ex(app_player_t *player, const app_player_play_opt_t *opt)
             LISA_LOGW(TAG, "Player %s stop before replay failed: %d, continuing anyway",
                       player->name, stop_ret);
         }
+    } else if (lisa_state == PLAYER_ST_PREPARED) {
+        /* PREPARED 状态：lisa_player_reset 从 PREPARED 不会真正让状态机回到 IDLE
+         * （pre_close+reset 也不行），后续 core_play 的 reset 会卡死。
+         *
+         * 唯一可靠的排空路径是 play → stop_sync：PREPARED → PLAYING（lisa_player_play
+         * 支持，老的非 stop_preparing 分支就是这么用的）；PLAYING → STOPPED
+         * （stop_sync 从 PLAYING 工作正常）。
+         *
+         * 期间用 drain_in_progress 标志压制上层回调，避免：
+         *   - PA 闪一下（app_player_upper_callback_handler 在 PLAYING 事件里开 PA）
+         *   - 焦点抖动（PLAYING/STOPPED 事件会触发焦点策略）
+         *   - 虚假的 PLAYER_EVT_PLAYING / STOPED 被 voice_player 当成真实 TTS 事件 */
+        LISA_LOGI(TAG, "Player %s in PREPARED state (%d), drain via play+stop_sync",
+                  player->name, lisa_state);
+        player->drain_in_progress = true;
+        if (lisa_player_play(player->hld) == PLAYER_OK) {
+            PlayerErr stop_ret = lisa_player_stop_sync(player->hld);
+            if (stop_ret != PLAYER_OK) {
+                LISA_LOGW(TAG, "Drain stop_sync failed: %d", stop_ret);
+            }
+        } else {
+            LISA_LOGW(TAG, "Drain play failed for %s", player->name);
+        }
+        player->drain_in_progress = false;
+        player->is_preparing = false;
+    } else if (lisa_state == PLAYER_ST_READY_TO_PLAY) {
+        /* READY_TO_PLAY（准备中）状态下不动 player：__app_player_try_interrupt_prepare_stop
+         * 这条路径专门处理 stop 期间 preparing，让 prepare 完成回调把状态收尾。
+         * 这里跳过 stop_sync，避免 core_stop_sync 兜底入队虚假 STOPPED 事件被
+         * voice_cloud_msg 当作"上一段 TTS 播完"误触发 continuous session restart。 */
+        LISA_LOGI(TAG, "Player %s in preparing state (%d), skip stop_sync before new play",
+                  player->name, lisa_state);
+        player->is_preparing = false;
     }
 
     // 清除焦点暂停标志（用户主动播放）
@@ -891,6 +926,60 @@ int app_player_play(app_player_t *player, const char *url)
     return app_player_play_ex(player, &opt);
 }
 
+static int __app_player_try_interrupt_prepare_stop(app_player_t *player)
+{
+    PlayerState state;
+    bool prepare_active;
+    PlayerErr pre_close_ret;
+    PlayerErr reset_ret;
+
+    if (!player) {
+        return -1;
+    }
+
+    state = lisa_player_get_state(player->hld);
+    prepare_active = player->is_preparing || (state == PLAYER_ST_READY_TO_PLAY);
+    if (!prepare_active) {
+        return 1;
+    }
+
+    LISA_LOGI(TAG, "Stop %s while preparing, interrupt prepare first (state=%d)",
+              player->name, state);
+
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    // 标记为用户主动stop，后续焦点释放时跳过策略执行
+    app_player_focus_set_user_initiated(player, true);
+#endif
+
+    /* preparing 快速中断路径：不等待 prepare 完成 */
+    player->prepare_error = true;
+    player->pause_preparing = false;
+    player->wait_prepare_intercepted = true;
+
+    pre_close_ret = lisa_player_pre_close(player->hld);
+    if (pre_close_ret < 0) {
+        LISA_LOGW(TAG, "Interrupt prepare stop pre_close failed for %s: %d",
+                  player->name, pre_close_ret);
+    }
+
+    reset_ret = lisa_player_reset(player->hld);
+    if (reset_ret != PLAYER_OK) {
+        LISA_LOGW(TAG, "Interrupt prepare stop reset failed for %s: %d",
+                  player->name, reset_ret);
+    }
+
+    player->is_preparing = false;
+    player->wait_prepare_intercepted = false;
+    lisa_semaphore_give(player->preparing_sem);
+
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    // prepare 被中断后，主动释放焦点
+    app_player_focus_release(player, true);
+#endif
+
+    return 0;
+}
+
 /**
  * @brief   停止播放（同步）
  * @param   player 播放器实例
@@ -911,7 +1000,14 @@ int app_player_stop(app_player_t *player)
     }
 
     LISA_LOGI(TAG, "Stop: %s", player->name);
-
+    /* stop 优先，抑制 preparing 完成后的自动播放 */
+    player->stop_preparing_requested = true;
+    
+    // 优先处理中断prepare场景，避免被 operation_lock 长时间阻塞导致 stop 失效
+    if (__app_player_try_interrupt_prepare_stop(player) == 0) {
+        return APP_PLAYER_OK;
+    }
+    
     PLAYER_MUTEX_LOCK(player->operation_lock, LISA_OS_WAIT_FOREVER);
 
 #ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
@@ -1087,6 +1183,7 @@ int app_player_reset(app_player_t *player)
 
     // 清除准备中标志
     player->is_preparing = false;
+    player->stop_preparing_requested = false;
     player->wait_prepare_intercepted = false;
     player->pause_preparing = false;
 

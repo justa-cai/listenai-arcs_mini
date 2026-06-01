@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <limits.h>
 #include <math.h>
+#include <stdlib.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -97,39 +98,10 @@ static mic_ref_in_t *mic_ref_in = NULL;
 static const uint8_t echo_zero[CONFIG_AUDIO_STEP_SAMPS * sizeof(ref_in_t)] = {0};
 static SemaphoreHandle_t rx_sem;
 
-__attribute__((weak)) bool is_wakeup_keyword(char *keyword)
-{
-    return false;
-}
-
-/** 是否为数字 */
-static bool is_digit(char str) { return (str >= '0' && str <= '9'); }
-
-/** 是否为特殊字符 */
-static bool is_special(char str) { return (str == '\r'); }
-
-/**
- * 移除字符串中的数字
- * @param input     待处理字符串
- * @return          处理后的字符串
- */
-static char* __remove_digits_and_special(char* input)
-{
-    char* dest = input;
-    char* src = input;
-
-    while(*src) {
-        if(is_digit(*src) || is_special(*src)) { src++; continue; }
-        *dest++ = *src++;
-    }
-    *dest = '\0';
-    return input;
-}
-
-static int app_algo_keyword_and_kid_extract(const uint8_t *const in, uint8_t *out, int max_len)
+static int app_algo_command_extract(const uint8_t *const in, uint8_t *text, int max_len, bool *is_wakeup_keyword)
 {
 	int ret = -1;
-	if (in && out) {
+	if (in && text && is_wakeup_keyword) {
 		cJSON *root = cJSON_Parse(in);
 		if (root) {
 			cJSON *rlt_json = cJSON_GetObjectItem(root, "rlt");
@@ -137,25 +109,33 @@ static int app_algo_keyword_and_kid_extract(const uint8_t *const in, uint8_t *ou
 				if (cJSON_GetArraySize(rlt_json) > 0) {
 					cJSON *rlt0_json = cJSON_GetArrayItem(rlt_json, 0);
 					if (rlt0_json) {
-						cJSON *key_json = cJSON_GetObjectItem(rlt0_json, "keyword");
 						cJSON *kid_json = cJSON_GetObjectItem(rlt0_json, "iresid");
-						cJSON *threshlod_json = cJSON_GetObjectItem(rlt0_json, "ncm");
+                        cJSON *bmain_json = cJSON_GetObjectItem(rlt0_json, "bMain");
                         cJSON *intent_json = cJSON_GetObjectItem(rlt0_json, "intent");
+                        const char *intent_text = NULL;
                         /*兼容旧的版本协议*/
-                        if(intent_json == NULL){
+                        if (intent_json == NULL) {
                             intent_json = cJSON_GetObjectItem(rlt0_json, "intentStr");
                         }
-						if (key_json && threshlod_json && intent_json) {
-							char *proc_keyword = __remove_digits_and_special(intent_json->valuestring);
-							if (proc_keyword) {
-								ret = 0;
-								const int kw_len = strlen(proc_keyword);
-								if (kw_len < max_len) {
-									memcpy(out, proc_keyword, kw_len + 1);
-								} else {
-									strncpy(out, proc_keyword, max_len);
-								}
-							}
+
+                        if (intent_json && cJSON_IsString(intent_json)) {
+                            intent_text = intent_json->valuestring;
+                        } else {
+                            cJSON *keyword_json = cJSON_GetObjectItem(rlt0_json, "keyword");
+                            if (keyword_json && cJSON_IsString(keyword_json)) {
+                                intent_text = keyword_json->valuestring;
+                            }
+                        }
+
+						if (intent_text != NULL) {
+                            snprintf((char *)text, max_len, "%s", intent_text);
+                            if (cJSON_IsBool(bmain_json) || cJSON_IsNumber(bmain_json)) {
+                                *is_wakeup_keyword = (bmain_json->valueint == 1);
+                                ret = 0;
+                            } else if (cJSON_IsNumber(kid_json)) {
+                                *is_wakeup_keyword = (kid_json->valueint == 0);
+                                ret = 0;
+                            }
 						}
 					}
 				}
@@ -170,17 +150,18 @@ static int app_algo_keyword_and_kid_extract(const uint8_t *const in, uint8_t *ou
 static void wakeup_event_handler(uint32_t event, void *event_data, uint32_t event_data_len, void *priv)
 {
     uint8_t keyword[64] = {0};
+    bool is_wakeup_keyword = false;
     int ret;
 
     if (event & WAKEUP_CB_EVENT_ENGINE_RLT) {
         LISA_LOGI(TAG, "wakeup result:%d,%s", event_data_len, (char *)event_data);
-        ret = app_algo_keyword_and_kid_extract(event_data, keyword, sizeof(keyword) - 1);
+        ret = app_algo_command_extract(event_data, keyword, sizeof(keyword), &is_wakeup_keyword);
         if (ret == 0) {
-            if(is_wakeup_keyword(keyword)){
-                voice_msg_pub(VOICE_MSG_WAKEUP_KEYWORD, keyword, strlen(keyword) + 1);
+            if (is_wakeup_keyword) {
+                voice_msg_pub(VOICE_MSG_WAKEUP_KEYWORD, keyword, strlen((char *)keyword) + 1);
             }
-            else{
-                voice_msg_pub(VOICE_MSG_WAKEUP_COMMAND, keyword, strlen(keyword) + 1);
+            else {
+                voice_msg_pub(VOICE_MSG_WAKEUP_COMMAND, keyword, strlen((char *)keyword) + 1);
             }
         }
     } else if (event & WAKEUP_CB_EVENT_STREAM_UPDATE) {
@@ -565,7 +546,12 @@ static void wakeup_out_stream_to_cloud(uint8_t *data, int len)
             } else if (sample < SHRT_MIN) {
                 sample = SHRT_MIN;
             }
+            if (sample > -CONFIG_LSCHAT_WAKEUP_CLOUD_NOISE_GATE_THRESHOLD &&
+                sample < CONFIG_LSCHAT_WAKEUP_CLOUD_NOISE_GATE_THRESHOLD) {
+                sample = 0;
+            }
             rec_buf[i] = (short)sample;
+            uac_rec[i][3] = (short)sample; // 声道4为上报云端
         }
 
         voice_cloud_chat_send_audio((uint8_t *)rec_buf, LS_RECORD_ONE_CHNNEL_SIZE);
@@ -772,8 +758,8 @@ int app_wakeup_sensitivity_level_set(app_wakeup_sensitivity_level_e level){
         [APP_WAKEUP_SENSITIVITY_LEVEL_3] = ACOMP_WAKEUP_THRESHOLD_LEVEL_4,
         [APP_WAKEUP_SENSITIVITY_LEVEL_4] = ACOMP_WAKEUP_THRESHOLD_LEVEL_5,
     };
-    
-    s_sensitivity_level = level;
+
+        s_sensitivity_level = level;
     acomp_wakeup_set_threshold(level_remap[level]);
     LISA_LOGI(TAG,"app_wakeup_sensitivity_level_set %d",level);
 }

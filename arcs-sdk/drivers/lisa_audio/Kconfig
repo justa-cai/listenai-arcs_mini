@@ -61,9 +61,8 @@ config LISA_AUDIO_RECORD_USE_DMIC
 			Enable PDM mode for digital microphones.
 			Disable for analog microphones (ADC mode).
 
-config  LISA_AUDIO_RECORD_INDIVIDUAL_GAIN
-    bool "Enable individual gain control on left/right channels"
-    default n
+config LISA_AUDIO_RECORD_INDIVIDUAL_GAIN
+	bool "Enable individual gain control on left/right channels"
 
 config LISA_AUDIO_RECORD_MIC0_ENABLE
 	bool "Enable MIC0 (GPIOA_30/31)"

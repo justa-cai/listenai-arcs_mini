@@ -54,6 +54,11 @@ static lisa_timer_t *battery_ui_timer __psram_bss__ = NULL;
 /* 滤波器核心状态提升到模块级，以便 battery_ui_init() 从 KV 注入初值 */
 static uint8_t s_output_pct __psram_data__ = 0xFF;
 static uint8_t s_target_pct __psram_data__ = 0xFF;
+static voice_msg_battery_info_t s_last_battery_info __psram_bss__ = {
+    .level = 0,
+    .status = VOICE_MSG_BATTERY_STATUS_UNKNOWN,
+};
+static bool s_last_battery_info_valid __psram_bss__ = false;
 
 /**
  * @brief 百分比去抖/平滑滤波
@@ -154,6 +159,26 @@ static voice_msg_battery_status_t battery_status_to_msg(battery_status_t status)
     }
 }
 
+bool battery_ui_get_info(voice_msg_battery_info_t *info)
+{
+    if (!info) {
+        return false;
+    }
+
+    if (s_last_battery_info_valid) {
+        *info = s_last_battery_info;
+        return true;
+    }
+
+    battery_status_t status = battery_get_status();
+    bool plug_in_pending = battery_usb_plugged_stable_get() && status == BATTERY_STATUS_NOT_CONNECT;
+
+    info->level = (s_output_pct != 0xFF) ? s_output_pct : battery_get_pct_raw();
+    info->status = battery_status_to_msg(plug_in_pending ? BATTERY_STATUS_CHARGING : status);
+
+    return true;
+}
+
 static void battery_voltage_sample_cb(struct lisa_timer *timer)
 {
     uint8_t sampled_percentage = battery_get_pct_raw();
@@ -200,6 +225,9 @@ static void battery_voltage_sample_cb(struct lisa_timer *timer)
         .level  = display_percentage,
         .status = battery_status_to_msg(display_status),
     };
+
+    s_last_battery_info = msg;
+    s_last_battery_info_valid = true;
 
     if (display_percentage != last_percentage || display_status != last_publish_status) {
         voice_msg_pub(VOICE_MSG_POWER_BATTERY_UPDATE, &msg, sizeof(msg));

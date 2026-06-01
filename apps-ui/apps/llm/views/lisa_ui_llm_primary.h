@@ -296,6 +296,7 @@ static inline bool lisa_ui_llm_primary_is_valid(lv_obj_t *obj)
     return (obj != NULL) && LISA_UI_LLM_PRIMARY_CLASS_CHECK(obj);
 }
 void lisa_ui_llm_primary_img_show(lv_obj_t *obj, void *img);
+void lisa_ui_llm_primary_query_img_show(lv_obj_t *obj, const void *img);
 void lisa_ui_llm_primary_img_hide(lv_obj_t *obj);
 void lisa_ui_llm_primary_img_hint_show(lv_obj_t *obj, const char *text);
 void lisa_ui_llm_primary_img_hint_hide(lv_obj_t *obj);

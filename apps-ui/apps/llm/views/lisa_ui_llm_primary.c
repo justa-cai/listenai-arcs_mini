@@ -506,6 +506,33 @@ void lisa_ui_llm_primary_img_show(lv_obj_t *obj, void *img)
     lv_obj_add_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_HIDDEN);
 }
 
+void lisa_ui_llm_primary_query_img_show(lv_obj_t *obj, const void *img)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj) || !img) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+
+    if (llm_primary->img_hint) {
+        lv_obj_add_flag(llm_primary->img_hint, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lv_img_set_src(llm_primary->img, img);
+    lv_img_set_zoom(llm_primary->img, LV_IMG_ZOOM_NONE);
+    lv_obj_add_flag(llm_primary->img, LV_OBJ_FLAG_FLOATING);
+    lv_obj_update_layout(llm_primary->img);
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    lv_obj_align(llm_primary->img, LV_ALIGN_CENTER, 0, 0);
+#else
+    lv_obj_align(llm_primary->img, LV_ALIGN_CENTER, 0, -25);
+#endif
+    lv_obj_clear_flag(llm_primary->img, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_opa(llm_primary->img, LV_OPA_COVER, 0);
+
+    lv_obj_add_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_HIDDEN);
+}
+
 void lisa_ui_llm_primary_img_hint_show(lv_obj_t *obj, const char *text)
 {
     if (!lisa_ui_llm_primary_is_valid(obj)) {

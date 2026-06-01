@@ -1,0 +1,3 @@
+config LOG_UPLOAD
+    bool "Enable business log upload"
+    default n

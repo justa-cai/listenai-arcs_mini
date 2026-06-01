@@ -2,6 +2,7 @@
 #define __VOICE_PLAYER_COMM_H__
 
 #include <stdint.h>
+#include <stddef.h>
 #include "voice_msg.h"
 #include "app_player.h"
 
@@ -73,6 +74,32 @@ int voice_player_set_system_volume(int volume);
  * @return 音量值 (0-100), 失败返回 -1
  */
 int voice_player_get_system_volume(void);
+
+/**
+ * @brief 通知语音播放器：相机拍照提示音即将开始
+ *
+ * 用于在拍照提示音结束后恢复被其打断的云端 TTS。
+ */
+void voice_player_notify_camera_capture_tone_start(void);
+
+/**
+ * @brief 复制最近一次收到的 TTS URL
+ *
+ * @param url_buf 输出缓冲区
+ * @param buf_len 输出缓冲区长度
+ * @return true 复制成功，false 当前没有缓存可用 URL
+ */
+bool voice_player_latest_tts_url_copy(char *url_buf, size_t buf_len);
+
+/**
+ * @brief 查询 TTS 播放器是否处于活跃状态（非阻塞）
+ *
+ * 基于 voice_player 内部维护的事件标志，不会获取播放器 operation_lock，
+ * 适合在 ebus 回调等时序敏感路径中使用。状态可能略滞后于底层播放器实例。
+ *
+ * @return true 已下发 TTS 播放/恢复请求且尚未收到 stop/error/complete 事件
+ */
+bool voice_player_tts_is_active(void);
 
 #ifdef __cplusplus
 }

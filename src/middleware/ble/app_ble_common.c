@@ -9,10 +9,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
 #include "lisa_bluetooth.h"
 #include "lisa_ble_api.h"
 #include "ble_adv_data.h"
 #include "bt_stack_cfg.h"
+#include "bt_app_hal.h"
 #include "lisa_kv.h"
 #include "kv_user.h"
 #include "netcfg_ble.h"
@@ -21,6 +24,7 @@
 #include "ble_plf_config.h"
 #include "voice_msg.h"
 #include "sys_network_manager.h"
+#include "sys_wifi.h"
 
 #if defined(CONFIG_CLOUD_PRODUCT_ID_DEFAULT)
 #define PRODUCT_ID CONFIG_CLOUD_PRODUCT_ID_DEFAULT
@@ -57,6 +61,10 @@ const uint8_t *lisa_bt_get_adv_data(uint8_t *len)
 static lisa_ble_netcfg_handler_t s_netcfg_handler;
 static bool s_ble_connected;
 static uint8_t s_ble_conidx;
+static volatile bool s_ble_netcfg_adv_pending;
+static void app_ble_send_wifi_provision_fail(uint8_t conidx, uint8_t reason);
+
+#define APP_BLE_NETCFG_ADV_DELAY_MS 1000U
 
 void lisa_ble_netcfg_set_handler(lisa_ble_netcfg_handler_t handler)
 {
@@ -107,6 +115,37 @@ void app_ble_netcfg_prepare(void)
     netcfg_bles_set_state(NETCFG_BLE_IDLE);
 }
 
+static void app_ble_netcfg_adv_start_task(void *arg)
+{
+    uint8_t ret = 0;
+
+    (void)arg;
+
+    app_ble_netcfg_prepare();
+    vTaskDelay(pdMS_TO_TICKS(APP_BLE_NETCFG_ADV_DELAY_MS));
+
+    ret = app_ble_adv_start(0, BLE_ADV_GEN);
+    if (ret != 0) {
+        LISA_LOGW(TAG, "Delayed BLE adv start failed: %u", (unsigned)ret);
+    }
+
+    s_ble_netcfg_adv_pending = false;
+    vTaskDelete(NULL);
+}
+
+void app_ble_netcfg_adv_start_delayed(void)
+{
+    if (s_ble_netcfg_adv_pending) {
+        return;
+    }
+
+    s_ble_netcfg_adv_pending = true;
+    if (xTaskCreate(app_ble_netcfg_adv_start_task, "ble_adv_delay", 2048, NULL, 5, NULL) != pdPASS) {
+        s_ble_netcfg_adv_pending = false;
+        LISA_LOGW(TAG, "Failed to create delayed BLE adv task");
+    }
+}
+
 static int netcfg_ble_wifi_connect(const int8_t *ssid, const int8_t *pwd)
 {
     if (!ssid || !pwd)
@@ -116,6 +155,11 @@ static int netcfg_ble_wifi_connect(const int8_t *ssid, const int8_t *pwd)
         return -1;
 
     return s_netcfg_handler((const char *)ssid, (const char *)pwd);
+}
+
+static bool netcfg_ble_data_is_empty(const struct netcfg_ble_data *data)
+{
+    return data && data->ssid[0] == '\0' && data->pwd[0] == '\0';
 }
 
 uint16_t netcfg_ble_notify_wifi(struct netcfg_ble_data *data)
@@ -204,9 +248,24 @@ uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op
     case NETCFG_BLE_OP_SSID:
     case NETCFG_BLE_OP_PWD:
         break;
+    case NETCFG_BLE_OP_SKIP_WIFI:
+        LISA_LOGI(TAG, "Skip Wi-Fi connect by BLE netcfg command");
+        lisa_ble_netcfg_send_notify(conidx, 0, 0, 0, NULL);
+        status = NETCFG_BLE_SUCCESS;
+        break;
     case NETCFG_BLE_OP_DONE:
+        if (netcfg_ble_data_is_empty((struct netcfg_ble_data *)p_value)) {
+            LISA_LOGI(TAG, "Skip Wi-Fi connect for empty BLE netcfg data");
+            lisa_ble_netcfg_send_notify(conidx, 0, 0, 0, NULL);
+            status = NETCFG_BLE_SUCCESS;
+            break;
+        }
         status = netcfg_ble_notify_wifi((struct netcfg_ble_data *)p_value);
         lisa_ble_netcfg_send_notify(conidx, 0, 0, 0, NULL);
+        if (status != NETCFG_BLE_SUCCESS) {
+            sys_wifi_connect_result_t result = sys_wifi_get_connect_result();
+            app_ble_send_wifi_provision_fail(conidx, (uint8_t)result);
+        }
         break;
     case NETCFG_BLE_OP_REBOOT:
         ble_gap_disconnect(conidx, 0x13);
@@ -234,6 +293,7 @@ uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op
         LISA_LOGI(TAG, "auth info: %s", auth_info);
         ble_netcfg_bles_send_notify_custom_data(conidx, strlen(auth_info), (uint8_t *)auth_info);
         lisa_ble_adv_stop(0);
+        voice_msg_pub(VOICE_MSG_BLE_AUTH_INFO_DONE, NULL, 0);
         status = NETCFG_BLE_SUCCESS;
         break;
     }
@@ -258,6 +318,16 @@ static int netcfg_wifi_connect_handler(const char *ssid, const char *pwd)
         voice_msg_pub(VOICE_MSG_BLE_CONNECT_DONE, NULL, 0);
     }
     return result;
+}
+
+static void app_ble_send_wifi_provision_fail(uint8_t conidx, uint8_t reason)
+{
+    uint8_t payload[3] = {0x0A, 0x01, reason};
+
+    LISA_LOGI(TAG, "BLE netcfg fail result: 0x%02X 0x%02X 0x%02X",
+              payload[0], payload[1], payload[2]);
+    ble_netcfg_bles_send_notify_custom_data(conidx, sizeof(payload), payload);
+    lisa_ble_adv_start(0, LISA_BLE_ADV_GEN);
 }
 
 void app_ble_netcfg_init(void)

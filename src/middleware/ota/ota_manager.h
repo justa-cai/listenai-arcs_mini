@@ -1,14 +1,15 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef enum {
     OTA_STATE_IDLE = 0,
     OTA_STATE_CHECKING,
+    OTA_STATE_PACKAGE_INFO,
     OTA_STATE_UPDATING,
     OTA_STATE_SUCCESSED,
     OTA_STATE_FAILED,
-    OTA_STATE_PACKAGE_INFO_FAILED,
     OTA_STATE_UP_TO_DATE,
 } ota_state_e;
 
@@ -41,7 +42,20 @@ typedef struct {
     uint32_t update_total;     // 需要更新的资源总数
     uint32_t elapsed_ms;       // 当前资源已下载耗时 (ms)
     char wake_word[20];
+    char current_version[32];
+    char target_version[32];
+    char update_notes[512];
 } ota_state_t;
+
+typedef int (*ota_manager_resources_updated_cb_t)(bool wake_word_updated,
+                                                  bool prompt_tone_updated,
+                                                  bool emoji_updated,
+                                                  void *user_data);
 
 int ota_manager_check_all(void);
 ota_state_e ota_manager_get_state(void);
+int ota_manager_get_state_snapshot(ota_state_t *state);
+int ota_manager_register_resources_updated_cb(ota_manager_resources_updated_cb_t cb, void *user_data);
+int ota_manager_app_update_input_ready(void);
+int ota_manager_confirm_app_update(void);
+int ota_manager_skip_app_update(void);

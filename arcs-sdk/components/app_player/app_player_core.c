@@ -54,6 +54,19 @@ static int __lisa_player_core_callback_handler(PlayerEvt evt, int arg1, int arg2
     // === Core 层职责 3: 特殊事件处理（纯播放器逻辑）===
     switch (evt) {
         case PLAYER_EVT_PREPARED: {
+            if (player->stop_preparing_requested) {
+                LISA_LOGI(TAG, "Core: %s prepared ignored due to stop request", player->name);
+                player->prepare_error = true;
+                /* 不在这里调 lisa_player_reset：实测无论 pre_close 与否，从 PREPARED
+                 * 状态调 reset 都不会真正把状态机带回 IDLE，后续 play_ex 还是看到
+                 * state=PREPARED，core_play 再 reset 会卡死。
+                 *
+                 * 残留的 PREPARED 状态留给下一次 app_player_play_ex 走 play+stop_sync
+                 * 排空（PREPARED → PLAYING → STOPPED → reset 成功）。期间用
+                 * drain_in_progress 标志抑制上层回调，避免 PA 抖动与虚假 TTS 事件。 */
+                lisa_semaphore_give(player->preparing_sem);
+                break;
+            }
             if (lisa_player_play(player->hld) == PLAYER_OP_FAIL) {
                 LISA_LOGE(TAG, "Core: Auto play failed: %s", player->name);
                 player->prepare_error = true;
@@ -95,7 +108,10 @@ static int __lisa_player_core_callback_handler(PlayerEvt evt, int arg1, int arg2
     player->last_evt = evt;
 
     // === Core 层职责 7: 调用上层回调（通知 PA、焦点管理等）===
-    if (player->core_upper_callback) {
+    /* drain_in_progress 期间（play_ex 走 play+stop_sync 排空残留 PREPARED 状态）
+     * 跳过上层回调，避免 PA 闪烁、焦点抖动以及虚假的 PLAYING/STOPPED 事件
+     * 被业务层当成真实播放收到。 */
+    if (player->core_upper_callback && !player->drain_in_progress) {
         app_player_core_callback_t cb =
             (app_player_core_callback_t)player->core_upper_callback;
         cb(player, evt, should_notify_user);

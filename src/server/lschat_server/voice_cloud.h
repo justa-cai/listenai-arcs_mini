@@ -1,6 +1,15 @@
 #ifndef __LS_VOICE_SERVER_H__
 #define __LS_VOICE_SERVER_H__
 
+typedef enum {
+    VOICE_CLOUD_STATE_CONNECTED = 0,
+    VOICE_CLOUD_STATE_CONNECTING,
+    VOICE_CLOUD_STATE_NO_NETWORK,
+    VOICE_CLOUD_STATE_NO_INTERNET,
+    VOICE_CLOUD_STATE_TOKEN_FAILED,
+    VOICE_CLOUD_STATE_CONNECT_FAILED,
+} voice_cloud_state_t;
+
 struct voice_cloud_chat_config {
     uint8_t full_duplex;
     uint32_t timeout_ms; /* full_duplex timeout */
@@ -43,6 +52,7 @@ int voice_cloud_upload_jpeg_img(const uint8_t *jpeg_data, size_t jpeg_size, char
 void voice_cloud_jpeg_img_url_free(void *url);
 int voice_cloud_tts_synth(const char *txt);
 int voice_cloud_is_connected(void);
+voice_cloud_state_t voice_cloud_get_state(void);
 int voice_cloud_is_session_active(void);
 int voice_cloud_is_uploading_audio(void);
 #endif

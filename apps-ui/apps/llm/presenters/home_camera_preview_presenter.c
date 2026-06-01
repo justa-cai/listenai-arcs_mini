@@ -10,6 +10,13 @@
 #include "lisa_ui_llm_primary.h"
 #include "model_camera.h"
 #include "model_voice.h"
+#include "voice_msg.h"
+#ifdef LISA_UI_PLATFORM_ARCS
+#include "app_player.h"
+#include "app_tone.h"
+#include "tone.h"
+#include "voice_player_comm.h"
+#endif
 
 #define CAMERA_PREVIEW_COUNTDOWN_INTERVAL_MS 1000U
 #define CAMERA_PREVIEW_UPLOAD_TEXT_OFFSET_Y 18
@@ -146,6 +153,28 @@ static void camera_preview_stop_countdown_timer(struct home_nav_scr_data *scr_da
     }
 }
 
+static bool camera_preview_timer_should_stop(const struct home_nav_scr_data *scr_data)
+{
+    return !scr_data ||
+           (!scr_data->img_rec_running &&
+            !model_camera_preview_keep_preview_alive(&scr_data->camera_preview));
+}
+
+static void camera_preview_capture_timer_abort(struct home_nav_scr_data *scr_data,
+                                               lv_timer_t *timer)
+{
+    scr_data->img_rec_running = false;
+    scr_data->img_rec_triggered = false;
+    model_camera_preview_reset(&scr_data->camera_preview);
+    camera_preview_stop_countdown_timer(scr_data);
+    model_camera_preview_publish_state(&scr_data->camera_preview);
+    /* 仅发布 STATE(phase=NONE) 时，UI 此前在 keep_preview_alive 分支已忽略了
+     * session_finished / tts_stoped 的收尾，会卡在交互态。补发 EXIT 让 home_reset
+     * 接管，否则首页停在"我在听"。 */
+    voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
+    lv_timer_pause(timer);
+}
+
 void camera_preview_capture_timer_cb(lv_timer_t *timer)
 {
     if (!timer || !timer->user_data) {
@@ -163,8 +192,7 @@ void camera_preview_capture_timer_cb(lv_timer_t *timer)
         return;
     }
 
-    if (!scr_data->img_rec_running &&
-        !model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+    if (camera_preview_timer_should_stop(scr_data)) {
         lv_timer_pause(timer);
         return;
     }
@@ -176,24 +204,14 @@ void camera_preview_capture_timer_cb(lv_timer_t *timer)
     ret = model_camera_get_framesize(&width, &height);
     if (ret != 0 || width == 0 || height == 0) {
         LISA_UI_LOGE("Get camera frame size failed: ret=%d, w=%u, h=%u", ret, width, height);
-        scr_data->img_rec_running = false;
-        scr_data->img_rec_triggered = false;
-        model_camera_preview_reset(&scr_data->camera_preview);
-        camera_preview_stop_countdown_timer(scr_data);
-        model_camera_preview_publish_state(&scr_data->camera_preview);
-        lv_timer_pause(timer);
+        camera_preview_capture_timer_abort(scr_data, timer);
         return;
     }
 
     image_size = (uint32_t)width * (uint32_t)height * 2U;
     if (image_size == 0) {
         LISA_UI_LOGE("Invalid image size, w=%u, h=%u", width, height);
-        scr_data->img_rec_running = false;
-        scr_data->img_rec_triggered = false;
-        model_camera_preview_reset(&scr_data->camera_preview);
-        camera_preview_stop_countdown_timer(scr_data);
-        model_camera_preview_publish_state(&scr_data->camera_preview);
-        lv_timer_pause(timer);
+        camera_preview_capture_timer_abort(scr_data, timer);
         return;
     }
 
@@ -207,26 +225,21 @@ void camera_preview_capture_timer_cb(lv_timer_t *timer)
         scr_data->cap_buf = lisa_ui_malloc(image_size);
         if (!scr_data->cap_buf) {
             LISA_UI_LOGE("Failed to alloc capture buffer: %u", image_size);
-            scr_data->img_rec_running = false;
-            scr_data->img_rec_triggered = false;
-            model_camera_preview_reset(&scr_data->camera_preview);
-            camera_preview_stop_countdown_timer(scr_data);
-            model_camera_preview_publish_state(&scr_data->camera_preview);
-            lv_timer_pause(timer);
+            camera_preview_capture_timer_abort(scr_data, timer);
             return;
         }
         scr_data->cap_buf_size = image_size;
     }
 
+    if (camera_preview_timer_should_stop(scr_data)) {
+        lv_timer_pause(timer);
+        return;
+    }
+
     ret = model_camera_capture(scr_data->cap_buf, image_size);
     if (ret != 0) {
         LISA_UI_LOGE("Camera capture failed: %d", ret);
-        scr_data->img_rec_running = false;
-        scr_data->img_rec_triggered = false;
-        model_camera_preview_reset(&scr_data->camera_preview);
-        camera_preview_stop_countdown_timer(scr_data);
-        model_camera_preview_publish_state(&scr_data->camera_preview);
-        lv_timer_pause(timer);
+        camera_preview_capture_timer_abort(scr_data, timer);
         return;
     }
 
@@ -248,6 +261,11 @@ void camera_preview_capture_timer_cb(lv_timer_t *timer)
         scr_data->img.header.h = display_height;
     }
 
+    if (camera_preview_timer_should_stop(scr_data)) {
+        lv_timer_pause(timer);
+        return;
+    }
+
     lisa_ui_llm_primary_img_show(scr_data->view, &scr_data->img);
 }
 
@@ -255,6 +273,10 @@ void camera_preview_hide(struct home_nav_scr_data *scr_data)
 {
     if (!scr_data || !scr_data->view) {
         return;
+    }
+
+    if (scr_data->camera_capture_timer) {
+        lv_timer_pause(scr_data->camera_capture_timer);
     }
 
     camera_preview_stop_countdown_timer(scr_data);
@@ -302,6 +324,31 @@ static void camera_preview_capture_now(struct home_nav_scr_data *scr_data)
     camera_preview_stop_countdown_timer(scr_data);
     if (model_camera_preview_request_capture(&scr_data->camera_preview) ==
         MODEL_CAMERA_PREVIEW_CAPTURE_NONE) {
+        return;
+    }
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    {
+        /* notify 会置 s_camera_capture_tts_resume.tone_active=true，等 tone 播完
+         * 由 on_tone_event 在 COMPLETED/STOPPED/ERROR 时清零；
+         * 但 TONE_ID_73 资源缺失时 app_player_play 在 url=NULL 早退，
+         * 不会触发任何 tone 事件，tone_active 永久挂死，会让随后到达的
+         * result TTS 进 voice_player_should_defer_camera_flow_tts 永远被压住，
+         * UI 卡在"正在上传"。
+         * 先取 URL，确认非 NULL 再 notify + play。 */
+        const char *tone_url = app_tone_get_url(TONE_ID_73);
+        if (tone_url) {
+            voice_player_notify_camera_capture_tone_start();
+            app_player_play(tone_player, tone_url);
+        } else {
+            LISA_UI_LOGW("Camera capture tone (id=%d) url is null, skip tone notify",
+                         TONE_ID_73);
+        }
+    }
+#endif
+
+    if (!model_camera_preview_is_captured(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("photo capture canceled before submit");
         return;
     }
 

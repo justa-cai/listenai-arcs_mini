@@ -116,6 +116,10 @@ uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op
     uint16_t sta = NETCFG_BLE_ERR;
 
     switch (op) {
+    case NETCFG_BLE_OP_SKIP_WIFI:
+        lisa_ble_netcfg_send_notify(conidx, 0, 0, 0, NULL);
+        sta = NETCFG_BLE_SUCCESS;
+        break;
     case NETCFG_BLE_OP_DONE:
         sta = netcfg_ble_notify_wifi((struct netcfg_ble_data *)p_value);
 #if (BLE_AUTO_SEND_NET_CFG_SUCESS == 1)

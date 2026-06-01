@@ -73,7 +73,6 @@ add_dependencies(${LISA_UI_LIB_NAME} generate_assets_target)
 
 # Add assets source files
 target_sources(${LISA_UI_LIB_NAME} PRIVATE
-    ble_qr.c
     ${GENERATED_ASSET_SOURCES}
 )
 target_include_directories(${LISA_UI_LIB_NAME} PUBLIC 

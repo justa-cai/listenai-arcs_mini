@@ -39,6 +39,15 @@ static void format_alarm_time(const alarm_time_info_t *info, char *time_str, siz
 
 static void auto_return_timer_cb(lv_timer_t *timer)
 {
+    struct alarm_success_nav_scr_data *scr_data = NULL;
+
+    if (timer) {
+        scr_data = (struct alarm_success_nav_scr_data *)timer->user_data;
+        if (scr_data) {
+            scr_data->auto_return = NULL;
+        }
+    }
+
     LISA_UI_LOGD("Auto return timer triggered, navigating to home");
     lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
 }
@@ -85,7 +94,7 @@ static int alarm_success_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **
     /* 数据设置完成后立即显示，避免在show时才显示导致闪烁 */
     lv_obj_clear_flag(scr_data->view, LV_OBJ_FLAG_HIDDEN);
     
-    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 3000, NULL);
+    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 3000, scr_data);
     lv_timer_set_repeat_count(scr_data->auto_return, 1);
     
     *data = scr_data;

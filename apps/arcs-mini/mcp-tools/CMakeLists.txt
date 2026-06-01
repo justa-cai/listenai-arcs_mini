@@ -11,6 +11,12 @@ listenai_library_sources(
     mcp_tool_duplex.c
 )
 
+if(CONFIG_LOG_UPLOAD)
+    listenai_library_sources(
+        mcp_tool_upload.c
+    )
+endif()
+
 listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )

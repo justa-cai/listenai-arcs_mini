@@ -48,6 +48,7 @@ enum netcfg_ble_op {
     NETCFG_BLE_OP_REBOOT,
 
     NETCFG_BLE_AUTH_INFO = 0xA012, // auth info
+    NETCFG_BLE_OP_SKIP_WIFI = 0xA013,
     NETCFG_BLE_OP_MAX,
 };
 
