@@ -22,6 +22,8 @@ typedef enum {
     QR_STATUS_NOT_CONNECTED = 0,  /**< Network not connected, show BLE QR */
     QR_STATUS_CONNECTED,           /**< Network connected, show cloud QR */
     QR_STATUS_OUT_OF_LIMIT,        /**< Usage limit exceeded */
+    QR_STATUS_BIND,                /**< Show BLE binding QR */
+    QR_STATUS_AUTH_FAILED,         /**< Cloud auth failed, show auth-failed info */
 } qrcode_status_t;
 
 /**

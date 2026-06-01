@@ -313,7 +313,15 @@ static void stop_btn_event_cb(lv_event_t *e)
 
 static void alarm_ring_auto_return_cb(lv_timer_t *timer)
 {
-    (void)timer;
+    struct alarm_ring_nav_scr_data *scr_data = NULL;
+
+    if (timer) {
+        scr_data = (struct alarm_ring_nav_scr_data *)timer->user_data;
+        if (scr_data) {
+            scr_data->auto_return = NULL;
+        }
+    }
+
     LISA_UI_LOGI("Alarm ring: auto return timer, navigating to home");
     lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
 }
@@ -342,7 +350,8 @@ static int alarm_ring_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **dat
 
     alarm_ring_view_set_stop_cb(scr_data->view, stop_btn_event_cb, NULL);
 
-    scr_data->auto_return = lv_timer_create(alarm_ring_auto_return_cb, ALARM_RING_AUTO_RETURN_MS, NULL);
+    scr_data->auto_return =
+        lv_timer_create(alarm_ring_auto_return_cb, ALARM_RING_AUTO_RETURN_MS, scr_data);
     if (!scr_data->auto_return) {
         LISA_UI_LOGE("Failed to create auto return timer");
         lv_obj_del(scr_data->view);
@@ -356,7 +365,6 @@ static int alarm_ring_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **dat
     voice_msg_sub(VOICE_MSG_ALARM_CREATE, alarm_ring_on_alarm_create, scr_data);
     voice_msg_sub(VOICE_MSG_ALARM_RING_UPDATE, alarm_ring_on_ui_update, scr_data);
     voice_msg_sub(VOICE_MSG_WAKEUP_KEYWORD, alarm_ring_on_wakeup, scr_data);
-    voice_msg_sub(VOICE_MSG_WAKEUP_COMMAND, alarm_ring_on_wakeup, scr_data);
     voice_msg_sub(VOICE_MSG_BUTTON_CHANGE, alarm_ring_on_button_change, scr_data);
     voice_msg_sub(VOICE_MSG_CLOUD_IAT_START, alarm_ring_on_iat, scr_data);
     voice_msg_sub(VOICE_MSG_CLOUD_IAT_UPDATE, alarm_ring_on_iat, scr_data);
@@ -413,7 +421,6 @@ static int alarm_ring_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *dat
     if (scr_data) {
 #ifdef LISA_UI_PLATFORM_ARCS
         voice_msg_unsub(VOICE_MSG_WAKEUP_KEYWORD, alarm_ring_on_wakeup);
-        voice_msg_unsub(VOICE_MSG_WAKEUP_COMMAND, alarm_ring_on_wakeup);
         voice_msg_unsub(VOICE_MSG_BUTTON_CHANGE, alarm_ring_on_button_change);
         voice_msg_unsub(VOICE_MSG_CLOUD_IAT_START, alarm_ring_on_iat);
         voice_msg_unsub(VOICE_MSG_CLOUD_IAT_UPDATE, alarm_ring_on_iat);

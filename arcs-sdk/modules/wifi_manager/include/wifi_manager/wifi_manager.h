@@ -45,6 +45,8 @@ typedef enum {
 typedef struct {
     wifi_mgr_connection_status_t status;
     wifi_mgr_sta_config_t *sta_info;
+    int error_code;  /* WiFi driver error code */
+    int status_code; /* Association response status code */
     int reason;      /* IEEE 802.11 reason code */
 } wifi_mgr_connection_info_t;
 

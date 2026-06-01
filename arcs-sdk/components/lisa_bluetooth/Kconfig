@@ -157,7 +157,6 @@ config LISA_BLUETOOTH_BUILD_NETCFG_BLE_SERVER
 
 config LISA_BLUETOOTH_CUSTOM_NETCFG
 	bool "Use application-provided netcfg callback instead of the default"
-	default n
 
 config LISA_BLUETOOTH_BUILD_IPC_CLIENT
 	bool

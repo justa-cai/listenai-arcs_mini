@@ -3,13 +3,29 @@
 #include <string.h>
 
 #include "cJSON.h"
+#include "battery_ui.h"
 #include "lisa_log.h"
 #include "mcp.h"
 #include "project_version.h"
 #include "service_brightness.h"
 #include "service_volume.h"
+#include "voice_msg.h"
 
 #define TAG "mcp_device_info"
+#define DEVICE_STANDBY_TOTAL_MINUTES (6 * 60)
+
+static int device_info_get_standby_minutes(uint8_t battery_level)
+{
+    return (battery_level * DEVICE_STANDBY_TOTAL_MINUTES) / 100;
+}
+
+static void device_info_format_standby_time(char *buffer, size_t buffer_size, int standby_minutes)
+{
+    int hours = standby_minutes / 60;
+    int minutes = standby_minutes % 60;
+
+    snprintf(buffer, buffer_size, "大概是%d小时%d分钟", hours, minutes);
+}
 
 static cJSON *device_info_result_text(const char *name, const char *text, bool is_error)
 {
@@ -62,12 +78,14 @@ static cJSON *device_info_list(const char *name)
     cJSON_AddStringToObject(
         fields_property,
         "description",
-        "需要查询的信息字段列表。可包含 'volume'（音量）, 'brightness'（亮度）, 'version'（版本号）中的一个或多个。");
+        "需要查询的信息字段列表。可包含 'volume'（音量）, 'brightness'（亮度）, 'version'（版本号）, 'battery'（电量）, 'standby_time'（待机时间）中的一个或多个。查询电量或待机时间时会同时返回两者。");
 
     cJSON_AddStringToObject(items, "type", "string");
     cJSON_AddItemToArray(enum_array, cJSON_CreateString("volume"));
     cJSON_AddItemToArray(enum_array, cJSON_CreateString("brightness"));
     cJSON_AddItemToArray(enum_array, cJSON_CreateString("version"));
+    cJSON_AddItemToArray(enum_array, cJSON_CreateString("battery"));
+    cJSON_AddItemToArray(enum_array, cJSON_CreateString("standby_time"));
     cJSON_AddItemToObject(items, "enum", enum_array);
     cJSON_AddItemToObject(fields_property, "items", items);
 
@@ -87,6 +105,8 @@ static cJSON *device_info_call(const char *id, const char *name, cJSON *args)
     bool need_volume = false;
     bool need_brightness = false;
     bool need_version = false;
+    bool need_battery = false;
+    bool need_standby_time = false;
 
     cJSON *field = NULL;
     cJSON_ArrayForEach(field, fields_json)
@@ -101,6 +121,10 @@ static cJSON *device_info_call(const char *id, const char *name, cJSON *args)
             need_brightness = true;
         } else if (strcmp(field->valuestring, "version") == 0) {
             need_version = true;
+        } else if (strcmp(field->valuestring, "battery") == 0) {
+            need_battery = true;
+        } else if (strcmp(field->valuestring, "standby_time") == 0) {
+            need_standby_time = true;
         } else {
             char error_text[128];
             snprintf(error_text, sizeof(error_text), "fields 包含不支持的字段: %s", field->valuestring);
@@ -108,7 +132,7 @@ static cJSON *device_info_call(const char *id, const char *name, cJSON *args)
         }
     }
 
-    if (!need_volume && !need_brightness && !need_version) {
+    if (!need_volume && !need_brightness && !need_version && !need_battery && !need_standby_time) {
         return device_info_result_text(name, "fields 不能为空。", true);
     }
 
@@ -126,6 +150,27 @@ static cJSON *device_info_call(const char *id, const char *name, cJSON *args)
     if (need_version) {
         cJSON_AddStringToObject(payload, "version", PROJECT_VERSION_STR);
     }
+    if (need_battery || need_standby_time) {
+        voice_msg_battery_info_t battery_info;
+        char standby_time_text[64];
+
+        if (!battery_ui_get_info(&battery_info)) {
+            cJSON_Delete(payload);
+            return device_info_result_text(name, "获取电量失败。", true);
+        }
+
+        device_info_format_standby_time(
+            standby_time_text,
+            sizeof(standby_time_text),
+            device_info_get_standby_minutes(battery_info.level));
+
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+        voice_msg_pub(VOICE_MSG_APP_BATTERY_QUERY_SHOW, &battery_info, sizeof(battery_info));
+#endif
+
+        cJSON_AddNumberToObject(payload, "battery", battery_info.level);
+        cJSON_AddStringToObject(payload, "standby_time", standby_time_text);
+    }
 
     char *payload_text = cJSON_PrintUnformatted(payload);
     cJSON_Delete(payload);
@@ -136,8 +181,8 @@ static cJSON *device_info_call(const char *id, const char *name, cJSON *args)
     cJSON *result = device_info_result_text(name, payload_text, false);
     cJSON_free(payload_text);
 
-    LOGI("get_device_info called, volume=%d brightness=%d version=%d",
-         need_volume, need_brightness, need_version);
+    LOGI("get_device_info called, volume=%d brightness=%d version=%d battery=%d standby_time=%d",
+         need_volume, need_brightness, need_version, need_battery, need_standby_time);
 
     return result;
 }

@@ -17,6 +17,7 @@
 #include "voice_msg.h"
 #include "image_url_utils.h"
 #include "service_image.h"
+#include "async_task.h"
 
 #include "acomp_wakeup.h"
 #include "power/power_manager.h"
@@ -30,6 +31,8 @@
 #include "lsc_session_text.h"
 #include "lsc_base64.h"
 #include "project_version.h"
+#include "sys_network_manager.h"
+
 
 /*缓存500ms的音频*/
 #define VOICE_CLOUD_RECORD_STREAM_BEFORE_DATA_LENGTH  (32000 + 16000)
@@ -51,6 +54,9 @@ static TaskHandle_t g_audio_send_task = NULL;
 static lsc_conn_t *g_lsc_conn_obj = NULL;
 static TimerHandle_t g_pcm_send_en_timer = NULL;
 static volatile uint8_t g_cloud_connected = 0;
+static volatile uint8_t g_cloud_connecting = 0;
+static volatile uint8_t g_cloud_auth_failed = 0;
+static volatile uint8_t g_cloud_device_unbound = 0;
 static volatile uint8_t g_voice_session_active = 0;
 
 static volatile uint8_t pcm_send_en = 0;
@@ -91,6 +97,97 @@ static inline uint8_t voice_is_full_duplex(void)
 int voice_cloud_is_connected(void)
 {
     return g_cloud_connected ? 1 : 0;
+}
+
+voice_cloud_state_t voice_cloud_get_state(void)
+{
+    sys_network_status_t status;
+
+    if (g_cloud_device_unbound) {
+        return VOICE_CLOUD_STATE_CONNECT_FAILED;
+    }
+
+    if (g_cloud_connected) {
+        return VOICE_CLOUD_STATE_CONNECTED;
+    }
+
+    if (sys_network_get_status(&status) != 0 ||
+        status.active_bearer == SYS_NETWORK_BEARER_NONE) {
+        return VOICE_CLOUD_STATE_NO_NETWORK;
+    }
+
+    /* 以 STNP 探测结果作为互联网可达标准 */
+    if (!status.connected) {
+        return VOICE_CLOUD_STATE_NO_INTERNET;
+    }
+
+    if (g_cloud_auth_failed) {
+        return VOICE_CLOUD_STATE_TOKEN_FAILED;
+    }
+
+    if (g_cloud_connecting) {
+        return VOICE_CLOUD_STATE_CONNECTING;
+    }
+
+    return VOICE_CLOUD_STATE_CONNECT_FAILED;
+}
+
+#define VOICE_QR_STATUS_BIND 3U
+
+static void voice_cloud_handle_device_unbound(void)
+{
+    int pause_ret = 0;
+    int session_active = voice_cloud_is_session_active();
+    int uploading_audio = voice_cloud_is_uploading_audio();
+
+    if (!session_active && !uploading_audio) {
+        return;
+    }
+
+    pause_ret = voice_cloud_upload_audio_pause();
+    if (pause_ret != 0) {
+        LOGW("device unbound: pause upload failed: %d", pause_ret);
+    }
+
+    if (!session_active) {
+        return;
+    }
+
+    LOGW("device unbound: interrupt active voice session");
+    voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, NULL, 0);
+}
+
+
+static bool lsc_custom_error_process(cJSON *error)
+{
+    cJSON *code = error ? cJSON_GetObjectItem(error, "code") : NULL;
+    uint32_t status = VOICE_QR_STATUS_BIND;
+
+    if (!code || !cJSON_IsString(code) || !code->valuestring) {
+        return false;
+    }
+
+    if (strcmp(code->valuestring, "FST_ERR_DEVICE_UNBOUND") != 0) {
+        return false;
+    }
+
+    LOGW("custom error received: device unbound");
+    g_cloud_device_unbound = 1;
+    voice_cloud_handle_device_unbound();
+    voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, &status, sizeof(status));
+    return true;
+}
+
+static bool lsc_result_custom_process(cJSON *data)
+{
+    cJSON *type = cJSON_GetObjectItem(data, "type");
+
+    if (!type || !cJSON_IsString(type) || !type->valuestring ||
+        strcmp(type->valuestring, "CUSTOM") != 0) {
+        return false;
+    }
+
+    return lsc_custom_error_process(cJSON_GetObjectItem(data, "error"));
 }
 
 int voice_cloud_is_session_active(void)
@@ -350,6 +447,21 @@ static void lsc_pushup_msg_process(cJSON *data)
         return;
     }
 
+    cJSON *type = cJSON_GetObjectItem(data, "type");
+    if (type && cJSON_IsString(type) && type->valuestring &&
+        strcmp(type->valuestring, "TTS") == 0) {
+        cJSON *url = cJSON_GetObjectItem(data, "url");
+        if (url == NULL || !cJSON_IsString(url) || url->valuestring == NULL ||
+            url->valuestring[0] == '\0') {
+            LOGE("pushup tts url is null");
+            return;
+        }
+
+        LOGI("pushup tts raw url: %s", url->valuestring);
+        voice_msg_pub(VOICE_MSG_CLOUD_PUSHUP_TTS_URL, url->valuestring, strlen(url->valuestring) + 1);
+        return;
+    }
+
     cJSON *sub = cJSON_GetObjectItem(data, "sub");
     if (sub == NULL) {
         LOGE("sub is null");
@@ -452,6 +564,9 @@ static void lsc_raw_msg_process(cJSON *root)
         cJSON *from = cJSON_GetObjectItem(root, "from");
         bool is_pushup = (pushup != NULL) ||
             (from != NULL && cJSON_IsString(from) && strcmp(from->valuestring, "pushup") == 0);
+        if (lsc_result_custom_process(data)) {
+            return;
+        }
         if (nlp_origin != NULL && nlp_origin->valuestring
                 && strcmp(nlp_origin->valuestring, "emoji") == 0) {
             lsc_emoji_msg_process(data);
@@ -466,17 +581,33 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
     LOGI("lsc_event_cb, evt:%d", evt);
 
     switch (evt) {
+    case LSC_CONNECTING:
+        g_cloud_connecting = 1;
+        g_cloud_device_unbound = 0;
+        voice_msg_pub(VOICE_MSG_CLOUD_CONNECTING, NULL, 0);
+        break;
     case LSC_CONNECTED: {
         g_lsc_conn_obj = (lsc_conn_t *)data;
         g_cloud_connected = 1;
+        g_cloud_connecting = 0;
+        g_cloud_auth_failed = 0;
+        g_cloud_device_unbound = 0;
         voice_msg_pub(VOICE_MSG_CLOUD_CONNECTED, NULL, 0);
     } break;
     case LSC_DISCONNECTED: {
+        uint8_t was_connected = g_cloud_connected;
         g_cloud_connected = 0;
+        g_cloud_connecting = 0;
         g_voice_session_active = 0;
         voice_pcm_send_disable();
         xStreamBufferReset(g_record_stream_buffer);
         voice_msg_pub(VOICE_MSG_CLOUD_DISCONNECTED, NULL, 0);
+        if (was_connected && !g_cloud_auth_failed) {
+            /* 已连通后掉线，先视作互联网不可达，并立即触发一次 STNP 复检 */
+            sys_network_report_probe_result(false);
+            extern int network_probe_start(void);
+            network_probe_start();
+        }
         /* 断线时轮换 DNS */
         s_disconn_cnt++;
         if(s_disconn_cnt > 3){
@@ -488,6 +619,8 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
         }
     } break;
     case LSC_CLOUD_AUTH_FAILD:
+        g_cloud_connecting = 0;
+        g_cloud_auth_failed = 1;
         voice_msg_pub(VOICE_MSG_CLOUD_CLOUD_AUTH_FAILED, NULL, 0);
         break;
     case LSC_GOT_TOKEN:
@@ -501,6 +634,9 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
             memcpy(voice_cloud_token, data, size);
             voice_cloud_token[size] = 0;
         }
+        g_cloud_connecting = 1;
+        g_cloud_auth_failed = 0;
+        g_cloud_device_unbound = 0;
         voice_msg_pub(VOICE_MSG_CLOUD_CLOUD_AUTH_SUCCESS, NULL, 0);
         break;
     case LSC_DATA_RECEIVED: {
@@ -704,23 +840,108 @@ static void mcp_msg_cb_handle(void *unused, uint32_t msg_id, void *data, uint32_
     cJSON_free(resp_str);
 }
 
-static void mcp_call_resp_cb_handle(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+typedef struct {
+    char *resp;
+} mcp_call_resp_async_ctx_t;
+
+static void mcp_call_resp_send_sync(const char *resp)
 {
-    LOGI("MCP call response received: %s", (char *)data);
-    if (data == NULL) {
-        LOGE("mcp_call_resp_cb_handle, data is null");
+    int ret = -1;
+
+    if (!resp) {
+        LOGE("mcp_call_resp_send_sync, response is null");
         return;
     }
 
     if (g_lsc_conn_obj && g_lsc_conn_obj->send_text) {
-        int ret = g_lsc_conn_obj->send_text((char *)data);
+        ret = g_lsc_conn_obj->send_text((char *)resp);
         if (ret == 0) {
             LOGI("MCP async response sent successfully to cloud");
         } else {
-            LOGE("mcp_call_resp_cb_handle, send_text failed with ret=%d", ret);
+            LOGE("mcp_call_resp_send_sync, send_text failed with ret=%d", ret);
         }
     } else {
-        LOGE("mcp_call_resp_cb_handle, mcp response send failed, lsc_conn_obj is null or send_text is null");
+        LOGE("mcp_call_resp_send_sync, mcp response send failed, lsc_conn_obj is null or send_text is null");
+    }
+}
+
+static void mcp_call_resp_send_task(void *user_data, bool *should_stop)
+{
+    mcp_call_resp_async_ctx_t *ctx = (mcp_call_resp_async_ctx_t *)user_data;
+
+    if (!ctx || !ctx->resp || (should_stop && *should_stop)) {
+        return;
+    }
+
+    mcp_call_resp_send_sync(ctx->resp);
+}
+
+static void mcp_call_resp_send_done(void *user_data, bool completed, bool interrupted)
+{
+    mcp_call_resp_async_ctx_t *ctx = (mcp_call_resp_async_ctx_t *)user_data;
+
+    (void)completed;
+    (void)interrupted;
+
+    if (!ctx) {
+        return;
+    }
+
+    if (ctx->resp) {
+        lisa_mem_free(ctx->resp);
+        ctx->resp = NULL;
+    }
+    lisa_mem_free(ctx);
+}
+
+static void mcp_call_resp_cb_handle(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    mcp_call_resp_async_ctx_t *ctx = NULL;
+    async_task_t *task = NULL;
+    size_t resp_len = 0;
+
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    LOGI("MCP call response received: %s", (char *)data);
+    if (data == NULL || len == 0) {
+        LOGE("mcp_call_resp_cb_handle, data is null");
+        return;
+    }
+
+    ctx = lisa_mem_calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        LOGE("mcp_call_resp_cb_handle, alloc ctx failed");
+        mcp_call_resp_send_sync((const char *)data);
+        return;
+    }
+
+    resp_len = strnlen((const char *)data, len);
+    ctx->resp = lisa_mem_alloc(resp_len + 1);
+    if (!ctx->resp) {
+        LOGE("mcp_call_resp_cb_handle, alloc resp failed");
+        lisa_mem_free(ctx);
+        mcp_call_resp_send_sync((const char *)data);
+        return;
+    }
+
+    memcpy(ctx->resp, data, resp_len);
+    ctx->resp[resp_len] = '\0';
+
+    task = async_task_create("mcp_rsp", 3072, 5, mcp_call_resp_send_task, mcp_call_resp_send_done, ctx);
+    if (!task) {
+        LOGE("mcp_call_resp_cb_handle, create async task failed");
+        mcp_call_resp_send_sync(ctx->resp);
+        mcp_call_resp_send_done(ctx, true, false);
+        return;
+    }
+
+    if (async_task_start(task) != 0) {
+        LOGE("mcp_call_resp_cb_handle, start async task failed");
+        async_task_destroy(task);
+        mcp_call_resp_send_sync(ctx->resp);
+        mcp_call_resp_send_done(ctx, true, false);
     }
 }
 
@@ -781,7 +1002,8 @@ int voice_cloud_init(struct voice_cloud_connect_config *config)
         return r;
     }
 
-    r = lsc_add_callback(LSC_CONNECTED | LSC_DISCONNECTED | LSC_CLOUD_AUTH_FAILD | LSC_GOT_TOKEN | LSC_DATA_RECEIVED,
+    r = lsc_add_callback(LSC_CONNECTED | LSC_CONNECTING | LSC_DISCONNECTED |
+                             LSC_CLOUD_AUTH_FAILD | LSC_GOT_TOKEN | LSC_DATA_RECEIVED,
                          lsc_event_cb, NULL);
     if (r != 0) {
         LOGE("lsc_add_callback failed");
@@ -844,6 +1066,10 @@ int voice_cloud_disconnect(void)
         return ret;
     }
 
+    g_cloud_connected = 0;
+    g_cloud_connecting = 0;
+    g_cloud_auth_failed = 0;
+    g_cloud_device_unbound = 0;
     LOGI("voice_cloud_disconnect completed");
     return 0;
 }
@@ -852,14 +1078,21 @@ int voice_cloud_connect(struct voice_cloud_connect_config *config)
 {
     int r;
 
+    g_cloud_connected = 0;
+    g_cloud_connecting = 1;
+    g_cloud_auth_failed = 0;
+    g_cloud_device_unbound = 0;
+
     r = voice_cloud_init(config);
     if (r != 0) {
+        g_cloud_connecting = 0;
         LOGE("voice_server_init failed");
         return r;
     }
 
     r = lsc_connect();
     if (r != 0) {
+        g_cloud_connecting = 0;
         LOGE("lsc_connect failed");
         return r;
     }

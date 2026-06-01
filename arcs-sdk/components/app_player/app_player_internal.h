@@ -97,9 +97,11 @@ struct app_player_s {
     PlayerEvt last_evt;             /**< 最后一次事件 */
 
     bool is_preparing;              /**< 准备中标志 */
+    bool stop_preparing_requested;  /**< preparing 阶段收到 stop，请求抑制自动播放 */
     bool wait_prepare_intercepted;  /**< 等待准备中断标志 */
     bool pause_preparing;           /**< 准备时暂停标志 */
     bool prepare_error;             /**< 准备过程中发生错误标志 */
+    bool drain_in_progress;         /**< 排空残留 PREPARED 状态中，抑制上层回调 */
     lisa_semaphore_t *preparing_sem; /**< 准备同步信号量 */
     lisa_semaphore_t *pause_sem;    /**< 暂停同步信号量 */
 

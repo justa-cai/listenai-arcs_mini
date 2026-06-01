@@ -6,6 +6,9 @@
 
 #define TAG "PA_MGR"
 
+#include <FreeRTOS.h>
+#include <task.h>
+
 #include "pa_manager.h"
 #include "lisa_log.h"
 #include "lisa_mem.h"
@@ -13,19 +16,68 @@
 #include "lisa_timer.h"
 
 typedef struct {
+    bool active;                       /* 是否存在待执行的延时关断 */
+    TickType_t deadline;               /* 当前延时关断的最早生效时刻 */
+} pa_delayed_off_t;
+
+typedef struct {
     pa_ctrl_callback_t ctrl_callback;  /* PA控制回调函数 */
     lisa_timer_t *timer;               /* 延时定时器 */
     lisa_mutex_t *mutex;               /* 互斥锁 */
     int current_state;                 /* 当前PA状态: 1=ON, 0=OFF */
-    int pending_state;                 /* 待执行的PA状态 */
     int ref_count;                     /* 引用计数: 记录有多少实例正在使用PA */
+    pa_delayed_off_t delayed_off;      /* 延时关断状态 */
 } pa_manager_t;
 
 static pa_manager_t *s_pa_mgr = NULL;
 
+static void pa_cancel_delayed_off_locked(void)
+{
+    s_pa_mgr->delayed_off.active = false;
+    s_pa_mgr->delayed_off.deadline = 0;
+    lisa_timer_stop(s_pa_mgr->timer);
+}
+
+static void pa_schedule_delayed_off_locked(uint32_t delay_ms)
+{
+    pa_cancel_delayed_off_locked();
+
+    s_pa_mgr->delayed_off.deadline = xTaskGetTickCount() + pdMS_TO_TICKS(delay_ms);
+    s_pa_mgr->delayed_off.active = true;
+    lisa_timer_change_period(s_pa_mgr->timer, delay_ms);
+    lisa_timer_start(s_pa_mgr->timer);
+}
+
+static bool pa_delayed_off_is_due_locked(void)
+{
+    TickType_t now;
+
+    if (!s_pa_mgr->delayed_off.active) {
+        return false;
+    }
+
+    now = xTaskGetTickCount();
+    if ((int32_t)(now - s_pa_mgr->delayed_off.deadline) < 0) {
+        LISA_LOGD(TAG, "Skip stale delayed PA callback before deadline");
+        return false;
+    }
+
+    if (s_pa_mgr->ref_count != 0) {
+        LISA_LOGI(TAG, "Skip delayed PA OFF because ref_count=%d", s_pa_mgr->ref_count);
+        s_pa_mgr->delayed_off.active = false;
+        s_pa_mgr->delayed_off.deadline = 0;
+        return false;
+    }
+
+    s_pa_mgr->delayed_off.active = false;
+    s_pa_mgr->delayed_off.deadline = 0;
+    return true;
+}
+
 /**
  * @brief 定时器超时回调函数
- * @note 定时器回调执行时，定时器已停止，不会与pa_manager_control并发
+ * @note 软件定时器的 stop/start 通过 OSTMR 异步处理，旧的 OFF 回调可能在新播放启动后
+ *       仍被调度到。这里必须再次校验 ref_count 和 deadline，避免旧回调误关 PA。
  */
 static void pa_timer_callback(lisa_timer_t *timer)
 {
@@ -33,16 +85,19 @@ static void pa_timer_callback(lisa_timer_t *timer)
         return;
     }
 
-    /* 执行待执行的PA状态 */
-    if (s_pa_mgr->ctrl_callback) {
-        int ret = s_pa_mgr->ctrl_callback(s_pa_mgr->pending_state);
+    lisa_mutex_lock(s_pa_mgr->mutex, LISA_OS_WAIT_FOREVER);
+
+    if (pa_delayed_off_is_due_locked() && s_pa_mgr->ctrl_callback) {
+        int ret = s_pa_mgr->ctrl_callback(0);
         if (ret == 0) {
-            s_pa_mgr->current_state = s_pa_mgr->pending_state;
+            s_pa_mgr->current_state = 0;
             LISA_LOGI(TAG, "PA %s (delayed)", s_pa_mgr->current_state ? "ON" : "OFF");
         } else {
             LISA_LOGE(TAG, "PA control failed: %d", ret);
         }
     }
+
+    lisa_mutex_unlock(s_pa_mgr->mutex);
 }
 
 /**
@@ -70,8 +125,9 @@ int pa_manager_init(const pa_manager_config_t *config)
     /* 初始化配置 */
     s_pa_mgr->ctrl_callback = config->ctrl_callback;
     s_pa_mgr->current_state = 0;  /* 初始状态为关闭 */
-    s_pa_mgr->pending_state = 0;
     s_pa_mgr->ref_count = 0;      /* 初始引用计数为0 */
+    s_pa_mgr->delayed_off.active = false;
+    s_pa_mgr->delayed_off.deadline = 0;
 
     /* 创建互斥锁 */
     s_pa_mgr->mutex = lisa_mutex_create();
@@ -124,7 +180,7 @@ int pa_manager_control(int onoff, uint32_t delay_ms)
                   s_pa_mgr->ref_count - 1, s_pa_mgr->ref_count, __builtin_return_address(0));
 
         /* 停止之前的关闭定时器（如果有） */
-        lisa_timer_stop(s_pa_mgr->timer);
+        pa_cancel_delayed_off_locked();
 
         /* 只在首次开启时真正打开PA */
         if (s_pa_mgr->ref_count == 1 && s_pa_mgr->current_state != 1) {
@@ -157,10 +213,10 @@ int pa_manager_control(int onoff, uint32_t delay_ms)
 
         /* 只有当引用计数为0时才真正关闭PA */
         if (s_pa_mgr->ref_count == 0) {
-            /* 停止之前的定时器 */
-            lisa_timer_stop(s_pa_mgr->timer);
-
             if (delay_ms == 0) {
+                /* 停止之前的定时器 */
+                pa_cancel_delayed_off_locked();
+
                 /* 立即关闭 */
                 if (s_pa_mgr->ctrl_callback && s_pa_mgr->current_state != 0) {
                     int ret = s_pa_mgr->ctrl_callback(0);
@@ -175,9 +231,7 @@ int pa_manager_control(int onoff, uint32_t delay_ms)
                 }
             } else {
                 /* 延时关闭 */
-                s_pa_mgr->pending_state = 0;
-                lisa_timer_change_period(s_pa_mgr->timer, delay_ms);
-                lisa_timer_start(s_pa_mgr->timer);
+                pa_schedule_delayed_off_locked(delay_ms);
                 LISA_LOGI(TAG, "PA will turn OFF after %u ms (last instance)", delay_ms);
             }
         } else {

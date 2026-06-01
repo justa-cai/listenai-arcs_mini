@@ -25,7 +25,6 @@ typedef struct {
     bool wifi_available;
     bool wifi_connected;
     bool modem_connected;
-    bool wifi_provision_required;
 } sys_network_status_t;
 
 int sys_network_manager_init(bool wifi_available);

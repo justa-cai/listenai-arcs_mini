@@ -1,5 +1,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
+#include <errno.h>
 #include "project_version.h"
 
 #define TAG "main"
@@ -30,76 +31,130 @@
 #include "lisa_display.h"
 #include "battery/battery.h"
 #include "lisa_ui_nav_scr.h"
+#include "apps/llm/lisa_ui_nav_scr_ids.h"
+#include "apps/llm/models/model_qrcode.h"
 #include "voice_cloud.h"
 #include "app_ble_common.h"
 #include "button_camera_preview.h"
 #include "bt_app_hal.h"
 #include "ota_manager.h"
 
-extern uint8_t app_ble_adv_start(uint8_t adv_id, uint8_t adv_type);
 extern int boot_watchdog_feed(void);
 
 #define FACTORY_RESET_TONE_POLL_MS 20U
-#define BLE_NETCFG_PREPARE_DELAY_MS 1000U
 
 static volatile bool s_ble_netcfg_entering = false;
-
-static bool app_should_lock_wifi_provision_page(void)
+static bool s_netcfg_tone_latched = false;
+static bool s_netcfg_tone_retry_pending = false;
+static TickType_t s_netcfg_tone_retry_tick = 0;
+static bool s_cloud_ever_connected = false;
+static bool s_bind_prompted_before_first_cloud_ok = false;
+static bool s_runtime_wifi_prompted = false;
+static bool s_user_forced_netcfg = false;
+static bool s_boot_probe_fail_prompted = false;
+static bool app_should_open_info_by_cloud_state(uint32_t *status_out)
 {
-    sys_network_status_t status;
+    uint32_t status = QR_STATUS_CONNECTED;
 
-    return sys_network_get_status(&status) == 0 && status.wifi_provision_required;
-}
-
-static bool app_try_lock_wifi_provision_page(void)
-{
-    sys_network_status_t status;
-    bool ws_connected = voice_cloud_is_connected();
-
-    if (app_should_lock_wifi_provision_page()) {
-        return true;
-    }
-
-    if (sys_network_get_status(&status) != 0 ||
-        !status.wifi_available ||
-        status.active_bearer == SYS_NETWORK_BEARER_MODEM) {
+    switch (voice_cloud_get_state()) {
+    case VOICE_CLOUD_STATE_CONNECTING:
+        return false;
+    case VOICE_CLOUD_STATE_NO_NETWORK:
+    case VOICE_CLOUD_STATE_NO_INTERNET:
+        status = QR_STATUS_NOT_CONNECTED;
+        break;
+    case VOICE_CLOUD_STATE_TOKEN_FAILED:
+        status = QR_STATUS_AUTH_FAILED;
+        break;
+    case VOICE_CLOUD_STATE_CONNECT_FAILED:
+        status = QR_STATUS_BIND;
+        break;
+    default:
         return false;
     }
 
-    if (status.wifi_connected && ws_connected) {
-        return false;
+    if (status_out) {
+        *status_out = status;
     }
 
-    LISA_LOGI(TAG, "WiFi or WS unavailable, enter forced WiFi provisioning (wifi=%d, ws=%d)",
-              status.wifi_connected, ws_connected);
-    if (!sys_wifi_is_started() && sys_wifi_start(false) != 0) {
-        LISA_LOGW(TAG, "Failed to start WiFi before forced provisioning");
-        return false;
-    }
-    sys_wifi_set_force_provision(true);
     return true;
 }
 
-static void app_open_wifi_provision_info(void)
+static void app_open_cloud_info(uint32_t status)
 {
 #if CONFIG_WIFI_MANAGER
-    app_ble_adv_start(0, BLE_ADV_GEN);
-    voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, NULL, 0);
+    voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, &status, sizeof(status));
+#else
+    (void)status;
 #endif
 }
 
-static void app_prompt_wifi_provision(void)
+static bool app_should_play_netcfg_tone(uint32_t status)
 {
-#if CONFIG_WIFI_MANAGER
+    sys_wifi_connect_result_t connect_result;
+
+    if (status != QR_STATUS_NOT_CONNECTED) {
+        return false;
+    }
+
+    if (!sys_wifi_has_ap()) {
+        return true;
+    }
+
+    connect_result = sys_wifi_get_connect_result();
+    if (connect_result == SYS_WIFI_CONNECT_RESULT_FAIL_NO_AP ||
+        connect_result == SYS_WIFI_CONNECT_RESULT_FAIL_PASSWORD ||
+        connect_result == SYS_WIFI_CONNECT_RESULT_FAIL_IP ||
+        connect_result == SYS_WIFI_CONNECT_RESULT_FAIL_OTHER) {
+        return true;
+    }
+
+    switch (voice_cloud_get_state()) {
+    case VOICE_CLOUD_STATE_CONNECTING:
+        return false;
+    case VOICE_CLOUD_STATE_NO_INTERNET:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool app_try_play_netcfg_tone(uint32_t status)
+{
     static TickType_t s_last_prompt_tick = 0;
     TickType_t now = xTaskGetTickCount();
 
-    if (s_last_prompt_tick == 0 || (now - s_last_prompt_tick) >= pdMS_TO_TICKS(1000)) {
-        app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
-        s_last_prompt_tick = now;
+    if (!app_should_play_netcfg_tone(status)) {
+        s_netcfg_tone_retry_pending = false;
+        return false;
     }
 
-    app_open_wifi_provision_info();
+    if (s_netcfg_tone_latched) {
+        s_netcfg_tone_retry_pending = false;
+        return false;
+    }
+
+    if (s_last_prompt_tick == 0 || (now - s_last_prompt_tick) >= pdMS_TO_TICKS(1000)) {
+        if (app_player_play(tone_player, app_tone_get_url(TONE_ID_70)) == APP_PLAYER_OK) {
+            s_last_prompt_tick = now;
+            s_netcfg_tone_latched = true;
+            s_netcfg_tone_retry_pending = false;
+            return true;
+        }
+    }
+
+    s_netcfg_tone_retry_pending = true;
+    s_netcfg_tone_retry_tick = now + pdMS_TO_TICKS(1000);
+    return false;
+}
+
+static void app_prompt_cloud_info(uint32_t status)
+{
+#if CONFIG_WIFI_MANAGER
+    app_try_play_netcfg_tone(status);
+    app_open_cloud_info(status);
+#else
+    (void)status;
 #endif
 }
 
@@ -144,24 +199,21 @@ static void app_ble_netcfg_enter_task(void *arg)
     status_ok = sys_network_get_status(&status) == 0;
 
     LISA_LOGI(TAG, "power button multi click, enter BLE config");
-    sys_wifi_set_user_force_provision(true);
-    sys_wifi_set_force_provision(true);
+    s_user_forced_netcfg = true;
     service_alarm_deinit();
-    if (!status_ok || status.active_bearer != SYS_NETWORK_BEARER_MODEM) {
-        voice_cloud_disconnect();
-    } else {
-        LISA_LOGI(TAG, "keep voice cloud connected on modem bearer, skip WiFi reset before BLE config");
-    }
-
-    app_ble_netcfg_prepare();
-    vTaskDelay(pdMS_TO_TICKS(BLE_NETCFG_PREPARE_DELAY_MS));
-
     if (sys_wifi_clear_saved_aps() != 0) {
         LISA_LOGW(TAG, "Failed to reset WiFi state");
     }
 
-    app_prompt_wifi_provision();
-    sys_wifi_set_user_force_provision(false);
+    if (!status_ok || status.active_bearer != SYS_NETWORK_BEARER_MODEM) {
+        voice_cloud_disconnect();
+    } else {
+        LISA_LOGI(TAG, "keep voice cloud connected on modem bearer before BLE config");
+    }
+
+    app_ble_netcfg_adv_start_delayed();
+
+    app_prompt_cloud_info(QR_STATUS_NOT_CONNECTED);
 
     s_ble_netcfg_entering = false;
     vTaskDelete(NULL);
@@ -203,7 +255,13 @@ void factory_reset(void)
 
 static void voice_system_network_probe_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
-    // 这里可以初始化需要网络的服务
+    (void)unused;
+    (void)msg_id;
+    (void)data;
+    (void)len;
+    (void)user_data;
+
+    s_boot_probe_fail_prompted = false;
 }
 
 static void voice_cloud_connected(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -214,11 +272,40 @@ static void voice_cloud_connected(void *unused, uint32_t msg_id, void *data, uin
     (void)len;
     (void)user_data;
 
-    if (!sys_wifi_get_user_force_provision() && sys_wifi_get_force_provision()) {
-        LISA_LOGI(TAG, "WS connected, exit forced WiFi provisioning");
-        sys_wifi_set_force_provision(false);
-    }
+    s_netcfg_tone_latched = false;
+    s_cloud_ever_connected = true;
+    s_bind_prompted_before_first_cloud_ok = false;
+    s_runtime_wifi_prompted = false;
+    s_user_forced_netcfg = false;
+    s_boot_probe_fail_prompted = false;
 }
+
+static void app_open_info_with_tone(uint32_t status, uint16_t tone_id)
+{
+    if (tone_id != TONE_ID_0) {
+        app_player_play(tone_player, app_tone_get_url(tone_id));
+    }
+
+    app_open_cloud_info(status);
+}
+
+
+static void voice_cloud_auth_failed(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)data;
+    (void)len;
+    (void)user_data;
+
+    if (s_user_forced_netcfg || s_cloud_ever_connected || s_bind_prompted_before_first_cloud_ok) {
+        return;
+    }
+
+    app_open_cloud_info(QR_STATUS_AUTH_FAILED);
+    s_bind_prompted_before_first_cloud_ok = true;
+}
+
 
 static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
@@ -234,9 +321,9 @@ static bool app_should_defer_wifi_provision_prompt(void)
 {
     switch (ota_manager_get_state()) {
     case OTA_STATE_CHECKING:
+    case OTA_STATE_PACKAGE_INFO:
     case OTA_STATE_UPDATING:
     case OTA_STATE_FAILED:
-    case OTA_STATE_PACKAGE_INFO_FAILED:
         return true;
     default:
         return false;
@@ -246,6 +333,36 @@ static bool app_should_defer_wifi_provision_prompt(void)
 
 static void voice_wifi_provision_guard(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
+    bool mark_boot_probe_prompted = false;
+
+    if (msg_id == VOICE_MSG_SYSTEM_NETWORK_PROBE_FAIL) {
+        if (s_user_forced_netcfg || s_cloud_ever_connected || s_boot_probe_fail_prompted) {
+            return;
+        }
+        mark_boot_probe_prompted = true;
+    }
+
+    if (msg_id == VOICE_MSG_WIFI_DISCONNECTED) {
+        if (s_cloud_ever_connected && !s_user_forced_netcfg && !s_runtime_wifi_prompted) {
+            uint32_t status = QR_STATUS_NOT_CONNECTED;
+            (void)app_should_open_info_by_cloud_state(&status);
+            app_open_cloud_info(status);
+            s_runtime_wifi_prompted = true;
+        }
+
+        if (s_cloud_ever_connected || s_user_forced_netcfg) {
+            return;
+        }
+    }
+
+    if (s_user_forced_netcfg) {
+        return;
+    }
+
+    if (msg_id == VOICE_MSG_SYSTEM_NETWORK_SWITCH_DONE && sys_wifi_has_ap()) {
+        return;
+    }
+
 #ifdef CONFIG_OTA
     if (app_should_defer_wifi_provision_prompt()) {
         LISA_LOGI(TAG, "OTA is active, defer WiFi provisioning page");
@@ -253,29 +370,73 @@ static void voice_wifi_provision_guard(void *unused, uint32_t msg_id, void *data
     }
 #endif
 
-    if (!app_should_lock_wifi_provision_page()) {
+    uint32_t status = QR_STATUS_CONNECTED;
+    if (!app_should_open_info_by_cloud_state(&status)) {
         return;
     }
 
-    LISA_LOGI(TAG, "WiFi provisioning required, keep info page on top");
-    app_open_wifi_provision_info();
+    LISA_LOGI(TAG, "Cloud unavailable(%u), keep info page on top", (unsigned)status);
+    app_open_cloud_info(status);
+    app_try_play_netcfg_tone(status);
+
+    if (mark_boot_probe_prompted) {
+        s_boot_probe_fail_prompted = true;
+    }
 }
 
-static void voice_wifi_force_provision_required(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+static bool app_try_handle_ota_package_info(const voice_msg_button_evt_t *evt)
 {
 #ifdef CONFIG_OTA
-    if (app_should_defer_wifi_provision_prompt()) {
-        LISA_LOGI(TAG, "OTA is active, defer WiFi provisioning prompt");
-        return;
+    if (evt == NULL || evt->button_id != 0 || ota_manager_get_state() != OTA_STATE_PACKAGE_INFO) {
+        return false;
     }
+
+    if (!ota_manager_app_update_input_ready()) {
+        LISA_LOGI(TAG, "Ignore button action=%d during OTA package info guard window", evt->action);
+        return true;
+    }
+
+    if (evt->action == VOICE_MSG_BUTTON_ACTION_CLICK) {
+        if (ota_manager_confirm_app_update() == 0) {
+            LISA_LOGI(TAG, "User confirmed app OTA update");
+        } else {
+            LISA_LOGW(TAG, "Failed to confirm app OTA update");
+        }
+        return true;
+    }
+
+    if (evt->action == VOICE_MSG_BUTTON_ACTION_LONG_HOLD) {
+        if (ota_manager_skip_app_update() == 0) {
+            LISA_LOGI(TAG, "User deferred app OTA update");
+        } else {
+            LISA_LOGW(TAG, "Failed to defer app OTA update");
+        }
+        return true;
+    }
+
+    LISA_LOGI(TAG, "Ignore button action=%d while waiting app OTA confirmation", evt->action);
+    return true;
+#else
+    (void)evt;
+    return false;
 #endif
+}
 
-    if (!app_should_lock_wifi_provision_page()) {
-        return;
+static bool app_button_action_should_redirect_cloud_info(voice_msg_button_action_t action)
+{
+    switch (action) {
+    case VOICE_MSG_BUTTON_ACTION_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_DOUBLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_TRIPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_QUADRUPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_QUINTUPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_SEXTUPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_SEPTUPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_REPEAT_CLICK:
+        return true;
+    default:
+        return false;
     }
-
-    LISA_LOGI(TAG, "WiFi auto connect failed, prompt provisioning");
-    app_prompt_wifi_provision();
 }
 
 static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -290,10 +451,15 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
         return;
     }
 
-    if (evt->action != VOICE_MSG_BUTTON_ACTION_LONG_HOLD &&
-        app_try_lock_wifi_provision_page()) {
-        LISA_LOGI(TAG, "Button redirects to WiFi provisioning");
-        app_prompt_wifi_provision();
+    if (app_try_handle_ota_package_info(evt)) {
+        return;
+    }
+
+    uint32_t redirect_status = QR_STATUS_CONNECTED;
+    if (app_button_action_should_redirect_cloud_info(evt->action) &&
+        app_should_open_info_by_cloud_state(&redirect_status)) {
+        LISA_LOGI(TAG, "Button redirects to cloud info, status=%u", (unsigned)redirect_status);
+        app_prompt_cloud_info(redirect_status);
         return;
     }
 
@@ -320,11 +486,11 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
             } else {
                 // 主页则触发按键唤醒
                 LISA_LOGI(TAG, "Single click: wakeup trigger");
-                if (model_voice_tts_is_playing()) {
-                    LISA_LOGI(TAG, "Single click: TTS playing, stop it");
-                    app_player_stop(tts_player);
-                    break;
-                }
+                // if (model_voice_tts_is_playing()) {
+                //     LISA_LOGI(TAG, "Single click: TTS playing, stop it");
+                //     app_player_stop(tts_player);
+                //     break;
+                // }
                 // 如果会话中，退出会话
                 if (model_voice_cloud_is_running()) {
                     voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
@@ -344,13 +510,15 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
         case VOICE_MSG_BUTTON_ACTION_TRIPLE_CLICK:
         {
             /* 三击：打开信息/二维码页 */
+            uint32_t status = QR_STATUS_CONNECTED;
+            (void)app_should_open_info_by_cloud_state(&status);
             LISA_LOGI(TAG, "power button triple click, open info page");
             if (voice_cloud_is_connected()) {
                 app_player_play(tone_player, app_tone_get_url(TONE_ID_104));
             } else {
                 app_player_play(tone_player, app_tone_get_url(TONE_ID_64));
             }
-            voice_msg_pub(VOICE_MSG_CLOUD_OPEN_INFO, NULL, 0);
+            app_open_cloud_info(status);
             break;
         }
         case VOICE_MSG_BUTTON_ACTION_QUADRUPLE_CLICK:
@@ -402,17 +570,21 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
 
 int main(int argc, char **argv)
 {
+    sys_network_status_t network_status = {0};
+    bool wifi_mode = false;
+
     LOGI("Application version: %s-%s", PROJECT_VERSION_STR, PROJECT_VERSION_COMMIT);
 
     boot_watchdog_feed();
     button_camera_preview_init();
 
     voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_PROBE_SUCCESS, voice_system_network_probe_success, NULL);
+    voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_PROBE_FAIL, voice_wifi_provision_guard, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_CONNECTED, voice_cloud_connected, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_CLOUD_AUTH_FAILED, voice_cloud_auth_failed, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_CLOUD_AUTH_SUCCESS , voice_cloud_auth_success, NULL);
     voice_msg_sub(VOICE_MSG_BUTTON_CHANGE, button_changed, NULL);
     voice_msg_sub(VOICE_MSG_WIFI_DISCONNECTED, voice_wifi_provision_guard, NULL);
-    voice_msg_sub(VOICE_MSG_WIFI_FORCE_PROVISION_REQUIRED, voice_wifi_force_provision_required, NULL);
     voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_SWITCH_DONE, voice_wifi_provision_guard, NULL);
 
     service_led_init();
@@ -420,9 +592,7 @@ int main(int argc, char **argv)
     service_brightness_init();
     service_button_init();
     service_image_init();
-    #if !CONFIG_LISA_MODEM
     service_camera_init();
-    #endif
 
 
 #if CONFIG_APPLICATION_UI
@@ -432,12 +602,17 @@ int main(int argc, char **argv)
 
     battery_init();
 
-#if CONFIG_WIFI_MANAGER
-    if (app_should_lock_wifi_provision_page()) {
-        app_open_wifi_provision_info();
-        app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
-    }
+    wifi_mode = (sys_network_get_status(&network_status) == 0) &&
+                (network_status.mode == SYS_NETWORK_MODE_WIFI_PREFERRED);
+    if (wifi_mode && !sys_wifi_has_ap()) {
+#ifdef CONFIG_OTA
+        if (!app_should_defer_wifi_provision_prompt())
 #endif
+        {
+            app_open_cloud_info(QR_STATUS_NOT_CONNECTED);
+        }
+    }
+
 
     vTaskDelay(pdMS_TO_TICKS(3000));
     while (1) {

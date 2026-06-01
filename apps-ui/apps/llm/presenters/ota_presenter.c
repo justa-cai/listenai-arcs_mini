@@ -48,6 +48,9 @@ static int ota_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
     *data = scr_data;
 
     model_ota_cb_register(&model_ota_cbs, scr_data);
+    if (ota_manager_get_state_snapshot(&scr_data->state) == 0) {
+        lisa_ui_ota_view_update(scr_data->view, &scr_data->state);
+    }
 
     return 0;
 }

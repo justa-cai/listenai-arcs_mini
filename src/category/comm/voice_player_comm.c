@@ -272,7 +272,7 @@ int voice_player_platform_init(void)
             .capture_count = 1,
             .behavior = {
                 .on_background = APP_PLAYER_FOCUS_LOSS_STOP,
-                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,
+                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_PAUSE,
             }
         },
         {

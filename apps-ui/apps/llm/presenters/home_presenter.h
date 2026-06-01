@@ -20,6 +20,7 @@ struct home_nav_scr_data {
     lv_timer_t *camera_capture_timer;
     lv_timer_t *camera_preview_countdown_timer;
     lv_timer_t *img_hide_timer;
+    lv_timer_t *battery_query_timer;
     lv_timer_t *standby_text_timer;
     lv_timer_t *standby_sleep_timer;
     uint32_t standby_text_index;

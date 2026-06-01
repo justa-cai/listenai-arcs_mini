@@ -576,6 +576,8 @@ int ota_api_check_app(ota_app_package_t *pkg)
     cJSON *ver_item = cJSON_GetObjectItem(ctx.json, "version");
     cJSON *verno_item = cJSON_GetObjectItem(ctx.json, "version_number");
     cJSON *md5_item = cJSON_GetObjectItem(ctx.json, "md5_checksum");
+    cJSON *description_item = cJSON_GetObjectItem(ctx.json, "description");
+    cJSON *size_item = cJSON_GetObjectItem(ctx.json, "size");
 
     if (!cJSON_IsString(url_item) || url_item->valuestring[0] == '\0') {
         LISA_LOGI(TAG, "App OTA: no update available");
@@ -621,15 +623,27 @@ int ota_api_check_app(ota_app_package_t *pkg)
 
     pkg->version_number = server_verno;
 
+    if (cJSON_IsString(description_item) && description_item->valuestring != NULL) {
+        strncpy(pkg->release_notes, description_item->valuestring, sizeof(pkg->release_notes) - 1);
+        pkg->release_notes[sizeof(pkg->release_notes) - 1] = '\0';
+    }
+
+    if (cJSON_IsNumber(size_item)) {
+        double size_value = cJSON_GetNumberValue(size_item);
+        if (size_value > 0) {
+            pkg->size = (uint32_t)size_value;
+        }
+    }
+    
     cJSON *pid_item = cJSON_GetObjectItem(ctx.json, "package_id");
     if (cJSON_IsString(pid_item)) {
         strncpy(pkg->package_id, pid_item->valuestring, OTA_APP_PACKAGE_ID_LEN - 1);
     }
 
     pkg->available = true;
-    LISA_LOGI(TAG, "App OTA available: package_id=%s version=%s version_number=%u (local=%u) md5=%s url=%s",
+    LISA_LOGI(TAG, "App OTA available: package_id=%s version=%s version_number=%u (local=%u) size=%u md5=%s url=%s",
               pkg->package_id, pkg->version, pkg->version_number, (uint32_t)PROJECT_VERSION_NUMBER,
-              pkg->has_md5 ? "set" : "<empty, skip verify>", pkg->url);
+              pkg->size, pkg->has_md5 ? "set" : "<empty, skip verify>", pkg->url);
 
     ret = 0;
 
@@ -665,7 +679,7 @@ static void app_download_on_data(lisa_http_data_t *data)
 
     if (ctx->cb) {
         ctx->cb_ret = ctx->cb(ctx->user, chunk_offset, (const uint8_t *)data->buf, (uint32_t)data->len,
-                              0 /* total unknown */);
+                              ctx->pkg->size);
     }
 }
 

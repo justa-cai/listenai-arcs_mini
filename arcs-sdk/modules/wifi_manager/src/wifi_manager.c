@@ -417,6 +417,8 @@ static void wifi_mgr_dispatch_user_callbacks(wifi_mgr_wifi_event_t event, void *
                     memcpy(&sta_copy, &s_wifi_mgr_obj->sta_device.config, sizeof(sta_copy));
                     connection_info.sta_info = &sta_copy;
                 }
+                connection_info.error_code = fail_info.error_code;
+                connection_info.status_code = fail_info.status_code;
                 connection_info.reason = fail_info.reason_code;
                 entry->connection_handler(&connection_info, entry->arg);
             } else {
@@ -450,6 +452,8 @@ static void wifi_mgr_dispatch_user_callbacks(wifi_mgr_wifi_event_t event, void *
                       fail_info.error_code, fail_info.status_code, fail_info.reason_code);
             wifi_mgr_connection_info_t connection_info = {0};
             connection_info.status = WIFI_MGR_STA_CONNECT_FAILED;
+            connection_info.error_code = fail_info.error_code;
+            connection_info.status_code = fail_info.status_code;
             connection_info.reason = fail_info.reason_code;
             entry->connection_handler(&connection_info, entry->arg);
         } else if (event & WIFI_MGR_WIFI_EVT_SCAN_FAILED) {

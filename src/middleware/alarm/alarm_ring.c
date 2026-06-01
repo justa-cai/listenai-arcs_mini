@@ -128,7 +128,6 @@ int alarm_ring_init(alarm_ring_play_once_cb_t play_cb, alarm_ring_force_stop_cb_
     if (!s_alarm_ring_ctx.inited) {
         voice_msg_sub(VOICE_MSG_ALARM_TRIGGER, alarm_ring_on_trigger, NULL);
         voice_msg_sub(VOICE_MSG_WAKEUP_KEYWORD, alarm_ring_on_wakeup, NULL);
-        voice_msg_sub(VOICE_MSG_WAKEUP_COMMAND, alarm_ring_on_wakeup, NULL);
         s_alarm_ring_ctx.inited = true;
     }
 

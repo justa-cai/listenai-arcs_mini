@@ -18,6 +18,10 @@ if(CONFIG_OTA)
     target_sources(${LISA_UI_LIB_NAME} PRIVATE ota_view.c)
 endif()
 
+if(CONFIG_LOG_UPLOAD)
+    target_sources(${LISA_UI_LIB_NAME} PRIVATE log_upload_view.c)
+endif()
+
 target_include_directories(
     ${LISA_UI_LIB_NAME}
     PRIVATE

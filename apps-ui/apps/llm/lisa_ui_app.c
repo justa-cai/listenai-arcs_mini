@@ -25,6 +25,9 @@ extern const struct lisa_ui_nav_scr quota_qrcode_nav_scr;
 #ifdef CONFIG_OTA
 extern const struct lisa_ui_nav_scr ota_nav_scr;
 #endif
+#ifdef CONFIG_LOG_UPLOAD
+extern const struct lisa_ui_nav_scr log_upload_nav_scr;
+#endif
 
 static int lisa_ui_model_init(void)
 {
@@ -59,6 +62,9 @@ int lisa_ui_app_init(void)
     lisa_ui_nav_scr_add(&quota_qrcode_nav_scr);
 #ifdef CONFIG_OTA
     lisa_ui_nav_scr_add(&ota_nav_scr);
+#endif
+#ifdef CONFIG_LOG_UPLOAD
+    lisa_ui_nav_scr_add(&log_upload_nav_scr);
 #endif
 
     /* fisrt src will be open and show now */

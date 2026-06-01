@@ -63,11 +63,36 @@ static cJSON *ls_play_kuwo_music_list(const char *name)
 
 #define _MIN(a, b) ((a) < (b) ? (a) : (b))
 
+static bool ls_play_kuwo_music_item_is_playable(const cJSON *item)
+{
+    const cJSON *itemid = cJSON_GetObjectItem(item, "itemid");
+    if (!cJSON_IsString(itemid) || itemid->valuestring[0] == '\0') {
+        return false;
+    }
+
+    const cJSON *playable = cJSON_GetObjectItem(item, "playable");
+    return playable == NULL || playable->valueint == 1;
+}
+
+static cJSON *ls_play_kuwo_music_no_playable_result(const char *name, const char *reason)
+{
+    LOGW("No playable kuwo music items: %s", reason);
+
+    cJSON *result = mcp_tool_call_result_create(name);
+    if (!result) {
+        return NULL;
+    }
+
+    cJSON_AddStringToObject(result, "content", "暂无可播放音乐");
+    return result;
+}
+
+
 static cJSON *ls_play_kuwo_music_call(const char *id, const char *name, cJSON *args)
 {
     if (args == NULL) {
         LOGE("mcp tool call args is NULL");
-        return NULL;
+        return ls_play_kuwo_music_no_playable_result(name, "args is NULL");
     }
 
     /* NOTE: item_array有可能直接在args中,也有可能在args->result中 */
@@ -75,20 +100,15 @@ static cJSON *ls_play_kuwo_music_call(const char *id, const char *name, cJSON *a
     if (args->type != cJSON_Array) {
         cJSON *result = cJSON_GetObjectItem(args, "result");
 
-        if(result == NULL){
-            LOGE("mcp tool call args missing result");
-            return NULL;
+        if (cJSON_IsObject(result) == false) {
+            LOGE("mcp tool call args missing result object");
+            return ls_play_kuwo_music_no_playable_result(name, "missing result object");
         }
 
         item_array = cJSON_GetObjectItem(result, "items");
-        if (item_array == NULL) {
-            LOGE("mcp tool call args is not array");
-            return NULL;
-        }
-        
-        if(cJSON_IsArray(item_array) == false){
+        if (cJSON_IsArray(item_array) == false) {
             LOGE("mcp tool call args items is not array");
-            return NULL;
+            return ls_play_kuwo_music_no_playable_result(name, "items is not array");
         }
 
     } else {
@@ -96,39 +116,64 @@ static cJSON *ls_play_kuwo_music_call(const char *id, const char *name, cJSON *a
     }
 
     int cnt = cJSON_GetArraySize(item_array);
-    struct voice_msg_audio_items *music_items =
-        lisa_mem_alloc(sizeof(struct voice_msg_audio_items) + cnt * sizeof(struct voice_msg_audio_item));
+    if (cnt <= 0) {
+        return ls_play_kuwo_music_no_playable_result(name, "items array is empty");
+    }
+
+    int playable_cnt = 0;
+    for (int i = 0; i < cnt; i++) {
+        cJSON *item = cJSON_GetArrayItem(item_array, i);
+        if (ls_play_kuwo_music_item_is_playable(item)) {
+            playable_cnt++;
+        }
+    }
+
+    if (playable_cnt == 0) {
+        return ls_play_kuwo_music_no_playable_result(name, "all items are unplayable or invalid");
+    }
+
+    size_t music_items_size =
+        sizeof(struct voice_msg_audio_items) + playable_cnt * sizeof(struct voice_msg_audio_item);
+    struct voice_msg_audio_items *music_items = lisa_mem_calloc(1, music_items_size);
     if (!music_items) {
         LOGE("Failed to allocate memory");
         return NULL;
     }
-    music_items->cnt = cnt;
+    music_items->cnt = playable_cnt;
 
+    int music_index = 0;
     for (int i = 0; i < cnt; i++) {
         cJSON *item = cJSON_GetArrayItem(item_array, i);
+        if (!ls_play_kuwo_music_item_is_playable(item)) {
+            continue;
+        }
+
         const cJSON *itemid = cJSON_GetObjectItem(item, "itemid");
         const cJSON *playable = cJSON_GetObjectItem(item, "playable");
         const cJSON *name = cJSON_GetObjectItem(item, "name");
 
         if (itemid) {
-            memcpy(music_items->items[i].id, itemid->valuestring,
-                   _MIN(strlen(itemid->valuestring) + 1, sizeof(music_items->items[i].id)));
+            memcpy(music_items->items[music_index].id, itemid->valuestring,
+                   _MIN(strlen(itemid->valuestring) + 1, sizeof(music_items->items[music_index].id)));
         }
 
         if (playable) {
-            music_items->items[i].playable = playable->valueint;
+            music_items->items[music_index].playable = playable->valueint;
+        } else {
+            music_items->items[music_index].playable = 1;
         }
 
-        if (name) {
-            memcpy(music_items->items[i].name, name->valuestring,
-                   _MIN(strlen(name->valuestring) + 1, sizeof(music_items->items[i].name)));
+        if (cJSON_IsString(name)) {
+            memcpy(music_items->items[music_index].name, name->valuestring,
+                   _MIN(strlen(name->valuestring) + 1, sizeof(music_items->items[music_index].name)));
         }
+
+        music_index++;
     }
 
     voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
 
-    voice_msg_pub(VOICE_MSG_CLOUD_AUDIO_ITEM, music_items,
-                  sizeof(struct voice_msg_audio_items) + cnt * sizeof(struct voice_msg_audio_item));
+    voice_msg_pub(VOICE_MSG_CLOUD_AUDIO_ITEM, music_items, music_items_size);
     lisa_mem_free(music_items);
 
     cJSON *result = mcp_tool_call_result_create(name);

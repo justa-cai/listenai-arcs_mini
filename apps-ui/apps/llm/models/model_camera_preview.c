@@ -120,6 +120,7 @@ int model_camera_preview_evt_init(void)
     voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_CAPTURE, model_camera_preview_capture_msg_handle, NULL);
     voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, model_camera_preview_exit_msg_handle, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_URL, model_camera_preview_result_tts_ready_msg_handle, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_PUSHUP_TTS_URL, model_camera_preview_result_tts_ready_msg_handle, NULL);
 #endif
 
     model_camera_preview_ctx.inited = 1;

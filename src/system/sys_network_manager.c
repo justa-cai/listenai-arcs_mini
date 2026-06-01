@@ -356,9 +356,6 @@ int sys_network_get_status(sys_network_status_t *status)
     status->wifi_available = s_mgr.wifi_available;
     status->wifi_connected = s_mgr.wifi_available && sys_wifi_is_connected();
     status->modem_connected = s_mgr.modem_started;
-    status->wifi_provision_required = status->wifi_available &&
-                                      status->active_bearer != SYS_NETWORK_BEARER_MODEM &&
-                                      sys_wifi_get_force_provision();
     return 0;
 }
 

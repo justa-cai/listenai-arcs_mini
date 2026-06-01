@@ -339,22 +339,3 @@ int app_datas_init(void)
 
     return 0;
 }
-
-bool is_wakeup_keyword(char *keyword)
-{
-#ifdef CONFIG_BOARD_ARCS_MINI
-    return true;
-#else
-    for (int i = 0; i < MAX_WAKEUP_KEYWORDS_NUM; i++) {
-        if (wakeup_keywords[i] == NULL) {
-            break;
-        }
-
-        if (strcmp(wakeup_keywords[i], keyword) == 0) {
-            return true;
-        }
-    }
-
-    return false;
-#endif
-}

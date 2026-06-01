@@ -11,9 +11,10 @@
 
 #include "lisa_ui.h"
 #include "lisa_ui_invoke.h"
+#include "lisa_ui_assets.h"
 
-#include "model_wifi.h"
 #include "model_qrcode.h"
+#include "voice_cloud.h"
 
 #ifdef LISA_UI_PLATFORM_ARCS
 #include "bt_app_if.h"
@@ -24,12 +25,12 @@
 #include "lvgl.h"
 #include "cJSON.h"
 #include "app_datas.h"
+#include "lisa_kv.h"
+#include "kv_user.h"
 #include "lisa_ui_invoke.h"
 #include "app_net_cfg.h"
-#include "sys_wifi.h"
+#include "app_ble_common.h"
 #endif
-
-LV_IMG_DECLARE(ble_qr);
 
 /**
  * @brief QR code model context
@@ -62,6 +63,53 @@ static const char *DEFAULT_NOT_CONNECTED_TEXT = "当前网络未连接\n请使�
 static const char *DEFAULT_CONNECTED_TEXT = "请使用微信扫码修改配置";
 static const char *DEFAULT_OUT_OF_LIMIT_TEXT = "今日交互额度已用完";
 static const char *DEFAULT_OUT_OF_LIMIT_BOTTOM_TEXT = "微信扫码开通会员\n获取更多交互额度";
+static const char *DEFAULT_BIND_TEXT = "\n请使用微信扫码绑定";
+static const char *DEFAULT_AUTH_FAILED_TEXT = "云端鉴权失败";
+static const char *DEFAULT_AUTH_FAILED_BOTTOM_TEXT = "请检查 pid/sid 是否正确";
+
+static int model_qrcode_get_device_mode(void)
+{
+    int device_mode = 0;
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    device_mode = DEVICE_MODE_PROD;
+
+    if (lisa_kv_get_int(KV_KEY_DEVICE_MODE, &device_mode) != 0) {
+        struct app_datas *app_datas = get_app_datas();
+        if (app_datas) {
+            device_mode = app_datas->device_mode;
+        }
+    }
+#endif
+
+    return device_mode;
+}
+
+static const void *model_qrcode_get_netcfg_image(void)
+{
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    return &png_ble_netcfg_bind_doll_v2_png;
+#else
+    int device_mode = model_qrcode_get_device_mode();
+
+    if (device_mode == DEVICE_MODE_STAGING || device_mode == DEVICE_MODE_INTEGRATION) {
+        return &png_ble_netcfg_qr_staging_png;
+    }
+
+    return &png_ble_netcfg_bind_qr_png;
+#endif
+}
+
+static const void *model_qrcode_get_bind_image(void)
+{
+    int device_mode = model_qrcode_get_device_mode();
+
+    if (device_mode == DEVICE_MODE_STAGING || device_mode == DEVICE_MODE_INTEGRATION) {
+        return &png_ble_bind_qr_staging_png;
+    }
+
+    return &png_ble_bind_qr_png;
+}
 
 #ifdef LISA_UI_PLATFORM_ARCS
 static void qrcode_download_thread(void *arg)
@@ -403,25 +451,6 @@ static void download_quota_qrcode_start(void)
     lisa_thread_create(&attr, quota_qrcode_download_thread, g_qrcode_ctx.quota_qrcode_url);
 }
 
-struct auth_failed_rsp {
-    int err;
-    uint8_t auth_failed;
-};
-
-static void get_auth_failed_worker(void *data, uint32_t len, struct voice_invoke_rsp *rsp)
-{
-    struct auth_failed_rsp *auth_rsp = (struct auth_failed_rsp *)rsp;
-    struct app_datas *app_datas = get_app_datas();
-
-    if (app_datas) {
-        auth_rsp->err = 0;
-        auth_rsp->auth_failed = app_datas->auth_failed;
-    } else {
-        auth_rsp->err = -1;
-        auth_rsp->auth_failed = 0;
-    }
-}
-
 static void voice_cloud_show_qrcode_handle(void *unused, uint32_t msg_id, void *data, uint32_t len,
                                           void *user_data)
 {
@@ -514,6 +543,22 @@ qrcode_status_t model_qrcode_get_status(void)
     return g_qrcode_ctx.status;
 }
 
+int model_qrcode_set_status(qrcode_status_t status)
+{
+    switch (status) {
+    case QR_STATUS_NOT_CONNECTED:
+    case QR_STATUS_CONNECTED:
+    case QR_STATUS_OUT_OF_LIMIT:
+    case QR_STATUS_BIND:
+    case QR_STATUS_AUTH_FAILED:
+        g_qrcode_ctx.status = status;
+        return 0;
+    default:
+        LISA_UI_LOGE("Invalid qrcode status: %d", status);
+        return -1;
+    }
+}
+
 int model_qrcode_get_quota_data(qrcode_data_t *data)
 {
     if (!data) {
@@ -536,6 +581,66 @@ int model_qrcode_get_quota_data(qrcode_data_t *data)
     return 0;
 }
 
+static int model_qrcode_get_bind_data(qrcode_data_t *data)
+{
+    if (!data) {
+        LISA_UI_LOGE("Invalid parameter");
+        return -1;
+    }
+
+    data->status = QR_STATUS_BIND;
+    data->top_text = DEFAULT_BIND_TEXT;
+    data->bottom_text = "";
+    data->qr_image = model_qrcode_get_bind_image();
+#ifdef LISA_UI_PLATFORM_ARCS
+    app_ble_netcfg_adv_start_delayed();
+#endif
+    return 0;
+}
+
+static int model_qrcode_get_netcfg_data(qrcode_data_t *data)
+{
+    if (!data) {
+        LISA_UI_LOGE("Invalid parameter");
+        return -1;
+    }
+
+    data->status = QR_STATUS_NOT_CONNECTED;
+    data->top_text = DEFAULT_NOT_CONNECTED_TEXT;
+    if (get_current_device_id(g_qrcode_ctx.device_id, sizeof(g_qrcode_ctx.device_id)) == 0) {
+        snprintf(g_qrcode_ctx.device_id_text, sizeof(g_qrcode_ctx.device_id_text),
+                 "ID: %s", g_qrcode_ctx.device_id);
+        data->bottom_text = g_qrcode_ctx.device_id_text;
+    } else {
+        data->bottom_text = "";
+    }
+    data->qr_image = model_qrcode_get_netcfg_image();
+#ifdef LISA_UI_PLATFORM_ARCS
+    app_ble_netcfg_adv_start_delayed();
+#endif
+
+    return 0;
+}
+
+static int model_qrcode_get_auth_failed_data(qrcode_data_t *data)
+{
+    if (!data) {
+        LISA_UI_LOGE("Invalid parameter");
+        return -1;
+    }
+
+    data->status = QR_STATUS_AUTH_FAILED;
+    data->top_text = DEFAULT_AUTH_FAILED_TEXT;
+    data->bottom_text = DEFAULT_AUTH_FAILED_BOTTOM_TEXT;
+    data->qr_image = model_qrcode_get_netcfg_image();
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    app_ble_netcfg_adv_start_delayed();
+#endif
+
+    return 0;
+}
+
 int model_qrcode_get_config_data(qrcode_data_t *data)
 {
     if (!data) {
@@ -548,43 +653,17 @@ int model_qrcode_get_config_data(qrcode_data_t *data)
         model_qrcode_init();
     }
 
-    model_wifi_status_t wifi_sta = model_wifi_get_status();
-
-    if (sys_wifi_get_force_provision() ||
-        wifi_sta == MODEL_WIFI_STATUS_DISCONNECTED ||
-        wifi_sta == MODEL_WIFI_STATUS_UNKNOWN) {
-        data->status = QR_STATUS_NOT_CONNECTED;
-        data->top_text = DEFAULT_NOT_CONNECTED_TEXT;
-        if (get_current_device_id(g_qrcode_ctx.device_id, sizeof(g_qrcode_ctx.device_id)) == 0) {
-            snprintf(g_qrcode_ctx.device_id_text, sizeof(g_qrcode_ctx.device_id_text),
-                     "ID: %s", g_qrcode_ctx.device_id);
-            data->bottom_text = g_qrcode_ctx.device_id_text;
-        } else {
-            data->bottom_text = "";
-        }
-        data->qr_image = &ble_qr;
-#ifdef LISA_UI_PLATFORM_ARCS
-        app_ble_adv_start(0, BLE_ADV_GEN);
-#endif
-        return 0;
+    voice_cloud_state_t cloud_state = voice_cloud_get_state();
+    if (cloud_state == VOICE_CLOUD_STATE_NO_NETWORK ||
+        cloud_state == VOICE_CLOUD_STATE_NO_INTERNET) {
+        return model_qrcode_get_netcfg_data(data);
     }
-
-#ifdef LISA_UI_PLATFORM_ARCS
-    struct auth_failed_rsp auth_rsp = {
-        .err = -1,
-        .auth_failed = 0,
-    };
-
-    int r = voice_invoke_sync(get_auth_failed_worker, NULL, 0,
-                              (struct voice_invoke_rsp *)&auth_rsp, 1000);
-
-    if (r == 0 && auth_rsp.err == 0 && auth_rsp.auth_failed) {
-        data->top_text = "云端鉴权失败";
-        data->bottom_text = "请联系技术对接人添加云端授权";
-        data->qr_image = NULL;
-        return 0;
+    if (cloud_state == VOICE_CLOUD_STATE_TOKEN_FAILED) {
+        return model_qrcode_get_auth_failed_data(data);
     }
-#endif
+    if (cloud_state == VOICE_CLOUD_STATE_CONNECT_FAILED) {
+        return model_qrcode_get_bind_data(data);
+    }
 
     data->status = QR_STATUS_CONNECTED;
     if (g_qrcode_ctx.role_setting_qrcode_img_raw == NULL) {
@@ -592,9 +671,9 @@ int model_qrcode_get_config_data(qrcode_data_t *data)
         LISA_UI_LOGI("Role setting qrcode not ready, fallback to BLE config qrcode");
         data->top_text = "云端二维码加载失败\n请使用微信扫码配网";
         data->bottom_text = "";
-        data->qr_image = &ble_qr;
+        data->qr_image = model_qrcode_get_netcfg_image();
 #ifdef LISA_UI_PLATFORM_ARCS
-        app_ble_adv_start(0, BLE_ADV_GEN);
+        app_ble_netcfg_adv_start_delayed();
 #endif
         return 0;
     }
@@ -625,9 +704,17 @@ int model_qrcode_get_data(qrcode_data_t *data)
         model_qrcode_init();
     }
 
-    if (g_qrcode_ctx.status == QR_STATUS_OUT_OF_LIMIT) {
+    switch (g_qrcode_ctx.status) {
+    case QR_STATUS_BIND:
+        return model_qrcode_get_bind_data(data);
+    case QR_STATUS_NOT_CONNECTED:
+        return model_qrcode_get_netcfg_data(data);
+    case QR_STATUS_OUT_OF_LIMIT:
         return model_qrcode_get_quota_data(data);
+    case QR_STATUS_AUTH_FAILED:
+        return model_qrcode_get_auth_failed_data(data);
+    case QR_STATUS_CONNECTED:
+    default:
+        return model_qrcode_get_config_data(data);
     }
-
-    return model_qrcode_get_config_data(data);
 }

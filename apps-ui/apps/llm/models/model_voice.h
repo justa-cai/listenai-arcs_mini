@@ -8,6 +8,9 @@
 #ifdef CONFIG_OTA
 #include "ota_manager.h"
 #endif
+#ifdef CONFIG_LOG_UPLOAD
+#include "log_upload.h"
+#endif
 
 typedef enum {
     MODEL_VOICE_WAKEUP_MODE_BUTTON = 0,
@@ -22,6 +25,7 @@ int model_voice_on(void);
 struct model_voice_cb {
     void (*on_tts_stoped)(void *arg);
     void (*on_tts_playing)(void *arg);
+    void (*on_camera_capture_tone_finished)(void *arg);
     void (*on_emoji)(void *arg, const char *emoji_name);
     void (*on_oneshot_emoji)(void *arg, const char *emoji_name);
     void (*on_mcp_emoji)(void *arg, const char *emoji_name);
@@ -43,8 +47,12 @@ struct model_voice_cb {
     void (*on_show_qrcode)(void *arg);
     void (*on_standby_texts_changed)(void *arg);
     void (*on_standby_text_update)(void *arg, const char *text, bool is_cloud_text);
+    void (*on_battery_query)(void *arg, uint8_t level, uint8_t status);
 #ifdef CONFIG_OTA
     void (*on_ota_state_change)(const ota_state_t *state, void *arg);
+#endif
+#ifdef CONFIG_LOG_UPLOAD
+    void (*on_log_upload_state_change)(const log_upload_state_t *state, void *arg);
 #endif
     void (*on_wakeup_mode_changed)(void *arg, model_voice_wakeup_mode_t mode);
 };
@@ -57,6 +65,7 @@ const char *model_voice_role_propmt_get(void);
 uint8_t model_voice_cloud_is_connected(void);
 uint8_t model_voice_cloud_is_running(void);
 uint8_t model_voice_tts_is_playing(void);
+uint8_t model_voice_tts_is_pending(void);
 uint8_t model_voice_img_rec_is_mcp(void);
 const char *model_voice_last_iat_text_get(void);
 

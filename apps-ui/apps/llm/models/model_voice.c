@@ -8,9 +8,13 @@
 #include "lisa_ui_log.h"
 
 #include "model_voice.h"
+#include "model_qrcode.h"
 
 #ifdef LISA_UI_PLATFORM_ARCS
 #include "app_datas.h"
+#ifdef CONFIG_LOG_UPLOAD
+#include "log_upload.h"
+#endif
 #include "voice_msg.h"
 #include "voice_cloud.h"
 #include "lisa_kv.h"
@@ -41,6 +45,7 @@ struct model_voice_context {
     uint32_t voice_en: 1;
     uint32_t running: 1;
     uint32_t tts_playing: 1;
+    uint32_t tts_pending: 1;
     uint32_t pushup_tts: 1;
     uint32_t img_rec_in_progress: 1;
 
@@ -82,8 +87,12 @@ static void notify_standby_texts_changed(void);
 #ifdef LISA_UI_PLATFORM_ARCS
 static void voice_cloud_show_qrcode_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data);
 static void voice_cloud_show_qrcode_ui_worker(void *arg, uint32_t arg_len);
+static void voice_cloud_open_info(qrcode_status_t status);
+static void voice_cloud_open_info_received(void *unused, uint32_t msg_id, void *data, uint32_t len,
+                                           void *user_data);
 static void voice_app_camera_preview_exit(void *unused, uint32_t msg_id, void *data, uint32_t len,
                                           void *user_data);
+static void voice_app_battery_query_show(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data);
 #define SHOW_QRCODE_NAV_DELAY_MS 50
 #endif
 
@@ -290,6 +299,7 @@ const char *model_voice_wakeup_mode_name_get(model_voice_wakeup_mode_t mode)
 static void voice_cloud_tts_txt(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     if (msg_id == VOICE_MSG_CLOUD_TTS_TEXT_START) {
+        model_voice_ctx.tts_pending = 1;
         LISA_UI_INVOKE_UI_ARG_NONE({
             if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_tts_text_start) {
                 model_voice_ctx.cbs->on_tts_text_start(model_voice_ctx.arg);
@@ -344,10 +354,10 @@ static void voice_cloud_iat_txt(void *unused, uint32_t msg_id, void *data, uint3
 
 static void voice_cloud_session_starting(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
-    service_image_waiting_cancel();
     s_last_iat_text[0] = '\0';
     LISA_UI_INVOKE_UI_ARG_NONE({
         model_voice_ctx.running = 1;
+        model_voice_ctx.tts_pending = 0;
         if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_start) {
             model_voice_ctx.cbs->on_start(model_voice_ctx.arg);
         }
@@ -363,7 +373,13 @@ static void voice_cloud_session_finished(void *unused, uint32_t msg_id, void *da
         LISA_UI_LOGI("Audio recognition stopped on session finished");
 #endif
         
-        LISA_UI_LOGI("Session finished, tts_playing=%d", model_voice_ctx.tts_playing);
+        LISA_UI_LOGI("Session finished, tts_playing=%d, tts_pending=%d",
+                     model_voice_ctx.tts_playing, model_voice_ctx.tts_pending);
+
+        if (model_voice_ctx.tts_pending) {
+            LISA_UI_LOGI("Ignore UI finish transition because TTS is pending");
+            return;
+        }
         
         if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_finished) {
             model_voice_ctx.cbs->on_finished(model_voice_ctx.arg);
@@ -377,6 +393,7 @@ static void voice_cloud_tts_url_received(void *unused, uint32_t msg_id, void *da
     LISA_UI_LOGI("Audio recognition stopped on TTS URL received");
 #endif
     LISA_UI_INVOKE_UI_ARG_NONE({
+        model_voice_ctx.tts_pending = 1;
         model_voice_ctx.pushup_tts = 0;
     });
 }
@@ -404,6 +421,7 @@ static void voice_cloud_disconnected(void *unused, uint32_t msg_id, void *data, 
     LISA_UI_INVOKE_UI_ARG_NONE({
         model_voice_ctx.cloud_connected = 0;
         model_voice_ctx.running = 0;
+        model_voice_ctx.tts_pending = 0;
 
         if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_disconnected) {
             model_voice_ctx.cbs->on_disconnected(model_voice_ctx.arg);
@@ -467,6 +485,7 @@ static void voice_cloud_mcp_loading_received(void *unused, uint32_t msg_id, void
 static void voice_cloud_tts_player_playing(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     LISA_UI_INVOKE_UI_ARG_NONE({
+        model_voice_ctx.tts_pending = 0;
         model_voice_ctx.tts_playing = 1;
         LISA_UI_LOGI("TTS playing started, tts_playing=1, pushup=%d", model_voice_ctx.pushup_tts);
         if (model_voice_ctx.pushup_tts) {
@@ -482,6 +501,7 @@ static void voice_cloud_tts_player_stoped(void *unused, uint32_t msg_id, void *d
 {
     LISA_UI_INVOKE_UI_ARG_NONE({
         model_voice_ctx.tts_playing = 0;
+        model_voice_ctx.tts_pending = 0;
         LISA_UI_LOGI("TTS playing stopped, tts_playing=0, running=%d, pushup=%d",
                      model_voice_ctx.running, model_voice_ctx.pushup_tts);
         if (model_voice_ctx.pushup_tts) {
@@ -494,9 +514,29 @@ static void voice_cloud_tts_player_stoped(void *unused, uint32_t msg_id, void *d
     });
 }
 
+static void voice_app_camera_preview_tone_finished(void *unused, uint32_t msg_id, void *data,
+                                                   uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)data;
+    (void)len;
+    (void)user_data;
+
+    LISA_UI_INVOKE_UI_ARG_NONE({
+        if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_camera_capture_tone_finished) {
+            model_voice_ctx.cbs->on_camera_capture_tone_finished(model_voice_ctx.arg);
+        }
+    });
+}
+
 static void voice_button_changed(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     voice_msg_button_evt_t *evt = (voice_msg_button_evt_t *)data;
+
+    if (!evt || len < sizeof(*evt)) {
+        return;
+    }
 
     if (evt->button_id == 1) {
         if (evt->action == VOICE_MSG_BUTTON_ACTION_PRESS_DOWN) {
@@ -517,11 +557,7 @@ static void voice_button_changed(void *unused, uint32_t msg_id, void *data, uint
             });
         }
     } else if (evt->button_id == 2 && evt->action == VOICE_MSG_BUTTON_ACTION_CLICK) {
-        LISA_UI_INVOKE_UI_ARG_NONE({
-            if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_info_show) {
-                model_voice_ctx.cbs->on_info_show(model_voice_ctx.arg);
-            }
-        });
+        voice_cloud_open_info(QR_STATUS_CONNECTED);
     }
 }
 
@@ -620,6 +656,28 @@ static void voice_app_camera_preview_start(void *unused, uint32_t msg_id, void *
     });
 }
 
+static void voice_app_battery_query_show(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    voice_msg_battery_info_t *info = (voice_msg_battery_info_t *)data;
+    voice_msg_battery_info_t battery_info;
+
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (!info || len < sizeof(*info)) {
+        return;
+    }
+
+    battery_info = *info;
+    LISA_UI_INVOKE_UI_ARG_BASE(battery_info, {
+        if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_battery_query) {
+            model_voice_ctx.cbs->on_battery_query(model_voice_ctx.arg, _invoke_battery_info.level,
+                                                  _invoke_battery_info.status);
+        }
+    });
+}
+
 static void voice_mcp_image_url_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     char *url = (char *)data;
@@ -660,23 +718,34 @@ static void voice_cloud_show_qrcode_ui_worker(void *arg, uint32_t arg_len)
     }
 }
 
-static void voice_cloud_open_info_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+static void voice_cloud_open_info(qrcode_status_t status)
 {
-    (void)unused;
-    (void)msg_id;
-    (void)data;
-    (void)len;
-    (void)user_data;
+    LISA_UI_INVOKE_UI_ARG_BASE(status, {
+        model_qrcode_set_status(_invoke_status);
 
-    LISA_UI_LOGI("Open info page message received in model_voice");
-    LISA_UI_INVOKE_UI_ARG_NONE({
         if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_info_show) {
-            LISA_UI_LOGI("Invoking on_info_show callback");
+            LISA_UI_LOGI("Invoking on_info_show callback, qrcode status=%d", _invoke_status);
             model_voice_ctx.cbs->on_info_show(model_voice_ctx.arg);
         } else {
             LISA_UI_LOGE("on_info_show callback is NULL");
         }
     });
+}
+
+static void voice_cloud_open_info_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    qrcode_status_t status = QR_STATUS_CONNECTED;
+
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (data && len == sizeof(uint32_t)) {
+        status = (qrcode_status_t)(*(uint32_t *)data);
+    }
+
+    LISA_UI_LOGI("Open info page message received in model_voice, qrcode status=%d", status);
+    voice_cloud_open_info(status);
 }
 
 static void voice_system_reboot_worker(void *arg, uint32_t arg_len)
@@ -849,6 +918,24 @@ static void voice_cloud_ota_state_change(void *unused, uint32_t msg_id, void *da
 }
 #endif
 
+#ifdef CONFIG_LOG_UPLOAD
+static void voice_log_upload_state_change(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    log_upload_state_t *state = (log_upload_state_t *)data;
+
+    (void)unused;
+    (void)msg_id;
+    (void)len;
+    (void)user_data;
+
+    LISA_UI_INVOKE_UI_ARG_PTR(state, sizeof(log_upload_state_t), {
+        if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_log_upload_state_change) {
+            model_voice_ctx.cbs->on_log_upload_state_change(_invoke_state, model_voice_ctx.arg);
+        }
+    });
+}
+#endif
+
 
 int model_voice_off(void)
 {
@@ -941,12 +1028,15 @@ int model_voice_init(void)
 
     voice_msg_sub(VOICE_MSG_PLAYER_TTS_PLAYING, voice_cloud_tts_player_playing, NULL);
     voice_msg_sub(VOICE_MSG_PLAYER_TTS_STOPED, voice_cloud_tts_player_stoped, NULL);
+    voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_TONE_FINISHED,
+                  voice_app_camera_preview_tone_finished, NULL);
     voice_msg_sub(VOICE_MSG_BUTTON_CHANGE, voice_button_changed, NULL);
     voice_msg_sub(VOICE_MSG_BUTTON_IMAGE_RECOGNITION, voice_button_image_recognition, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_IMAGE_RECOGNITION, voice_mcp_image_recognition, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_IMAGE_URL, voice_mcp_image_url_received, NULL);
     voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_START, voice_app_camera_preview_start, NULL);
     voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, voice_app_camera_preview_exit, NULL);
+    voice_msg_sub(VOICE_MSG_APP_BATTERY_QUERY_SHOW, voice_app_battery_query_show, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_STANDBY_TEXTS, voice_cloud_standby_texts_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SHOW_QRCODE, voice_cloud_show_qrcode_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_OPEN_INFO, voice_cloud_open_info_received, NULL);
@@ -954,9 +1044,15 @@ int model_voice_init(void)
 
 #ifdef CONFIG_OTA
     voice_msg_sub(VOICE_MSG_OTA_CHECKING, voice_cloud_ota_state_change, NULL);
+    voice_msg_sub(VOICE_MSG_OTA_PACKAGE_INFO, voice_cloud_ota_state_change, NULL);
     voice_msg_sub(VOICE_MSG_OTA_UPDATING, voice_cloud_ota_state_change, NULL);
-    voice_msg_sub(VOICE_MSG_OTA_PACKAGE_INFO_FAILED, voice_cloud_ota_state_change, NULL);
     voice_msg_sub(VOICE_MSG_OTA_UP_TO_DATE, voice_cloud_ota_state_change, NULL);
+#endif
+#ifdef CONFIG_LOG_UPLOAD
+    voice_msg_sub(VOICE_MSG_LOG_UPLOAD_STARTING, voice_log_upload_state_change, NULL);
+    voice_msg_sub(VOICE_MSG_LOG_UPLOAD_UPLOADING, voice_log_upload_state_change, NULL);
+    voice_msg_sub(VOICE_MSG_LOG_UPLOAD_SUCCESSED, voice_log_upload_state_change, NULL);
+    voice_msg_sub(VOICE_MSG_LOG_UPLOAD_FAILED, voice_log_upload_state_change, NULL);
 #endif
     
     model_voice_ctx.cloud_connected = (uint32_t)(voice_cloud_is_connected() ? 1 : 0);
@@ -1000,6 +1096,11 @@ uint8_t model_voice_cloud_is_running(void)
 uint8_t model_voice_tts_is_playing(void)
 {
     return (uint8_t)model_voice_ctx.tts_playing;
+}
+
+uint8_t model_voice_tts_is_pending(void)
+{
+    return (uint8_t)model_voice_ctx.tts_pending;
 }
 
 const char *model_voice_last_iat_text_get(void)
@@ -1250,7 +1351,9 @@ static void async_task_img_upload(void *p, bool *should_stop)
             voice_cloud_jpeg_img_url_free(url);
         }
 
-        voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
+        if (upload_ret != 0 || !url || url[0] == '\0') {
+            voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
+        }
     }
 
     img_helper_jpeg_free(jpeg_data);

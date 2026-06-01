@@ -10,6 +10,7 @@
 
 #include "info_view.h"
 #include "lisa_ui.h"
+#include "lisa_ui_assets.h"
 #include "lisa_ui_llm_base.h"
 #include "lisa_ui_res.h"
 #include "lisa_ui_fonts.h"
@@ -29,6 +30,9 @@ struct lisa_ui_info_view {
     /* Content elements */
     lv_obj_t *top_label;               /**< Top instruction text */
     lv_obj_t *qr_img;                  /**< QR code image */
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    lv_obj_t *qr_img_secondary;        /**< Secondary image for right display */
+#endif
     lv_obj_t *bottom_label;            /**< Bottom information text */
     
     /* QR image descriptor for RGB565 data */
@@ -46,6 +50,49 @@ const lv_obj_class_t lisa_ui_info_view_class = {
     .constructor_cb = lisa_ui_info_view_class_constructor,
     .destructor_cb = lisa_ui_info_view_class_destructor,
 };
+
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+static void info_view_align_labels(lisa_ui_info_view_t *info_view)
+{
+    if (!info_view) {
+        return;
+    }
+
+    if (info_view->top_label && info_view->qr_img) {
+        lv_obj_align_to(info_view->top_label, info_view->qr_img, LV_ALIGN_OUT_TOP_MID, 0, -25);
+    }
+
+    if (info_view->bottom_label && info_view->qr_img) {
+        lv_obj_align_to(info_view->bottom_label, info_view->qr_img, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
+    }
+}
+
+static void info_view_set_doll_v2_netcfg_layout(lisa_ui_info_view_t *info_view)
+{
+    lv_obj_set_size(info_view->qr_img, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(info_view->qr_img, LV_ALIGN_CENTER, 0, 0);
+
+    if (info_view->qr_img_secondary) {
+        lv_obj_add_flag(info_view->qr_img_secondary, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    info_view_align_labels(info_view);
+}
+
+static void info_view_set_default_doll_v2_layout(lisa_ui_info_view_t *info_view)
+{
+    lv_obj_set_size(info_view->qr_img, 160, 160);
+    lv_obj_align(info_view->qr_img, LV_ALIGN_CENTER, -80, 0);
+
+    if (info_view->qr_img_secondary) {
+        lv_obj_set_size(info_view->qr_img_secondary, 160, 160);
+        lv_obj_align(info_view->qr_img_secondary, LV_ALIGN_CENTER, 80, 0);
+        lv_obj_add_flag(info_view->qr_img_secondary, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    info_view_align_labels(info_view);
+}
+#endif
 
 static void lisa_ui_info_view_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj)
 {
@@ -69,6 +116,11 @@ static void lisa_ui_info_view_class_constructor(const lv_obj_class_t *class_p, l
 #ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
     lv_obj_set_size(info_view->qr_img, 160, 160);
     lv_obj_align(info_view->qr_img, LV_ALIGN_CENTER, -80, 0);
+
+    info_view->qr_img_secondary = lv_img_create(container);
+    lv_obj_set_size(info_view->qr_img_secondary, 160, 160);
+    lv_obj_align(info_view->qr_img_secondary, LV_ALIGN_CENTER, 80, 0);
+    lv_obj_add_flag(info_view->qr_img_secondary, LV_OBJ_FLAG_HIDDEN);
 #else
     lv_obj_set_size(info_view->qr_img, 148, 148);
     lv_obj_align(info_view->qr_img, LV_ALIGN_CENTER, 0, 5);
@@ -149,6 +201,14 @@ void lisa_ui_info_view_set_qr_image(lv_obj_t *obj, const void *src)
     if (info_view->qr_img && src) {
         lv_img_set_src(info_view->qr_img, src);
     }
+
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    if (src == &png_ble_netcfg_bind_doll_v2_png) {
+        info_view_set_doll_v2_netcfg_layout(info_view);
+    } else {
+        info_view_set_default_doll_v2_layout(info_view);
+    }
+#endif
 }
 
 lv_obj_t *lisa_ui_info_view_get_qr_image(lv_obj_t *obj)
@@ -183,4 +243,8 @@ void lisa_ui_info_view_set_qr_rgb565(lv_obj_t *obj, const uint16_t *data, uint16
     
     // Set image source to descriptor
     lv_img_set_src(info_view->qr_img, &info_view->qr_img_desc);
+
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    info_view_set_default_doll_v2_layout(info_view);
+#endif
 }

@@ -16,6 +16,9 @@ enum {
 #ifdef CONFIG_OTA
     LISA_UI_NAV_SCR_ID_OTA,               // OTA检查页面
 #endif
+#ifdef CONFIG_LOG_UPLOAD
+    LISA_UI_NAV_SCR_ID_LOG_UPLOAD,        // 日志上传页面
+#endif
 
 };
 

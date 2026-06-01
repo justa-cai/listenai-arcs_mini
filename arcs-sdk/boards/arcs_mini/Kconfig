@@ -19,7 +19,6 @@ config BOARD_ARCS_MINI
 
 config BOARD_ARCS_MINI_MODEM_UART2_REMAP
 	bool "Remap UART2 to PA09/PA08 for modem"
-	default n
 	help
 		Remap UART2 to PA09/PA08 for an external 4G modem.
 		This conflicts with SDMMC on PA08/PA09.

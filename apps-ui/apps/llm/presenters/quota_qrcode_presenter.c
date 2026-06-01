@@ -32,6 +32,15 @@ static void retry_qr_timer_cb(lv_timer_t *timer)
 
 static void auto_return_timer_cb(lv_timer_t *timer)
 {
+    struct quota_qrcode_nav_scr_data *scr_data = NULL;
+
+    if (timer) {
+        scr_data = (struct quota_qrcode_nav_scr_data *)timer->user_data;
+        if (scr_data) {
+            scr_data->auto_return = NULL;
+        }
+    }
+
     LISA_UI_LOGI("Auto return to home page");
     lisa_ui_nav_scr_nav_back();
 }
@@ -59,7 +68,7 @@ static int quota_qrcode_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **d
         LISA_UI_LOGE("Failed to get QR code data");
     }
 
-    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 10000, NULL);
+    scr_data->auto_return = lv_timer_create(auto_return_timer_cb, 10000, scr_data);
     lv_timer_set_repeat_count(scr_data->auto_return, 1);
 
     *data = scr_data;
