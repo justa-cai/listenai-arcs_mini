@@ -52,6 +52,16 @@ static bool s_bind_prompted_before_first_cloud_ok = false;
 static bool s_runtime_wifi_prompted = false;
 static bool s_user_forced_netcfg = false;
 static bool s_boot_probe_fail_prompted = false;
+
+static bool app_cloud_info_page_enabled(void)
+{
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    return false;
+#else
+    return true;
+#endif
+}
+
 static bool app_should_open_info_by_cloud_state(uint32_t *status_out)
 {
     uint32_t status = QR_STATUS_CONNECTED;
@@ -486,11 +496,11 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
             } else {
                 // 主页则触发按键唤醒
                 LISA_LOGI(TAG, "Single click: wakeup trigger");
-                // if (model_voice_tts_is_playing()) {
-                //     LISA_LOGI(TAG, "Single click: TTS playing, stop it");
-                //     app_player_stop(tts_player);
-                //     break;
-                // }
+                if (model_voice_tts_is_playing()) {
+                    LISA_LOGI(TAG, "Single click: TTS playing, stop it");
+                    app_player_stop(tts_player);
+                    break;
+                }
                 // 如果会话中，退出会话
                 if (model_voice_cloud_is_running()) {
                     voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
@@ -517,6 +527,11 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
                 app_player_play(tone_player, app_tone_get_url(TONE_ID_104));
             } else {
                 app_player_play(tone_player, app_tone_get_url(TONE_ID_64));
+            }
+
+            if (!app_cloud_info_page_enabled()) {
+                LISA_LOGI(TAG, "power button triple click, info page disabled on this board");
+                break;
             }
             app_open_cloud_info(status);
             break;
