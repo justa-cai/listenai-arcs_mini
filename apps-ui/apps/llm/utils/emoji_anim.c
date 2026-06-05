@@ -26,6 +26,7 @@ struct emoji_config {
     char *name;
     char *alias_name;
     int alias_idx;
+    uint8_t valid;
     lisa_ui_anim_ext_config_t anim;
     struct emoji_phase_owner enter_owner;
     struct emoji_phase_owner loop_owner;
@@ -84,18 +85,41 @@ static void emoji_phase_owner_free(struct emoji_phase_owner *owner)
     memset(owner, 0, sizeof(*owner));
 }
 
+static void emoji_config_entry_release(struct emoji_config *cfg)
+{
+    if (cfg == NULL) {
+        return;
+    }
+
+    lisa_mem_free(cfg->name);
+    lisa_mem_free(cfg->alias_name);
+    emoji_anim_config_free(&cfg->anim.enter);
+    emoji_anim_config_free(&cfg->anim.loop);
+    emoji_anim_config_free(&cfg->anim.exit);
+    emoji_phase_owner_free(&cfg->enter_owner);
+    emoji_phase_owner_free(&cfg->loop_owner);
+    emoji_phase_owner_free(&cfg->exit_owner);
+}
+
+/* Drop a single emoji: free its allocations and reset the slot to an
+   invalid (skipped) state, leaving the rest of the array untouched. */
+static void emoji_config_invalidate(struct emoji_config *cfg)
+{
+    if (cfg == NULL) {
+        return;
+    }
+
+    emoji_config_entry_release(cfg);
+    memset(cfg, 0, sizeof(*cfg));
+    cfg->alias_idx = -1;
+    cfg->valid = 0;
+}
+
 static void emoji_anim_cleanup(void)
 {
     if (s_emoji_configs != NULL) {
         for (uint32_t i = 0; i < s_emoji_count; i++) {
-            lisa_mem_free(s_emoji_configs[i].name);
-            lisa_mem_free(s_emoji_configs[i].alias_name);
-            emoji_anim_config_free(&s_emoji_configs[i].anim.enter);
-            emoji_anim_config_free(&s_emoji_configs[i].anim.loop);
-            emoji_anim_config_free(&s_emoji_configs[i].anim.exit);
-            emoji_phase_owner_free(&s_emoji_configs[i].enter_owner);
-            emoji_phase_owner_free(&s_emoji_configs[i].loop_owner);
-            emoji_phase_owner_free(&s_emoji_configs[i].exit_owner);
+            emoji_config_entry_release(&s_emoji_configs[i]);
         }
         lisa_mem_free(s_emoji_configs);
     }
@@ -273,6 +297,9 @@ static int find_emoji_index_by_name(const char *name)
     }
 
     for (uint32_t i = 0; i < s_emoji_count; i++) {
+        if (!s_emoji_configs[i].valid) {
+            continue;
+        }
         if (strcmp(s_emoji_configs[i].name, name) == 0) {
             return (int)i;
         }
@@ -286,81 +313,90 @@ static int emoji_has_valid_phase(const struct emoji_config *cfg)
     return cfg->anim.enter.frame_count > 0 || cfg->anim.loop.frame_count > 0 || cfg->anim.exit.frame_count > 0;
 }
 
-static int emoji_alias_cycle_check(uint32_t idx, uint8_t *state)
+/* Walk an alias chain and report whether it terminates on a valid, non-alias
+   target. Returns 0 for a missing/invalid target or a cycle. */
+static int emoji_alias_chain_ok(uint32_t start)
 {
-    const struct emoji_config *cfg = &s_emoji_configs[idx];
+    uint32_t idx = start;
+    uint32_t steps = 0;
 
-    if (state[idx] == 2) {
-        return 0;
-    }
-    if (state[idx] == 1) {
-        LISA_UI_LOGE("Alias cycle detected at emoji: %s", cfg->name);
-        return -1;
-    }
+    while (1) {
+        const struct emoji_config *cfg;
 
-    state[idx] = 1;
-    if (cfg->alias_idx >= 0) {
-        if ((uint32_t)cfg->alias_idx >= s_emoji_count) {
-            LISA_UI_LOGE("Alias index out of range, emoji: %s", cfg->name);
-            return -1;
+        if (idx >= s_emoji_count) {
+            return 0;
         }
-        if (emoji_alias_cycle_check((uint32_t)cfg->alias_idx, state) != 0) {
-            return -1;
+
+        cfg = &s_emoji_configs[idx];
+        if (!cfg->valid) {
+            return 0;
         }
+        if (cfg->alias_idx < 0) {
+            return 1;
+        }
+        if (++steps > s_emoji_count) {
+            return 0;
+        }
+
+        idx = (uint32_t)cfg->alias_idx;
     }
-    state[idx] = 2;
-    return 0;
 }
 
-static int resolve_animation_aliases(void)
+static void resolve_animation_aliases(void)
 {
-    uint8_t *state;
+    uint8_t drop[EMOJI_MAX_COUNT] = {0};
 
     for (uint32_t i = 0; i < s_emoji_count; i++) {
         struct emoji_config *cfg = &s_emoji_configs[i];
         int alias_idx;
 
+        if (!cfg->valid) {
+            continue;
+        }
+
         if (cfg->alias_name == NULL) {
             if (!emoji_has_valid_phase(cfg)) {
-                LISA_UI_LOGE("animation[%s] has no valid phase", cfg->name);
-                return -1;
+                LISA_UI_LOGW("Skip animation[%s]: no valid phase", cfg->name);
+                emoji_config_invalidate(cfg);
             }
             continue;
         }
 
         if (emoji_has_valid_phase(cfg)) {
-            LISA_UI_LOGE("animation[%s] should not define phase when alias is set", cfg->name);
-            return -1;
+            LISA_UI_LOGW("Skip animation[%s]: alias must not define phase", cfg->name);
+            emoji_config_invalidate(cfg);
+            continue;
         }
 
         alias_idx = find_emoji_index_by_name(cfg->alias_name);
         if (alias_idx < 0) {
-            LISA_UI_LOGE("animation[%s] alias target not found: %s", cfg->name, cfg->alias_name);
-            return -1;
+            LISA_UI_LOGW("Skip animation[%s]: alias target not found: %s", cfg->name, cfg->alias_name);
+            emoji_config_invalidate(cfg);
+            continue;
         }
         if ((uint32_t)alias_idx == i) {
-            LISA_UI_LOGE("animation[%s] alias self is not allowed", cfg->name);
-            return -1;
+            LISA_UI_LOGW("Skip animation[%s]: alias self not allowed", cfg->name);
+            emoji_config_invalidate(cfg);
+            continue;
         }
 
         cfg->alias_idx = alias_idx;
     }
 
-    state = lisa_mem_calloc(s_emoji_count, sizeof(uint8_t));
-    if (state == NULL) {
-        LISA_UI_LOGE("Failed to allocate alias state");
-        return -1;
-    }
-
+    /* Snapshot broken/cyclic chains before invalidating so the verdict does
+       not depend on iteration order. */
     for (uint32_t i = 0; i < s_emoji_count; i++) {
-        if (emoji_alias_cycle_check(i, state) != 0) {
-            lisa_mem_free(state);
-            return -1;
+        const struct emoji_config *cfg = &s_emoji_configs[i];
+        if (cfg->valid && cfg->alias_idx >= 0 && !emoji_alias_chain_ok(i)) {
+            drop[i] = 1;
         }
     }
-
-    lisa_mem_free(state);
-    return 0;
+    for (uint32_t i = 0; i < s_emoji_count; i++) {
+        if (drop[i]) {
+            LISA_UI_LOGW("Skip animation[%s]: alias chain broken or cyclic", s_emoji_configs[i].name);
+            emoji_config_invalidate(&s_emoji_configs[i]);
+        }
+    }
 }
 
 static const lisa_ui_anim_ext_config_t *emoji_anim_get_by_index(uint32_t idx, uint32_t depth)
@@ -372,11 +408,90 @@ static const lisa_ui_anim_ext_config_t *emoji_anim_get_by_index(uint32_t idx, ui
     }
 
     cfg = &s_emoji_configs[idx];
+    if (!cfg->valid) {
+        return NULL;
+    }
     if (cfg->alias_idx >= 0) {
         return emoji_anim_get_by_index((uint32_t)cfg->alias_idx, depth + 1);
     }
 
     return &cfg->anim;
+}
+
+static void resolve_default_emoji(void)
+{
+    int fallback_idx;
+
+    s_fallback_anim = NULL;
+
+    fallback_idx = find_emoji_index_by_name(s_fallback_name);
+    if (fallback_idx < 0) {
+        LISA_UI_LOGE("default_emoji '%s' not loaded, fallback disabled", s_fallback_name);
+        return;
+    }
+
+    s_fallback_anim = emoji_anim_get_by_index((uint32_t)fallback_idx, 0);
+    if (s_fallback_anim == NULL) {
+        LISA_UI_LOGE("default_emoji '%s' resolve failed, fallback disabled", s_fallback_name);
+    }
+}
+
+static int parse_one_animation(const cJSON *item, struct emoji_config *cfg)
+{
+    const cJSON *name_json;
+    const cJSON *alias_json;
+    const cJSON *intro_json;
+    const cJSON *loop_json;
+    const cJSON *outro_json;
+
+    cfg->alias_idx = -1;
+
+    if (!cJSON_IsObject(item)) {
+        LISA_UI_LOGE("animation must be an object");
+        return -1;
+    }
+
+    name_json = cJSON_GetObjectItemCaseSensitive(item, "name");
+    if (!cJSON_IsString(name_json) || name_json->valuestring == NULL) {
+        LISA_UI_LOGE("animation missing name");
+        return -1;
+    }
+
+    if (find_emoji_index_by_name(name_json->valuestring) >= 0) {
+        LISA_UI_LOGE("Duplicated animation name: %s", name_json->valuestring);
+        return -1;
+    }
+
+    cfg->name = emoji_strdup(name_json->valuestring);
+    if (cfg->name == NULL) {
+        LISA_UI_LOGE("Failed to allocate animation name");
+        return -1;
+    }
+
+    alias_json = cJSON_GetObjectItemCaseSensitive(item, "alias");
+    if (alias_json != NULL) {
+        if (!cJSON_IsString(alias_json) || alias_json->valuestring == NULL) {
+            LISA_UI_LOGE("animation[%s] alias must be string", cfg->name);
+            return -1;
+        }
+        cfg->alias_name = emoji_strdup(alias_json->valuestring);
+        if (cfg->alias_name == NULL) {
+            LISA_UI_LOGE("Failed to allocate alias for animation: %s", cfg->name);
+            return -1;
+        }
+    }
+
+    intro_json = cJSON_GetObjectItemCaseSensitive(item, "intro");
+    loop_json = cJSON_GetObjectItemCaseSensitive(item, "loop");
+    outro_json = cJSON_GetObjectItemCaseSensitive(item, "outro");
+
+    if (parse_anim_phase(intro_json, &cfg->anim.enter, &cfg->enter_owner, 0) != 0 ||
+        parse_anim_phase(loop_json, &cfg->anim.loop, &cfg->loop_owner, -1) != 0 ||
+        parse_anim_phase(outro_json, &cfg->anim.exit, &cfg->exit_owner, 0) != 0) {
+        return -1;
+    }
+
+    return 0;
 }
 
 static int parse_animations(const cJSON *root_json)
@@ -427,78 +542,15 @@ static int parse_animations(const cJSON *root_json)
 
     for (uint32_t i = 0; i < count; i++) {
         const cJSON *item = cJSON_GetArrayItem(animations_json, i);
-        const cJSON *name_json;
-        const cJSON *alias_json;
-        const cJSON *intro_json;
-        const cJSON *loop_json;
-        const cJSON *outro_json;
         struct emoji_config *cfg = &s_emoji_configs[i];
 
-        if (!cJSON_IsObject(item)) {
-            LISA_UI_LOGE("animation[%u] must be an object", i);
-            return -1;
+        if (parse_one_animation(item, cfg) != 0) {
+            LISA_UI_LOGW("Skip invalid animation[%u]: %s", i, cfg->name ? cfg->name : "(unnamed)");
+            emoji_config_invalidate(cfg);
+            continue;
         }
 
-        name_json = cJSON_GetObjectItemCaseSensitive(item, "name");
-        if (!cJSON_IsString(name_json) || name_json->valuestring == NULL) {
-            LISA_UI_LOGE("animation[%u] missing name", i);
-            return -1;
-        }
-
-        for (uint32_t j = 0; j < i; j++) {
-            if (strcmp(s_emoji_configs[j].name, name_json->valuestring) == 0) {
-                LISA_UI_LOGE("Duplicated animation name: %s", name_json->valuestring);
-                return -1;
-            }
-        }
-
-        cfg->name = emoji_strdup(name_json->valuestring);
-        cfg->alias_idx = -1;
-        if (cfg->name == NULL) {
-            LISA_UI_LOGE("Failed to allocate animation name");
-            return -1;
-        }
-
-        alias_json = cJSON_GetObjectItemCaseSensitive(item, "alias");
-        if (alias_json != NULL) {
-            if (!cJSON_IsString(alias_json) || alias_json->valuestring == NULL) {
-                LISA_UI_LOGE("animation[%s] alias must be string", cfg->name);
-                return -1;
-            }
-            cfg->alias_name = emoji_strdup(alias_json->valuestring);
-            if (cfg->alias_name == NULL) {
-                LISA_UI_LOGE("Failed to allocate alias for animation: %s", cfg->name);
-                return -1;
-            }
-        }
-
-        intro_json = cJSON_GetObjectItemCaseSensitive(item, "intro");
-        loop_json = cJSON_GetObjectItemCaseSensitive(item, "loop");
-        outro_json = cJSON_GetObjectItemCaseSensitive(item, "outro");
-
-        if (parse_anim_phase(intro_json, &cfg->anim.enter, &cfg->enter_owner, 0) != 0 ||
-            parse_anim_phase(loop_json, &cfg->anim.loop, &cfg->loop_owner, -1) != 0 ||
-            parse_anim_phase(outro_json, &cfg->anim.exit, &cfg->exit_owner, 0) != 0) {
-            return -1;
-        }
-    }
-
-    if (resolve_animation_aliases() != 0) {
-        return -1;
-    }
-
-    {
-        int fallback_idx = find_emoji_index_by_name(s_fallback_name);
-        if (fallback_idx < 0) {
-            LISA_UI_LOGE("default_emoji not found in animations: %s", s_fallback_name);
-            return -1;
-        }
-
-        s_fallback_anim = emoji_anim_get_by_index((uint32_t)fallback_idx, 0);
-        if (s_fallback_anim == NULL) {
-            LISA_UI_LOGE("default_emoji resolve failed: %s", s_fallback_name);
-            return -1;
-        }
+        cfg->valid = 1;
     }
 
     return 0;
@@ -533,19 +585,25 @@ static int load_phase_assets(struct romfs *fs, const lisa_ui_anim_config_t *cfg,
     return 0;
 }
 
-static int load_emoji_assets(struct romfs *fs)
+static void load_emoji_assets(struct romfs *fs)
 {
     for (uint32_t i = 0; i < s_emoji_count; i++) {
-        const struct emoji_config *cfg = &s_emoji_configs[i];
+        struct emoji_config *cfg = &s_emoji_configs[i];
+
+        if (!cfg->valid || cfg->alias_name != NULL) {
+            continue;
+        }
+
         if (load_phase_assets(fs, &cfg->anim.enter, &cfg->enter_owner) != 0 ||
             load_phase_assets(fs, &cfg->anim.loop, &cfg->loop_owner) != 0 ||
             load_phase_assets(fs, &cfg->anim.exit, &cfg->exit_owner) != 0) {
-            return -1;
+            LISA_UI_LOGW("Skip animation[%s]: asset load failed", cfg->name);
+            emoji_config_invalidate(cfg);
+            continue;
         }
+
         LISA_UI_LOGI("Loaded emoji animation assets: %s", cfg->name);
     }
-
-    return 0;
 }
 
 static int emoji_anim_config_parse(const uint8_t *json_data, uint32_t json_size)
@@ -598,6 +656,9 @@ const char *emoji_anim_get_loaded_name(int index)
     if (index < 0 || (uint32_t)index >= s_emoji_count) {
         return NULL;
     }
+    if (!s_emoji_configs[index].valid) {
+        return NULL;
+    }
 
     return s_emoji_configs[index].name;
 }
@@ -605,6 +666,9 @@ const char *emoji_anim_get_loaded_name(int index)
 int emoji_anim_is_alias(int index)
 {
     if (index < 0 || (uint32_t)index >= s_emoji_count) {
+        return 0;
+    }
+    if (!s_emoji_configs[index].valid) {
         return 0;
     }
 
@@ -617,6 +681,7 @@ int lisa_ui_anim_init(uint32_t flash_addr, uint32_t flash_size)
     struct romfs *fs = NULL;
     uint8_t *config_data = NULL;
     uint32_t config_size = 0;
+    uint32_t valid_count = 0;
 
     emoji_anim_cleanup();
 
@@ -637,13 +702,25 @@ int lisa_ui_anim_init(uint32_t flash_addr, uint32_t flash_size)
         goto out;
     }
 
-    if (load_emoji_assets(fs) != 0) {
-        LISA_UI_LOGE("Failed to load emoji assets");
+    /* Order matters: load assets first so alias resolution can drop aliases
+       whose target failed to load; bad entries are skipped, not fatal. */
+    load_emoji_assets(fs);
+    resolve_animation_aliases();
+    resolve_default_emoji();
+
+    for (uint32_t i = 0; i < s_emoji_count; i++) {
+        if (s_emoji_configs[i].valid) {
+            valid_count++;
+        }
+    }
+
+    if (valid_count == 0) {
+        LISA_UI_LOGE("No valid emoji animation loaded");
         ret = -1;
         goto out;
     }
 
-    LISA_UI_LOGI("Emoji animation loaded, animations: %u", s_emoji_count);
+    LISA_UI_LOGI("Emoji animation loaded, valid: %u / %u", valid_count, s_emoji_count);
 
 out:
     if (ret != 0) {

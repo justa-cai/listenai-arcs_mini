@@ -14,16 +14,43 @@
 #include "voice_player_comm.h"
 
 #define DEFAULT_VOLUME 50
+#define DEFAULT_MIN_VOLUME 10
+#define MAX_MIN_VOLUME 10
 #define VOLUME_APPLY_QUEUE_SIZE 1
 #define VOLUME_APPLY_TASK_STACK_SIZE 2048
 #define VOLUME_APPLY_TASK_PRIORITY 5
 
 static QueueHandle_t s_volume_apply_queue = NULL;
 
+static int service_volume_min_clamp(int min_volume)
+{
+    if (min_volume < 0) {
+        min_volume = 0;
+    }
+    if (min_volume > MAX_MIN_VOLUME) {
+        min_volume = MAX_MIN_VOLUME;
+    }
+
+    return min_volume;
+}
+
+static int service_volume_get_min(void)
+{
+    int min_volume = DEFAULT_MIN_VOLUME;
+
+    if (lisa_kv_get_int(KV_KEY_USER_MIN_VOLUME, &min_volume) != 0) {
+        min_volume = DEFAULT_MIN_VOLUME;
+    }
+
+    return service_volume_min_clamp(min_volume);
+}
+
 static int service_volume_clamp(int volume)
 {
-    if (volume < 10) {
-        volume = 10;
+    int min_volume = service_volume_get_min();
+
+    if (volume < min_volume) {
+        volume = min_volume;
     }
     if (volume > 100) {
         volume = 100;
@@ -127,7 +154,7 @@ void service_volume_init(void)
 
     service_volume_restore_from_kv();
 
-    LOGI("Volume service initialized");
+    LOGI("Volume service initialized, min volume: %d", service_volume_get_min());
 }
 
 void service_volume_set(int volume)

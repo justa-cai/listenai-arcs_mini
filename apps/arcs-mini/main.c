@@ -496,11 +496,11 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
             } else {
                 // 主页则触发按键唤醒
                 LISA_LOGI(TAG, "Single click: wakeup trigger");
-                if (model_voice_tts_is_playing()) {
-                    LISA_LOGI(TAG, "Single click: TTS playing, stop it");
-                    app_player_stop(tts_player);
-                    break;
-                }
+                // if (model_voice_tts_is_playing()) {
+                //     LISA_LOGI(TAG, "Single click: TTS playing, stop it");
+                //     app_player_stop(tts_player);
+                //     break;
+                // }
                 // 如果会话中，退出会话
                 if (model_voice_cloud_is_running()) {
                     voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
