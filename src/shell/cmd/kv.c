@@ -30,8 +30,18 @@ static int kv_cmd_del(int argc, char **argv)
 {
     if (argc > 0) {
         char *key = argv[0];
+        int current_volume = 0;
+
+        if (!strcmp(key, KV_KEY_USER_MIN_VOLUME)) {
+            current_volume = service_volume_get();
+        }
 
         if (lisa_kv_del(key) == 0) {
+            if (!strcmp(key, KV_KEY_USER_MIN_VOLUME)) {
+                if (service_volume_get() != current_volume) {
+                    service_volume_set(current_volume);
+                }
+            }
             shellPrint(shellGetCurrent(),"flash delete config: %s, success\n", key);
         } else {
             shellPrint(shellGetCurrent(),"flash has no config: %s\n", key);
@@ -80,6 +90,13 @@ static int kv_cmd_set(int argc, char **argv)
                 return -1;
             }
 
+            if (!strcmp(key, KV_KEY_USER_MIN_VOLUME) && (parsed < 0 || parsed > 10)) {
+                shellPrint(shellGetCurrent(),
+                           "flash set %s out of range: %ld (valid range: 0-10)\n",
+                           key, parsed);
+                return -1;
+            }
+
             if (!strcmp(key, KV_KEY_INT_MODE) && !app_interaction_mode_is_valid((int)parsed)) {
                 shellPrint(shellGetCurrent(),
                            "flash set %s out of range: %ld (valid range: 0-%d)\n",
@@ -99,6 +116,23 @@ static int kv_cmd_set(int argc, char **argv)
                 shellPrint(shellGetCurrent(),
                            "set brightness success: %d\n",
                            service_brightness_get());
+                return 0;
+            }
+
+            if (!strcmp(key, KV_KEY_USER_MIN_VOLUME)) {
+                int current_volume = service_volume_get();
+
+                if (lisa_kv_set_int(key, int_temp) != 0) {
+                    shellPrint(shellGetCurrent(),"flash set %s:%d failed\n", key, int_temp);
+                    return -1;
+                }
+
+                if (service_volume_get() != current_volume) {
+                    service_volume_set(current_volume);
+                }
+                shellPrint(shellGetCurrent(),
+                           "set min volume success: %d\n",
+                           int_temp);
                 return 0;
             }
 

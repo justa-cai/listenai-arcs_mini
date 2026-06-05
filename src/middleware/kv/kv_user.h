@@ -8,6 +8,7 @@
 #define KV_KEY_TOKEN                  "user.token"
 #define KV_KEY_DEVICE_MODE            "user.device_mode"
 #define KV_KEY_USER_VOLUME            "user.volume"
+#define KV_KEY_USER_MIN_VOLUME        "user.min_volume"
 #define KV_KEY_USER_BRIGHTNESS        "user.brightness"
 #ifdef CONFIG_BOARD_ARCS_MINI
 #define KV_KEY_USER_MIC_GAIN_DB       "user.mic_gain_db"
