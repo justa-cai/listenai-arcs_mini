@@ -328,6 +328,51 @@ static void home_store_emoji_name(char *dst, size_t dst_size, const char *emoji_
     dst[dst_size - 1] = '\0';
 }
 
+static bool home_is_same_emoji_anim(const struct home_nav_scr_data *scr_data, const char *emoji_name)
+{
+    const lisa_ui_anim_ext_config_t *current_anim = NULL;
+    const lisa_ui_anim_ext_config_t *next_anim = NULL;
+
+    if (!scr_data || !emoji_name || emoji_name[0] == '\0' || scr_data->current_emoji_name[0] == '\0') {
+        return false;
+    }
+
+    if (strcmp(scr_data->current_emoji_name, emoji_name) == 0) {
+        return true;
+    }
+
+    current_anim = emoji_anim_get_by_name(scr_data->current_emoji_name);
+    next_anim = emoji_anim_get_by_name(emoji_name);
+
+    return current_anim != NULL && current_anim == next_anim;
+}
+
+static const char *home_get_session_emoji_name(const struct home_nav_scr_data *scr_data)
+{
+    if (!scr_data) {
+        return EMOJI_NAME_NEUTRAL;
+    }
+
+    if (scr_data->speaking || model_voice_tts_is_playing()) {
+        return EMOJI_NAME_SPEAKING;
+    }
+
+    if (model_voice_cloud_is_running()) {
+        return EMOJI_NAME_LISTENING;
+    }
+
+    return EMOJI_NAME_NEUTRAL;
+}
+
+static void home_restore_session_emoji(struct home_nav_scr_data *scr_data, uint8_t imm)
+{
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+    show_emoji_anim(scr_data, home_get_session_emoji_name(scr_data), imm);
+}
+
 static void home_stop_oneshot_emoji(struct home_nav_scr_data *scr_data)
 {
     if (!scr_data) {
@@ -975,7 +1020,7 @@ static void anim_timer_callback(lv_timer_t *timer)
     struct home_nav_scr_data *d = timer->user_data;
     lv_timer_pause(timer);
 
-    show_emoji_anim(d, EMOJI_NAME_WAKEUP, 0);
+    home_restore_session_emoji(d, 0);
 
     d->mcp_emoji_running = false;
 }
@@ -1121,14 +1166,6 @@ static void model_voice_on_tts_player_playing(void *arg)
     struct home_nav_scr_data *scr_data = arg;
     lv_obj_t *content_label = NULL;
     const char *content_text = NULL;
-    bool supports_barge_in = false;
-
-#ifdef LISA_UI_PLATFORM_ARCS
-    struct app_datas *app_datas = get_app_datas();
-    if (app_datas != NULL) {
-        supports_barge_in = app_interaction_mode_supports_barge_in(app_datas->int_mode);
-    }
-#endif
 
     scr_data->speaking = 1;
     scr_data->finished = 0;
@@ -1150,6 +1187,7 @@ static void model_voice_on_tts_player_playing(void *arg)
         model_camera_preview_mark_result_tts_started(&scr_data->camera_preview);
         model_camera_preview_publish_state(&scr_data->camera_preview);
         home_camera_preview_uploading_clear(scr_data);
+        home_restore_session_emoji(scr_data, 1);
         LISA_UI_LOGI("voice photo: result TTS started, keep status at listening");
         lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
         standby_text_timer_update(scr_data);
@@ -1161,16 +1199,7 @@ static void model_voice_on_tts_player_playing(void *arg)
         lv_obj_set_style_translate_y(content_label, 0, LV_PART_MAIN);
     }
 
-    if (scr_data->mcp_emoji_running || strcmp(scr_data->current_emoji_name, EMOJI_NAME_WAIT) == 0) {
-        if (supports_barge_in) {
-            LISA_UI_LOGI("tts playing in barge-in mode, show wakeup emoji");
-            show_emoji_anim(scr_data, EMOJI_NAME_WAKEUP, 1);
-        } else if (scr_data->anim_timer) {
-            LISA_UI_LOGI("tts playing, pause emoji restore timer");
-            lv_timer_pause(scr_data->anim_timer);
-        }
-    }
-
+    home_restore_session_emoji(scr_data, 1);
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("speaking"));
 
     standby_text_timer_update(scr_data);
@@ -1187,7 +1216,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
         home_camera_preview_uploading_clear(scr_data);
         camera_preview_hide(scr_data);
         if (model_voice_cloud_is_running()) {
-            show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
+            home_restore_session_emoji(scr_data, 0);
             lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
             home_restore_last_iat_or_prompt(scr_data);
             standby_text_timer_update(scr_data);
@@ -1233,7 +1262,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
 
         /* In full duplex mode, set status to listening if session is still running */
         if (model_voice_cloud_is_running()) {
-            show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
+            home_restore_session_emoji(scr_data, 0);
             lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
         } else {
             const char *init_status =
@@ -1242,12 +1271,10 @@ static void model_voice_on_tts_player_stoped(void *arg)
         }
     } else {
         if (model_voice_cloud_is_running()) {
-            if (scr_data->mcp_emoji_running ||
-                strcmp(scr_data->current_emoji_name, EMOJI_NAME_WAIT) == 0) {
-                LISA_UI_LOGI("tts stopped, restore wakeup emoji after wait");
-                show_emoji_anim(scr_data, EMOJI_NAME_WAKEUP, 1);
+            if (scr_data->mcp_emoji_running) {
                 scr_data->mcp_emoji_running = 0;
             }
+            home_restore_session_emoji(scr_data, 1);
             lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
         } else {
             const char *init_status =
@@ -1370,7 +1397,7 @@ static void model_voice_on_start(void *arg)
 
     home_handle_activity(scr_data);
     camera_preview_hide(scr_data);
-    show_emoji_anim(scr_data, EMOJI_NAME_WAKEUP, 1);
+    home_restore_session_emoji(scr_data, 1);
 
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
 
@@ -1505,7 +1532,7 @@ static void model_voice_on_finished(void *arg)
         return;
     }
 
-    if (mode) {
+    if (mode && !scr_data->speaking) {
         lv_timer_pause(scr_data->anim_timer);
         show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 0);
     }
@@ -1584,6 +1611,7 @@ static void model_voice_on_iat_text_start(void *arg)
         return;
     }
 
+    home_restore_session_emoji(scr_data, 1);
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
 }
 
@@ -1601,6 +1629,7 @@ static void model_voice_on_iat_text_end(void *arg)
     }
 
     if (!scr_data->speaking) {
+        home_restore_session_emoji(scr_data, 1);
         lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
     }
 }
@@ -1627,6 +1656,7 @@ static void model_voice_on_iat_text_update(const char *text, void *arg)
     }
 
     lisa_ui_llm_primary_set_content_text(scr_data->view, text);
+    home_restore_session_emoji(scr_data, 1);
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
 }
 
@@ -1694,6 +1724,10 @@ static int home_play_emoji_anim(struct home_nav_scr_data *d, const char *emoji_n
 static void show_emoji_anim(struct home_nav_scr_data *d, const char *emoji_name, uint8_t imm)
 {
     if (!d) {
+        return;
+    }
+
+    if (!d->oneshot_emoji_running && home_is_same_emoji_anim(d, emoji_name)) {
         return;
     }
 
@@ -1802,7 +1836,7 @@ void home_reset(struct home_nav_scr_data *scr_data)
     home_update_alarm_icon(scr_data);
     home_update_battery_icon(scr_data);
     if (model_voice_cloud_is_running()) {
-        show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, true);
+        home_restore_session_emoji(scr_data, true);
         lv_timer_pause(scr_data->anim_timer);
         standby_text_timer_update(scr_data);
     }
