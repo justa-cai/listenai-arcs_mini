@@ -7,7 +7,8 @@
 #define EMOJI_NAME_BATTERY "battery"
 #define EMOJI_NAME_SLEEPY  "sleepy"
 #define EMOJI_NAME_WAIT    "wait"
-#define EMOJI_NAME_WAKEUP  "wakeup"
+#define EMOJI_NAME_LISTENING "wakeup"
+#define EMOJI_NAME_SPEAKING  "speaking"
 
 const lisa_ui_anim_ext_config_t *emoji_anim_get_by_name(const char *name);
 int emoji_anim_get_loaded_count(void);
