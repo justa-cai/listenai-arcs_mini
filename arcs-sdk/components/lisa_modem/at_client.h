@@ -57,9 +57,6 @@ typedef struct {
 typedef void (*at_urc_callback_t)(const char *command, at_arg_value_t *arguments,
                                    size_t arg_count, void *user_data);
 
-typedef bool (*at_urc_match_fn)(const char *command, at_arg_value_t *arguments,
-                                size_t arg_count, void *user_data);
-
 /**
  * @brief URC callback node (linked list)
  */
@@ -83,15 +80,22 @@ typedef at_line_stream_claim_t (*at_line_stream_claim_fn)(const uint8_t *line_pr
                                                           void *user_data,
                                                           void **claim_ctx);
 
+/* Return the number of bytes consumed from data, or a negative value on error. */
 typedef int (*at_line_stream_consume_fn)(void *claim_ctx, const uint8_t *data,
                                          size_t len, bool line_complete,
                                          void *user_data);
+
+typedef bool (*at_line_stream_is_complete_fn)(void *claim_ctx, void *user_data);
+
+typedef bool (*at_line_stream_raw_mode_fn)(void *claim_ctx, void *user_data);
 
 typedef void (*at_line_stream_finish_fn)(void *claim_ctx, bool success, void *user_data);
 
 typedef struct {
     at_line_stream_claim_fn claim;
     at_line_stream_consume_fn consume;
+    at_line_stream_is_complete_fn is_complete;
+    at_line_stream_raw_mode_fn raw_mode;
     at_line_stream_finish_fn finish;
 } at_line_stream_handler_t;
 
@@ -107,7 +111,6 @@ typedef struct {
     size_t resp_buf_size;          /**< Response buffer size (default: 512) */
     uint8_t task_priority;         /**< Processing task priority (default: 10) */
     uint16_t task_stack_size;      /**< Processing task stack size (default: 2048) */
-    uint16_t rx_task_delay_ms;     /**< Polling delay for read-task transports (default: 10ms) */
 } at_client_config_t;
 
 #define AT_CLIENT_CONFIG_DEFAULT() { \
@@ -115,7 +118,6 @@ typedef struct {
     .resp_buf_size = 512,            \
     .task_priority = 10,             \
     .task_stack_size = 2048,         \
-    .rx_task_delay_ms = 10,          \
 }
 
 /* ===== Lifecycle ===== */
@@ -201,12 +203,6 @@ bool at_client_send_cmd_wait_urc(at_client_t *client, const char *command,
                                   at_arg_value_t **out_args, size_t *out_count,
                                   size_t timeout_ms, bool add_crlf);
 
-bool at_client_send_cmd_wait_urc_match(at_client_t *client, const char *command,
-                                       const char *expect_urc,
-                                       at_urc_match_fn match_fn, void *match_user_data,
-                                       at_arg_value_t **out_args, size_t *out_count,
-                                       size_t timeout_ms, bool add_crlf);
-
 /* ===== Command Descriptor (LwCELL-style) ===== */
 
 /**
@@ -281,6 +277,14 @@ bool at_client_exec_cmd(at_client_t *client, const at_cmd_desc_t *desc, void *us
  */
 bool at_client_exec_text_cmd(at_client_t *client, const char *command,
                              char *response, size_t size, uint32_t timeout_ms);
+
+/**
+ * @brief Execute an AT command whose URC is followed by fixed-length binary data
+ */
+bool at_client_exec_binary_cmd(at_client_t *client, const char *command,
+                               const char *data_urc, uint8_t *response,
+                               size_t size, size_t *out_len,
+                               uint32_t timeout_ms);
 
 /**
  * @brief Execute AT command with formatted command string
@@ -361,26 +365,6 @@ int at_client_set_line_stream_handler(at_client_t *client,
 void at_client_set_debug(at_client_t *client, bool enable);
 
 /**
- * @brief Set receive task polling delay.
- *
- * Only affects transports using the internal RX task. Passing 0 disables the
- * extra delay and makes the task poll as fast as the transport timeout allows.
- *
- * @param client Client instance
- * @param delay_ms Delay in milliseconds
- * @return 0 on success, negative on error
- */
-int at_client_set_rx_task_delay(at_client_t *client, uint16_t delay_ms);
-
-/**
- * @brief Get receive task polling delay.
- *
- * @param client Client instance
- * @return Delay in milliseconds, or 0 when client is NULL
- */
-uint16_t at_client_get_rx_task_delay(at_client_t *client);
-
-/**
  * @brief Get the bound transport
  *
  * @param client Client instance
@@ -415,6 +399,28 @@ char *at_encode_hex(const char *data, size_t length, size_t *out_len);
  * @return Binary data (caller must free), or NULL on failure
  */
 char *at_decode_hex(const char *hex_str, size_t hex_len, size_t *out_len);
+
+/* ===== AT 指令发送暂停机制 ===== */
+
+/**
+ * @brief 暂停 AT 指令发送（flash 擦写等关键操作前调用）
+ *
+ * 暂停期间所有 at_client_send_cmd* 调用将在 at_cmd_tx_wait() 处阻塞，
+ * 直到 at_cmd_tx_resume() 被调用。
+ */
+void at_cmd_tx_pause(void);
+
+/**
+ * @brief 恢复 AT 指令发送
+ */
+void at_cmd_tx_resume(void);
+
+/**
+ * @brief 等待 AT 指令发送许可（若被暂停则阻塞）
+ *
+ * at_client 内部在发送前调用，使用者通常无需直接调用。
+ */
+void at_cmd_tx_wait(void);
 
 /* ===== Baudrate Adaptation (UART-specific helper) ===== */
 

@@ -134,6 +134,20 @@ static int ec801e_qird_decode_and_push(ec801e_endpoint_t *endpoint, const char *
     return (int)decoded_len;
 }
 
+static int ec801e_qird_push_text(ec801e_endpoint_t *endpoint, const uint8_t *data, size_t len)
+{
+    if (!endpoint || !data || len == 0U) {
+        return 0;
+    }
+
+    if (endpoint->pending_qird.source.valid) {
+        endpoint->udp_last_source = endpoint->pending_qird.source;
+    }
+
+    ec801e_at_cmd_push_rx(endpoint, (const char *)data, len);
+    return (int)len;
+}
+
 static void ec801e_at_cmd_handle_qiurc(ec801e_endpoint_ctx_t *ctx, at_arg_value_t *arguments, size_t arg_count)
 {
     const char *urc_type;
@@ -332,6 +346,8 @@ bool ec801e_at_cmd_open_udp_service(ec801e_endpoint_t *endpoint)
     return endpoint->instance_active;
 }
 
+#define EC801E_TCP_SEND_PAYLOAD_CHUNK_SIZE EC801E_TCP_SEND_CHUNK_SIZE
+
 int ec801e_at_cmd_disconnect(ec801e_endpoint_t *endpoint)
 {
     if (!endpoint || !endpoint->client) {
@@ -366,8 +382,8 @@ int ec801e_at_cmd_send(ec801e_endpoint_t *endpoint, const void *data, size_t len
         size_t chunk_len = length - total_sent;
         int ret;
 
-        if (chunk_len > EC801E_TCP_SEND_CHUNK_SIZE) {
-            chunk_len = EC801E_TCP_SEND_CHUNK_SIZE;
+        if (chunk_len > EC801E_TCP_SEND_PAYLOAD_CHUNK_SIZE) {
+            chunk_len = EC801E_TCP_SEND_PAYLOAD_CHUNK_SIZE;
         }
 
         ret = ec801e_at_cmd_send_chunk(endpoint,
@@ -391,15 +407,35 @@ int ec801e_at_cmd_send_chunk(ec801e_endpoint_t *endpoint, const void *data, size
                              const char *host, uint16_t port)
 {
     char command[128];
+    const uint8_t *send_data = (const uint8_t *)data;
+    size_t send_data_len = length;
+#if EC801E_SEND_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+    char *hex_data = NULL;
+    size_t hex_len = 0U;
+#endif
     bool ok;
 
-    if (!endpoint || !endpoint->client || !data || length == 0U || length > 1460U) {
+    if (!endpoint || !endpoint->client || !data || length == 0U ||
+        length > EC801E_TCP_SEND_PAYLOAD_CHUNK_SIZE) {
         errno = EINVAL;
         return -1;
     }
 
+#if EC801E_SEND_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+    hex_data = at_encode_hex((const char *)data, length, &hex_len);
+    if (!hex_data) {
+        errno = ENOMEM;
+        return -1;
+    }
+    send_data = (const uint8_t *)hex_data;
+    send_data_len = hex_len;
+#endif
+
     if (endpoint->protocol == IPPROTO_TCP) {
         if (!endpoint->connected) {
+#if EC801E_SEND_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+            at_mem_free(hex_data);
+#endif
             errno = ENOTCONN;
             return -1;
         }
@@ -408,9 +444,15 @@ int ec801e_at_cmd_send_chunk(ec801e_endpoint_t *endpoint, const void *data, size
                  endpoint->id, (unsigned int)length);
     } else {
         if (!ec801e_at_cmd_open_udp_service(endpoint)) {
+#if EC801E_SEND_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+            at_mem_free(hex_data);
+#endif
             return -1;
         }
         if (!host) {
+#if EC801E_SEND_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+            at_mem_free(hex_data);
+#endif
             errno = ENOTCONN;
             return -1;
         }
@@ -422,7 +464,10 @@ int ec801e_at_cmd_send_chunk(ec801e_endpoint_t *endpoint, const void *data, size
     endpoint->last_qisend_status = -1;
     ok = at_client_send_cmd_with_data(endpoint->client, command,
                                       endpoint->send_timeout_ms > 0 ? endpoint->send_timeout_ms : EC801E_SEND_TIMEOUT_MS,
-                                      true, (const uint8_t *)data, length);
+                                      true, send_data, send_data_len);
+#if EC801E_SEND_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+    at_mem_free(hex_data);
+#endif
     if (!ok) {
         endpoint->last_error = at_client_get_cme_error(endpoint->client);
         errno = EIO;
@@ -443,7 +488,12 @@ int ec801e_at_cmd_send_chunk(ec801e_endpoint_t *endpoint, const void *data, size
 int ec801e_at_cmd_prefetch(ec801e_endpoint_t *endpoint)
 {
     char command[64];
-    char hex_line[EC801E_QIRD_HEX_BUFFER_SIZE] = {0};
+#if EC801E_RECV_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+    char rx_line[EC801E_QIRD_HEX_BUFFER_SIZE] = {0};
+#else
+    uint8_t rx_data[EC801E_QIRD_TCP_CHUNK_SIZE] = {0};
+    size_t rx_len = 0U;
+#endif
     uint32_t max_space;
     uint32_t prefetch_timeout_ms;
     size_t requested_len;
@@ -487,7 +537,8 @@ int ec801e_at_cmd_prefetch(ec801e_endpoint_t *endpoint)
         return -1;
     }
 
-    if (!at_client_exec_text_cmd(endpoint->client, command, hex_line, sizeof(hex_line), prefetch_timeout_ms)) {
+#if EC801E_RECV_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+    if (!at_client_exec_text_cmd(endpoint->client, command, rx_line, sizeof(rx_line), prefetch_timeout_ms)) {
         if (endpoint->pending_qird.data_len == 0) {
             endpoint->data_pending = false;
             endpoint->pending_qird.valid = false;
@@ -497,6 +548,20 @@ int ec801e_at_cmd_prefetch(ec801e_endpoint_t *endpoint)
         endpoint->pending_qird.valid = false;
         return -1;
     }
+#else
+    if (!at_client_exec_binary_cmd(endpoint->client, command, "QIRD",
+                                   rx_data, sizeof(rx_data), &rx_len,
+                                   prefetch_timeout_ms)) {
+        if (endpoint->pending_qird.data_len == 0) {
+            endpoint->data_pending = false;
+            endpoint->pending_qird.valid = false;
+            ec801e_at_cmd_refresh_pending(endpoint);
+            return 0;
+        }
+        endpoint->pending_qird.valid = false;
+        return -1;
+    }
+#endif
 
     if (endpoint->pending_qird.data_len == 0) {
         endpoint->data_pending = false;
@@ -506,10 +571,18 @@ int ec801e_at_cmd_prefetch(ec801e_endpoint_t *endpoint)
     }
 
     endpoint->data_pending = true;
-    if (ec801e_qird_decode_and_push(endpoint, hex_line) < 0) {
+#if EC801E_RECV_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+    if (ec801e_qird_decode_and_push(endpoint, rx_line) < 0) {
         endpoint->pending_qird.valid = false;
         return -1;
     }
+#else
+    if (rx_len != endpoint->pending_qird.data_len ||
+        ec801e_qird_push_text(endpoint, rx_data, rx_len) < 0) {
+        endpoint->pending_qird.valid = false;
+        return -1;
+    }
+#endif
 
     endpoint->pending_qird.valid = false;
     modem_endpoint_runtime_mark_pending(&endpoint->runtime, endpoint->data_pending);

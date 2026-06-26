@@ -17,6 +17,11 @@
 #include "voice_player_comm.h"
 #include "lisa_log.h"
 
+__attribute__((weak)) bool app_voice_interaction_blocked(void)
+{
+    return false;
+}
+
 enum {
     VOICE_WAKEUP_QR_STATUS_NOT_CONNECTED = 0,
     VOICE_WAKEUP_QR_STATUS_BIND = 3,
@@ -68,12 +73,12 @@ static void voice_wakeup_prompt_cloud_info(uint32_t status)
 
     switch (status) {
     case VOICE_WAKEUP_QR_STATUS_AUTH_FAILED:
-        app_player_play(tone_player, app_tone_get_url(TONE_ID_105));
+        voice_player_play_tone_url(app_tone_get_url(TONE_ID_105));
         break;
     case VOICE_WAKEUP_QR_STATUS_NOT_CONNECTED:
         if (s_last_netcfg_prompt_tick == 0 ||
             (now - s_last_netcfg_prompt_tick) >= pdMS_TO_TICKS(2000)) {
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_70));
             s_last_netcfg_prompt_tick = now;
         }
         break;
@@ -174,6 +179,11 @@ static void voice_wakeup_keyword(void *unused, uint32_t msg_id, void *data, uint
         return;
     }
 
+    if (app_voice_interaction_blocked()) {
+        LOGI("ignore wakeup keyword: voice interaction blocked");
+        return;
+    }
+
     uint32_t info_status = 0;
     if (voice_wakeup_should_open_info(&info_status)) {
         LOGI("voice wakeup ignored: cloud unavailable status=%u", (unsigned)info_status);
@@ -211,6 +221,11 @@ static void voice_wakeup_button_event(void *unused, uint32_t msg_id, void *data,
         return;
     }
 
+    if (app_voice_interaction_blocked()) {
+        LOGI("ignore button wakeup: voice interaction blocked");
+        return;
+    }
+
     uint32_t info_status = 0;
     if (voice_wakeup_should_open_info(&info_status)) {
         if (evt->action == VOICE_MSG_BUTTON_ACTION_SHORT_UP) {
@@ -245,6 +260,11 @@ static void voice_msg_btn_wakeup_start(void *unused, uint32_t msg_id, void *data
         return;
     }
 
+    if (app_voice_interaction_blocked()) {
+        LOGI("ignore button wakeup start: voice interaction blocked");
+        return;
+    }
+
     if (!app_datas->voice_cloud_connected) {
         return;
     }
@@ -267,6 +287,11 @@ static void voice_msg_btn_wakeup_stop(void *unused, uint32_t msg_id, void *data,
     }
 
     if (!app_datas->can_wakeup) {
+        return;
+    }
+
+    if (app_voice_interaction_blocked()) {
+        LOGI("ignore button wakeup stop: voice interaction blocked");
         return;
     }
 

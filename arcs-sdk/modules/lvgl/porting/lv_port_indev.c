@@ -62,23 +62,37 @@ static QueueHandle_t touchpad_queue = NULL;
  */
 static void touch_int_callback(const lisa_touch_event_t *event, void *user_data)
 {
-    struct touch_msg msg;
+    struct touch_msg msg = {0};
     static bool last_pressed = false;
+    static uint16_t last_report_x = 0;
+    static uint16_t last_report_y = 0;
 
-    if (event->type == LISA_TOUCH_EVENT_PRESS && event->point_count > 0) {
-        msg.x = event->points[0].x;
-        msg.y = event->points[0].y;
-        msg.pressed = true;
+    (void)user_data;
 
-        last_pressed = true;
-    } else if (event->type == LISA_TOUCH_EVENT_RELEASE) {
-        if (last_pressed) {
-            msg.pressed = false;
-            last_pressed = false;
-        }
+    if (!event || !touchpad_queue) {
+        return;
     }
 
-    xQueueSend(touchpad_queue, &msg, portMAX_DELAY);
+    if (event->type == LISA_TOUCH_EVENT_PRESS && event->point_count > 0) {
+        last_report_x = event->points[0].x;
+        last_report_y = event->points[0].y;
+        msg.x = last_report_x;
+        msg.y = last_report_y;
+        msg.pressed = true;
+        last_pressed = true;
+    } else if (event->type == LISA_TOUCH_EVENT_RELEASE) {
+        if (!last_pressed) {
+            return;
+        }
+        msg.x = last_report_x;
+        msg.y = last_report_y;
+        msg.pressed = false;
+        last_pressed = false;
+    } else {
+        return;
+    }
+
+    (void)xQueueSend(touchpad_queue, &msg, 0);
 }
 
 void lv_port_indev_init(lisa_device_t *touch_dev)

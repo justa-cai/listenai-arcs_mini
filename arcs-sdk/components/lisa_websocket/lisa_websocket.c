@@ -40,6 +40,7 @@ struct lisa_ws {
     lisa_semaphore_t *pong_sem;
     lisa_semaphore_t *connect_sem;
     uint32_t pong_max_time_ms;
+    uint32_t last_ping_sent_ms; /* 硬速率限制：距上次 PING 至少隔 pong_max_time_ms */
     uint8_t ping_pong_lost_cnt;
     lisa_thread_t *thread;
     noPollCtx *nopoll_ctx;
@@ -199,6 +200,7 @@ lisa_ws_t *lisa_ws_init(lisa_ws_request_t *req)
         handle->inter_on_data = req->on_data;
     }
     handle->pong_max_time_ms = WS_PINGPONG_TIMEOUT_MS;
+    handle->last_ping_sent_ms = 0;
 
     handle->tx_msg_queue = lisa_queue_create(WS_QUEUE_COUNT, "ws_tx_msg", sizeof(lisa_ws_msg_t));
     if (handle->tx_msg_queue == NULL) {
@@ -604,6 +606,7 @@ err_exit:
 static int lisa_websocket_nopoll_send_recv_proc(lisa_ws_t *ins)
 {
     uint32_t last_pong_time_ms = lisa_os_get_tick_ms();
+    ins->last_ping_sent_ms = 0;
 
     while (1) {
         int err;
@@ -622,15 +625,31 @@ static int lisa_websocket_nopoll_send_recv_proc(lisa_ws_t *ins)
         /* min block time: 20ms */
         lisa_websocket_msg_send_proc(ins, ins->nopoll_conn);
         send_cost_time = lisa_os_get_tick_ms() - send_cost_time;
+        /* clamp: 单次慢发送不应撑大 pong 等待预算 */
+        if ((uint32_t)send_cost_time > ins->pong_max_time_ms) {
+            send_cost_time = (int)ins->pong_max_time_ms;
+        }
         if (lisa_websocket_need_to_exit(ins)) {
             break;
         }
         lisa_websocket_msg_recv_proc(ins, ins->nopoll_conn);
 
 #if CONFIG_NOPOLL_DELIVER_PONG_FRAME_ENABLED
-        /* websocket ping pong check */
-        if ((lisa_os_get_tick_ms() - last_pong_time_ms) >= ins->pong_max_time_ms / 2) {
-            nopoll_conn_send_ping(ins->nopoll_conn);
+        /* websocket ping pong check — 硬速率限制 + 忽略 send_ping 返回值 */
+        uint32_t now_ms = lisa_os_get_tick_ms();
+        if ((now_ms - ins->last_ping_sent_ms) >= ins->pong_max_time_ms) {
+            (void)nopoll_conn_send_ping(ins->nopoll_conn);
+            ins->last_ping_sent_ms = now_ms;
+            /*
+             * 发 ping 时重置 pong 计时器：让 pong 超时从 ping 发送时刻算起而不是
+             * 从上一个 pong 算起，给对端 pong_max_time_ms 的时间来回复。
+             *
+             * 仅在上周期没有丢 pong 时（lost_cnt == 0）才重置，避免对端已经
+             * 无响应时无限推迟超时。
+             */
+            if (ins->ping_pong_lost_cnt == 0) {
+                last_pong_time_ms = now_ms;
+            }
         }
         err = lisa_semaphore_take(ins->pong_sem, 0);
         if (err == 0) {
@@ -638,9 +657,11 @@ static int lisa_websocket_nopoll_send_recv_proc(lisa_ws_t *ins)
             ins->ping_pong_lost_cnt = 0;
         } else {
             if ((lisa_os_get_tick_ms() - last_pong_time_ms) >= (ins->pong_max_time_ms + send_cost_time)) {
-                LISA_NLOGE("recv websocket pong msg timeout, curr:%d, last:%d, "
-                           "timeout:%d, send cost time:%d, lost cnt:%d",
-                           lisa_os_get_tick_ms(), last_pong_time_ms, ins->pong_max_time_ms, send_cost_time,
+                LISA_NLOGE("recv websocket pong msg timeout, curr:%lu, last:%lu, "
+                           "timeout:%lu, send cost time:%d, lost cnt:%d",
+                           (unsigned long)(uint32_t)lisa_os_get_tick_ms(),
+                           (unsigned long)last_pong_time_ms,
+                           (unsigned long)ins->pong_max_time_ms, send_cost_time,
                            ins->ping_pong_lost_cnt);
                 last_pong_time_ms = lisa_os_get_tick_ms();
                 if (++ins->ping_pong_lost_cnt >= WS_PINGPONG_RETRY_CNT) {

@@ -7,6 +7,7 @@ listenai_library_sources(
     service_camera.c
     service_alarm.c
     service_image.c
+    service_sd_music.c
 )
 
 listenai_include_directories(

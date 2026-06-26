@@ -117,6 +117,7 @@ typedef struct {
     uint8_t mclk_pin;
     lisa_device_t *pwdn_gpio_dev;    /* PWDN GPIO 设备指针 */
     uint8_t pwdn_pin;                /* PWDN 引脚号 */
+    uint8_t pwdn_inactive_level;     /* PWDN 释放电平: 0=低电平, 1=高电平 */
     uint32_t pwdn_delay_us;          /* PWDN 延时 (微秒) */
     uint32_t xclk_delay_us;          /* 时钟输出后延时 (微秒) */
     lisa_device_t *i2c_dev;          /* I2C 设备 */
@@ -193,6 +194,7 @@ typedef struct {
     int (*set_hmirror)(lisa_device_t *dev, bool enable);
     int (*set_vflip)(lisa_device_t *dev, bool enable);
     int (*set_crop)(lisa_device_t *dev, const lisa_camera_crop_t *crop);
+    int (*set_subsample)(lisa_device_t *dev, uint8_t row_ratio, uint8_t col_ratio);
     int (*get_framesize)(lisa_device_t *dev, uint16_t *width, uint16_t *height);
     int (*set_pixformat)(lisa_device_t *dev, lisa_camera_pixel_format_t format);
     int (*set_reg)(lisa_device_t *dev, int reg, int mask, int value);
@@ -410,6 +412,26 @@ static inline int lisa_camera_set_crop(lisa_device_t *dev, const lisa_camera_cro
     }
     lisa_camera_api_t *api = (lisa_camera_api_t *)dev->api;
     return api->set_crop ? api->set_crop(dev, crop) : LISA_DEVICE_ERR_NOT_SUPPORT;
+}
+
+/**
+ * @brief 设置硬件跳采比例 (subsampling)
+ *
+ * 传感器对 crop 窗口按比例抽点输出。行列独立: 1=不跳采, 2=1/2, 3=1/3。
+ * 最终输出尺寸 = crop / ratio。
+ *
+ * @param dev Camera设备指针
+ * @param row_ratio 行跳采比例 (1~7, 如 2 = 1/2)
+ * @param col_ratio 列跳采比例 (1~7)
+ * @return 0 成功
+ */
+static inline int lisa_camera_set_subsample(lisa_device_t *dev, uint8_t row_ratio, uint8_t col_ratio)
+{
+    if (!dev || !dev->api) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_camera_api_t *api = (lisa_camera_api_t *)dev->api;
+    return api->set_subsample ? api->set_subsample(dev, row_ratio, col_ratio) : LISA_DEVICE_ERR_NOT_SUPPORT;
 }
 
 /**

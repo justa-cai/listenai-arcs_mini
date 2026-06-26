@@ -22,11 +22,37 @@
 #define ML307_NETREG_RETRY_COUNT  5
 #define ML307_NETREG_WAIT_MS      100
 #define ML307_DIAL_TIMEOUT_MS     10000
-#define ML307_DNS_MUTEX_WAIT_MS   1000
-#define ML307_DNS_TIMEOUT_MS      3000
 
 typedef struct { char *buf; size_t size; } str_out_t;
 typedef struct { int *cid; int *status; char *ip; size_t ip_size; } mipcall_out_t;
+
+static void ml307_status_set_error(ml307_endpoint_ctx_t *modem, lisa_modem_error_t error)
+{
+    int cme_error;
+
+    if (!modem) {
+        return;
+    }
+
+    cme_error = at_client_get_cme_error(modem->client);
+    if (cme_error > 0) {
+        lisa_modem_status_note_cme(&modem->status, cme_error);
+    }
+    if (modem->status.last_error != LISA_MODEM_ERR_TRAFFIC_EXCEEDED) {
+        modem->status.last_error = error;
+    }
+}
+
+static lisa_modem_error_t ml307_status_error_from_cpin(const char *status)
+{
+    if (!status || status[0] == '\0') {
+        return LISA_MODEM_ERR_SIM_QUERY_FAILED;
+    }
+    if (strstr(status, "NOT INSERTED")) {
+        return LISA_MODEM_ERR_SIM_NOT_INSERTED;
+    }
+    return LISA_MODEM_ERR_SIM_NOT_READY;
+}
 
 static bool parse_first_string(at_arg_value_t *args, size_t count, void *user_data)
 {
@@ -130,6 +156,10 @@ static bool ml307_netreg_activate_pdp(ml307_endpoint_ctx_t *modem, int cid)
         }, NULL, cid)) {
         LISA_LOGE(TAG, "Failed to activate PDP cid=%d, cme=%d",
                   cid, at_client_get_cme_error(modem->client));
+        modem->active_pdp_cid = 0;
+        modem->network_ready = false;
+        modem->ip_address[0] = '\0';
+        ml307_status_set_error(modem, LISA_MODEM_ERR_PDP_ACTIVATE_FAILED);
         return false;
     }
 
@@ -143,6 +173,7 @@ static bool ml307_netreg_activate_pdp(ml307_endpoint_ctx_t *modem, int cid)
         active_cid != cid || status != 1 || ip[0] == '\0') {
         LISA_LOGE(TAG, "PDP activation not ready, cid=%d status=%d ip='%s'",
                   active_cid, status, ip);
+        ml307_status_set_error(modem, LISA_MODEM_ERR_PDP_ACTIVATE_FAILED);
         return false;
     }
 
@@ -151,6 +182,7 @@ static bool ml307_netreg_activate_pdp(ml307_endpoint_ctx_t *modem, int cid)
     modem->ip_address[sizeof(modem->ip_address) - 1] = '\0';
     modem->network_ready = true;
     modem->network_status = NETWORK_STATUS_READY;
+    modem->status.last_error = LISA_MODEM_ERR_READY;
     LISA_LOGI(TAG, "PDP cid=%d active, ip=%s", cid, modem->ip_address);
     return true;
 }
@@ -210,6 +242,8 @@ void ml307_netreg_handle_modem_urc(ml307_endpoint_ctx_t *modem, const char *comm
     } else if (strcmp(command, "MATREADY") == 0) {
         modem->network_ready = false;
         modem->network_status = NETWORK_STATUS_DISCONNECTED;
+        modem->active_pdp_cid = 0;
+        modem->ip_address[0] = '\0';
         xEventGroupClearBits(modem->event_group, NETWORK_EVENT_REGISTERED | NETWORK_EVENT_IP_READY);
     }
 }
@@ -263,17 +297,23 @@ network_status_t ml307_netreg_network_check(ml307_endpoint_ctx_t *modem)
         return NETWORK_STATUS_ERROR;
     }
 
+    modem->status.last_error = LISA_MODEM_ERR_NOT_INITIALIZED;
     modem->network_ready = false;
     modem->active_pdp_cid = 0;
+    modem->ip_address[0] = '\0';
     xEventGroupClearBits(modem->event_group, NETWORK_EVENT_REGISTERED | NETWORK_EVENT_IP_READY);
 
     for (int i = 0; i < ML307_NETREG_RETRY_COUNT; i++) {
-        if (ml307_netreg_query_cpin(modem, cpin_status, sizeof(cpin_status)) &&
-            strcmp(cpin_status, "READY") == 0) {
+        bool cpin_ok = ml307_netreg_query_cpin(modem, cpin_status, sizeof(cpin_status));
+
+        if (cpin_ok && strcmp(cpin_status, "READY") == 0) {
             break;
         }
         if (i == ML307_NETREG_RETRY_COUNT - 1) {
             LISA_LOGE(TAG, "SIM not ready, CPIN='%s'", cpin_status);
+            ml307_status_set_error(modem, cpin_ok
+                                      ? ml307_status_error_from_cpin(cpin_status)
+                                      : LISA_MODEM_ERR_SIM_QUERY_FAILED);
             return NETWORK_STATUS_ERROR;
         }
         vTaskDelay(pdMS_TO_TICKS(ML307_NETREG_WAIT_MS));
@@ -286,14 +326,16 @@ network_status_t ml307_netreg_network_check(ml307_endpoint_ctx_t *modem)
             break;
         }
         if (i == ML307_NETREG_RETRY_COUNT - 1) {
+            ml307_status_set_error(modem, LISA_MODEM_ERR_AT_COMMAND_FAILED);
             return NETWORK_STATUS_ERROR;
         }
         vTaskDelay(pdMS_TO_TICKS(ML307_NETREG_WAIT_MS));
     }
 
     for (int i = 0; i < 30; i++) {
-        if (ml307_netreg_query_cereg(modem, &n, &stat) &&
-            (stat == 1 || stat == 5)) {
+        bool cereg_ok = ml307_netreg_query_cereg(modem, &n, &stat);
+
+        if (cereg_ok && (stat == 1 || stat == 5)) {
             modem->network_status = (stat == 1)
                                   ? NETWORK_STATUS_REGISTERED_HOME
                                   : NETWORK_STATUS_REGISTERED_ROAMING;
@@ -301,6 +343,9 @@ network_status_t ml307_netreg_network_check(ml307_endpoint_ctx_t *modem)
         }
         if (i == 29) {
             LISA_LOGE(TAG, "Network registration not ready, CEREG=%d,%d", n, stat);
+            ml307_status_set_error(modem, stat == 3
+                                      ? LISA_MODEM_ERR_NETWORK_DENIED
+                                      : LISA_MODEM_ERR_NETWORK_REGISTER_FAILED);
             return NETWORK_STATUS_ERROR;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -314,6 +359,7 @@ network_status_t ml307_netreg_network_check(ml307_endpoint_ctx_t *modem)
             modem->ip_address[sizeof(modem->ip_address) - 1] = '\0';
             modem->network_ready = true;
             modem->network_status = NETWORK_STATUS_READY;
+            modem->status.last_error = LISA_MODEM_ERR_READY;
             return NETWORK_STATUS_READY;
         }
         vTaskDelay(pdMS_TO_TICKS(ML307_NETREG_WAIT_MS));
@@ -323,6 +369,9 @@ network_status_t ml307_netreg_network_check(ml307_endpoint_ctx_t *modem)
         return NETWORK_STATUS_READY;
     }
 
+    if (modem->status.last_error == LISA_MODEM_ERR_NOT_INITIALIZED) {
+        ml307_status_set_error(modem, LISA_MODEM_ERR_PDP_ACTIVATE_FAILED);
+    }
     return modem->network_status;
 }
 
@@ -335,13 +384,13 @@ bool ml307_netreg_dns_resolve(ml307_endpoint_ctx_t *modem, const char *domain, c
         return false;
     }
 
-    if (!modem->dns_mutex || xSemaphoreTake(modem->dns_mutex, pdMS_TO_TICKS(ML307_DNS_MUTEX_WAIT_MS)) != pdTRUE) {
+    if (!modem->dns_mutex || xSemaphoreTake(modem->dns_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
         return false;
     }
 
     result = at_client_exec_cmdf(modem->client, &(at_cmd_desc_t){
         .cmd = "AT+MDNSGIP=\"%s\",%d", .expect_urc = "MDNSGIP",
-        .parse = parse_dns, .timeout_ms = ML307_DNS_TIMEOUT_MS,
+        .parse = parse_dns, .timeout_ms = 10000,
     }, &out, domain, modem->active_pdp_cid > 0 ? modem->active_pdp_cid : ML307_DEFAULT_PDP_CID);
 
     xSemaphoreGive(modem->dns_mutex);

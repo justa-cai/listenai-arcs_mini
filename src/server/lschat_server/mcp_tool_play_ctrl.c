@@ -9,7 +9,7 @@
 static cJSON *ls_playback_control_list(const char *name)
 {
     cJSON *tool = mcp_tool_list_info_create_default(
-        name, "播放控制工具：用于控制播放器的相关功能，如'继续播放'、'暂停'、'上一个'、'下一个'、'重播'");
+        name, "播放控制工具：用于控制播放器的相关功能，如'继续播放'、'暂停'、'上一个'、'下一个'、'重播'、'停止'");
     if (!tool) {
         return NULL;
     }
@@ -26,7 +26,8 @@ static cJSON *ls_playback_control_list(const char *name)
                                "PAUSE（暂停、不想听了等暂停播放意图）、"
                                "CHOOSE_PREVIOUS（上一个、前一首等向上意图）、"
                                "CHOOSE_NEXT（下一个、切歌等向下意图）、"
-                               "REPLAY（重播、再唱一遍等重复播放意图）",
+                               "REPLAY（重播、再唱一遍等重复播放意图）、"
+                               "STOP（停止、别放了等停止播放意图）",
                                "string", true);
 
     return tool;
@@ -50,6 +51,8 @@ static cJSON *ls_playback_control_call(const char *id, const char *name, cJSON *
         voice_msg_pub(VOICE_MSG_PLAY_CONTROL_NEXT, NULL, 0);
     } else if (strcmp(cJSON_GetStringValue(intent), "REPLAY") == 0) {
         voice_msg_pub(VOICE_MSG_PLAY_CONTROL_REPLAY, NULL, 0);
+    } else if (strcmp(cJSON_GetStringValue(intent), "STOP") == 0) {
+        voice_msg_pub(VOICE_MSG_PLAY_CONTROL_STOP, NULL, 0);
     } else {
         LOGE("invalid intent: %s", cJSON_GetStringValue(intent));
         return NULL;

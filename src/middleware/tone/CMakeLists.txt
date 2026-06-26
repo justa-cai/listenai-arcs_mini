@@ -1,4 +1,4 @@
-if (DEFINED CONFIG_MIDDLEWARE_TONE)
+if (DEFINED CONFIG_TONE)
 listenai_library_named(tone)
 
 listenai_library_sources(

@@ -15,10 +15,11 @@
 #include "lisa_log.h"
 #include "lisa_modem_perf_log.h"
 
-#define DEFAULT_INIT_BAUDRATE        115200
+#define DEFAULT_INIT_BAUDRATE        921600
 #define DEFAULT_TARGET_BAUDRATE      921600
 #define ML307_DEFAULT_RECV_TIMEOUT_MS 1500
-#define ML307_DEFAULT_PULL_TIMEOUT_MS   50
+#define ML307_DEFAULT_PULL_TIMEOUT_MS   120
+#define ML307_PULL_TIMEOUT_FALLBACK_MS 100U
 #define ML307_RX_HIGH_WATERMARK(bytes) (((bytes) * 5U) / 6U)
 #define ML307_RX_LOW_WATERMARK(bytes)  (((bytes) * 4U) / 5U)
 
@@ -49,6 +50,46 @@ static void ml307_endpoint_schedule_rx_ready(ml307_endpoint_t *endpoint)
     (void)modem_dispatcher_mark_rx_ready(endpoint->ctx->dispatcher,
                                          endpoint->public_sockfd,
                                          endpoint->generation);
+}
+
+static uint32_t ml307_endpoint_effective_pull_timeout_ms(const ml307_endpoint_t *endpoint)
+{
+    return modem_endpoint_runtime_effective_pull_timeout(endpoint ? endpoint->pull_timeout_ms : 0U,
+                                                        ML307_PULL_TIMEOUT_FALLBACK_MS,
+                                                        ML307_DEFAULT_PULL_TIMEOUT_MS);
+}
+
+static void ml307_endpoint_wait_prefetch_data(ml307_endpoint_t *endpoint)
+{
+    TickType_t start_tick;
+    TickType_t wait_ticks;
+    TickType_t poll_ticks;
+
+    if (!endpoint || !endpoint->data_sem) {
+        return;
+    }
+
+    wait_ticks = pdMS_TO_TICKS(ml307_endpoint_effective_pull_timeout_ms(endpoint));
+    poll_ticks = pdMS_TO_TICKS(5U);
+    if (poll_ticks == 0) {
+        poll_ticks = 1;
+    }
+    start_tick = xTaskGetTickCount();
+    while (endpoint->prefetching &&
+           ring_buf_size_get(&endpoint->ring_buf) == 0U &&
+           endpoint->rx_hint.available_data_len > 0U &&
+           (xTaskGetTickCount() - start_tick) < wait_ticks) {
+        TickType_t elapsed = xTaskGetTickCount() - start_tick;
+        TickType_t remaining = wait_ticks - elapsed;
+
+        if (remaining == 0 || remaining > wait_ticks) {
+            break;
+        }
+        if (remaining > poll_ticks) {
+            remaining = poll_ticks;
+        }
+        (void)xSemaphoreTake(endpoint->data_sem, remaining);
+    }
 }
 
 static void ml307_endpoint_modem_urc_handler(const char *command, at_arg_value_t *arguments,
@@ -110,7 +151,12 @@ static int ml307_endpoint_instance_init(ml307_endpoint_ctx_t *ctx, ml307_endpoin
     endpoint->event_group = xEventGroupCreate();
     endpoint->recv_event = xEventGroupCreate();
     endpoint->data_sem = xSemaphoreCreateBinary();
-    if (!endpoint->event_group || !endpoint->recv_event || !endpoint->data_sem) {
+    endpoint->prefetch_mutex = xSemaphoreCreateMutex();
+    if (!endpoint->event_group || !endpoint->recv_event || !endpoint->data_sem ||
+        !endpoint->prefetch_mutex) {
+        if (endpoint->prefetch_mutex) {
+            vSemaphoreDelete(endpoint->prefetch_mutex);
+        }
         if (endpoint->data_sem) {
             vSemaphoreDelete(endpoint->data_sem);
         }
@@ -137,6 +183,9 @@ static void ml307_endpoint_instance_deinit(ml307_endpoint_t *endpoint)
     if (endpoint->data_sem) {
         vSemaphoreDelete(endpoint->data_sem);
     }
+    if (endpoint->prefetch_mutex) {
+        vSemaphoreDelete(endpoint->prefetch_mutex);
+    }
     if (endpoint->recv_event) {
         vEventGroupDelete(endpoint->recv_event);
     }
@@ -161,11 +210,7 @@ ml307_endpoint_ctx_t *ml307_endpoint_create(at_client_t *client)
     }
 
     ctx->client = client;
-    ctx->runtime_config = (ml307_runtime_config_t){
-        .tcp_send_chunk_size = ML307_TCP_SEND_CHUNK_SIZE_DEFAULT,
-        .tcp_pull_chunk_size = ML307_TCP_PULL_CHUNK_SIZE_DEFAULT,
-        .send_chunk_delay_ms = ML307_SEND_CHUNK_DELAY_MS_DEFAULT,
-    };
+    lisa_modem_status_clear(&ctx->status);
     ctx->event_group = xEventGroupCreate();
     if (!ctx->event_group) {
         at_mem_free(ctx);
@@ -212,9 +257,11 @@ bool ml307_endpoint_init(ml307_endpoint_ctx_t *ctx)
     if (at_client_uart_get_baudrate(ctx->client, &current_baud)) {
         if (current_baud != DEFAULT_TARGET_BAUDRATE) {
             if (!at_client_uart_baudrate_adapt(ctx->client,
-                                               DEFAULT_INIT_BAUDRATE,
+                                               current_baud,
                                                DEFAULT_TARGET_BAUDRATE)) {
                 LISA_LOGE(TAG, "Baudrate adaptation failed");
+                ctx->status.last_error = LISA_MODEM_ERR_UART_BAUD_ADAPT_FAILED;
+                lisa_modem_status_note_cme(&ctx->status, at_client_get_cme_error(ctx->client));
                 return false;
             }
         } else {
@@ -225,16 +272,22 @@ bool ml307_endpoint_init(ml307_endpoint_ctx_t *ctx)
                                            DEFAULT_INIT_BAUDRATE,
                                            DEFAULT_TARGET_BAUDRATE)) {
             LISA_LOGE(TAG, "Baudrate adaptation failed");
+            ctx->status.last_error = LISA_MODEM_ERR_UART_BAUD_ADAPT_FAILED;
+            lisa_modem_status_note_cme(&ctx->status, at_client_get_cme_error(ctx->client));
             return false;
         }
     }
 
     if (NETWORK_STATUS_READY != ml307_endpoint_check_network(ctx)) {
         LISA_LOGE(TAG, "4G network is not ready");
+        if (ctx->status.last_error == LISA_MODEM_ERR_NOT_INITIALIZED) {
+            ctx->status.last_error = LISA_MODEM_ERR_NETWORK_REGISTER_FAILED;
+        }
         return false;
     }
 
     ctx->initialized = true;
+    ctx->status.last_error = LISA_MODEM_ERR_READY;
     LISA_LOGI(TAG, "ML307 endpoint context initialized successfully");
     return true;
 }
@@ -289,6 +342,96 @@ bool ml307_endpoint_dns_resolve(ml307_endpoint_ctx_t *ctx, const char *domain, c
     return ml307_netreg_dns_resolve(ctx, domain, ip_addr, size);
 }
 
+static bool ml307_endpoint_copy_identifier(const char *response, char *out, size_t size)
+{
+    const char *p;
+    size_t len = 0U;
+
+    if (!response || !out || size == 0U) {
+        return false;
+    }
+    out[0] = '\0';
+
+    p = strchr(response, ':');
+    p = p ? (p + 1) : response;
+    while (*p && (*p < '0' || *p > '9')) {
+        p++;
+    }
+    while (p[len] >= '0' && p[len] <= '9') {
+        len++;
+    }
+    if (len == 0U || len >= size) {
+        return false;
+    }
+
+    memcpy(out, p, len);
+    out[len] = '\0';
+    return true;
+}
+
+static bool ml307_endpoint_query_identifier(ml307_endpoint_ctx_t *ctx, const char *command,
+                                            char *out, size_t size)
+{
+    char response[96] = {0};
+
+    if (!ctx || !command || !out || size == 0U) {
+        return false;
+    }
+    out[0] = '\0';
+
+    if (!at_client_exec_text_cmd(ctx->client, command, response, sizeof(response), 1000U)) {
+        return false;
+    }
+
+    return ml307_endpoint_copy_identifier(response, out, size);
+}
+
+bool ml307_endpoint_get_imei(ml307_endpoint_ctx_t *ctx, char *imei, size_t size)
+{
+    return ml307_endpoint_query_identifier(ctx, "AT+CGSN=1", imei, size) ||
+           ml307_endpoint_query_identifier(ctx, "AT+CGSN", imei, size);
+}
+
+bool ml307_endpoint_get_iccid(ml307_endpoint_ctx_t *ctx, char *iccid, size_t size)
+{
+    return ml307_endpoint_query_identifier(ctx, "AT+ICCID", iccid, size);
+}
+
+typedef struct {
+    int *rssi;
+    int *ber;
+} ml307_csq_out_t;
+
+static bool ml307_endpoint_parse_csq(at_arg_value_t *args, size_t count, void *user_data)
+{
+    ml307_csq_out_t *out = (ml307_csq_out_t *)user_data;
+
+    if (!out || !out->rssi || !out->ber ||
+        count < 2 || args[0].type != AT_ARG_TYPE_INT || args[1].type != AT_ARG_TYPE_INT) {
+        return false;
+    }
+
+    *out->rssi = args[0].data.int_val;
+    *out->ber = args[1].data.int_val;
+    return true;
+}
+
+bool ml307_endpoint_get_signal_quality(ml307_endpoint_ctx_t *ctx, int *rssi, int *ber)
+{
+    ml307_csq_out_t out = { rssi, ber };
+
+    if (!ctx || !rssi || !ber) {
+        return false;
+    }
+
+    *rssi = 99;
+    *ber = 99;
+    return at_client_exec_cmd(ctx->client, &(at_cmd_desc_t){
+        .cmd = "AT+CSQ", .expect_urc = "CSQ",
+        .parse = ml307_endpoint_parse_csq, .timeout_ms = 1000U,
+    }, &out);
+}
+
 int ml307_endpoint_open(ml307_endpoint_ctx_t *ctx, int domain, int protocol)
 {
     int i;
@@ -329,6 +472,11 @@ bool ml307_endpoint_connect(ml307_endpoint_ctx_t *ctx, int endpoint_id, const ch
     }
 
     connected = ml307_at_cmd_connect(endpoint, host, (int)port);
+    if (!connected && ctx) {
+        ctx->status.last_error = lisa_modem_cme_may_indicate_traffic_exceeded(endpoint->last_error)
+                               ? LISA_MODEM_ERR_TRAFFIC_EXCEEDED
+                               : LISA_MODEM_ERR_AT_COMMAND_FAILED;
+    }
     if (connected && endpoint->protocol == IPPROTO_UDP) {
         endpoint->udp_peer.valid = true;
         endpoint->udp_peer.addr.family = AF_INET;
@@ -358,6 +506,7 @@ int ml307_endpoint_send(ml307_endpoint_ctx_t *ctx, int endpoint_id,
                         const char *host, uint16_t port)
 {
     ml307_endpoint_t *endpoint = ml307_endpoint_get(ctx, endpoint_id);
+    int ret;
 
     if (!endpoint || !endpoint->in_use || !data || length == 0) {
         return -1;
@@ -365,7 +514,13 @@ int ml307_endpoint_send(ml307_endpoint_ctx_t *ctx, int endpoint_id,
 
     if (endpoint->protocol == IPPROTO_UDP && host) {
         endpoint->send_timeout_ms = timeout_ms;
-        return ml307_at_cmd_sendto(endpoint, host, port, (const char *)data, length);
+        ret = ml307_at_cmd_sendto(endpoint, host, port, (const char *)data, length);
+        if (ret < 0 && ctx) {
+            ctx->status.last_error = lisa_modem_cme_may_indicate_traffic_exceeded(endpoint->last_error)
+                                   ? LISA_MODEM_ERR_TRAFFIC_EXCEEDED
+                                   : LISA_MODEM_ERR_AT_COMMAND_FAILED;
+        }
+        return ret;
     }
 
     if (endpoint->protocol == IPPROTO_UDP) {
@@ -376,12 +531,21 @@ int ml307_endpoint_send(ml307_endpoint_ctx_t *ctx, int endpoint_id,
 
         if (!endpoint->connected &&
             !ml307_at_cmd_connect(endpoint, endpoint->udp_peer.addr.host, (int)endpoint->udp_peer.addr.port)) {
+            ctx->status.last_error = lisa_modem_cme_may_indicate_traffic_exceeded(endpoint->last_error)
+                                   ? LISA_MODEM_ERR_TRAFFIC_EXCEEDED
+                                   : LISA_MODEM_ERR_AT_COMMAND_FAILED;
             return -1;
         }
     }
 
     endpoint->send_timeout_ms = timeout_ms;
-    return ml307_at_cmd_send(endpoint, (const char *)data, length);
+    ret = ml307_at_cmd_send(endpoint, (const char *)data, length);
+    if (ret < 0 && ctx) {
+        ctx->status.last_error = lisa_modem_cme_may_indicate_traffic_exceeded(endpoint->last_error)
+                               ? LISA_MODEM_ERR_TRAFFIC_EXCEEDED
+                               : LISA_MODEM_ERR_AT_COMMAND_FAILED;
+    }
+    return ret;
 }
 
 int ml307_endpoint_recv(ml307_endpoint_ctx_t *ctx, int endpoint_id,
@@ -394,6 +558,8 @@ int ml307_endpoint_recv(ml307_endpoint_ctx_t *ctx, int endpoint_id,
     TickType_t t_recv_done;
     bool partial_read;
     bool refill_ready;
+    uint32_t ring_before;
+    size_t hint_before;
 
     if (!endpoint || !endpoint->in_use || !buffer || length == 0) {
         errno = EAGAIN;
@@ -409,6 +575,21 @@ int ml307_endpoint_recv(ml307_endpoint_ctx_t *ctx, int endpoint_id,
     }
 
     t_recv_start = xTaskGetTickCount();
+    ring_before = ring_buf_size_get(&endpoint->ring_buf);
+    hint_before = endpoint->rx_hint.available_data_len;
+
+    if (endpoint->protocol == IPPROTO_TCP &&
+        ring_before == 0U &&
+        hint_before > 0U) {
+        if (endpoint->prefetching && endpoint->data_sem) {
+            ml307_endpoint_wait_prefetch_data(endpoint);
+        }
+        if (ring_buf_size_get(&endpoint->ring_buf) == 0U &&
+            !endpoint->prefetching &&
+            endpoint->rx_hint.available_data_len > 0U) {
+            (void)ml307_at_cmd_prefetch(endpoint);
+        }
+    }
 
     ret = modem_runtime_recv_ring(&endpoint->ring_buf, (char *)buffer, length,
                                   timeout_ms, endpoint->data_sem,
@@ -440,6 +621,8 @@ int ml307_endpoint_recv(ml307_endpoint_ctx_t *ctx, int endpoint_id,
     } else if (ret > 0 && endpoint->protocol == IPPROTO_UDP) {
         if (from && endpoint->udp_last_source.valid) {
             *from = endpoint->udp_last_source.addr;
+        } else if (from && endpoint->udp_peer.valid) {
+            *from = endpoint->udp_peer.addr;
         }
         endpoint->udp_last_source.valid = false;
     }
@@ -486,40 +669,6 @@ int ml307_endpoint_set_tls(ml307_endpoint_ctx_t *ctx, int endpoint_id, bool enab
 
     endpoint->is_tls = enabled;
     return 0;
-}
-
-int ml307_endpoint_set_runtime_config(ml307_endpoint_ctx_t *ctx, const ml307_runtime_config_t *config)
-{
-    if (!ctx || !config ||
-        config->tcp_send_chunk_size == 0U ||
-        config->tcp_pull_chunk_size == 0U) {
-        return -1;
-    }
-
-    ctx->runtime_config.tcp_send_chunk_size =
-        config->tcp_send_chunk_size > ML307_TCP_SEND_CHUNK_SIZE_MAX
-            ? ML307_TCP_SEND_CHUNK_SIZE_MAX
-            : config->tcp_send_chunk_size;
-    ctx->runtime_config.tcp_pull_chunk_size =
-        config->tcp_pull_chunk_size > ML307_TCP_PULL_CHUNK_SIZE_MAX
-            ? ML307_TCP_PULL_CHUNK_SIZE_MAX
-            : config->tcp_pull_chunk_size;
-    ctx->runtime_config.send_chunk_delay_ms = config->send_chunk_delay_ms;
-
-    LISA_LOGI(TAG, "ML307 runtime config: send_chunk=%u pull_chunk=%u send_delay=%u ms",
-              ctx->runtime_config.tcp_send_chunk_size,
-              ctx->runtime_config.tcp_pull_chunk_size,
-              ctx->runtime_config.send_chunk_delay_ms);
-    return 0;
-}
-
-void ml307_endpoint_get_runtime_config(ml307_endpoint_ctx_t *ctx, ml307_runtime_config_t *config)
-{
-    if (!ctx || !config) {
-        return;
-    }
-
-    *config = ctx->runtime_config;
 }
 
 static bool ml307_endpoint_driver_probe(at_client_t *client, modem_probe_result_t *result)
@@ -575,6 +724,23 @@ static bool ml307_endpoint_driver_dns_resolve(void *driver_ctx, const char *doma
 {
     return driver_ctx
          ? ml307_endpoint_dns_resolve((ml307_endpoint_ctx_t *)driver_ctx, domain, ip_addr, size)
+         : false;
+}
+
+static bool ml307_endpoint_driver_get_imei(void *driver_ctx, char *imei, size_t size)
+{
+    return driver_ctx ? ml307_endpoint_get_imei((ml307_endpoint_ctx_t *)driver_ctx, imei, size) : false;
+}
+
+static bool ml307_endpoint_driver_get_iccid(void *driver_ctx, char *iccid, size_t size)
+{
+    return driver_ctx ? ml307_endpoint_get_iccid((ml307_endpoint_ctx_t *)driver_ctx, iccid, size) : false;
+}
+
+static bool ml307_endpoint_driver_get_signal_quality(void *driver_ctx, int *rssi, int *ber)
+{
+    return driver_ctx
+         ? ml307_endpoint_get_signal_quality((ml307_endpoint_ctx_t *)driver_ctx, rssi, ber)
          : false;
 }
 
@@ -713,6 +879,17 @@ static int ml307_endpoint_driver_set_tls(void *driver_ctx, int driver_endpoint_i
          : -1;
 }
 
+static void ml307_endpoint_driver_get_status(void *driver_ctx, lisa_modem_status_t *status)
+{
+    ml307_endpoint_ctx_t *ctx = (ml307_endpoint_ctx_t *)driver_ctx;
+
+    if (!ctx || !status) {
+        return;
+    }
+
+    *status = ctx->status;
+}
+
 static const modem_driver_ops_t s_ml307_driver_ops = {
     .name = "ml307",
     .caps = {
@@ -744,7 +921,11 @@ static const modem_driver_ops_t s_ml307_driver_ops = {
     .deinit = ml307_endpoint_driver_deinit,
     .attach_dispatcher = ml307_endpoint_driver_attach_dispatcher,
     .bind_socket = ml307_endpoint_driver_bind_socket,
+    .get_status = ml307_endpoint_driver_get_status,
     .dns_resolve = ml307_endpoint_driver_dns_resolve,
+    .get_imei = ml307_endpoint_driver_get_imei,
+    .get_iccid = ml307_endpoint_driver_get_iccid,
+    .get_signal_quality = ml307_endpoint_driver_get_signal_quality,
     .open_fn = ml307_endpoint_driver_open,
     .connect_fn = ml307_endpoint_driver_connect,
     .close_fn = ml307_endpoint_driver_close,

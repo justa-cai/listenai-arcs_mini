@@ -7,8 +7,8 @@
 #include "lisa_log.h"
 #include "lisa_ui_nav_scr.h"
 // #include "lisa_ui_nav_scr_ids.h"
-#include "voice_camera_preview_state.h"
 #include "voice_msg.h"
+#include "voice_intent_photo_flow.h"
 
 #define BUTTON_CAMERA_PREVIEW_GUARD_MS 3000U
 #define BUTTON_CAMERA_PREVIEW_EXIT_POLL_MS 20U
@@ -25,6 +25,19 @@ static bool button_camera_preview_trigger_ready(void)
     return xTaskGetTickCount() >= s_button_enable_tick;
 }
 
+static bool camera_preview_is_mcp_locked(void)
+{
+    return s_preview_state.mode == CAMERA_PREVIEW_MODE_MCP &&
+           (s_preview_state.phase == CAMERA_FLOW_PHASE_PREVIEW ||
+            s_preview_state.phase == CAMERA_FLOW_PHASE_PROCESSING);
+}
+
+static bool camera_preview_is_button_active(void)
+{
+    return s_preview_state.mode == CAMERA_PREVIEW_MODE_BUTTON &&
+           s_preview_state.active;
+}
+
 static void button_camera_preview_publish_exit(void)
 {
     voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
@@ -37,7 +50,7 @@ static void button_camera_preview_publish_capture(void)
 
 bool button_camera_preview_is_busy(void)
 {
-    return s_preview_state.phase != VOICE_MSG_CAMERA_FLOW_PHASE_NONE;
+    return s_preview_state.phase != CAMERA_FLOW_PHASE_NONE;
 }
 
 bool button_camera_preview_request_exit(void)
@@ -78,7 +91,7 @@ static void button_camera_preview_publish_start(void)
         lisa_ui_nav_scr_nav_to(0);
     }
 
-    req.mode = VOICE_MSG_CAMERA_PREVIEW_MODE_BUTTON_PHOTO;
+    req.mode = CAMERA_PREVIEW_MODE_BUTTON;
     req.auto_capture_delay_ms = 0;
     voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_START, &req, sizeof(req));
 }
@@ -96,9 +109,10 @@ static void button_camera_preview_state_changed(void *unused, uint32_t msg_id, v
     (void)msg_id;
     (void)user_data;
 
-    if (!voice_camera_preview_state_parse(&s_preview_state, data, len)) {
+    if (!data || len < sizeof(s_preview_state)) {
         return;
     }
+    s_preview_state = *(const voice_msg_camera_preview_state_t *)data;
 
     LOGI("camera preview state changed, active=%u mode=%u captured=%u phase=%u",
          s_preview_state.active,
@@ -109,14 +123,14 @@ static void button_camera_preview_state_changed(void *unused, uint32_t msg_id, v
 
 bool button_camera_preview_handle_click(void)
 {
-    if (voice_camera_preview_state_is_locked(&s_preview_state)) {
+    if (camera_preview_is_mcp_locked()) {
         LOGI("voice photo locked, cancel by button click, phase=%u",
              s_preview_state.phase);
         button_camera_preview_request_exit();
         return true;
     }
 
-    if (voice_camera_preview_state_is_button_preview_active(&s_preview_state)) {
+    if (camera_preview_is_button_active()) {
         LOGI("camera preview click, capture photo");
         button_camera_preview_publish_capture();
         return true;
@@ -127,7 +141,7 @@ bool button_camera_preview_handle_click(void)
 
 void button_camera_preview_handle_double_click(void)
 {
-    if (voice_camera_preview_state_is_locked(&s_preview_state)) {
+    if (camera_preview_is_mcp_locked()) {
         LOGI("voice photo locked, cancel by button double click, phase=%u",
              s_preview_state.phase);
         button_camera_preview_request_exit();
@@ -145,14 +159,14 @@ void button_camera_preview_handle_double_click(void)
 
 bool button_camera_preview_handle_long_hold(void)
 {
-    if (voice_camera_preview_state_is_locked(&s_preview_state)) {
+    if (camera_preview_is_mcp_locked()) {
         LOGI("voice photo locked, cancel by button long hold, phase=%u",
              s_preview_state.phase);
         button_camera_preview_request_exit();
         return true;
     }
 
-    if (voice_camera_preview_state_is_button_preview_active(&s_preview_state)) {
+    if (camera_preview_is_button_active()) {
         LOGI("camera preview long hold, exit preview");
         button_camera_preview_request_exit();
         return true;

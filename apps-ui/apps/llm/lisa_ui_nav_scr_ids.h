@@ -13,6 +13,7 @@ enum {
     LISA_UI_NAV_SCR_ID_ALARM_RING,        // 闹钟响铃页面
     LISA_UI_NAV_SCR_ID_ALARM_CLOCK,       // 闹钟设置页面（MVP架构）
     LISA_UI_NAV_SCR_ID_QUOTA_QRCODE,      // 额度不足二维码页面
+    LISA_UI_NAV_SCR_ID_SD_MUSIC_SYNC,     // TF卡音频文件列表同步页面
 #ifdef CONFIG_OTA
     LISA_UI_NAV_SCR_ID_OTA,               // OTA检查页面
 #endif

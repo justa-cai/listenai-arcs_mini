@@ -35,6 +35,34 @@ typedef struct {
     size_t ip_size;
 } qiact_out_t;
 
+static void ec801e_status_set_error(ec801e_endpoint_ctx_t *ctx, lisa_modem_error_t error)
+{
+    int cme_error;
+
+    if (!ctx) {
+        return;
+    }
+
+    cme_error = at_client_get_cme_error(ctx->client);
+    if (cme_error > 0) {
+        lisa_modem_status_note_cme(&ctx->status, cme_error);
+    }
+    if (ctx->status.last_error != LISA_MODEM_ERR_TRAFFIC_EXCEEDED) {
+        ctx->status.last_error = error;
+    }
+}
+
+static lisa_modem_error_t ec801e_status_error_from_cpin(const char *status)
+{
+    if (!status || status[0] == '\0') {
+        return LISA_MODEM_ERR_SIM_QUERY_FAILED;
+    }
+    if (strstr(status, "NOT INSERTED")) {
+        return LISA_MODEM_ERR_SIM_NOT_INSERTED;
+    }
+    return LISA_MODEM_ERR_SIM_NOT_READY;
+}
+
 static bool parse_first_string(at_arg_value_t *args, size_t count, void *user_data)
 {
     str_out_t *out = (str_out_t *)user_data;
@@ -136,9 +164,13 @@ static bool ec801e_netreg_activate_pdp(ec801e_endpoint_ctx_t *ctx, int cid)
     if (!at_client_exec_cmdf(ctx->client, &(at_cmd_desc_t){
             .cmd = "AT+QIACT=%d", .timeout_ms = EC801E_DIAL_TIMEOUT_MS,
         }, NULL, cid)) {
+        ec801e_status_set_error(ctx, LISA_MODEM_ERR_PDP_ACTIVATE_FAILED);
         if (!ec801e_netreg_query_qiact(ctx, &active_cid, &status, ip, sizeof(ip)) ||
             active_cid != cid || status != 1) {
             LISA_LOGE(TAG, "Failed to activate PDP cid=%d", cid);
+            ctx->active_pdp_cid = 0;
+            ctx->network_ready = false;
+            ctx->ip_address[0] = '\0';
             return false;
         }
     }
@@ -146,6 +178,10 @@ static bool ec801e_netreg_activate_pdp(ec801e_endpoint_ctx_t *ctx, int cid)
     if (!ec801e_netreg_query_qiact(ctx, &active_cid, &status, ip, sizeof(ip)) ||
         active_cid != cid || status != 1) {
         LISA_LOGE(TAG, "PDP not ready after activation, cid=%d status=%d", active_cid, status);
+        ctx->active_pdp_cid = 0;
+        ctx->network_ready = false;
+        ctx->ip_address[0] = '\0';
+        ec801e_status_set_error(ctx, LISA_MODEM_ERR_PDP_ACTIVATE_FAILED);
         return false;
     }
 
@@ -154,6 +190,7 @@ static bool ec801e_netreg_activate_pdp(ec801e_endpoint_ctx_t *ctx, int cid)
     ctx->network_status = NETWORK_STATUS_READY;
     strncpy(ctx->ip_address, ip, sizeof(ctx->ip_address) - 1);
     ctx->ip_address[sizeof(ctx->ip_address) - 1] = '\0';
+    ctx->status.last_error = LISA_MODEM_ERR_READY;
     return true;
 }
 
@@ -219,6 +256,7 @@ void ec801e_netreg_handle_modem_urc(ec801e_endpoint_ctx_t *ctx, const char *comm
         ctx->network_ready = false;
         ctx->active_pdp_cid = 0;
         ctx->network_status = NETWORK_STATUS_DISCONNECTED;
+        ctx->ip_address[0] = '\0';
     }
 }
 
@@ -235,27 +273,37 @@ network_status_t ec801e_netreg_network_check(ec801e_endpoint_ctx_t *ctx)
         return NETWORK_STATUS_ERROR;
     }
 
+    ctx->status.last_error = LISA_MODEM_ERR_NOT_INITIALIZED;
     ctx->network_ready = false;
     ctx->active_pdp_cid = 0;
+    ctx->ip_address[0] = '\0';
 
     for (int i = 0; i < EC801E_NETREG_RETRY_COUNT; ++i) {
-        if (ec801e_netreg_query_cpin(ctx, cpin_status, sizeof(cpin_status)) &&
-            strcmp(cpin_status, "READY") == 0) {
+        bool cpin_ok = ec801e_netreg_query_cpin(ctx, cpin_status, sizeof(cpin_status));
+
+        if (cpin_ok && strcmp(cpin_status, "READY") == 0) {
             break;
         }
         if (i == EC801E_NETREG_RETRY_COUNT - 1) {
             LISA_LOGE(TAG, "SIM not ready, CPIN='%s'", cpin_status);
+            ec801e_status_set_error(ctx, cpin_ok
+                                         ? ec801e_status_error_from_cpin(cpin_status)
+                                         : LISA_MODEM_ERR_SIM_QUERY_FAILED);
             return NETWORK_STATUS_ERROR;
         }
         vTaskDelay(pdMS_TO_TICKS(EC801E_NETREG_WAIT_MS));
     }
 
-    (void)at_client_exec_cmd(ctx->client, &(at_cmd_desc_t){
-        .cmd = "AT+CEREG=2", .timeout_ms = 1000,
-    }, NULL);
+    if (!at_client_exec_cmd(ctx->client, &(at_cmd_desc_t){
+            .cmd = "AT+CEREG=2", .timeout_ms = 1000,
+        }, NULL)) {
+        ec801e_status_set_error(ctx, LISA_MODEM_ERR_AT_COMMAND_FAILED);
+    }
 
     for (int i = 0; i < 30; ++i) {
-        if (ec801e_netreg_query_cereg(ctx, &n, &stat) && (stat == 1 || stat == 5)) {
+        bool cereg_ok = ec801e_netreg_query_cereg(ctx, &n, &stat);
+
+        if (cereg_ok && (stat == 1 || stat == 5)) {
             ctx->network_status = (stat == 1)
                                 ? NETWORK_STATUS_REGISTERED_HOME
                                 : NETWORK_STATUS_REGISTERED_ROAMING;
@@ -263,6 +311,9 @@ network_status_t ec801e_netreg_network_check(ec801e_endpoint_ctx_t *ctx)
         }
         if (i == 29) {
             LISA_LOGE(TAG, "Network registration not ready, CEREG=%d,%d", n, stat);
+            ec801e_status_set_error(ctx, stat == 3
+                                         ? LISA_MODEM_ERR_NETWORK_DENIED
+                                         : LISA_MODEM_ERR_NETWORK_REGISTER_FAILED);
             return NETWORK_STATUS_ERROR;
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -275,6 +326,7 @@ network_status_t ec801e_netreg_network_check(ec801e_endpoint_ctx_t *ctx)
         ctx->network_status = NETWORK_STATUS_READY;
         strncpy(ctx->ip_address, ip, sizeof(ctx->ip_address) - 1);
         ctx->ip_address[sizeof(ctx->ip_address) - 1] = '\0';
+        ctx->status.last_error = LISA_MODEM_ERR_READY;
         return NETWORK_STATUS_READY;
     }
 

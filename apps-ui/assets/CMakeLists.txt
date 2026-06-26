@@ -1,5 +1,9 @@
 add_subdirectory(fonts)
 
+# Cross-platform Python discovery: CMake's find_package searches registry (Win), PATH, and common
+# install dirs. QUIET mode avoids noise when Python3_EXECUTABLE was already cached by the SDK.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
 set(ASSETS_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/embed)
 set(ASSETS_OUTPUT_DIR ${CMAKE_BINARY_DIR}/generated/assets)
 set(ASSETS_SCRIPT ${CMAKE_CURRENT_SOURCE_DIR}/assets.py)
@@ -34,7 +38,7 @@ message(STATUS "Will generate ${ASSET_COUNT} asset C files")
 # Run generation during CMake configure to ensure files exist
 execute_process(
     COMMAND ${CMAKE_COMMAND} -E make_directory ${ASSETS_OUTPUT_DIR}
-    COMMAND python3 ${ASSETS_SCRIPT} ${ASSETS_SOURCE_DIR} ${ASSETS_OUTPUT_DIR}
+    COMMAND ${Python3_EXECUTABLE} ${ASSETS_SCRIPT} ${ASSETS_SOURCE_DIR} ${ASSETS_OUTPUT_DIR}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     RESULT_VARIABLE ASSETS_RESULT
 )
@@ -49,7 +53,7 @@ set(ASSETS_STAMP_FILE ${ASSETS_OUTPUT_DIR}/.assets_stamp)
 # Custom command for incremental builds
 add_custom_command(
     OUTPUT ${ASSETS_STAMP_FILE}
-    COMMAND python3 ${ASSETS_SCRIPT} ${ASSETS_SOURCE_DIR} ${ASSETS_OUTPUT_DIR}
+    COMMAND ${Python3_EXECUTABLE} ${ASSETS_SCRIPT} ${ASSETS_SOURCE_DIR} ${ASSETS_OUTPUT_DIR}
     COMMAND ${CMAKE_COMMAND} -E touch ${ASSETS_STAMP_FILE}
     DEPENDS ${ASSETS_SCRIPT} ${ASSET_FILES}
     COMMENT "Regenerating asset C files from ${ASSETS_SOURCE_DIR}"

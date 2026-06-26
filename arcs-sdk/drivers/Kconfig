@@ -30,6 +30,7 @@ config LISA_DEVICE_MANUAL_INIT
 
 rsource "lisa_adc/Kconfig"
 rsource "lisa_audio/Kconfig"
+rsource "lisa_misc/Kconfig"
 rsource "lisa_gpio/Kconfig"
 rsource "lisa_i2c/Kconfig"
 rsource "lisa_i2s/Kconfig"

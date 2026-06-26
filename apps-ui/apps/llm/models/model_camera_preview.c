@@ -29,7 +29,7 @@ static struct model_camera_preview_context model_camera_preview_ctx = {
 static model_camera_preview_source_t
 model_camera_preview_source_from_voice_mode(uint8_t mode)
 {
-    return mode == VOICE_MSG_CAMERA_PREVIEW_MODE_MCP_PHOTO ? MODEL_CAMERA_PREVIEW_SOURCE_MCP
+    return mode == CAMERA_PREVIEW_MODE_MCP ? MODEL_CAMERA_PREVIEW_SOURCE_MCP
                                                            : MODEL_CAMERA_PREVIEW_SOURCE_BUTTON;
 }
 
@@ -455,19 +455,19 @@ void model_camera_preview_fill_voice_state(const model_camera_preview_t *preview
 
     if (model_camera_preview_is_active(preview)) {
         state->mode = model_camera_preview_source_get(preview) == MODEL_CAMERA_PREVIEW_SOURCE_MCP
-                          ? VOICE_MSG_CAMERA_PREVIEW_MODE_MCP_PHOTO
-                          : VOICE_MSG_CAMERA_PREVIEW_MODE_BUTTON_PHOTO;
+                          ? CAMERA_PREVIEW_MODE_MCP
+                          : CAMERA_PREVIEW_MODE_BUTTON;
     } else {
-        state->mode = VOICE_MSG_CAMERA_PREVIEW_MODE_NONE;
+        state->mode = CAMERA_PREVIEW_MODE_NONE;
     }
 
     if (model_camera_preview_keep_preview_alive(preview)) {
-        state->phase = VOICE_MSG_CAMERA_FLOW_PHASE_PREVIEW;
+        state->phase = CAMERA_FLOW_PHASE_PREVIEW;
     } else if (model_camera_preview_is_result_active(preview)) {
         state->phase = model_camera_preview_is_result_tts_ready(preview)
-                           ? VOICE_MSG_CAMERA_FLOW_PHASE_RESULT_TTS
-                           : VOICE_MSG_CAMERA_FLOW_PHASE_PROCESSING;
+                           ? CAMERA_FLOW_PHASE_RESULT_TTS
+                           : CAMERA_FLOW_PHASE_PROCESSING;
     } else {
-        state->phase = VOICE_MSG_CAMERA_FLOW_PHASE_NONE;
+        state->phase = CAMERA_FLOW_PHASE_NONE;
     }
 }

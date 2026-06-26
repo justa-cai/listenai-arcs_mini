@@ -711,7 +711,7 @@ static int lisa_camera_set_crop_arcs(lisa_device_t *dev, const lisa_camera_crop_
     }
 
     if (crop && priv->sensor.set_window) {
-        priv->sensor.set_window(&priv->sensor, crop->x, crop->y, 
+        priv->sensor.set_window(&priv->sensor, crop->x, crop->y,
                                 crop->width, crop->height);
         priv->frame_width = crop->width;
         priv->frame_height = crop->height;
@@ -719,6 +719,32 @@ static int lisa_camera_set_crop_arcs(lisa_device_t *dev, const lisa_camera_crop_
     }
 
     return LISA_DEVICE_OK;
+}
+
+/**
+ * @brief 设置硬件跳采 (subsampling)
+ */
+static int lisa_camera_set_subsample_arcs(lisa_device_t *dev, uint8_t row_ratio, uint8_t col_ratio)
+{
+    if (!dev) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    arcs_camera_priv_t *priv = (arcs_camera_priv_t *)dev->priv_data;
+    if (!priv) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    if (!priv->is_initialized) {
+        LOGE("Camera not initialized");
+        return LISA_DEVICE_ERR_NOT_READY;
+    }
+
+    if (!priv->sensor.set_subsample) {
+        return LISA_DEVICE_ERR_NOT_SUPPORT;
+    }
+
+    return priv->sensor.set_subsample(&priv->sensor, row_ratio, col_ratio);
 }
 
 /**
@@ -804,18 +830,27 @@ static int lisa_camera_set_callback_arcs(lisa_device_t *dev, lisa_camera_frame_c
 static int lisa_camera_pwdn_init(arcs_camera_priv_t *priv)
 {
     lisa_camera_hw_config_t *hw = &priv->config.hw_config;
+    int ret;
 
     if (hw->pwdn_gpio_dev == NULL) {
         LOGW("PWDN GPIO device not configured, skipping");
         return LISA_DEVICE_OK;
     }
 
-    /* 设置 PWDN 引脚为输出模式 */
-    lisa_gpio_configure(hw->pwdn_gpio_dev, hw->pwdn_pin, LISA_GPIO_CONFIG_OUTPUT_LOW);
+    ret = lisa_gpio_configure(hw->pwdn_gpio_dev, hw->pwdn_pin,
+                              hw->pwdn_inactive_level ? LISA_GPIO_CONFIG_OUTPUT_HIGH
+                                                      : LISA_GPIO_CONFIG_OUTPUT_LOW);
+    if (ret != LISA_DEVICE_OK) {
+        LOGE("Failed to configure PWDN pin %d level %d: %d",
+             hw->pwdn_pin, hw->pwdn_inactive_level, ret);
+        return ret;
+    }
+
     /* 延时等待 sensor 稳定 */
     SysTick_Delay_Us(hw->pwdn_delay_us);
 
-    LOGI("PWDN pin initialized (pin=%d)", hw->pwdn_pin);
+    LOGI("PWDN pin initialized (pin=%d, level=%d)",
+         hw->pwdn_pin, hw->pwdn_inactive_level);
     return LISA_DEVICE_OK;
 }
 
@@ -1185,6 +1220,7 @@ static const lisa_camera_api_t arcs_camera_api = {
     .set_hmirror      = lisa_camera_set_hmirror_arcs,
     .set_vflip        = lisa_camera_set_vflip_arcs,
     .set_crop         = lisa_camera_set_crop_arcs,
+    .set_subsample    = lisa_camera_set_subsample_arcs,
     .get_framesize    = lisa_camera_get_framesize_arcs,
     .set_pixformat    = lisa_camera_set_pixformat_arcs,
     .set_reg          = lisa_camera_set_reg_arcs,

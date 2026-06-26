@@ -18,7 +18,7 @@ extern "C" {
  *      INCLUDES
  *********************/
 #include "lvgl.h"
-#include "lisa_touch.h"
+#include "lisa_device.h"
 
 /*********************
  *      DEFINES

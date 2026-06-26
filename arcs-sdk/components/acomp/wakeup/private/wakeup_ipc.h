@@ -52,6 +52,7 @@ typedef enum {
     WAKEUP_IPC_CONTROL_SUDCMD_DEBUG_MODE_SET = 2,
     WAKEUP_IPC_CONTROL_SUBCMD_ALGO_MODE_SET = 3,
     WAKEUP_IPC_CONTROL_SUBCMD_THRESHOLD_SET = 4,
+    WAKEUP_IPC_CONTROL_SUBCMD_TIMEOUT_SET = 5,
 }wakeup_ipc_control_subcmd_e;
 
 typedef struct {
@@ -84,6 +85,10 @@ typedef enum {
 typedef struct {
     uint8_t level;  // wakeup_threshold_level_e (1-6)
 }__attribute__((packed)) wakeup_ipc_control_subcmd_threshold_set_t;
+
+typedef struct {
+    uint32_t timeout_ms;  // 超时时间(ms)
+}__attribute__((packed)) wakeup_ipc_control_subcmd_timeout_set_t;
 
 /* ipc end */
 

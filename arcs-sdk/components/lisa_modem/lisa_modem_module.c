@@ -31,9 +31,9 @@
 #include "lisa_log.h"
 #include "lisa_modem_perf_log.h"
 
-#define MODEM_PROBE_INIT_BAUD           115200U
-#define MODEM_PROBE_MID_BAUD            460800U
-#define MODEM_PROBE_FALLBACK_BAUD       921600U
+#define MODEM_PROBE_PRIMARY_BAUD        921600U
+#define MODEM_PROBE_SECONDARY_BAUD      460800U
+#define MODEM_PROBE_FALLBACK_BAUD       115200U
 #define MODEM_COMPAT_DEFAULT_TIMEOUT_MS 5000U
 #define MODEM_MAX_SOCKETS               8
 #define MODEM_TIMEOUT_UNSET             UINT32_MAX
@@ -44,12 +44,14 @@
 static bool modem_probe_sync_uart_baud(at_client_t *client)
 {
     static const uint32_t probe_bauds[] = {
-        MODEM_PROBE_INIT_BAUD,
-        MODEM_PROBE_MID_BAUD,
+        MODEM_PROBE_PRIMARY_BAUD,
+        MODEM_PROBE_SECONDARY_BAUD,
         MODEM_PROBE_FALLBACK_BAUD,
     };
     at_transport_t *transport;
-    const int max_passes = 2;
+    const int max_passes = 5;
+    const int max_retries_per_baudrate = 3;
+    const size_t probe_baud_count = sizeof(probe_bauds) / sizeof(probe_bauds[0]);
 
     if (!client) {
         return false;
@@ -61,7 +63,7 @@ static bool modem_probe_sync_uart_baud(at_client_t *client)
     }
 
     for (int pass = 0; pass < max_passes; ++pass) {
-        for (size_t i = 0; i < sizeof(probe_bauds) / sizeof(probe_bauds[0]); ++i) {
+        for (size_t i = 0; i < probe_baud_count; ++i) {
             uint32_t baud = probe_bauds[i];
 
             if (at_transport_ioctl(transport, AT_TRANSPORT_IOCTL_SET_BAUDRATE, &baud) != 0) {
@@ -70,24 +72,27 @@ static bool modem_probe_sync_uart_baud(at_client_t *client)
             }
             vTaskDelay(pdMS_TO_TICKS(100));
 
-            if (at_client_send_cmd(client, "AT", 1000, true)) {
-                LISA_LOGI(TAG, "AT ready at baudrate=%u", baud);
-                return true;
+            for (int retry = 0; retry < max_retries_per_baudrate; ++retry) {
+                if (at_client_send_cmd(client, "AT", 1000, true)) {
+                    LISA_LOGI(TAG, "AT ready at baudrate=%u", baud);
+                    return true;
+                }
+
+                LISA_LOGI(TAG, "AT retry %d/%d at baudrate %u",
+                          retry + 1, max_retries_per_baudrate, baud);
+                vTaskDelay(pdMS_TO_TICKS(200));
             }
 
-            LISA_LOGI(TAG, "AT retry 1/1 at baudrate %u", baud);
-            vTaskDelay(pdMS_TO_TICKS(200));
-
             if (!(pass == max_passes - 1 &&
-                  i == (sizeof(probe_bauds) / sizeof(probe_bauds[0]) - 1U))) {
-                uint32_t next_baud = probe_bauds[(i + 1U) % (sizeof(probe_bauds) / sizeof(probe_bauds[0]))];
+                  i == (probe_baud_count - 1U))) {
+                uint32_t next_baud = probe_bauds[(i + 1U) % probe_baud_count];
                 LISA_LOGI(TAG, "Switching baudrate to %u", next_baud);
             }
         }
     }
 
     LISA_LOGE(TAG, "AT not ready after %d baudrate switches",
-              max_passes * (int)(sizeof(probe_bauds) / sizeof(probe_bauds[0])) - 1);
+              max_passes * (int)probe_baud_count - 1);
     return false;
 }
 
@@ -137,16 +142,18 @@ typedef struct {
 } lisa_modem_dns_sync_t;
 
 typedef struct {
-    int rssi;
-    int ber;
-} lisa_modem_signal_quality_t;
+    SemaphoreHandle_t done_sem;
+    int result;
+    char *value;
+    size_t size;
+} lisa_modem_identity_sync_t;
 
 typedef struct {
     SemaphoreHandle_t done_sem;
     int result;
     int *rssi;
     int *ber;
-} lisa_modem_signal_quality_sync_t;
+} lisa_modem_signal_sync_t;
 
 struct lisa_modem {
     void *driver_ctx;
@@ -157,6 +164,7 @@ struct lisa_modem {
     bool has_probe_result;
     bool initialized;
     modem_probe_result_t probe_result;
+    lisa_modem_status_t status;
     char name[16];
     SemaphoreHandle_t socket_table_mutex;
     modem_dispatcher_t *dispatcher;
@@ -164,10 +172,53 @@ struct lisa_modem {
 };
 
 static lisa_modem_t *s_default_modem = NULL;
+static lisa_modem_status_t s_last_status = {
+    .last_error = LISA_MODEM_ERR_NOT_INITIALIZED,
+};
+static bool s_modem_present = false;
 
 #ifdef LISA_MODEM_TEST
 static bool s_lisa_modem_test_in_dispatcher_control = false;
 #endif
+
+static void lisa_modem_publish_status(lisa_modem_t *modem, const lisa_modem_status_t *status)
+{
+    if (!status) {
+        return;
+    }
+
+    if (modem) {
+        modem->status = *status;
+    }
+    s_last_status = *status;
+}
+
+static void lisa_modem_status_fail(lisa_modem_t *modem, lisa_modem_status_t *status,
+                                   lisa_modem_error_t error)
+{
+    if (!status) {
+        return;
+    }
+
+    status->last_error = error;
+    lisa_modem_publish_status(modem, status);
+}
+
+static void lisa_modem_refresh_driver_status(lisa_modem_t *modem)
+{
+    lisa_modem_status_t status;
+
+    if (!modem) {
+        return;
+    }
+
+    status = modem->status;
+    if (modem->ops && modem->ops->get_status && modem->driver_ctx) {
+        modem->ops->get_status(modem->driver_ctx, &status);
+    }
+    modem->status = status;
+    s_last_status = status;
+}
 
 static int lisa_modem_register_default_netdev(const char *name)
 {
@@ -186,89 +237,6 @@ static void lisa_modem_unregister_default_netdev(const char *name)
 #else
     (void)name;
 #endif
-}
-
-static int lisa_modem_apply_tuning_profile_on(lisa_modem_t *modem,
-                                              const lisa_modem_tuning_profile_t *profile)
-{
-    if (!modem || !profile ||
-        profile->ml307_tcp_send_chunk_size == 0U ||
-        profile->ml307_tcp_pull_chunk_size == 0U) {
-        return -1;
-    }
-
-    if (at_client_set_rx_task_delay(modem->client, profile->at_rx_task_delay_ms) != 0) {
-        return -1;
-    }
-
-    if (modem_dispatcher_set_loop_delay(modem->dispatcher,
-                                        profile->modem_dispatcher_delay_ms) != 0) {
-        return -1;
-    }
-
-#if CONFIG_LISA_MODEM_DRIVER_ML307
-    if (modem->ops && modem->ops->name &&
-        strcmp(modem->ops->name, "ml307") == 0 &&
-        modem->driver_ctx) {
-        const ml307_runtime_config_t ml307_config = {
-            .tcp_send_chunk_size = profile->ml307_tcp_send_chunk_size,
-            .tcp_pull_chunk_size = profile->ml307_tcp_pull_chunk_size,
-            .send_chunk_delay_ms = profile->ml307_send_chunk_delay_ms,
-        };
-
-        if (ml307_endpoint_set_runtime_config((ml307_endpoint_ctx_t *)modem->driver_ctx,
-                                              &ml307_config) != 0) {
-            return -1;
-        }
-    }
-#endif
-
-    return 0;
-}
-
-static bool lisa_modem_parse_signal_quality(at_arg_value_t *args, size_t count, void *user_data)
-{
-    lisa_modem_signal_quality_t *quality = (lisa_modem_signal_quality_t *)user_data;
-
-    if (!quality || count < 2 ||
-        args[0].type != AT_ARG_TYPE_INT ||
-        args[1].type != AT_ARG_TYPE_INT) {
-        return false;
-    }
-
-    quality->rssi = args[0].data.int_val;
-    quality->ber = args[1].data.int_val;
-    return true;
-}
-
-static bool lisa_modem_query_signal_quality_impl(lisa_modem_t *modem, int *rssi, int *ber)
-{
-    lisa_modem_signal_quality_t quality = {
-        .rssi = 99,
-        .ber = 99,
-    };
-
-    if (!modem || !modem->client || !rssi || !ber) {
-        return false;
-    }
-
-    *rssi = quality.rssi;
-    *ber = quality.ber;
-
-    if (!at_client_exec_cmd(modem->client, &(at_cmd_desc_t){
-            .cmd = "AT+CSQ",
-            .expect_urc = "CSQ",
-            .parse = lisa_modem_parse_signal_quality,
-            .timeout_ms = 1000U,
-        }, &quality)) {
-        LISA_LOGW(TAG, "Failed to query signal quality, cme=%d",
-                  at_client_get_cme_error(modem->client));
-        return false;
-    }
-
-    *rssi = quality.rssi;
-    *ber = quality.ber;
-    return true;
 }
 
 static bool lisa_modem_validate_sockaddr_input(const struct sockaddr *addr, int addrlen)
@@ -1242,13 +1210,30 @@ lisa_modem_dispatcher_handle_control(void *user_data, const modem_dispatcher_con
             sync->result = ret;
             (void)xSemaphoreGive(sync->done_sem);
         }
-    } else if (request->kind == MODEM_DISPATCHER_CONTROL_SIGNAL_QUALITY) {
-        lisa_modem_signal_quality_sync_t *sync = (lisa_modem_signal_quality_sync_t *)request->context;
+    } else if (request->kind == MODEM_DISPATCHER_CONTROL_GET_IMEI ||
+               request->kind == MODEM_DISPATCHER_CONTROL_GET_ICCID) {
+        lisa_modem_identity_sync_t *sync = (lisa_modem_identity_sync_t *)request->context;
+        bool ok = false;
 
-        ret = (sync && sync->rssi && sync->ber &&
-               lisa_modem_query_signal_quality_impl(modem, sync->rssi, sync->ber))
-            ? 1
-            : 0;
+        if (sync && sync->value && sync->size > 0U) {
+            if (request->kind == MODEM_DISPATCHER_CONTROL_GET_IMEI && modem->ops->get_imei) {
+                ok = modem->ops->get_imei(modem->driver_ctx, sync->value, sync->size);
+            } else if (request->kind == MODEM_DISPATCHER_CONTROL_GET_ICCID && modem->ops->get_iccid) {
+                ok = modem->ops->get_iccid(modem->driver_ctx, sync->value, sync->size);
+            }
+        }
+
+        ret = ok ? 1 : 0;
+        if (sync && sync->done_sem) {
+            sync->result = ret;
+            (void)xSemaphoreGive(sync->done_sem);
+        }
+    } else if (request->kind == MODEM_DISPATCHER_CONTROL_GET_SIGNAL_QUALITY) {
+        lisa_modem_signal_sync_t *sync = (lisa_modem_signal_sync_t *)request->context;
+        bool ok = sync && sync->rssi && sync->ber && modem->ops->get_signal_quality &&
+                  modem->ops->get_signal_quality(modem->driver_ctx, sync->rssi, sync->ber);
+
+        ret = ok ? 1 : 0;
         if (sync && sync->done_sem) {
             sync->result = ret;
             (void)xSemaphoreGive(sync->done_sem);
@@ -1428,11 +1413,17 @@ static bool lisa_modem_host_to_sockaddr(lisa_modem_t *modem, const char *host, u
 }
 
 static const modem_driver_ops_t *lisa_modem_detect_driver(at_client_t *client,
-                                                          modem_probe_result_t *probe_result)
+                                                          modem_probe_result_t *probe_result,
+                                                          lisa_modem_status_t *status)
 {
 #if !CONFIG_LISA_MODEM_DRIVER_ML307 && !CONFIG_LISA_MODEM_DRIVER_EC801E
     (void)client;
     (void)probe_result;
+    s_modem_present = false;
+    if (status) {
+        status->last_error = LISA_MODEM_ERR_DRIVER_NOT_FOUND;
+        lisa_modem_publish_status(NULL, status);
+    }
     return NULL;
 #else
     const modem_driver_ops_t *drivers[] = {
@@ -1448,11 +1439,21 @@ static const modem_driver_ops_t *lisa_modem_detect_driver(at_client_t *client,
     size_t i;
 
     if (!client) {
+        if (status) {
+            status->last_error = LISA_MODEM_ERR_INVALID_ARG;
+            lisa_modem_publish_status(NULL, status);
+        }
         return NULL;
     }
 
     if (!modem_probe_sync_uart_baud(client)) {
         LISA_LOGE(TAG, "Failed to sync modem UART before driver probe");
+        s_modem_present = false;
+        if (status) {
+            status->last_error = LISA_MODEM_ERR_UART_AT_SYNC_FAILED;
+            lisa_modem_status_note_cme(status, at_client_get_cme_error(client));
+            lisa_modem_publish_status(NULL, status);
+        }
         return NULL;
     }
 
@@ -1473,7 +1474,14 @@ static const modem_driver_ops_t *lisa_modem_detect_driver(at_client_t *client,
     if (probe_result && best_ops) {
         *probe_result = best_result;
     }
+    if (status) {
+        if (!best_ops) {
+            status->last_error = LISA_MODEM_ERR_DRIVER_NOT_FOUND;
+            lisa_modem_publish_status(NULL, status);
+        }
+    }
 
+    s_modem_present = (best_ops != NULL);
     return best_ops;
 #endif
 }
@@ -1500,16 +1508,28 @@ static const char *lisa_modem_resolve_name(const char *requested_name,
 
 static lisa_modem_t *lisa_modem_create_resolved(at_client_t *client, const char *name,
                                                 const modem_driver_ops_t *ops,
-                                                const modem_probe_result_t *probe_result)
+                                                const modem_probe_result_t *probe_result,
+                                                const lisa_modem_status_t *initial_status)
 {
     lisa_modem_t *modem;
+    lisa_modem_status_t status;
 
     if (!client || !name || !ops || !ops->create || !ops->init) {
+        lisa_modem_status_clear(&status);
+        status.last_error = LISA_MODEM_ERR_INVALID_ARG;
+        lisa_modem_publish_status(NULL, &status);
         return NULL;
+    }
+
+    if (initial_status) {
+        status = *initial_status;
+    } else {
+        lisa_modem_status_clear(&status);
     }
 
     modem = (lisa_modem_t *)at_mem_calloc(1, sizeof(lisa_modem_t));
     if (!modem) {
+        lisa_modem_status_fail(NULL, &status, LISA_MODEM_ERR_NO_MEMORY);
         return NULL;
     }
 
@@ -1517,9 +1537,11 @@ static lisa_modem_t *lisa_modem_create_resolved(at_client_t *client, const char 
     modem->name[sizeof(modem->name) - 1] = '\0';
     modem->client = client;
     modem->ops = ops;
+    modem->status = status;
     lisa_modem_socket_table_init(modem);
     modem->socket_table_mutex = xSemaphoreCreateMutex();
     if (!modem->socket_table_mutex) {
+        lisa_modem_status_fail(modem, &modem->status, LISA_MODEM_ERR_NO_MEMORY);
         at_mem_free(modem);
         return NULL;
     }
@@ -1538,11 +1560,13 @@ static lisa_modem_t *lisa_modem_create_resolved(at_client_t *client, const char 
         .task_priority = 10U,
     });
     if (!modem->dispatcher) {
+        lisa_modem_status_fail(modem, &modem->status, LISA_MODEM_ERR_NO_MEMORY);
         vSemaphoreDelete(modem->socket_table_mutex);
         at_mem_free(modem);
         return NULL;
     }
     if (!modem_dispatcher_start(modem->dispatcher)) {
+        lisa_modem_status_fail(modem, &modem->status, LISA_MODEM_ERR_NO_MEMORY);
         modem_dispatcher_destroy(modem->dispatcher);
         vSemaphoreDelete(modem->socket_table_mutex);
         at_mem_free(modem);
@@ -1555,7 +1579,8 @@ static lisa_modem_t *lisa_modem_create_resolved(at_client_t *client, const char 
 
     modem->driver_ctx = ops->create(client);
     if (!modem->driver_ctx) {
-        LISA_LOGE(TAG, "Failed to create modem context for driver '%s'", ops->name);
+        LISA_LOGE(TAG, "Failed to create modem runtime for driver '%s'", ops->name);
+        lisa_modem_status_fail(modem, &modem->status, LISA_MODEM_ERR_DRIVER_CREATE_FAILED);
         modem_dispatcher_destroy(modem->dispatcher);
         vSemaphoreDelete(modem->socket_table_mutex);
         at_mem_free(modem);
@@ -1567,6 +1592,11 @@ static lisa_modem_t *lisa_modem_create_resolved(at_client_t *client, const char 
 
     if (!ops->init(modem->driver_ctx)) {
         LISA_LOGE(TAG, "Failed to initialize modem '%s' with driver '%s'", modem->name, ops->name);
+        lisa_modem_refresh_driver_status(modem);
+        if (modem->status.last_error == LISA_MODEM_ERR_NOT_INITIALIZED) {
+            modem->status.last_error = LISA_MODEM_ERR_DRIVER_INIT_FAILED;
+        }
+        lisa_modem_publish_status(modem, &modem->status);
         if (ops->destroy) {
             ops->destroy(modem->driver_ctx);
         }
@@ -1577,12 +1607,10 @@ static lisa_modem_t *lisa_modem_create_resolved(at_client_t *client, const char 
     }
 
     modem->initialized = true;
-    {
-        const lisa_modem_tuning_profile_t boot_profile = LISA_MODEM_BOOT_TUNING_DEFAULT();
-        if (lisa_modem_apply_tuning_profile_on(modem, &boot_profile) != 0) {
-            LISA_LOGW(TAG, "Failed to apply boot modem tuning profile");
-        }
-    }
+    s_modem_present = true;
+    lisa_modem_refresh_driver_status(modem);
+    modem->status.last_error = LISA_MODEM_ERR_READY;
+    lisa_modem_publish_status(modem, &modem->status);
     if (modem->has_probe_result) {
         LISA_LOGI(TAG, "Modem '%s' detected as '%s' (%s)", modem->name,
                   modem->probe_result.driver_name, modem->probe_result.model);
@@ -1594,22 +1622,32 @@ static lisa_modem_t *lisa_modem_create_resolved(at_client_t *client, const char 
 lisa_modem_t *lisa_modem_create(at_client_t *client, const char *name)
 {
     modem_probe_result_t probe_result = {0};
-    const modem_driver_ops_t *ops = lisa_modem_detect_driver(client, &probe_result);
+    lisa_modem_status_t status;
+    const modem_driver_ops_t *ops;
     const char *resolved_name = NULL;
 
+    lisa_modem_status_clear(&status);
+    ops = lisa_modem_detect_driver(client, &probe_result, &status);
     if (!ops) {
         LISA_LOGE(TAG, "Failed to detect modem driver for '%s'", name ? name : "modem");
+        if (status.last_error == LISA_MODEM_ERR_NOT_INITIALIZED) {
+            status.last_error = LISA_MODEM_ERR_DRIVER_NOT_FOUND;
+            lisa_modem_publish_status(NULL, &status);
+        }
         return NULL;
     }
 
     resolved_name = lisa_modem_resolve_name(name, ops, &probe_result);
-    return lisa_modem_create_resolved(client, resolved_name, ops, &probe_result);
+    return lisa_modem_create_resolved(client, resolved_name, ops, &probe_result, &status);
 }
 
 lisa_modem_t *lisa_modem_create_with_driver(at_client_t *client, const char *name,
                                             const modem_driver_ops_t *ops)
 {
-    return lisa_modem_create_resolved(client, name, ops, NULL);
+    lisa_modem_status_t status;
+
+    lisa_modem_status_clear(&status);
+    return lisa_modem_create_resolved(client, name, ops, NULL, &status);
 }
 
 lisa_modem_t *lisa_modem_create_uart(const char *uart_dev, uint32_t baudrate)
@@ -1623,16 +1661,22 @@ lisa_modem_t *lisa_modem_create_uart_with_driver(const char *uart_dev, uint32_t 
     at_transport_uart_config_t uart_cfg = AT_TRANSPORT_UART_CONFIG_DEFAULT();
     at_transport_t *transport;
     lisa_modem_t *modem;
+    lisa_modem_status_t status;
 
+    lisa_modem_status_clear(&status);
     if (!uart_dev) {
+        status.last_error = LISA_MODEM_ERR_INVALID_ARG;
+        lisa_modem_publish_status(NULL, &status);
         return NULL;
     }
 
-    uart_cfg.baudrate = baudrate > 0 ? baudrate : 115200;
+    uart_cfg.baudrate = baudrate > 0 ? baudrate : MODEM_PROBE_PRIMARY_BAUD;
 
     transport = at_transport_uart_create(uart_dev, &uart_cfg);
     if (!transport) {
         LISA_LOGE(TAG, "Failed to create UART transport for %s", uart_dev);
+        status.last_error = LISA_MODEM_ERR_TRANSPORT_CREATE_FAILED;
+        lisa_modem_publish_status(NULL, &status);
         return NULL;
     }
 
@@ -1646,6 +1690,9 @@ void lisa_modem_destroy(lisa_modem_t *modem)
         return;
     }
 
+    if (s_default_modem == modem) {
+        s_default_modem = NULL;
+    }
     lisa_modem_unregister_default_netdev(modem->name);
     if (modem->dispatcher) {
         modem_dispatcher_destroy(modem->dispatcher);
@@ -1721,18 +1768,24 @@ lisa_modem_t *lisa_modem_create_with_transport_and_driver(at_transport_t *transp
 {
     at_client_t *client;
     lisa_modem_t *modem;
+    lisa_modem_status_t status;
 
+    lisa_modem_status_clear(&status);
     if (!transport) {
+        status.last_error = LISA_MODEM_ERR_INVALID_ARG;
+        lisa_modem_publish_status(NULL, &status);
         return NULL;
     }
 
     client = at_client_create(&(at_client_config_t){
         .rx_buf_initial_size = 512U,
-        .resp_buf_size = 2560U,
-        .task_priority = 7U,
+        .resp_buf_size = 4096U,
+        .task_priority = 9U,
         .task_stack_size = 2048U,
     });
     if (!client) {
+        status.last_error = LISA_MODEM_ERR_CLIENT_CREATE_FAILED;
+        lisa_modem_publish_status(NULL, &status);
         if (owns_transport) {
             at_transport_destroy(transport);
         }
@@ -1742,6 +1795,8 @@ lisa_modem_t *lisa_modem_create_with_transport_and_driver(at_transport_t *transp
     at_client_set_debug(client, LISA_MODEM_AT_CLIENT_DEBUG_ENABLE);
 
     if (at_client_bind(client, transport) != 0) {
+        status.last_error = LISA_MODEM_ERR_CLIENT_BIND_FAILED;
+        lisa_modem_publish_status(NULL, &status);
         at_client_destroy(client);
         if (owns_transport) {
             at_transport_destroy(transport);
@@ -1770,82 +1825,44 @@ lisa_modem_t *lisa_modem_get_default(void)
     return s_default_modem;
 }
 
+bool lisa_modem_is_present(void)
+{
+    return s_default_modem != NULL || s_modem_present;
+}
+
 at_client_t *lisa_modem_get_client(lisa_modem_t *modem)
 {
     return modem ? modem->client : NULL;
 }
 
-int lisa_modem_set_runtime_tuning_on(lisa_modem_t *modem,
-                                     const lisa_modem_tuning_profile_t *tuning)
+bool lisa_modem_get_status_on(lisa_modem_t *modem, lisa_modem_status_t *status)
 {
-    if (lisa_modem_apply_tuning_profile_on(modem, tuning) != 0) {
-        return -1;
+    if (!status) {
+        return false;
     }
 
-    LISA_LOGI(TAG, "runtime tuning: send_chunk=%u pull_chunk=%u send_delay=%u rx_delay=%u disp_delay=%u",
-              tuning->ml307_tcp_send_chunk_size,
-              tuning->ml307_tcp_pull_chunk_size,
-              tuning->ml307_send_chunk_delay_ms,
-              tuning->at_rx_task_delay_ms,
-              tuning->modem_dispatcher_delay_ms);
-    return 0;
+    if (!modem) {
+        *status = s_last_status;
+        return true;
+    }
+
+    lisa_modem_refresh_driver_status(modem);
+    *status = modem->status;
+    return true;
 }
 
-int lisa_modem_set_runtime_tuning(const lisa_modem_tuning_profile_t *tuning)
+bool lisa_modem_get_status(lisa_modem_status_t *status)
 {
-    return lisa_modem_set_runtime_tuning_on(s_default_modem, tuning);
-}
-
-bool lisa_modem_get_signal_quality_on(lisa_modem_t *modem, int *rssi, int *ber)
-{
-    lisa_modem_signal_quality_sync_t sync = {0};
-    modem_dispatcher_control_request_t request = {0};
-    bool result = false;
-
-    if (!modem || !modem->client || !rssi || !ber) {
+    if (!status) {
         return false;
     }
 
-    *rssi = 99;
-    *ber = 99;
-
-    if (!modem->dispatcher) {
-        return lisa_modem_query_signal_quality_impl(modem, rssi, ber);
+    if (s_default_modem) {
+        return lisa_modem_get_status_on(s_default_modem, status);
     }
 
-    sync.result = INT_MIN;
-    sync.done_sem = xSemaphoreCreateBinary();
-    if (!sync.done_sem) {
-        return false;
-    }
-    sync.rssi = rssi;
-    sync.ber = ber;
-
-    request.kind = MODEM_DISPATCHER_CONTROL_SIGNAL_QUALITY;
-    request.endpoint_id = -1;
-    request.generation = 0U;
-    request.context = &sync;
-
-    if (!modem_dispatcher_enqueue_control(modem->dispatcher, &request)) {
-        vSemaphoreDelete(sync.done_sem);
-        return false;
-    }
-
-#ifdef LISA_MODEM_TEST
-    while (sync.result == INT_MIN) {
-        if (modem_dispatcher_service_once(modem->dispatcher) == MODEM_DISPATCHER_SERVICE_IDLE) {
-            break;
-        }
-    }
-    result = (sync.result == 1);
-#else
-    if (xSemaphoreTake(sync.done_sem, portMAX_DELAY) == pdTRUE) {
-        result = (sync.result == 1);
-    }
-#endif
-
-    vSemaphoreDelete(sync.done_sem);
-    return result;
+    *status = s_last_status;
+    return true;
 }
 
 bool lisa_modem_dns_resolve_on(lisa_modem_t *modem, const char *domain, char *ip_addr, size_t size)
@@ -1872,6 +1889,129 @@ bool lisa_modem_dns_resolve_on(lisa_modem_t *modem, const char *domain, char *ip
     sync.size = size;
 
     request.kind = MODEM_DISPATCHER_CONTROL_DNS_RESOLVE;
+    request.endpoint_id = -1;
+    request.generation = 0U;
+    request.context = &sync;
+
+    if (!modem_dispatcher_enqueue_control(modem->dispatcher, &request)) {
+        vSemaphoreDelete(sync.done_sem);
+        return false;
+    }
+
+#ifdef LISA_MODEM_TEST
+    while (sync.result == INT_MIN) {
+        if (modem_dispatcher_service_once(modem->dispatcher) == MODEM_DISPATCHER_SERVICE_IDLE) {
+            break;
+        }
+    }
+    result = (sync.result == 1);
+#else
+    if (xSemaphoreTake(sync.done_sem, portMAX_DELAY) == pdTRUE) {
+        result = (sync.result == 1);
+    }
+#endif
+
+    vSemaphoreDelete(sync.done_sem);
+    return result;
+}
+
+static bool lisa_modem_identity_query_on(lisa_modem_t *modem, bool imei, char *value, size_t size)
+{
+    lisa_modem_identity_sync_t sync = {0};
+    modem_dispatcher_control_request_t request = {0};
+    bool result = false;
+
+    if (!value || size == 0U) {
+        return false;
+    }
+    value[0] = '\0';
+
+    if (!modem || !modem->ops ||
+        (imei && !modem->ops->get_imei) ||
+        (!imei && !modem->ops->get_iccid)) {
+        return false;
+    }
+
+    if (!modem->dispatcher) {
+        return imei ? modem->ops->get_imei(modem->driver_ctx, value, size)
+                    : modem->ops->get_iccid(modem->driver_ctx, value, size);
+    }
+
+    sync.result = INT_MIN;
+    sync.done_sem = xSemaphoreCreateBinary();
+    if (!sync.done_sem) {
+        return false;
+    }
+    sync.value = value;
+    sync.size = size;
+
+    request.kind = imei ? MODEM_DISPATCHER_CONTROL_GET_IMEI
+                        : MODEM_DISPATCHER_CONTROL_GET_ICCID;
+    request.endpoint_id = -1;
+    request.generation = 0U;
+    request.context = &sync;
+
+    if (!modem_dispatcher_enqueue_control(modem->dispatcher, &request)) {
+        vSemaphoreDelete(sync.done_sem);
+        return false;
+    }
+
+#ifdef LISA_MODEM_TEST
+    while (sync.result == INT_MIN) {
+        if (modem_dispatcher_service_once(modem->dispatcher) == MODEM_DISPATCHER_SERVICE_IDLE) {
+            break;
+        }
+    }
+    result = (sync.result == 1);
+#else
+    if (xSemaphoreTake(sync.done_sem, portMAX_DELAY) == pdTRUE) {
+        result = (sync.result == 1);
+    }
+#endif
+
+    vSemaphoreDelete(sync.done_sem);
+    return result;
+}
+
+bool lisa_modem_get_imei_on(lisa_modem_t *modem, char *imei, size_t size)
+{
+    return lisa_modem_identity_query_on(modem, true, imei, size);
+}
+
+bool lisa_modem_get_iccid_on(lisa_modem_t *modem, char *iccid, size_t size)
+{
+    return lisa_modem_identity_query_on(modem, false, iccid, size);
+}
+
+bool lisa_modem_get_signal_quality_on(lisa_modem_t *modem, int *rssi, int *ber)
+{
+    lisa_modem_signal_sync_t sync = {0};
+    modem_dispatcher_control_request_t request = {0};
+    bool result = false;
+
+    if (!rssi || !ber) {
+        return false;
+    }
+    *rssi = 99;
+    *ber = 99;
+
+    if (!modem || !modem->ops || !modem->ops->get_signal_quality) {
+        return false;
+    }
+
+    if (!modem->dispatcher) {
+        return modem->ops->get_signal_quality(modem->driver_ctx, rssi, ber);
+    }
+
+    sync.result = INT_MIN;
+    sync.done_sem = xSemaphoreCreateBinary();
+    if (!sync.done_sem) {
+        return false;
+    }
+    sync.rssi = rssi;
+    sync.ber = ber;
+
+    request.kind = MODEM_DISPATCHER_CONTROL_GET_SIGNAL_QUALITY;
     request.endpoint_id = -1;
     request.generation = 0U;
     request.context = &sync;
@@ -1959,14 +2099,24 @@ int lisa_modem_getpeername_on(lisa_modem_t *modem, int sockfd, struct sockaddr *
     return lisa_modem_socket_getpeername_impl(modem, sockfd, addr, addrlen);
 }
 
-bool lisa_modem_get_signal_quality(int *rssi, int *ber)
-{
-    return lisa_modem_get_signal_quality_on(s_default_modem, rssi, ber);
-}
-
 bool lisa_modem_dns_resolve(const char *domain, char *ip_addr, size_t size)
 {
     return lisa_modem_dns_resolve_on(s_default_modem, domain, ip_addr, size);
+}
+
+bool lisa_modem_get_imei(char *imei, size_t size)
+{
+    return lisa_modem_get_imei_on(s_default_modem, imei, size);
+}
+
+bool lisa_modem_get_iccid(char *iccid, size_t size)
+{
+    return lisa_modem_get_iccid_on(s_default_modem, iccid, size);
+}
+
+bool lisa_modem_get_signal_quality(int *rssi, int *ber)
+{
+    return lisa_modem_get_signal_quality_on(s_default_modem, rssi, ber);
 }
 
 int lisa_modem_socket_open(int domain, int type, int protocol)
@@ -2127,6 +2277,8 @@ bool lisa_modem_module_init(const char *uart_dev)
     }
 
     if (lisa_modem_register_default_netdev(s_default_modem->name) != 0) {
+        s_default_modem->status.last_error = LISA_MODEM_ERR_NETDEV_REGISTER_FAILED;
+        lisa_modem_publish_status(s_default_modem, &s_default_modem->status);
         lisa_modem_destroy(s_default_modem);
         s_default_modem = NULL;
         return false;

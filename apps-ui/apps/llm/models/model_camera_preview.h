@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "voice_msg_structure.h"
+#include "voice_intent_photo_flow.h"
 
 typedef enum {
     MODEL_CAMERA_PREVIEW_SOURCE_NONE = 0,

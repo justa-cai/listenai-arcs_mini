@@ -245,6 +245,7 @@ typedef struct sensor_s {
     int  (*set_vflip)           (sensor_t *sensor, int enable);
     int  (*set_window)          (sensor_t *sensor, int16_t x, int16_t y, uint16_t w, uint16_t h);
     int  (*get_window)          (sensor_t *sensor, uint16_t *w, uint16_t *h);
+    int  (*set_subsample)       (sensor_t *sensor, uint8_t row_ratio, uint8_t col_ratio);
 
     int  (*set_aec2)            (sensor_t *sensor, int enable);
     int  (*set_awb_gain)        (sensor_t *sensor, int enable);
@@ -271,7 +272,9 @@ typedef struct sensor_s {
 
 
 uint8_t sensor_twi_read_reg8(uint8_t slv_addr, uint8_t reg);
+int sensor_twi_read_reg8_checked(uint8_t slv_addr, uint8_t reg, uint8_t *value);
 uint8_t sensor_twi_read_reg16(uint8_t slv_addr, uint16_t reg);
+int sensor_twi_probe_addr(uint8_t slv_addr);
 int sensor_twi_write_reg8(uint8_t slv_addr, uint8_t reg, uint8_t value);
 int sensor_twi_write_reg16(uint8_t slv_addr, uint16_t reg, uint8_t value);
 int sensor_twi_write_raw8(uint8_t slvaddr, uint8_t *values, int count);

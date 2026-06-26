@@ -1,0 +1,71 @@
+{
+    "flash_base": "0x30000000",
+    "images": [
+        {
+            "name": "boot",
+            "addr": "0x000000",
+            "file": "../arcs-mini/boot.bin",
+            "tags": ["lpk"]
+        },
+        {
+            "name": "boot_control",
+            "addr": "0x03E000",
+            "size": 4096,
+            "tags": []
+        },
+        {
+            "name": "ap",
+            "addr": "0x040000",
+            "file": "../arcs-mini/ap.bin",
+            "tags": ["lpk", "hex", "ota"]
+        },
+        {
+            "name": "tone",
+            "addr": "0x100000",
+            "file": "../arcs-mini/tone.bin",
+            "tags": ["lpk", "hex"]
+        },
+        {
+            "name": "wake_word",
+            "addr": "0x200000",
+            "file": "../arcs-mini/wake_word.bin",
+            "tags": ["lpk", "hex"]
+        },
+        {
+            "name": "emoji",
+            "addr": "0x380000",
+            "file": "../arcs-mini/emoji.bin",
+            "tags": ["lpk", "hex"]
+        },
+        {
+            "name": "respak",
+            "addr": "0x440000",
+            "file": "../arcs-mini/respak.bin",
+            "tags": ["lpk", "hex"]
+        },
+        {
+            "name": "app",
+            "addr": "0x600000",
+            "file": "${BUILD_DIR}/arcs-mini.bin",
+            "tags": ["lpk", "hex", "ota"]
+        },
+        {
+            "name": "ota",
+            "addr": "0xA00000",
+            "size": 5242880,
+            "tags": []
+        },
+        {
+            "name": "kv",
+            "addr": "0xF00000",
+            "size": 1048576,
+            "tags": []
+        }
+    ],
+    "lpk": {},
+    "hex": {},
+    "ota": {
+        "app_name": "arcs-mini_v3",
+        "staging_partition": "ota"
+    }
+}

@@ -21,17 +21,25 @@ typedef struct pa_manager_s {
 
 static pa_manager_t *s_pa_hdl = NULL;
 
-#ifdef CONFIG_BOARD_ARCS_MINI
-#include "pinmux.h"
+#if defined(CONFIG_BOARD_ARCS_MINI)
+#include "board.h"
+#if defined(CONFIG_BOARD_ARCS_MINI_V3)
+#define PA_CONTROL_DISABLED 1
+#else
+#define PA_CONTROL_DISABLED 0
 #define PA_CONTROL_IO_PAD 	CSK_IOMUX_PAD_A
 #define PA_CONTROL_IO_NUM   PA_EN_PIN
+#endif
 #else // CONFIG_BOARD_ARCS_MINI
+#define PA_CONTROL_DISABLED 0
 #define PA_CONTROL_IO_PAD 	CONFIG_PA_PORT
 #define PA_CONTROL_IO_NUM  	CONFIG_PA_PIN
 #define PA_CONTROL_IO_FUNC  CONFIG_PA_FUNC
 #endif // CONFIG_BOARD_ARCS_MINI
 
+#if !PA_CONTROL_DISABLED
 #define PA_CONTROL_IO_POS  	(1 << PA_CONTROL_IO_NUM)
+#endif
 
 #define PA_OUT_ON         	(1)
 #define PA_OUT_OFF         	(0)
@@ -41,6 +49,10 @@ static void *PA_DRV_HANDLE = NULL;
 void pa_manager_pre_init()
 {
 	LISA_LOGI(TAG, "pa manager pre init");
+#if PA_CONTROL_DISABLED
+	LISA_LOGI(TAG, "PA GPIO control disabled on this board");
+	return;
+#endif
 	PA_DRV_HANDLE = (PA_CONTROL_IO_PAD == CSK_IOMUX_PAD_A) ? GPIOA() : GPIOB();	
 
 #ifndef CONFIG_BOARD_ARCS_MINI
@@ -55,6 +67,10 @@ void pa_manager_pre_init()
 
 int pa_manager_onoff(int onoff)
 {
+#if PA_CONTROL_DISABLED
+	(void)onoff;
+	return 0;
+#endif
 	void *caller = __builtin_return_address(0);
 	
 	if (PA_DRV_HANDLE != NULL) {

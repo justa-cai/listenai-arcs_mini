@@ -250,12 +250,12 @@ static void app_datas_load_from_lisa_kv(void)
     }
     g_app_datas->voice_work_mode = work_mode;
 
-    int network_mode = SYS_NETWORK_MODE_WIFI_PREFERRED;
+    int network_mode = SYS_NETWORK_MODE_WIFI;
     r = lisa_kv_get_int(KV_KEY_NETWORK_MODE, &network_mode);
     if (r != 0 ||
-        (network_mode != SYS_NETWORK_MODE_WIFI_PREFERRED &&
-         network_mode != SYS_NETWORK_MODE_MODEM_PREFERRED)) {
-        network_mode = SYS_NETWORK_MODE_WIFI_PREFERRED;
+        (network_mode != SYS_NETWORK_MODE_WIFI &&
+         network_mode != SYS_NETWORK_MODE_MODEM)) {
+        network_mode = SYS_NETWORK_MODE_WIFI;
     }
     g_app_datas->network_mode = (uint8_t)network_mode;
     g_app_datas->active_bearer = SYS_NETWORK_BEARER_NONE;

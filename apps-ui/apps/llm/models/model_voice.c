@@ -16,13 +16,14 @@
 #include "log_upload.h"
 #endif
 #include "voice_msg.h"
+#include "voice_intent_photo_flow.h"
 #include "voice_cloud.h"
 #include "lisa_kv.h"
 #include "kv.h"
 #if CONFIG_OTA
 #include "kv_sys.h"
 #endif
-#include "img_helper.h"
+#include "img_jpeg.h"
 #include "async_task.h"
 #include "cJSON.h"
 #include "lisa_ui_nav_scr_ids.h"
@@ -46,6 +47,7 @@ struct model_voice_context {
     uint32_t running: 1;
     uint32_t tts_playing: 1;
     uint32_t tts_pending: 1;
+    uint32_t music_playing: 1;
     uint32_t pushup_tts: 1;
     uint32_t img_rec_in_progress: 1;
 
@@ -638,7 +640,7 @@ static void voice_app_camera_preview_start(void *unused, uint32_t msg_id, void *
     }
 
     LISA_UI_INVOKE_UI_ARG_PTR(req, sizeof(*req), {
-        bool wants_url = _invoke_req->mode == VOICE_MSG_CAMERA_PREVIEW_MODE_MCP_PHOTO &&
+        bool wants_url = _invoke_req->mode == CAMERA_PREVIEW_MODE_MCP &&
                          _invoke_req->sync;
 
         if (wants_url) {
@@ -900,6 +902,32 @@ static void voice_cloud_standby_texts_received(void *unused, uint32_t msg_id, vo
 
 #endif
 
+static void voice_cloud_music_name_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    LISA_UI_INVOKE_UI_ARG_PTR(data, len, {
+        model_voice_ctx.music_playing = (_invoke_data && _invoke_len > 0) ? 1 : 0;
+
+        if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_standby_text_update) {
+            if (_invoke_data && _invoke_len > 0) {
+                char buf[256];
+                const char *name = (const char *)_invoke_data;
+                size_t name_len = strnlen(name, _invoke_len);
+                if (name_len > sizeof(buf) - 5) {
+                    name_len = sizeof(buf) - 5;
+                }
+
+                snprintf(buf, sizeof(buf), "\xE2\x99\xAA %.*s", (int)name_len, name);
+                model_voice_ctx.cbs->on_standby_text_update(model_voice_ctx.arg, buf, false);
+            } else {
+                model_voice_ctx.cbs->on_standby_text_update(model_voice_ctx.arg, NULL, false);
+            }
+        }
+    });
+}
 
 #ifdef CONFIG_OTA
 static void voice_cloud_ota_state_change(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -1038,6 +1066,7 @@ int model_voice_init(void)
     voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, voice_app_camera_preview_exit, NULL);
     voice_msg_sub(VOICE_MSG_APP_BATTERY_QUERY_SHOW, voice_app_battery_query_show, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_STANDBY_TEXTS, voice_cloud_standby_texts_received, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_MUSIC_NAME, voice_cloud_music_name_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SHOW_QRCODE, voice_cloud_show_qrcode_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_OPEN_INFO, voice_cloud_open_info_received, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_RESOURCE_UPDATE_REBOOT, voice_cloud_resource_update_reboot_received, NULL);
@@ -1101,6 +1130,11 @@ uint8_t model_voice_tts_is_playing(void)
 uint8_t model_voice_tts_is_pending(void)
 {
     return (uint8_t)model_voice_ctx.tts_pending;
+}
+
+uint8_t model_voice_music_is_playing(void)
+{
+    return (uint8_t)model_voice_ctx.music_playing;
 }
 
 const char *model_voice_last_iat_text_get(void)
@@ -1287,7 +1321,7 @@ static void async_task_img_upload(void *p, bool *should_stop)
         return;
     }
 
-    int ret = img_helper_rgb565_to_jpeg(msg->data, msg->len, msg->w, msg->h, &jpeg_data, &jpeg_len);
+    int ret = image_rgb565_to_jpeg(msg->data, msg->len, msg->w, msg->h, &jpeg_data, &jpeg_len);
     if (ret != 0 || !jpeg_data) {
         LISA_UI_LOGE("Failed to encode JPEG: %d", ret);
         return;
@@ -1297,7 +1331,7 @@ static void async_task_img_upload(void *p, bool *should_stop)
 
     if (voice_img_upload_should_cancel(msg, should_stop)) {
         LISA_UI_LOGI("image upload task canceled after jpeg encode, seq=%u", msg->upload_seq);
-        img_helper_jpeg_free(jpeg_data);
+        image_jpeg_free(jpeg_data);
         return;
     }
 
@@ -1311,7 +1345,7 @@ static void async_task_img_upload(void *p, bool *should_stop)
         };
         if (voice_img_upload_should_cancel(msg, should_stop)) {
             LISA_UI_LOGI("image recognition canceled before cloud invoke, seq=%u", msg->upload_seq);
-            img_helper_jpeg_free(jpeg_data);
+            image_jpeg_free(jpeg_data);
             return;
         }
         int r = voice_invoke_sync(voice_img_rec, &sync_msg, sizeof(struct voice_img_cloud_sync_msg),
@@ -1322,7 +1356,7 @@ static void async_task_img_upload(void *p, bool *should_stop)
 
         if (voice_img_upload_should_cancel(msg, should_stop)) {
             LISA_UI_LOGI("jpeg upload canceled before request, seq=%u", msg->upload_seq);
-            img_helper_jpeg_free(jpeg_data);
+            image_jpeg_free(jpeg_data);
             return;
         }
 
@@ -1332,7 +1366,7 @@ static void async_task_img_upload(void *p, bool *should_stop)
             if (url) {
                 voice_cloud_jpeg_img_url_free(url);
             }
-            img_helper_jpeg_free(jpeg_data);
+            image_jpeg_free(jpeg_data);
             return;
         }
 
@@ -1356,7 +1390,7 @@ static void async_task_img_upload(void *p, bool *should_stop)
         }
     }
 
-    img_helper_jpeg_free(jpeg_data);
+    image_jpeg_free(jpeg_data);
 }
 
 static void voice_app_camera_preview_exit(void *unused, uint32_t msg_id, void *data, uint32_t len,

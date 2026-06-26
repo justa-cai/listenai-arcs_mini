@@ -183,6 +183,9 @@ static void battery_voltage_sample_cb(struct lisa_timer *timer)
 {
     uint8_t sampled_percentage = battery_get_pct_raw();
     battery_status_t status    = battery_get_status();
+#ifdef CONFIG_LISA_CH32V003_ADC
+    (void)battery_get_temp_adc_raw();
+#endif
     bool is_charging           = (status == BATTERY_STATUS_CHARGING || status == BATTERY_STATUS_CHARGE_DONE);
     uint8_t raw_percentage     = percentage_debounce_filter(sampled_percentage);
 

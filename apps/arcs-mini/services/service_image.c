@@ -1,10 +1,16 @@
+#include "stdint.h"
+#include "stdbool.h"
+
 #define TAG "service_image"
 
-#include "service_image.h"
-#include "lisa_mutex.h"
 #include "lisa_log.h"
+#include "lisa_mutex.h"
 
 #include "voice_msg.h"
+#include "service_image.h"
+
+/* ---- 模块级状态 --------------------------------------------------------- */
+
 typedef struct {
     bool inited;
     enum {
@@ -16,6 +22,8 @@ typedef struct {
 } service_image_ctx_t;
 
 static service_image_ctx_t g_service_image = {0};
+
+/* ---- 公开 API ----------------------------------------------------------- */
 
 int service_image_init(void)
 {
@@ -47,6 +55,12 @@ void service_image_waiting_start(void)
     LOGI("image waiting start");
 }
 
+/*
+ * 取消当前图片等待状态，并通知云端丢弃待发送的图片。
+ *
+ * 在按键、唤醒等用户主动交互事件发生时调用，确保过时的图片不会
+ * 被注入到新的对话上下文中。
+ */
 void service_image_waiting_cancel(void)
 {
     if (!g_service_image.inited || !g_service_image.lock) {
@@ -65,6 +79,12 @@ void service_image_waiting_cancel(void)
     LOGI("image waiting cancel, drop next image");
 }
 
+/*
+ * 查询当前是否允许发送图片。
+ *
+ * 仅在 WAITING 或 INIT 状态返回 true，CANCELED 状态返回 false。
+ * 调用后会重置状态为 INIT，因此每次图片发送前只能调用一次。
+ */
 bool service_image_waiting_get(void)
 {
     bool allowed = false;

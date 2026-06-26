@@ -411,6 +411,22 @@ int acomp_wakeup_set_algo_mode(acomp_wakeup_algo_mode_e mode)
     return ret;
 }
 
+int acomp_wakeup_set_timeout(uint32_t timeout_ms)
+{
+    LISA_LOGI(TAG, "acomp wakeup set timeout enter, timeout_ms=%u", timeout_ms);
+
+    wakeup_ipc_control_subcmd_timeout_set_t timeout_set;
+    timeout_set.timeout_ms = timeout_ms;
+
+    int ret = acomp_wakeup_control_subcmd(WAKEUP_IPC_CONTROL_SUBCMD_TIMEOUT_SET, &timeout_set, sizeof(wakeup_ipc_control_subcmd_timeout_set_t));
+    if (ret != ACOMP_ERR_OK) {
+        LISA_LOGE(TAG, "acomp wakeup set timeout failed!");
+    }
+
+    LISA_LOGI(TAG, "acomp wakeup set timeout exit");
+    return ret;
+}
+
 int acomp_wakeup_set_threshold(acomp_wakeup_threshold_level_e level)
 {
     LISA_LOGI(TAG, "acomp wakeup set threshold enter, level=%d", level);

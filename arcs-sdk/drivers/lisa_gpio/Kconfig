@@ -22,3 +22,12 @@ config LISA_GPIOB
 	bool "Enable LISA GPIO Device PB"
 
 endif # LISA_GPIO_DEVICE
+
+if LISA_CH32V003
+
+config LISA_CH32V003_GPIO
+	bool "Enable CH32V003 GPIO child devices"
+	default y
+	select LISA_GPIO_DEVICE
+
+endif # LISA_CH32V003

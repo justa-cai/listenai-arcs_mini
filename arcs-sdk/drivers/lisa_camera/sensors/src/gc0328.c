@@ -177,30 +177,48 @@ static int set_pixformat(sensor_t *sensor, pixformat_t pixformat)
     return ret;
 }
 
-
+/* ---- set_window: crop/读出窗口 (0x50 + 0x51-0x58) ------------------------- */
 static int set_window(sensor_t *sensor, int16_t x, int16_t y, uint16_t w, uint16_t h)
 {
     int ret = 0;
-
-    uint16_t row_s = (uint16_t)y;
-    uint16_t col_s = (uint16_t)x;
-
     ret |= write_reg(sensor->slv_addr, RESET_RELATED, 0x00);
-    ret |= write_reg(sensor->slv_addr, P0_ROW_START_HIGH, H8(row_s)); // Row_start[8]
-    ret |= write_reg(sensor->slv_addr, P0_ROW_START_LOW, L8(row_s)); // Row_start[7:0]
-    ret |= write_reg(sensor->slv_addr, P0_COLUMN_START_HIGH, H8(col_s)); // Column_start[9:8]
-    ret |= write_reg(sensor->slv_addr, P0_COLUMN_START_LOW, L8(col_s)); // Column_start[7:0]
-    ret |= write_reg(sensor->slv_addr, P0_WINDOW_HEIGHT_HIGH, H8(h)); //window_height [8]
-    ret |= write_reg(sensor->slv_addr, P0_WINDOW_HEIGHT_LOW, L8(h)); //window_height [7:0]
-    ret |= write_reg(sensor->slv_addr, P0_WINDOW_WIDTH_HIGH, H8(w)); //window_width [9:8]
-    ret |= write_reg(sensor->slv_addr, P0_WINDOW_WIDTH_LOW, L8(w)); //window_width [7:0]
-
+    ret |= write_reg(sensor->slv_addr, P0_WIN_MODE, 0x01);
+    ret |= write_reg(sensor->slv_addr, P0_OUT_WIN_Y1_HIGH, H8((uint16_t)y));
+    ret |= write_reg(sensor->slv_addr, P0_OUT_WIN_Y1_LOW,  L8((uint16_t)y));
+    ret |= write_reg(sensor->slv_addr, P0_OUT_WIN_X1_HIGH, H8((uint16_t)x));
+    ret |= write_reg(sensor->slv_addr, P0_OUT_WIN_X1_LOW,  L8((uint16_t)x));
+    ret |= write_reg(sensor->slv_addr, P0_OUT_WIN_HEIGHT_HIGH, H8(h));
+    ret |= write_reg(sensor->slv_addr, P0_OUT_WIN_HEIGHT_LOW,  L8(h));
+    ret |= write_reg(sensor->slv_addr, P0_OUT_WIN_WIDTH_HIGH,  H8(w));
+    ret |= write_reg(sensor->slv_addr, P0_OUT_WIN_WIDTH_LOW,   L8(w));
     if (ret == 0) {
-        CAMERA_LOGD(TAG"Set framesize to: %ux%u", w, h);
+        CAMERA_LOGD(TAG"crop window %ux%u@(%d,%d)", w, h, x, y);
     }
+    return ret;
+}
 
-    print_regs(sensor->slv_addr);
+/* ---- set_subsample: 跳采比例 (0x59) + 使能 (0x5A) ------------------------- */
 
+static int set_subsample(sensor_t *sensor, uint8_t row_ratio, uint8_t col_ratio)
+{
+    if (row_ratio < 1 || row_ratio > 7) row_ratio = 1;
+    if (col_ratio < 1 || col_ratio > 7) col_ratio = 1;
+
+    int ret = 0;
+    ret |= write_reg(sensor->slv_addr, RESET_RELATED, 0x00);
+    /* 0x59: [7:4]=row ratio, [3:0]=col ratio */
+    ret |= write_reg(sensor->slv_addr, P0_SUBSAMPLE_RATIO, (row_ratio << 4) | col_ratio);
+    /* ROW_EN | COL_EN: 行列跳采使能
+     * NEIGHBOR_AVG:     邻域平均, 减少跳采锯齿
+     * EXTEND_PCLK:      扩展 PCLK 脉宽, 保证 DVP 采样稳定 */
+    ret |= write_reg(sensor->slv_addr, P0_SUBSAMPLE_MODE,
+                     P0_SUBSAMPLE_MODE_ROW_EN
+                     | P0_SUBSAMPLE_MODE_COL_EN
+                     | P0_SUBSAMPLE_MODE_NEIGHBOR_AVG
+                     | P0_SUBSAMPLE_MODE_EXTEND_PCLK);
+    if (ret == 0) {
+        CAMERA_LOGD(TAG"subsample row=1/%u col=1/%u", row_ratio, col_ratio);
+    }
     return ret;
 }
 
@@ -235,15 +253,29 @@ static int get_window(sensor_t *sensor, uint16_t *w, uint16_t *h)
 {
     int ret = 0;
     uint8_t h_high, h_low, w_high, w_low;
+    uint8_t ratio_reg;
 
+    /* 读取 crop 窗口尺寸 (0x55-0x58) 和跳采比例 (0x59)，
+     * 返回跳采后的有效输出分辨率 = crop / ratio */
     ret |= write_reg(sensor->slv_addr, RESET_RELATED, 0x00);
-    h_high = read_reg(sensor->slv_addr, P0_WINDOW_HEIGHT_HIGH);
-    h_low = read_reg(sensor->slv_addr, P0_WINDOW_HEIGHT_LOW);
-    w_high = read_reg(sensor->slv_addr, P0_WINDOW_WIDTH_HIGH);
-    w_low = read_reg(sensor->slv_addr, P0_WINDOW_WIDTH_LOW);
 
-    *w = (w_high << 8) | w_low;
-    *h = (h_high << 8) | h_low;
+    h_high = read_reg(sensor->slv_addr, P0_OUT_WIN_HEIGHT_HIGH);
+    h_low  = read_reg(sensor->slv_addr, P0_OUT_WIN_HEIGHT_LOW);
+    w_high = read_reg(sensor->slv_addr, P0_OUT_WIN_WIDTH_HIGH);
+    w_low  = read_reg(sensor->slv_addr, P0_OUT_WIN_WIDTH_LOW);
+    ratio_reg = read_reg(sensor->slv_addr, P0_SUBSAMPLE_RATIO);
+
+    uint16_t crop_w = (w_high << 8) | w_low;
+    uint16_t crop_h = (h_high << 8) | h_low;
+
+    /* 0x59[7:4]=row, [3:0]=col */
+    uint8_t row_ratio = (ratio_reg >> 4) & 0x0F;
+    uint8_t col_ratio = ratio_reg & 0x0F;
+    if (row_ratio == 0) row_ratio = 1;
+    if (col_ratio == 0) col_ratio = 1;
+
+    *w = crop_w / col_ratio;
+    *h = crop_h / row_ratio;
 
     return ret;
 }
@@ -411,6 +443,7 @@ int gc0328_init(sensor_t *sensor)
     sensor->set_bpc = set_dummy;
     sensor->set_wpc = set_dummy;
     sensor->set_window = set_window;
+    sensor->set_subsample = set_subsample;
 
     sensor->get_window = get_window;
     sensor->get_pixformat = get_pixformat;

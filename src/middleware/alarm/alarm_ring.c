@@ -39,6 +39,14 @@ typedef struct {
 
 static alarm_ring_ctx_t s_alarm_ring_ctx __psram_bss__ = {0};
 
+static void alarm_ring_set_text(const char *text)
+{
+    memset(s_alarm_ring_ctx.text, 0, sizeof(s_alarm_ring_ctx.text));
+    if (text) {
+        strncpy(s_alarm_ring_ctx.text, text, sizeof(s_alarm_ring_ctx.text) - 1);
+    }
+}
+
 static int alarm_ring_get_temp_volume(void)
 {
     int volume = ALARM_RING_TEMP_VOLUME_DEFAULT;
@@ -54,7 +62,7 @@ static void alarm_ring_timeout_cb(struct lisa_timer *timer)
 {
     (void)timer;
 
-    LISA_LOGI(TAG, "alarm ring timeout 60s, auto-stopping alarm");
+    LISA_LOGI(TAG, "alarm ring timeout, auto-stopping alarm");
 
     // 停止响铃
     alarm_ring_stop();
@@ -98,18 +106,25 @@ static void alarm_ring_on_trigger(void *unused, uint32_t msg_id, void *data, uin
         return;
     }
 
-    /* Stop current voice session first to avoid ASR/TTS racing with alarm ringing,
-     * but keep content playback resumable after the alarm ends. */
-    voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, NULL, 0);
 
-    /* 如果当前有闹钟正在响铃，先处理它的后续操作（删除单次闹钟或创建下次闹钟）*/
+    /* 如果当前有闹钟正在响铃，重启响铃播放链路但不发布 ALARM_STOPPED。
+     * 第二个闹钟仍然需要重新走 TONE_FIRST -> TTS -> TONE_LOOP；
+     * 直接 alarm_ring_stop() 会 pop ALARM intent，导致底层 MUSIC 短暂恢复。 */
     if (alarm_ring_is_active()) {
-        LISA_LOGI(TAG, "new alarm triggered while another is ringing, processing current alarm first");
-        alarm_ring_stop();
-
-        /* 处理当前闹钟的后续操作 */
-        extern void alarm_handle_stop_and_next(void);
-        alarm_handle_stop_and_next();
+        LISA_LOGI(TAG, "new alarm triggered while another is ringing, restart ring content");
+        alarm_ring_set_text((const char *)alarm->text);
+        if (s_alarm_ring_ctx.timeout_timer) {
+            lisa_timer_change_period(s_alarm_ring_ctx.timeout_timer, ALARM_RING_DURATION_MS);
+            lisa_timer_start(s_alarm_ring_ctx.timeout_timer);
+        }
+        if (s_alarm_ring_ctx.stop_cb) {
+            s_alarm_ring_ctx.stop_cb();
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+        if (s_alarm_ring_ctx.play_cb) {
+            s_alarm_ring_ctx.play_cb(s_alarm_ring_ctx.text);
+        }
+        return;
     }
 
     vTaskDelay(pdMS_TO_TICKS(200));
@@ -137,10 +152,7 @@ int alarm_ring_init(alarm_ring_play_once_cb_t play_cb, alarm_ring_force_stop_cb_
 int alarm_ring_start(const char *text)
 {
     // 更新文本内容
-    memset(s_alarm_ring_ctx.text, 0, sizeof(s_alarm_ring_ctx.text));
-    if (text) {
-        strncpy(s_alarm_ring_ctx.text, text, sizeof(s_alarm_ring_ctx.text) - 1);
-    }
+    alarm_ring_set_text(text);
 
     // 如果已经在响铃状态，只重置定时器重新计时，不停止音频
     if (s_alarm_ring_ctx.state == ALARM_RING_STATE_RINGING) {
@@ -183,6 +195,8 @@ void alarm_ring_stop(void)
     if (s_alarm_ring_ctx.stop_cb) {
         s_alarm_ring_ctx.stop_cb();
     }
+
+    voice_msg_pub(VOICE_MSG_ALARM_STOPPED, NULL, 0);
 
     service_volume_restore_from_kv();
 }

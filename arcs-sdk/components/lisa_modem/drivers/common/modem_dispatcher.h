@@ -22,7 +22,9 @@ typedef enum {
     MODEM_DISPATCHER_CONTROL_CONNECT = 0,
     MODEM_DISPATCHER_CONTROL_CLOSE,
     MODEM_DISPATCHER_CONTROL_DNS_RESOLVE,
-    MODEM_DISPATCHER_CONTROL_SIGNAL_QUALITY,
+    MODEM_DISPATCHER_CONTROL_GET_IMEI,
+    MODEM_DISPATCHER_CONTROL_GET_ICCID,
+    MODEM_DISPATCHER_CONTROL_GET_SIGNAL_QUALITY,
     MODEM_DISPATCHER_CONTROL_UPDATE,
     MODEM_DISPATCHER_CONTROL_RECOVERY,
 } modem_dispatcher_control_kind_t;
@@ -67,7 +69,6 @@ typedef struct {
     const char *task_name;
     uint16_t task_stack_size;
     uint8_t task_priority;
-    uint16_t loop_delay_ms;
 } modem_dispatcher_config_t;
 
 modem_dispatcher_t *modem_dispatcher_create(const modem_dispatcher_config_t *config);
@@ -82,9 +83,6 @@ bool modem_dispatcher_mark_tx_ready(modem_dispatcher_t *dispatcher, int endpoint
 bool modem_dispatcher_mark_rx_ready(modem_dispatcher_t *dispatcher, int endpoint_id, uint32_t generation);
 
 modem_dispatcher_service_result_t modem_dispatcher_service_once(modem_dispatcher_t *dispatcher);
-
-int modem_dispatcher_set_loop_delay(modem_dispatcher_t *dispatcher, uint16_t delay_ms);
-uint16_t modem_dispatcher_get_loop_delay(modem_dispatcher_t *dispatcher);
 
 #ifdef __cplusplus
 }

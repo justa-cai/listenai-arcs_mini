@@ -49,7 +49,7 @@ static void power_gpio_init(void)
     lisa_gpio_configure(power_en_dev, POWER_EN_PIN, en_cfg);
 
     usb_det_dev = lisa_device_get(USB_DET_PAD);
-    lisa_gpio_configure(usb_det_dev, USB_DET_PIN, LISA_GPIO_CONFIG_INPUT_PULLUP);
+    lisa_gpio_configure(usb_det_dev, USB_DET_PIN, LISA_GPIO_CONFIG_INPUT_PULLDOWN);
 
     LISA_LOGI(TAG, "Power GPIO initialized - Button: %s(%d), Latch: %s(%d), USB Detect: %s(%d)", POWER_KEY_PAD,
               POWER_KEY_PIN, POWER_EN_PAD, POWER_EN_PIN, USB_DET_PAD, USB_DET_PIN);

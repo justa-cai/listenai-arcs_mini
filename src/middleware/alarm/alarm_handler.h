@@ -17,11 +17,13 @@ extern "C" {
 void alarm_handler_init(ls_alarm_user_callback_t user_callback);
 
 /**
- * @brief 处理闹钟触发
- * @param node 触发的闹钟节点
+ * @brief 异步处理闹钟触发
+ * @param fired_ts 触发的闹钟时间戳
+ * @param cloud_id 云端闹钟 ID
  * @param now_ts 当前时间戳
+ * @return 0 投递成功，非 0 投递失败
  */
-void alarm_process_triggered(struct ls_alarm *node, int64_t now_ts);
+int alarm_process_triggered_async(uint64_t fired_ts, uint64_t cloud_id, int64_t now_ts);
 
 /**
  * @brief 处理用户单击稍后提醒

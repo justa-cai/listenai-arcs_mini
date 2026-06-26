@@ -14,6 +14,7 @@
 
 #if CONFIG_LISA_MODEM
 #include "lisa_modem_module.h"
+#include "pinmux.h"
 #endif
 
 #define TAG "sys.net.mgr"
@@ -41,8 +42,8 @@ static sys_network_manager_ctx_t s_mgr;
 
 static bool sys_network_mode_is_valid(sys_network_mode_t mode)
 {
-    return mode == SYS_NETWORK_MODE_WIFI_PREFERRED ||
-           mode == SYS_NETWORK_MODE_MODEM_PREFERRED;
+    return mode == SYS_NETWORK_MODE_WIFI ||
+           mode == SYS_NETWORK_MODE_MODEM;
 }
 
 static void sys_network_sync_app_data(void)
@@ -174,20 +175,19 @@ static void sys_network_apply_mode(sys_network_mode_t mode, bool persist)
     voice_msg_pub(VOICE_MSG_SYSTEM_NETWORK_SWITCHING, NULL, 0);
     voice_cloud_disconnect();
 
-    if (mode == SYS_NETWORK_MODE_WIFI_PREFERRED) {
+    if (mode == SYS_NETWORK_MODE_WIFI) {
         /* 严格 WiFi：不起 modem，也不回落 */
         sys_network_stop_bearer(SYS_NETWORK_BEARER_MODEM);
         success = sys_network_start_bearer(SYS_NETWORK_BEARER_WIFI);
     } else {
-        /* MODEM 优先：先 modem，起不来就按 WiFi 优先的逻辑走
-         * 注意 current_mode 保持 MODEM_PREFERRED 不变，下次还是先试 modem */
+        /* 严格 MODEM：不起 WiFi，也不回落 */
         sys_network_stop_bearer(SYS_NETWORK_BEARER_WIFI);
+#if CONFIG_LISA_MODEM
+        lisa_uart2_pinmux();
+#endif
         success = sys_network_start_bearer(SYS_NETWORK_BEARER_MODEM);
-        if (!success && s_mgr.wifi_available) {
-            LISA_LOGW(TAG, "modem unavailable, fallback to WiFi bearer");
-            success = sys_network_start_bearer(SYS_NETWORK_BEARER_WIFI);
-        } else if (!success) {
-            LISA_LOGW(TAG, "WiFi fallback is unavailable");
+        if (!success) {
+            LISA_LOGW(TAG, "modem unavailable");
         }
     }
 
@@ -259,7 +259,7 @@ int sys_network_manager_init(bool wifi_available)
 
     memset(&s_mgr, 0, sizeof(s_mgr));
     s_mgr.wifi_available = wifi_available;
-    s_mgr.current_mode = SYS_NETWORK_MODE_WIFI_PREFERRED;
+    s_mgr.current_mode = SYS_NETWORK_MODE_WIFI;
 
     struct app_datas *app_datas = get_app_datas();
     if (app_datas != NULL && sys_network_mode_is_valid((sys_network_mode_t)app_datas->network_mode)) {
@@ -302,7 +302,7 @@ int sys_network_connect_wifi(const char *ssid, const char *pwd, const char *bssi
         return -1;
     }
 
-    /* 当前跑在 modem 上：只存凭据不切 bearer，等用户显式切回 WiFi 优先 */
+    /* 当前跑在 modem 上：只存凭据不切 bearer，等用户显式切回 WiFi */
     if (s_mgr.active_bearer == SYS_NETWORK_BEARER_MODEM) {
         LISA_LOGI(TAG, "modem bearer is active, save WiFi credentials only");
         return sys_wifi_save_ap(ssid, pwd, bssid);
@@ -322,9 +322,9 @@ int sys_network_toggle_mode(bool persist)
         return -1;
     }
 
-    sys_network_mode_t next = (s_mgr.current_mode == SYS_NETWORK_MODE_WIFI_PREFERRED)
-                                  ? SYS_NETWORK_MODE_MODEM_PREFERRED
-                                  : SYS_NETWORK_MODE_WIFI_PREFERRED;
+    sys_network_mode_t next = (s_mgr.current_mode == SYS_NETWORK_MODE_WIFI)
+                                  ? SYS_NETWORK_MODE_MODEM
+                                  : SYS_NETWORK_MODE_WIFI;
     return sys_network_request_mode(next, persist);
 }
 
@@ -381,16 +381,3 @@ bool sys_network_get_signal_quality(int *rssi, int *ber)
     }
 }
 
-int sys_network_on_cloud_auth_success(void)
-{
-    if (!s_mgr.inited || s_mgr.active_bearer != SYS_NETWORK_BEARER_MODEM) {
-        return 0;
-    }
-
-#if CONFIG_LISA_MODEM
-    const lisa_modem_runtime_tuning_t tuning = LISA_MODEM_RUNTIME_TUNING_CLOUD_FAST();
-    return lisa_modem_set_runtime_tuning(&tuning);
-#else
-    return -1;
-#endif
-}

@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "at_client.h"
+#include "lisa_modem_status.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,45 +38,16 @@ void lisa_modem_destroy(lisa_modem_t *modem);
 
 lisa_modem_t *lisa_modem_get_default(void);
 at_client_t *lisa_modem_get_client(lisa_modem_t *modem);
-
-/* ===== Modem tuning profiles ===== */
-
-typedef struct {
-    uint16_t ml307_tcp_send_chunk_size;
-    uint16_t ml307_tcp_pull_chunk_size;
-    uint16_t ml307_send_chunk_delay_ms;
-    uint16_t at_rx_task_delay_ms;
-    uint16_t modem_dispatcher_delay_ms;
-} lisa_modem_tuning_profile_t;
-
-typedef lisa_modem_tuning_profile_t lisa_modem_runtime_tuning_t;
-
-#define LISA_MODEM_BOOT_TUNING_DEFAULT() {        \
-    .ml307_tcp_send_chunk_size = 730U,             \
-    .ml307_tcp_pull_chunk_size = 512U,             \
-    .ml307_send_chunk_delay_ms = 10U,              \
-    .at_rx_task_delay_ms = 0U,                     \
-    .modem_dispatcher_delay_ms = 50U,              \
-}
-
-#define LISA_MODEM_RUNTIME_TUNING_BOOT_DEFAULT() LISA_MODEM_BOOT_TUNING_DEFAULT()
-
-#define LISA_MODEM_RUNTIME_TUNING_CLOUD_FAST() { \
-    .ml307_tcp_send_chunk_size = 1460U,           \
-    .ml307_tcp_pull_chunk_size = 512U,            \
-    .ml307_send_chunk_delay_ms = 1U,              \
-    .at_rx_task_delay_ms = 0U,                    \
-    .modem_dispatcher_delay_ms = 30U,              \
-}
-
-int lisa_modem_set_runtime_tuning_on(lisa_modem_t *modem,
-                                     const lisa_modem_tuning_profile_t *tuning);
-int lisa_modem_set_runtime_tuning(const lisa_modem_tuning_profile_t *tuning);
+bool lisa_modem_is_present(void);
+bool lisa_modem_get_status_on(lisa_modem_t *modem, lisa_modem_status_t *status);
+bool lisa_modem_get_status(lisa_modem_status_t *status);
 
 /* ===== Instance APIs ===== */
 
-bool lisa_modem_get_signal_quality_on(lisa_modem_t *modem, int *rssi, int *ber);
 bool lisa_modem_dns_resolve_on(lisa_modem_t *modem, const char *domain, char *ip_addr, size_t size);
+bool lisa_modem_get_imei_on(lisa_modem_t *modem, char *imei, size_t size);
+bool lisa_modem_get_iccid_on(lisa_modem_t *modem, char *iccid, size_t size);
+bool lisa_modem_get_signal_quality_on(lisa_modem_t *modem, int *rssi, int *ber);
 
 int  lisa_modem_socket_open_on(lisa_modem_t *modem, int domain, int type, int protocol);
 bool lisa_modem_socket_connect_on(lisa_modem_t *modem, int sockfd, const struct sockaddr *addr, int addrlen);
@@ -96,8 +68,10 @@ int lisa_modem_getpeername_on(lisa_modem_t *modem, int sockfd, struct sockaddr *
 
 /* ===== Default Modem Compatibility APIs ===== */
 
-bool lisa_modem_get_signal_quality(int *rssi, int *ber);
 bool lisa_modem_dns_resolve(const char *domain, char *ip_addr, size_t size);
+bool lisa_modem_get_imei(char *imei, size_t size);
+bool lisa_modem_get_iccid(char *iccid, size_t size);
+bool lisa_modem_get_signal_quality(int *rssi, int *ber);
 
 int  lisa_modem_socket_open(int domain, int type, int protocol);
 bool lisa_modem_socket_connect(int sockfd, const struct sockaddr *addr, int addrlen);

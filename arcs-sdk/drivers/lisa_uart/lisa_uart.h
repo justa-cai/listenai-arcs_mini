@@ -152,6 +152,7 @@ typedef struct {
     int (*write_abort)(lisa_device_t *dev);
     uint32_t (*get_tx_count)(lisa_device_t *dev);
 #endif
+    int (*rx_wait_idle)(lisa_device_t *dev, uint32_t timeout_ms);
 } lisa_uart_api_t;
 
 /* ========================================================================
@@ -488,6 +489,32 @@ static inline uint32_t lisa_uart_get_tx_count(lisa_device_t *dev)
     return api->get_tx_count ? api->get_tx_count(dev) : 0;
 }
 #endif
+
+/**
+ * @brief 等待 UART RX 线路空闲
+ *
+ * 排空所有已缓冲的 RX 数据，直到线路进入空闲状态，
+ * 确认所有在途数据已接收完毕。用于 Flash 擦写前确保不会丢失数据。
+ *
+ * @param dev        UART 设备指针
+ * @param timeout_ms 最大等待时间（毫秒）
+ *
+ * @return LISA_DEVICE_OK         线路空闲，数据已全部收到
+ * @return LISA_DEVICE_ERR_TIMEOUT 超时未检测到空闲
+ * @return LISA_DEVICE_ERR_NOT_READY 设备未启用或未配置循环缓冲区
+ * @return LISA_DEVICE_ERR_INVALID 参数无效
+ * @return <0                    其他错误
+ *
+ * @note 必须启用了循环缓冲区的 UART 设备，调用期间缓冲区内的数据会被丢弃
+ */
+static inline int lisa_uart_rx_wait_idle(lisa_device_t *dev, uint32_t timeout_ms)
+{
+    if (!dev || !dev->api) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_uart_api_t *api = (lisa_uart_api_t *)dev->api;
+    return api->rx_wait_idle ? api->rx_wait_idle(dev, timeout_ms) : LISA_DEVICE_ERR_NOT_SUPPORT;
+}
 
 /* ========================================================================
  * 便捷宏定义

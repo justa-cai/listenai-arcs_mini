@@ -236,11 +236,9 @@ int wifi_storage_kv_save_list(wifi_storage_ctx_t *ctx, const wifi_storage_item_t
         }
         if (item->ap_info.pmk_valid) {
             ret = wifi_storage_kv_write_blob(idx, "pmk", item->ap_info.pmk, sizeof(item->ap_info.pmk));
-        } else {
-            ret = wifi_storage_kv_write_blob(idx, "pmk", NULL, 0);
-        }
-        if (ret != 0) {
-            return ret;
+            if (ret != 0) {
+                return ret;
+            }
         }
     }
 

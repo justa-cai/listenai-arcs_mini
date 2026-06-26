@@ -42,6 +42,12 @@ CONFIG_LISA_NET=y
 CONFIG_SAL_USING_POSIX=y
 ```
 
+## 传输速率
+http 拉流速率测试：
+ML307/串口AT/921600：文本格式传输：45KB/s左右，16进制格式传输：25KB/s左右。
+ec801e/USB/AT/：文本格式传输：145KB/s左右，16进制格式传输：28KB/s左右。
+USB/ECM:300~400KB/s
+
 ## 公开接口
 
 头文件：
@@ -58,7 +64,13 @@ bool lisa_modem_module_deinit(void);
 
 lisa_modem_t *lisa_modem_create_uart(const char *uart_dev, uint32_t baudrate);
 void lisa_modem_destroy(lisa_modem_t *modem);
+
+bool lisa_modem_is_present(void);
+bool lisa_modem_get_status(lisa_modem_status_t *status);
+bool lisa_modem_get_status_on(lisa_modem_t *modem, lisa_modem_status_t *status);
 ```
+
+`lisa_modem_get_status()` 返回默认 modem 的最近状态；如果初始化失败导致默认实例不存在，也会返回最近一次初始化失败快照。状态里只保留最终状态码，`LISA_MODEM_ERR_NOT_INITIALIZED` 表示尚未初始化，`LISA_MODEM_ERR_READY` 表示 4G 网络就绪。
 
 主推 socket 风格接口：
 

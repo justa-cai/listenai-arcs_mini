@@ -19,7 +19,7 @@
 #endif
 
 #define CAMERA_PREVIEW_COUNTDOWN_INTERVAL_MS 1000U
-#define CAMERA_PREVIEW_UPLOAD_TEXT_OFFSET_Y 18
+#define CAMERA_PREVIEW_UPLOAD_TEXT_OFFSET_Y 6
 
 static bool camera_preview_is_button_source(const model_camera_preview_t *preview)
 {
@@ -111,7 +111,7 @@ static void camera_preview_update_text(struct home_nav_scr_data *scr_data)
     if (camera_preview_is_button_source(&scr_data->camera_preview)) {
         if (model_camera_preview_is_captured(&scr_data->camera_preview)) {
             lisa_ui_llm_primary_set_status_text(scr_data->view, "拍照完成");
-            lisa_ui_llm_primary_set_content_text(scr_data->view, "正在上传照片...");
+            lisa_ui_llm_primary_set_content_text(scr_data->view, "\n正在上传照片...");
         } else {
             lisa_ui_llm_primary_set_status_text(scr_data->view, "拍照预览");
             lisa_ui_llm_primary_set_content_text(scr_data->view, "");
@@ -121,17 +121,17 @@ static void camera_preview_update_text(struct home_nav_scr_data *scr_data)
 
     if (model_camera_preview_is_captured(&scr_data->camera_preview)) {
         lisa_ui_llm_primary_set_status_text(scr_data->view, "拍照完成");
-        lisa_ui_llm_primary_set_content_text(scr_data->view, "正在上传照片...");
+        lisa_ui_llm_primary_set_content_text(scr_data->view, "\n正在上传照片...");
         return;
     }
 
     lisa_ui_llm_primary_set_status_text(scr_data->view, "拍照预览");
     if (model_camera_preview_countdown_remaining_get(&scr_data->camera_preview) > 0) {
-        snprintf(content, sizeof(content), "%u秒后自动拍照",
+        snprintf(content, sizeof(content), "\n%u秒后自动拍照",
                  (unsigned int)model_camera_preview_countdown_remaining_get(
                      &scr_data->camera_preview));
     } else {
-        strncpy(content, "正在拍照...", sizeof(content) - 1);
+        strncpy(content, "\n正在拍照...", sizeof(content) - 1);
     }
     lisa_ui_llm_primary_set_content_text(scr_data->view, content);
 }
@@ -329,7 +329,7 @@ static void camera_preview_capture_now(struct home_nav_scr_data *scr_data)
 
 #ifdef LISA_UI_PLATFORM_ARCS
     {
-        /* notify 会置 s_camera_capture_tts_resume.tone_active=true，等 tone 播完
+        /* notify 会置 s_camera_capture_tone_active=true，等 tone 播完
          * 由 on_tone_event 在 COMPLETED/STOPPED/ERROR 时清零；
          * 但 TONE_ID_73 资源缺失时 app_player_play 在 url=NULL 早退，
          * 不会触发任何 tone 事件，tone_active 永久挂死，会让随后到达的
@@ -338,7 +338,6 @@ static void camera_preview_capture_now(struct home_nav_scr_data *scr_data)
          * 先取 URL，确认非 NULL 再 notify + play。 */
         const char *tone_url = app_tone_get_url(TONE_ID_73);
         if (tone_url) {
-            voice_player_notify_camera_capture_tone_start();
             app_player_play(tone_player, tone_url);
         } else {
             LISA_UI_LOGW("Camera capture tone (id=%d) url is null, skip tone notify",
@@ -579,6 +578,24 @@ static void camera_preview_handle_exit(void *arg)
     if (!scr_data ||
         (!model_camera_preview_is_active(&scr_data->camera_preview) &&
          !camera_preview_is_camera_work_type(scr_data->work_type))) {
+        return;
+    }
+
+    if (model_camera_preview_keep_preview_alive(&scr_data->camera_preview)) {
+        LISA_UI_LOGI("photo preview exit, hide preview immediately");
+        home_reset(scr_data);
+        return;
+    }
+
+    /* 拍照完成后照片应保持可见，等 TTS 播完再隐藏。
+     * 用 work_type 兜底：即使 model 状态已被局部重置，只要处于拍照结果流中就保留照片。 */
+    if (model_camera_preview_is_result_active(&scr_data->camera_preview) ||
+        camera_preview_is_camera_work_type(scr_data->work_type)) {
+        LISA_UI_LOGI("voice photo: defer hide until result TTS finishes,"
+                     " result_active=%d work_type=%u",
+                     model_camera_preview_is_result_active(&scr_data->camera_preview),
+                     scr_data->work_type);
+        scr_data->camera_preview_result_pending = 1;
         return;
     }
 

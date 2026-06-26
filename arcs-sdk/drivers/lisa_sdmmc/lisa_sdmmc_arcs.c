@@ -193,9 +193,14 @@ static int arcs_sdmmc_read(lisa_device_t *dev, uint8_t *buff, uint32_t sector, u
 
             ret = gm_sdc_api_sdcard_sector_read(SD_PORT, current_sector, sectors_to_read, read_wrap_buffer);
             if (ret != 0) {
-                LISA_LOGE(LOG_TAG, "Disk read failed at sector %u, count %u: %d", current_sector, sectors_to_read, ret);
-                DEVICE_UNLOCK(priv);
-                return LISA_DEVICE_ERR_IO;
+                uint32_t reset_flag = 6; /* SDHCI_SOFTRST_CMD | SDHCI_SOFTRST_DAT */
+                gm_sdc_api_action(SD_PORT, GM_SDC_ACTION_SOFT_RESET, &reset_flag, NULL);
+                ret = gm_sdc_api_sdcard_sector_read(SD_PORT, current_sector, sectors_to_read, read_wrap_buffer);
+                if (ret != 0) {
+                    LISA_LOGE(LOG_TAG, "Disk read failed at sector %u, count %u: %d", current_sector, sectors_to_read, ret);
+                    DEVICE_UNLOCK(priv);
+                    return LISA_DEVICE_ERR_IO;
+                }
             }
 
             memcpy(dst_ptr, read_wrap_buffer, sectors_to_read * DISK_SECTOR_SIZE);
@@ -207,9 +212,14 @@ static int arcs_sdmmc_read(lisa_device_t *dev, uint8_t *buff, uint32_t sector, u
         /* 对齐缓冲区，直接读取 */
         ret = gm_sdc_api_sdcard_sector_read(SD_PORT, sector, count, buff);
         if (ret != 0) {
-            LISA_LOGE(LOG_TAG, "Disk read failed at sector %u, count %u: %d", sector, count, ret);
-            DEVICE_UNLOCK(priv);
-            return LISA_DEVICE_ERR_IO;
+            uint32_t reset_flag = 6; /* SDHCI_SOFTRST_CMD | SDHCI_SOFTRST_DAT */
+            gm_sdc_api_action(SD_PORT, GM_SDC_ACTION_SOFT_RESET, &reset_flag, NULL);
+            ret = gm_sdc_api_sdcard_sector_read(SD_PORT, sector, count, buff);
+            if (ret != 0) {
+                LISA_LOGE(LOG_TAG, "Disk read failed at sector %u, count %u: %d", sector, count, ret);
+                DEVICE_UNLOCK(priv);
+                return LISA_DEVICE_ERR_IO;
+            }
         }
         /* DMA 读取后 invalidate cache，确保 CPU 读取到最新数据 */
 #if CONFIG_DCACHE_ENABLE

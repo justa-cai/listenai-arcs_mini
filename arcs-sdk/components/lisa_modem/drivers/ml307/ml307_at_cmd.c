@@ -15,112 +15,38 @@
 #include "lisa_log.h"
 #include "lisa_modem_perf_log.h"
 
-#ifndef taskYIELD
-#define taskYIELD() vTaskDelay(0)
-#endif
-
+#define ML307_TCP_SEND_CHUNK_SIZE 1460U
+#define ML307_TCP_PULL_CHUNK_SIZE 4096U
 #define ML307_PULL_TIMEOUT_FALLBACK_MS 100U
 #define ML307_PULL_TIMEOUT_MIN_MS      50U
-#define ML307_CONNECT_TIMEOUT_MIN_MS   1500U
-#define ML307_CONNECT_URC_GRACE_MS     500U
-#define ML307_CONNECT_CTRL_TIMEOUT_MS  1500U
-#define ML307_MIPOPEN_TIMEOUT_MIN_SEC  2U
-#define ML307_MIPOPEN_TIMEOUT_MAX_SEC  60U
+
+typedef struct {
+    int endpoint_id;
+    int result;
+} ml307_mipopen_out_t;
 
 static void ml307_at_cmd_push_rx(ml307_endpoint_t *endpoint, const char *data, size_t len);
+static void ml307_udp_peer_clear(ml307_udp_peer_t *peer);
+static void ml307_udp_peer_set(ml307_udp_peer_t *peer, const char *host, uint16_t port);
 
 static uint32_t ml307_at_cmd_tick_elapsed_ms(TickType_t start, TickType_t end)
 {
     return (uint32_t)((end - start) * portTICK_PERIOD_MS);
 }
 
-static TickType_t ml307_at_cmd_ms_to_ticks_nonzero(uint16_t delay_ms)
+static bool ml307_at_cmd_parse_mipopen(at_arg_value_t *args, size_t count, void *user_data)
 {
-    TickType_t ticks;
+    ml307_mipopen_out_t *out = (ml307_mipopen_out_t *)user_data;
 
-    if (delay_ms == 0U) {
-        return 0;
+    if (!out || count < 2 ||
+        args[0].type != AT_ARG_TYPE_INT ||
+        args[1].type != AT_ARG_TYPE_INT) {
+        return false;
     }
 
-    ticks = pdMS_TO_TICKS(delay_ms);
-    return ticks > 0 ? ticks : 1;
-}
-
-static size_t ml307_at_cmd_tcp_send_chunk_size(const ml307_endpoint_t *endpoint)
-{
-    uint16_t chunk_size;
-
-    if (!endpoint || !endpoint->ctx) {
-        return ML307_TCP_SEND_CHUNK_SIZE_DEFAULT;
-    }
-
-    chunk_size = endpoint->ctx->runtime_config.tcp_send_chunk_size;
-    return chunk_size > 0U ? (size_t)chunk_size : ML307_TCP_SEND_CHUNK_SIZE_DEFAULT;
-}
-
-static size_t ml307_at_cmd_tcp_pull_chunk_size(const ml307_endpoint_t *endpoint)
-{
-    uint16_t chunk_size;
-
-    if (!endpoint || !endpoint->ctx) {
-        return ML307_TCP_PULL_CHUNK_SIZE_DEFAULT;
-    }
-
-    chunk_size = endpoint->ctx->runtime_config.tcp_pull_chunk_size;
-    return chunk_size > 0U ? (size_t)chunk_size : ML307_TCP_PULL_CHUNK_SIZE_DEFAULT;
-}
-
-static uint16_t ml307_at_cmd_send_chunk_delay_ms(const ml307_endpoint_t *endpoint)
-{
-    if (!endpoint || !endpoint->ctx) {
-        return ML307_SEND_CHUNK_DELAY_MS_DEFAULT;
-    }
-
-    return endpoint->ctx->runtime_config.send_chunk_delay_ms;
-}
-
-static uint32_t ml307_at_cmd_connect_timeout_ms(const ml307_endpoint_t *endpoint)
-{
-    uint32_t timeout_ms = (endpoint && endpoint->send_timeout_ms > 0U)
-                        ? endpoint->send_timeout_ms
-                        : ML307_SEND_TIMEOUT_MS;
-
-    if (timeout_ms < ML307_CONNECT_TIMEOUT_MIN_MS) {
-        timeout_ms = ML307_CONNECT_TIMEOUT_MIN_MS;
-    }
-    if (timeout_ms > ML307_CONNECT_TIMEOUT_MS) {
-        timeout_ms = ML307_CONNECT_TIMEOUT_MS;
-    }
-
-    return timeout_ms;
-}
-
-static uint32_t ml307_at_cmd_control_timeout_ms(uint32_t connect_timeout_ms)
-{
-    return connect_timeout_ms < ML307_CONNECT_CTRL_TIMEOUT_MS
-         ? connect_timeout_ms
-         : ML307_CONNECT_CTRL_TIMEOUT_MS;
-}
-
-static uint32_t ml307_at_cmd_mipopen_wait_timeout_ms(uint32_t connect_timeout_ms)
-{
-    uint32_t timeout_ms = connect_timeout_ms + ML307_CONNECT_URC_GRACE_MS;
-
-    return timeout_ms > ML307_CONNECT_TIMEOUT_MS ? ML307_CONNECT_TIMEOUT_MS : timeout_ms;
-}
-
-static uint32_t ml307_at_cmd_mipopen_timeout_s(uint32_t connect_timeout_ms)
-{
-    uint32_t timeout_s = (connect_timeout_ms + 999U) / 1000U;
-
-    if (timeout_s < ML307_MIPOPEN_TIMEOUT_MIN_SEC) {
-        timeout_s = ML307_MIPOPEN_TIMEOUT_MIN_SEC;
-    }
-    if (timeout_s > ML307_MIPOPEN_TIMEOUT_MAX_SEC) {
-        timeout_s = ML307_MIPOPEN_TIMEOUT_MAX_SEC;
-    }
-
-    return timeout_s;
+    out->endpoint_id = args[0].data.int_val;
+    out->result = args[1].data.int_val;
+    return true;
 }
 
 static uint32_t ml307_at_cmd_update_prefetch_rate_1s(ml307_endpoint_t *endpoint,
@@ -250,7 +176,8 @@ static void ml307_line_stream_prepare(ml307_endpoint_ctx_t *ctx,
     ctx->line_stream.endpoint = endpoint;
 }
 
-static ml307_endpoint_t *ml307_line_stream_get_tcp_endpoint(ml307_endpoint_ctx_t *ctx, int endpoint_id)
+static ml307_endpoint_t *ml307_line_stream_get_endpoint(ml307_endpoint_ctx_t *ctx, int endpoint_id,
+                                                        int protocol)
 {
     ml307_endpoint_t *endpoint;
 
@@ -259,7 +186,8 @@ static ml307_endpoint_t *ml307_line_stream_get_tcp_endpoint(ml307_endpoint_ctx_t
     }
 
     endpoint = &ctx->endpoints[endpoint_id - 1];
-    if (!endpoint->in_use || !endpoint->initialized || endpoint->protocol != IPPROTO_TCP) {
+    if (!endpoint->in_use || !endpoint->initialized ||
+        (protocol != 0 && endpoint->protocol != protocol)) {
         return NULL;
     }
 
@@ -285,6 +213,42 @@ static bool ml307_line_stream_parse_int(const char *token, size_t len, int *out)
     return true;
 }
 
+static bool ml307_line_stream_copy_string_token(const char *token, size_t len,
+                                                char *out, size_t out_size)
+{
+    if (!token || !out || out_size == 0U) {
+        return false;
+    }
+
+    if (len >= 2U && token[0] == '"' && token[len - 1U] == '"') {
+        token++;
+        len -= 2U;
+    }
+    if (len >= out_size) {
+        len = out_size - 1U;
+    }
+
+    memcpy(out, token, len);
+    out[len] = '\0';
+    return len > 0U;
+}
+
+static bool ml307_line_stream_payload_has_declared_len(ml307_line_stream_state_t *state)
+{
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+    return state && state->payload_len_known;
+#else
+    (void)state;
+    return false;
+#endif
+}
+
+static bool ml307_line_stream_payload_done(ml307_line_stream_state_t *state)
+{
+    return ml307_line_stream_payload_has_declared_len(state) &&
+           state->payload_received_len >= state->payload_declared_len;
+}
+
 static int ml307_line_stream_hex_value(char ch)
 {
     if (ch >= '0' && ch <= '9') return ch - '0';
@@ -295,14 +259,26 @@ static int ml307_line_stream_hex_value(char ch)
 
 static int ml307_line_stream_flush_payload(ml307_line_stream_state_t *state)
 {
+    bool apply_tcp_remaining;
+
     if (!state || !state->endpoint || state->decode_buf_len == 0U) {
         return 0;
     }
 
+    apply_tcp_remaining = state->kind == ML307_LINE_STREAM_MIPRD &&
+                          state->endpoint->protocol == IPPROTO_TCP &&
+                          state->tcp_remaining_len_known;
     if (state->kind == ML307_LINE_STREAM_MIPRD) {
         ml307_at_cmd_note_prefetch_push(state->endpoint);
     }
+    if (state->udp_source.valid) {
+        state->endpoint->udp_last_source = state->udp_source;
+    }
     ml307_at_cmd_push_rx(state->endpoint, (const char *)state->decode_buf, state->decode_buf_len);
+    if (apply_tcp_remaining) {
+        state->endpoint->rx_hint.available_data_len = state->tcp_remaining_len;
+        ml307_at_cmd_refresh_pending(state->endpoint);
+    }
     state->decode_buf_len = 0U;
     return 0;
 }
@@ -341,12 +317,46 @@ static int ml307_line_stream_feed_hex_char(ml307_line_stream_state_t *state, cha
     return 0;
 }
 
+static int ml307_line_stream_feed_payload_char(ml307_line_stream_state_t *state, char ch)
+{
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_HEX
+    return ml307_line_stream_feed_hex_char(state, ch);
+#else
+    if (!state) {
+        return -1;
+    }
+
+    if (ml307_line_stream_payload_done(state)) {
+        return 0;
+    }
+
+    state->decode_buf[state->decode_buf_len++] = (uint8_t)ch;
+    if (ml307_line_stream_payload_has_declared_len(state)) {
+        state->payload_received_len++;
+    }
+    if (state->kind == ML307_LINE_STREAM_MIPRD) {
+        ml307_at_cmd_note_prefetch_first_payload(state->endpoint);
+    }
+
+    if (state->decode_buf_len >= sizeof(state->decode_buf) ||
+        ml307_line_stream_payload_done(state)) {
+        return ml307_line_stream_flush_payload(state);
+    }
+
+    return 0;
+#endif
+}
+
 static int ml307_line_stream_decode_hex_span(ml307_line_stream_state_t *state,
                                              const uint8_t *data,
-                                             size_t len)
+                                             size_t len,
+                                             size_t *consumed_out)
 {
     size_t pos = 0U;
 
+    if (consumed_out) {
+        *consumed_out = 0U;
+    }
     if (!state || (!data && len > 0U)) {
         return -1;
     }
@@ -425,30 +435,106 @@ static int ml307_line_stream_decode_hex_span(ml307_line_stream_state_t *state,
 
         state->pending_hex_nibble = (uint8_t)hi;
         state->has_pending_hex_nibble = true;
+        pos++;
     }
 
+    if (consumed_out) {
+        *consumed_out = pos;
+    }
     return 0;
+}
+
+static int ml307_line_stream_decode_payload_span(ml307_line_stream_state_t *state,
+                                                 const uint8_t *data,
+                                                 size_t len,
+                                                 size_t *consumed_out)
+{
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_HEX
+    return ml307_line_stream_decode_hex_span(state, data, len, consumed_out);
+#else
+    size_t pos = 0U;
+
+    if (consumed_out) {
+        *consumed_out = 0U;
+    }
+    if (!state || (!data && len > 0U)) {
+        return -1;
+    }
+
+    while (pos < len && !ml307_line_stream_payload_done(state)) {
+        size_t space = sizeof(state->decode_buf) - state->decode_buf_len;
+        size_t remaining = len - pos;
+        size_t copy_len;
+
+        if (space == 0U) {
+            if (ml307_line_stream_flush_payload(state) < 0) {
+                return -1;
+            }
+            space = sizeof(state->decode_buf);
+        }
+
+        if (ml307_line_stream_payload_has_declared_len(state)) {
+            size_t payload_remaining = state->payload_declared_len - state->payload_received_len;
+            if (remaining > payload_remaining) {
+                remaining = payload_remaining;
+            }
+        }
+
+        copy_len = remaining;
+        if (copy_len > space) {
+            copy_len = space;
+        }
+
+        memcpy(state->decode_buf + state->decode_buf_len, data + pos, copy_len);
+        state->decode_buf_len += copy_len;
+        if (ml307_line_stream_payload_has_declared_len(state)) {
+            state->payload_received_len += copy_len;
+        }
+        pos += copy_len;
+
+        if (state->kind == ML307_LINE_STREAM_MIPRD) {
+            ml307_at_cmd_note_prefetch_first_payload(state->endpoint);
+        }
+
+        if (state->decode_buf_len >= sizeof(state->decode_buf) ||
+            ml307_line_stream_payload_done(state)) {
+            if (ml307_line_stream_flush_payload(state) < 0) {
+                return -1;
+            }
+        }
+    }
+
+    if (consumed_out) {
+        *consumed_out = pos;
+    }
+    return 0;
+#endif
 }
 
 static int ml307_line_stream_commit_mipurc_final_field(ml307_line_stream_state_t *state)
 {
     int hint = 0;
     bool treat_as_payload;
+    size_t expected_token_len;
 
     if (!state || !state->endpoint) {
         return -1;
     }
 
     treat_as_payload = state->final_field_payload;
+    expected_token_len = (size_t)state->rtcp_declared_len;
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_HEX
+    expected_token_len *= 2U;
+#endif
     if (!treat_as_payload && state->token_len > 0U && state->final_field_digits_only &&
         state->rtcp_declared_len > 0 &&
-        state->token_len == ((size_t)state->rtcp_declared_len * 2U)) {
+        state->token_len == expected_token_len) {
         treat_as_payload = true;
     }
 
     if (treat_as_payload) {
         for (size_t i = 0; i < state->token_len; ++i) {
-            if (ml307_line_stream_feed_hex_char(state, state->token[i]) < 0) {
+            if (ml307_line_stream_feed_payload_char(state, state->token[i]) < 0) {
                 return -1;
             }
         }
@@ -488,6 +574,49 @@ static int ml307_line_stream_finalize_field(ml307_line_stream_state_t *state)
                 return -1;
             }
         }
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+        else if (state->field_index == 1U) {
+            if (!ml307_line_stream_parse_int(state->token, state->token_len, &value)) {
+                return -1;
+            }
+            if (state->endpoint->protocol == IPPROTO_TCP) {
+                state->tcp_remaining_len = (size_t)value;
+                state->tcp_remaining_len_known = true;
+            } else if (state->endpoint->protocol == IPPROTO_UDP) {
+                state->endpoint->rx_hint.unread_packet_count = (size_t)value;
+            }
+        } else if (state->endpoint->protocol == IPPROTO_TCP && state->field_index == 2U) {
+            if (!ml307_line_stream_parse_int(state->token, state->token_len, &value)) {
+                return -1;
+            }
+            state->payload_declared_len = (size_t)value;
+            state->payload_len_known = true;
+        } else if (state->endpoint->protocol == IPPROTO_UDP) {
+            if (state->field_index == 2U) {
+                if (ml307_line_stream_parse_int(state->token, state->token_len, &value)) {
+                    state->payload_declared_len = (size_t)value;
+                    state->payload_len_known = true;
+                } else if (ml307_line_stream_copy_string_token(state->token, state->token_len,
+                                                               state->udp_source_host,
+                                                               sizeof(state->udp_source_host))) {
+                    state->udp_source_has_host = true;
+                } else {
+                    return -1;
+                }
+            } else if (state->field_index == 3U && state->udp_source_has_host) {
+                if (!ml307_line_stream_parse_int(state->token, state->token_len, &value)) {
+                    return -1;
+                }
+                ml307_udp_peer_set(&state->udp_source, state->udp_source_host, (uint16_t)value);
+            } else if (state->field_index == 4U && state->udp_source.valid) {
+                if (!ml307_line_stream_parse_int(state->token, state->token_len, &value)) {
+                    return -1;
+                }
+                state->payload_declared_len = (size_t)value;
+                state->payload_len_known = true;
+            }
+        }
+#endif
         break;
     case ML307_LINE_STREAM_MIPURC_RTCP:
         if (state->field_index == 0U) {
@@ -504,6 +633,8 @@ static int ml307_line_stream_finalize_field(ml307_line_stream_state_t *state)
                 return -1;
             }
             state->rtcp_declared_len = value;
+            state->payload_declared_len = (size_t)value;
+            state->payload_len_known = true;
         }
         break;
     default:
@@ -512,6 +643,38 @@ static int ml307_line_stream_finalize_field(ml307_line_stream_state_t *state)
 
     state->token_len = 0U;
     return 0;
+}
+
+static bool ml307_line_stream_payload_starts_after_field(ml307_line_stream_state_t *state)
+{
+    if (!state || !state->endpoint) {
+        return false;
+    }
+
+    if (state->kind == ML307_LINE_STREAM_MIPRD) {
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+        if (state->endpoint->protocol == IPPROTO_TCP) {
+            return state->field_index == 2U && state->payload_len_known;
+        }
+        if (state->endpoint->protocol == IPPROTO_UDP) {
+            if (!state->payload_len_known) {
+                return false;
+            }
+            return (state->field_index == 2U && !state->udp_source_has_host) ||
+                   (state->field_index == 4U && state->udp_source.valid);
+        }
+        return false;
+#else
+        return state->field_index == 2U;
+#endif
+    }
+
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_HEX
+    if (state->kind == ML307_LINE_STREAM_MIPURC_RTCP) {
+        return state->field_index == 2U;
+    }
+#endif
+    return false;
 }
 
 static int ml307_line_stream_consume_char(ml307_line_stream_state_t *state, char ch)
@@ -537,10 +700,10 @@ static int ml307_line_stream_consume_char(ml307_line_stream_state_t *state, char
                 return -1;
             }
 
-            if (state->kind == ML307_LINE_STREAM_MIPRD && state->field_index == 2U) {
+            if (ml307_line_stream_payload_starts_after_field(state)) {
                 state->parsing_payload = true;
-            } else if (state->kind == ML307_LINE_STREAM_MIPURC_RTCP && state->field_index == 2U) {
-                state->parsing_payload = true;
+            }
+            if (state->kind == ML307_LINE_STREAM_MIPURC_RTCP && state->field_index == 2U) {
                 state->final_field_digits_only = true;
                 state->final_field_len = 0U;
             }
@@ -572,14 +735,20 @@ static int ml307_line_stream_consume_char(ml307_line_stream_state_t *state, char
     }
 
     if (state->kind == ML307_LINE_STREAM_MIPRD) {
-        return ml307_line_stream_feed_hex_char(state, ch);
+        return ml307_line_stream_feed_payload_char(state, ch);
     }
+
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+    if (state->payload_len_known) {
+        return ml307_line_stream_feed_payload_char(state, ch);
+    }
+#endif
 
     if (!state->final_field_payload) {
         if (state->token_len + 1U >= sizeof(state->token)) {
             state->final_field_payload = true;
             for (size_t i = 0; i < state->token_len; ++i) {
-                if (ml307_line_stream_feed_hex_char(state, state->token[i]) < 0) {
+                if (ml307_line_stream_feed_payload_char(state, state->token[i]) < 0) {
                     return -1;
                 }
             }
@@ -594,7 +763,7 @@ static int ml307_line_stream_consume_char(ml307_line_stream_state_t *state, char
             if (!state->final_field_digits_only || state->final_field_len > 10U) {
                 state->final_field_payload = true;
                 for (size_t i = 0; i < state->token_len; ++i) {
-                    if (ml307_line_stream_feed_hex_char(state, state->token[i]) < 0) {
+                    if (ml307_line_stream_feed_payload_char(state, state->token[i]) < 0) {
                         return -1;
                     }
                 }
@@ -604,7 +773,7 @@ static int ml307_line_stream_consume_char(ml307_line_stream_state_t *state, char
         }
     }
 
-    return ml307_line_stream_feed_hex_char(state, ch);
+    return ml307_line_stream_feed_payload_char(state, ch);
 }
 
 static int ml307_line_stream_complete(ml307_line_stream_state_t *state)
@@ -614,7 +783,18 @@ static int ml307_line_stream_complete(ml307_line_stream_state_t *state)
     }
 
     if (state->parsing_payload) {
-        if (state->kind == ML307_LINE_STREAM_MIPURC_RTCP) {
+        if (ml307_line_stream_payload_has_declared_len(state)) {
+            if (state->payload_received_len < state->payload_declared_len) {
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+                return 0;
+#else
+                return -1;
+#endif
+            }
+            if (ml307_line_stream_flush_payload(state) < 0) {
+                return -1;
+            }
+        } else if (state->kind == ML307_LINE_STREAM_MIPURC_RTCP) {
             if (ml307_line_stream_commit_mipurc_final_field(state) < 0) {
                 return -1;
             }
@@ -622,20 +802,64 @@ static int ml307_line_stream_complete(ml307_line_stream_state_t *state)
             return -1;
         }
 
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_HEX
         if (state->has_pending_hex_nibble) {
             return -1;
         }
+#endif
         if (state->kind == ML307_LINE_STREAM_MIPRD) {
             ml307_at_cmd_note_prefetch_line_done(state->endpoint);
         }
         return 0;
     }
 
-    if (state->token_len > 0U && ml307_line_stream_finalize_field(state) < 0) {
-        return -1;
+    if (state->token_len > 0U) {
+        if (ml307_line_stream_finalize_field(state) < 0) {
+            return -1;
+        }
     }
 
     return 0;
+}
+
+static bool ml307_line_stream_is_complete(void *claim_ctx, void *user_data)
+{
+    ml307_line_stream_state_t *state = (ml307_line_stream_state_t *)claim_ctx;
+
+    (void)user_data;
+
+    if (!state || state->kind == ML307_LINE_STREAM_NONE) {
+        return true;
+    }
+
+    if (state->kind == ML307_LINE_STREAM_MIPRD) {
+        return ml307_line_stream_payload_has_declared_len(state) &&
+               state->payload_received_len >= state->payload_declared_len;
+    }
+
+    if (ml307_line_stream_payload_has_declared_len(state)) {
+        return state->payload_received_len >= state->payload_declared_len;
+    }
+
+    return !state->parsing_payload;
+}
+
+static bool ml307_line_stream_raw_mode(void *claim_ctx, void *user_data)
+{
+    ml307_line_stream_state_t *state = (ml307_line_stream_state_t *)claim_ctx;
+
+    (void)user_data;
+
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+    return state &&
+           (state->kind == ML307_LINE_STREAM_MIPRD ||
+            (state->parsing_payload &&
+             ml307_line_stream_payload_has_declared_len(state) &&
+             !ml307_line_stream_payload_done(state)));
+#else
+    (void)state;
+    return false;
+#endif
 }
 
 static bool ml307_line_stream_prefix_equals(const uint8_t *line, size_t len, const char *prefix)
@@ -656,6 +880,7 @@ static at_line_stream_claim_t ml307_line_stream_try_claim_miprd(ml307_endpoint_c
     const uint8_t *p;
     const uint8_t *end;
     int endpoint_id = 0;
+    ml307_endpoint_t *endpoint;
     int comma_count = 0;
 
     if (len < sizeof(prefix) - 1U) {
@@ -682,9 +907,20 @@ static at_line_stream_claim_t ml307_line_stream_try_claim_miprd(ml307_endpoint_c
     if (*p != ',') {
         return AT_LINE_STREAM_PASS;
     }
-    if (!ml307_line_stream_get_tcp_endpoint(ctx, endpoint_id)) {
+    endpoint = ml307_line_stream_get_endpoint(ctx, endpoint_id, 0);
+    if (!endpoint) {
         return AT_LINE_STREAM_PASS;
     }
+
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+    if (endpoint->protocol == IPPROTO_TCP || endpoint->protocol == IPPROTO_UDP) {
+        return AT_LINE_STREAM_CLAIM;
+    }
+#else
+    if (endpoint->protocol != IPPROTO_TCP) {
+        return AT_LINE_STREAM_PASS;
+    }
+#endif
 
     for (; p < end; ++p) {
         if (*p == ',') {
@@ -704,6 +940,7 @@ static at_line_stream_claim_t ml307_line_stream_try_claim_mipurc(ml307_endpoint_
     const uint8_t *token_start;
     size_t token_len;
     int endpoint_id = 0;
+    ml307_endpoint_t *endpoint;
     int comma_count = 0;
 
     if (len < sizeof(prefix) - 1U) {
@@ -734,6 +971,10 @@ static at_line_stream_claim_t ml307_line_stream_try_claim_mipurc(ml307_endpoint_
         return AT_LINE_STREAM_PASS;
     }
 
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+    return AT_LINE_STREAM_PASS;
+#endif
+
     ++p;
     while (p < end && (*p == ' ' || *p == '\t')) {
         ++p;
@@ -748,7 +989,8 @@ static at_line_stream_claim_t ml307_line_stream_try_claim_mipurc(ml307_endpoint_
     if (*p != ',') {
         return AT_LINE_STREAM_PASS;
     }
-    if (!ml307_line_stream_get_tcp_endpoint(ctx, endpoint_id)) {
+    endpoint = ml307_line_stream_get_endpoint(ctx, endpoint_id, IPPROTO_TCP);
+    if (!endpoint) {
         return AT_LINE_STREAM_PASS;
     }
 
@@ -791,7 +1033,13 @@ static at_line_stream_claim_t ml307_line_stream_claim(const uint8_t *line_prefix
             endpoint_id = endpoint_id * 10 + (*p - '0');
             ++p;
         }
-        endpoint = ml307_line_stream_get_tcp_endpoint(ctx, endpoint_id);
+        endpoint = ml307_line_stream_get_endpoint(ctx, endpoint_id,
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+                                                  0
+#else
+                                                  IPPROTO_TCP
+#endif
+        );
         if (!endpoint) {
             return AT_LINE_STREAM_PASS;
         }
@@ -821,7 +1069,7 @@ static at_line_stream_claim_t ml307_line_stream_claim(const uint8_t *line_prefix
             endpoint_id = endpoint_id * 10 + (*p - '0');
             ++p;
         }
-        endpoint = ml307_line_stream_get_tcp_endpoint(ctx, endpoint_id);
+        endpoint = ml307_line_stream_get_endpoint(ctx, endpoint_id, IPPROTO_TCP);
         if (!endpoint) {
             return AT_LINE_STREAM_PASS;
         }
@@ -845,12 +1093,31 @@ static int ml307_line_stream_consume(void *claim_ctx, const uint8_t *data, size_
         return -1;
     }
 
+    if (len == 0U && !line_complete &&
+        !state->parsing_payload &&
+        ml307_line_stream_payload_has_declared_len(state) &&
+        state->payload_received_len < state->payload_declared_len) {
+        state->parsing_payload = true;
+        return 0;
+    }
+
     while (offset < len) {
-        if (state->kind == ML307_LINE_STREAM_MIPRD && state->parsing_payload) {
-            if (ml307_line_stream_decode_hex_span(state, data + offset, len - offset) < 0) {
+        if (state->parsing_payload &&
+            (state->kind == ML307_LINE_STREAM_MIPRD ||
+             ml307_line_stream_payload_has_declared_len(state))) {
+            size_t consumed = 0U;
+
+            if (ml307_line_stream_decode_payload_span(state, data + offset, len - offset,
+                                                      &consumed) < 0) {
                 return -1;
             }
-            offset = len;
+            offset += consumed;
+            if (consumed == 0U && !ml307_line_stream_payload_done(state)) {
+                return -1;
+            }
+            if (ml307_line_stream_payload_done(state)) {
+                break;
+            }
             break;
         }
 
@@ -861,10 +1128,12 @@ static int ml307_line_stream_consume(void *claim_ctx, const uint8_t *data, size_
     }
 
     if (line_complete) {
-        return ml307_line_stream_complete(state);
+        if (ml307_line_stream_complete(state) < 0) {
+            return -1;
+        }
     }
 
-    return 0;
+    return (int)offset;
 }
 
 static void ml307_line_stream_finish(void *claim_ctx, bool success, void *user_data)
@@ -875,12 +1144,20 @@ static void ml307_line_stream_finish(void *claim_ctx, bool success, void *user_d
     if (!success && state && state->endpoint && state->decode_buf_len > 0U) {
         state->decode_buf_len = 0U;
     }
+    if (success && state && ml307_line_stream_is_complete(state, user_data) &&
+        state->kind == ML307_LINE_STREAM_MIPRD) {
+        ml307_at_cmd_note_prefetch_line_done(state->endpoint);
+    }
     ml307_line_stream_reset(state);
 }
 
 static const at_line_stream_handler_t s_ml307_line_stream_handler = {
     .claim = ml307_line_stream_claim,
     .consume = ml307_line_stream_consume,
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_TEXT
+    .is_complete = ml307_line_stream_is_complete,
+    .raw_mode = ml307_line_stream_raw_mode,
+#endif
     .finish = ml307_line_stream_finish,
 };
 
@@ -933,6 +1210,39 @@ static size_t ml307_udp_data_index(at_arg_value_t *arguments, size_t arg_count, 
     return index;
 }
 
+static void ml307_at_cmd_push_encoded_rx(ml307_endpoint_t *endpoint,
+                                         const char *data, size_t len,
+                                         const ml307_udp_peer_t *source)
+{
+#if ML307_RECV_DATA_FORMAT == ML307_DATA_FORMAT_HEX
+    size_t decoded_len = 0U;
+    char *decoded;
+
+    if (!endpoint || !data || len == 0U) {
+        return;
+    }
+
+    decoded = at_decode_hex(data, len, &decoded_len);
+    if (!decoded) {
+        return;
+    }
+    if (source && source->valid) {
+        endpoint->udp_last_source = *source;
+    }
+    ml307_at_cmd_push_rx(endpoint, decoded, decoded_len);
+    at_mem_free(decoded);
+#else
+    if (!endpoint || !data || len == 0U) {
+        return;
+    }
+
+    if (source && source->valid) {
+        endpoint->udp_last_source = *source;
+    }
+    ml307_at_cmd_push_rx(endpoint, data, len);
+#endif
+}
+
 static void ml307_at_cmd_push_rx(ml307_endpoint_t *endpoint, const char *data, size_t len)
 {
     TickType_t now;
@@ -972,31 +1282,15 @@ static void ml307_at_cmd_push_rx(ml307_endpoint_t *endpoint, const char *data, s
     }
 }
 
-static bool ml307_at_cmd_match_endpoint_urc(const char *command,
-                                            at_arg_value_t *arguments,
-                                            size_t arg_count,
-                                            void *user_data)
-{
-    ml307_endpoint_t *endpoint = (ml307_endpoint_t *)user_data;
-
-    (void)command;
-
-    return endpoint && arguments && arg_count >= 1 &&
-           arguments[0].type == AT_ARG_TYPE_INT &&
-           arguments[0].data.int_val == endpoint->id;
-}
-
-static bool ml307_at_cmd_parse_mipopen_result(ml307_endpoint_t *endpoint,
-                                              at_arg_value_t *arguments,
-                                              size_t arg_count)
+static void ml307_at_cmd_handle_mipopen(ml307_endpoint_t *endpoint, at_arg_value_t *arguments, size_t arg_count)
 {
     int result;
 
-    if (!endpoint || !arguments || arg_count < 2 ||
+    if (!endpoint || arg_count < 2 ||
         arguments[0].type != AT_ARG_TYPE_INT ||
         arguments[0].data.int_val != endpoint->id ||
         arguments[1].type != AT_ARG_TYPE_INT) {
-        return false;
+        return;
     }
 
     result = arguments[1].data.int_val;
@@ -1009,13 +1303,6 @@ static bool ml307_at_cmd_parse_mipopen_result(ml307_endpoint_t *endpoint,
         endpoint->last_error = result;
         xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_ERROR);
     }
-
-    return endpoint->connected;
-}
-
-static void ml307_at_cmd_handle_mipopen(ml307_endpoint_t *endpoint, at_arg_value_t *arguments, size_t arg_count)
-{
-    (void)ml307_at_cmd_parse_mipopen_result(endpoint, arguments, arg_count);
 }
 
 static void ml307_at_cmd_handle_mipclose(ml307_endpoint_t *endpoint, at_arg_value_t *arguments, size_t arg_count)
@@ -1065,11 +1352,12 @@ static void ml307_at_cmd_handle_mipstate(ml307_endpoint_t *endpoint, at_arg_valu
         xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_CONNECTED);
     } else if (state && strcmp(state, "INITIAL") == 0) {
         endpoint->connected = false;
-        endpoint->instance_active = true;
+        endpoint->instance_active = false;
         xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_INITIALIZED);
     } else {
         endpoint->connected = false;
-        endpoint->instance_active = false;
+        endpoint->instance_active = true;
+        xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_INITIALIZED);
     }
 
     ml307_at_cmd_refresh_pending(endpoint);
@@ -1077,7 +1365,7 @@ static void ml307_at_cmd_handle_mipstate(ml307_endpoint_t *endpoint, at_arg_valu
 
 static void ml307_at_cmd_handle_miprd(ml307_endpoint_t *endpoint, at_arg_value_t *arguments, size_t arg_count)
 {
-    int hex_data_index = 2;
+    int data_index = 2;
     ml307_udp_peer_t source = {0};
 
     if (!endpoint || arg_count < 2 ||
@@ -1088,25 +1376,18 @@ static void ml307_at_cmd_handle_miprd(ml307_endpoint_t *endpoint, at_arg_value_t
 
     if (endpoint->protocol == IPPROTO_UDP && arguments[1].type == AT_ARG_TYPE_INT) {
         endpoint->rx_hint.unread_packet_count = (size_t)arguments[1].data.int_val;
-        hex_data_index = (int)ml307_udp_data_index(arguments, arg_count, 2, &source);
+        data_index = (int)ml307_udp_data_index(arguments, arg_count, 2, &source);
     } else if (arg_count >= 4 && arguments[2].type == AT_ARG_TYPE_INT) {
-        hex_data_index = 3;
+        data_index = 3;
     }
-    if (arg_count <= (size_t)hex_data_index || arguments[hex_data_index].type != AT_ARG_TYPE_STRING) {
+    if (arg_count <= (size_t)data_index || arguments[data_index].type != AT_ARG_TYPE_STRING) {
         return;
     }
 
-    size_t decoded_len = 0;
-    char *decoded = at_decode_hex(arguments[hex_data_index].data.string_val.value,
-                                  arguments[hex_data_index].data.string_val.len,
-                                  &decoded_len);
-    if (decoded) {
-        if (source.valid) {
-            endpoint->udp_last_source = source;
-        }
-        ml307_at_cmd_push_rx(endpoint, decoded, decoded_len);
-        at_mem_free(decoded);
-    }
+    ml307_at_cmd_push_encoded_rx(endpoint,
+                                 arguments[data_index].data.string_val.value,
+                                 arguments[data_index].data.string_val.len,
+                                 &source);
 }
 
 static void ml307_at_cmd_handle_mipurc_tcp(ml307_endpoint_t *endpoint, at_arg_value_t *arguments, size_t arg_count)
@@ -1121,18 +1402,17 @@ static void ml307_at_cmd_handle_mipurc_tcp(ml307_endpoint_t *endpoint, at_arg_va
     }
 
     urc_type = arguments[0].data.string_val.value;
-    if (strcmp(urc_type, "rtcp") == 0 && endpoint->connected && arg_count >= 4) {
-        if (arguments[3].type == AT_ARG_TYPE_STRING) {
-            size_t decoded_len = 0;
-            char *decoded = at_decode_hex(arguments[3].data.string_val.value,
-                                          arguments[3].data.string_val.len,
-                                          &decoded_len);
-            if (decoded) {
-                ml307_at_cmd_push_rx(endpoint, decoded, decoded_len);
-                at_mem_free(decoded);
-            }
-        } else if (arguments[3].type == AT_ARG_TYPE_INT) {
+    if (strcmp(urc_type, "rtcp") == 0 && endpoint->connected) {
+        if (arg_count >= 4 && arguments[3].type == AT_ARG_TYPE_STRING) {
+            ml307_at_cmd_push_encoded_rx(endpoint,
+                                         arguments[3].data.string_val.value,
+                                         arguments[3].data.string_val.len,
+                                         NULL);
+        } else if (arg_count >= 4 && arguments[3].type == AT_ARG_TYPE_INT) {
             endpoint->rx_hint.available_data_len = (size_t)arguments[3].data.int_val;
+            ml307_at_cmd_refresh_pending(endpoint);
+        } else if (arg_count >= 3 && arguments[2].type == AT_ARG_TYPE_INT) {
+            endpoint->rx_hint.available_data_len = (size_t)arguments[2].data.int_val;
             ml307_at_cmd_refresh_pending(endpoint);
         }
     } else if (strcmp(urc_type, "disconn") == 0) {
@@ -1166,17 +1446,10 @@ static void ml307_at_cmd_handle_mipurc_udp(ml307_endpoint_t *endpoint, at_arg_va
 
         data_index = ml307_udp_data_index(arguments, arg_count, data_index, &source);
         if (arg_count > data_index && arguments[data_index].type == AT_ARG_TYPE_STRING) {
-            size_t decoded_len = 0;
-            char *decoded = at_decode_hex(arguments[data_index].data.string_val.value,
+            ml307_at_cmd_push_encoded_rx(endpoint,
+                                         arguments[data_index].data.string_val.value,
                                          arguments[data_index].data.string_val.len,
-                                         &decoded_len);
-            if (decoded) {
-                if (source.valid) {
-                    endpoint->udp_last_source = source;
-                }
-                ml307_at_cmd_push_rx(endpoint, decoded, decoded_len);
-                at_mem_free(decoded);
-            }
+                                         &source);
         } else if (endpoint->rx_hint.unread_packet_count > 0) {
             ml307_at_cmd_refresh_pending(endpoint);
         }
@@ -1236,17 +1509,11 @@ bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port
 {
     char command[128];
     EventBits_t bits;
-    at_arg_value_t *mipopen_args = NULL;
-    size_t mipopen_arg_count = 0U;
-    bool connected;
     const char *socket_type;
+    ml307_mipopen_out_t open_out = { -1, -1 };
     int pdp_cid;
     int open_mode;
     bool use_tls;
-    uint32_t connect_timeout_ms;
-    uint32_t control_timeout_ms;
-    uint32_t mipopen_wait_timeout_ms;
-    uint32_t mipopen_timeout_s;
 
     if (!endpoint || !endpoint->client || !host) {
         return false;
@@ -1256,10 +1523,6 @@ bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port
     open_mode = (endpoint->protocol == IPPROTO_TCP) ? 2 : 3;
     use_tls = (endpoint->protocol == IPPROTO_TCP) ? endpoint->is_tls : false;
     pdp_cid = (endpoint->ctx && endpoint->ctx->active_pdp_cid > 0) ? endpoint->ctx->active_pdp_cid : 1;
-    connect_timeout_ms = ml307_at_cmd_connect_timeout_ms(endpoint);
-    control_timeout_ms = ml307_at_cmd_control_timeout_ms(connect_timeout_ms);
-    mipopen_wait_timeout_ms = ml307_at_cmd_mipopen_wait_timeout_ms(connect_timeout_ms);
-    mipopen_timeout_s = ml307_at_cmd_mipopen_timeout_s(connect_timeout_ms);
 
     xEventGroupClearBits(endpoint->event_group,
                          ML307_ENDPOINT_CONNECTED | ML307_ENDPOINT_DISCONNECTED |
@@ -1272,16 +1535,16 @@ bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port
 
     bits = xEventGroupWaitBits(endpoint->event_group,
                                ML307_ENDPOINT_INITIALIZED | ML307_ENDPOINT_CONNECTED,
-                               pdTRUE, pdFALSE, pdMS_TO_TICKS(control_timeout_ms));
+                               pdTRUE, pdFALSE, pdMS_TO_TICKS(ML307_CONNECT_TIMEOUT_MS));
     if ((bits & (ML307_ENDPOINT_INITIALIZED | ML307_ENDPOINT_CONNECTED)) == 0) {
         return false;
     }
 
-    if (endpoint->connected) {
+    if (endpoint->instance_active) {
         snprintf(command, sizeof(command), "AT+MIPCLOSE=%d", endpoint->id);
         if (at_client_send_cmd(endpoint->client, command, 1000, true)) {
             xEventGroupWaitBits(endpoint->event_group, ML307_ENDPOINT_DISCONNECTED,
-                                pdTRUE, pdFALSE, pdMS_TO_TICKS(control_timeout_ms));
+                                pdTRUE, pdFALSE, pdMS_TO_TICKS(ML307_CONNECT_TIMEOUT_MS));
         }
     }
 
@@ -1295,31 +1558,35 @@ bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port
         return false;
     }
 
-    snprintf(command, sizeof(command), "AT+MIPCFG=\"encoding\",%d,1,1", endpoint->id);
+    snprintf(command, sizeof(command), "AT+MIPCFG=\"encoding\",%d,%s,%s",
+             endpoint->id,
+             ML307_STRINGIFY(ML307_SEND_DATA_FORMAT),
+             ML307_STRINGIFY(ML307_RECV_DATA_FORMAT));
     if (!at_client_send_cmd(endpoint->client, command, 1000, true)) {
         return false;
     }
 
-    snprintf(command, sizeof(command), "AT+MIPOPEN=%d,\"%s\",\"%s\",%d,%u,%d,0",
-             endpoint->id, socket_type, host, port, (unsigned)mipopen_timeout_s, open_mode);
-    if (!at_client_send_cmd_wait_urc_match(endpoint->client, command, "MIPOPEN",
-                                           ml307_at_cmd_match_endpoint_urc, endpoint,
-                                           &mipopen_args, &mipopen_arg_count,
-                                           mipopen_wait_timeout_ms, true)) {
-        at_arg_array_destroy(mipopen_args, mipopen_arg_count);
+    endpoint->last_error = 0;
+    if (!at_client_exec_cmdf(endpoint->client, &(at_cmd_desc_t){
+            .cmd = "AT+MIPOPEN=%d,\"%s\",\"%s\",%d,60,%d,0",
+            .expect_urc = "MIPOPEN",
+            .parse = ml307_at_cmd_parse_mipopen,
+            .timeout_ms = ML307_CONNECT_TIMEOUT_MS + 5000U,
+        }, &open_out,
+        endpoint->id, socket_type, host, port, open_mode)) {
         endpoint->last_error = at_client_get_cme_error(endpoint->client);
         return false;
     }
 
-    connected = ml307_at_cmd_parse_mipopen_result(endpoint, mipopen_args, mipopen_arg_count);
-    at_arg_array_destroy(mipopen_args, mipopen_arg_count);
-    return connected;
+    endpoint->last_error = open_out.result;
+    endpoint->connected = (open_out.endpoint_id == endpoint->id && open_out.result == 0);
+    endpoint->instance_active = endpoint->connected;
+    return endpoint->connected;
 }
 
 int ml307_at_cmd_disconnect(ml307_endpoint_t *endpoint)
 {
     char command[32];
-    uint32_t control_timeout_ms;
 
     if (!endpoint || !endpoint->client) {
         return -1;
@@ -1328,11 +1595,10 @@ int ml307_at_cmd_disconnect(ml307_endpoint_t *endpoint)
         return 0;
     }
 
-    control_timeout_ms = ml307_at_cmd_control_timeout_ms(ml307_at_cmd_connect_timeout_ms(endpoint));
     snprintf(command, sizeof(command), "AT+MIPCLOSE=%d", endpoint->id);
     if (at_client_send_cmd(endpoint->client, command, 1000, true)) {
         xEventGroupWaitBits(endpoint->event_group, ML307_ENDPOINT_DISCONNECTED,
-                            pdTRUE, pdFALSE, pdMS_TO_TICKS(control_timeout_ms));
+                            pdTRUE, pdFALSE, pdMS_TO_TICKS(ML307_CONNECT_TIMEOUT_MS));
     }
     return 0;
 }
@@ -1359,6 +1625,7 @@ int ml307_at_cmd_send_chunk(ml307_endpoint_t *endpoint, const char *data, size_t
     endpoint->last_sent_bytes = 0;
 
     t_cmd_start = xTaskGetTickCount();
+    /* Prompt-mode MIPSEND consumes raw bytes; AT+MIPCFG encoding applies to inline data. */
     if (!at_client_send_cmd_with_data(endpoint->client, command, endpoint->send_timeout_ms, true,
                                       (const uint8_t *)data, length)) {
         LISA_MODEM_PERF_LOGW(TAG, "send AT failed, cmd_wait=%ums",
@@ -1397,8 +1664,7 @@ int ml307_at_cmd_send(ml307_endpoint_t *endpoint, const char *data, size_t lengt
         return -1;
     }
 
-    max_chunk = (endpoint->protocol == IPPROTO_TCP) ? ml307_at_cmd_tcp_send_chunk_size(endpoint)
-                                                    : ML307_UDP_MAX_PACKET_SIZE;
+    max_chunk = (endpoint->protocol == IPPROTO_TCP) ? ML307_TCP_SEND_CHUNK_SIZE : ML307_UDP_MAX_PACKET_SIZE;
 
     while (total_sent < length) {
         size_t chunk_size = (length - total_sent > max_chunk) ? max_chunk : (length - total_sent);
@@ -1411,12 +1677,7 @@ int ml307_at_cmd_send(ml307_endpoint_t *endpoint, const char *data, size_t lengt
 
         if (total_sent < length) {
             /* Let other sockets compete for the serialized AT lane between chunks. */
-            TickType_t delay_ticks = ml307_at_cmd_ms_to_ticks_nonzero(ml307_at_cmd_send_chunk_delay_ms(endpoint));
-            if (delay_ticks > 0) {
-                vTaskDelay(delay_ticks);
-            } else {
-                taskYIELD();
-            }
+            vTaskDelay(1);
         }
     }
 
@@ -1472,6 +1733,7 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
     TickType_t t_pf_done;
     TickType_t last_push_before;
     bool empty_prefetch;
+    bool mutex_taken = false;
 
     if (!endpoint || !endpoint->initialized) {
         return 0;
@@ -1480,6 +1742,14 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
     prefetch_timeout_ms = modem_endpoint_runtime_effective_pull_timeout(endpoint->pull_timeout_ms,
                                                                         ML307_PULL_TIMEOUT_FALLBACK_MS,
                                                                         ML307_PULL_TIMEOUT_MIN_MS);
+
+    if (endpoint->prefetch_mutex) {
+        if (xSemaphoreTake(endpoint->prefetch_mutex,
+                           pdMS_TO_TICKS(prefetch_timeout_ms + 20U)) != pdTRUE) {
+            return 0;
+        }
+        mutex_taken = true;
+    }
 
     max_space = ring_buf_space_get(&endpoint->ring_buf);
     ring_before = ring_buf_size_get(&endpoint->ring_buf);
@@ -1491,6 +1761,9 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
     last_push_before = endpoint->perf_last_rx_push_tick;
     if (endpoint->protocol == IPPROTO_TCP) {
         if (!endpoint->connected) {
+            if (mutex_taken) {
+                xSemaphoreGive(endpoint->prefetch_mutex);
+            }
             return 0;
         }
 
@@ -1500,12 +1773,14 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
 
         if (read_len == 0) {
             ml307_at_cmd_refresh_pending(endpoint);
+            if (mutex_taken) {
+                xSemaphoreGive(endpoint->prefetch_mutex);
+            }
             return 0;
         }
         /* Bound each pull so one socket cannot turn a single MIPRD into a long stall. */
-        size_t pull_chunk_size = ml307_at_cmd_tcp_pull_chunk_size(endpoint);
-        if (read_len > pull_chunk_size) {
-            read_len = pull_chunk_size;
+        if (read_len > ML307_TCP_PULL_CHUNK_SIZE) {
+            read_len = ML307_TCP_PULL_CHUNK_SIZE;
         }
 
         xEventGroupClearBits(endpoint->recv_event, ML307_ENDPOINT_PREFETCH_AVAILABLE);
@@ -1514,6 +1789,9 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
     } else if (endpoint->protocol == IPPROTO_UDP) {
         if (endpoint->rx_hint.unread_packet_count == 0 || max_space == 0) {
             ml307_at_cmd_refresh_pending(endpoint);
+            if (mutex_taken) {
+                xSemaphoreGive(endpoint->prefetch_mutex);
+            }
             return 0;
         }
 
@@ -1521,6 +1799,9 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
         request_len = 1U;
         snprintf(command, sizeof(command), "AT+MIPRD=%d,%u", endpoint->id, 1U);
     } else {
+        if (mutex_taken) {
+            xSemaphoreGive(endpoint->prefetch_mutex);
+        }
         return -1;
     }
 
@@ -1530,9 +1811,15 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
     t_pf_start = xTaskGetTickCount();
     if (!at_client_send_cmd(endpoint->client, command, prefetch_timeout_ms, true)) {
         endpoint->prefetching = false;
+        if (endpoint->data_sem) {
+            xSemaphoreGive(endpoint->data_sem);
+        }
         LISA_MODEM_PERF_LOGW(TAG, "prefetch ep=%d ask=%zu hint=%u ring=%u AT failed after %ums",
                              endpoint->id, request_len, hint_before, ring_before,
                              (unsigned)ml307_at_cmd_tick_elapsed_ms(t_pf_start, xTaskGetTickCount()));
+        if (mutex_taken) {
+            xSemaphoreGive(endpoint->prefetch_mutex);
+        }
         return -1;
     }
     t_pf_cmd = xTaskGetTickCount();
@@ -1542,6 +1829,9 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
     t_pf_done = xTaskGetTickCount();
 
     endpoint->prefetching = false;
+    if (endpoint->data_sem) {
+        xSemaphoreGive(endpoint->data_sem);
+    }
     ring_after = ring_buf_size_get(&endpoint->ring_buf);
     pushed_bytes = endpoint->perf_rx_push_total_bytes - pushed_before;
     push_count = endpoint->perf_rx_push_seq - push_seq_before;
@@ -1604,6 +1894,9 @@ int ml307_at_cmd_prefetch(ml307_endpoint_t *endpoint)
                              (unsigned)ml307_at_cmd_tick_elapsed_ms(t_pf_cmd, t_pf_done),
                              pushed_bytes, push_count, idle_gap_ms,
                              endpoint->perf_empty_prefetch_streak);
+    }
+    if (mutex_taken) {
+        xSemaphoreGive(endpoint->prefetch_mutex);
     }
     return 0;
 }

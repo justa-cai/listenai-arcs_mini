@@ -45,6 +45,7 @@ void lisa_ui_toast_show_duration(const char *txt, uint32_t duration_ms)
     lv_obj_set_style_text_color(label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_font(label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
+    lv_obj_set_height(label, lv_font_chinese_16.line_height + 4);
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_align(label, LV_ALIGN_CENTER, 0, 0);
 

@@ -26,6 +26,10 @@
 #include "sys_network_manager.h"
 #include "sys_wifi.h"
 
+#if CONFIG_LISA_MODEM
+#include "lisa_modem_module.h"
+#endif
+
 #if defined(CONFIG_CLOUD_PRODUCT_ID_DEFAULT)
 #define PRODUCT_ID CONFIG_CLOUD_PRODUCT_ID_DEFAULT
 #else
@@ -39,17 +43,20 @@
  * BLE ADV data
  */
 
-static const uint8_t user_adv_data[] = {
+static uint8_t user_adv_data[] = {
     BLE_AD_FLAGS(GAP_AD_TYPE_FLAGS_GENERAL | GAP_AD_TYPE_FLAGS_BREDR_NOT_SUPPORTED),
     BLE_AD_COMPLETE_NAME(4, 'A', 'R', 'C', 'S'),  // Device name: ARCS
-    BLE_AD_MFG_DATA(18,
+    BLE_AD_MFG_DATA(19,
         0xab, 0x0a, 0xa1, 0xdc, 0xa8, 0x76, 0x83, 0x65,
         0x73, 0x83, 0x72, 0x65, 0x82, 0x67, 0x83, 0x68,
-        0x00, 0x78),
+        0x00, 0x78, 0x00),
 };
 
 const uint8_t *lisa_bt_get_adv_data(uint8_t *len)
 {
+#if CONFIG_LISA_MODEM
+    user_adv_data[sizeof(user_adv_data) - 1] = lisa_modem_is_present() ? 0x01 : 0x00;
+#endif
     *len = sizeof(user_adv_data);
     return user_adv_data;
 }

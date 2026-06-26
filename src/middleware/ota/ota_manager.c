@@ -36,6 +36,8 @@
 #define OTA_TONE_POLL_MS 20U
 #define OTA_TONE_START_TIMEOUT_MS 3000U
 #define OTA_TONE_FINISH_TIMEOUT_MS 15000U
+#define OTA_DOWNLOAD_RETRY_COUNT 3
+#define OTA_DOWNLOAD_RETRY_DELAY_BASE_MS 300U
 
 static int ota_manager_app_update(const ota_app_package_t *pkg);
 static int ota_manager_wake_word_update(void);
@@ -938,18 +940,36 @@ static int ota_manager_wake_word_update(void)
 
     LISA_LOGI(TAG, "Begin update wake_word.bin...");
 
-    ret = ota_flash_update_begin(OTA_PART_WAKE_WORD_BIN, dev_conf.wakeup_word.resource.size);
-    if (ret < 0) {
-        LISA_LOGE(TAG, "Begin update of wake_word.bin partition failed (%d)", ret);
-        return ret;
+    for (int attempt = 0; attempt < OTA_DOWNLOAD_RETRY_COUNT; attempt++) {
+        if (attempt > 0) {
+            LISA_LOGW(TAG, "Wake word download retry %d/%d, %ums delay",
+                      attempt + 1, OTA_DOWNLOAD_RETRY_COUNT,
+                      OTA_DOWNLOAD_RETRY_DELAY_BASE_MS * attempt);
+            vTaskDelay(pdMS_TO_TICKS(OTA_DOWNLOAD_RETRY_DELAY_BASE_MS * attempt));
+        }
+
+        ret = ota_flash_update_begin(OTA_PART_WAKE_WORD_BIN, dev_conf.wakeup_word.resource.size);
+        if (ret < 0) {
+            LISA_LOGE(TAG, "Begin update of wake_word.bin partition failed (%d)", ret);
+            return ret;
+        }
+
+        LISA_LOGI(TAG, "Downloading wake_word.bin from %s, size %u (attempt %d)",
+                  dev_conf.wakeup_word.resource.url,
+                  dev_conf.wakeup_word.resource.size, attempt + 1);
+
+        ret = ota_api_download(&dev_conf.wakeup_word.resource, ota_manager_wake_word_download_cb);
+        if (ret >= 0) {
+            break;
+        }
+
+        LISA_LOGW(TAG, "Wake word download attempt %d failed (%d)", attempt + 1, ret);
+        ota_flash_update_abort(OTA_PART_WAKE_WORD_BIN);
     }
 
-    LISA_LOGI(TAG, "Downloading wake_word.bin from %s, size %u", dev_conf.wakeup_word.resource.url,
-              dev_conf.wakeup_word.resource.size);
-
-    ret = ota_api_download(&dev_conf.wakeup_word.resource, ota_manager_wake_word_download_cb);
     if (ret < 0) {
-        LISA_LOGE(TAG, "Download wake_word.bin failed (%d)", ret);
+        LISA_LOGE(TAG, "Download wake_word.bin failed after %d attempts (%d)",
+                  OTA_DOWNLOAD_RETRY_COUNT, ret);
         return ret;
     }
 
@@ -1000,17 +1020,35 @@ static int ota_manager_prompt_tone_update(void)
 
     LISA_LOGI(TAG, "Begin update prompt_tone.bin...");
 
-    ret = ota_flash_update_begin(OTA_PART_PROMPT_TONE_BIN, dev_conf.prompt_tone.size);
-    if (ret < 0) {
-        LISA_LOGE(TAG, "Begin update of prompt_tone.bin partition failed (%d)", ret);
-        return ret;
+    for (int attempt = 0; attempt < OTA_DOWNLOAD_RETRY_COUNT; attempt++) {
+        if (attempt > 0) {
+            LISA_LOGW(TAG, "Prompt tone download retry %d/%d, %ums delay",
+                      attempt + 1, OTA_DOWNLOAD_RETRY_COUNT,
+                      OTA_DOWNLOAD_RETRY_DELAY_BASE_MS * attempt);
+            vTaskDelay(pdMS_TO_TICKS(OTA_DOWNLOAD_RETRY_DELAY_BASE_MS * attempt));
+        }
+
+        ret = ota_flash_update_begin(OTA_PART_PROMPT_TONE_BIN, dev_conf.prompt_tone.size);
+        if (ret < 0) {
+            LISA_LOGE(TAG, "Begin update of prompt_tone.bin partition failed (%d)", ret);
+            return ret;
+        }
+
+        LISA_LOGI(TAG, "Downloading prompt_tone.bin from %s, size %u (attempt %d)",
+                  dev_conf.prompt_tone.url, dev_conf.prompt_tone.size, attempt + 1);
+
+        ret = ota_api_download(&dev_conf.prompt_tone, ota_manager_prompt_tone_download_cb);
+        if (ret >= 0) {
+            break;
+        }
+
+        LISA_LOGW(TAG, "Prompt tone download attempt %d failed (%d)", attempt + 1, ret);
+        ota_flash_update_abort(OTA_PART_PROMPT_TONE_BIN);
     }
 
-    LISA_LOGI(TAG, "Downloading prompt_tone.bin from %s, size %u", dev_conf.prompt_tone.url, dev_conf.prompt_tone.size);
-
-    ret = ota_api_download(&dev_conf.prompt_tone, ota_manager_prompt_tone_download_cb);
     if (ret < 0) {
-        LISA_LOGE(TAG, "Download prompt_tone.bin failed (%d)", ret);
+        LISA_LOGE(TAG, "Download prompt_tone.bin failed after %d attempts (%d)",
+                  OTA_DOWNLOAD_RETRY_COUNT, ret);
         return ret;
     }
 
@@ -1060,17 +1098,38 @@ static int ota_manager_emoji_update(void)
 
     LISA_LOGI(TAG, "Begin update emoji.bin...");
 
-    ret = ota_flash_update_begin(OTA_PART_EMOJI_BIN, dev_conf.emoji.size);
-    if (ret < 0) {
-        LISA_LOGE(TAG, "Begin update of emoji.bin partition failed (%d)", ret);
-        return ret;
+    for (int attempt = 0; attempt < OTA_DOWNLOAD_RETRY_COUNT; attempt++) {
+        if (attempt > 0) {
+            LISA_LOGW(TAG, "Emoji download retry %d/%d, %ums delay",
+                      attempt + 1, OTA_DOWNLOAD_RETRY_COUNT,
+                      OTA_DOWNLOAD_RETRY_DELAY_BASE_MS * attempt);
+            vTaskDelay(pdMS_TO_TICKS(OTA_DOWNLOAD_RETRY_DELAY_BASE_MS * attempt));
+        }
+
+        ret = ota_flash_update_begin(OTA_PART_EMOJI_BIN, dev_conf.emoji.size);
+        if (ret < 0) {
+            LISA_LOGE(TAG, "Begin update of emoji.bin partition failed (%d)", ret);
+            return ret;
+        }
+
+        LISA_LOGI(TAG, "Downloading emoji.bin from %s, size %u (attempt %d)",
+                  dev_conf.emoji.url, dev_conf.emoji.size, attempt + 1);
+
+        ret = ota_api_download(&dev_conf.emoji, ota_manager_emoji_download_cb);
+        if (ret >= 0) {
+            break; /* download + MD5 OK */
+        }
+
+        LISA_LOGW(TAG, "Emoji download attempt %d failed (%d)", attempt + 1, ret);
+
+        /* 放弃本轮 flash 写入（释放 mutex，不刷缓冲区），
+         * 下一轮 ota_flash_update_begin 会重新预擦分区 */
+        ota_flash_update_abort(OTA_PART_EMOJI_BIN);
     }
 
-    LISA_LOGI(TAG, "Downloading emoji.bin from %s, size %u", dev_conf.emoji.url, dev_conf.emoji.size);
-
-    ret = ota_api_download(&dev_conf.emoji, ota_manager_emoji_download_cb);
     if (ret < 0) {
-        LISA_LOGE(TAG, "Download emoji.bin failed (%d)", ret);
+        LISA_LOGE(TAG, "Download emoji.bin failed after %d attempts (%d)",
+                  OTA_DOWNLOAD_RETRY_COUNT, ret);
         return ret;
     }
 

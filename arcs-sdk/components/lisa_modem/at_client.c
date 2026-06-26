@@ -23,9 +23,31 @@
 #include "lisa_log.h"
 #include "lisa_modem_perf_log.h"
 
-#ifndef taskYIELD
-#define taskYIELD() vTaskDelay(0)
-#endif
+/* ===== AT 指令发送暂停锁 ===== */
+static SemaphoreHandle_t g_at_tx_pause_mutex = NULL;
+
+void at_cmd_tx_pause(void)
+{
+    if (!g_at_tx_pause_mutex) {
+        g_at_tx_pause_mutex = xSemaphoreCreateMutex();
+    }
+    xSemaphoreTake(g_at_tx_pause_mutex, portMAX_DELAY);
+}
+
+void at_cmd_tx_resume(void)
+{
+    if (g_at_tx_pause_mutex) {
+        xSemaphoreGive(g_at_tx_pause_mutex);
+    }
+}
+
+void at_cmd_tx_wait(void)
+{
+    if (g_at_tx_pause_mutex) {
+        xSemaphoreTake(g_at_tx_pause_mutex, portMAX_DELAY);
+        xSemaphoreGive(g_at_tx_pause_mutex);
+    }
+}
 
 /* Bit position macros */
 #ifndef BIT0
@@ -44,7 +66,6 @@
 #define AT_CLIENT_RX_TASK_TIMEOUT_MS  100U
 #define AT_CLIENT_RX_CHUNK_SIZE       1024U
 #define AT_CLIENT_STREAM_PROBE_SIZE   128U
-#define AT_CLIENT_RX_TASK_DEFAULT_DELAY_MS 10U
 
 /* Event bits */
 #define AT_EVENT_COMMAND_DONE   BIT0
@@ -90,8 +111,6 @@ struct at_client {
 
     /* URC wait state */
     const char *expect_urc;             /**< Expected URC command name (NULL = not waiting) */
-    at_urc_match_fn expect_urc_match;   /**< Optional matcher for expected URC arguments */
-    void *expect_urc_match_user_data;   /**< User data for expected URC matcher */
     at_arg_value_t *matched_args;       /**< Matched URC arguments (output) */
     size_t matched_arg_count;           /**< Matched URC argument count */
 
@@ -99,11 +118,19 @@ struct at_client {
     bool initialized;
     bool wait_for_response;
     bool capture_prefixed_response;
+    const char *binary_response_urc;
+    uint8_t *binary_response;
+    size_t binary_response_size;
+    size_t binary_response_len;
+    size_t binary_response_expected;
+    size_t binary_response_received;
+    bool binary_response_active;
+    bool binary_response_ready;
+    bool binary_response_overflow;
     bool debug;
     volatile bool rx_task_running;
     uint8_t task_priority;
     uint16_t task_stack_size;
-    volatile uint16_t rx_task_delay_ms;
     char perf_cmd_owner_task[AT_PERF_TASK_NAME_LEN];
     char perf_cmd_preview[AT_PERF_CMD_PREVIEW_LEN];
     uint32_t perf_last_cmd_wait_ms;
@@ -115,6 +142,7 @@ struct at_client {
     void *line_stream_claim_ctx;
     bool line_stream_active;
     bool line_stream_drop_until_eol;
+    bool rx_pending_cr;
 };
 
 typedef enum {
@@ -230,18 +258,6 @@ static void at_client_log_io(const at_client_t *client, const char *direction,
 static uint32_t at_client_tick_elapsed_ms(TickType_t start, TickType_t end)
 {
     return (uint32_t)((end - start) * portTICK_PERIOD_MS);
-}
-
-static TickType_t at_client_ms_to_ticks_nonzero(uint16_t delay_ms)
-{
-    TickType_t ticks;
-
-    if (delay_ms == 0U) {
-        return 0;
-    }
-
-    ticks = pdMS_TO_TICKS(delay_ms);
-    return ticks > 0 ? ticks : 1;
 }
 
 static void at_client_perf_copy_preview(char *dst, size_t dst_size, const char *src)
@@ -435,6 +451,72 @@ static void at_client_finish_line_stream(at_client_t *client, bool success)
     if (success) {
         client->line_stream_drop_until_eol = false;
     }
+}
+
+static bool at_client_line_stream_is_complete(at_client_t *client)
+{
+    if (!client || !client->line_stream_active) {
+        return true;
+    }
+
+    if (!client->line_stream_handler.is_complete) {
+        return true;
+    }
+
+    return client->line_stream_handler.is_complete(client->line_stream_claim_ctx,
+                                                   client->line_stream_user_data);
+}
+
+static bool at_client_line_stream_raw_mode(at_client_t *client)
+{
+    if (!client || !client->line_stream_active ||
+        !client->line_stream_handler.raw_mode) {
+        return false;
+    }
+
+    return client->line_stream_handler.raw_mode(client->line_stream_claim_ctx,
+                                                client->line_stream_user_data);
+}
+
+static bool at_client_line_stream_feed_crlf_if_needed(at_client_t *client)
+{
+    static const uint8_t crlf[] = {'\r', '\n'};
+
+    if (at_client_line_stream_is_complete(client)) {
+        return true;
+    }
+
+    return client->line_stream_handler.consume(client->line_stream_claim_ctx,
+                                               crlf, sizeof(crlf), false,
+                                               client->line_stream_user_data) >= 0;
+}
+
+static bool at_client_line_stream_consume(at_client_t *client, const uint8_t *data,
+                                          size_t len, bool line_end,
+                                          size_t *consumed_out)
+{
+    int consumed;
+
+    if (consumed_out) {
+        *consumed_out = 0U;
+    }
+    if (!client || !client->line_stream_active || (!data && len > 0U)) {
+        return false;
+    }
+    if (len == 0U) {
+        return true;
+    }
+
+    consumed = client->line_stream_handler.consume(client->line_stream_claim_ctx,
+                                                   data, len, line_end,
+                                                   client->line_stream_user_data);
+    if (consumed < 0 || (size_t)consumed > len) {
+        return false;
+    }
+    if (consumed_out) {
+        *consumed_out = (size_t)consumed;
+    }
+    return true;
 }
 
 static void at_client_reset_rx_window_locked(at_client_t *client)
@@ -676,38 +758,44 @@ static void handle_urc(at_client_t *client, const char *command,
         return;
     }
 
+    if (client->binary_response_urc && strcmp(command, client->binary_response_urc) == 0 &&
+        arg_count > 0U && arguments && arguments[0].type == AT_ARG_TYPE_INT) {
+        int expected = arguments[0].data.int_val;
+
+        if (expected < 0) {
+            client->binary_response_overflow = true;
+        } else {
+            client->binary_response_expected = (size_t)expected;
+            client->binary_response_received = 0U;
+            client->binary_response_len = 0U;
+            client->binary_response_ready = (expected == 0);
+            client->binary_response_active = (expected > 0);
+        }
+    }
+
     /* Check if this URC matches the expected one */
     if (client->expect_urc && strcmp(command, client->expect_urc) == 0) {
-        bool expected_urc_matched = true;
-
-        if (client->expect_urc_match) {
-            expected_urc_matched = client->expect_urc_match(command, arguments, arg_count,
-                                                            client->expect_urc_match_user_data);
-        }
-
-        if (expected_urc_matched) {
-            /* Clone arguments for the caller */
-            if (arguments && arg_count > 0) {
-                at_arg_value_t *cloned = (at_arg_value_t *)at_mem_calloc(arg_count, sizeof(at_arg_value_t));
-                if (cloned) {
-                    for (size_t i = 0; i < arg_count; i++) {
-                        cloned[i].type = arguments[i].type;
-                        if (arguments[i].type == AT_ARG_TYPE_STRING && arguments[i].data.string_val.value) {
-                            cloned[i].data.string_val.value = at_client_strdup(arguments[i].data.string_val.value);
-                            cloned[i].data.string_val.len = arguments[i].data.string_val.len;
-                        } else {
-                            cloned[i].data = arguments[i].data;
-                        }
+        /* Clone arguments for the caller */
+        if (arguments && arg_count > 0) {
+            at_arg_value_t *cloned = (at_arg_value_t *)at_mem_calloc(arg_count, sizeof(at_arg_value_t));
+            if (cloned) {
+                for (size_t i = 0; i < arg_count; i++) {
+                    cloned[i].type = arguments[i].type;
+                    if (arguments[i].type == AT_ARG_TYPE_STRING && arguments[i].data.string_val.value) {
+                        cloned[i].data.string_val.value = at_client_strdup(arguments[i].data.string_val.value);
+                        cloned[i].data.string_val.len = arguments[i].data.string_val.len;
+                    } else {
+                        cloned[i].data = arguments[i].data;
                     }
-                    client->matched_args = cloned;
-                    client->matched_arg_count = arg_count;
                 }
-            } else {
-                client->matched_args = NULL;
-                client->matched_arg_count = 0;
+                client->matched_args = cloned;
+                client->matched_arg_count = arg_count;
             }
-            xEventGroupSetBits(client->event_group, AT_EVENT_URC_MATCHED);
+        } else {
+            client->matched_args = NULL;
+            client->matched_arg_count = 0;
         }
+        xEventGroupSetBits(client->event_group, AT_EVENT_URC_MATCHED);
     }
 
     /* Call all registered URC callbacks without blocking rx_buffer access. */
@@ -972,6 +1060,47 @@ static void at_client_consume_prompt(at_client_t *client)
     xEventGroupSetBits(client->event_group, AT_EVENT_DATA_PROMPT);
 }
 
+static size_t at_client_capture_binary_response(at_client_t *client,
+                                                const uint8_t *data, size_t len)
+{
+    size_t remaining;
+    size_t consume_len;
+    size_t copy_len;
+
+    if (!client || !client->binary_response_active || !data || len == 0U) {
+        return 0U;
+    }
+
+    if (client->binary_response_received >= client->binary_response_expected) {
+        client->binary_response_active = false;
+        client->binary_response_ready = true;
+        return 0U;
+    }
+
+    remaining = client->binary_response_expected - client->binary_response_received;
+    consume_len = len < remaining ? len : remaining;
+    copy_len = consume_len;
+    if (client->binary_response_len + copy_len > client->binary_response_size) {
+        copy_len = client->binary_response_size > client->binary_response_len
+                 ? client->binary_response_size - client->binary_response_len
+                 : 0U;
+        client->binary_response_overflow = true;
+    }
+
+    if (copy_len > 0U && client->binary_response) {
+        memcpy(client->binary_response + client->binary_response_len, data, copy_len);
+        client->binary_response_len += copy_len;
+    }
+
+    client->binary_response_received += consume_len;
+    if (client->binary_response_received >= client->binary_response_expected) {
+        client->binary_response_active = false;
+        client->binary_response_ready = true;
+    }
+
+    return consume_len;
+}
+
 static void at_client_drain_buffered_frames(at_client_t *client)
 {
     at_client_frame_kind_t frame_kind;
@@ -1050,18 +1179,34 @@ static bool at_client_process_line_fragment(at_client_t *client, const uint8_t *
     }
 
     if (client->line_stream_active) {
-        if (len > 0U &&
-            client->line_stream_handler.consume(client->line_stream_claim_ctx,
-                                                data, len, line_end,
-                                                client->line_stream_user_data) < 0) {
+        size_t consumed = 0U;
+
+        if (!at_client_line_stream_consume(client, data, len, line_end, &consumed)) {
             at_client_finish_line_stream(client, false);
             client->line_stream_drop_until_eol = !line_end;
             return false;
         }
-
-        if (line_end) {
+        if (consumed < len) {
+            if (!at_client_line_stream_is_complete(client)) {
+                at_client_finish_line_stream(client, false);
+                client->line_stream_drop_until_eol = !line_end;
+                return false;
+            }
             at_client_finish_line_stream(client, true);
             at_client_reset_line_stream_probe(client);
+            return at_client_process_line_fragment(client, data + consumed,
+                                                   len - consumed, line_end);
+        }
+
+        if (line_end) {
+            if (!at_client_line_stream_feed_crlf_if_needed(client)) {
+                at_client_finish_line_stream(client, false);
+                return false;
+            }
+            if (at_client_line_stream_is_complete(client)) {
+                at_client_finish_line_stream(client, true);
+                at_client_reset_line_stream_probe(client);
+            }
         }
         return true;
     }
@@ -1123,28 +1268,71 @@ static bool at_client_process_line_fragment(at_client_t *client, const uint8_t *
         client->line_stream_active = true;
         client->stream_probe_len = 0U;
 
-        if (client->line_stream_handler.consume(client->line_stream_claim_ctx,
-                                                (const uint8_t *)client->stream_probe_buffer,
-                                                inspect_len,
-                                                line_end && copied == len,
-                                                client->line_stream_user_data) < 0) {
+        size_t consumed = 0U;
+        if (!at_client_line_stream_consume(client,
+                                           (const uint8_t *)client->stream_probe_buffer,
+                                           inspect_len,
+                                           line_end && copied == len,
+                                           &consumed)) {
             at_client_finish_line_stream(client, false);
             client->line_stream_drop_until_eol = !line_end;
             return false;
         }
+        if (consumed < inspect_len) {
+            bool has_more = copied < len;
 
-        if (copied < len &&
-            client->line_stream_handler.consume(client->line_stream_claim_ctx,
-                                                data + copied, len - copied,
-                                                line_end,
-                                                client->line_stream_user_data) < 0) {
-            at_client_finish_line_stream(client, false);
-            client->line_stream_drop_until_eol = !line_end;
-            return false;
+            if (!at_client_line_stream_is_complete(client)) {
+                at_client_finish_line_stream(client, false);
+                client->line_stream_drop_until_eol = !line_end;
+                return false;
+            }
+            at_client_finish_line_stream(client, true);
+            at_client_reset_line_stream_probe(client);
+            if (!at_client_process_line_fragment(client,
+                                                 (const uint8_t *)client->stream_probe_buffer + consumed,
+                                                 inspect_len - consumed,
+                                                 line_end && !has_more)) {
+                return false;
+            }
+            if (has_more) {
+                return at_client_process_line_fragment(client, data + copied,
+                                                       len - copied, line_end);
+            }
+            return true;
+        }
+
+        if (copied < len) {
+            size_t tail_consumed = 0U;
+
+            if (!at_client_line_stream_consume(client, data + copied, len - copied,
+                                               line_end, &tail_consumed)) {
+                at_client_finish_line_stream(client, false);
+                client->line_stream_drop_until_eol = !line_end;
+                return false;
+            }
+            if (tail_consumed < len - copied) {
+                if (!at_client_line_stream_is_complete(client)) {
+                    at_client_finish_line_stream(client, false);
+                    client->line_stream_drop_until_eol = !line_end;
+                    return false;
+                }
+                at_client_finish_line_stream(client, true);
+                at_client_reset_line_stream_probe(client);
+                return at_client_process_line_fragment(client,
+                                                       data + copied + tail_consumed,
+                                                       len - copied - tail_consumed,
+                                                       line_end);
+            }
         }
 
         if (line_end) {
-            at_client_finish_line_stream(client, true);
+            if (!at_client_line_stream_feed_crlf_if_needed(client)) {
+                at_client_finish_line_stream(client, false);
+                return false;
+            }
+            if (at_client_line_stream_is_complete(client)) {
+                at_client_finish_line_stream(client, true);
+            }
         }
         return true;
     }
@@ -1176,13 +1364,55 @@ static void at_client_process_data(at_client_t *client, const uint8_t *data, int
 {
     size_t frame_start = 0U;
     size_t offset = 0U;
+    size_t probe_frame_start = 0U;
     bool line_in_progress = false;
+    bool stream_probe_rejected = false;
 
     if (len <= 0) return;
 
     at_client_log_io(client, "RX", data, (size_t)len);
 
+    if (client->rx_pending_cr) {
+        client->rx_pending_cr = false;
+        if (at_client_line_stream_raw_mode(client)) {
+            static const uint8_t cr = '\r';
+
+            if (!at_client_process_line_fragment(client, &cr, 1U, false)) {
+                return;
+            }
+            if (at_client_line_stream_is_complete(client)) {
+                at_client_finish_line_stream(client, true);
+                at_client_reset_line_stream_probe(client);
+            }
+        } else if (data[0] == '\n') {
+            if (!at_client_process_line_fragment(client, NULL, 0U, true)) {
+                return;
+            }
+            offset = 1U;
+            frame_start = 1U;
+            probe_frame_start = frame_start;
+            stream_probe_rejected = false;
+        } else {
+            static const uint8_t cr = '\r';
+
+            if (!at_client_process_line_fragment(client, &cr, 1U, false)) {
+                return;
+            }
+        }
+    }
+
     while (offset < (size_t)len) {
+        if (client->binary_response_active) {
+            size_t captured = at_client_capture_binary_response(client,
+                                                                data + offset,
+                                                                (size_t)len - offset);
+            if (captured > 0U) {
+                offset += captured;
+                frame_start = offset;
+                continue;
+            }
+        }
+
         xSemaphoreTake(client->buffer_mutex, portMAX_DELAY);
         line_in_progress = (client->rx_buffer_size > 0U);
         xSemaphoreGive(client->buffer_mutex);
@@ -1190,6 +1420,66 @@ static void at_client_process_data(at_client_t *client, const uint8_t *data, int
                          client->line_stream_active ||
                          client->stream_probe_len > 0U ||
                          client->line_stream_drop_until_eol;
+
+        if (!line_in_progress && at_client_has_line_stream_handler(client)) {
+            at_line_stream_claim_t claim = AT_LINE_STREAM_PASS;
+            void *claim_ctx = NULL;
+            size_t probe_len;
+
+            if (probe_frame_start != frame_start) {
+                probe_frame_start = frame_start;
+                stream_probe_rejected = false;
+            }
+
+            probe_len = offset - frame_start + 1U;
+            if (!stream_probe_rejected && probe_len <= AT_CLIENT_STREAM_PROBE_SIZE) {
+                claim = client->line_stream_handler.claim(data + frame_start,
+                                                          probe_len, false,
+                                                          client->line_stream_user_data,
+                                                          &claim_ctx);
+                if (claim == AT_LINE_STREAM_CLAIM) {
+                    if (!at_client_process_line_fragment(client, data + frame_start,
+                                                         probe_len, false)) {
+                        return;
+                    }
+                    offset = frame_start + probe_len;
+                    frame_start = offset;
+                    probe_frame_start = frame_start;
+                    stream_probe_rejected = false;
+                    continue;
+                }
+                if (claim == AT_LINE_STREAM_PASS) {
+                    stream_probe_rejected = true;
+                }
+            }
+        }
+
+        if (at_client_line_stream_raw_mode(client)) {
+            size_t consumed = 0U;
+
+            /* Declared-length streams can carry binary TLS bytes, including CRLF. */
+            if (!at_client_line_stream_consume(client,
+                                               data + offset,
+                                               (size_t)len - offset,
+                                               false,
+                                               &consumed)) {
+                at_client_finish_line_stream(client, false);
+                return;
+            }
+            if (consumed == 0U && !at_client_line_stream_is_complete(client)) {
+                at_client_finish_line_stream(client, false);
+                return;
+            }
+
+            offset += consumed;
+            frame_start = offset;
+            if (at_client_line_stream_is_complete(client)) {
+                at_client_finish_line_stream(client, true);
+                at_client_reset_line_stream_probe(client);
+                continue;
+            }
+            return;
+        }
 
         if (!line_in_progress && client->wait_for_response && data[offset] == '>') {
             if (offset > frame_start) {
@@ -1219,7 +1509,22 @@ static void at_client_process_data(at_client_t *client, const uint8_t *data, int
 
             offset += AT_RESPONSE_CRLF_LEN;
             frame_start = offset;
+            probe_frame_start = frame_start;
+            stream_probe_rejected = false;
             continue;
+        }
+
+        if (data[offset] == '\r' && offset + 1U == (size_t)len) {
+            if (offset > frame_start) {
+                if (!at_client_process_line_fragment(client,
+                                                     data + frame_start,
+                                                     offset - frame_start,
+                                                     false)) {
+                    return;
+                }
+            }
+            client->rx_pending_cr = true;
+            return;
         }
 
         offset++;
@@ -1254,20 +1559,10 @@ static void at_client_rx_task(void *pvParameters)
         int ret;
 
         if (!client->transport) {
-            TickType_t delay_ticks = at_client_ms_to_ticks_nonzero(client->rx_task_delay_ms);
-            if (delay_ticks > 0) {
-                vTaskDelay(delay_ticks);
-            } else {
-                taskYIELD();
-            }
+            vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-        TickType_t delay_ticks = at_client_ms_to_ticks_nonzero(client->rx_task_delay_ms);
-        if (delay_ticks > 0) {
-            vTaskDelay(delay_ticks);
-        } else {
-            taskYIELD();
-        }
+        vTaskDelay(3);
         ret = at_transport_read(client->transport, rx_buf, sizeof(rx_buf), AT_CLIENT_RX_TASK_TIMEOUT_MS);
         if (!client->rx_task_running) {
             break;
@@ -1357,9 +1652,6 @@ at_client_t *at_client_create(const at_client_config_t *config)
     client->debug = false;
     client->task_priority = cfg.task_priority;
     client->task_stack_size = cfg.task_stack_size;
-    client->rx_task_delay_ms = (cfg.rx_task_delay_ms > 0U)
-                             ? cfg.rx_task_delay_ms
-                             : AT_CLIENT_RX_TASK_DEFAULT_DELAY_MS;
     LISA_LOGI(TAG, "AT client created");
     return client;
 }
@@ -1458,6 +1750,9 @@ bool at_client_send_cmd_with_data(at_client_t *client, const char *command,
     }
 
     at_client_perf_take_cmd_mutex(client, command);
+
+    /* 等待 flash 操作完成再发送 AT 指令 */
+    at_cmd_tx_wait();
 
     /* Clear event bits */
     xEventGroupClearBits(client->event_group,
@@ -1624,21 +1919,6 @@ void at_client_set_debug(at_client_t *client, bool enable)
     if (client) client->debug = enable;
 }
 
-int at_client_set_rx_task_delay(at_client_t *client, uint16_t delay_ms)
-{
-    if (!client) {
-        return -1;
-    }
-
-    client->rx_task_delay_ms = delay_ms;
-    return 0;
-}
-
-uint16_t at_client_get_rx_task_delay(at_client_t *client)
-{
-    return client ? client->rx_task_delay_ms : 0U;
-}
-
 at_transport_t *at_client_get_transport(at_client_t *client)
 {
     if (!client) return NULL;
@@ -1765,6 +2045,76 @@ bool at_client_exec_text_cmd(at_client_t *client, const char *command,
     return response[0] != '\0';
 }
 
+bool at_client_exec_binary_cmd(at_client_t *client, const char *command,
+                               const char *data_urc, uint8_t *response,
+                               size_t size, size_t *out_len,
+                               uint32_t timeout_ms)
+{
+    bool result = false;
+    int ret;
+
+    if (!client || !client->initialized || !command || !data_urc ||
+        !response || size == 0U || !out_len || !client->transport) {
+        return false;
+    }
+
+    *out_len = 0U;
+    at_client_perf_take_cmd_mutex(client, command);
+
+    xEventGroupClearBits(client->event_group,
+                         AT_EVENT_COMMAND_DONE | AT_EVENT_COMMAND_ERROR);
+    client->wait_for_response = true;
+    client->cme_error_code = 0;
+    client->binary_response_urc = data_urc;
+    client->binary_response = response;
+    client->binary_response_size = size;
+    client->binary_response_len = 0U;
+    client->binary_response_expected = 0U;
+    client->binary_response_received = 0U;
+    client->binary_response_active = false;
+    client->binary_response_ready = false;
+    client->binary_response_overflow = false;
+
+    xSemaphoreTake(client->buffer_mutex, portMAX_DELAY);
+    client->response[0] = '\0';
+    xSemaphoreGive(client->buffer_mutex);
+
+    xSemaphoreTake(client->tx_mutex, portMAX_DELAY);
+    ret = at_client_send_command_locked(client, command, true);
+    xSemaphoreGive(client->tx_mutex);
+
+    if (ret >= 0 && timeout_ms > 0U) {
+        EventBits_t bits = xEventGroupWaitBits(client->event_group,
+                                               AT_EVENT_COMMAND_DONE | AT_EVENT_COMMAND_ERROR,
+                                               pdTRUE, pdFALSE,
+                                               pdMS_TO_TICKS(timeout_ms));
+        result = (bits & AT_EVENT_COMMAND_DONE) != 0 &&
+                 (bits & AT_EVENT_COMMAND_ERROR) == 0 &&
+                 client->binary_response_ready &&
+                 !client->binary_response_overflow;
+    } else if (ret >= 0) {
+        result = true;
+    }
+
+    client->wait_for_response = false;
+    if (result) {
+        *out_len = client->binary_response_len;
+    }
+
+    client->binary_response_urc = NULL;
+    client->binary_response = NULL;
+    client->binary_response_size = 0U;
+    client->binary_response_len = 0U;
+    client->binary_response_expected = 0U;
+    client->binary_response_received = 0U;
+    client->binary_response_active = false;
+    client->binary_response_ready = false;
+    client->binary_response_overflow = false;
+
+    at_client_perf_give_cmd_mutex(client);
+    return result;
+}
+
 bool at_client_exec_cmdf(at_client_t *client, const at_cmd_desc_t *desc,
                           void *user_data, ...)
 {
@@ -1802,16 +2152,6 @@ bool at_client_send_cmd_wait_urc(at_client_t *client, const char *command,
                                   at_arg_value_t **out_args, size_t *out_count,
                                   size_t timeout_ms, bool add_crlf)
 {
-    return at_client_send_cmd_wait_urc_match(client, command, expect_urc, NULL, NULL,
-                                             out_args, out_count, timeout_ms, add_crlf);
-}
-
-bool at_client_send_cmd_wait_urc_match(at_client_t *client, const char *command,
-                                       const char *expect_urc,
-                                       at_urc_match_fn match_fn, void *match_user_data,
-                                       at_arg_value_t **out_args, size_t *out_count,
-                                       size_t timeout_ms, bool add_crlf)
-{
     if (!client || !client->initialized || !command || !expect_urc || !client->transport) {
         return false;
     }
@@ -1822,8 +2162,6 @@ bool at_client_send_cmd_wait_urc_match(at_client_t *client, const char *command,
 
     /* Setup URC wait state */
     client->expect_urc = expect_urc;
-    client->expect_urc_match = match_fn;
-    client->expect_urc_match_user_data = match_user_data;
     client->matched_args = NULL;
     client->matched_arg_count = 0;
 
@@ -1850,8 +2188,6 @@ bool at_client_send_cmd_wait_urc_match(at_client_t *client, const char *command,
         LISA_LOGE(TAG, "Failed to send command");
         client->wait_for_response = false;
         client->expect_urc = NULL;
-        client->expect_urc_match = NULL;
-        client->expect_urc_match_user_data = NULL;
         at_client_perf_give_cmd_mutex(client);
         return false;
     }
@@ -1898,8 +2234,6 @@ bool at_client_send_cmd_wait_urc_match(at_client_t *client, const char *command,
 
     client->wait_for_response = false;
     client->expect_urc = NULL;
-    client->expect_urc_match = NULL;
-    client->expect_urc_match_user_data = NULL;
 
     /* Return matched arguments */
     if (urc_matched && client->matched_args) {

@@ -15,3 +15,28 @@ config LISA_PWM
 			and polarity control.
 
 			The driver provides one PWM device (pwm0) with 8 independent channels.
+
+if LISA_CH32V003
+
+config LISA_CH32V003_PWM
+	bool "Enable CH32V003 PWM child device"
+	default y
+	select LISA_PWM
+
+config LISA_CH32V003_PWM_CLOCK_FREQUENCY
+	int "CH32V003 PWM source clock frequency"
+	default 48000000
+
+config LISA_CH32V003_PWM_CLOCK_PRESCALER
+	int "CH32V003 PWM clock prescaler"
+	default 480
+
+config LISA_CH32V003_PWM_DEADTIME
+	int "CH32V003 PWM dead-time register value"
+	default 0
+
+config LISA_CH32V003_PWM_BRAKE
+	bool "Enable CH32V003 PWM brake"
+	default n
+
+endif # LISA_CH32V003

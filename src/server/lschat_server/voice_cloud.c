@@ -70,7 +70,7 @@ static volatile uint32_t g_objrec_accept_seq = 0;
 /* 发起云端交互后延迟多少时间开始发送音频 */
 #define PCM_SEND_AFTER_CLOUD_CHAT_START_MS (0)
 
-#define VOICE_CLOUD_TTS_TEXT 0
+#define VOICE_CLOUD_TTS_TEXT 1
 #define RESOURCE_UPDATE_REBOOT_DELAY_MS_DEFAULT 3000U
 
 const char *lsc_get_firmware_type(void)

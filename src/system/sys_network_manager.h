@@ -7,8 +7,8 @@ extern "C" {
 #endif
 
 typedef enum {
-    SYS_NETWORK_MODE_WIFI_PREFERRED = 0,
-    SYS_NETWORK_MODE_MODEM_PREFERRED = 1,
+    SYS_NETWORK_MODE_WIFI = 0,
+    SYS_NETWORK_MODE_MODEM = 1,
 } sys_network_mode_t;
 
 typedef enum {
@@ -34,7 +34,6 @@ int sys_network_toggle_mode(bool persist);
 void sys_network_report_probe_result(bool connected);
 int sys_network_get_status(sys_network_status_t *status);
 bool sys_network_get_signal_quality(int *rssi, int *ber);
-int sys_network_on_cloud_auth_success(void);
 
 #ifdef __cplusplus
 }

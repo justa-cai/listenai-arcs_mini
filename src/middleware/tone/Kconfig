@@ -1,6 +1,6 @@
 menu "Tone Manager"
 
-config MIDDLEWARE_TONE
+config TONE
     bool "Enable Tone Manager"
     default y
     help

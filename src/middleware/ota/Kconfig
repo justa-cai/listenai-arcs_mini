@@ -20,4 +20,14 @@ config OTA_DISABLE_EMOJI_UPDATE
     bool "Force disable emoji OTA update"
     default n
 
+config OTA_MODEM_LOCK
+    bool "Lock modem AT commands during flash erase"
+    depends on LISA_MODEM
+    default y
+    help
+      Pause AT command transmission and drain UART RX buffer before
+      flash erase operations. This prevents data loss from interrupt
+      latency during long (~1.3s) erase cycles.
+      Disable only if no modem shares the flash erase path.
+
 endif

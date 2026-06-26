@@ -14,6 +14,12 @@
 
 #include "cache.h"
 
+#include "lisa_uart.h"
+
+#ifdef CONFIG_OTA_MODEM_LOCK
+#include "at_client.h"
+#endif
+
 #include "ota_flash.h"
 #include "ota_api.h"
 
@@ -84,6 +90,19 @@ int ota_flash_get(ota_partition_id_e part, const void **data, uint32_t *size)
     return 0;
 }
 
+/* Flash 写以 256 字节（1 页）为单位，间歇 yield 让 ISR 有机会运行 */
+#define OTA_FLASH_PAGE_SIZE 256
+/* 预擦除块大小：一次性擦 64KB，避免频繁小擦除 */
+#define OTA_PRE_ERASE_SIZE (64 * 1024)
+/* Erase 前排空 RX：等待 UART 空闲的最大时间（ms）。
+ * 仅用于下载开始前的预擦除阶段（modem 空闲）。下载中途用 LOCK_QUICK_DELAY_MS。 */
+#define OTA_DRAIN_IDLE_TIMEOUT_MS 5000
+/* 下载中途锁 AT 后的短暂延时（ms）：让已在途的 UART 数据落定即可，
+ * 不等待 idle——modem 持续发 URC，永远等不到。 */
+#define OTA_LOCK_QUICK_DELAY_MS 20
+/* 页间 yield 时间（ms） */
+#define OTA_PAGE_YIELD_MS 5
+
 static struct {
     bool in_progress;
     SemaphoreHandle_t mutex;
@@ -93,7 +112,108 @@ static struct {
     uint32_t total_size;
     uint32_t buffer_len;
     uint8_t buffer[4096];
+    uint32_t erased_start;   /* 当前已预擦区域的起始（绝对 Flash 地址） */
+    uint32_t erased_end;     /* 当前已预擦区域的末尾（绝对 Flash 地址，不含） */
 } flash_update = {.in_progress = false};
+
+static inline void ota_flash_lock_and_drain(void)
+{
+#ifdef CONFIG_OTA_MODEM_LOCK
+    at_cmd_tx_pause();
+    lisa_device_t *uart_dev = lisa_device_get("uart2");
+    if (uart_dev) {
+        int ret = lisa_uart_rx_wait_idle(uart_dev, OTA_DRAIN_IDLE_TIMEOUT_MS);
+        if (ret != LISA_DEVICE_OK) {
+            LISA_LOGW(TAG, "UART idle drain returned %d, proceeding anyway", ret);
+        }
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
+#endif
+}
+
+/**
+ * @brief 下载中途快速锁 AT：暂停 AT 发送 + 短暂延时让在途数据落定。
+ *        不等待 UART idle——modem 持续发 URC，永远等不到，
+ *        等久了反而导致 modem TCP 缓冲区溢出丢数据。
+ */
+static inline void ota_flash_lock_quick(void)
+{
+#ifdef CONFIG_OTA_MODEM_LOCK
+    at_cmd_tx_pause();
+    vTaskDelay(pdMS_TO_TICKS(OTA_LOCK_QUICK_DELAY_MS));
+#endif
+}
+
+static inline void ota_flash_unlock(void)
+{
+#ifdef CONFIG_OTA_MODEM_LOCK
+    at_cmd_tx_resume();
+#endif
+}
+
+/**
+ * @brief 确保 Flash 目标区域已预擦。若未擦，执行大块擦除。
+ *        调用前需由上层持有 AT 锁（ota_flash_lock_and_drain），
+ *        以确保擦除和后续写入期间模组不会产生新的 UART 数据。
+ *
+ * @param flash      Flash 设备
+ * @param flash_addr 需要写入的绝对 Flash 地址
+ * @param len        需要写入的长度
+ * @return 0 成功，<0 失败
+ */
+static int ota_flash_ensure_erased(lisa_device_t *flash, uint32_t flash_addr, uint32_t len)
+{
+    uint32_t need_end = flash_addr + len;
+
+    /* 已在预擦区域内，无需再擦 */
+    if (flash_addr >= flash_update.erased_start && need_end <= flash_update.erased_end) {
+        return 0;
+    }
+
+    /* 计算新的大块擦除范围（64KB 对齐） */
+    uint32_t block_start = flash_addr & ~(OTA_PRE_ERASE_SIZE - 1);
+    uint32_t block_size = OTA_PRE_ERASE_SIZE;
+
+    LISA_LOGI(TAG, "Pre-erasing 64KB block at 0x%08X", block_start);
+
+    int ret = lisa_flash_erase(flash, block_start, block_size);
+    if (ret != 0) {
+        LISA_LOGE(TAG, "Pre-erase failed at 0x%08X (%d)", block_start, ret);
+        return ret;
+    }
+
+    flash_update.erased_start = block_start;
+    flash_update.erased_end = block_start + block_size;
+
+    return 0;
+}
+
+/**
+ * @brief 按页（256B）写入 Flash，每页之间 yield 让 ISR 有机会搬 FIFO。
+ *        调用前需确保目标区域已擦除，且由上层持有 AT 锁。
+ */
+static int ota_flash_write_paged(lisa_device_t *flash, uint32_t addr, const uint8_t *data, uint32_t len)
+{
+    uint32_t written = 0;
+    while (written < len) {
+        uint32_t chunk = len - written;
+        if (chunk > OTA_FLASH_PAGE_SIZE) {
+            chunk = OTA_FLASH_PAGE_SIZE;
+        }
+
+        int ret = lisa_flash_write(flash, addr + written, data + written, chunk);
+        if (ret != 0) {
+            return ret;
+        }
+        written += chunk;
+
+        if (written < len) {
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
+    }
+    return 0;
+}
 
 int ota_flash_update_begin(ota_partition_id_e part, uint32_t total_size)
 {
@@ -117,6 +237,42 @@ int ota_flash_update_begin(ota_partition_id_e part, uint32_t total_size)
     flash_update.offset = 0;
     flash_update.total_size = total_size;
     flash_update.buffer_len = 0;
+    /* 下载开始前预擦除整个分区。此时 modem 空闲，即使 erase 禁用中断
+     * ~1.3s 也不会丢数据。下载中途 ensure_erased 全部走快速路径。 */
+    {
+        uint32_t erase_len = (total_size != OTA_FLASH_SIZE_UNKNOWN) ? total_size : partition->size;
+        uint32_t aligned_start = partition->addr & ~(OTA_PRE_ERASE_SIZE - 1);
+        uint32_t aligned_end = (partition->addr + erase_len + OTA_PRE_ERASE_SIZE - 1) & ~(OTA_PRE_ERASE_SIZE - 1);
+
+        LISA_LOGI(TAG, "Partition %d: pre-erasing %u bytes from 0x%08X (%u blocks)",
+                  part, aligned_end - aligned_start, aligned_start,
+                  (aligned_end - aligned_start) / OTA_PRE_ERASE_SIZE);
+
+        ota_flash_lock_and_drain();
+
+        for (uint32_t addr = aligned_start; addr < aligned_end; addr += OTA_PRE_ERASE_SIZE) {
+            int ret = lisa_flash_erase(flash, addr, OTA_PRE_ERASE_SIZE);
+            if (ret != 0) {
+                LISA_LOGE(TAG, "Pre-erase failed at 0x%08X (%d)", addr, ret);
+                flash_update.erased_start = aligned_start;
+                flash_update.erased_end = (addr > aligned_start) ? addr : 0;
+                ota_flash_unlock();
+                if (flash_update.erased_end == 0) {
+                    flash_update.in_progress = false;
+                    vSemaphoreDelete(flash_update.mutex);
+                    return -1;
+                }
+                /* 部分失败：已擦区域仍可用，剩余由 ensure_erased 补齐 */
+                LISA_LOGW(TAG, "Pre-erase partial: erased [0x%08X, 0x%08X)",
+                          flash_update.erased_start, flash_update.erased_end);
+                return 0;
+            }
+        }
+
+        flash_update.erased_start = aligned_start;
+        flash_update.erased_end = aligned_end;
+        ota_flash_unlock();
+    }
 
     return 0;
 }
@@ -170,22 +326,32 @@ int ota_flash_update_step(ota_partition_id_e part, uint32_t offset, const uint8_
 
         if (flash_update.buffer_len == sizeof(flash_update.buffer)) {
             uint32_t write_offset = flash_update.offset - flash_update.buffer_len;
+            uint32_t flash_addr = partition->addr + write_offset;
             int ret;
 
-            ret = lisa_flash_erase(flash_update.flash, partition->addr + write_offset, sizeof(flash_update.buffer));
+            /* 暂停 AT 发送，覆盖擦除和写入全过程。
+             * 不等待 UART idle——下载中途 modem 持续发 URC 等不到，
+             * 等久了反而导致 modem TCP 缓冲区溢出丢数据。 */
+            ota_flash_lock_quick();
+
+            ret = ota_flash_ensure_erased(flash_update.flash, flash_addr, sizeof(flash_update.buffer));
             if (ret != 0) {
-                LISA_LOGE(TAG, "Erase partition %d failed at offset %u (%d)", part, write_offset, ret);
+                LISA_LOGE(TAG, "Pre-erase failed at offset %u (%d)", write_offset, ret);
+                ota_flash_unlock();
                 xSemaphoreGive(flash_update.mutex);
                 return -1;
             }
 
-            ret = lisa_flash_write(flash_update.flash, partition->addr + write_offset, flash_update.buffer,
-                                   sizeof(flash_update.buffer));
+            ret = ota_flash_write_paged(flash_update.flash, flash_addr, flash_update.buffer,
+                                        sizeof(flash_update.buffer));
             if (ret != 0) {
                 LISA_LOGE(TAG, "Write partition %d failed at offset %u (%d)", part, write_offset, ret);
+                ota_flash_unlock();
                 xSemaphoreGive(flash_update.mutex);
                 return -1;
             }
+
+            ota_flash_unlock();
 
             flash_update.buffer_len = 0;
             LISA_LOGI(TAG, "Partition %d wrote to offset %u, buffer remaining %u", part,
@@ -218,19 +384,30 @@ int ota_flash_update_finish(ota_partition_id_e part)
 
         xSemaphoreTake(flash_update.mutex, portMAX_DELAY);
 
-        ret = lisa_flash_erase(flash_update.flash, partition->addr + write_offset, sizeof(flash_update.buffer));
-        if (ret != 0) {
-            LISA_LOGE(TAG, "Erase partition %d failed at offset %u (%d)", part, write_offset, ret);
-            xSemaphoreGive(flash_update.mutex);
-            return -1;
-        }
+        {
+            uint32_t flash_addr = partition->addr + write_offset;
 
-        ret = lisa_flash_write(flash_update.flash, partition->addr + write_offset, flash_update.buffer,
-                               flash_update.buffer_len);
-        if (ret != 0) {
-            LISA_LOGE(TAG, "Write partition %d failed at offset %u (%d)", part, write_offset, ret);
-            xSemaphoreGive(flash_update.mutex);
-            return -1;
+            /* 暂停 AT 发送，覆盖擦除和写入全过程 */
+            ota_flash_lock_quick();
+
+            ret = ota_flash_ensure_erased(flash_update.flash, flash_addr, flash_update.buffer_len);
+            if (ret != 0) {
+                LISA_LOGE(TAG, "Pre-erase failed at offset %u (%d)", write_offset, ret);
+                ota_flash_unlock();
+                xSemaphoreGive(flash_update.mutex);
+                return -1;
+            }
+
+            ret = ota_flash_write_paged(flash_update.flash, flash_addr, flash_update.buffer,
+                                        flash_update.buffer_len);
+            if (ret != 0) {
+                LISA_LOGE(TAG, "Write partition %d failed at offset %u (%d)", part, write_offset, ret);
+                ota_flash_unlock();
+                xSemaphoreGive(flash_update.mutex);
+                return -1;
+            }
+
+            ota_flash_unlock();
         }
 
         xSemaphoreGive(flash_update.mutex);
@@ -242,4 +419,24 @@ int ota_flash_update_finish(ota_partition_id_e part)
     flash_update.in_progress = false;
 
     return (int)flash_update.offset;
+}
+
+int ota_flash_update_abort(ota_partition_id_e part)
+{
+    if (!flash_update.in_progress || flash_update.part != part) {
+        LISA_LOGW(TAG, "No update in progress for partition %d to abort", part);
+        return -1;
+    }
+
+    /* 丢弃缓冲区中的未刷数据，只释放互斥锁和标记会话结束 */
+    flash_update.buffer_len = 0;
+    if (flash_update.mutex) {
+        vSemaphoreDelete(flash_update.mutex);
+        flash_update.mutex = NULL;
+    }
+    flash_update.in_progress = false;
+
+    LISA_LOGI(TAG, "Partition %d update aborted (offset consumed=%u)", part, flash_update.offset);
+
+    return 0;
 }

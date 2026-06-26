@@ -5,6 +5,10 @@
 #include <time.h>
 #include <stdbool.h>
 
+#include "FreeRTOS.h"
+#include "queue.h"
+#include "task.h"
+
 #include "lisa_timer.h"
 #include "lisa_log.h"
 #include "voice_msg.h"
@@ -19,6 +23,26 @@ struct alarm_ui_service_alarm_msg {
     uint64_t timestamp;
     uint8_t text[LS_ALARM_TEXT_MAX_LEN];
 };
+
+#define ALARM_WORK_QUEUE_LEN   LS_ALARM_MAX_COUNT
+#define ALARM_WORK_STACK_SIZE  4096
+#define ALARM_WORK_PRIORITY    4
+
+typedef enum {
+    ALARM_WORK_TRIGGERED = 0,
+    ALARM_WORK_STOP_AND_NEXT,
+} alarm_work_type_t;
+
+typedef struct {
+    alarm_work_type_t type;
+    uint64_t fired_ts;
+    uint64_t cloud_id;
+    int64_t now_ts;
+    bool publish_result;
+} alarm_work_item_t;
+
+static QueueHandle_t g_alarm_work_queue = NULL;
+static TaskHandle_t g_alarm_work_task = NULL;
 
 /* ==================== Snooze 稍后提醒状态管理 ==================== */
 
@@ -36,6 +60,8 @@ static ls_alarm_user_callback_t g_user_callback = NULL;
 /* forward declarations for functions used before their definitions */
 static void alarm_snooze_stop(void);
 static void alarm_handle_next_trigger(const alarm_object_t *alarm_obj, uint64_t fired_ts, time_t now_ts);
+static void alarm_handle_stop_and_next_work(uint64_t cloud_id, bool publish_result);
+static void alarm_process_triggered_work(uint64_t fired_ts, uint64_t cloud_id, int64_t now_ts);
 
 static void alarm_publish_action_result(voice_msg_alarm_action_result_type_t type)
 {
@@ -56,6 +82,86 @@ static void alarm_publish_create_msg(const alarm_object_t *alarm_obj)
     msg.timestamp = alarm_obj->alarm_id;
     strncpy((char *)msg.text, alarm_obj->text, sizeof(msg.text) - 1);
     voice_msg_pub(VOICE_MSG_ALARM_CREATE, &msg, sizeof(msg));
+}
+
+static int alarm_submit_work(const alarm_work_item_t *item)
+{
+    if (!item || !g_alarm_work_queue) {
+        LISA_LOGE(TAG, "alarm work queue not ready");
+        return -1;
+    }
+
+    if (xQueueSend(g_alarm_work_queue, item, 0) != pdTRUE) {
+        LISA_LOGE(TAG, "alarm work queue full, type=%d, cloud_id=%llu",
+                  item->type, (unsigned long long)item->cloud_id);
+        return -1;
+    }
+
+    return 0;
+}
+
+static void alarm_work_task(void *arg)
+{
+    (void)arg;
+    alarm_work_item_t item;
+
+    while (1) {
+        if (xQueueReceive(g_alarm_work_queue, &item, portMAX_DELAY) != pdTRUE) {
+            continue;
+        }
+
+        switch (item.type) {
+        case ALARM_WORK_TRIGGERED:
+            alarm_process_triggered_work(item.fired_ts, item.cloud_id, item.now_ts);
+            break;
+        case ALARM_WORK_STOP_AND_NEXT:
+            alarm_handle_stop_and_next_work(item.cloud_id, item.publish_result);
+            break;
+        default:
+            LISA_LOGW(TAG, "unknown alarm work type=%d", item.type);
+            break;
+        }
+    }
+}
+
+static int alarm_work_init(void)
+{
+    if (g_alarm_work_queue) {
+        return 0;
+    }
+
+    g_alarm_work_queue = xQueueCreate(ALARM_WORK_QUEUE_LEN, sizeof(alarm_work_item_t));
+    if (!g_alarm_work_queue) {
+        LISA_LOGE(TAG, "failed to create alarm work queue");
+        return -1;
+    }
+
+    BaseType_t ret = xTaskCreate(alarm_work_task,
+                                 "alarm.work",
+                                 ALARM_WORK_STACK_SIZE,
+                                 NULL,
+                                 ALARM_WORK_PRIORITY,
+                                 &g_alarm_work_task);
+    if (ret != pdPASS) {
+        LISA_LOGE(TAG, "failed to create alarm work task");
+        vQueueDelete(g_alarm_work_queue);
+        g_alarm_work_queue = NULL;
+        return -1;
+    }
+
+    LISA_LOGI(TAG, "alarm work task created");
+    return 0;
+}
+
+static int alarm_submit_stop_and_next_work(uint64_t cloud_id, bool publish_result)
+{
+    alarm_work_item_t item = {
+        .type = ALARM_WORK_STOP_AND_NEXT,
+        .cloud_id = cloud_id,
+        .publish_result = publish_result,
+    };
+
+    return alarm_submit_work(&item);
 }
 
 /* ==================== Snooze 内部函数 ==================== */
@@ -189,15 +295,15 @@ static void alarm_handle_next_trigger(const alarm_object_t *alarm_obj, uint64_t 
             return;
         }
 
-        // 删除旧实例
-        alarm_nvs_delete(alarm_obj->cloud_id);
-
         // 创建新的下次闹钟
         alarm_object_t next_alarm = *alarm_obj;
         next_alarm.trigger.year = y;
         next_alarm.trigger.month = m;
         next_alarm.trigger.day = d;
         next_alarm.alarm_id = alarm_time_obj_to_timestamp(&next_alarm);
+
+        // 删除旧实例
+        alarm_nvs_delete(alarm_obj->cloud_id);
 
         if (next_alarm.alarm_id == 0) {
             LISA_LOGE(TAG, "invalid custom alarm next timestamp");
@@ -268,62 +374,79 @@ void alarm_handler_init(ls_alarm_user_callback_t user_callback)
 {
     g_user_callback = user_callback;
 
+    if (alarm_work_init() != 0) {
+        LISA_LOGE(TAG, "alarm work init failed");
+    }
+
     // 订阅消息，处理闹钟后续操作
     voice_msg_sub(VOICE_MSG_ALARM_PROCESS_NEXT, alarm_process_next_handler, NULL);
 }
 
-void alarm_process_triggered(struct ls_alarm *node, int64_t now_ts)
+int alarm_process_triggered_async(uint64_t fired_ts, uint64_t cloud_id, int64_t now_ts)
 {
-    if (!node) {
-        return;
-    }
+    alarm_work_item_t item = {
+        .type = ALARM_WORK_TRIGGERED,
+        .fired_ts = fired_ts,
+        .cloud_id = cloud_id,
+        .now_ts = now_ts,
+    };
 
-    uint64_t fired_ts = node->timestamp;
-    uint64_t cloud_id = node->cloud_id;
+    return alarm_submit_work(&item);
+}
 
-    /* If a previous alarm is still in snooze wait state, finish its stop-and-next
-     * flow before we hand over to the newly triggered alarm. When the previous
-     * alarm is actively ringing, alarm_ring_on_trigger() already handles that path. */
+static void alarm_process_triggered_work(uint64_t fired_ts, uint64_t cloud_id, int64_t now_ts)
+{
+    uint64_t previous_snooze_cloud_id = 0;
+
     if (g_snooze_ctx.ringing_cloud_id != 0 &&
-        g_snooze_ctx.ringing_cloud_id != cloud_id &&
-        !alarm_ring_is_active()) {
+        g_snooze_ctx.ringing_cloud_id != cloud_id) {
+        previous_snooze_cloud_id = g_snooze_ctx.ringing_cloud_id;
         LISA_LOGI(TAG,
-                  "new alarm cloud_id=%llu triggered while previous snooze cloud_id=%llu is pending, finalizing previous alarm first",
+                  "new alarm cloud_id=%llu triggered while previous snooze cloud_id=%llu is pending, active=%d",
                   (unsigned long long)cloud_id,
-                  (unsigned long long)g_snooze_ctx.ringing_cloud_id);
-        alarm_handle_stop_and_next();
-    }
+                  (unsigned long long)previous_snooze_cloud_id,
+                  alarm_ring_is_active());
 
-    // 先删除节点
-    ls_alarm_delete_by_timestamp(node->timestamp);
+        /* 第二个闹钟触发后，第一个闹钟不再保留 snooze 待处理状态；
+         * 它会在本次触发完成后直接推进到下一次触发。 */
+        alarm_snooze_stop();
+    }
 
     // 查询闹钟对象
-    const alarm_object_t *alarm_obj = alarm_nvs_find(cloud_id);
-    if (!alarm_obj) {
+    const alarm_object_t *alarm_obj_ptr = alarm_nvs_find(cloud_id);
+    if (!alarm_obj_ptr) {
         LISA_LOGW(TAG, "alarm object not found, cloud_id=%llu", (unsigned long long)cloud_id);
         voice_msg_pub(VOICE_MSG_ALARM_DELETE, &fired_ts, sizeof(fired_ts));
+        if (previous_snooze_cloud_id != 0) {
+            alarm_submit_stop_and_next_work(previous_snooze_cloud_id, false);
+        }
         return;
     }
+    alarm_object_t alarm_obj = *alarm_obj_ptr;
 
     LISA_LOGI(TAG, "alarm fired, cloud_id=%llu type=%u cal=%u snooze=%d",
               (unsigned long long)cloud_id,
-              (unsigned)alarm_obj->trigger.type,
-              (unsigned)alarm_obj->calendar,
-              alarm_obj->snooze_enabled);
+              (unsigned)alarm_obj.trigger.type,
+              (unsigned)alarm_obj.calendar,
+              alarm_obj.snooze_enabled);
 
     // 检查是否开启 snooze
-    if (alarm_obj->snooze_enabled && alarm_obj->snooze_count > 0) {
+    if (alarm_obj.snooze_enabled && alarm_obj.snooze_count > 0) {
         // 准备 snooze 模式（不启动定时器，等待用户按键）
-        alarm_snooze_prepare(cloud_id, alarm_obj->snooze_interval, alarm_obj->snooze_count);
+        alarm_snooze_prepare(cloud_id, alarm_obj.snooze_interval, alarm_obj.snooze_count);
         LISA_LOGI(TAG, "snooze prepared, waiting for user action");
     } else {
         // 未开启 snooze，处理下次触发
-        alarm_handle_next_trigger(alarm_obj, fired_ts, (time_t)now_ts);
+        alarm_handle_next_trigger(&alarm_obj, fired_ts, (time_t)now_ts);
     }
 
     // 通知上层响铃
     if (g_user_callback) {
-        g_user_callback(fired_ts, (const uint8_t *)alarm_obj->text);
+        g_user_callback(fired_ts, (const uint8_t *)alarm_obj.text);
+    }
+
+    if (previous_snooze_cloud_id != 0) {
+        alarm_submit_stop_and_next_work(previous_snooze_cloud_id, false);
     }
 }
 
@@ -361,29 +484,40 @@ void alarm_handle_snooze(void)
 
 void alarm_handle_stop_and_next(void)
 {
+    uint64_t cloud_id = g_snooze_ctx.ringing_cloud_id;
+    if (alarm_submit_stop_and_next_work(cloud_id, true) != 0) {
+        LISA_LOGE(TAG, "failed to submit stop-and-next alarm work");
+    }
+}
+
+static void alarm_handle_stop_and_next_work(uint64_t cloud_id, bool publish_result)
+{
     // 检查是否有snooze配置
-    if (g_snooze_ctx.ringing_cloud_id == 0) {
+    if (cloud_id == 0) {
         LISA_LOGW(TAG, "stop clicked but no alarm configured");
-        alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_DELETE);
+        if (publish_result) {
+            alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_DELETE);
+        }
         return;
     }
 
-    LISA_LOGI(TAG, "user long-pressed to stop alarm, cloud_id=%llu",
-              (unsigned long long)g_snooze_ctx.ringing_cloud_id);
+    LISA_LOGI(TAG, "stop alarm and process next, cloud_id=%llu",
+              (unsigned long long)cloud_id);
 
-    // 先保存 cloud_id，因为 alarm_snooze_stop() 会清空它
-    uint64_t cloud_id = g_snooze_ctx.ringing_cloud_id;
-
-    // 停止 snooze
-    alarm_snooze_stop();
+    // 只清理当前 snooze 状态，避免异步处理旧闹钟时误清掉新触发闹钟的状态
+    if (g_snooze_ctx.ringing_cloud_id == cloud_id) {
+        alarm_snooze_stop();
+    }
 
     // 查询闹钟对象并处理下一个触发时间
-    const alarm_object_t *alarm_obj = alarm_nvs_find(cloud_id);
-    if (!alarm_obj) {
+    const alarm_object_t *alarm_obj_ptr = alarm_nvs_find(cloud_id);
+    if (!alarm_obj_ptr) {
         LISA_LOGW(TAG, "alarm object not found in NVS, cloud_id=%llu",
                   (unsigned long long)cloud_id);
         return;
     }
+    alarm_object_t alarm_copy = *alarm_obj_ptr;
+    const alarm_object_t *alarm_obj = &alarm_copy;
 
     LISA_LOGI(TAG, "found alarm object, type=%d, cloud_id=%llu",
               alarm_obj->trigger.type, (unsigned long long)cloud_id);
@@ -399,7 +533,9 @@ void alarm_handle_stop_and_next(void)
         if (ret == 0) {
             // 发送消息通知UI更新闹钟图标
             voice_msg_pub(VOICE_MSG_ALARM_DELETE, &alarm_id, sizeof(alarm_id));
-            alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_DELETE);
+            if (publish_result) {
+                alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_DELETE);
+            }
             LISA_LOGI(TAG, "once alarm stopped and deleted successfully, cloud_id=%llu",
                       (unsigned long long)cloud_id);
         } else {
@@ -429,6 +565,13 @@ void alarm_handle_stop_and_next(void)
             return;
         }
 
+        // 创建新的下次闹钟
+        alarm_object_t next_alarm = *alarm_obj;
+        next_alarm.trigger.year = y;
+        next_alarm.trigger.month = m;
+        next_alarm.trigger.day = d;
+        next_alarm.alarm_id = alarm_time_obj_to_timestamp(&next_alarm);
+
         // 删除旧实例
         LISA_LOGI(TAG, "deleting old custom alarm instance, cloud_id=%llu",
                   (unsigned long long)cloud_id);
@@ -439,13 +582,6 @@ void alarm_handle_stop_and_next(void)
                       (unsigned long long)cloud_id, ret);
             return;
         }
-
-        // 创建新的下次闹钟
-        alarm_object_t next_alarm = *alarm_obj;
-        next_alarm.trigger.year = y;
-        next_alarm.trigger.month = m;
-        next_alarm.trigger.day = d;
-        next_alarm.alarm_id = alarm_time_obj_to_timestamp(&next_alarm);
 
         if (next_alarm.alarm_id == 0) {
             LISA_LOGE(TAG, "invalid custom alarm next timestamp");
@@ -459,7 +595,9 @@ void alarm_handle_stop_and_next(void)
             voice_msg_pub(VOICE_MSG_ALARM_DELETE, &old_alarm_id, sizeof(old_alarm_id));
             // 发送消息通知UI：创建新闹钟
             // alarm_publish_create_msg(&next_alarm);
-            alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_NEXT);
+            if (publish_result) {
+                alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_NEXT);
+            }
             LISA_LOGI(TAG, "custom alarm next_id=%llu created successfully",
                       (unsigned long long)next_alarm.alarm_id);
         } else {
@@ -498,7 +636,9 @@ void alarm_handle_stop_and_next(void)
                 voice_msg_pub(VOICE_MSG_ALARM_DELETE, &old_alarm_id, sizeof(old_alarm_id));
                 // 发送消息通知UI：创建新闹钟
                 // alarm_publish_create_msg(&next_alarm);
-                alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_NEXT);
+                if (publish_result) {
+                    alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_NEXT);
+                }
                 LISA_LOGI(TAG, "alarm next_id=%llu created successfully", (unsigned long long)next_ts);
             } else {
                 LISA_LOGE(TAG, "failed to create next alarm, next_ts=%llu, ret=%d",
@@ -513,7 +653,9 @@ void alarm_handle_stop_and_next(void)
             if (ret == 0) {
                 // 发送消息通知UI更新闹钟图标
                 voice_msg_pub(VOICE_MSG_ALARM_DELETE, &alarm_id, sizeof(alarm_id));
-                alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_DELETE);
+                if (publish_result) {
+                    alarm_publish_action_result(VOICE_MSG_ALARM_ACTION_RESULT_DELETE);
+                }
                 LISA_LOGI(TAG, "alarm deleted successfully (no more triggers), cloud_id=%llu",
                           (unsigned long long)cloud_id);
             } else {

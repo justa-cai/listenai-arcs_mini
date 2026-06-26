@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 typedef struct {
-    bool preferred;
+    bool is_modem_mode;
     bool active;
     bool connected;
     bool switching;

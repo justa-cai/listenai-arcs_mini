@@ -1095,16 +1095,16 @@ ftsdc021_SetSDClock(u8 ip_idx, u32 clock)
 
     sdc_dbg_print("Host max clock :%d\n", SDHost[ip_idx].max_clk);
     if (SDHost[ip_idx].max_clk <= clock){
-        div = 0;
+        div = 1;
         sdc_dbg_print("clock is overflow host max clock");
-        sdc_dbg_print("clock will set as the host max clock");
+        sdc_dbg_print("clock will set as the host max clock / 2");
     } else {
         for (div = 1; div < 0x3FF; div++) {
             if ((SDHost[ip_idx].max_clk / (2 * div)) <= clock)
                 break;
         }
     }
-    sdc_dbg_print("SDLK Freq select, Div: %d, Clock: (%d/%d) Hz, ", div, (SDHost[ip_idx].max_clk / div), clock);
+    sdc_dbg_print("SDLK Freq select, Div: %d, Clock: (%d/%d) Hz, ", div, (SDHost[ip_idx].max_clk / (2 * div)), clock);
 
     clk = div << 8;
     clk |= SDHCI_CLKCNTL_INTERNALCLK_EN;
@@ -2623,7 +2623,7 @@ ftsdc021_scan_cards(u8 ip_idx)            //, u8 boot_mode)
     }
 
     /* enable error recovery */
-    SDHost[ip_idx].ErrRecover = 0;
+    SDHost[ip_idx].ErrRecover = 1;
 
     if (SDHost[ip_idx].Card->CardType != SDIO_TYPE_CARD) {
         if (ftsdc021_ops_send_card_status(ip_idx)) {

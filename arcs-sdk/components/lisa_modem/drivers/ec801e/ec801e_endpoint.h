@@ -26,11 +26,47 @@ extern "C" {
 #define EC801E_CONNECT_TIMEOUT_MS         150000U
 #define EC801E_SEND_TIMEOUT_MS            5000U
 #define EC801E_DEFAULT_RECV_TIMEOUT_MS    1500U
-#define EC801E_DEFAULT_PULL_TIMEOUT_MS    50U
-#define EC801E_QIRD_TCP_CHUNK_SIZE        1024U
+#define EC801E_QIRD_TCP_CHUNK_SIZE        1460U
 #define EC801E_QIRD_HEX_BUFFER_SIZE       ((EC801E_QIRD_TCP_CHUNK_SIZE * 2U) + 16U)
 #define EC801E_ENDPOINT_RECV_BUFFER_SIZE  (1024U * 16U)
 #define EC801E_DEFAULT_UDP_LOCAL_PORT     40000U
+#define EC801E_DATA_FORMAT_TEXT           0
+#define EC801E_DATA_FORMAT_HEX            1
+
+#ifndef EC801E_SEND_DATA_FORMAT
+#define EC801E_SEND_DATA_FORMAT           EC801E_DATA_FORMAT_TEXT
+#endif
+
+#ifndef EC801E_RECV_DATA_FORMAT
+#define EC801E_RECV_DATA_FORMAT           EC801E_DATA_FORMAT_TEXT
+#endif
+
+#if (EC801E_SEND_DATA_FORMAT != EC801E_DATA_FORMAT_TEXT) && \
+    (EC801E_SEND_DATA_FORMAT != EC801E_DATA_FORMAT_HEX)
+#error "Unsupported EC801E_SEND_DATA_FORMAT"
+#endif
+
+#if (EC801E_RECV_DATA_FORMAT != EC801E_DATA_FORMAT_TEXT) && \
+    (EC801E_RECV_DATA_FORMAT != EC801E_DATA_FORMAT_HEX)
+#error "Unsupported EC801E_RECV_DATA_FORMAT"
+#endif
+
+#ifndef EC801E_DEFAULT_PULL_TIMEOUT_MS
+#if EC801E_RECV_DATA_FORMAT == EC801E_DATA_FORMAT_HEX
+#define EC801E_DEFAULT_PULL_TIMEOUT_MS    120U
+#else
+#define EC801E_DEFAULT_PULL_TIMEOUT_MS    50U
+#endif
+#endif
+
+#define EC801E_STRINGIFY_VALUE(x)          #x
+#define EC801E_STRINGIFY(x)                EC801E_STRINGIFY_VALUE(x)
+#define EC801E_QICFG_DATAFORMAT_CMD       "AT+QICFG=\"dataformat\"," \
+                                           EC801E_STRINGIFY(EC801E_SEND_DATA_FORMAT) "," \
+                                           EC801E_STRINGIFY(EC801E_RECV_DATA_FORMAT)
+#define EC801E_QICFG_DATAFORMAT_EXPECT    "\"dataformat\"," \
+                                           EC801E_STRINGIFY(EC801E_SEND_DATA_FORMAT) "," \
+                                           EC801E_STRINGIFY(EC801E_RECV_DATA_FORMAT)
 
 typedef struct ec801e_endpoint_ctx ec801e_endpoint_ctx_t;
 
@@ -81,6 +117,9 @@ bool ec801e_endpoint_init(ec801e_endpoint_ctx_t *ctx);
 void ec801e_endpoint_shutdown(ec801e_endpoint_ctx_t *ctx);
 void ec801e_endpoint_destroy(ec801e_endpoint_ctx_t *ctx);
 bool ec801e_endpoint_dns_resolve(ec801e_endpoint_ctx_t *ctx, const char *domain, char *ip_addr, size_t size);
+bool ec801e_endpoint_get_imei(ec801e_endpoint_ctx_t *ctx, char *imei, size_t size);
+bool ec801e_endpoint_get_iccid(ec801e_endpoint_ctx_t *ctx, char *iccid, size_t size);
+bool ec801e_endpoint_get_signal_quality(ec801e_endpoint_ctx_t *ctx, int *rssi, int *ber);
 
 int ec801e_endpoint_open(ec801e_endpoint_ctx_t *ctx, int domain, int protocol);
 bool ec801e_endpoint_connect(ec801e_endpoint_ctx_t *ctx, int endpoint_id, const char *host, uint16_t port);

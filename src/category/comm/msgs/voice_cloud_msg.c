@@ -10,8 +10,8 @@
 #include "app_datas.h"
 #include "voice_cloud.h"
 #include "app_player.h"
-#include "voice_camera_preview_state.h"
 #include "voice_player_comm.h"
+#include "voice_intent_photo_flow.h"
 #include "tone.h"
 #include "kv.h"
 #include "kv_sys.h"
@@ -29,6 +29,37 @@ static bool s_voice_photo_result_restart_pending = false;
 static TimerHandle_t s_voice_idle_exit_timer = NULL;
 static uint32_t s_voice_idle_exit_timeout_ms = VOICE_IDLE_EXIT_TIMEOUT_MS_DEFAULT;
 static voice_msg_camera_preview_state_t s_camera_preview_state = {0};
+
+static void camera_preview_parse(const void *data, uint32_t len)
+{
+	if (data && len >= sizeof(s_camera_preview_state)) {
+		s_camera_preview_state = *(const voice_msg_camera_preview_state_t *)data;
+	}
+}
+
+static bool camera_preview_is_mcp(void)
+{
+	return s_camera_preview_state.mode == CAMERA_PREVIEW_MODE_MCP;
+}
+
+static bool camera_preview_is_active(void)
+{
+	return camera_preview_is_mcp() &&
+	       s_camera_preview_state.phase != CAMERA_FLOW_PHASE_NONE;
+}
+
+static bool camera_preview_is_locked(void)
+{
+	return camera_preview_is_mcp() &&
+	       (s_camera_preview_state.phase == CAMERA_FLOW_PHASE_PREVIEW ||
+	        s_camera_preview_state.phase == CAMERA_FLOW_PHASE_PROCESSING);
+}
+
+static bool camera_preview_is_result_tts_active(void)
+{
+	return camera_preview_is_mcp() &&
+	       s_camera_preview_state.phase == CAMERA_FLOW_PHASE_RESULT_TTS;
+}
 
 static bool voice_cloud_session_is_running(const char *reason)
 {
@@ -70,7 +101,7 @@ static void voice_idle_exit_timer_cb(TimerHandle_t xTimer)
 
     LOGI("voice idle exit timeout reached, trigger mcp chat exit");
     voice_cloud_chat_stop();
-    app_player_play(tone_player, app_tone_get_url(TONE_ID_72));
+    voice_player_play_tone_url(app_tone_get_url(TONE_ID_72));
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
 }
 
@@ -348,7 +379,7 @@ static void camera_preview_restore_session_if_needed(const char *reason)
 
 static void camera_preview_apply_guard(const char *reason)
 {
-    if (voice_camera_preview_state_is_locked(&s_camera_preview_state)) {
+    if (camera_preview_is_locked()) {
         LOGI("voice photo flow locked, pause uplink and hold idle timer (%s)",
              reason ? reason : "unknown");
         voice_cloud_upload_audio_pause();
@@ -356,7 +387,7 @@ static void camera_preview_apply_guard(const char *reason)
         return;
     }
 
-    if (voice_camera_preview_state_is_result_tts_active(&s_camera_preview_state)) {
+    if (camera_preview_is_result_tts_active()) {
         if (voice_interaction_mode_pauses_tts_uplink()) {
             LOGI("voice photo result TTS phase, pause uplink and hold idle timer (%s)",
                  reason ? reason : "unknown");
@@ -406,7 +437,7 @@ static void voice_cloud_session_starting(void *unused, uint32_t msg_id, void *da
     s_voice_cloud_session_running = true;
     s_voice_cloud_session_restart_after_tts = false;
     s_voice_photo_result_restart_pending = false;
-    if (voice_camera_preview_state_is_active(&s_camera_preview_state)) {
+    if (camera_preview_is_active()) {
         camera_preview_apply_guard("session starting");
     } else {
         voice_idle_exit_timer_start();
@@ -485,9 +516,9 @@ static void voice_cloud_tts_stoped(void *unused, uint32_t msg_id, void *data, ui
     (void)len;
     (void)user_data;
 
-    result_tts_active = voice_camera_preview_state_is_result_tts_active(&s_camera_preview_state);
+    result_tts_active = camera_preview_is_result_tts_active();
 
-    if (voice_camera_preview_state_is_active(&s_camera_preview_state)) {
+    if (camera_preview_is_active()) {
         s_voice_cloud_tts_active = false;
         s_voice_cloud_session_restart_after_tts = false;
         if (result_tts_active && voice_interaction_mode_pauses_tts_uplink()) {
@@ -529,7 +560,7 @@ static void voice_cloud_tts_stoped(void *unused, uint32_t msg_id, void *data, ui
 static void voice_cloud_session_finished(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     LOGI("voice_cloud_session_finished, stop idle timer and mark session inactive");
-    if (!voice_camera_preview_state_is_active(&s_camera_preview_state) &&
+    if (!camera_preview_is_active() &&
         voice_interaction_mode_pauses_tts_uplink() && s_voice_cloud_tts_active) {
         s_voice_cloud_session_restart_after_tts = true;
         LOGI("session finished during TTS, schedule continuous session restart after TTS");
@@ -559,24 +590,26 @@ static void voice_camera_preview_state_changed(void *unused, uint32_t msg_id, vo
                                                uint32_t len, void *user_data)
 {
     voice_msg_camera_preview_state_t prev_state = s_camera_preview_state;
-    bool was_active = voice_camera_preview_state_is_active(&s_camera_preview_state);
+    bool was_active = camera_preview_is_active();
     bool exited_result_tts = false;
     bool enter_result_tts = false;
 
-    if (!voice_camera_preview_state_parse(&s_camera_preview_state, data, len)) {
+    if (!data || len < sizeof(s_camera_preview_state)) {
         LOGW("invalid camera preview state payload");
         return;
     }
+    s_camera_preview_state = *(const voice_msg_camera_preview_state_t *)data;
 
-    enter_result_tts = !voice_camera_preview_state_is_result_tts_active(&prev_state) &&
-                       voice_camera_preview_state_is_result_tts_active(&s_camera_preview_state);
+    enter_result_tts = !(prev_state.mode == CAMERA_PREVIEW_MODE_MCP &&
+                          prev_state.phase == CAMERA_FLOW_PHASE_RESULT_TTS) &&
+                       camera_preview_is_result_tts_active();
     LOGI("camera preview state changed, active=%u mode=%u captured=%u phase=%u",
          s_camera_preview_state.active,
          s_camera_preview_state.mode,
          s_camera_preview_state.captured,
          s_camera_preview_state.phase);
 
-    if (voice_camera_preview_state_is_active(&s_camera_preview_state)) {
+    if (camera_preview_is_active()) {
         camera_preview_apply_guard("preview state changed");
         if (enter_result_tts) {
             int ret = camera_preview_result_bargein_session_start();
@@ -586,7 +619,8 @@ static void voice_camera_preview_state_changed(void *unused, uint32_t msg_id, vo
     }
 
     if (was_active) {
-        exited_result_tts = voice_camera_preview_state_is_result_tts_active(&prev_state);
+        exited_result_tts = prev_state.mode == CAMERA_PREVIEW_MODE_MCP &&
+                            prev_state.phase == CAMERA_FLOW_PHASE_RESULT_TTS;
         if (exited_result_tts && voice_interaction_mode_pauses_tts_uplink() &&
             !voice_cloud_session_is_running("voice photo flow exit")) {
             s_voice_photo_result_restart_pending = true;
@@ -611,7 +645,7 @@ static void voice_camera_preview_exit(void *unused, uint32_t msg_id, void *data,
     (void)len;
     (void)user_data;
 
-    if (!voice_camera_preview_state_is_active(&s_camera_preview_state)) {
+    if (!camera_preview_is_active()) {
         return;
     }
 

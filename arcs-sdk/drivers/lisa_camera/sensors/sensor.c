@@ -93,6 +93,18 @@ static int _twi_write(uint8_t slv_addr, uint16_t reg, unsigned char value, bool 
     return lisa_i2c_write(i2c_dev, slv_addr, buf, num);
 }
 
+int sensor_twi_probe_addr(uint8_t slv_addr)
+{
+    lisa_i2c_msg_t msg = {
+        .addr = slv_addr,
+        .flags = LISA_I2C_FLAG_NONE,
+        .len = 0,
+        .buf = NULL,
+    };
+
+    return lisa_i2c_transfer(i2c_dev, &msg, 1);
+}
+
 static int _twi_read(uint8_t slv_addr, uint16_t reg, unsigned char *value, bool reg16_width)
 {
     lisa_i2c_msg_t msgs[2];
@@ -129,21 +141,33 @@ static int _twi_read(uint8_t slv_addr, uint16_t reg, unsigned char *value, bool 
 
 uint8_t sensor_twi_read_reg8(uint8_t slv_addr, uint8_t reg)
 {
-    int ret = 0;
     uint8_t value = 0;
+
+    (void)sensor_twi_read_reg8_checked(slv_addr, reg, &value);
+    return value;
+}
+
+int sensor_twi_read_reg8_checked(uint8_t slv_addr, uint8_t reg, uint8_t *value)
+{
+    int ret = 0;
     int cnt = 0;
 
-    ret = _twi_read(slv_addr, reg, &value, false);
+    if (!value) {
+        return -1;
+    }
+
+    *value = 0;
+    ret = _twi_read(slv_addr, reg, value, false);
     while (ret != 0 && cnt < 2) {
         CLOGW("twi read retry %d\r\n", cnt);
-        ret = _twi_read(slv_addr, reg, &value, false);
+        ret = _twi_read(slv_addr, reg, value, false);
         // log....
         cnt++;
     }
     // if (cnt > 0)
         // log...
 
-    return value;
+    return ret;
 }
 
 uint8_t sensor_twi_read_reg16(uint8_t slv_addr, uint16_t reg)

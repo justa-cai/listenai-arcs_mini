@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-# ARCS SDK 版本头文件生成脚本
-# 此脚本由主 CMakeLists.txt 通过 execute_process 调用
+# ARCS SDK version header generation script
+# Called by the main CMakeLists.txt through execute_process.
 
-# 尝试获取 git 提交哈希
+# Try to get the git commit hash.
 find_package(Git QUIET)
 if(GIT_FOUND AND EXISTS ${ARCS_SDK_BASE}/.git)
     execute_process(
@@ -14,13 +14,13 @@ if(GIT_FOUND AND EXISTS ${ARCS_SDK_BASE}/.git)
     )
 endif()
 
-# 如果未获取到 git 信息，设置为默认值
+# Fall back when git metadata is unavailable.
 if(NOT BUILD_VERSION)
     set(BUILD_VERSION "unknown")
 endif()
 
-# 从模板生成头文件
+# Generate the header from the template.
 configure_file(${ARCS_SDK_BASE}/sdk_version.h.in ${OUT_FILE} @ONLY)
 
-message(STATUS "生成版本头文件: ${OUT_FILE}")
+message(STATUS "Generating version header: ${OUT_FILE}")
 message(STATUS "  BUILD_VERSION: ${BUILD_VERSION}")

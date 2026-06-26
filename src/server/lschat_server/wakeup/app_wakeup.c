@@ -43,6 +43,7 @@ static bool s_wakeup_started = false;
 #endif
 static bool s_audio_inited = false;
 static bool s_wakeup_feed_enabled = false;
+static TickType_t s_last_wakeup_keyword_tick = 0;
 
 lisa_device_t *g_audio_dev = NULL;
 #ifdef CONFIG_BOARD_ARCS_MINI
@@ -64,12 +65,26 @@ static int32_t g_play_digital_gain = -20;
 
 static app_wakeup_sensitivity_level_e s_sensitivity_level = APP_WAKEUP_SENSITIVITY_LEVEL_2;
 
+static uint32_t app_wakeup_get_esr_timeout_ms(void)
+{
+    int timeout_ms = 0;
+#ifdef CONFIG_BOARD_ARCS_MINI
+    if (lisa_kv_get_int(KV_KEY_IDLE_EXIT_TIMEOUT_MS, &timeout_ms) == 0 && timeout_ms > 0) {
+        return (uint32_t)timeout_ms;
+    }
+#endif
+    return (uint32_t)CONFIG_CLOUD_IDLE_EXIT_TIMEOUT_MS;
+}
+
 #define WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX (0)
 #define WAKEUP_AUDIO_MIX2CH_STREAM_CH_CNAME "stream.mix2ch"
 #define WAKEUP_AUDIO_OUT_STREAM_CH_INDEX (1)
 #define WAKEUP_AUDIO_OUT_STREAM_CH_CNAME "stream.tocloud"
 #define WAKEUP_AUDIO_OUT_STREAM    (1)
 #define WAKEUP_AUDIO_OUT_STREAM_KICK_AUTO   (1)
+
+/* 唤醒防抖：过滤同一次唤醒的重复回调，不用于限制正常连续唤醒 */
+#define WAKEUP_KEYWORD_PUB_MIN_INTERVAL_MS  200
 
 typedef struct {
     short mic1;
@@ -158,7 +173,14 @@ static void wakeup_event_handler(uint32_t event, void *event_data, uint32_t even
         ret = app_algo_command_extract(event_data, keyword, sizeof(keyword), &is_wakeup_keyword);
         if (ret == 0) {
             if (is_wakeup_keyword) {
-                voice_msg_pub(VOICE_MSG_WAKEUP_KEYWORD, keyword, strlen((char *)keyword) + 1);
+                TickType_t now = xTaskGetTickCount();
+                if (now - s_last_wakeup_keyword_tick >= pdMS_TO_TICKS(WAKEUP_KEYWORD_PUB_MIN_INTERVAL_MS)) {
+                    s_last_wakeup_keyword_tick = now;
+                    voice_msg_pub(VOICE_MSG_WAKEUP_KEYWORD, keyword, strlen((char *)keyword) + 1);
+                } else {
+                    LISA_LOGD(TAG, "wakeup keyword throttled, last:%u now:%u",
+                              (unsigned int)s_last_wakeup_keyword_tick, (unsigned int)now);
+                }
             }
             else {
                 voice_msg_pub(VOICE_MSG_WAKEUP_COMMAND, keyword, strlen((char *)keyword) + 1);
@@ -683,6 +705,11 @@ int app_wakeup_init(struct wakeup_algo_resources *algo_res)
     ret = acomp_wakeup_set_algo_mode(ACOMP_WAKEUP_ALGO_MODE_WAKEUP);
     LISA_LOGI(TAG, "acomp_wakeup_set_algo_mode ret:%d", ret);
 
+    // TODO: arcs-mini 2.6版本使用
+    // ret = acomp_wakeup_set_timeout(app_wakeup_get_esr_timeout_ms()); 
+    ret = acomp_wakeup_set_timeout(0);
+    LISA_LOGI(TAG, "acomp_wakeup_set_timeout ret:%d\r\n", ret);
+
     acomp_wakeup_stream_ch_enable(WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX,&desc);
 #if WAKEUP_AUDIO_OUT_STREAM
     acomp_wakeup_stream_ch_enable(WAKEUP_AUDIO_OUT_STREAM_CH_INDEX,&rx_desc);
@@ -786,6 +813,11 @@ static int shell_algo_restart(int argc, char **argv)
 
         ret = acomp_wakeup_set_algo_mode(ACOMP_WAKEUP_ALGO_MODE_WAKEUP);
         shellPrint(shell, "acomp_wakeup_set_algo_mode ret:%d\r\n", ret);
+
+        // TODO: arcs-mini 2.6版本使用
+        // ret = acomp_wakeup_set_timeout(app_wakeup_get_esr_timeout_ms()); 
+        ret = acomp_wakeup_set_timeout(0);
+        shellPrint(shell, "acomp_wakeup_set_timeout ret:%d\r\n", ret);
     } else {
         shellPrint(shell, "algo restart error\r\n");
     }
