@@ -125,6 +125,7 @@ typedef struct {
     sys_dlist_t wifi_callback_list;
     wifi_mgr_auto_conn_obj_t *auto_connect_obj;
     int last_connect_fail_error;
+    bool suppress_next_pmk_connect_fail_callback;
     wifi_mgr_manual_autoconn_state_t manual_autoconn_state;
     void* mutex;
     void* queue;
@@ -536,7 +537,14 @@ static void wifi_event_handler(wifi_mgr_wifi_event_t events, void *event_data, u
         wifi_mgr_auto_connect_start(&s_wifi_mgr_obj->auto_connect_obj->config);
         s_wifi_mgr_obj->manual_autoconn_state = WIFI_MGR_AUTOCONN_MANUAL_IDLE;
     }
-    
+
+    if ((events & WIFI_MGR_WIFI_EVT_STA_CONNECTION_FAILED) &&
+        s_wifi_mgr_obj->suppress_next_pmk_connect_fail_callback) {
+        s_wifi_mgr_obj->suppress_next_pmk_connect_fail_callback = false;
+        LISA_LOGW(TAG, "Suppress PMK fast reconnect failure before fallback retry");
+        return;
+    }
+
     wifi_mgr_dispatch_user_callbacks(events, event_data, data_len);
 }
 
@@ -1211,7 +1219,13 @@ static wifi_mgr_autoconn_cycle_result_t autoconnect_work_handler(void)
         
         uint64_t connect_start_ms = lisa_os_get_tick_ms();
         s_wifi_mgr_obj->last_connect_fail_error = 0;
+        if (best_ap.pmk_valid) {
+            s_wifi_mgr_obj->suppress_next_pmk_connect_fail_callback = true;
+        }
         ret = s_wifi_mgr_obj->wifi_ops.sta_connect(&best_ap, CONFIG_WIFI_MGR_AUTO_CONNECT_TIMEOUT_MS);
+        if (best_ap.pmk_valid) {
+            s_wifi_mgr_obj->suppress_next_pmk_connect_fail_callback = false;
+        }
         if (ret != 0 && best_ap.pmk_valid) {
             LISA_LOGW(TAG, "Last connection failed, retry without PMK for ssid: %s, bssid: %s",
                       best_ap.ssid, best_ap.bssid);

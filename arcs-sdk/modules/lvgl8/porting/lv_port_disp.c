@@ -254,6 +254,9 @@ void lv_port_disp_init(lisa_device_t *display_dev)
 #elif CONFIG_LV_DRIVER_ROTATE_90
     disp_drv.rotated = LV_DISP_ROT_90;
     lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_90);
+#elif CONFIG_LV_DRIVER_ROTATE_180
+    disp_drv.rotated = LV_DISP_ROT_180;
+    lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_180);
 #elif CONFIG_LV_DRIVER_ROTATE_270
     disp_drv.rotated = LV_DISP_ROT_270;
     lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_270);

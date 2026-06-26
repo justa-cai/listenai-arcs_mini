@@ -14,8 +14,8 @@
 #define TAG "ec801e_endpoint"
 #include "lisa_log.h"
 
-#define DEFAULT_INIT_BAUDRATE           115200U
-#define DEFAULT_TARGET_BAUDRATE         460800U
+#define DEFAULT_INIT_BAUDRATE           921600U
+#define DEFAULT_TARGET_BAUDRATE         921600U
 #define EC801E_RX_HIGH_WATERMARK(bytes) (((bytes) * 5U) / 6U)
 #define EC801E_RX_LOW_WATERMARK(bytes)  (((bytes) * 4U) / 5U)
 
@@ -188,6 +188,7 @@ ec801e_endpoint_ctx_t *ec801e_endpoint_create(at_client_t *client)
     }
 
     ctx->client = client;
+    lisa_modem_status_clear(&ctx->status);
     ctx->dns_mutex = xSemaphoreCreateMutex();
     if (!ctx->dns_mutex) {
         at_mem_free(ctx);
@@ -217,9 +218,11 @@ bool ec801e_endpoint_init(ec801e_endpoint_ctx_t *ctx)
     if (at_client_uart_get_baudrate(ctx->client, &current_baud)) {
         if (current_baud != DEFAULT_TARGET_BAUDRATE) {
             if (!at_client_uart_baudrate_adapt(ctx->client,
-                                               DEFAULT_INIT_BAUDRATE,
+                                               current_baud,
                                                DEFAULT_TARGET_BAUDRATE)) {
                 LISA_LOGE(TAG, "Baudrate adaptation failed");
+                ctx->status.last_error = LISA_MODEM_ERR_UART_BAUD_ADAPT_FAILED;
+                lisa_modem_status_note_cme(&ctx->status, at_client_get_cme_error(ctx->client));
                 return false;
             }
         } else {
@@ -230,14 +233,16 @@ bool ec801e_endpoint_init(ec801e_endpoint_ctx_t *ctx)
                                            DEFAULT_INIT_BAUDRATE,
                                            DEFAULT_TARGET_BAUDRATE)) {
             LISA_LOGE(TAG, "Baudrate adaptation failed");
+            ctx->status.last_error = LISA_MODEM_ERR_UART_BAUD_ADAPT_FAILED;
+            lisa_modem_status_note_cme(&ctx->status, at_client_get_cme_error(ctx->client));
             return false;
         }
     }
 
     if (!ec801e_endpoint_ensure_socket_format(ctx->client,
                                               "AT+QICFG=\"dataformat\"",
-                                              "AT+QICFG=\"dataformat\",0,1",
-                                              "\"dataformat\",0,1") ||
+                                              EC801E_QICFG_DATAFORMAT_CMD,
+                                              EC801E_QICFG_DATAFORMAT_EXPECT) ||
         !ec801e_endpoint_ensure_socket_format(ctx->client,
                                               "AT+QICFG=\"viewmode\"",
                                               "AT+QICFG=\"viewmode\",0",
@@ -250,15 +255,21 @@ bool ec801e_endpoint_init(ec801e_endpoint_ctx_t *ctx)
                                               "AT+QISDE?",
                                               "AT+QISDE=0",
                                               "+QISDE: 0")) {
+        ctx->status.last_error = LISA_MODEM_ERR_SOCKET_CONFIG_FAILED;
+        lisa_modem_status_note_cme(&ctx->status, at_client_get_cme_error(ctx->client));
         return false;
     }
 
     if (NETWORK_STATUS_READY != ec801e_netreg_network_check(ctx)) {
         LISA_LOGE(TAG, "4G network is not ready");
+        if (ctx->status.last_error == LISA_MODEM_ERR_NOT_INITIALIZED) {
+            ctx->status.last_error = LISA_MODEM_ERR_NETWORK_REGISTER_FAILED;
+        }
         return false;
     }
 
     ctx->initialized = true;
+    ctx->status.last_error = LISA_MODEM_ERR_READY;
     LISA_LOGI(TAG, "EC801E endpoint context initialized successfully");
     return true;
 }
@@ -301,6 +312,97 @@ bool ec801e_endpoint_dns_resolve(ec801e_endpoint_ctx_t *ctx, const char *domain,
     return ec801e_netreg_dns_resolve(ctx, domain, ip_addr, size);
 }
 
+static bool ec801e_endpoint_copy_identifier(const char *response, char *out, size_t size)
+{
+    const char *p;
+    size_t len = 0U;
+
+    if (!response || !out || size == 0U) {
+        return false;
+    }
+    out[0] = '\0';
+
+    p = strchr(response, ':');
+    p = p ? (p + 1) : response;
+    while (*p && (*p < '0' || *p > '9')) {
+        p++;
+    }
+    while (p[len] >= '0' && p[len] <= '9') {
+        len++;
+    }
+    if (len == 0U || len >= size) {
+        return false;
+    }
+
+    memcpy(out, p, len);
+    out[len] = '\0';
+    return true;
+}
+
+static bool ec801e_endpoint_query_identifier(ec801e_endpoint_ctx_t *ctx, const char *command,
+                                             char *out, size_t size)
+{
+    char response[96] = {0};
+
+    if (!ctx || !command || !out || size == 0U) {
+        return false;
+    }
+    out[0] = '\0';
+
+    if (!at_client_exec_text_cmd(ctx->client, command, response, sizeof(response), 1000U)) {
+        return false;
+    }
+
+    return ec801e_endpoint_copy_identifier(response, out, size);
+}
+
+bool ec801e_endpoint_get_imei(ec801e_endpoint_ctx_t *ctx, char *imei, size_t size)
+{
+    return ec801e_endpoint_query_identifier(ctx, "AT+CGSN", imei, size) ||
+           ec801e_endpoint_query_identifier(ctx, "AT+CGSN=1", imei, size);
+}
+
+bool ec801e_endpoint_get_iccid(ec801e_endpoint_ctx_t *ctx, char *iccid, size_t size)
+{
+    return ec801e_endpoint_query_identifier(ctx, "AT+QCCID", iccid, size) ||
+           ec801e_endpoint_query_identifier(ctx, "AT+ICCID", iccid, size);
+}
+
+typedef struct {
+    int *rssi;
+    int *ber;
+} ec801e_csq_out_t;
+
+static bool ec801e_endpoint_parse_csq(at_arg_value_t *args, size_t count, void *user_data)
+{
+    ec801e_csq_out_t *out = (ec801e_csq_out_t *)user_data;
+
+    if (!out || !out->rssi || !out->ber ||
+        count < 2 || args[0].type != AT_ARG_TYPE_INT || args[1].type != AT_ARG_TYPE_INT) {
+        return false;
+    }
+
+    *out->rssi = args[0].data.int_val;
+    *out->ber = args[1].data.int_val;
+    return true;
+}
+
+bool ec801e_endpoint_get_signal_quality(ec801e_endpoint_ctx_t *ctx, int *rssi, int *ber)
+{
+    ec801e_csq_out_t out = { rssi, ber };
+
+    if (!ctx || !rssi || !ber) {
+        return false;
+    }
+
+    *rssi = 99;
+    *ber = 99;
+    return at_client_exec_cmd(ctx->client, &(at_cmd_desc_t){
+        .cmd = "AT+CSQ", .expect_urc = "CSQ",
+        .parse = ec801e_endpoint_parse_csq, .timeout_ms = 1000U,
+    }, &out);
+}
+
 int ec801e_endpoint_open(ec801e_endpoint_ctx_t *ctx, int domain, int protocol)
 {
     if (!ctx || domain != AF_INET) {
@@ -328,12 +430,19 @@ int ec801e_endpoint_open(ec801e_endpoint_ctx_t *ctx, int domain, int protocol)
 bool ec801e_endpoint_connect(ec801e_endpoint_ctx_t *ctx, int endpoint_id, const char *host, uint16_t port)
 {
     ec801e_endpoint_t *endpoint = ec801e_endpoint_get(ctx, endpoint_id);
+    bool connected;
 
     if (!endpoint || !endpoint->in_use || !host) {
         return false;
     }
 
-    return ec801e_at_cmd_connect(endpoint, host, port);
+    connected = ec801e_at_cmd_connect(endpoint, host, port);
+    if (!connected && ctx) {
+        ctx->status.last_error = lisa_modem_cme_may_indicate_traffic_exceeded(endpoint->last_error)
+                               ? LISA_MODEM_ERR_TRAFFIC_EXCEEDED
+                               : LISA_MODEM_ERR_AT_COMMAND_FAILED;
+    }
+    return connected;
 }
 
 int ec801e_endpoint_close(ec801e_endpoint_ctx_t *ctx, int endpoint_id)
@@ -363,17 +472,35 @@ int ec801e_endpoint_send(ec801e_endpoint_ctx_t *ctx, int endpoint_id,
     endpoint->send_timeout_ms = timeout_ms;
     if (endpoint->protocol == IPPROTO_UDP) {
         if (host) {
-            return ec801e_at_cmd_send(endpoint, data, length, host, port);
+            int ret = ec801e_at_cmd_send(endpoint, data, length, host, port);
+            if (ret < 0 && ctx) {
+                ctx->status.last_error = lisa_modem_cme_may_indicate_traffic_exceeded(endpoint->last_error)
+                                       ? LISA_MODEM_ERR_TRAFFIC_EXCEEDED
+                                       : LISA_MODEM_ERR_AT_COMMAND_FAILED;
+            }
+            return ret;
         }
         if (!endpoint->udp_peer.valid) {
             errno = ENOTCONN;
             return -1;
         }
-        return ec801e_at_cmd_send(endpoint, data, length,
-                                  endpoint->udp_peer.addr.host, endpoint->udp_peer.addr.port);
+        int ret = ec801e_at_cmd_send(endpoint, data, length,
+                                     endpoint->udp_peer.addr.host, endpoint->udp_peer.addr.port);
+        if (ret < 0 && ctx) {
+            ctx->status.last_error = lisa_modem_cme_may_indicate_traffic_exceeded(endpoint->last_error)
+                                   ? LISA_MODEM_ERR_TRAFFIC_EXCEEDED
+                                   : LISA_MODEM_ERR_AT_COMMAND_FAILED;
+        }
+        return ret;
     }
 
-    return ec801e_at_cmd_send(endpoint, data, length, NULL, 0);
+    int ret = ec801e_at_cmd_send(endpoint, data, length, NULL, 0);
+    if (ret < 0 && ctx) {
+        ctx->status.last_error = lisa_modem_cme_may_indicate_traffic_exceeded(endpoint->last_error)
+                               ? LISA_MODEM_ERR_TRAFFIC_EXCEEDED
+                               : LISA_MODEM_ERR_AT_COMMAND_FAILED;
+    }
+    return ret;
 }
 
 int ec801e_endpoint_recv(ec801e_endpoint_ctx_t *ctx, int endpoint_id,
@@ -515,6 +642,23 @@ static bool ec801e_endpoint_driver_dns_resolve(void *driver_ctx, const char *dom
          : false;
 }
 
+static bool ec801e_endpoint_driver_get_imei(void *driver_ctx, char *imei, size_t size)
+{
+    return driver_ctx ? ec801e_endpoint_get_imei((ec801e_endpoint_ctx_t *)driver_ctx, imei, size) : false;
+}
+
+static bool ec801e_endpoint_driver_get_iccid(void *driver_ctx, char *iccid, size_t size)
+{
+    return driver_ctx ? ec801e_endpoint_get_iccid((ec801e_endpoint_ctx_t *)driver_ctx, iccid, size) : false;
+}
+
+static bool ec801e_endpoint_driver_get_signal_quality(void *driver_ctx, int *rssi, int *ber)
+{
+    return driver_ctx
+         ? ec801e_endpoint_get_signal_quality((ec801e_endpoint_ctx_t *)driver_ctx, rssi, ber)
+         : false;
+}
+
 static int ec801e_endpoint_driver_open(void *driver_ctx, int domain, int protocol)
 {
     return driver_ctx ? ec801e_endpoint_open((ec801e_endpoint_ctx_t *)driver_ctx, domain, protocol) : -1;
@@ -633,6 +777,17 @@ static int ec801e_endpoint_driver_set_tls(void *driver_ctx, int driver_endpoint_
          : -1;
 }
 
+static void ec801e_endpoint_driver_get_status(void *driver_ctx, lisa_modem_status_t *status)
+{
+    ec801e_endpoint_ctx_t *ctx = (ec801e_endpoint_ctx_t *)driver_ctx;
+
+    if (!ctx || !status) {
+        return;
+    }
+
+    *status = ctx->status;
+}
+
 static const modem_driver_ops_t s_ec801e_driver_ops = {
     .name = "ec801e",
     .caps = {
@@ -664,7 +819,11 @@ static const modem_driver_ops_t s_ec801e_driver_ops = {
     .deinit = ec801e_endpoint_driver_deinit,
     .attach_dispatcher = ec801e_endpoint_driver_attach_dispatcher,
     .bind_socket = ec801e_endpoint_driver_bind_socket,
+    .get_status = ec801e_endpoint_driver_get_status,
     .dns_resolve = ec801e_endpoint_driver_dns_resolve,
+    .get_imei = ec801e_endpoint_driver_get_imei,
+    .get_iccid = ec801e_endpoint_driver_get_iccid,
+    .get_signal_quality = ec801e_endpoint_driver_get_signal_quality,
     .open_fn = ec801e_endpoint_driver_open,
     .connect_fn = ec801e_endpoint_driver_connect,
     .close_fn = ec801e_endpoint_driver_close,

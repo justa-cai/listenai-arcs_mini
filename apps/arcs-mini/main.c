@@ -14,18 +14,21 @@
 #include "service_camera.h"
 #include "service_alarm.h"
 #include "service_image.h"
+#include "service_sd_music.h"
 #include "alarm_ring.h"
 #include "alarm.h"
 #include "alarm_handler.h"
 
 #include "voice_msg.h"
 #include "lisa_kv.h"
+#include "kv_user.h"
 #include "sys_network_manager.h"
 #include "sys_wifi.h"
 #include "tone.h"
 #include "app_player.h"
 #include "pa_manager.h"
 #include "voice_player_comm.h"
+#include "voice_player.h"
 #include "power/power_manager.h"
 #include "uboot_features_api.h"
 #include "lisa_display.h"
@@ -145,12 +148,11 @@ static bool app_try_play_netcfg_tone(uint32_t status)
     }
 
     if (s_last_prompt_tick == 0 || (now - s_last_prompt_tick) >= pdMS_TO_TICKS(1000)) {
-        if (app_player_play(tone_player, app_tone_get_url(TONE_ID_70)) == APP_PLAYER_OK) {
-            s_last_prompt_tick = now;
-            s_netcfg_tone_latched = true;
-            s_netcfg_tone_retry_pending = false;
-            return true;
-        }
+        voice_player_play_tone_url(app_tone_get_url(TONE_ID_70));
+        s_last_prompt_tick = now;
+        s_netcfg_tone_latched = true;
+        s_netcfg_tone_retry_pending = false;
+        return true;
     }
 
     s_netcfg_tone_retry_pending = true;
@@ -214,6 +216,8 @@ static void app_ble_netcfg_enter_task(void *arg)
     if (sys_wifi_clear_saved_aps() != 0) {
         LISA_LOGW(TAG, "Failed to reset WiFi state");
     }
+    kv_user_clear_sd_card_sync();
+    LISA_LOGI(TAG, "TF card sync KV cleared before BLE config");
 
     if (!status_ok || status.active_bearer != SYS_NETWORK_BEARER_MODEM) {
         voice_cloud_disconnect();
@@ -238,6 +242,21 @@ static void app_ble_netcfg_enter_async(void)
         return;
     }
 
+#if CONFIG_LISA_MODEM
+    {
+        sys_network_status_t net_status = {0};
+        if (sys_network_get_status(&net_status) == 0 && net_status.mode == SYS_NETWORK_MODE_MODEM) {
+            if (net_status.connected) {
+                LISA_LOGI(TAG, "4G online, show binding QR");
+                app_prompt_cloud_info(QR_STATUS_BIND);
+                return;
+            }
+            LISA_LOGI(TAG, "4G offline, switch to WiFi mode for netcfg");
+            sys_network_request_mode(SYS_NETWORK_MODE_WIFI, true);
+        }
+    }
+#endif
+
     s_ble_netcfg_entering = true;
     ret = xTaskCreate(app_ble_netcfg_enter_task, "ble_netcfg", 3072, NULL, 5, NULL);
     if (ret != pdPASS) {
@@ -255,10 +274,11 @@ void factory_reset(void)
     }
     LOGI("factory reset done.");
     LOGI("Wait for factory reset tone playback before reboot.");
-    if (app_player_play(tone_player, app_tone_get_url(TONE_ID_103)) == APP_PLAYER_OK) {
+    const char *tone_url = app_tone_get_url(TONE_ID_103);
+    if (tone_url && app_player_play(tone_player, tone_url) == APP_PLAYER_OK) {
         factory_reset_wait_tone_finished();
     } else {
-        LISA_LOGW(TAG, "Failed to play factory reset tone, reboot immediately");
+        LISA_LOGW(TAG, "Failed to play factory reset tone (url=%p), reboot immediately", (void *)tone_url);
     }
     power_reboot_soft();
 }
@@ -293,7 +313,7 @@ static void voice_cloud_connected(void *unused, uint32_t msg_id, void *data, uin
 static void app_open_info_with_tone(uint32_t status, uint16_t tone_id)
 {
     if (tone_id != TONE_ID_0) {
-        app_player_play(tone_player, app_tone_get_url(tone_id));
+        voice_player_play_tone_url(app_tone_get_url(tone_id));
     }
 
     app_open_cloud_info(status);
@@ -319,11 +339,13 @@ static void voice_cloud_auth_failed(void *unused, uint32_t msg_id, void *data, u
 
 static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
-    if (sys_network_on_cloud_auth_success() != 0) {
-        LISA_LOGW(TAG, "Failed to switch modem runtime tuning to cloud fast profile");
-    }
+    int network_mode = SYS_NETWORK_MODE_WIFI;
 
     service_alarm_init();
+    (void)lisa_kv_get_int("user.network_mode", &network_mode);
+    if (network_mode != SYS_NETWORK_MODE_MODEM) {
+        service_sd_music_init();
+    }
 }
 
 #ifdef CONFIG_OTA
@@ -371,6 +393,16 @@ static void voice_wifi_provision_guard(void *unused, uint32_t msg_id, void *data
 
     if (msg_id == VOICE_MSG_SYSTEM_NETWORK_SWITCH_DONE && sys_wifi_has_ap()) {
         return;
+    }
+
+    /* 4G 模式：NETWORK_SWITCH_DONE 仅表示模组启动完成，网络探测（SNTP）尚未结束。
+     * 此时不应播报配网提示音，应等待 NETWORK_PROBE_FAIL 再做最终判断。 */
+    if (msg_id == VOICE_MSG_SYSTEM_NETWORK_SWITCH_DONE) {
+        sys_network_status_t _guard_net_status;
+        if (sys_network_get_status(&_guard_net_status) == 0 &&
+            _guard_net_status.active_bearer == SYS_NETWORK_BEARER_MODEM) {
+            return;
+        }
     }
 
 #ifdef CONFIG_OTA
@@ -496,11 +528,6 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
             } else {
                 // 主页则触发按键唤醒
                 LISA_LOGI(TAG, "Single click: wakeup trigger");
-                // if (model_voice_tts_is_playing()) {
-                //     LISA_LOGI(TAG, "Single click: TTS playing, stop it");
-                //     app_player_stop(tts_player);
-                //     break;
-                // }
                 // 如果会话中，退出会话
                 if (model_voice_cloud_is_running()) {
                     voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
@@ -524,9 +551,9 @@ static void button_changed(void *unused, uint32_t msg_id, void *data, uint32_t l
             (void)app_should_open_info_by_cloud_state(&status);
             LISA_LOGI(TAG, "power button triple click, open info page");
             if (voice_cloud_is_connected()) {
-                app_player_play(tone_player, app_tone_get_url(TONE_ID_104));
+                voice_player_play_prompt_tone_url(app_tone_get_url(TONE_ID_104));
             } else {
-                app_player_play(tone_player, app_tone_get_url(TONE_ID_64));
+                voice_player_play_prompt_tone_url(app_tone_get_url(TONE_ID_64));
             }
 
             if (!app_cloud_info_page_enabled()) {
@@ -618,7 +645,7 @@ int main(int argc, char **argv)
     battery_init();
 
     wifi_mode = (sys_network_get_status(&network_status) == 0) &&
-                (network_status.mode == SYS_NETWORK_MODE_WIFI_PREFERRED);
+                (network_status.mode == SYS_NETWORK_MODE_WIFI);
     if (wifi_mode && !sys_wifi_has_ap()) {
 #ifdef CONFIG_OTA
         if (!app_should_defer_wifi_provision_prompt())

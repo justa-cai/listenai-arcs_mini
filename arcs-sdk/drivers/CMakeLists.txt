@@ -1,6 +1,7 @@
 add_subdirectory(lisa_device)
 add_subdirectory(lisa_adc)
 add_subdirectory(lisa_audio)
+add_subdirectory(lisa_misc)
 add_subdirectory(lisa_gpio)
 add_subdirectory(lisa_i2c)
 add_subdirectory(lisa_i2s)

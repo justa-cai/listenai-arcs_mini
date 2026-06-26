@@ -4,7 +4,12 @@ build/
 .vscode/
 .cache/
 build*/
+!.agents/skills/build/
+!.claude/skills/build/
 tools/tone_tool/output
 tools/tone_tool/tts
 *.lpk
+.agents/local/
 listenai-dev-tools/
+tmp/
+*.log

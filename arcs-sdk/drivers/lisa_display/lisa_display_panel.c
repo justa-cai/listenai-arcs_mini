@@ -17,6 +17,7 @@
 #include <lisa_log.h>
 
 static int panel_send_data_with_sram_rotate(lisa_display_panel_t *panel, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const void *bitmap);
+static int panel_send_data_with_sram_rotate_180(lisa_display_panel_t *panel, uint16_t w, uint16_t h, const void *bitmap);
 
 static inline void reverse_buffer_bytes(uint8_t *buf, int start, int end)
 {
@@ -97,7 +98,10 @@ int panel_draw_pixels(lisa_display_panel_t *panel, uint32_t cmd, uint16_t cmd_bi
         return ret;
     }
 
-    if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_90 ||
+    if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_180) {
+        ret = panel_send_data_with_sram_rotate_180(panel, w, h, pixels);
+    }
+    else if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_90 ||
         panel->caps.orientation == LISA_DISPLAY_ORIENTATION_270) {
         ret = panel_send_data_with_sram_rotate(panel, x, y, w, h, pixels);
     }
@@ -222,6 +226,11 @@ void panel_set_mem_area(lisa_display_panel_t *panel, lisa_display_panel_mem_area
         new_y = area->x;
         new_w = area->h;
         new_h = area->w;
+    } else if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_180) {
+        new_x = area->panel_w - area->x - area->w;
+        new_y = area->panel_h - area->y - area->h;
+        new_w = area->w;
+        new_h = area->h;
     } else if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_270) {
         new_x = area->y;
         new_y = area->panel_h - area->x - area->w;
@@ -463,6 +472,81 @@ static void panel_buf_rotate_270(panel_rotate_ctx_t *ctx, const uint16_t *src_bu
         src_buf += src_buf_w - area_w;
     }
 #endif
+}
+
+static void panel_buf_rotate_180_rows(const uint16_t *src_buf, uint16_t *dst_buf,
+                                      uint16_t area_w, uint16_t area_h,
+                                      uint16_t row_start, uint16_t chunk_h)
+{
+    for (uint16_t y = 0; y < chunk_h; y++) {
+        const uint16_t *src_row = src_buf + ((area_h - 1 - row_start - y) * area_w);
+        uint16_t *dst_row = dst_buf + ((uint32_t)y * area_w);
+
+        for (uint16_t x = 0; x < area_w; x++) {
+            dst_row[x] = src_row[area_w - 1 - x];
+        }
+    }
+}
+
+static int panel_send_data_with_sram_rotate_180(lisa_display_panel_t *panel, uint16_t w, uint16_t h, const void *bitmap)
+{
+    uint32_t rotate_buf_pixels = (uint32_t)ROTATE_BUF_MAX_HEIGHT * ROTATE_BUF_WIDTH;
+    uint16_t rows_per_chunk;
+    panel_rotate_ctx_t *ctx = (panel_rotate_ctx_t *)panel->rotate_ctx;
+    const uint16_t *src_buf = (const uint16_t *)bitmap;
+    lisa_display_bus_api_t *bus_api = (lisa_display_bus_api_t *)panel->bus_dev->api;
+
+    if (!ctx) {
+        LISA_LOGE(LOG_TAG, "Rotate context not initialized");
+        return LISA_DEVICE_ERR_NOT_READY;
+    }
+
+    if (w == 0 || h == 0 || w > rotate_buf_pixels) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    rows_per_chunk = rotate_buf_pixels / w;
+    if (rows_per_chunk > h) {
+        rows_per_chunk = h;
+    }
+
+    if (ctx->rotate_mutex) {
+        lisa_mutex_lock(ctx->rotate_mutex, -1);
+    }
+
+    for (uint16_t row = 0; row < h; row += rows_per_chunk) {
+        uint16_t chunk_h = h - row;
+        if (chunk_h > rows_per_chunk) {
+            chunk_h = rows_per_chunk;
+        }
+
+        panel_buf_rotate_180_rows(src_buf, ctx->rotate_buf_ping, w, h, row, chunk_h);
+
+        int ret = bus_api->write_pixels(panel->bus_dev, ctx->rotate_buf_ping,
+                                        (size_t)w * chunk_h * sizeof(uint16_t));
+        if (ret != LISA_DEVICE_OK) {
+            LISA_LOGE(LOG_TAG, "Failed to start async transfer: %d", ret);
+            if (ctx->rotate_mutex) {
+                lisa_mutex_unlock(ctx->rotate_mutex);
+            }
+            return ret;
+        }
+
+        ret = bus_api->wait_for_completion(panel->bus_dev, 1000);
+        if (ret != LISA_DEVICE_OK) {
+            LISA_LOGE(LOG_TAG, "Async transfer timeout or error: %d", ret);
+            if (ctx->rotate_mutex) {
+                lisa_mutex_unlock(ctx->rotate_mutex);
+            }
+            return ret;
+        }
+    }
+
+    if (ctx->rotate_mutex) {
+        lisa_mutex_unlock(ctx->rotate_mutex);
+    }
+
+    return LISA_DEVICE_OK;
 }
 
 static int panel_send_data_with_sram_rotate(lisa_display_panel_t *panel, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const void *bitmap)

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <stdbool.h>
 #include <stdatomic.h>
 #include "fs_env/dlist.h"
 #include "fs_env/fs_env.h"
@@ -31,6 +32,8 @@ typedef struct
 {
     lvfs_register_entry_t entry;
     sys_dnode_t node;
+    int refcount;
+    bool unregistered;
 
 } lvfs_register_desc_t;
 
@@ -137,6 +140,8 @@ int lvfs_register(const char *path, lvfs_file_ops_t *lvfs_ops)
 
     strcpy(desc->entry.path_prefix, path);
     memcpy(&desc->entry.ops, lvfs_ops, sizeof(lvfs_file_ops_t));
+    desc->refcount = 0;
+    desc->unregistered = false;
 
     sys_dlist_append(&registered_desc_list, &desc->node);
 ERROR:
@@ -165,7 +170,10 @@ int lvfs_unregister(const char *path)
     }
 
     sys_dlist_remove(&desc->node);
-    FS_ENV_MEM_FREE(desc);
+    desc->unregistered = true;
+    if (__atomic_load_n(&desc->refcount, __ATOMIC_SEQ_CST) == 0) {
+        FS_ENV_MEM_FREE(desc);
+    }
 
 ERROR:
 
@@ -234,6 +242,52 @@ static void _free_fd(int fd)
     (void)_fd_unref(fd);
 }
 
+static lvfs_register_desc_t *_desc_from_entry(lvfs_register_entry_t *entry)
+{
+    return CONTAINER_OF(entry, lvfs_register_desc_t, entry);
+}
+
+static void _desc_ref(lvfs_register_desc_t *desc)
+{
+    if (desc) {
+        __atomic_fetch_add(&desc->refcount, 1, __ATOMIC_SEQ_CST);
+    }
+}
+
+static void _desc_unref(lvfs_register_desc_t *desc)
+{
+    int old_rc;
+
+    if (!desc) {
+        return;
+    }
+
+    do {
+        old_rc = __atomic_load_n(&desc->refcount, __ATOMIC_SEQ_CST);
+        if (old_rc <= 0) {
+            return;
+        }
+    } while (!__atomic_compare_exchange_n(&desc->refcount, &old_rc, old_rc - 1, 0,
+                                          __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST));
+
+    if (old_rc == 1 && desc->unregistered) {
+        FS_ENV_MEM_FREE(desc);
+    }
+}
+
+static lvfs_table_t *_fd_table_get(int fd)
+{
+    if (fd < 0 || fd >= lvfs_fd.num_of_files || lvfs_fd.ftable == NULL) {
+        return NULL;
+    }
+
+    if (!__atomic_load_n(&lvfs_fd.ftable[fd].refcount, __ATOMIC_SEQ_CST)) {
+        return NULL;
+    }
+
+    return &lvfs_fd.ftable[fd];
+}
+
 /*TODO*/
 int _extend_fd(void)
 {
@@ -275,12 +329,14 @@ int lvfs_open(const char *path, int flags, int mode)
 
     fs_env_mutex_lock(&fdtable_mutex_handle,FS_ENV_MAX_DELAY);
     lvfs_fd.ftable[fd].pentry = &desc->entry;
+    _desc_ref(desc);
 
     fs_env_mutex_unlock(&fdtable_mutex_handle);
 
     if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.open)
     {
         _free_fd(fd);
+        _desc_unref(desc);
         return -EOPNOTSUPP;
     }
 
@@ -288,6 +344,7 @@ int lvfs_open(const char *path, int flags, int mode)
     if (ret < 0)
     {
         _free_fd(fd);
+        _desc_unref(desc);
         return ret;
     }
 
@@ -297,89 +354,151 @@ int lvfs_open(const char *path, int flags, int mode)
 int lvfs_close(int fd)
 {
     int ret = 0;
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+    lvfs_register_desc_t *desc = NULL;
 
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.close)
+    if (!fd_entry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry) {
+        _free_fd(fd);
+        return -EBADF;
+    }
+
+    desc = _desc_from_entry(fd_entry->pentry);
+    if (!fd_entry->pentry->ops.f_ops.close)
     {
         _free_fd(fd);
+        _desc_unref(desc);
         return -EOPNOTSUPP;
     }
-    ret = lvfs_fd.ftable[fd].pentry->ops.f_ops.close(&lvfs_fd.ftable[fd].vfile);
+    ret = fd_entry->pentry->ops.f_ops.close(&fd_entry->vfile);
     _free_fd(fd);
+    _desc_unref(desc);
     return ret;
 }
 
 int lvfs_read(int fd, char *buffer, size_t buflen)
 {
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.read)
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+
+    if (!fd_entry || !fd_entry->pentry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry->ops.f_ops.read)
     {
         return -EOPNOTSUPP;
     }
-    return lvfs_fd.ftable[fd].pentry->ops.f_ops.read(&lvfs_fd.ftable[fd].vfile, buffer, buflen);
+    return fd_entry->pentry->ops.f_ops.read(&fd_entry->vfile, buffer, buflen);
 }
 
 int lvfs_write(int fd, const char *buffer, size_t buflen)
 {
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.write)
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+
+    if (!fd_entry || !fd_entry->pentry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry->ops.f_ops.write)
     {
         return -EOPNOTSUPP;
     }
-    return lvfs_fd.ftable[fd].pentry->ops.f_ops.write(&lvfs_fd.ftable[fd].vfile, buffer, buflen);
+    return fd_entry->pentry->ops.f_ops.write(&fd_entry->vfile, buffer, buflen);
 }
 
 int lvfs_lseek(int fd, off_t offset, int whence)
 {
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.lseek)
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+
+    if (!fd_entry || !fd_entry->pentry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry->ops.f_ops.lseek)
     {
         return -EOPNOTSUPP;
     }
-    return lvfs_fd.ftable[fd].pentry->ops.f_ops.lseek(&lvfs_fd.ftable[fd].vfile, offset, whence);
+    return fd_entry->pentry->ops.f_ops.lseek(&fd_entry->vfile, offset, whence);
 }
 
 int lvfs_lsize(int fd){
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.lsize)
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+
+    if (!fd_entry || !fd_entry->pentry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry->ops.f_ops.lsize)
     {
         return -EOPNOTSUPP;
     }
-    return lvfs_fd.ftable[fd].pentry->ops.f_ops.lsize(&lvfs_fd.ftable[fd].vfile);
+    return fd_entry->pentry->ops.f_ops.lsize(&fd_entry->vfile);
 }
 
 #if CONFIG_FS_LARGE64_FILES
 _off64_t lvfs_lseek64(int fd, _off64_t offset, int whence)
 {
     _off64_t seek;
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.lseek64)
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+
+    if (!fd_entry || !fd_entry->pentry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry->ops.f_ops.lseek64)
     {
         return -EOPNOTSUPP;
     }
-    seek= lvfs_fd.ftable[fd].pentry->ops.f_ops.lseek64(&lvfs_fd.ftable[fd].vfile, offset, whence);
+    seek= fd_entry->pentry->ops.f_ops.lseek64(&fd_entry->vfile, offset, whence);
     return seek;
 }
 
 int64_t lvfs_lsize64(int fd){
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.lsize64)
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+
+    if (!fd_entry || !fd_entry->pentry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry->ops.f_ops.lsize64)
     {
         return -EOPNOTSUPP;
     }
-    return lvfs_fd.ftable[fd].pentry->ops.f_ops.lsize64(&lvfs_fd.ftable[fd].vfile);
+    return fd_entry->pentry->ops.f_ops.lsize64(&fd_entry->vfile);
 }
 #endif
 
 int lvfs_truncate(int fd, off_t length)
 {
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.truncate)
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+
+    if (!fd_entry || !fd_entry->pentry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry->ops.f_ops.truncate)
     {
         return -EOPNOTSUPP;
     }
-    return lvfs_fd.ftable[fd].pentry->ops.f_ops.truncate(&lvfs_fd.ftable[fd].vfile, length);
+    return fd_entry->pentry->ops.f_ops.truncate(&fd_entry->vfile, length);
 }
 
 int lvfs_sync(int fd)
 {
-    if (!lvfs_fd.ftable[fd].pentry->ops.f_ops.sync)
+    lvfs_table_t *fd_entry = _fd_table_get(fd);
+
+    if (!fd_entry || !fd_entry->pentry) {
+        return -EBADF;
+    }
+
+    if (!fd_entry->pentry->ops.f_ops.sync)
     {
         return -EOPNOTSUPP;
     }
-    return lvfs_fd.ftable[fd].pentry->ops.f_ops.sync(&lvfs_fd.ftable[fd].vfile);
+    return fd_entry->pentry->ops.f_ops.sync(&fd_entry->vfile);
 }
 
 int lvfs_rename(const char *oldpath, const char *newpath)

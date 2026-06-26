@@ -1464,6 +1464,117 @@ static int arcs_uart_rx_disable(lisa_device_t *dev)
     return (ret == CSK_DRIVER_OK) ? LISA_DEVICE_OK : LISA_DEVICE_ERR_IO;
 }
 
+/**
+ * @brief 等待 UART RX 线路空闲
+ *
+ * 排空所有循环缓冲区中已接收的数据，等待线路空闲。
+ * 通过检查 BUFFER_IDLE_FLAG 来判断数据是否在空闲中断触发后到达。
+ * 检测到空闲后等待 10ms 保护窗口确保无新数据，再返回成功。
+ *
+ * 用于 Flash 擦写前确保 modem 在途数据已全部收入缓冲区，
+ * 避免 erase 期间中断被全局禁用时丢失数据。
+ *
+ * @param dev        UART 设备指针
+ * @param timeout_ms 最大等待时间（毫秒）
+ * @return LISA_DEVICE_OK 成功检测到空闲，或 LISA_DEVICE_ERR_TIMEOUT 超时
+ */
+static int arcs_uart_rx_wait_idle(lisa_device_t *dev, uint32_t timeout_ms)
+{
+    lisa_uart_priv_t *priv = (lisa_uart_priv_t *)dev->priv_data;
+    lisa_uart_rx_circular_buf_t *circ = priv->rx_circ_buf;
+
+    if (!circ || !circ->enabled) {
+        return LISA_DEVICE_ERR_NOT_READY;
+    }
+
+    uint32_t start_ms = lisa_os_get_tick_ms();
+    bool idle_seen = false;
+    bool any_data_consumed = false;
+    uint32_t guard_start_ms = 0;
+    uint8_t drain_buf[256];
+
+    while (1) {
+        uint32_t elapsed = lisa_os_get_tick_ms() - start_ms;
+        if (elapsed >= timeout_ms) {
+            return idle_seen ? LISA_DEVICE_OK : LISA_DEVICE_ERR_TIMEOUT;
+        }
+
+        /* 检查当前 ready 缓冲区是否有数据 */
+        uint32_t buf_flag = circ->buffers_len[circ->ready_idx];
+        if (buf_flag != 0) {
+            any_data_consumed = true;
+            uint32_t buf_len = buf_flag & BUFFER_LEN_MASK;
+            bool is_idle = (buf_flag & BUFFER_IDLE_FLAG) != 0;
+
+            /* 消费缓冲区中的数据（丢弃，调用方不关心里面的内容） */
+            uint32_t available = buf_len - circ->read_offset;
+            uint32_t copy_len = (available < sizeof(drain_buf)) ? available : sizeof(drain_buf);
+            memcpy(drain_buf, circ->buffers[circ->ready_idx] + circ->read_offset, copy_len);
+            circ->read_offset += copy_len;
+
+            /* 缓冲区是否完全消费完 */
+            if (circ->read_offset >= buf_len) {
+                uint32_t freed_idx = circ->ready_idx;
+                circ->buffers_len[freed_idx] = 0;
+                circ->read_offset = 0;
+                circ->ready_idx = (circ->ready_idx + 1) % circ->buffer_count;
+
+                /* 如果 rx_paused，恢复 RX 到刚释放的缓冲区 */
+                if (circ->rx_paused) {
+                    UART_RESOURCES *uart_res = (UART_RESOURCES *)priv->hal_handler;
+
+                    /* 检查暂停期间 FIFO 是否溢出 */
+                    if (uart_res->reg->REG_STATUS.all & UART_RX_OVERFLOW_ERR) {
+                        uint32_t drain = 0;
+                        while (uart_res->reg->REG_STATUS.bit.RX_FIFO_LEVEL > 0 && drain < 128) {
+                            (void)uart_res->reg->REG_RXTX_BUFFER.all;
+                            drain++;
+                        }
+                        uart_res->reg->REG_CMD_SET.bit.RX_FIFO_RESET = 1;
+                        uart_res->reg->REG_STATUS.all = UART_RX_OVERFLOW_ERR;
+                        (void)uart_res->reg->REG_IRQ_CAUSE.all;
+                        LISA_LOGW(LOG_TAG, "[rx_wait_idle] FIFO overflow during pause, drained %u bytes", drain);
+                    }
+
+                    circ->active_idx = freed_idx;
+                    circ->rx_paused = false;
+                    if (uart_rx_start(priv, circ->buffers[freed_idx], circ->buffer_size) != LISA_DEVICE_OK) {
+                        uart_rx_circular_report_error(priv, circ, LISA_DEVICE_ERR_OVERFLOW);
+                        return LISA_DEVICE_ERR_OVERFLOW;
+                    }
+                }
+
+                /* 如果刚消费的 buffer 是空闲中断触发的，记录空闲检测 */
+                if (is_idle) {
+                    idle_seen = true;
+                    guard_start_ms = lisa_os_get_tick_ms();
+                }
+            }
+        } else {
+            /* 当前 ready 缓冲区无数据 */
+            if (circ->overflow) {
+                return LISA_DEVICE_ERR_OVERFLOW;
+            }
+
+            /* 进入函数至今没有消费过任何数据：UART 本来就处于空闲状态。
+             * 等待 20ms 确认没有新数据到达（data_sem 没有被 post）后直接返回。 */
+            if (!any_data_consumed && elapsed >= 20) {
+                return LISA_DEVICE_OK;
+            }
+
+            if (idle_seen) {
+                /* 验证保护期：空闲后持续 10ms 无新数据才算真正空闲 */
+                if ((lisa_os_get_tick_ms() - guard_start_ms) >= 10) {
+                    return LISA_DEVICE_OK;
+                }
+            }
+        }
+
+        /* 短暂阻塞避免忙等，用 data_sem 等待（有新数据立即唤醒） */
+        lisa_semaphore_take(circ->data_sem, 10);
+    }
+}
+
 #ifdef CONFIG_LISA_UART_ASYNC_API
 static int arcs_uart_set_callback(lisa_device_t *dev, lisa_uart_callback_t callback, void *user_data)
 {
@@ -1680,6 +1791,7 @@ static const lisa_uart_api_t arcs_uart_api = {
     .write_abort = arcs_uart_write_abort,
     .get_tx_count = arcs_uart_get_tx_count,
 #endif
+    .rx_wait_idle = arcs_uart_rx_wait_idle,
 };
 
 /* ===== 设备注册 ===== */

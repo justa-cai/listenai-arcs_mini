@@ -372,7 +372,14 @@ macro(listenai_add_executable name)
     get_property(LISTENAI_MODULES_PROPERTY GLOBAL PROPERTY LISTENAI_MODULES)
     foreach(module IN LISTS LISTENAI_MODULES_PROPERTY)
         message(STATUS "Found module: ${module} ")
-        add_subdirectory(${module} ${CMAKE_BINARY_DIR}/modules/${module})
+        if(CMAKE_HOST_WIN32)
+            get_filename_component(_module_name "${module}" NAME)
+            string(MD5 _module_hash "${module}")
+            set(_module_binary_dir "${CMAKE_BINARY_DIR}/modules/${_module_name}-${_module_hash}")
+        else()
+            set(_module_binary_dir "${CMAKE_BINARY_DIR}/modules/${module}")
+        endif()
+        add_subdirectory(${module} ${_module_binary_dir})
     endforeach()
 
     if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.19")
@@ -533,9 +540,12 @@ endmacro()
 macro(listenai_generate_boot_header target_name)
     cmake_parse_arguments(_BOOT_HDR "TARGET_CORE" "" "" ${ARGN})
     set(_mkhdr_flags_arg "")
+    if(NOT DEFINED LISTENAI_TOOLS_MKHDR_COMMAND)
+        set(LISTENAI_TOOLS_MKHDR_COMMAND "${LISTENAI_TOOLS_MKHDR}")
+    endif()
     if(_BOOT_HDR_TARGET_CORE AND DEFINED CONFIG_HARTID)
         execute_process(
-            COMMAND ${LISTENAI_TOOLS_MKHDR} -h
+            COMMAND ${LISTENAI_TOOLS_MKHDR_COMMAND} -h
             OUTPUT_VARIABLE _mkhdr_help
             OUTPUT_STRIP_TRAILING_WHITESPACE
         )
@@ -548,7 +558,7 @@ macro(listenai_generate_boot_header target_name)
     add_custom_target(
         mkhdr ALL
         COMMAND ${CMAKE_COMMAND} -E echo "-- Generating ListenAI Boot Header for ${target_name}.bin"
-        COMMAND ${LISTENAI_TOOLS_MKHDR} ${_mkhdr_flags_arg} ${target_name}.bin
+        COMMAND ${LISTENAI_TOOLS_MKHDR_COMMAND} ${_mkhdr_flags_arg} ${target_name}.bin
         WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     )
     add_dependencies(mkhdr ${target_name})
@@ -874,7 +884,7 @@ macro(listenai_set_linker_script linker_script)
         )
     else()
         add_custom_target(linker_script_prepare
-            COMMAND cp ${linker_script} ${CMAKE_BINARY_DIR}/linker.ld.pre
+            COMMAND ${CMAKE_COMMAND} -E copy ${linker_script} ${CMAKE_BINARY_DIR}/linker.ld.pre
             DEPENDS ${linker_script}
             WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
         )

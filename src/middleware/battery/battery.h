@@ -45,6 +45,15 @@ uint8_t battery_get_pct_raw(void);
 uint16_t battery_get_voltage_mv(void);
 
 /**
+ * @brief 获取 CH32 ADC 原始采样值
+ *
+ * 当前用于打印 BAT_TEMP_ADC_CHANNEL 的 raw 值。返回 0xFFFF 表示无效。
+ *
+ * @return CH32 ADC raw value
+ */
+uint16_t battery_get_temp_adc_raw(void);
+
+/**
  * @brief 获取 USB 插入的稳定状态 (带去抖)
  *
  * @return true 表示已稳定插入

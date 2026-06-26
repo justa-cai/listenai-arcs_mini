@@ -27,3 +27,10 @@ int ota_flash_update_step(ota_partition_id_e part, uint32_t offset, const uint8_
 
 /* 成功时返回本次会话累计写入的字节数，失败返回 < 0 */
 int ota_flash_update_finish(ota_partition_id_e part);
+
+/*
+ * 中止当前分区的 flash 写入会话，释放互斥锁但不刷缓冲区。
+ * 用于下载过程中检测到数据错误（如 MD5 不匹配）后放弃本轮写入，
+ * 以便安全重试。
+ */
+int ota_flash_update_abort(ota_partition_id_e part);

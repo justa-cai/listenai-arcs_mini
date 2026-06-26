@@ -63,13 +63,20 @@ endforeach()
 
 file(APPEND ${LISTENAI_MODULES_KCONFIG_FILE} "endmenu\n")
 
+if(NOT DEFINED LISTENAI_TOOLS_KCONFIG_COMMAND)
+    set(LISTENAI_TOOLS_KCONFIG_COMMAND "${LISTENAI_TOOLS_KCONFIG}")
+endif()
+if(NOT DEFINED LISTENAI_TOOLS_MENUCONFIG_COMMAND)
+    set(LISTENAI_TOOLS_MENUCONFIG_COMMAND "${LISTENAI_TOOLS_MENUCONFIG}")
+endif()
+
 macro(listenai_kconfig_parse kconfig_root dot_config autoconf_h kconfig_list conf_merge prefix)
     message(STATUS "Parse kconfig: ${${kconfig_root}}, prefix: ${${prefix}}")
 
     # 检查 kconfig 工具版本，>=1.0.0 时添加 -W 参数
     if(NOT DEFINED _KCONFIG_TOOL_SUPPORTS_W)
         execute_process(
-            COMMAND ${LISTENAI_TOOLS_KCONFIG} --version
+            COMMAND ${LISTENAI_TOOLS_KCONFIG_COMMAND} --version
             OUTPUT_VARIABLE _KCONFIG_TOOL_VERSION
             OUTPUT_STRIP_TRAILING_WHITESPACE
             RESULT_VARIABLE _version_result
@@ -91,7 +98,7 @@ macro(listenai_kconfig_parse kconfig_root dot_config autoconf_h kconfig_list con
     set(ENV{CONFIG_} ${${prefix}})
     execute_process(
         COMMAND
-        ${LISTENAI_TOOLS_KCONFIG}
+        ${LISTENAI_TOOLS_KCONFIG_COMMAND}
         ${_KCONFIG_EXTRA_ARGS}
         -k ${${kconfig_root}}
         -c ${${dot_config}}
@@ -264,7 +271,7 @@ add_custom_target(menuconfig
     COMMAND ${CMAKE_COMMAND} -E env
     LISTENAI_MODULES=${CMAKE_BINARY_DIR}/module.Kconfig
     KCONFIG_CONFIG=${CMAKE_BINARY_DIR}/.config
-    ${LISTENAI_TOOLS_MENUCONFIG}
+    ${LISTENAI_TOOLS_MENUCONFIG_COMMAND}
     WORKING_DIRECTORY ${APPLICATION_SOURCE_DIR}
     COMMENT "running menuconfig"
     USES_TERMINAL

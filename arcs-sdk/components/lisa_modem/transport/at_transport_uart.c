@@ -12,7 +12,6 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
-#include "semphr.h"
 #include "task.h"
 
 #define TAG "at_transport_uart"
@@ -27,7 +26,6 @@ typedef struct {
     uint16_t rx_buf_size;                   /**< Per-buffer size */
     uint16_t rx_buf_count;                  /**< Buffer count */
     volatile bool config_in_progress;       /**< Configuration in progress flag */
-    SemaphoreHandle_t reconfig_mutex;       /**< Serialize read vs reconfigure */
     char dev_name[16];                      /**< Device name */
 } uart_transport_priv_t;
 
@@ -68,17 +66,7 @@ static void uart_close(at_transport_t *transport)
 {
     uart_transport_priv_t *priv = (uart_transport_priv_t *)transport->priv;
 
-    if (!priv) {
-        return;
-    }
-
-    if (priv->reconfig_mutex) {
-        xSemaphoreTake(priv->reconfig_mutex, portMAX_DELAY);
-    }
     lisa_uart_rx_disable(priv->uart_dev);
-    if (priv->reconfig_mutex) {
-        xSemaphoreGive(priv->reconfig_mutex);
-    }
     LISA_LOGI(TAG, "UART transport closed");
 }
 
@@ -103,42 +91,23 @@ static int uart_read(at_transport_t *transport, uint8_t *data, size_t len, uint3
         return 0;
     }
 
-    if (!priv->reconfig_mutex) {
-        return -1;
-    }
-
-    xSemaphoreTake(priv->reconfig_mutex, portMAX_DELAY);
-    if (priv->config_in_progress) {
-        xSemaphoreGive(priv->reconfig_mutex);
-        vTaskDelay(pdMS_TO_TICKS(10));
-        return 0;
-    }
-
     api = (lisa_uart_api_t *)priv->uart_dev->api;
     if (!api || !api->read_sync) {
-        xSemaphoreGive(priv->reconfig_mutex);
         return -1;
     }
 
     ret = api->read_sync(priv->uart_dev, data, (uint32_t)len, timeout_ms);
     if (ret == LISA_DEVICE_ERR_TIMEOUT) {
-        xSemaphoreGive(priv->reconfig_mutex);
         return 0;
     }
     if (ret == LISA_DEVICE_ERR_OVERFLOW) {
         LISA_LOGE(TAG, "Buffer overflow! Recovering...");
-        if (!priv->config_in_progress) {
-            lisa_uart_rx_disable(priv->uart_dev);
-            vTaskDelay(pdMS_TO_TICKS(10));
-            lisa_uart_rx_enable(priv->uart_dev);
-            LISA_LOGI(TAG, "Buffer overflow recovery completed");
-        } else {
-            LISA_LOGI(TAG, "Buffer overflow recovery skipped, reconfigure pending");
-        }
-        xSemaphoreGive(priv->reconfig_mutex);
-        return LISA_DEVICE_ERR_OVERFLOW;
+        lisa_uart_rx_disable(priv->uart_dev);
+        vTaskDelay(pdMS_TO_TICKS(10));
+        lisa_uart_rx_enable(priv->uart_dev);
+        LISA_LOGI(TAG, "Buffer overflow recovery completed");
+        return 0;
     }
-    xSemaphoreGive(priv->reconfig_mutex);
     return ret;
 }
 
@@ -160,11 +129,6 @@ static int uart_ioctl(at_transport_t *transport, int cmd, void *arg)
         LISA_LOGI(TAG, "Changing baudrate to %u", new_baudrate);
 
         priv->config_in_progress = true;
-        if (!priv->reconfig_mutex) {
-            priv->config_in_progress = false;
-            return -1;
-        }
-        xSemaphoreTake(priv->reconfig_mutex, portMAX_DELAY);
 
         lisa_uart_config_t uart_config = LISA_UART_CONFIG_HIGH_SPEED();
         uart_config.baudrate = new_baudrate;
@@ -173,12 +137,9 @@ static int uart_ioctl(at_transport_t *transport, int cmd, void *arg)
 
         lisa_uart_rx_disable(priv->uart_dev);
         int ret = lisa_uart_configure(priv->uart_dev, &uart_config);
-        if (ret == 0) {
-            ret = lisa_uart_rx_enable(priv->uart_dev);
-        }
+        lisa_uart_rx_enable(priv->uart_dev);
 
         priv->config_in_progress = false;
-        xSemaphoreGive(priv->reconfig_mutex);
 
         if (ret != 0) {
             LISA_LOGE(TAG, "Failed to set baudrate");
@@ -195,22 +156,11 @@ static int uart_ioctl(at_transport_t *transport, int cmd, void *arg)
     }
 
     case AT_TRANSPORT_IOCTL_RX_ENABLE: {
-        if (!priv->reconfig_mutex) {
-            return -1;
-        }
-        xSemaphoreTake(priv->reconfig_mutex, portMAX_DELAY);
-        int ret = lisa_uart_rx_enable(priv->uart_dev);
-        xSemaphoreGive(priv->reconfig_mutex);
-        return ret;
+        return lisa_uart_rx_enable(priv->uart_dev);
     }
 
     case AT_TRANSPORT_IOCTL_RX_DISABLE: {
-        if (!priv->reconfig_mutex) {
-            return -1;
-        }
-        xSemaphoreTake(priv->reconfig_mutex, portMAX_DELAY);
         lisa_uart_rx_disable(priv->uart_dev);
-        xSemaphoreGive(priv->reconfig_mutex);
         return 0;
     }
 
@@ -227,11 +177,6 @@ static void uart_destroy(at_transport_t *transport)
     }
 
     if (transport->priv) {
-        uart_transport_priv_t *priv = (uart_transport_priv_t *)transport->priv;
-        if (priv->reconfig_mutex) {
-            vSemaphoreDelete(priv->reconfig_mutex);
-            priv->reconfig_mutex = NULL;
-        }
         at_mem_free(transport->priv);
     }
     at_mem_free(transport);
@@ -272,13 +217,6 @@ at_transport_t *at_transport_uart_create(const char *uart_dev_name,
         priv->baudrate = default_config.baudrate;
         priv->rx_buf_size = default_config.rx_buf_size;
         priv->rx_buf_count = default_config.rx_buf_count;
-    }
-
-    priv->reconfig_mutex = xSemaphoreCreateMutex();
-    if (!priv->reconfig_mutex) {
-        at_mem_free(priv);
-        at_mem_free(transport);
-        return NULL;
     }
 
     transport->ops = &uart_ops;

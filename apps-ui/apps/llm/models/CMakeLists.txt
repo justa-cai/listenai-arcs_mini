@@ -10,6 +10,7 @@ target_sources(
     model_camera.c
     model_camera_preview.c
     model_alarm.c
+    model_sd_music_sync.c
 )
 
 if(CONFIG_OTA)

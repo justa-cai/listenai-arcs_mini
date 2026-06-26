@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <sys/socket.h>
 #include "at_client.h"
+#include "lisa_modem_status.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -81,8 +82,12 @@ typedef struct modem_driver_ops {
     void (*deinit)(void *driver_ctx);
     void (*attach_dispatcher)(void *driver_ctx, modem_dispatcher_t *dispatcher);
     void (*bind_socket)(void *driver_ctx, int driver_endpoint_id, int sockfd, uint32_t generation);
+    void (*get_status)(void *driver_ctx, lisa_modem_status_t *status);
 
     bool (*dns_resolve)(void *driver_ctx, const char *domain, char *ip_addr, size_t size);
+    bool (*get_imei)(void *driver_ctx, char *imei, size_t size);
+    bool (*get_iccid)(void *driver_ctx, char *iccid, size_t size);
+    bool (*get_signal_quality)(void *driver_ctx, int *rssi, int *ber);
 
     int (*open_fn)(void *driver_ctx, int domain, int protocol);
     int (*connect_fn)(void *driver_ctx, int driver_endpoint_id, const modem_addr_t *addr);

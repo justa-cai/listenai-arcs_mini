@@ -13,6 +13,14 @@ LV_IMG_DECLARE(icons_ic_status_duplex_non_interruptible_png);
 LV_IMG_DECLARE(icons_ic_status_alarm_png);
 LV_IMG_DECLARE(icons_icon_finger_png);
 
+#define LISA_UI_EMOJI_DEFAULT_OFFSET_Y      (-10)
+#define LISA_UI_CONTENT_TEXT_BOTTOM_MARGIN  12
+#define LISA_UI_CONTENT_CONTAINER_PAD       10
+#define LISA_UI_CONTENT_TEXT_TOP_PAD        20
+#define LISA_UI_CONTENT_TEXT_BOTTOM_PAD     2
+#define LISA_UI_CONTENT_TEXT_HORIZONTAL_PAD 12
+#define LISA_UI_CONTENT_TEXT_LINE_COUNT     2
+
 static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
 
 const lv_obj_class_t lisa_ui_llm_primary_class = {
@@ -73,11 +81,11 @@ static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p,
     lv_obj_set_style_flex_main_place(container, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_flex_cross_place(container, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN);
 
-    // 创建emoji动画容器（上半部分）
-    llm_primary->emoji_container = lv_obj_create(container);
+    // 创建emoji动画图片（挂在页面根对象上，作为屏幕底层）
+    llm_primary->emoji_anim = lisa_ui_anim_ext_create(obj);
 
-    // 创建emoji动画图片
-    llm_primary->emoji_anim = lisa_ui_anim_ext_create(llm_primary->emoji_container);
+    // 创建emoji动画容器（保留用于兼容，但不影响表情定位）
+    llm_primary->emoji_container = lv_obj_create(container);
 
     // 创建拍照图片（覆盖在emoji上层，默认隐藏）
     llm_primary->img = lv_img_create(container);
@@ -143,33 +151,19 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_set_style_text_line_space(llm_primary->status_label, 0, LV_PART_MAIN);
     lv_obj_align(llm_primary->status_label, LV_ALIGN_CENTER, 0, 0);
 
-    // 设置emoji动画容器
+    // 设置emoji动画图片（在页面根对象上，使用FLOATING脱离布局）
+    lv_obj_set_size(llm_primary->emoji_anim, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_add_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_FLOATING);  // 跳出页面 flex 布局
+    lv_obj_align(llm_primary->emoji_anim, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_move_background(llm_primary->emoji_anim);  // 移到屏幕底层
+
+    // 设置emoji动画容器（保留兼容，隐藏不使用）
     lv_obj_set_style_bg_opa(llm_primary->emoji_container, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(llm_primary->emoji_container, 0, LV_PART_MAIN);
-#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
     lv_obj_set_size(llm_primary->emoji_container, LV_PCT(100), LV_PCT(100));
-#else
-    lv_obj_set_size(llm_primary->emoji_container, LV_PCT(100), 104);
-#endif
     lv_obj_set_style_pad_all(llm_primary->emoji_container, 0, LV_PART_MAIN);
-#ifndef CONFIG_BOARD_ARCS_MINI
-    lv_obj_set_style_pad_left(llm_primary->emoji_container, 55, LV_PART_MAIN); // 左边距50像素，表情右移30像素
-    lv_obj_set_style_pad_right(llm_primary->emoji_container, 20, LV_PART_MAIN);
-#endif
-    lv_obj_update_layout(llm_primary->emoji_container);
-
-    // 设置emoji容器为居中对齐
-    lv_obj_set_layout(llm_primary->emoji_container, LV_LAYOUT_FLEX);
-    lv_obj_set_style_flex_flow(llm_primary->emoji_container, LV_FLEX_FLOW_COLUMN, LV_PART_MAIN);
-    lv_obj_set_style_flex_main_place(llm_primary->emoji_container, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_style_flex_cross_place(llm_primary->emoji_container, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN);
-
-    // 设置emoji动画图片
-    lv_obj_set_size(llm_primary->emoji_anim, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-#ifdef CONFIG_BOARD_ARCS_MINI
-    lv_obj_add_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_FLOATING);
-    lv_obj_center(llm_primary->emoji_anim);
-#endif
+    lv_obj_set_flex_grow(llm_primary->emoji_container, 1);
+    lv_obj_add_flag(llm_primary->emoji_container, LV_OBJ_FLAG_HIDDEN);  // 隐藏，不影响表情显示
 
     lv_obj_set_size(llm_primary->img, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
     lv_obj_add_flag(llm_primary->img, LV_OBJ_FLAG_HIDDEN);
@@ -201,13 +195,21 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_align_to(llm_primary->finger_hint_label, llm_primary->finger_hint_icon, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
     lv_obj_move_foreground(llm_primary->finger_hint_label);
 
-    // 设置内容文本容器
+    // 设置内容文本容器（放在屏幕底部，不遮挡表情）
+    lv_coord_t content_text_height =
+        lv_font_chinese_16.line_height * LISA_UI_CONTENT_TEXT_LINE_COUNT +
+        LISA_UI_CONTENT_TEXT_TOP_PAD +
+        LISA_UI_CONTENT_TEXT_BOTTOM_PAD +
+        LISA_UI_CONTENT_CONTAINER_PAD * 2;
     lv_obj_set_style_bg_opa(llm_primary->content_container, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(llm_primary->content_container, 0, LV_PART_MAIN);
-    lv_obj_set_size(llm_primary->content_container, LV_PCT(100), 85);
-    lv_obj_set_style_pad_all(llm_primary->content_container, 10, LV_PART_MAIN);
-    
-    // 设置内容容器为居中对齐
+    lv_obj_set_size(llm_primary->content_container, LV_PCT(100), content_text_height);
+    lv_obj_set_style_pad_all(llm_primary->content_container, LISA_UI_CONTENT_CONTAINER_PAD, LV_PART_MAIN);
+    lv_obj_add_flag(llm_primary->content_container, LV_OBJ_FLAG_FLOATING);  // 跳出 flex 布局
+    lv_obj_align(llm_primary->content_container, LV_ALIGN_BOTTOM_MID, 0,
+                 -LISA_UI_CONTENT_TEXT_BOTTOM_MARGIN);
+
+    // 设置内容容器内部居中
     lv_obj_set_layout(llm_primary->content_container, LV_LAYOUT_FLEX);
     lv_obj_set_style_flex_flow(llm_primary->content_container, LV_FLEX_FLOW_COLUMN, LV_PART_MAIN);
     lv_obj_set_style_flex_main_place(llm_primary->content_container, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN);
@@ -237,10 +239,10 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     // 调整文本样式
     lv_obj_set_style_text_line_space(llm_primary->content_label, 0, LV_PART_MAIN);    // 使用字体自身line_height
     lv_obj_set_style_text_letter_space(llm_primary->content_label, 1, LV_PART_MAIN);  // 字符间距（字符与字符之间）
-    lv_obj_set_style_pad_top(llm_primary->content_label, 20, LV_PART_MAIN);     // 上边距
-    lv_obj_set_style_pad_bottom(llm_primary->content_label, 20, LV_PART_MAIN);  // 下边距
-    lv_obj_set_style_pad_left(llm_primary->content_label, 12, LV_PART_MAIN);   // 左边距  
-    lv_obj_set_style_pad_right(llm_primary->content_label, 12, LV_PART_MAIN);  // 右边距
+    lv_obj_set_style_pad_top(llm_primary->content_label, LISA_UI_CONTENT_TEXT_TOP_PAD, LV_PART_MAIN);
+    lv_obj_set_style_pad_bottom(llm_primary->content_label, LISA_UI_CONTENT_TEXT_BOTTOM_PAD, LV_PART_MAIN);
+    lv_obj_set_style_pad_left(llm_primary->content_label, LISA_UI_CONTENT_TEXT_HORIZONTAL_PAD, LV_PART_MAIN);
+    lv_obj_set_style_pad_right(llm_primary->content_label, LISA_UI_CONTENT_TEXT_HORIZONTAL_PAD, LV_PART_MAIN);
 
     return obj;
 }
@@ -300,7 +302,7 @@ void lisa_ui_llm_primary_set_status_text(lv_obj_t *obj, const char *status)
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
 
     if (llm_primary->status_label) {
-        lv_label_set_text(llm_primary->status_label, status);
+        lv_label_set_text(llm_primary->status_label, status ? status : "");
     }
 }
 
@@ -312,7 +314,7 @@ void lisa_ui_llm_primary_set_content_text(lv_obj_t *obj, const char *content)
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
 
     if (llm_primary->content_label) {
-        lv_textarea_set_text(llm_primary->content_label, content);
+        lv_textarea_set_text(llm_primary->content_label, content ? content : "");
     }
 }
 
@@ -324,7 +326,7 @@ void lisa_ui_llm_primary_add_content_text(lv_obj_t *obj, const char *content)
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
 
     if (llm_primary->content_label) {
-        lv_textarea_add_text(llm_primary->content_label, content);
+        lv_textarea_add_text(llm_primary->content_label, content ? content : "");
     }
 }
 
@@ -429,6 +431,24 @@ lv_obj_t *lisa_ui_llm_primary_emoji_anim_get(lv_obj_t *obj)
     return llm_primary->emoji_anim;
 }
 
+void lisa_ui_llm_primary_set_emoji_offset(lv_obj_t *obj, int offset_x, int offset_y)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (llm_primary->emoji_anim == NULL) {
+        return;
+    }
+
+    // 表情中心点相对于整个屏幕中心点偏移
+    // 横向：正数向右，负数向左
+    // 纵向：默认上移10px，配置正数向下、负数向上
+    lv_obj_align(llm_primary->emoji_anim, LV_ALIGN_CENTER, offset_x,
+                 offset_y + LISA_UI_EMOJI_DEFAULT_OFFSET_Y);
+}
+
 static void camera_img_anim_ready_cb(lv_anim_t *a)
 {
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)a->user_data;
@@ -498,7 +518,7 @@ void lisa_ui_llm_primary_img_show(lv_obj_t *obj, void *img)
 
     lv_obj_update_layout(llm_primary->img);
 
-    lv_obj_align(llm_primary->img, LV_ALIGN_CENTER, 0, -25);
+    lv_obj_align(llm_primary->img, LV_ALIGN_CENTER, 0, -40);
 
     lv_obj_clear_flag(llm_primary->img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_opa(llm_primary->img, LV_OPA_COVER, 0);  /* Ensure fully visible */
@@ -525,12 +545,22 @@ void lisa_ui_llm_primary_query_img_show(lv_obj_t *obj, const void *img)
 #ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
     lv_obj_align(llm_primary->img, LV_ALIGN_CENTER, 0, 0);
 #else
-    lv_obj_align(llm_primary->img, LV_ALIGN_CENTER, 0, -25);
+    lv_obj_align(llm_primary->img, LV_ALIGN_CENTER, 0, -40);
 #endif
     lv_obj_clear_flag(llm_primary->img, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_opa(llm_primary->img, LV_OPA_COVER, 0);
 
     lv_obj_add_flag(llm_primary->emoji_anim, LV_OBJ_FLAG_HIDDEN);
+}
+
+bool lisa_ui_llm_primary_img_is_visible(lv_obj_t *obj)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return false;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    return llm_primary->img && !lv_obj_has_flag(llm_primary->img, LV_OBJ_FLAG_HIDDEN);
 }
 
 void lisa_ui_llm_primary_img_hint_show(lv_obj_t *obj, const char *text)

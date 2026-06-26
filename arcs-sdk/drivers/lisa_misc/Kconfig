@@ -1,0 +1,41 @@
+# LISA CH32V003 EXMCU Base Driver Configuration
+#
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_CH32V003
+	bool "Enable LISA CH32V003 EXMCU Driver"
+	depends on LISA_DEVICE
+	select LISA_I2C
+	help
+			Enable the CH32V003 external MCU bridge driver. The base device
+			uses a LISA I2C bus and exposes optional LISA GPIO/ADC/PWM child
+			devices named exgpioa, exgpiob, exgpioc, exgpiod, exadc and expwm.
+
+if LISA_CH32V003
+
+config LISA_CH32V003_I2C_DEVICE_NAME
+	string "CH32V003 I2C device name"
+	default "i2c1"
+
+config LISA_CH32V003_I2C_ADDR
+	hex "CH32V003 I2C slave address"
+	default 0x6c
+
+config LISA_CH32V003_INIT_DELAY_MS
+	int "CH32V003 startup delay (ms)"
+	default 40
+
+config LISA_CH32V003_EXPECTED_PROTOCOL_VERSION
+	int "Expected CH32V003 protocol version"
+	default 14
+
+config LISA_CH32V003_BUSY_WAIT_MS
+	int "Register write busy retry delay (ms)"
+	default 10
+
+config LISA_CH32V003_BUSY_WAIT_RETRY
+	int "Register write busy retry count"
+	default 3
+
+endif # LISA_CH32V003

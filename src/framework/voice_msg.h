@@ -63,10 +63,13 @@ typedef struct {
     voice_msg_button_action_t action;
 } voice_msg_button_evt_t;
 
+#define AUDIO_ITEM_URL_LEN (512)
+
 struct voice_msg_audio_item {
     uint8_t playable;
     char id[32];
     char name[64];
+    char url[AUDIO_ITEM_URL_LEN];
 } __attribute__((packed));
 
 struct voice_msg_audio_items {
@@ -208,6 +211,7 @@ enum {
     VOICE_MSG_CLOUD_OPEN_INFO,
     VOICE_MSG_CLOUD_RESOURCE_UPDATE_REBOOT, /* voice_msg_cloud_reboot_t * */
     VOICE_MSG_CLOUD_PUSHUP_TTS_URL,         /* char * 云端主动推送的 TTS URL，不属于会话 */
+    VOICE_MSG_CLOUD_MUSIC_NAME,           /* char * 正在播放的曲目名称 */
     VOICE_MSG_CLOUD_MAX,
 
     /* Player事件 */
@@ -215,6 +219,8 @@ enum {
     VOICE_MSG_PLAYER_TTS_PLAYING,
     VOICE_MSG_PLAYER_TTS_PAUSED,
     VOICE_MSG_PLAYER_TTS_STOPED,
+    VOICE_MSG_PLAYER_MUSIC_PLAYING,
+    VOICE_MSG_PLAYER_MUSIC_STOPPED,
     VOICE_MSG_PLAYER_MAX,
 
     /* Record事件 */
@@ -231,6 +237,7 @@ enum {
     VOICE_MSG_ALARM_RING_UPDATE,  // 通知闹钟响铃页面更新UI
     VOICE_MSG_ALARM_ACTION_RESULT,
     VOICE_MSG_ALARM_PROCESS_NEXT,  // 处理闹钟后续操作（删除/创建下一个）
+    VOICE_MSG_ALARM_STOPPED,       // 闹钟响铃已停止
     VOICE_MSG_ALARM_MAX,
 
     /*命令词处理事件*/
@@ -247,6 +254,7 @@ enum {
     VOICE_MSG_PLAY_CONTROL_NEXT,
     VOICE_MSG_PLAY_CONTROL_PREVIOUS,
     VOICE_MSG_PLAY_CONTROL_REPLAY,
+    VOICE_MSG_PLAY_CONTROL_STOP,
     VOICE_MSG_PLAY_CONTROL_MAX,
 
     /* CAMERA事件 */
@@ -257,8 +265,15 @@ enum {
     VOICE_MSG_APP_CAMERA_PREVIEW_STATE,
     VOICE_MSG_APP_CAMERA_PREVIEW_TONE_FINISHED,
 
-    
+    VOICE_MSG_APP_SD_MUSIC_SYNC_START,      /* voice_msg_sd_music_sync_state_t * */
+    VOICE_MSG_APP_SD_MUSIC_SYNC_UPLOADING,  /* voice_msg_sd_music_sync_state_t * */
+    VOICE_MSG_APP_SD_MUSIC_SYNC_SUCCESSED,  /* voice_msg_sd_music_sync_state_t * */
+    VOICE_MSG_APP_SD_MUSIC_SYNC_FAILED,     /* voice_msg_sd_music_sync_state_t * */
+    VOICE_MSG_APP_SD_MUSIC_SYNC_FINISHED,   /* voice_msg_sd_music_sync_state_t * */
+    VOICE_MSG_APP_SD_MUSIC_CARD_REMOVED,
+
     VOICE_MSG_APP_BATTERY_QUERY_SHOW, /* voice_msg_battery_info_t * */
+    VOICE_MSG_APP_SD_MUSIC_PLAY_FAILED,
     VOICE_MSG_APP_MAX,
 };
 

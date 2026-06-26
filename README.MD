@@ -29,7 +29,7 @@ voiceassistant/
 ├── modules/           # 项目级第三方模块
 ├── res/               # 资源文件（固件、配置、音频、图片等）
 ├── src/               # 语音交互核心代码
-├── tools/             # 开发工具和脚本
+├── tools/             # 开发工具和脚本（如 adb、cskburn）
 ├── yaml/              # 配置文件
 └── build.sh           # 工程构建脚本
 ```
@@ -93,7 +93,7 @@ src/
 
 #### 烧录方式
 
-##### 方式一: ROM 升级模式（空板烧录）
+##### 方式一: 串口烧录
 
 适用于首次烧录或 boot 程序损坏的情况。
 
@@ -114,24 +114,83 @@ cskburn -C arcs -s /dev/ttyACM0 -b 3000000 0x0 ./res/res_pack_a/boot.bin
 
 ##### 方式二: ADB 烧录（推荐）
 
-适用于已有 boot 程序的开发板，支持快速烧录。
+适用于已有 boot 程序且 ADB 可用的设备。仓库已内置 ADB 工具：
 
-**步骤 1: 进入恢复模式**
+- Windows: `tools/adb/adb.exe`
+- Linux / WSL: `tools/adb/adb`
 
-```bash
-adb shell recovery
-```
+烧录脚本会自动检测 ADB、让普通模式设备进入 recovery、等待 `BOOT-*` 设备出现、推送固件并重启设备。多设备或多个相同 `BOOT-*` 序列号时，脚本会优先用 `transport_id` 区分目标设备。开发者通常不需要手动执行 `adb shell recovery`。
 
-**步骤 2: 烧录固件和资源**
-
-参考对应app的资源分配置表说明文件,烧录所有分区数据.
-
-
-**步骤 3: 重启设备**
+**Linux / WSL / Git Bash：**
 
 ```bash
-adb shell reboot hard
+# 默认模式：烧录除 boot 之外的其他固件和资源
+bash adb_download.sh -S res/arcs-mini
+
+# app 模式：只烧录 CP app 固件
+bash adb_download.sh -S res/arcs-mini app
+
+# boot 模式：包含 boot 的完整烧录
+bash adb_download.sh -S res/arcs-mini boot
 ```
+
+**Windows PowerShell：**
+
+```powershell
+# 默认模式：烧录除 boot 之外的其他固件和资源
+powershell -ExecutionPolicy Bypass -File adb_download.ps1 -S res/arcs-mini
+
+# app 模式：只烧录 CP app 固件
+powershell -ExecutionPolicy Bypass -File adb_download.ps1 -S res/arcs-mini app
+
+# boot 模式：包含 boot 的完整烧录
+powershell -ExecutionPolicy Bypass -File adb_download.ps1 -S res/arcs-mini boot
+```
+
+**三种烧录模式：**
+
+| 模式 | 命令参数 | 烧录内容 | 适用场景 |
+| --- | --- | --- | --- |
+| 默认 | 无 | `ap.bin`、`tone.bin`、`wake_word.bin`、`emoji.bin`、`respak.bin`、`build/arcs-mini.bin` | 静态资源或 AP/app 一起更新 |
+| app | `app` | `build/arcs-mini.bin` | 只修改 CP app / 应用代码 |
+| boot | `boot` | `boot.bin` + 默认模式全部内容 | 首次烧录、boot 变更或 boot 损坏恢复 |
+
+`-S` 指向包含 `partition_table.json` 的资源目录；脚本会按该分区表读取镜像地址和文件路径，跳过没有 `file` 的保留分区。`-B` 或 `BUILD_DIR` 可覆盖 `${BUILD_DIR}` 对应的构建输出目录。
+
+`arcs-mini` 的分区映射来自 [res/arcs-mini/partition_table.json](res/arcs-mini/partition_table.json)：
+
+| 分区 | 地址 | 文件 |
+| --- | --- | --- |
+| boot | `0x000000` | `res/arcs-mini/boot.bin` |
+| ap | `0x040000` | `res/arcs-mini/ap.bin` |
+| tone | `0x100000` | `res/arcs-mini/tone.bin` |
+| wake_word | `0x200000` | `res/arcs-mini/wake_word.bin` |
+| emoji | `0x380000` | `res/arcs-mini/emoji.bin` |
+| respak | `0x440000` | `res/arcs-mini/respak.bin` |
+| app (CP) | `0x600000` | `build/arcs-mini.bin` |
+
+**可选环境变量：**
+
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `MAX_DEVICES` | `10` | 最多支持的设备数量 |
+| `RECOVERY_TIMEOUT` | `120` | 等待进入 recovery 的超时秒数 |
+| `POLL_INTERVAL` | `2` | 轮询 recovery 状态的间隔秒数 |
+| `ADB_CMD` | 自动检测 | 手动指定 ADB 路径 |
+| `BUILD_DIR` | `build` | `arcs-mini.bin` 所在构建目录 |
+| `RES_DIR` | `res/arcs-mini` | 默认资源目录，可被 `-S` 覆盖 |
+
+**ADB 工具选择顺序：**
+
+1. `ADB_CMD` 环境变量指定的路径
+2. 仓库内置 `tools/adb/adb` 或 `tools/adb/adb.exe`
+3. 系统 PATH 中的 `adb`
+
+**烧录建议：**
+
+- 只改应用代码时，优先使用 `app` 模式，避免重复写入静态资源。
+- 修改提示音、唤醒词、表情、respak 或 AP 固件时，使用默认模式。
+- 只有首次烧录、boot 变更或 boot 损坏恢复时，才使用 `boot` 模式。
 
 ## 常见问题
 

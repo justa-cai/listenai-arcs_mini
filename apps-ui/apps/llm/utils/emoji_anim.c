@@ -38,6 +38,8 @@ static uint32_t s_emoji_count;
 static const lisa_ui_anim_ext_config_t *s_fallback_anim;
 static char *s_fallback_name;
 static const lisa_ui_anim_ext_config_t s_empty_anim;
+static int s_emoji_offset_x;
+static int s_emoji_offset_y;
 
 static char *emoji_strdup(const char *src)
 {
@@ -127,6 +129,8 @@ static void emoji_anim_cleanup(void)
     s_emoji_configs = NULL;
     s_emoji_count = 0;
     s_fallback_anim = NULL;
+    s_emoji_offset_x = 0;
+    s_emoji_offset_y = 0;
     lisa_mem_free(s_fallback_name);
     s_fallback_name = NULL;
 }
@@ -140,6 +144,27 @@ static int json_get_number(const cJSON *obj, const char *key, int *out)
 
     *out = item->valueint;
     return 0;
+}
+
+static void parse_global_offset(const cJSON *root_json)
+{
+    const cJSON *offset_json = cJSON_GetObjectItemCaseSensitive(root_json, "offset");
+
+    s_emoji_offset_x = 0;
+    s_emoji_offset_y = 0;
+
+    if (!cJSON_IsObject(offset_json)) {
+        LISA_UI_LOGW("emoji offset missing or invalid, use default offset: x=0, y=0");
+        return;
+    }
+
+    if (json_get_number(offset_json, "x", &s_emoji_offset_x) != 0) {
+        s_emoji_offset_x = 0;
+    }
+
+    if (json_get_number(offset_json, "y", &s_emoji_offset_y) != 0) {
+        s_emoji_offset_y = 0;
+    }
 }
 
 static int parse_phase_range(const cJSON *phase_json, int *frame_begin, int *frame_end)
@@ -527,6 +552,8 @@ static int parse_animations(const cJSON *root_json)
         return -1;
     }
 
+    parse_global_offset(root_json);
+
     s_fallback_name = emoji_strdup(default_emoji_json->valuestring);
     if (s_fallback_name == NULL) {
         LISA_UI_LOGE("Failed to allocate default_emoji");
@@ -644,6 +671,18 @@ const lisa_ui_anim_ext_config_t *emoji_anim_get_by_name(const char *name)
 
     LISA_UI_LOGE("Invalid emoji name: %s, use fallback instead", name);
     return s_fallback_anim != NULL ? s_fallback_anim : &s_empty_anim;
+}
+
+int emoji_anim_get_offset_y(const char *name)
+{
+    (void)name;
+    return s_emoji_offset_y;
+}
+
+int emoji_anim_get_offset_x(const char *name)
+{
+    (void)name;
+    return s_emoji_offset_x;
 }
 
 int emoji_anim_get_loaded_count(void)

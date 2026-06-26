@@ -126,25 +126,52 @@ echo "Source: $PROJECT_PATH"
 echo "Target: $TARGET"
 echo "Clean : $CLEAN"
 
-if [ -z "$LISTENAI_TOOLS_PATH" ] || [ -z "$NUCLEI_TOOLCHAIN_PATH" ]; then
-    find_dev_tools
-fi
+if [ "$(uname)" = "Darwin" ]; then
+    # macOS 原生构建：仅需工具链；宿主工具内置于 SDK，cmake/ninja 用系统的，无需 LISTENAI_TOOLS_PATH
+    if [ -z "$NUCLEI_TOOLCHAIN_PATH" ]; then
+        _brew_toolchain="$(brew --prefix arcs-toolchain 2>/dev/null)"
+        if [ -n "$_brew_toolchain" ] && [ -x "$_brew_toolchain/bin/riscv64-unknown-elf-gcc" ]; then
+            export NUCLEI_TOOLCHAIN_PATH="$_brew_toolchain"
+            echo "Found NUCLEI_TOOLCHAIN_PATH (brew): $NUCLEI_TOOLCHAIN_PATH"
+        fi
+    fi
+    if [ -z "$NUCLEI_TOOLCHAIN_PATH" ]; then
+        echo "错误: 未找到 RISC-V 工具链。请执行 'brew install listenai/tap/arcs-toolchain' 或设置 NUCLEI_TOOLCHAIN_PATH" >&2
+        exit 1
+    fi
+else
+    if [ -z "$LISTENAI_TOOLS_PATH" ] || [ -z "$NUCLEI_TOOLCHAIN_PATH" ]; then
+        find_dev_tools
+    fi
 
-if [ -z "${LISTENAI_TOOLS_PATH}" ]; then
-    export LISTENAI_TOOLS_PATH="请添加 LISTENAI_TOOLS_PATH 环境变量,或在此行设置正确的路径"
-    echo "请添加 LISTENAI_TOOLS_PATH 环境变量或者修改脚本后, 注释脚本第 $LINENO 行";exit 1;
-fi
+    if [ -z "${LISTENAI_TOOLS_PATH}" ]; then
+        export LISTENAI_TOOLS_PATH="请添加 LISTENAI_TOOLS_PATH 环境变量,或在此行设置正确的路径"
+        echo "请添加 LISTENAI_TOOLS_PATH 环境变量或者修改脚本后, 注释脚本第 $LINENO 行";exit 1;
+    fi
 
-if [ -z "${NUCLEI_TOOLCHAIN_PATH}" ]; then
-    export NUCLEI_TOOLCHAIN_PATH="请添加 NUCLEI_TOOLCHAIN_PATH 环境变量,或在此行设置正确的路径"
-    echo "请添加 NUCLEI_TOOLCHAIN_PATH 环境变量或者修改脚本后, 注释脚本第 $LINENO 行";exit 1;
+    if [ -z "${NUCLEI_TOOLCHAIN_PATH}" ]; then
+        export NUCLEI_TOOLCHAIN_PATH="请添加 NUCLEI_TOOLCHAIN_PATH 环境变量,或在此行设置正确的路径"
+        echo "请添加 NUCLEI_TOOLCHAIN_PATH 环境变量或者修改脚本后, 注释脚本第 $LINENO 行";exit 1;
+    fi
 fi
 
 ############### 下面代码不用修改 ##################
 
-# 构建工具的位置
-CMAKE_PROGRAM="$LISTENAI_TOOLS_PATH/cmake/bin/cmake"
-NINJA_PROGRAM="$LISTENAI_TOOLS_PATH/ninja/ninja"
+# 构建工具的位置：macOS 用系统(Homebrew) 的 cmake/ninja，其它平台用 listenai-tools 内置
+if [ "$(uname)" = "Darwin" ]; then
+    CMAKE_PROGRAM="$(command -v cmake)"
+    NINJA_PROGRAM="$(command -v ninja)"
+    if [ -z "$CMAKE_PROGRAM" ] || [ -z "$NINJA_PROGRAM" ]; then
+        echo "错误: 未找到 cmake/ninja，请执行 'brew install cmake ninja'" >&2
+        exit 1
+    fi
+else
+    CMAKE_PROGRAM="$LISTENAI_TOOLS_PATH/cmake/bin/cmake"
+    NINJA_PROGRAM="$LISTENAI_TOOLS_PATH/ninja/ninja"
+fi
+
+# 并发任务数：Linux 用 nproc，macOS 用 sysctl，兜底 4
+JOBS="$( { command -v nproc >/dev/null 2>&1 && nproc; } || sysctl -n hw.ncpu 2>/dev/null || echo 4 )"
 
 
 # 配置环境变量 ARCS_BASE
@@ -153,7 +180,7 @@ if [ -z "$ARCS_BASE" ]; then
 fi
 
 if [ "$CLEAN" = true ]; then
-    rm -rf $OUTPUT
+    rm -rf "$OUTPUT"
 fi
 
 # Initialize CMAKE_VARS array if it doesn't exist
@@ -183,13 +210,13 @@ $CMAKE_PROGRAM -B "$OUTPUT" -G Ninja -S "$PROJECT_PATH" \
 if [ "$VERBOSE" = true ]; then
     echo "Verbose mode enabled (ninja -v)"
     if [ -z "$TARGET" ]; then
-        $CMAKE_PROGRAM --build "$OUTPUT" -j4 -- -v
+        $CMAKE_PROGRAM --build "$OUTPUT" -j"$JOBS" -- -v
     else
         $CMAKE_PROGRAM --build "$OUTPUT" --target "$TARGET" -- -v
     fi
 else
     if [ -z "$TARGET" ]; then
-        $CMAKE_PROGRAM --build "$OUTPUT" -j${nproc}
+        $CMAKE_PROGRAM --build "$OUTPUT" -j"$JOBS"
     else
         $CMAKE_PROGRAM --build "$OUTPUT" --target "$TARGET"
     fi

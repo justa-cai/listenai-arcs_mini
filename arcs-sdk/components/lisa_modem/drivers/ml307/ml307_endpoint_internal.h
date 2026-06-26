@@ -34,6 +34,14 @@ typedef struct {
     bool final_field_digits_only;
     size_t final_field_len;
     int rtcp_declared_len;
+    size_t payload_declared_len;
+    size_t payload_received_len;
+    bool payload_len_known;
+    size_t tcp_remaining_len;
+    bool tcp_remaining_len_known;
+    ml307_udp_peer_t udp_source;
+    char udp_source_host[sizeof(((modem_addr_t *)0)->host)];
+    bool udp_source_has_host;
     uint8_t pending_hex_nibble;
     bool has_pending_hex_nibble;
     uint8_t decode_buf[4096];
@@ -43,6 +51,7 @@ typedef struct {
 struct ml307_endpoint_ctx {
     at_client_t *client;
     bool initialized;
+    lisa_modem_status_t status;
     modem_network_status_t network_status;
     bool network_ready;
     uint8_t active_pdp_cid;
@@ -53,7 +62,6 @@ struct ml307_endpoint_ctx {
     SemaphoreHandle_t dns_mutex;
     modem_dispatcher_t *dispatcher;
     ml307_line_stream_state_t line_stream;
-    ml307_runtime_config_t runtime_config;
 
     ml307_endpoint_t endpoints[ML307_MAX_ENDPOINTS];
 };

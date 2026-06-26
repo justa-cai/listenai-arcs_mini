@@ -1,3 +1,14 @@
 config LOG_UPLOAD
     bool "Enable business log upload"
     default n
+
+if LOG_UPLOAD
+
+config LOG_UPLOAD_BUFFER_CAPACITY_KB
+    int "Log upload buffer capacity (KB)"
+    default 512
+    help
+      Size of the local ring buffer used to retain recent business logs
+      for on-demand upload.
+
+endif

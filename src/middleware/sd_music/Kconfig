@@ -1,0 +1,10 @@
+config MIDDLEWARE_SD_MUSIC
+    bool "SD card offline music middleware"
+    default y
+    help
+      Core middleware for SD card offline music support:
+      - File scanning (MP3 detection, ID3v1 parsing)
+      - Card hotplug detection and management
+      - Cloud upload of card events and file metadata
+
+      This middleware is consumed by service_sd_music (apps/arcs-mini/services).

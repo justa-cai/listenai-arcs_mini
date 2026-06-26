@@ -205,7 +205,7 @@ extern int acomp_wakeup_stop(void);
  *
  * @note 该函数必须在调用 acomp_wakeup_start() 之后设置才能生效
  *
- * @param mode[in] 算法模式,参考 acomp_wakeup_algo_mode_e
+ * @param mode[in] 算法模式, 参考 acomp_wakeup_algo_mode_e
  *
  * @return ACOMP_ERR_OK : 成功
  * @retval ACOMP_ERR_INVALID_ARG : 错误参数
@@ -228,6 +228,20 @@ extern int acomp_wakeup_set_algo_mode(acomp_wakeup_algo_mode_e mode);
  *
  */
 extern int acomp_wakeup_set_threshold(acomp_wakeup_threshold_level_e level);
+
+/**
+ * @brief 设置 ESR 命令词识别超时时间
+ *
+ * @note 该函数必须在调用 acomp_wakeup_start() 之后设置才能生效
+ *       timeout_ms=0 表示不进入 ESR 识别模式, 仅发唤醒信号
+ *
+ * @param timeout_ms[in] 超时时间(ms)
+ *
+ * @return ACOMP_ERR_OK : 成功
+ * @retval ACOMP_ERR_INVALID_STATE : 无效状态
+ *
+ */
+extern int acomp_wakeup_set_timeout(uint32_t timeout_ms);
 
 /**
  * @brief 给组件增加事件回调函数

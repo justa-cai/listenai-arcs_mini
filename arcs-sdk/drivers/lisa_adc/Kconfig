@@ -12,3 +12,20 @@ menuconfig LISA_ADC
 if LISA_ADC
 
 endif # LISA_ADC
+
+if LISA_CH32V003
+
+config LISA_CH32V003_ADC
+	bool "Enable CH32V003 ADC child device"
+	default y
+	select LISA_ADC
+
+config LISA_CH32V003_ADC_TIMEOUT_MS
+	int "CH32V003 ADC conversion timeout (ms)"
+	default 2000
+
+config LISA_CH32V003_ADC_POLL_MS
+	int "CH32V003 ADC status poll interval (ms)"
+	default 10
+
+endif # LISA_CH32V003

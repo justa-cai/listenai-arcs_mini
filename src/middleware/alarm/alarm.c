@@ -206,7 +206,14 @@ static void ls_alarm_timer_callback_handle(struct lisa_timer *timer)
 
 	// 处理触发的闹钟
 	while (node != NULL && now_ts >= node->timestamp) {
-		alarm_process_triggered(node, (int64_t)now_ts);
+		uint64_t fired_ts = node->timestamp;
+		uint64_t cloud_id = node->cloud_id;
+
+		ls_alarm_delete_by_timestamp(fired_ts);
+		if (alarm_process_triggered_async(fired_ts, cloud_id, (int64_t)now_ts) != 0) {
+			LISA_LOGE(TAG, "failed to submit alarm trigger, timestamp:%lld, cloud_id:%llu",
+				  (long long)fired_ts, (unsigned long long)cloud_id);
+		}
 		node = ls_alarm_get();
 	}
 

@@ -43,7 +43,7 @@ static struct model_modem_context model_modem_ctx = {
     .signal_query_pending = 0,
     .signal_query_seq = 0,
     .info = {
-        .preferred = false,
+        .is_modem_mode = false,
         .active = false,
         .connected = false,
         .switching = false,
@@ -103,7 +103,7 @@ static void model_modem_sync_from_system(void)
         return;
     }
 
-    model_modem_ctx.info.preferred = (status.mode == SYS_NETWORK_MODE_MODEM_PREFERRED);
+    model_modem_ctx.info.is_modem_mode = (status.mode == SYS_NETWORK_MODE_MODEM);
     model_modem_ctx.info.active = (status.active_bearer == SYS_NETWORK_BEARER_MODEM);
     model_modem_ctx.info.switching = status.switching;
     model_modem_ctx.info.connected = model_modem_ctx.info.active && status.connected;

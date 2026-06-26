@@ -1,214 +1,174 @@
+#define TAG "tone"
+
 #include <stdio.h>
 #include <string.h>
+#include <stdint.h>
 #include "app_tone.h"
 #include "lisa_log.h"
 #include "lisa_mem.h"
 #include "config_parser.h"
-#define TAG "tone"
+#include "romfs/romfs.h"
+#include "tone.h"
 
 static tone_hdr_t *s_tone_hdr = NULL;
-// 如果是多套音频打包成一个的情况
-// 第二套音频需要跳过的数量
-static uint32_t s_skip_count = 0;
-
-int app_tone_default_init()
-{
-
-	void *tone_addr = (void*)0x30100000;
-
-	int ret = app_tone_init((uint32_t)tone_addr);
-	if (ret != 0)
-	{
-		LISA_LOGE(TAG, "tone default init fail");
-		return -1;
-	}
-
-	return 0;
-}
 
 static void _app_tone_uninit()
 {
-	if (s_tone_hdr)
-	{
-		if (s_tone_hdr->item)
-		{
-			for (int i = 0; i < s_tone_hdr->total_cnt; i++) {
-				if (s_tone_hdr->item[i].url) {
-					lisa_mem_free(s_tone_hdr->item[i].url);
-				}
-			}
-			lisa_mem_free(s_tone_hdr->item);
-		}
+    if (s_tone_hdr) {
+        if (s_tone_hdr->item) {
+            for (int i = 0; i < s_tone_hdr->total_cnt; i++) {
+                if (s_tone_hdr->item[i].url) {
+                    lisa_mem_free(s_tone_hdr->item[i].url);
+                }
+            }
+            lisa_mem_free(s_tone_hdr->item);
+        }
 
-		lisa_mem_free(s_tone_hdr);
-		s_tone_hdr = NULL;
-	}
+        lisa_mem_free(s_tone_hdr);
+        s_tone_hdr = NULL;
+    }
 }
 
-int app_tone_init(uint32_t flash_addr)
+int app_tone_init(uint32_t flash_addr, uint32_t flash_size)
 {
-	// 先逆初始化
-	_app_tone_uninit();
+    struct romfs *tone_fs = NULL;
+    struct romfs_dir_iter iter;
+    char path[ROMFS_PATH_MAX];
+    uint8_t *data = NULL;
+    uint32_t size = 0;
+    bool is_dir = false;
+    int tone_id = 0;
+    int tone_id_max = 0;
+    char tone_url[MAX_URL_LEN];
+    uint32_t total_mem_size = 0;
 
-	uint32_t total_mem_size = 0;
+    _app_tone_uninit();
 
-	s_tone_hdr = lisa_mem_calloc(1, sizeof(tone_hdr_t));
-	if (!s_tone_hdr)
-	{
-		return -1;
-	}
+    if (flash_addr == 0 || flash_size == 0) {
+        LISA_LOGE(TAG, "Invalid tone ROMFS addr/size: addr=%p, size=%u", (void *)flash_addr, flash_size);
+        return -1;
+    }
 
-	total_mem_size += sizeof(tone_hdr_t);
+    s_tone_hdr = lisa_mem_calloc(1, sizeof(tone_hdr_t));
+    if (!s_tone_hdr) {
+        return -1;
+    }
 
-	uint32_t buf_len;
-	uint32_t *p_buf_len = NULL;
-	uint32_t tone_offset = flash_addr;
-	uint32_t tone_len = 0;
-	//获取tone的个数
-	uint16_t buf[1] = {0};
-	// 用于组tone地址的临时Buffer
-	char tmp_buf[MAX_URL_LEN];
-	uint32_t tmp_size = 0;
+    total_mem_size += sizeof(tone_hdr_t);
 
-	memcpy((void *)buf, (void *)tone_offset, sizeof(buf));
-	s_tone_hdr->total_cnt = buf[0];
+    // 初始化 ROMFS
 
-#if 0
-	if (s_tone_hdr->total_cnt > MAX_TONE_CNT)
-	{
-		LISA_LOGE(TAG, "tone count %d invalid", s_tone_hdr->total_cnt);
-		goto TONE_INIT_FAIL;
-	}
-#endif
+    if (romfs_init(&tone_fs, (const void *)flash_addr, flash_size) != 0) {
+        LISA_LOGE(TAG, "ROMFS init failed for tone addr=%p size=%u", (void *)flash_addr, flash_size);
+        goto TONE_INIT_FAIL;
+    }
 
-	LISA_LOGI(TAG, "tone init addr: %p, count: %d", flash_addr, s_tone_hdr->total_cnt);
+    LISA_LOGI(TAG, "Loading tone with ROMFS addr=%p size=%u", (void *)flash_addr, flash_size);
 
-	total_mem_size += (s_tone_hdr->total_cnt * sizeof(tone_dsc_t));
-	s_tone_hdr->item = lisa_mem_calloc(s_tone_hdr->total_cnt, sizeof(tone_dsc_t));
-	if (!s_tone_hdr->item)
-	{
-		LISA_LOGE(TAG, "tone item no mem...");
-		goto TONE_INIT_FAIL;
-	}
+    // 预扫描一遍，获取最大 tone_id
 
-	buf_len = buf[0] * sizeof(uint32_t);
-	p_buf_len = (uint32_t *)lisa_mem_alloc(buf_len);
-	if (!p_buf_len)
-	{
-		LISA_LOGE(TAG, "tone buf no mem...");
-		goto TONE_INIT_FAIL;
-	}
+    if (romfs_dir_iter_start(tone_fs, "/", &iter) != 0) {
+        LISA_LOGE(TAG, "ROMFS iterator start fail for tone");
+        goto TONE_INIT_FAIL;
+    }
 
-	//此时取tone.bin的头信息;
-	tone_offset += sizeof(buf);
-	memcpy((void *)p_buf_len, (void *)tone_offset, buf_len);
-	tone_offset += buf_len;
+    while (romfs_dir_iter_next(&iter, path, sizeof(path), &data, &size, &is_dir) == 0) {
+        if (is_dir || data == NULL || size == 0 || path[0] != '/' || strlen(path) < 5) {
+            continue;
+        }
 
-	for (int i = 0; i < s_tone_hdr->total_cnt; i++)
-	{
-		s_tone_hdr->item[i].tone_id = i;
-		tone_len = p_buf_len[i];
+        if (sscanf(path + 1, "%03d", &tone_id) != 1) {
+            continue;
+        }
 
-		if (tone_len > 0) {
-			memset(tmp_buf, 0, MAX_URL_LEN);
-			sprintf(tmp_buf, "mem://addr=%ldsize=%d", (long)tone_offset, tone_len);
-			tmp_size = strlen(tmp_buf) + 1;
-			s_tone_hdr->item[i].url = lisa_mem_alloc(tmp_size);
-			LISA_ASSERT(s_tone_hdr->item[i].url, "alloc tone url fail");
-			strcpy(s_tone_hdr->item[i].url, tmp_buf);
+        if (tone_id > tone_id_max) {
+            tone_id_max = tone_id;
+        }
+    }
 
-			total_mem_size += tmp_size;
-		} else {
-			s_tone_hdr->item[i].url = NULL;
-		}
+    s_tone_hdr->total_cnt = tone_id_max + 1;
+    LISA_LOGI(TAG, "Found %d tones", s_tone_hdr->total_cnt);
 
-		tone_offset += tone_len;
-	}
+    // 分配 tone 映射表
 
-	if (p_buf_len)
-	{
-		lisa_mem_free(p_buf_len);
-	}
+    total_mem_size += (s_tone_hdr->total_cnt * sizeof(tone_dsc_t));
+    s_tone_hdr->item = lisa_mem_calloc(s_tone_hdr->total_cnt, sizeof(tone_dsc_t));
+    if (!s_tone_hdr->item) {
+        LISA_LOGE(TAG, "Failed to alloc tone item table for %d items", s_tone_hdr->total_cnt);
+        goto TONE_INIT_FAIL;
+    }
 
-	LISA_LOGD(TAG, "tone init use mem: %d", total_mem_size);
+    // 从 ROMFS 创建音频索引
 
-	return 0;
+    if (romfs_dir_iter_start(tone_fs, "/", &iter) != 0) {
+        LISA_LOGE(TAG, "ROMFS iterator start fail for tone");
+        goto TONE_INIT_FAIL;
+    }
+
+    while (romfs_dir_iter_next(&iter, path, sizeof(path), &data, &size, &is_dir) == 0) {
+        LISA_LOGD(TAG, "Found ROMFS file: %s, addr=%p size=%u", path, data, size);
+
+        if (is_dir || data == NULL || size == 0 || path[0] != '/' || strlen(path) < 5) {
+            continue;
+        }
+
+        if (sscanf(path + 1, "%03d", &tone_id) != 1) {
+            LISA_LOGI(TAG, "Ignore invalid tone file: %s", path);
+            continue;
+        }
+
+        if (tone_id >= s_tone_hdr->total_cnt) {
+            LISA_LOGW(TAG, "Tone id %d exceed max %d", tone_id, s_tone_hdr->total_cnt);
+            continue;
+        }
+
+        char tone_url[MAX_URL_LEN];
+        memset(tone_url, 0, MAX_URL_LEN);
+        snprintf(tone_url, MAX_URL_LEN, "mem://addr=%usize=%u", (uint32_t)data, size);
+
+        uint32_t url_len = strlen(tone_url) + 1;
+
+        s_tone_hdr->item[tone_id].tone_id = tone_id;
+        s_tone_hdr->item[tone_id].url = lisa_mem_alloc(url_len);
+        if (!s_tone_hdr->item[tone_id].url) {
+            LISA_LOGE(TAG, "Tone URL alloc fail for id %d", tone_id);
+            goto TONE_INIT_FAIL;
+        }
+        strcpy(s_tone_hdr->item[tone_id].url, tone_url);
+
+        total_mem_size += url_len;
+
+        LISA_LOGI(TAG, "Loaded tone[%d] from ROMFS: %s, size: %u", tone_id, path, size);
+    }
+
+    LISA_LOGI(TAG, "Loaded %d tones from ROMFS, total mem size: %u bytes", s_tone_hdr->total_cnt, total_mem_size);
+
+    return 0;
 
 TONE_INIT_FAIL:
-	_app_tone_uninit();
-	return -1;
+    _app_tone_uninit();
+    return -1;
 }
 
-static tone_dsc_t *__get_tone_by_id(uint16_t tone_id)
+char *app_tone_get_url(uint16_t tone_id)
 {
-	tone_dsc_t *item = NULL;
-	if (s_tone_hdr && s_tone_hdr->item)
-	{
-		if (tone_id >= s_tone_hdr->total_cnt)
-		{
-			return NULL;
-		}
+    tone_dsc_t *item = NULL;
 
-		item = &s_tone_hdr->item[tone_id];
-		if (item->url == NULL)
-		{
-			return NULL;
-		}
-	}
-	return item;
-}
+    if (!s_tone_hdr || !s_tone_hdr->item) {
+        LISA_LOGE(TAG, "Tone not init or no item");
+        return NULL;
+    }
 
-char * app_tone_get_url(uint16_t tone_id)
-{
-// 如果是第三种配置方案
-#if (VOICEID_TYPE == 3)
-	tone_dsc_t *dsc_t = NULL;
-	if (s_skip_count > 0) {
-		uint16_t next_id = tone_id + s_skip_count;
-		LISA_LOGV(TAG, "tone_id: %d, next_id: %d", tone_id, next_id);
-		dsc_t = __get_tone_by_id(next_id);
-		if (dsc_t) {
-			return dsc_t->url;
-		} else {
-			LISA_LOGV(TAG, "get next_id: %d fail, use tone_id: %d", next_id, tone_id);
-			// 如果第二套音频获取失败情况下
-			// 从第一套音频获取, 比如公共的音频
-			dsc_t = __get_tone_by_id(tone_id);
-			if (dsc_t) {
-				return dsc_t->url;
-			}
-		}
-	} else {
-		// 不需要跳过时, 直接从第一套音频获取
-		dsc_t = __get_tone_by_id(tone_id);
-		if (dsc_t) {
-			return dsc_t->url;
-		}
-	}
+    if (tone_id >= s_tone_hdr->total_cnt) {
+        LISA_LOGE(TAG, "Invalid tone id %d, exceed max %d", tone_id, s_tone_hdr->total_cnt);
+        return NULL;
+    }
 
-	return NULL;
-#else
-	tone_dsc_t *dsc_t = __get_tone_by_id(tone_id);
-	if (dsc_t) {
-		return dsc_t->url;
-	}
-	return NULL;
-#endif
-}
+    item = &s_tone_hdr->item[tone_id];
+    if (item->url == NULL) {
+        LISA_LOGE(TAG, "Tone id %d url is null", tone_id);
+        return NULL;
+    }
 
-int app_tone_reload(uint32_t custom_addr)
-{
-	LISA_LOGD(TAG, "app tone reload by 0x%X", custom_addr);
-	int ret = app_tone_init(custom_addr);
-	if (ret == -1)
-	{
-		app_tone_default_init();
-		return -1;
-	}
-	return 0;
-}
-
-void app_tone_skip_count(int skip_count)
-{
-	s_skip_count = skip_count;
+    return item->url;
 }

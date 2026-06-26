@@ -21,6 +21,13 @@ typedef struct {
 } lisa_ui_anim_ext_config_t;
 
 typedef struct {
+    size_t need_single;
+    size_t need_free;
+    size_t largest_free;
+    size_t free_size;
+} lisa_ui_anim_heap_check_t;
+
+typedef struct {
     lisa_ui_anim_t anim;
     lisa_ui_anim_ext_config_t curr;
     lisa_ui_anim_ext_config_t next;
@@ -36,5 +43,7 @@ void lisa_ui_anim_ext_start(lv_obj_t *obj);
 void lisa_ui_anim_ext_next(lv_obj_t *obj, const lisa_ui_anim_ext_config_t *next);
 void lisa_ui_anim_ext_next_imm(lv_obj_t *obj, const lisa_ui_anim_ext_config_t *next);
 void lisa_ui_anim_ext_set_config(lv_obj_t *obj, const lisa_ui_anim_ext_config_t *config);
+bool lisa_ui_anim_ext_config_has_enough_heap(const lisa_ui_anim_ext_config_t *config,
+                                             lisa_ui_anim_heap_check_t *check);
 
 #endif /* __LISA_UI_ANIM_EXT_H__ */

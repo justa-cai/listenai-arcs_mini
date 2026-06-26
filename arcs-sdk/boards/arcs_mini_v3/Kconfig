@@ -1,0 +1,39 @@
+# Board Configuration
+#
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_NAME
+    string
+    default "arcs_mini_v3"
+    prompt "Board Name"
+    help
+        Board Name
+
+config BOARD_ARCS_MINI
+    bool
+    default y
+    select SOC_LS2684
+    help
+        Board is arcs_mini series
+
+config BOARD_ARCS_MINI_V3
+    bool
+    default y if BOARD_ARCS_MINI
+    select LISA_DEVICE
+    select LISA_I2C
+    select LISA_I2C1
+    select LISA_CH32V003
+    select LISA_CH32V003_GPIO
+    select LISA_CH32V003_ADC
+    select LISA_CH32V003_PWM
+    help
+        Board is arcs_mini_v3
+
+config BOARD_ARCS_MINI_MODEM_UART2_REMAP
+    bool "Remap UART2 to PA09/PA08 for modem"
+    default n
+    help
+        Kept for arcs-mini prj.conf compatibility. arcs_mini_v3 uses the
+        pinmux-tool UART2 mapping in pinmux.c instead of the legacy PA09/PA08
+        override used by the SDK arcs_mini board.

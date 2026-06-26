@@ -34,10 +34,54 @@ typedef struct {
 
 static lisa_thread_t *s_led_task = NULL;
 static QueueHandle_t s_led_queue = NULL;
+
+#ifdef CONFIG_BOARD_ARCS_MINI_V3
+typedef struct {
+    const char *device_name;
+    uint32_t pin;
+    lisa_device_t *dev;
+} user_led_t;
+
+static user_led_t s_user_leds[] = {
+    {USER_LED0_DEVICE_NAME, USER_LED0_PIN, NULL},
+    {USER_LED1_DEVICE_NAME, USER_LED1_PIN, NULL},
+    {USER_LED2_DEVICE_NAME, USER_LED2_PIN, NULL},
+};
+
+static uint32_t led_level(bool on)
+{
+    bool active_high = (USER_LED_ACTIVE_LEVEL != 0);
+
+    if (on) {
+        return active_high ? LISA_GPIO_HIGH : LISA_GPIO_LOW;
+    }
+
+    return active_high ? LISA_GPIO_LOW : LISA_GPIO_HIGH;
+}
+#else
 static lisa_device_t *gpio_dev;
+#endif
 
 static int led_hw_init(void)
 {
+#ifdef CONFIG_BOARD_ARCS_MINI_V3
+    for (uint32_t i = 0; i < sizeof(s_user_leds) / sizeof(s_user_leds[0]); i++) {
+        s_user_leds[i].dev = lisa_device_get(s_user_leds[i].device_name);
+        if (!lisa_device_ready(s_user_leds[i].dev)) {
+            LOGE("Error: %s device not ready", s_user_leds[i].device_name);
+            return -1;
+        }
+
+        uint32_t init_flag = led_level(false) ? LISA_GPIO_OUTPUT_INIT_HIGH : LISA_GPIO_OUTPUT_INIT_LOW;
+        int ret = lisa_gpio_configure(s_user_leds[i].dev, s_user_leds[i].pin, LISA_GPIO_OUTPUT | init_flag);
+        if (ret != 0) {
+            LOGE("Error: LED GPIO configuration failed (code: %d)", ret);
+            return -1;
+        }
+    }
+
+    return 0;
+#else
     gpio_dev = lisa_device_get(GPIO_DEVICE);
     if (!lisa_device_ready(gpio_dev)) {
         LOGE("Error: %s device not ready", GPIO_DEVICE);
@@ -51,16 +95,29 @@ static int led_hw_init(void)
     }
 
     return 0;
+#endif
 }
 
 static void led_hw_on(void)
 {
+#ifdef CONFIG_BOARD_ARCS_MINI_V3
+    for (uint32_t i = 0; i < sizeof(s_user_leds) / sizeof(s_user_leds[0]); i++) {
+        lisa_gpio_write_pin(s_user_leds[i].dev, s_user_leds[i].pin, led_level(true));
+    }
+#else
     lisa_gpio_write_pin(gpio_dev, LED_PIN, LISA_GPIO_LOW);
+#endif
 }
 
 static void led_hw_off(void)
 {
+#ifdef CONFIG_BOARD_ARCS_MINI_V3
+    for (uint32_t i = 0; i < sizeof(s_user_leds) / sizeof(s_user_leds[0]); i++) {
+        lisa_gpio_write_pin(s_user_leds[i].dev, s_user_leds[i].pin, led_level(false));
+    }
+#else
     lisa_gpio_write_pin(gpio_dev, LED_PIN, LISA_GPIO_HIGH);
+#endif
 }
 
 static void led_task(void *param)

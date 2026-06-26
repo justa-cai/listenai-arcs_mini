@@ -21,6 +21,9 @@ listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 # Get project root directory (two levels up from apps/aopu-yuba)
 get_filename_component(PROJECT_TOP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../.. ABSOLUTE)
 message (STATUS "PROJECT_TOP_DIR: ${PROJECT_TOP_DIR}")
+# Python 3 is discovered by the SDK; reuse the cached Python3_EXECUTABLE.
+set(PYTHON3 ${Python3_EXECUTABLE})
+
 add_subdirectory(${PROJECT_TOP_DIR}/modules ${CMAKE_BINARY_DIR}/modules)
 add_subdirectory(${PROJECT_TOP_DIR}/src ${CMAKE_BINARY_DIR}/src)
 
@@ -31,7 +34,7 @@ endif()
 add_subdirectory(tone)
 add_subdirectory(services)
 add_subdirectory(mcp-tools)
-add_subdirectory(misc)
+add_subdirectory(voice_intent)
 
 listenai_add_executable(${PROJECT_NAME})
 
@@ -41,7 +44,6 @@ set(RES_DIR ${PROJECT_TOP_DIR}/res/arcs-mini${_VARIANT_SUFFIX})
 set(COMBINED_HEX ${CMAKE_BINARY_DIR}/${PROJECT_NAME}${_VARIANT_SUFFIX}.combined.hex)
 set(OTA_TXZ ${CMAKE_BINARY_DIR}/${PROJECT_NAME}${_VARIANT_SUFFIX}-v${PROJECT_VERSION_STR}.ota.txz)
 
-find_program(PYTHON3 python3 REQUIRED)
 add_custom_target(
     combined_hex ALL
     COMMAND ${CMAKE_COMMAND} -E echo "-- Generating combined hex: ${COMBINED_HEX}"

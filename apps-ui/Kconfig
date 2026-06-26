@@ -12,6 +12,13 @@ config ALARM_RING_AUTO_RETURN_MS
     help
         Time before alarm ring page automatically returns to Home.
 
+config TTS_TEXT_MS_PER_CHAR
+    int "TTS text display time per character (ms)"
+    default 250
+    help
+        Display duration per spoken character for TTS subtitle text.
+        Can be overridden at runtime via KV key user.tts_text_ms_per_char.
+
 endif
 
 endmenu

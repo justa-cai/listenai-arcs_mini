@@ -1,9 +1,7 @@
-listenai_library_named(app_tone)
-
-listenai_library_sources(
-    app_tone.c
-)
+if (DEFINED CONFIG_TONE)
 
 listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+endif()

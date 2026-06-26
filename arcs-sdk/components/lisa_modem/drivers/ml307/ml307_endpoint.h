@@ -26,11 +26,29 @@ extern "C" {
 #define ML307_CONNECT_TIMEOUT_MS       10000
 #define ML307_SEND_TIMEOUT_MS          5000
 #define ML307_UDP_MAX_PACKET_SIZE      730
-#define ML307_TCP_SEND_CHUNK_SIZE_DEFAULT 730U
-#define ML307_TCP_SEND_CHUNK_SIZE_MAX     1460U
-#define ML307_TCP_PULL_CHUNK_SIZE_DEFAULT 512U
-#define ML307_TCP_PULL_CHUNK_SIZE_MAX     4096U
-#define ML307_SEND_CHUNK_DELAY_MS_DEFAULT 10U
+#define ML307_DATA_FORMAT_TEXT         0
+#define ML307_DATA_FORMAT_HEX          1
+
+#ifndef ML307_SEND_DATA_FORMAT
+#define ML307_SEND_DATA_FORMAT         ML307_DATA_FORMAT_TEXT
+#endif
+
+#ifndef ML307_RECV_DATA_FORMAT
+#define ML307_RECV_DATA_FORMAT         ML307_DATA_FORMAT_TEXT
+#endif
+
+#if (ML307_SEND_DATA_FORMAT != ML307_DATA_FORMAT_TEXT) && \
+    (ML307_SEND_DATA_FORMAT != ML307_DATA_FORMAT_HEX)
+#error "Unsupported ML307_SEND_DATA_FORMAT"
+#endif
+
+#if (ML307_RECV_DATA_FORMAT != ML307_DATA_FORMAT_TEXT) && \
+    (ML307_RECV_DATA_FORMAT != ML307_DATA_FORMAT_HEX)
+#error "Unsupported ML307_RECV_DATA_FORMAT"
+#endif
+
+#define ML307_STRINGIFY_VALUE(x)       #x
+#define ML307_STRINGIFY(x)             ML307_STRINGIFY_VALUE(x)
 /*
  * One TCP cached-mode MIPRD can fetch up to 4096 bytes. Keep enough local RX
  * space for a small dispatcher burst so high-backlog sockets do not stall
@@ -46,12 +64,6 @@ extern "C" {
 #define ML307_ENDPOINT_PREFETCH_AVAILABLE BIT7
 
 typedef struct ml307_endpoint_ctx ml307_endpoint_ctx_t;
-
-typedef struct {
-    uint16_t tcp_send_chunk_size;
-    uint16_t tcp_pull_chunk_size;
-    uint16_t send_chunk_delay_ms;
-} ml307_runtime_config_t;
 
 typedef struct {
     bool valid;
@@ -83,6 +95,7 @@ typedef struct ml307_endpoint {
     EventGroupHandle_t event_group;
     EventGroupHandle_t recv_event;
     SemaphoreHandle_t data_sem;
+    SemaphoreHandle_t prefetch_mutex;
 
     struct ring_buf ring_buf;
     uint8_t recv_buffer_data[ML307_ENDPOINT_RECV_BUFFER_SIZE];
@@ -113,6 +126,9 @@ bool ml307_endpoint_init(ml307_endpoint_ctx_t *ctx);
 void ml307_endpoint_shutdown(ml307_endpoint_ctx_t *ctx);
 void ml307_endpoint_destroy(ml307_endpoint_ctx_t *ctx);
 bool ml307_endpoint_dns_resolve(ml307_endpoint_ctx_t *ctx, const char *domain, char *ip_addr, size_t size);
+bool ml307_endpoint_get_imei(ml307_endpoint_ctx_t *ctx, char *imei, size_t size);
+bool ml307_endpoint_get_iccid(ml307_endpoint_ctx_t *ctx, char *iccid, size_t size);
+bool ml307_endpoint_get_signal_quality(ml307_endpoint_ctx_t *ctx, int *rssi, int *ber);
 
 int ml307_endpoint_open(ml307_endpoint_ctx_t *ctx, int domain, int protocol);
 bool ml307_endpoint_connect(ml307_endpoint_ctx_t *ctx, int endpoint_id, const char *host, uint16_t port);
@@ -127,8 +143,6 @@ int ml307_endpoint_set_timeout(ml307_endpoint_ctx_t *ctx, int endpoint_id,
                                bool is_send, uint32_t timeout_ms);
 int ml307_endpoint_set_nonblock(ml307_endpoint_ctx_t *ctx, int endpoint_id, bool nonblock);
 int ml307_endpoint_set_tls(ml307_endpoint_ctx_t *ctx, int endpoint_id, bool enabled);
-int ml307_endpoint_set_runtime_config(ml307_endpoint_ctx_t *ctx, const ml307_runtime_config_t *config);
-void ml307_endpoint_get_runtime_config(ml307_endpoint_ctx_t *ctx, ml307_runtime_config_t *config);
 const modem_driver_ops_t *ml307_endpoint_get_ops(void);
 
 #ifdef __cplusplus

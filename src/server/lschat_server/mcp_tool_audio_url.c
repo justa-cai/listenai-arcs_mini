@@ -56,15 +56,72 @@ static cJSON *ls_play_audio_url_list(const char *name)
     return tool;
 }
 
+#define _MIN(a, b) ((a) < (b) ? (a) : (b))
+
 static cJSON *ls_play_audio_url_call(const char *id, const char *name, cJSON *args)
 {
-    const cJSON *url = mcp_tool_call_args_get(args, "url");
-    if (!url) {
-        LOGE("mcp tool call args get url failed");
+    if (args == NULL) {
+        LOGE("mcp tool call args is NULL");
         return NULL;
     }
 
-    voice_msg_pub(VOICE_MSG_CLOUD_AUDIO_URL, cJSON_GetStringValue(url), strlen(cJSON_GetStringValue(url)) + 1);
+    /* 解析 result.items[] 数组 */
+    cJSON *item_array = NULL;
+    if (args->type != cJSON_Array) {
+        cJSON *result = cJSON_GetObjectItem(args, "result");
+
+        if (cJSON_IsObject(result) == false) {
+            LOGE("mcp tool call args missing result object");
+            return NULL;
+        }
+
+        item_array = cJSON_GetObjectItem(result, "items");
+        if (cJSON_IsArray(item_array) == false) {
+            LOGE("mcp tool call args items is not array");
+            return NULL;
+        }
+    } else {
+        item_array = args;
+    }
+
+    int cnt = cJSON_GetArraySize(item_array);
+    if (cnt <= 0) {
+        LOGE("mcp tool call args items array is empty");
+        return NULL;
+    }
+
+    size_t music_items_size =
+        sizeof(struct voice_msg_audio_items) + cnt * sizeof(struct voice_msg_audio_item);
+    struct voice_msg_audio_items *music_items = lisa_mem_calloc(1, music_items_size);
+    if (!music_items) {
+        LOGE("Failed to allocate memory");
+        return NULL;
+    }
+    music_items->cnt = cnt;
+
+    for (int i = 0; i < cnt; i++) {
+        cJSON *item = cJSON_GetArrayItem(item_array, i);
+
+        const cJSON *item_name = cJSON_GetObjectItem(item, "name");
+        const cJSON *item_url = cJSON_GetObjectItem(item, "url");
+
+        music_items->items[i].playable = 1;
+
+        if (cJSON_IsString(item_name)) {
+            memcpy(music_items->items[i].name, item_name->valuestring,
+                   _MIN(strlen(item_name->valuestring) + 1, sizeof(music_items->items[i].name)));
+        }
+
+        if (cJSON_IsString(item_url)) {
+            memcpy(music_items->items[i].url, item_url->valuestring,
+                   _MIN(strlen(item_url->valuestring) + 1, sizeof(music_items->items[i].url)));
+        }
+    }
+
+    voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
+
+    voice_msg_pub(VOICE_MSG_CLOUD_AUDIO_ITEM, music_items, music_items_size);
+    lisa_mem_free(music_items);
 
     cJSON *result = mcp_tool_call_result_create(name);
     if (!result) {

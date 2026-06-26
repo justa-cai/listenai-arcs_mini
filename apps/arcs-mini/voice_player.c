@@ -1,30 +1,36 @@
 #include <string.h>
 #include <stdio.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+#include "timers.h"
+#include "queue.h"
+
+#define TAG "voice_player"
+#include "lisa_log.h"
+#include "lisa_time.h"
+#include "sysutils.h"
+#include "lisa_http.h"
+#include "sysheap.h"
+
+#include "alarm_ring.h"
+
 #include "sys_init.h"
 #include "voice_msg.h"
 #include "app_datas.h"
 #include "sys_network_manager.h"
 #include "sys_wifi.h"
 #include "voice_cloud.h"
-#include "voice_camera_preview_state.h"
-
 #include "tone.h"
 #include "app_tone.h"
-#include "lisa_time.h"
 #include "app_player.h"
-#include "app_player_focus.h"
 #include "voice_player_comm.h"
-#include "service_alarm.h"
-#include "alarm_ring.h"
-#include "FreeRTOS.h"
-#include "task.h"
-#include "timers.h"
-#include "sysutils.h"
-#include "queue.h"
-
-#define TAG "platform"
-#include "lisa_log.h"
+#include "voice_player.h"
+#include "voice_music_list.h"
+#include "voice_intent_mgr.h"
+#include "voice_intent/voice_intent_music.h"
+#include "voice_intent/voice_intent_photo_flow.h"
+#include "service_sd_music.h"
 #define ALARM_TTS_BUF_SIZE 512
 
 /* 异步播放队列相关定义 */
@@ -32,15 +38,29 @@
 #define ASYNC_PLAY_QUEUE_SIZE 5
 #define ASYNC_PLAY_TASK_STACK_SIZE 2048
 #define ASYNC_PLAY_TASK_PRIORITY 5
+#define PUSHUP_TTS_READY_POLL_MS 1000
+#define PUSHUP_TTS_READY_STABLE_COUNT 2
+#define PUSHUP_TTS_READY_MAX_ATTEMPTS 21
+#define PUSHUP_TTS_HTTP_TIMEOUT_MS 15000
+#define PUSHUP_TTS_DOWNLOAD_MAX_BYTES (3U * 1024U * 1024U)
 #define CLOUD_OPEN_INFO_STATUS_BIND 3U
+
+/* 提示音排队播放：短时间内多次请求 tone 时，按顺序逐个播完，避免打架 */
+#define TONE_PENDING_QUEUE_SIZE 5
 
 typedef struct {
     uint8_t type;
     uint8_t bypass_tts_gate;
-    uint8_t reserved[2];
+    uint8_t wait_mp3_ready;
+    uint8_t reserved;
     app_player_t *player;  /* 播放器实例指针 */
     char url[ASYNC_PLAY_URL_MAX];
 } async_play_request_t;
+
+typedef struct {
+    const char *url;
+    bool prompt_tone;
+} tone_play_request_t;
 
 typedef enum {
     ASYNC_PLAY_REQUEST_URL = 0,
@@ -56,54 +76,222 @@ static TickType_t s_cloud_unstable_pending_tick = 0;
 static bool s_cloud_reconnect_pending = false;
 static bool s_cloud_success_tone_played = false;
 static bool s_suppress_next_cloud_success_tone = false;
-static bool s_content_hold_for_tts = false;
-/* 拍照预览/上传/result TTS 期间挂起音乐：设备 CPU / 网络 / PSRAM 同时承担相机、
- * 上传和音乐解码会拖慢预览倒计时和帧率，所以拍照流程开始就主动暂停音乐，
- * 直到 phase 回到 NONE 再恢复。 */
-static bool s_content_hold_for_photo = false;
-static bool s_resume_music_after_voice = false;
-static bool s_alarm_session_active = false;
-static bool s_resume_music_after_alarm = false;
-static TimerHandle_t s_alarm_resume_timer = NULL;
 static TimerHandle_t s_cloud_success_tone_timer = NULL;
 static TickType_t s_bind_tone_tick = 0;
-static voice_msg_camera_preview_state_t s_camera_preview_state = {0};
-static bool s_photo_result_tts_gate_active = false;
-static bool s_pending_photo_result_tts = false;
-static bool s_pending_camera_flow_tts = false;
-static char s_pending_photo_result_tts_url[ASYNC_PLAY_URL_MAX] = {0};
+static TickType_t s_boot_tick = 0;
 static char s_current_tts_url[ASYNC_PLAY_URL_MAX] = {0};
 /* TTS 活跃标志：在调用 async_play_url 前置 true，事件回调收到 stop/error/complete
  * 时清零。读取无需获取播放器的 operation_lock，避免 ebus 回调在 prepare 阶段被
  * 长时间阻塞（async_play 线程跑 HTTP recv 时持锁可能达数秒）。 */
 static volatile bool s_tts_active = false;
-static struct {
-    bool tone_active;
-    bool tone_finished;
-    bool pending_resume;
-    bool resume_queued;
-    bool focus_behavior_overridden;
-    app_player_focus_behavior_t original_focus_behavior;
-} s_camera_capture_tts_resume = {0};
 
-static bool voice_player_should_gate_photo_result_tts(void);
-static bool voice_player_should_defer_camera_flow_tts(void);
-static void voice_player_pending_camera_flow_tts_set(const char *url);
-static void voice_player_pending_camera_flow_tts_clear(const char *reason);
-static void voice_player_pending_photo_result_tts_store(const char *url);
-static void voice_player_pending_photo_result_tts_play_now(const char *reason);
+/* 提示音排队播放状态 */
+static tone_play_request_t s_tone_pending_queue[TONE_PENDING_QUEUE_SIZE];
+static uint8_t s_tone_pending_head = 0;
+static uint8_t s_tone_pending_count = 0;
+static bool s_tone_playing = false;
+static bool s_current_tone_prompt = false;
+
 static void voice_player_tts_track_url(const char *url);
-static void voice_player_camera_capture_tts_focus_behavior_prepare(void);
-static void voice_player_camera_capture_tts_focus_behavior_restore(const char *reason);
-static void voice_player_camera_capture_tts_resume_clear(const char *reason);
-static void voice_player_camera_capture_tts_restore_if_needed(const char *reason);
-static void resume_music_after_voice_if_needed(const char *reason);
-static void hold_content_for_photo_flow(const char *reason);
-static void release_content_hold_for_photo_flow(const char *reason);
+static void voice_player_flush_tone_queue(void);
 
-#define ALARM_RESUME_DELAY_MS 300
-#define CLOUD_SUCCESS_TONE_DELAY_MS 500
+#define CLOUD_SUCCESS_TONE_DELAY_MS 2000
 #define CLOUD_UNSTABLE_TONE_GRACE_MS 800
+
+typedef struct {
+    uint8_t *buf;
+    size_t len;
+    bool overflow;
+} pushup_tts_download_ctx_t;
+
+static bool voice_player_url_is_mp3(const char *url)
+{
+    const char *query;
+    size_t len;
+
+    if (url == NULL) {
+        return false;
+    }
+
+    query = strchr(url, '?');
+    len = query ? (size_t)(query - url) : strlen(url);
+
+    return len >= 4 &&
+           url[len - 4] == '.' &&
+           url[len - 3] == 'm' &&
+           url[len - 2] == 'p' &&
+           url[len - 1] == '3';
+}
+
+static bool voice_player_tts_url_is_latest(const char *url)
+{
+    bool latest;
+
+    if (url == NULL) {
+        return false;
+    }
+
+    taskENTER_CRITICAL();
+    latest = strncmp(s_current_tts_url, url, sizeof(s_current_tts_url)) == 0;
+    taskEXIT_CRITICAL();
+
+    return latest;
+}
+
+static void pushup_tts_http_ignore_data(lisa_http_data_t *data)
+{
+    (void)data;
+}
+
+static void *pushup_tts_http_headers(void)
+{
+    return (void *)"Accept: audio/mpeg";
+}
+
+static int pushup_tts_download_on_chunk(lisa_http_data_t *data)
+{
+    pushup_tts_download_ctx_t *ctx;
+    size_t need;
+
+    if (data == NULL || data->user == NULL || data->len <= 0) {
+        return 0;
+    }
+
+    ctx = (pushup_tts_download_ctx_t *)data->user;
+    need = ctx->len + (size_t)data->len;
+    if (need > PUSHUP_TTS_DOWNLOAD_MAX_BYTES) {
+        ctx->overflow = true;
+        return -1;
+    }
+
+    memcpy(ctx->buf + ctx->len, data->buf, (size_t)data->len);
+    ctx->len = need;
+
+    return 0;
+}
+
+static int voice_player_download_pushup_tts_mp3(const char *url, uint8_t *buf, size_t *out_len)
+{
+    pushup_tts_download_ctx_t ctx = {
+        .buf = buf,
+    };
+    lisa_http_request_t req = {
+        .method = LISA_HTTP_GET,
+        .url = (uint8_t *)url,
+        .headers = (uint8_t *)pushup_tts_http_headers,
+        .timeout = PUSHUP_TTS_HTTP_TIMEOUT_MS,
+        .user = &ctx,
+        .on_data = pushup_tts_http_ignore_data,
+    };
+    lisa_http_t *http;
+    lisa_http_err_e ret;
+
+    if (url == NULL || buf == NULL || out_len == NULL) {
+        return -1;
+    }
+
+    *out_len = 0;
+
+    http = lisa_http_init(&req);
+    if (http == NULL) {
+        LOGE("pushup tts mp3 http init failed");
+        return -1;
+    }
+
+    ret = lisa_http_perform_chunked_with_cb(http, pushup_tts_download_on_chunk);
+    lisa_http_cleanup(http);
+
+    if (ret != LISA_HTTP_OK || ctx.overflow || ctx.len == 0) {
+        LOGW("pushup tts mp3 download failed, ret=%d, len=%u, overflow=%d",
+             ret,
+             (unsigned int)ctx.len,
+             ctx.overflow ? 1 : 0);
+        return -1;
+    }
+
+    *out_len = ctx.len;
+    return 0;
+}
+
+static int voice_player_wait_pushup_tts_mp3_ready(const char *url)
+{
+    uint8_t *buf = NULL;
+    size_t latest_len = 0;
+    bool has_download = false;
+    uint8_t stable_count = 0;
+
+    buf = (uint8_t *)psram_malloc(PUSHUP_TTS_DOWNLOAD_MAX_BYTES);
+    if (buf == NULL) {
+        LOGE("pushup tts mp3 psram malloc failed, size=%u",
+             (unsigned int)PUSHUP_TTS_DOWNLOAD_MAX_BYTES);
+        return -1;
+    }
+
+    for (uint8_t attempt = 1; attempt <= PUSHUP_TTS_READY_MAX_ATTEMPTS; attempt++) {
+        size_t len = 0;
+
+        if (!voice_player_tts_url_is_latest(url)) {
+            LOGW("drop stale pushup tts mp3 url: %s", url);
+            psram_free(buf);
+            return 1;
+        }
+
+        if (voice_player_download_pushup_tts_mp3(url, buf, &len) != 0) {
+            LOGW("pushup tts mp3 ready attempt %u/%u failed",
+                 (unsigned int)attempt,
+                 (unsigned int)PUSHUP_TTS_READY_MAX_ATTEMPTS);
+            psram_free(buf);
+            return -1;
+        }
+
+        if (has_download && len == latest_len) {
+            stable_count++;
+        } else {
+            stable_count = 1;
+        }
+
+        latest_len = len;
+        has_download = true;
+
+        LOGI("pushup tts mp3 ready attempt %u/%u, size=%u, stable=%u/%u",
+             (unsigned int)attempt,
+             (unsigned int)PUSHUP_TTS_READY_MAX_ATTEMPTS,
+             (unsigned int)latest_len,
+             (unsigned int)stable_count,
+             (unsigned int)PUSHUP_TTS_READY_STABLE_COUNT);
+
+        if (stable_count >= PUSHUP_TTS_READY_STABLE_COUNT) {
+            break;
+        }
+
+        if (attempt < PUSHUP_TTS_READY_MAX_ATTEMPTS) {
+            vTaskDelay(pdMS_TO_TICKS(PUSHUP_TTS_READY_POLL_MS));
+        }
+    }
+
+    if (!has_download) {
+        psram_free(buf);
+        return -1;
+    }
+
+    if (!voice_player_tts_url_is_latest(url)) {
+        LOGW("drop stale pushup tts mp3 url before play: %s", url);
+        psram_free(buf);
+        return 1;
+    }
+
+    if (stable_count < PUSHUP_TTS_READY_STABLE_COUNT) {
+        LOGW("pushup tts mp3 still growing after %u ms, fallback direct url, latest size=%u",
+             (unsigned int)((PUSHUP_TTS_READY_MAX_ATTEMPTS - 1U) * PUSHUP_TTS_READY_POLL_MS),
+             (unsigned int)latest_len);
+        psram_free(buf);
+        return -1;
+    }
+
+    LOGI("pushup tts mp3 ready, size=%u, play direct url", (unsigned int)latest_len);
+    psram_free(buf);
+    return 0;
+}
 
 /* 异步播放任务 */
 static void async_play_task(void *pvParameters)
@@ -113,8 +301,11 @@ static void async_play_task(void *pvParameters)
     while (1) {
         /* 从队列中获取播放请求，阻塞等待 */
         if (xQueueReceive(s_async_play_queue, &request, portMAX_DELAY) == pdTRUE) {
-            LOGI("async play task received request, type=%u, player=%p, url=%s",
-                 (unsigned int)request.type, request.player, request.url);
+            LOGI("async play task received request, type=%u, player=%p, wait_mp3=%u, url=%s",
+                 (unsigned int)request.type,
+                 request.player,
+                 (unsigned int)request.wait_mp3_ready,
+                 request.url);
 
             if (request.type == ASYNC_PLAY_REQUEST_RESUME) {
                 app_player_resume(request.player);
@@ -123,9 +314,20 @@ static void async_play_task(void *pvParameters)
 
             if (request.player == tts_player &&
                 !request.bypass_tts_gate &&
-                voice_player_should_gate_photo_result_tts()) {
-                voice_player_pending_photo_result_tts_store(request.url);
+                voice_intent_photo_flow_should_gate_tts()) {
                 continue;
+            }
+
+            if (request.player == tts_player &&
+                request.wait_mp3_ready &&
+                voice_player_url_is_mp3(request.url)) {
+                int ready_ret = voice_player_wait_pushup_tts_mp3_ready(request.url);
+                if (ready_ret > 0) {
+                    continue;
+                }
+                if (ready_ret < 0) {
+                    LOGW("pushup tts mp3 ready workaround failed, fallback to direct url");
+                }
             }
 
             /* 在独立任务中执行播放操作，不会阻塞ebus线程 */
@@ -201,6 +403,42 @@ static void async_play_url(app_player_t *player, const char *url)
     async_play_url_internal(player, url, false);
 }
 
+static void async_play_tts_mp3_ready_url(const char *url)
+{
+    if (s_async_play_queue == NULL || url == NULL) {
+        LOGE("async play queue not ready or url is null");
+        return;
+    }
+
+    async_play_request_t request = {0};
+    request.type = ASYNC_PLAY_REQUEST_URL;
+    request.wait_mp3_ready = 1U;
+    request.player = tts_player;
+    strncpy(request.url, url, sizeof(request.url) - 1);
+    request.url[sizeof(request.url) - 1] = '\0';
+
+    s_tts_active = true;
+
+    if (xQueueSend(s_async_play_queue, &request, pdMS_TO_TICKS(100)) != pdTRUE) {
+        LOGE("failed to send tts mp3 ready request to queue");
+    } else {
+        LOGI("tts mp3 ready request sent to async queue");
+    }
+}
+
+static void voice_player_queue_pushup_tts_ready_check(const char *url)
+{
+    if (url == NULL || url[0] == '\0') {
+        LOGW("pushup tts ready check skipped: empty url");
+        return;
+    }
+
+    LOGW("queue pushup tts ready check every %u ms: %s",
+         (unsigned int)PUSHUP_TTS_READY_POLL_MS,
+         url);
+    async_play_tts_mp3_ready_url(url);
+}
+
 static void async_resume_player(app_player_t *player)
 {
     if (s_async_play_queue == NULL || player == NULL) {
@@ -223,156 +461,6 @@ static void async_resume_player(app_player_t *player)
     }
 }
 
-static bool voice_player_tts_interrupt_needed(void)
-{
-    app_player_state_t state;
-
-    if (tts_player == NULL) {
-        return false;
-    }
-
-    state = app_player_get_state(tts_player);
-    return state == APP_PLAYER_STATE_PREPARING ||
-           state == APP_PLAYER_STATE_PREPARED ||
-           state == APP_PLAYER_STATE_PLAYING ||
-           state == APP_PLAYER_STATE_PAUSED;
-}
-
-static void voice_player_camera_capture_tts_focus_behavior_prepare(void)
-{
-    app_player_focus_behavior_t behavior = {0};
-
-    if (tts_player == NULL || s_camera_capture_tts_resume.focus_behavior_overridden) {
-        return;
-    }
-
-    if (app_player_get_focus_behavior(tts_player, &behavior) != APP_PLAYER_OK) {
-        LOGW("camera capture tone: failed to read tts focus behavior");
-        return;
-    }
-
-    s_camera_capture_tts_resume.original_focus_behavior = behavior;
-    if (behavior.on_background == APP_PLAYER_FOCUS_LOSS_STOP &&
-        behavior.on_focus_lost == APP_PLAYER_FOCUS_LOSS_STOP) {
-        return;
-    }
-
-    behavior.on_background = APP_PLAYER_FOCUS_LOSS_STOP;
-    behavior.on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP;
-    if (app_player_set_focus_behavior(tts_player, &behavior) != APP_PLAYER_OK) {
-        LOGW("camera capture tone: failed to switch tts focus behavior to stop");
-        return;
-    }
-
-    s_camera_capture_tts_resume.focus_behavior_overridden = true;
-    LOGI("camera capture tone: tts focus behavior switched to stop");
-}
-
-static void voice_player_camera_capture_tts_focus_behavior_restore(const char *reason)
-{
-    if (!s_camera_capture_tts_resume.focus_behavior_overridden || tts_player == NULL) {
-        return;
-    }
-
-    if (app_player_set_focus_behavior(tts_player,
-                                      &s_camera_capture_tts_resume.original_focus_behavior) != APP_PLAYER_OK) {
-        LOGW("camera capture tone: failed to restore tts focus behavior (%s)",
-             reason ? reason : "unknown");
-        return;
-    }
-
-    s_camera_capture_tts_resume.focus_behavior_overridden = false;
-    LOGI("camera capture tone: restored tts focus behavior (%s)",
-         reason ? reason : "unknown");
-}
-
-static void voice_player_pending_photo_result_tts_clear(const char *reason)
-{
-    if (!s_pending_photo_result_tts) {
-        return;
-    }
-
-    LOGI("drop deferred photo result tts (%s)", reason ? reason : "unknown");
-    s_pending_photo_result_tts = false;
-    s_pending_photo_result_tts_url[0] = '\0';
-}
-
-static bool voice_player_should_gate_photo_result_tts(void)
-{
-    return voice_camera_preview_state_is_locked(&s_camera_preview_state) ||
-           (s_photo_result_tts_gate_active &&
-            !voice_camera_preview_state_is_result_tts_active(&s_camera_preview_state));
-}
-
-static bool voice_player_should_defer_camera_flow_tts(void)
-{
-    if (!voice_camera_preview_state_is_mcp_mode(&s_camera_preview_state)) {
-        return false;
-    }
-
-    return s_camera_preview_state.phase == VOICE_MSG_CAMERA_FLOW_PHASE_PREVIEW ||
-           s_camera_capture_tts_resume.tone_active;
-}
-
-static void voice_player_pending_camera_flow_tts_set(const char *url)
-{
-    s_pending_camera_flow_tts = true;
-    LOGI("defer latest tts during camera capture flow: %s", url ? url : "unknown");
-}
-
-static void voice_player_pending_camera_flow_tts_clear(const char *reason)
-{
-    if (!s_pending_camera_flow_tts) {
-        return;
-    }
-
-    LOGI("clear deferred camera flow tts (%s)", reason ? reason : "unknown");
-    s_pending_camera_flow_tts = false;
-}
-
-static void voice_player_pending_photo_result_tts_store(const char *url)
-{
-    if (!url || url[0] == '\0') {
-        return;
-    }
-
-    strncpy(s_pending_photo_result_tts_url, url, sizeof(s_pending_photo_result_tts_url) - 1);
-    s_pending_photo_result_tts_url[sizeof(s_pending_photo_result_tts_url) - 1] = '\0';
-    s_pending_photo_result_tts = true;
-
-    LOGI("defer photo result tts while camera flow locked: %s",
-         s_pending_photo_result_tts_url);
-}
-
-static void voice_player_pending_photo_result_tts_play_if_ready(const char *reason)
-{
-    if (!s_pending_photo_result_tts ||
-        !voice_camera_preview_state_is_result_tts_active(&s_camera_preview_state)) {
-        return;
-    }
-
-    LOGI("play deferred photo result tts (%s): %s",
-         reason ? reason : "unknown", s_pending_photo_result_tts_url);
-    voice_player_tts_track_url(s_pending_photo_result_tts_url);
-    async_play_url(tts_player, s_pending_photo_result_tts_url);
-    s_pending_photo_result_tts = false;
-    s_pending_photo_result_tts_url[0] = '\0';
-}
-
-static void voice_player_pending_photo_result_tts_play_now(const char *reason)
-{
-    if (!s_pending_photo_result_tts) {
-        return;
-    }
-
-    LOGI("play deferred photo result tts immediately (%s): %s",
-         reason ? reason : "unknown", s_pending_photo_result_tts_url);
-    voice_player_tts_track_url(s_pending_photo_result_tts_url);
-    async_play_url(tts_player, s_pending_photo_result_tts_url);
-    s_pending_photo_result_tts = false;
-    s_pending_photo_result_tts_url[0] = '\0';
-}
-
 static void voice_player_tts_track_url(const char *url)
 {
     if (!url || url[0] == '\0') {
@@ -386,122 +474,24 @@ static void voice_player_tts_track_url(const char *url)
     LOGI("refresh latest tts url: %s", s_current_tts_url);
 }
 
-static void voice_player_camera_capture_tts_resume_clear(const char *reason)
+void voice_player_replay_tts_url(const char *url)
 {
-    if (!s_camera_capture_tts_resume.tone_active &&
-        !s_camera_capture_tts_resume.pending_resume &&
-        !s_camera_capture_tts_resume.resume_queued &&
-        !s_camera_capture_tts_resume.tone_finished &&
-        !s_camera_capture_tts_resume.focus_behavior_overridden) {
+    if (!url || url[0] == '\0') {
+        LOGW("replay tts url: empty url");
         return;
     }
-
-    voice_player_camera_capture_tts_focus_behavior_restore(reason);
-    LOGI("clear camera capture tts resume state (%s)", reason ? reason : "unknown");
-    memset(&s_camera_capture_tts_resume, 0, sizeof(s_camera_capture_tts_resume));
+    LOGI("replay tts url: %s", url);
+    async_play_url_internal(tts_player, url, true);
 }
 
-static void voice_player_camera_capture_tts_restore_if_needed(const char *reason)
+void voice_player_play_tts_url_async(const char *url)
 {
-    app_player_state_t tts_state;
-    char latest_tts_url[ASYNC_PLAY_URL_MAX] = {0};
-
-    if (!s_camera_capture_tts_resume.pending_resume ||
-        !s_camera_capture_tts_resume.tone_finished ||
-        s_camera_capture_tts_resume.resume_queued) {
+    if (!url || url[0] == '\0') {
+        LOGW("play tts url async: empty url");
         return;
     }
-
-    if (tts_player == NULL) {
-        voice_player_camera_capture_tts_resume_clear("invalid resume context");
-        return;
-    }
-
-    if (s_pending_camera_flow_tts) {
-        if (!voice_player_latest_tts_url_copy(latest_tts_url, sizeof(latest_tts_url))) {
-            voice_player_pending_camera_flow_tts_clear("missing latest tts url");
-            voice_player_camera_capture_tts_resume_clear("no latest tts url");
-            return;
-        }
-
-        LOGI("play deferred latest tts after camera tone (%s), url=%s",
-             reason ? reason : "unknown", latest_tts_url);
-        async_play_url_internal(tts_player, latest_tts_url, true);
-        voice_player_pending_camera_flow_tts_clear("camera tone restore queued");
-        s_camera_capture_tts_resume.resume_queued = true;
-        return;
-    }
-
-    tts_state = app_player_get_state(tts_player);
-    switch (tts_state) {
-    case APP_PLAYER_STATE_PLAYING:
-        voice_player_camera_capture_tts_resume_clear("tts already resumed");
-        return;
-    case APP_PLAYER_STATE_PAUSED:
-    case APP_PLAYER_STATE_PREPARED:
-        LOGI("resume latest tts after camera tone (%s)",
-             reason ? reason : "unknown");
-        async_resume_player(tts_player);
-        s_camera_capture_tts_resume.resume_queued = true;
-        return;
-    case APP_PLAYER_STATE_STOPPED:
-    case APP_PLAYER_STATE_IDLE:
-    case APP_PLAYER_STATE_ERROR:
-        if (!voice_player_latest_tts_url_copy(latest_tts_url, sizeof(latest_tts_url))) {
-            voice_player_camera_capture_tts_resume_clear("no latest tts url");
-            return;
-        }
-
-        LOGI("replay latest tts after camera tone (%s), url=%s",
-             reason ? reason : "unknown", latest_tts_url);
-        async_play_url_internal(tts_player, latest_tts_url, true);
-        s_camera_capture_tts_resume.resume_queued = true;
-        return;
-    case APP_PLAYER_STATE_PREPARING:
-        LOGI("wait latest tts prepare before restore (%s)",
-             reason ? reason : "unknown");
-        return;
-    default:
-        return;
-    }
-}
-
-void voice_player_notify_camera_capture_tone_start(void)
-{
-    bool has_latest_tts = false;
-    app_player_focus_state_t tts_focus_state = APP_PLAYER_FOCUS_NONE;
-
-    if (tone_player == NULL || tts_player == NULL) {
-        return;
-    }
-
-    voice_player_camera_capture_tts_resume_clear("new camera tone");
-    s_camera_capture_tts_resume.tone_active = true;
-
-    has_latest_tts = voice_player_latest_tts_url_copy(NULL, 0);
-    if (!has_latest_tts) {
-        LOGI("camera capture tone start without latest tts url");
-        return;
-    }
-
-    tts_focus_state = app_player_focus_get_state(tts_player);
-    if (!s_pending_camera_flow_tts && tts_focus_state == APP_PLAYER_FOCUS_NONE) {
-        LOGI("camera capture tone start without active tts focus");
-        return;
-    }
-
-    voice_player_camera_capture_tts_focus_behavior_prepare();
-    s_pending_camera_flow_tts = true;
-    s_camera_capture_tts_resume.pending_resume = true;
-    if (voice_player_tts_interrupt_needed()) {
-        if (app_player_stop(tts_player) == APP_PLAYER_OK) {
-            LOGI("camera capture tone: stop active tts before capture tone");
-        } else {
-            LOGW("camera capture tone: stop active tts failed");
-        }
-    }
-    LOGI("camera capture tone will replay latest tts after tone, focus=%d, deferred=%d",
-         tts_focus_state, s_pending_camera_flow_tts);
+    voice_player_tts_track_url(url);
+    async_play_url_internal(tts_player, url, true);
 }
 
 bool voice_player_latest_tts_url_copy(char *url_buf, size_t buf_len)
@@ -524,87 +514,17 @@ bool voice_player_tts_is_active(void)
     return s_tts_active;
 }
 
-static void voice_player_camera_preview_state_changed(void *unused, uint32_t msg_id, void *data,
-                                                      uint32_t len, void *user_data)
-{
-    (void)unused;
-    (void)msg_id;
-    (void)user_data;
+/* 闹钟播放阶段管理 */
+typedef enum {
+    ALARM_PLAY_PHASE_TONE_FIRST = 0,  // 首次播放默认提示音
+    ALARM_PLAY_PHASE_TTS,              // 播放云端TTS
+    ALARM_PLAY_PHASE_TONE_LOOP,        // 循环播放默认提示音
+} alarm_play_phase_t;
 
-    if (!voice_camera_preview_state_parse(&s_camera_preview_state, data, len)) {
-        return;
-    }
-
-    if (voice_camera_preview_state_is_mcp_mode(&s_camera_preview_state) &&
-        s_camera_preview_state.phase != VOICE_MSG_CAMERA_FLOW_PHASE_NONE) {
-        s_photo_result_tts_gate_active = true;
-    } else if (s_camera_preview_state.phase == VOICE_MSG_CAMERA_FLOW_PHASE_NONE) {
-        s_photo_result_tts_gate_active = false;
-        release_content_hold_for_photo_flow("camera flow ended (state phase=NONE)");
-    }
-
-    if (s_pending_photo_result_tts) {
-        if (voice_camera_preview_state_is_result_tts_active(&s_camera_preview_state)) {
-            voice_player_pending_photo_result_tts_play_if_ready("camera result tts active");
-        } else if (s_camera_preview_state.phase == VOICE_MSG_CAMERA_FLOW_PHASE_NONE) {
-            voice_player_pending_photo_result_tts_clear("camera flow ended before result tts");
-        }
-    }
-}
-
-static void voice_player_camera_preview_start(void *unused, uint32_t msg_id, void *data, uint32_t len,
-                                              void *user_data)
-{
-    voice_msg_camera_preview_req_t *req = (voice_msg_camera_preview_req_t *)data;
-
-    (void)unused;
-    (void)msg_id;
-    (void)user_data;
-
-    if (!req || len < sizeof(*req)) {
-        return;
-    }
-
-    if (req->mode == VOICE_MSG_CAMERA_PREVIEW_MODE_MCP_PHOTO) {
-        s_photo_result_tts_gate_active = true;
-        LOGI("enable photo result tts gate on preview start");
-        hold_content_for_photo_flow("camera preview start");
-    } else {
-        s_photo_result_tts_gate_active = false;
-        voice_player_pending_camera_flow_tts_clear("non-mcp preview start");
-        voice_player_pending_photo_result_tts_clear("non-mcp preview start");
-    }
-}
-
-static void voice_player_camera_preview_exit(void *unused, uint32_t msg_id, void *data, uint32_t len,
-                                             void *user_data)
-{
-    (void)unused;
-    (void)msg_id;
-    (void)data;
-    (void)len;
-    (void)user_data;
-
-    if (voice_camera_preview_state_is_locked(&s_camera_preview_state)) {
-        if (voice_player_tts_interrupt_needed()) {
-            if (app_player_stop(tts_player) == APP_PLAYER_OK) {
-                LOGI("camera preview canceled, stop active tts");
-            } else {
-                LOGW("camera preview canceled, stop tts failed");
-            }
-        }
-        voice_player_camera_capture_tts_resume_clear("camera preview canceled");
-    }
-
-    s_photo_result_tts_gate_active = false;
-    voice_player_pending_camera_flow_tts_clear("camera preview exit");
-
-    if (!voice_camera_preview_state_is_result_tts_active(&s_camera_preview_state)) {
-        voice_player_pending_photo_result_tts_clear("camera preview exit");
-    }
-
-    release_content_hold_for_photo_flow("camera preview exit");
-}
+static struct {
+    alarm_play_phase_t phase;
+    char text[ALARM_TTS_BUF_SIZE];
+} s_alarm_play_ctx __psram_bss__;
 
 static uint32_t xorshift32(void)
 {
@@ -617,18 +537,6 @@ static uint32_t xorshift32(void)
     state ^= state << 5;
     return state;
 }
-
-/* 闹钟播放阶段管理 */
-typedef enum {
-    ALARM_PLAY_PHASE_TONE_FIRST = 0,  // 首次播放默认提示音
-    ALARM_PLAY_PHASE_TTS,              // 播放云端TTS
-    ALARM_PLAY_PHASE_TONE_LOOP,        // 循环播放默认提示音
-} alarm_play_phase_t;
-
-static struct {
-    alarm_play_phase_t phase;
-    char text[ALARM_TTS_BUF_SIZE];
-} s_alarm_play_ctx __psram_bss__;
 
 static char *voice_player_get_wakeup_tone_url(void)
 {
@@ -678,6 +586,119 @@ static char *voice_player_get_wakeup_tone_url(void)
     return tone_url;
 }
 
+static int voice_player_prompt_tone_enter(void)
+{
+    if (voice_intent_contains(INTENT_PROMPT_TONE)) {
+        return 0;
+    }
+
+    return voice_intent_push(INTENT_PROMPT_TONE);
+}
+
+static void voice_player_prompt_tone_exit(void)
+{
+    if (voice_intent_contains(INTENT_PROMPT_TONE)) {
+        voice_intent_pop(INTENT_PROMPT_TONE);
+    }
+}
+
+static bool voice_player_start_tone_request(const tone_play_request_t *request)
+{
+    bool entered_prompt = false;
+
+    if (request == NULL || request->url == NULL) {
+        LOGW("tone request is null, skip");
+        return false;
+    }
+
+    if (request->prompt_tone && !voice_intent_contains(INTENT_PROMPT_TONE)) {
+        if (voice_player_prompt_tone_enter() == 0) {
+            entered_prompt = true;
+        } else {
+            LOGW("failed to enter PROMPT_TONE intent, play without music resume focus");
+        }
+    }
+
+    s_tone_playing = true;
+    s_current_tone_prompt = request->prompt_tone && voice_intent_contains(INTENT_PROMPT_TONE);
+
+    if (app_player_play(tone_player, request->url) != APP_PLAYER_OK) {
+        LOGW("failed to play tone url");
+        s_tone_playing = false;
+        s_current_tone_prompt = false;
+        if (entered_prompt) {
+            voice_player_prompt_tone_exit();
+        }
+        return false;
+    }
+
+    return true;
+}
+
+static void voice_player_start_next_queued_tone(void)
+{
+    while (s_tone_pending_count > 0) {
+        tone_play_request_t request = s_tone_pending_queue[s_tone_pending_head];
+        s_tone_pending_head = (s_tone_pending_head + 1) % TONE_PENDING_QUEUE_SIZE;
+        s_tone_pending_count--;
+
+        if (voice_player_start_tone_request(&request)) {
+            return;
+        }
+    }
+
+    s_tone_playing = false;
+    s_current_tone_prompt = false;
+}
+
+static bool voice_player_play_tone_url_internal(const char *url, bool prompt_tone)
+{
+    if (url == NULL) {
+        LOGW("tone url is null, skip");
+        return false;
+    }
+
+    if (s_tone_playing) {
+        if (s_tone_pending_count < TONE_PENDING_QUEUE_SIZE) {
+            s_tone_pending_queue[(s_tone_pending_head + s_tone_pending_count) % TONE_PENDING_QUEUE_SIZE] =
+                (tone_play_request_t){
+                    .url = url,
+                    .prompt_tone = prompt_tone,
+                };
+            s_tone_pending_count++;
+            LOGD("tone queued, pending: %u", (unsigned int)s_tone_pending_count);
+            return true;
+        } else {
+            LOGW("tone queue full, drop");
+            return false;
+        }
+    }
+
+    return voice_player_start_tone_request(&(tone_play_request_t){
+        .url = url,
+        .prompt_tone = prompt_tone,
+    });
+}
+
+void voice_player_play_tone_url(const char *url)
+{
+    (void)voice_player_play_tone_url_internal(url, false);
+}
+
+void voice_player_play_prompt_tone_url(const char *url)
+{
+    (void)voice_player_play_tone_url_internal(url, true);
+}
+
+static void voice_player_flush_tone_queue(void)
+{
+    s_tone_pending_head = 0;
+    s_tone_pending_count = 0;
+    s_tone_playing = false;
+    s_current_tone_prompt = false;
+    voice_player_prompt_tone_exit();
+}
+
 static void voice_player_play_wakeup_tone(void)
 {
     char *tone_url = voice_player_get_wakeup_tone_url();
@@ -686,7 +707,7 @@ static void voice_player_play_wakeup_tone(void)
         return;
     }
 
-    app_player_play(tone_player, tone_url);
+    voice_player_play_tone_url(tone_url);
 }
 
 static void voice_player_play_network_success_tone(void)
@@ -699,7 +720,7 @@ static void voice_player_play_network_success_tone(void)
         return;
     }
 
-    app_player_play(tone_player, app_tone_get_url(TONE_ID_59));
+    voice_player_play_tone_url(app_tone_get_url(TONE_ID_59));
     s_network_success_tone_tick = now;
 }
 
@@ -743,7 +764,7 @@ static void voice_player_play_bind_tone(void)
         return;
     }
 
-    app_player_play(tone_player, app_tone_get_url(TONE_ID_71));
+    voice_player_play_tone_url(app_tone_get_url(TONE_ID_71));
     s_bind_tone_tick = now;
 }
 
@@ -870,284 +891,9 @@ static void voice_player_try_play_cloud_unstable_tone(const sys_network_status_t
         return;
     }
 
-    app_player_play(tone_player, app_tone_get_url(TONE_ID_65));
+    voice_player_play_tone_url(app_tone_get_url(TONE_ID_65));
     s_disconnect_tone_played = true;
     voice_player_reset_cloud_unstable_pending();
-}
-
-static void hold_content_until_tts_playing(void)
-{
-    if (!s_content_hold_for_tts && !s_content_hold_for_photo) {
-        return;
-    }
-
-    bool tts_playing = (app_player_get_state(tts_player) == APP_PLAYER_STATE_PLAYING);
-    bool content_playing = (app_player_get_state(music_player) == APP_PLAYER_STATE_PLAYING);
-    if (!tts_playing && content_playing) {
-        LOGI("re-pause content while waiting tts start");
-        app_player_pause(music_player);
-    }
-}
-
-static void hold_content_for_photo_flow(const char *reason)
-{
-    app_player_state_t music_state = app_player_get_state(music_player);
-    app_player_focus_state_t music_focus_state = app_player_focus_get_state(music_player);
-
-    s_content_hold_for_photo = true;
-
-    if (music_state == APP_PLAYER_STATE_PLAYING) {
-        LOGI("pause content for photo flow: %s", reason ? reason : "unknown");
-        s_resume_music_after_voice = true;
-        app_player_pause(music_player);
-        return;
-    }
-
-    if (music_state == APP_PLAYER_STATE_PAUSED && music_focus_state != APP_PLAYER_FOCUS_NONE) {
-        LOGI("keep content paused for photo flow: %s, focus_state=%d",
-             reason ? reason : "unknown", music_focus_state);
-        s_resume_music_after_voice = true;
-    }
-}
-
-static void release_content_hold_for_photo_flow(const char *reason)
-{
-    if (!s_content_hold_for_photo) {
-        return;
-    }
-
-    s_content_hold_for_photo = false;
-    LOGI("release photo flow hold: %s", reason ? reason : "unknown");
-    resume_music_after_voice_if_needed(reason);
-}
-
-static void hold_content_for_voice_session(const char *reason)
-{
-    app_player_state_t music_state = app_player_get_state(music_player);
-    app_player_focus_state_t music_focus_state = app_player_focus_get_state(music_player);
-
-    s_content_hold_for_tts = true;
-
-    if (music_state == APP_PLAYER_STATE_PLAYING) {
-        LOGI("pause content for voice session: %s", reason ? reason : "unknown");
-        s_resume_music_after_voice = true;
-        app_player_pause(music_player);
-        return;
-    }
-
-    if (music_state == APP_PLAYER_STATE_PAUSED && music_focus_state != APP_PLAYER_FOCUS_NONE) {
-        LOGI("keep content paused for voice session: %s, focus_state=%d",
-             reason ? reason : "unknown", music_focus_state);
-        s_resume_music_after_voice = true;
-    }
-}
-
-static void clear_music_resume_after_voice(const char *reason)
-{
-    if (!s_resume_music_after_voice) {
-        return;
-    }
-
-    LOGI("clear music resume after voice: %s", reason ? reason : "unknown");
-    s_resume_music_after_voice = false;
-}
-
-static void clear_music_resume_after_alarm(const char *reason)
-{
-    if (!s_resume_music_after_alarm) {
-        return;
-    }
-
-    LOGI("clear music resume after alarm: %s", reason ? reason : "unknown");
-    s_resume_music_after_alarm = false;
-}
-
-static void resume_music_after_voice_if_needed(const char *reason)
-{
-    if (!s_resume_music_after_voice) {
-        return;
-    }
-
-    if (s_alarm_session_active) {
-        LOGI("skip music resume after voice (%s), alarm session is active", reason ? reason : "unknown");
-        return;
-    }
-
-    if (s_content_hold_for_tts) {
-        LOGI("skip music resume after voice (%s), still waiting for tts", reason ? reason : "unknown");
-        return;
-    }
-
-    if (s_content_hold_for_photo) {
-        LOGI("skip music resume after voice (%s), photo flow active", reason ? reason : "unknown");
-        return;
-    }
-
-    if (app_player_get_state(tts_player) == APP_PLAYER_STATE_PLAYING) {
-        LOGI("skip music resume after voice (%s), tts still playing", reason ? reason : "unknown");
-        return;
-    }
-
-    app_player_state_t music_state = app_player_get_state(music_player);
-    if (music_state == APP_PLAYER_STATE_PAUSED) {
-        LOGI("resume music after voice: %s", reason ? reason : "unknown");
-        if (app_player_resume(music_player) == APP_PLAYER_OK) {
-            s_resume_music_after_voice = false;
-        }
-        return;
-    }
-
-    if (music_state == APP_PLAYER_STATE_PLAYING) {
-        LOGI("music already resumed before voice end: %s", reason ? reason : "unknown");
-    } else {
-        LOGI("skip music resume after voice (%s), music state=%d", reason ? reason : "unknown", music_state);
-    }
-
-    s_resume_music_after_voice = false;
-}
-
-static void hold_content_for_alarm_session(const char *reason)
-{
-    app_player_state_t music_state = app_player_get_state(music_player);
-    app_player_focus_state_t music_focus_state = app_player_focus_get_state(music_player);
-
-    s_alarm_session_active = true;
-
-    if (music_state == APP_PLAYER_STATE_PLAYING) {
-        LOGI("pause content for alarm session: %s", reason ? reason : "unknown");
-        s_resume_music_after_alarm = true;
-        app_player_pause(music_player);
-        return;
-    }
-
-    if (music_state == APP_PLAYER_STATE_PAUSED && (s_resume_music_after_voice || music_focus_state != APP_PLAYER_FOCUS_NONE)) {
-        LOGI("inherit paused content for alarm session: %s, focus_state=%d",
-             reason ? reason : "unknown", music_focus_state);
-        s_resume_music_after_alarm = true;
-        return;
-    }
-
-    LOGI("alarm session starts without resumable music: %s, state=%d, focus_state=%d",
-         reason ? reason : "unknown", music_state, music_focus_state);
-}
-
-static void resume_music_after_alarm_if_needed(const char *reason)
-{
-    if (!s_resume_music_after_alarm) {
-        return;
-    }
-
-    if (s_alarm_session_active || alarm_ring_is_active()) {
-        LOGI("skip music resume after alarm (%s), alarm still active", reason ? reason : "unknown");
-        return;
-    }
-
-    if (s_content_hold_for_tts) {
-        LOGI("skip music resume after alarm (%s), voice session is holding content",
-             reason ? reason : "unknown");
-        return;
-    }
-
-    if (app_player_get_state(tts_player) == APP_PLAYER_STATE_PLAYING) {
-        LOGI("skip music resume after alarm (%s), tts still playing", reason ? reason : "unknown");
-        return;
-    }
-
-    app_player_state_t music_state = app_player_get_state(music_player);
-    if (music_state == APP_PLAYER_STATE_PAUSED) {
-        LOGI("resume music after alarm: %s", reason ? reason : "unknown");
-        if (app_player_resume(music_player) == APP_PLAYER_OK) {
-            s_resume_music_after_alarm = false;
-        }
-        return;
-    }
-
-    if (music_state == APP_PLAYER_STATE_PLAYING) {
-        LOGI("music already resumed before alarm end: %s", reason ? reason : "unknown");
-    } else {
-        LOGI("skip music resume after alarm (%s), music state=%d", reason ? reason : "unknown", music_state);
-    }
-
-    s_resume_music_after_alarm = false;
-}
-
-static void alarm_resume_timer_stop(void)
-{
-    if (s_alarm_resume_timer == NULL) {
-        return;
-    }
-
-    if (xTimerIsTimerActive(s_alarm_resume_timer) != pdFALSE) {
-        if (xTimerStop(s_alarm_resume_timer, 0) != pdPASS) {
-            LOGW("failed to stop alarm resume timer");
-        }
-    }
-}
-
-static void alarm_resume_timer_start(void)
-{
-    if (s_alarm_resume_timer == NULL) {
-        return;
-    }
-
-    if (xTimerIsTimerActive(s_alarm_resume_timer) != pdFALSE) {
-        if (xTimerStop(s_alarm_resume_timer, 0) != pdPASS) {
-            LOGW("failed to stop alarm resume timer before restart");
-        }
-    }
-
-    if (xTimerChangePeriod(s_alarm_resume_timer, pdMS_TO_TICKS(ALARM_RESUME_DELAY_MS), 0) != pdPASS) {
-        LOGW("failed to start alarm resume timer");
-    }
-}
-
-static void alarm_resume_timer_cb(TimerHandle_t xTimer)
-{
-    (void)xTimer;
-
-    if (alarm_ring_is_active()) {
-        LOGI("alarm resume timer fired, but alarm is still active");
-        return;
-    }
-
-    s_alarm_session_active = false;
-    resume_music_after_alarm_if_needed("alarm stopped");
-}
-
-static void voice_player_cloud_session_interrupt(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
-{
-    (void)unused;
-    (void)msg_id;
-    (void)data;
-    (void)len;
-    (void)user_data;
-
-    LOGI("voice session interrupted, stop current tts");
-    s_content_hold_for_tts = false;
-    /* 不清 s_resume_music_after_voice：interrupt 仅替换"当前 TTS / 当前会话"
-     * （拍照、闹钟、log_upload、cloud 网络抖动重启），并不取消"先前因唤醒被
-     *  暂停的音乐应当恢复"这一意图。清掉会让拍照/闹钟流结束后音乐永远回不来。 */
-    if (voice_player_tts_interrupt_needed()) {
-        if (app_player_stop(tts_player) == APP_PLAYER_OK) {
-            LOGI("voice session interrupt: stopped active tts");
-        } else {
-            LOGW("voice session interrupt: stop tts failed");
-        }
-    } else {
-        LOGI("voice session interrupt ignored, tts inactive");
-    }
-}
-
-static void voice_player_alarm_trigger(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
-{
-    (void)unused;
-    (void)msg_id;
-    (void)data;
-    (void)len;
-    (void)user_data;
-
-    alarm_resume_timer_stop();
-    hold_content_for_alarm_session("alarm trigger");
 }
 
 void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -1163,6 +909,11 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
     }
     switch (msg_id) {
     case VOICE_MSG_WAKEUP_BUTTON_START: {
+        if (service_sd_music_is_syncing()) {
+            LOGI("ignore button wakeup tone during SD music sync");
+            return;
+        }
+
         if ((app_datas->voice_work_mode & VOICE_WORK_MODE_BUTTON_WAKEUP) == 0) {
             return;
         }
@@ -1171,17 +922,22 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
             return;
         }
 
-        if (app_datas->voice_cloud_connected == 1) {
+        if (voice_cloud_is_connected()) {
             voice_player_play_wakeup_tone();
         } else if (!network_status_ok || !network_status.connected) {
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_64));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_64));
         } else if (app_datas->auth_failed) {
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_105));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_105));
         } else {
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_85));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_85));
         }
     } break;
     case VOICE_MSG_WAKEUP_KEYWORD: {
+        if (service_sd_music_is_syncing()) {
+            LOGI("ignore keyword wakeup tone during SD music sync");
+            return;
+        }
+
         if ((app_datas->voice_work_mode & VOICE_WORK_MODE_VOICE_WAKEUP) == 0) {
             return;
         }
@@ -1190,14 +946,14 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
             return;
         }
 
-        if (app_datas->voice_cloud_connected == 1) {
+        if (voice_cloud_is_connected()) {
             voice_player_play_wakeup_tone();
         } else if (!network_status_ok || !network_status.connected) {
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_64));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_64));
         } else if (app_datas->auth_failed) {
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_105));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_105));
         } else {
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_85));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_85));
         }
     } break;
     case VOICE_MSG_CLOUD_CLOUD_AUTH_SUCCESS: {
@@ -1207,7 +963,7 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
     case VOICE_MSG_CLOUD_CLOUD_AUTH_FAILED: {
         voice_player_cancel_cloud_connect_success_tone();
         app_datas->auth_failed = 1;
-        app_player_play(tone_player, app_tone_get_url(TONE_ID_105));
+        voice_player_play_tone_url(app_tone_get_url(TONE_ID_105));
     } break;
     case VOICE_MSG_CLOUD_OPEN_INFO: {
         uint32_t status = 0;
@@ -1220,6 +976,7 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
         if (status == CLOUD_OPEN_INFO_STATUS_BIND) {
             voice_player_cancel_cloud_connect_success_tone();
             if (voice_player_is_cloud_unbound_active()) {
+                voice_player_flush_tone_queue();
                 app_player_stop(tone_player);
                 app_player_stop(tts_player);
                 break;
@@ -1271,12 +1028,12 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
         }
 
         if (!s_disconnect_tone_played) {
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_60));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_60));
             s_disconnect_tone_played = true;
         }
     } break;
     case VOICE_MSG_BLE_CONNECT_DONE: {
-        app_player_play(tone_player, app_tone_get_url(TONE_ID_72));
+        voice_player_play_tone_url(app_tone_get_url(TONE_ID_72));
     } break;
     case VOICE_MSG_CLOUD_TTS_URL: {
         if (data == NULL) {
@@ -1286,8 +1043,7 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
 
         LOGI("Ready to play tts url asynchronously: %s", (char *)data);
         voice_player_tts_track_url((char *)data);
-        if (voice_player_should_defer_camera_flow_tts()) {
-            voice_player_pending_camera_flow_tts_set((char *)data);
+        if (voice_intent_photo_flow_should_gate_tts()) {
             break;
         }
         /* 使用异步播放接口，避免在ebus回调中阻塞HTTP下载 */
@@ -1302,217 +1058,150 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
 
         voice_player_cancel_cloud_connect_success_tone();
         if (voice_player_is_cloud_unbound_active()) {
+            voice_player_flush_tone_queue();
             app_player_stop(tone_player);
             app_player_stop(tts_player);
         }
 
         LOGI("Ready to play tts url asynchronously: %s", (char *)data);
         voice_player_tts_track_url((char *)data);
-        if (voice_player_should_defer_camera_flow_tts()) {
-            voice_player_pending_camera_flow_tts_set((char *)data);
+        if (voice_intent_photo_flow_should_gate_tts()) {
             break;
         }
-        if (voice_player_should_gate_photo_result_tts()) {
-            voice_player_pending_photo_result_tts_store((char *)data);
-            break;
-        }
-        /* 使用异步播放接口，避免在ebus回调中阻塞HTTP下载 */
-        async_play_url(tts_player, (char *)data);
+        /* 临时规避：pushup MP3 可能还在云端生成，下载到连续两次大小一致后再播。 */
+        voice_player_queue_pushup_tts_ready_check((char *)data);
 
     } break;
-    case VOICE_MSG_CLOUD_SESSION_STARTING: {
-        hold_content_for_voice_session("cloud session starting");
-    } break;
-    case VOICE_MSG_CLOUD_IAT_UPDATE: {
-        if (data == NULL || len == 0 || ((char *)data)[0] == '\0') {
-            break;
-        }
-
-        bool tts_playing = (app_player_get_state(tts_player) == APP_PLAYER_STATE_PLAYING);
-        bool content_playing = (app_player_get_state(music_player) == APP_PLAYER_STATE_PLAYING);
-        if (!tts_playing && !content_playing) {
-            break;
-        }
-
-        s_content_hold_for_tts = true;
-
-        if (tts_playing) {
-            LOGI("stop tts due to valid iat update");
-            app_player_stop(tts_player);
-        }
-
-        if (content_playing) {
-            LOGI("pause content due to valid iat update");
-            s_resume_music_after_voice = true;
-            app_player_pause(music_player);
-        }
-    } break;
-    case VOICE_MSG_CLOUD_SESSION_FINISHED: {
-        s_content_hold_for_tts = false;
-        resume_music_after_voice_if_needed("cloud session finished");
-        resume_music_after_alarm_if_needed("cloud session finished");
-    } break;
-    case VOICE_MSG_CLOUD_MCP_CALL_RESP: {
-        /*
-         * 兜底：拍照上传成功后若未进入 RESULT_TTS 阶段，直接释放延迟 TTS，
-         * 避免卡在 processing 导致不复播。
-         */
-        if (s_photo_result_tts_gate_active &&
-            s_pending_photo_result_tts &&
-            !voice_camera_preview_state_is_result_tts_active(&s_camera_preview_state)) {
-            s_photo_result_tts_gate_active = false;
-            voice_player_pending_camera_flow_tts_clear("mcp call response");
-            voice_player_pending_photo_result_tts_play_now("mcp call response");
-        }
-    } break;
+    case VOICE_MSG_CLOUD_MCP_CALL_RESP:
+        break;
     default:
         break;
     }
 }
 
+static void voice_player_restart_music_intent(void)
+{
+    if (voice_intent_contains(INTENT_MUSIC)) {
+        voice_intent_pop(INTENT_MUSIC);
+    }
+    if (voice_intent_contains(INTENT_VOICE_SESSION)) {
+        LOGI("force finish voice session before music playback");
+        voice_intent_pop(INTENT_VOICE_SESSION);
+    }
+    voice_intent_music_set_user_paused(false);
+    voice_intent_push(INTENT_MUSIC);
+}
+
+/* 云端歌曲列表到达（MCP kuwo / audio_url 等工具）。
+ * 替换当前在线歌单为收到的曲目，从头开始播放，并通知 UI 显示第一首歌名。 */
 static void voice_player_audio_item(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
-    struct voice_msg_audio_items *items = (struct voice_msg_audio_items *)data;
-    if (items == NULL) {
+    struct voice_msg_audio_items *msg_items = (struct voice_msg_audio_items *)data;
+    if (msg_items == NULL || msg_items->cnt == 0) {
         LOGE("Invalid data");
         return;
     }
 
-    if (items->cnt == 0) {
-        LOGE("Invalid cnt");
+    int count = (msg_items->cnt > 50) ? 50 : (int)msg_items->cnt;
+
+    music_item_t *tracks = lisa_mem_alloc(count * sizeof(music_item_t));
+    if (tracks == NULL) {
+        LOGE("Failed to alloc tracks");
         return;
     }
+    memset(tracks, 0, count * sizeof(music_item_t));
 
-    voice_player_play_array(items->items, items->cnt);
+    for (int i = 0; i < count; i++) {
+        memcpy(tracks[i].mid, msg_items->items[i].id, sizeof(msg_items->items[i].id));
+        memcpy(tracks[i].m_name, msg_items->items[i].name, sizeof(msg_items->items[i].name));
+        /* play_audio_link 链路会预填充 url，直接复制即可跳过 URL 解析 */
+        if (msg_items->items[i].url[0]) {
+            memcpy(tracks[i].m_url, msg_items->items[i].url, sizeof(msg_items->items[i].url));
+        }
+    }
+
+    char first_track_name[AUIDO_OUT_NAME_LEN] = {0};
+    if (tracks[0].m_name[0]) {
+        strncpy(first_track_name, tracks[0].m_name, sizeof(first_track_name) - 1);
+    }
+
+    if (voice_music_list_set(MUSIC_LIST_ONLINE, tracks, count) != 0) {
+        LOGE("Failed to set online music list");
+        lisa_mem_free(tracks);
+        return;
+    }
+    voice_music_list_set_active(MUSIC_LIST_ONLINE);
+    voice_music_list_set_current_index(0);
+    lisa_mem_free(tracks);
+
+    /* apps-ui 显示歌曲名称*/
+    if (first_track_name[0]) {
+        voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, first_track_name, strlen(first_track_name) + 1);
+    }
+
+    voice_player_restart_music_intent();
 }
 
+/* 用户主动播放控制（MCP ls.playback_control 工具驱动）。
+ *
+ * PLAY/PAUSE 只改变播放状态，不改变 MUSIC intent（仍在栈上）。
+ * PAUSE 通过 s_user_paused 标记阻止后续自动 resume。
+ * NEXT/PREVIOUS/REPLAY 切换曲目，同时清除 s_user_paused。
+ * STOP 直接 pop MUSIC → on_exit → stop 播放器。 */
 static void voice_player_play_control(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     switch (msg_id) {
+
+    /* ---- 播放状态控制 ---- */
     case VOICE_MSG_PLAY_CONTROL_PLAY: {
-        clear_music_resume_after_voice("play control play");
-        clear_music_resume_after_alarm("play control play");
+        voice_intent_music_set_user_paused(false);
         app_player_resume(music_player);
     } break;
     case VOICE_MSG_PLAY_CONTROL_PAUSE: {
-        clear_music_resume_after_voice("play control pause");
-        clear_music_resume_after_alarm("play control pause");
+        voice_intent_music_set_user_paused(true);
         app_player_pause(music_player);
+        voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, NULL, 0);
     } break;
+
+    /* ---- 曲目切换 ---- */
     case VOICE_MSG_PLAY_CONTROL_NEXT: {
-        clear_music_resume_after_voice("play control next");
-        clear_music_resume_after_alarm("play control next");
-        voice_player_play_next();
+        voice_intent_music_set_user_paused(false);
+        music_item_t next_track;
+        if (voice_music_list_get_next(&next_track) == 0) {
+            if (voice_player_play_music_url(next_track.m_url) == APP_PLAYER_OK &&
+                next_track.m_name[0]) {
+                voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, next_track.m_name, strlen(next_track.m_name) + 1);
+            }
+        }
     } break;
     case VOICE_MSG_PLAY_CONTROL_PREVIOUS: {
-        clear_music_resume_after_voice("play control previous");
-        clear_music_resume_after_alarm("play control previous");
-        voice_player_play_prev();
+        voice_intent_music_set_user_paused(false);
+        music_item_t prev_track;
+        if (voice_music_list_get_prev(&prev_track) == 0) {
+            if (voice_player_play_music_url(prev_track.m_url) == APP_PLAYER_OK &&
+                prev_track.m_name[0]) {
+                voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, prev_track.m_name, strlen(prev_track.m_name) + 1);
+            }
+        }
     } break;
     case VOICE_MSG_PLAY_CONTROL_REPLAY: {
-        clear_music_resume_after_voice("play control replay");
-        clear_music_resume_after_alarm("play control replay");
-        voice_player_replay_current();
+        voice_intent_music_set_user_paused(false);
+        music_item_t curr_track;
+        if (voice_music_list_get_current(&curr_track) == 0) {
+            if (voice_player_play_music_url(curr_track.m_url) == APP_PLAYER_OK &&
+                curr_track.m_name[0]) {
+                voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, curr_track.m_name, strlen(curr_track.m_name) + 1);
+            }
+        }
+    } break;
+
+    /* ---- 停止 ---- */
+    case VOICE_MSG_PLAY_CONTROL_STOP: {
+        voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, NULL, 0);
+        voice_intent_pop(INTENT_MUSIC);
     } break;
     default:
         break;
-    }
-}
-
-static void on_tts_event(app_player_t *player, app_player_event_t event, void *user_data)
-{
-    bool suppress_stop_event = false;
-
-    LOGI("tts player event: %d", event);
-
-    if (event == APP_PLAYER_EVENT_PLAYING) {
-        voice_player_pending_camera_flow_tts_clear("tts playing");
-        if (s_camera_capture_tts_resume.pending_resume) {
-            voice_player_camera_capture_tts_resume_clear("tts resumed after camera tone");
-        }
-        s_content_hold_for_tts = false;
-        voice_msg_pub(VOICE_MSG_PLAYER_TTS_PLAYING, NULL, 0);
-    } else if (event == APP_PLAYER_EVENT_PAUSED) {
-        if (s_camera_capture_tts_resume.pending_resume &&
-            !s_camera_capture_tts_resume.tone_active) {
-            s_camera_capture_tts_resume.resume_queued = false;
-            s_camera_capture_tts_resume.tone_finished = true;
-            voice_player_camera_capture_tts_restore_if_needed("tts paused after camera tone");
-        }
-        voice_msg_pub(VOICE_MSG_PLAYER_TTS_PAUSED, NULL, 0);
-    } else if (event == APP_PLAYER_EVENT_COMPLETED) {
-        s_tts_active = false;
-        voice_msg_pub(VOICE_MSG_PLAYER_TTS_STOPED, NULL, 0);
-        resume_music_after_voice_if_needed("tts completed");
-        if (alarm_ring_is_active()) {
-            alarm_ring_notify_playback_complete();
-        }
-    } else if (event == APP_PLAYER_EVENT_STOPPED || event == APP_PLAYER_EVENT_ERROR) {
-        s_tts_active = false;
-        if (s_camera_capture_tts_resume.pending_resume) {
-            suppress_stop_event = true;
-            if (!s_camera_capture_tts_resume.tone_active) {
-                s_camera_capture_tts_resume.resume_queued = false;
-                s_camera_capture_tts_resume.tone_finished = true;
-                voice_player_camera_capture_tts_restore_if_needed(
-                    event == APP_PLAYER_EVENT_STOPPED ? "tts stopped after camera tone"
-                                                      : "tts error after camera tone");
-            }
-        }
-
-        if (!suppress_stop_event) {
-            voice_msg_pub(VOICE_MSG_PLAYER_TTS_STOPED, NULL, 0);
-        }
-        resume_music_after_voice_if_needed(event == APP_PLAYER_EVENT_STOPPED ? "tts stopped" : "tts error");
-    }
-}
-
-static bool on_music_focus_change(app_player_t *player,
-                                  app_player_focus_state_t state,
-                                  app_player_t *by_which,
-                                  void *user_data)
-{
-    if (state == APP_PLAYER_FOCUS_FOREGROUND) {
-        if (s_content_hold_for_tts) {
-            LOGI("hold music auto resume while voice session is active");
-            return true;
-        }
-
-        if (s_content_hold_for_photo) {
-            LOGI("hold music auto resume while photo flow is active");
-            return true;
-        }
-
-        hold_content_until_tts_playing();
-    }
-
-    return false;
-}
-
-static void on_tone_event(app_player_t *player, app_player_event_t event, void *user_data)
-{
-    if (s_camera_capture_tts_resume.tone_active &&
-        (event == APP_PLAYER_EVENT_COMPLETED ||
-         event == APP_PLAYER_EVENT_STOPPED ||
-         event == APP_PLAYER_EVENT_ERROR)) {
-        s_camera_capture_tts_resume.tone_active = false;
-        s_camera_capture_tts_resume.tone_finished = true;
-        s_camera_capture_tts_resume.resume_queued = false;
-        voice_player_camera_capture_tts_focus_behavior_restore(
-            event == APP_PLAYER_EVENT_COMPLETED ? "camera tone completed"
-                                                : (event == APP_PLAYER_EVENT_STOPPED
-                                                       ? "camera tone stopped"
-                                                       : "camera tone error"));
-        voice_player_camera_capture_tts_restore_if_needed(
-            event == APP_PLAYER_EVENT_COMPLETED ? "camera tone completed"
-                                                : (event == APP_PLAYER_EVENT_STOPPED
-                                                       ? "camera tone stopped"
-                                                       : "camera tone error"));
-        voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_TONE_FINISHED, NULL, 0);
-    }
-
-    if (event == APP_PLAYER_EVENT_COMPLETED && alarm_ring_is_active()) {
-        alarm_ring_notify_playback_complete();
     }
 }
 
@@ -1524,7 +1213,7 @@ static void voice_alarm_ring_play_once(const char *text)
         case ALARM_PLAY_PHASE_TONE_FIRST:
             /* 第一阶段：播放默认闹钟提示音（一次） */
             LISA_LOGI(TAG, "alarm play phase: TONE_FIRST");
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_94));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_94));
             s_alarm_play_ctx.phase = ALARM_PLAY_PHASE_TTS;
             if (text) {
                 strncpy(s_alarm_play_ctx.text, text, sizeof(s_alarm_play_ctx.text) - 1);
@@ -1539,7 +1228,7 @@ static void voice_alarm_ring_play_once(const char *text)
                 /* 云端未连接或文本为空，跳过TTS，直接进入循环播放提示音 */
                 LISA_LOGI(TAG, "alarm TTS skipped: no cloud or no text");
                 s_alarm_play_ctx.phase = ALARM_PLAY_PHASE_TONE_LOOP;
-                app_player_play(tone_player, app_tone_get_url(TONE_ID_94));
+                voice_player_play_tone_url(app_tone_get_url(TONE_ID_94));
                 break;
             }
 
@@ -1547,7 +1236,7 @@ static void voice_alarm_ring_play_once(const char *text)
             if (tts_text == NULL) {
                 LISA_LOGW(TAG, "alarm TTS alloc failed, fallback to tone loop");
                 s_alarm_play_ctx.phase = ALARM_PLAY_PHASE_TONE_LOOP;
-                app_player_play(tone_player, app_tone_get_url(TONE_ID_94));
+                voice_player_play_tone_url(app_tone_get_url(TONE_ID_94));
                 break;
             }
 
@@ -1560,34 +1249,88 @@ static void voice_alarm_ring_play_once(const char *text)
         case ALARM_PLAY_PHASE_TONE_LOOP:
             /* 第三阶段：循环播放默认闹钟提示音 */
             LISA_LOGI(TAG, "alarm play phase: TONE_LOOP");
-            app_player_play(tone_player, app_tone_get_url(TONE_ID_94));
+            voice_player_play_tone_url(app_tone_get_url(TONE_ID_94));
             break;
     }
 }
 
 static void voice_alarm_ring_force_stop(void)
 {
+    voice_player_flush_tone_queue();
     app_player_stop(tone_player);
     app_player_stop(tts_player);
 
     /* 重置闹钟播放状态机，确保下次触发时从头开始 */
     s_alarm_play_ctx.phase = ALARM_PLAY_PHASE_TONE_FIRST;
     memset(s_alarm_play_ctx.text, 0, sizeof(s_alarm_play_ctx.text));
-
-    alarm_resume_timer_start();
 }
 
-static void voice_player_mcp_chat_exit(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+
+static void on_tts_event(app_player_t *player, app_player_event_t event, void *user_data)
 {
-    LOGI("voice_player_mcp_chat_exit, stop content player");
-    s_content_hold_for_tts = false;
-    clear_music_resume_after_voice("mcp chat exit");
-    app_player_stop(music_player);
+    LOGI("tts player event: %d", event);
+
+    switch (event) {
+    case APP_PLAYER_EVENT_PLAYING:
+        voice_msg_pub(VOICE_MSG_PLAYER_TTS_PLAYING, NULL, 0);
+        break;
+    case APP_PLAYER_EVENT_PAUSED:
+        voice_msg_pub(VOICE_MSG_PLAYER_TTS_PAUSED, NULL, 0);
+        break;
+    case APP_PLAYER_EVENT_COMPLETED:
+        s_tts_active = false;
+        voice_msg_pub(VOICE_MSG_PLAYER_TTS_STOPED, NULL, 0);
+        if (alarm_ring_is_active()) {
+            alarm_ring_notify_playback_complete();
+        }
+        break;
+    case APP_PLAYER_EVENT_STOPPED:
+    case APP_PLAYER_EVENT_ERROR:
+        s_tts_active = false;
+        /* 始终发布 STOPED，on_tts_stoped 中通过 voice_intent_top() 判断是否 pop，
+         * preemption 时 VOICE_SESSION 不在栈顶，不会被误弹出。 */
+        voice_msg_pub(VOICE_MSG_PLAYER_TTS_STOPED, NULL, 0);
+        break;
+    default:
+        break;
+    }
+}
+
+
+static void on_tone_event(app_player_t *player, app_player_event_t event, void *user_data)
+{
+    switch (event) {
+    case APP_PLAYER_EVENT_COMPLETED: {
+        bool completed_prompt = s_current_tone_prompt;
+
+        s_current_tone_prompt = false;
+        voice_player_start_next_queued_tone();
+
+        if (completed_prompt && !s_current_tone_prompt) {
+            voice_player_prompt_tone_exit();
+        }
+        if (alarm_ring_is_active()) {
+            alarm_ring_notify_playback_complete();
+        }
+        break;
+    }
+    case APP_PLAYER_EVENT_STOPPED:
+    case APP_PLAYER_EVENT_ERROR:
+        voice_player_flush_tone_queue();
+        break;
+    default:
+        break;
+    }
 }
 
 void voice_player_ready(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     LISA_LOGI(TAG, "voice_player_ready");
+
+    s_boot_tick = xTaskGetTickCount();
+
+    /* 初始化交互意图栈（含 ebus 订阅 + 各 intent 钩子注册） */
+    voice_intent_mgr_init();
 
     /* 初始化异步播放队列和任务 */
     if (async_play_init() != 0) {
@@ -1596,20 +1339,12 @@ void voice_player_ready(void *unused, uint32_t msg_id, void *data, uint32_t len,
 
     sys_network_status_t network_status = {0};
     bool wifi_mode = (sys_network_get_status(&network_status) == 0) &&
-                     (network_status.mode == SYS_NETWORK_MODE_WIFI_PREFERRED);
+                     (network_status.mode == SYS_NETWORK_MODE_WIFI);
 
     if (wifi_mode && !sys_wifi_has_ap()) {
-        app_player_play(tone_player, app_tone_get_url(TONE_ID_70));
+        voice_player_play_tone_url(app_tone_get_url(TONE_ID_70));
     }
 
-
-    if (s_alarm_resume_timer == NULL) {
-        s_alarm_resume_timer =
-            xTimerCreate("alarm.resume", pdMS_TO_TICKS(ALARM_RESUME_DELAY_MS), pdFALSE, NULL, alarm_resume_timer_cb);
-        if (s_alarm_resume_timer == NULL) {
-            LOGE("failed to create alarm resume timer");
-        }
-    }
 
     if (s_cloud_success_tone_timer == NULL) {
         s_cloud_success_tone_timer = xTimerCreate("cloud.success", pdMS_TO_TICKS(CLOUD_SUCCESS_TONE_DELAY_MS),
@@ -1619,6 +1354,7 @@ void voice_player_ready(void *unused, uint32_t msg_id, void *data, uint32_t len,
         }
     }
 
+    // 提示音播放 控制 tone_player
     voice_msg_sub(VOICE_MSG_WAKEUP_BUTTON_START, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_WAKEUP_KEYWORD, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_CONNECTED, voice_player_play_msg, NULL);
@@ -1635,27 +1371,24 @@ void voice_player_ready(void *unused, uint32_t msg_id, void *data, uint32_t len,
     voice_msg_sub(VOICE_MSG_CLOUD_PUSHUP_TTS_URL, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_STARTING, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_IAT_UPDATE, voice_player_play_msg, NULL);
-    voice_msg_sub(VOICE_MSG_CLOUD_SESSION_FINISHED, voice_player_play_msg, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_CALL_RESP, voice_player_play_msg, NULL);
-    voice_msg_sub(VOICE_MSG_CLOUD_AUDIO_ITEM, voice_player_audio_item, NULL);
-    voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_START, voice_player_camera_preview_start, NULL);
-    voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_STATE, voice_player_camera_preview_state_changed, NULL);
-    voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, voice_player_camera_preview_exit, NULL);
+    voice_msg_sub(VOICE_MSG_BLE_CONNECT_DONE, voice_player_play_msg, NULL);
 
+    // 播放歌曲（通过 mcp_tool_kuwo.c / mcp_tool_audio_url.c 工具）控制 music_player
+    voice_msg_sub(VOICE_MSG_CLOUD_AUDIO_ITEM, voice_player_audio_item, NULL);
+
+    // 用户主动切歌（通过 mcp_tool_play_ctrl.c 工具） 控制 music_player
     voice_msg_sub(VOICE_MSG_PLAY_CONTROL_PLAY, voice_player_play_control, NULL);
     voice_msg_sub(VOICE_MSG_PLAY_CONTROL_PAUSE, voice_player_play_control, NULL);
     voice_msg_sub(VOICE_MSG_PLAY_CONTROL_NEXT, voice_player_play_control, NULL);
     voice_msg_sub(VOICE_MSG_PLAY_CONTROL_PREVIOUS, voice_player_play_control, NULL);
     voice_msg_sub(VOICE_MSG_PLAY_CONTROL_REPLAY, voice_player_play_control, NULL);
-    voice_msg_sub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, voice_player_mcp_chat_exit, NULL);
-    voice_msg_sub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, voice_player_cloud_session_interrupt, NULL);
-    voice_msg_sub(VOICE_MSG_BLE_CONNECT_DONE, voice_player_play_msg, NULL);
-    voice_msg_sub(VOICE_MSG_ALARM_TRIGGER, voice_player_alarm_trigger, NULL);
+    voice_msg_sub(VOICE_MSG_PLAY_CONTROL_STOP, voice_player_play_control, NULL);
 
     alarm_ring_init(voice_alarm_ring_play_once, voice_alarm_ring_force_stop);
+    
     app_player_register_callback(tts_player, on_tts_event, NULL);
     app_player_register_callback(tone_player, on_tone_event, NULL);
-    app_player_register_focus_cb(music_player, on_music_focus_change, NULL);
 }
 
 static int voice_player_init(void)

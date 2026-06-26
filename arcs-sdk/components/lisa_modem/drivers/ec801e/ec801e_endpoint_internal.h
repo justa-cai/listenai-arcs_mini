@@ -19,6 +19,7 @@ typedef modem_runtime_wait_hook_t ec801e_endpoint_wait_hook_t;
 struct ec801e_endpoint_ctx {
     at_client_t *client;
     bool initialized;
+    lisa_modem_status_t status;
     modem_network_status_t network_status;
     bool network_ready;
     uint8_t active_pdp_cid;

@@ -13,11 +13,13 @@
 #include "lisa_bluetooth.h"
 #include "sys_network_manager.h"
 #include "sys_wifi.h"
+#include "board.h"
 
 #if CONFIG_FILE_SYSTEM
 #include "lsfs.h"
 #include "disk/disk_access.h"
 #include "lisa_sdmmc.h"
+#include "lisa_gpio.h"
 #endif
 
 #include "romfs.h"
@@ -49,6 +51,42 @@ static struct lsfs_mount_t sdmmc_mnt = {
     .mnt_point = SDMMC_MOUNT_POINT,
     .fs_data = NULL,
 };
+
+struct lsfs_mount_t *platform_sd_mount_get(void)
+{
+    return &sdmmc_mnt;
+}
+
+static bool platform_tf_card_inserted(void)
+{
+#ifdef TF_DET_DEVICE_NAME
+    lisa_device_t *tf_det_dev = lisa_device_get(TF_DET_DEVICE_NAME);
+    if (!lisa_device_ready(tf_det_dev)) {
+        LOGW("TF detect device %s PD%d not ready", TF_DET_DEVICE_NAME, TF_DET_PIN);
+        return false;
+    }
+
+    int ret = lisa_gpio_configure(tf_det_dev, TF_DET_PIN, LISA_GPIO_INPUT);
+    if (ret != 0) {
+        LOGW("TF detect %s PD%d configure failed: %d", TF_DET_DEVICE_NAME, TF_DET_PIN, ret);
+        return false;
+    }
+
+    int level = lisa_gpio_read_pin(tf_det_dev, TF_DET_PIN);
+    if (level < 0) {
+        LOGW("TF detect %s PD%d read failed: %d", TF_DET_DEVICE_NAME, TF_DET_PIN, level);
+        return false;
+    }
+
+    bool inserted = level == (TF_DET_ACTIVE_LEVEL ? LISA_GPIO_HIGH : LISA_GPIO_LOW);
+    LOGI("TF detect %s PD%d level=%d active_level=%d inserted=%d",
+         TF_DET_DEVICE_NAME, TF_DET_PIN, level, TF_DET_ACTIVE_LEVEL, inserted);
+
+    return inserted;
+#else
+    return true;
+#endif
+}
 #endif
 
 static void *cjson_malloc(size_t sz)
@@ -124,25 +162,30 @@ static int voice_platform_init(void)
         LISA_LOGW(TAG, "IPC not ready, skip ic_message_init");
     }
 
-#ifdef CONFIG_FILE_SYSTEM
-    lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
+#if CONFIG_FILE_SYSTEM
     disk_init(NULL);
 #if CONFIG_LVFS_POSIX_API
     lvfs_init();
 #endif
     lsfs_init();
 
-    if (lsfs_mount(&sdmmc_mnt) != 0) {
-        LOGI("Mount failed, formatting...");
-        if (lsfs_mkfs(LSFS_FATFS, SDMMC_DEVICE, NULL, 0) == 0) {
-            if (lsfs_mount(&sdmmc_mnt) == 0) {
-                LOGI("Mounted %s successfully\n", SDMMC_MOUNT_POINT);
+    if (platform_tf_card_inserted()) {
+        lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
+
+        if (lsfs_mount(&sdmmc_mnt) != 0) {
+            LOGI("Mount failed, formatting...");
+            if (lsfs_mkfs(LSFS_FATFS, SDMMC_DEVICE, NULL, 0) == 0) {
+                if (lsfs_mount(&sdmmc_mnt) == 0) {
+                    LOGI("Mounted %s successfully\n", SDMMC_MOUNT_POINT);
+                }
+            } else {
+                LOGE("Failed to mount filesystem");
             }
         } else {
-            LOGE("Failed to mount filesystem: %d");
+            LOGI("Mounted %s successfully\n", SDMMC_MOUNT_POINT);
         }
     } else {
-        LOGI("Mounted %s successfully\n", SDMMC_MOUNT_POINT);
+        LOGI("TF card not inserted, skip SD mount");
     }
 #endif
 

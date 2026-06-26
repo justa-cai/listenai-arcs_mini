@@ -58,7 +58,7 @@ static void lisa_ui_llm_base_class_constructor(const lv_obj_class_t *class_p, lv
     lv_obj_set_width(llm_base->bar, LV_PCT(100));
     lv_obj_set_height(llm_base->bar, LISA_UI_LLM_BASE_DEFAULT_BAR_HEIGHT);
     lv_obj_set_style_bg_color(llm_base->bar, lv_color_hex(LISA_UI_LLM_BASE_DEFAULT_BAR_COLOR), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(llm_base->bar, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(llm_base->bar, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(llm_base->bar, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(llm_base->bar, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(llm_base->bar, 0, LV_PART_MAIN);
@@ -72,7 +72,7 @@ static void lisa_ui_llm_base_class_constructor(const lv_obj_class_t *class_p, lv
     llm_base->container = lv_obj_create(obj);
     lv_obj_set_width(llm_base->container, LV_PCT(100));
     lv_obj_set_style_bg_color(llm_base->container, lv_color_hex(0x000000), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(llm_base->container, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(llm_base->container, LV_OPA_TRANSP, LV_PART_MAIN);  // 透明背景，让表情可见
     lv_obj_set_style_border_width(llm_base->container, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(llm_base->container, 0, LV_PART_MAIN);
     lv_obj_set_style_radius(llm_base->container, 0, LV_PART_MAIN);
@@ -97,12 +97,12 @@ lv_obj_t *lisa_ui_llm_base_bar_get(lv_obj_t *obj)
         // 添加错误日志
         return NULL;
     }
-    
+
     if (!LISA_UI_LLM_BASE_CLASS_CHECK(obj)) {
-        // 添加类型检查失败的错误日志  
+        // 添加类型检查失败的错误日志
         return NULL;
     }
-    
+
     lisa_ui_llm_base_t *llm_base = (lisa_ui_llm_base_t *)obj;
     return llm_base->bar;
 }
@@ -171,5 +171,4 @@ void lisa_ui_llm_base_clear_container(lv_obj_t *obj)
         lv_obj_clean(llm_base->container);
     }
 }
-
 

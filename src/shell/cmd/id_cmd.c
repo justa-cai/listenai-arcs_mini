@@ -39,7 +39,8 @@ static int device_cmd_set_pid(int argc, char **argv)
         shellPrint(shellGetCurrent(), "Set product ID failed: %s\n", pid);
         return -1;
     } else {
-        shellPrint(shellGetCurrent(), "Set product ID success: %s\n", pid);
+        kv_user_clear_sd_card_sync();
+        shellPrint(shellGetCurrent(), "Set product ID success: %s, TF card sync KV cleared\n", pid);
         return 0;
     }
 }

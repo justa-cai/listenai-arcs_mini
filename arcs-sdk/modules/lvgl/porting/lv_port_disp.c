@@ -190,16 +190,16 @@ void lv_port_disp_init(lisa_device_t *display_dev)
 	 * Create a buffer for drawing
 	 *----------------------------*/
 	uint32_t size = caps.width * caps.height * sizeof(lv_color_t);
-	lv_color_t *buf_1 = lv_mem_alloc(size);
+	lv_color_t *buf_1 = lvgl_port_malloc(size);
 	if(buf_1 == NULL) {
 		LV_LOG_ERROR("[%s] buf_1 malloc faild", __FUNCTION__);
 		return;
 	}
 #if CONFIG_LV_DOUBLE_VDB
-	lv_color_t *buf_2 = lv_mem_alloc(size);
+	lv_color_t *buf_2 = lvgl_port_malloc(size);
 	if(buf_2 == NULL) {
 		LV_LOG_ERROR("[%s] buf_2 malloc faild", __FUNCTION__);
-		lv_mem_free(buf_1);
+		lvgl_port_free(buf_1);
 		return;
 	}
 
@@ -207,8 +207,8 @@ void lv_port_disp_init(lisa_device_t *display_dev)
 	flush_queue = xQueueCreate(2, sizeof(flush_msg_t));
 	if (flush_queue == NULL) {
 		LV_LOG_ERROR("[%s] Failed to create flush queue", __FUNCTION__);
-		lv_mem_free(buf_1);
-		lv_mem_free(buf_2);
+		lvgl_port_free(buf_1);
+		lvgl_port_free(buf_2);
 		return;
 	}
 	
@@ -217,8 +217,8 @@ void lv_port_disp_init(lisa_device_t *display_dev)
 	if (flush_sem == NULL) {
 		LV_LOG_ERROR("[%s] Failed to create flush semaphore", __FUNCTION__);
 		vQueueDelete(flush_queue);
-		lv_mem_free(buf_1);
-		lv_mem_free(buf_2);
+		lvgl_port_free(buf_1);
+		lvgl_port_free(buf_2);
 		return;
 	}
 	
@@ -232,8 +232,8 @@ void lv_port_disp_init(lisa_device_t *display_dev)
 		LV_LOG_ERROR("[%s] Failed to create flush thread", __FUNCTION__);
 		vQueueDelete(flush_queue);
 		vSemaphoreDelete(flush_sem);
-		lv_mem_free(buf_1);
-		lv_mem_free(buf_2);
+		lvgl_port_free(buf_1);
+		lvgl_port_free(buf_2);
 		return;
 	}
 	
@@ -265,6 +265,9 @@ void lv_port_disp_init(lisa_device_t *display_dev)
 #elif CONFIG_LV_DRIVER_ROTATE_90
 	disp_drv.rotated = 1;
 	lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_90);
+#elif CONFIG_LV_DRIVER_ROTATE_180
+	disp_drv.rotated = 0;
+	lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_180);
 #elif CONFIG_LV_DRIVER_ROTATE_270
 	disp_drv.rotated = 1;
 	lisa_display_set_orientation(lv_display_device, LISA_DISPLAY_ORIENTATION_270);

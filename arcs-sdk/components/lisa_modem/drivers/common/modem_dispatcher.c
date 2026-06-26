@@ -13,8 +13,7 @@
 #define MODEM_DISPATCHER_DEFAULT_CONTROL_CAPACITY 8U
 #define MODEM_DISPATCHER_DEFAULT_TASK_NAME "modem_disp"
 #define MODEM_DISPATCHER_DEFAULT_STACK_SIZE 4096U
-#define MODEM_DISPATCHER_DEFAULT_PRIORITY 6U
-#define MODEM_DISPATCHER_DEFAULT_LOOP_DELAY_MS 10U
+#define MODEM_DISPATCHER_DEFAULT_PRIORITY 8U
 #define MODEM_DISPATCHER_TX_BURST_MAX_TURNS 4U
 #define MODEM_DISPATCHER_RX_BURST_MAX_TURNS 1U
 /*
@@ -51,7 +50,6 @@ struct modem_dispatcher {
     TaskHandle_t task_handle;
     bool running;
     bool prefer_tx;
-    volatile uint16_t loop_delay_ms;
     uint8_t tx_burst_budget;
     bool rx_burst_active;
     uint8_t rx_burst_budget;
@@ -65,18 +63,6 @@ struct modem_dispatcher {
 static uint32_t modem_dispatcher_tick_elapsed_ms(TickType_t start, TickType_t end)
 {
     return (uint32_t)((end - start) * portTICK_PERIOD_MS);
-}
-
-static TickType_t modem_dispatcher_ms_to_ticks_nonzero(uint16_t delay_ms)
-{
-    TickType_t ticks;
-
-    if (delay_ms == 0U) {
-        return 0;
-    }
-
-    ticks = pdMS_TO_TICKS(delay_ms);
-    return ticks > 0 ? ticks : 1;
 }
 
 static void modem_dispatcher_clear_rx_burst(modem_dispatcher_t *dispatcher)
@@ -303,12 +289,7 @@ static void modem_dispatcher_task_fn(void *user_data)
         } else {
             taskYIELD();
         }
-        TickType_t loop_delay_ticks = modem_dispatcher_ms_to_ticks_nonzero(dispatcher->loop_delay_ms);
-        if (loop_delay_ticks > 0) {
-            vTaskDelay(loop_delay_ticks);
-        } else {
-            taskYIELD();
-        }
+        vTaskDelay(3);
     }
 
     vTaskDelete(NULL);
@@ -358,9 +339,6 @@ modem_dispatcher_t *modem_dispatcher_create(const modem_dispatcher_config_t *con
     dispatcher->config.task_priority = config->task_priority > 0U
                                      ? config->task_priority
                                      : MODEM_DISPATCHER_DEFAULT_PRIORITY;
-    dispatcher->loop_delay_ms = config->loop_delay_ms > 0U
-                              ? config->loop_delay_ms
-                              : MODEM_DISPATCHER_DEFAULT_LOOP_DELAY_MS;
     dispatcher->control_queue.capacity = control_capacity;
     dispatcher->tx_queue.capacity = data_capacity;
     dispatcher->rx_queue.capacity = data_capacity;
@@ -425,22 +403,6 @@ void modem_dispatcher_stop(modem_dispatcher_t *dispatcher)
         vTaskDelete(dispatcher->task_handle);
         dispatcher->task_handle = NULL;
     }
-}
-
-int modem_dispatcher_set_loop_delay(modem_dispatcher_t *dispatcher, uint16_t delay_ms)
-{
-    if (!dispatcher) {
-        return -1;
-    }
-
-    dispatcher->loop_delay_ms = delay_ms;
-    modem_dispatcher_wake(dispatcher);
-    return 0;
-}
-
-uint16_t modem_dispatcher_get_loop_delay(modem_dispatcher_t *dispatcher)
-{
-    return dispatcher ? dispatcher->loop_delay_ms : 0U;
 }
 
 bool modem_dispatcher_enqueue_control(modem_dispatcher_t *dispatcher,

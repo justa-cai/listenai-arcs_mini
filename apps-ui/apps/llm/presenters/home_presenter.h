@@ -33,7 +33,11 @@ struct home_nav_scr_data {
     uint8_t img_rec_triggered;
     uint8_t img_rec_is_mcp;
     uint8_t img_rec_is_button;
+    uint8_t camera_preview_result_pending;
     uint8_t mcp_emoji_running;
+    uint8_t mcp_emoji_pending;
+    uint32_t mcp_emoji_start_tick;
+    char mcp_emoji_pending_name[HOME_EMOJI_NAME_MAX];
     uint8_t mcp_loading;
     uint8_t finished;
     uint8_t speaking;
@@ -42,10 +46,16 @@ struct home_nav_scr_data {
     uint8_t standby_sleep_active;
     uint8_t standby_after_tts_pending;
     uint8_t standby_sleep_restore_brightness;
+    uint8_t music_text_active;
     model_battery_status_t last_battery_status;
     model_camera_preview_t camera_preview;
     char current_emoji_name[HOME_EMOJI_NAME_MAX];
     char oneshot_restore_emoji_name[HOME_EMOJI_NAME_MAX];
+    char tts_text_buf[2048];
+    uint16_t tts_text_len;
+    uint16_t tts_text_displayed;
+    uint8_t tts_text_stream_done;
+    lv_timer_t *tts_text_timer;
 };
 
 void standby_text_timer_update(struct home_nav_scr_data *scr_data);

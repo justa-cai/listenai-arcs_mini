@@ -16,18 +16,28 @@
 #include "log_buffer.h"
 #include "log_upload.h"
 
-#define LOG_UPLOAD_TIMEOUT_SEC 10
+#define LOG_UPLOAD_TIMEOUT_SEC 120U
 #define LOG_UPLOAD_HEADER_TEXT "Content-Type: text/plain; charset=utf-8"
 #define LOG_UPLOAD_READ_BUF_SIZE 256U
 #define LOG_UPLOAD_RESPONSE_PREVIEW_MAX 255U
 #define LOG_UPLOAD_TASK_STACK_SIZE 8192U
 #define LOG_UPLOAD_MAX_LOG_BYTES LOG_BUFFER_CAPACITY
+#define LOG_UPLOAD_STREAM_CHUNK_SIZE HTTP_CLIENT_BUFFER_SIZE
+#define LOG_UPLOAD_UI_READY_DELAY_MS 300U
 
-static volatile bool g_log_upload_running = false;
-static log_upload_state_t g_log_upload_state;
+static volatile bool s_log_upload_running = false;
+static log_upload_state_t s_log_upload_state;
+
+struct log_upload_body_view {
+    const uint8_t *first_data;
+    uint32_t first_size;
+    const uint8_t *second_data;
+    uint32_t second_size;
+    uint32_t total_len;
+};
 
 struct log_upload_response {
-    uint32_t body_len;
+    uint32_t preview_len;
     char preview[LOG_UPLOAD_RESPONSE_PREVIEW_MAX + 1];
 };
 
@@ -37,62 +47,119 @@ struct log_upload_task_ctx {
     char upload_url[HTTP_CLIENT_MAX_URL_LENGTH];
 };
 
+/*
+ * 这里仍然是一个普通的带 Content-Length 的 POST。
+ * “分块”只是设备本地按小块把 body 交给底层发送，避免一次性准备大块连续内存。
+ */
+struct log_upload_post_ctx {
+    const uint8_t *first_data;
+    uint32_t first_size;
+    uint32_t first_offset;
+    const uint8_t *second_data;
+    uint32_t second_size;
+    uint32_t second_offset;
+    char head_chunk[LOG_UPLOAD_STREAM_CHUNK_SIZE + 1];
+};
+
+struct log_upload_request {
+    HTTPParameters *http_param;
+    struct log_upload_post_ctx *post_ctx;
+    HTTP_CLIENT http_client;
+    bool opened;
+};
+
+/*
+ * HTTPC_request_r() 的取数回调没有用户指针。
+ * 当前上传本身就是串行的，所以这里用一个全局上下文承接本次请求即可。
+ */
+static struct log_upload_post_ctx *s_log_upload_post_ctx;
+
+/* 提供固定 HTTP 头，目前只声明上传内容是 UTF-8 文本。 */
 static void *log_upload_headers_callback(void)
 {
     return (void *)LOG_UPLOAD_HEADER_TEXT;
 }
 
-static void log_upload_response_reset(struct log_upload_response *response)
+/* 原子地把上传状态从“空闲”切到“运行中”，避免并发上传。 */
+static bool log_upload_try_mark_running(void)
 {
-    if (!response) {
+    bool marked = false;
+
+    taskENTER_CRITICAL();
+    if (!s_log_upload_running) {
+        s_log_upload_running = true;
+        marked = true;
+    }
+    taskEXIT_CRITICAL();
+
+    return marked;
+}
+
+/* 清除运行标记，允许下一次上传任务进入。 */
+static void log_upload_clear_running(void)
+{
+    taskENTER_CRITICAL();
+    s_log_upload_running = false;
+    taskEXIT_CRITICAL();
+}
+
+/* 根据当前上传状态向语音业务广播状态事件。 */
+static void log_upload_publish_state_event(void)
+{
+    uint32_t msg_id;
+    log_upload_state_t snapshot;
+
+    taskENTER_CRITICAL();
+    snapshot = s_log_upload_state;
+    taskEXIT_CRITICAL();
+
+    switch (snapshot.state) {
+    case LOG_UPLOAD_STATE_STARTING:
+        msg_id = VOICE_MSG_LOG_UPLOAD_STARTING;
+        break;
+    case LOG_UPLOAD_STATE_UPLOADING:
+        msg_id = VOICE_MSG_LOG_UPLOAD_UPLOADING;
+        break;
+    case LOG_UPLOAD_STATE_SUCCESSED:
+        msg_id = VOICE_MSG_LOG_UPLOAD_SUCCESSED;
+        break;
+    case LOG_UPLOAD_STATE_FAILED:
+        msg_id = VOICE_MSG_LOG_UPLOAD_FAILED;
+        break;
+    default:
         return;
     }
 
-    response->body_len = 0;
-    response->preview[0] = '\0';
+    voice_msg_pub(msg_id, &snapshot, sizeof(snapshot));
 }
 
-static void log_upload_response_append(struct log_upload_response *response,
-                                       const void *buf,
-                                       uint32_t len)
+/* 更新内部状态快照，并同步通知上层状态变化。 */
+static void log_upload_notify_state(log_upload_state_e state, int result)
 {
-    uint32_t copy_len;
+    taskENTER_CRITICAL();
+    s_log_upload_state.state = state;
+    s_log_upload_state.result = result;
+    taskEXIT_CRITICAL();
 
-    if (!response || !buf || len == 0) {
-        return;
-    }
-
-    copy_len = LOG_UPLOAD_RESPONSE_PREVIEW_MAX - response->body_len;
-    if (copy_len > len) {
-        copy_len = len;
-    }
-
-    if (copy_len > 0) {
-        memcpy(response->preview + response->body_len, buf, copy_len);
-        response->body_len += copy_len;
-        response->preview[response->body_len] = '\0';
-    }
+    log_upload_publish_state_event();
 }
 
-static int log_upload_build_text_body(const struct log_buffer_snapshot *snapshot,
-                                      uint8_t **body_out,
-                                      uint32_t *body_len_out)
+/* 根据环形缓冲区快照构造本次上传要发送的两段 body 视图。 */
+static int log_upload_build_body_view(const struct log_buffer_snapshot *snapshot,
+                                      struct log_upload_body_view *body_view)
 {
-    uint8_t *body;
     const uint8_t *first_data;
     const uint8_t *second_data;
     uint32_t first_size;
     uint32_t second_size;
     uint32_t total_len;
     uint32_t skip_bytes = 0;
-    uint32_t copied = 0;
 
-    if (!snapshot || !body_out || !body_len_out) {
+    if (!snapshot || !body_view) {
         return -EINVAL;
     }
 
-    *body_out = NULL;
-    *body_len_out = 0;
+    memset(body_view, 0, sizeof(*body_view));
     if (snapshot->valid_bytes == 0) {
         return 0;
     }
@@ -118,98 +185,108 @@ static int log_upload_build_text_body(const struct log_buffer_snapshot *snapshot
         total_len = LOG_UPLOAD_MAX_LOG_BYTES;
     }
 
-    body = lisa_mem_alloc(total_len + 1);
-    if (!body) {
-        return -ENOMEM;
-    }
-
-    if (first_size > 0 && first_data) {
-        memcpy(body, first_data, first_size);
-        copied += first_size;
-    }
-    if (second_size > 0 && second_data) {
-        memcpy(body + copied, second_data, second_size);
-        copied += second_size;
-    }
-
-    body[copied] = '\0';
-    *body_out = body;
-    *body_len_out = copied;
+    body_view->first_data = first_data;
+    body_view->first_size = first_size;
+    body_view->second_data = second_data;
+    body_view->second_size = second_size;
+    body_view->total_len = total_len;
     return 0;
 }
 
-static bool log_upload_try_mark_running(void)
+/* 预装第一块 body 数据，供 HTTPC_open/HTTPC_request_r 立刻开始发送。 */
+static void log_upload_prime_post_ctx(struct log_upload_post_ctx *post_ctx,
+                                      const struct log_upload_body_view *body_view)
 {
-    bool marked = false;
+    uint32_t remaining;
+    uint32_t copied = 0;
 
-    taskENTER_CRITICAL();
-    if (!g_log_upload_running) {
-        g_log_upload_running = true;
-        marked = true;
-    }
-    taskEXIT_CRITICAL();
-
-    return marked;
-}
-
-static void log_upload_clear_running(void)
-{
-    taskENTER_CRITICAL();
-    g_log_upload_running = false;
-    taskEXIT_CRITICAL();
-}
-
-static void log_upload_publish_state_msg(uint32_t msg_id)
-{
-    log_upload_state_t snapshot;
-
-    taskENTER_CRITICAL();
-    snapshot = g_log_upload_state;
-    taskEXIT_CRITICAL();
-
-    voice_msg_pub(msg_id, &snapshot, sizeof(snapshot));
-}
-
-static void log_upload_set_state(log_upload_state_e state, int result)
-{
-    taskENTER_CRITICAL();
-    g_log_upload_state.state = state;
-    g_log_upload_state.result = result;
-    taskEXIT_CRITICAL();
-
-    switch (state) {
-    case LOG_UPLOAD_STATE_STARTING:
-        log_upload_publish_state_msg(VOICE_MSG_LOG_UPLOAD_STARTING);
-        break;
-    case LOG_UPLOAD_STATE_UPLOADING:
-        log_upload_publish_state_msg(VOICE_MSG_LOG_UPLOAD_UPLOADING);
-        break;
-    case LOG_UPLOAD_STATE_SUCCESSED:
-        log_upload_publish_state_msg(VOICE_MSG_LOG_UPLOAD_SUCCESSED);
-        break;
-    case LOG_UPLOAD_STATE_FAILED:
-        log_upload_publish_state_msg(VOICE_MSG_LOG_UPLOAD_FAILED);
-        break;
-    default:
-        break;
-    }
-}
-
-static void log_upload_call_complete(const struct log_upload_task_ctx *ctx)
-{
-    log_upload_state_t snapshot;
-
-    if (!ctx || !ctx->complete_cb) {
+    if (!post_ctx || !body_view) {
         return;
     }
 
-    if (log_upload_get_state_snapshot(&snapshot) != 0) {
-        return;
+    memset(post_ctx, 0, sizeof(*post_ctx));
+    post_ctx->first_data = body_view->first_data;
+    post_ctx->first_size = body_view->first_size;
+    post_ctx->second_data = body_view->second_data;
+    post_ctx->second_size = body_view->second_size;
+
+    remaining = body_view->total_len;
+    if (remaining > LOG_UPLOAD_STREAM_CHUNK_SIZE) {
+        remaining = LOG_UPLOAD_STREAM_CHUNK_SIZE;
     }
 
-    ctx->complete_cb(&snapshot, ctx->complete_cb_arg);
+    if (remaining > 0 && post_ctx->first_data && post_ctx->first_size > 0) {
+        uint32_t first_copy = remaining;
+
+        if (first_copy > post_ctx->first_size) {
+            first_copy = post_ctx->first_size;
+        }
+        memcpy(post_ctx->head_chunk, post_ctx->first_data, first_copy);
+        post_ctx->first_offset = first_copy;
+        copied += first_copy;
+        remaining -= first_copy;
+    }
+
+    if (remaining > 0 && post_ctx->second_data && post_ctx->second_size > 0) {
+        uint32_t second_copy = remaining;
+
+        if (second_copy > post_ctx->second_size) {
+            second_copy = post_ctx->second_size;
+        }
+        memcpy(post_ctx->head_chunk + copied, post_ctx->second_data, second_copy);
+        post_ctx->second_offset = second_copy;
+        copied += second_copy;
+    }
+
+    post_ctx->head_chunk[copied] = '\0';
 }
 
+/* 统计本次请求已经交给 HTTP 栈的 body 字节数。 */
+static uint32_t log_upload_post_ctx_delivered_len(const struct log_upload_post_ctx *post_ctx)
+{
+    if (!post_ctx) {
+        return 0;
+    }
+
+    return post_ctx->first_offset + post_ctx->second_offset;
+}
+
+/* 提供后续 body 分片给 HTTPC_request_r。 */
+static PostData log_upload_get_post_data(void)
+{
+    PostData post_data = {.pData = NULL, .pLength = 0};
+    struct log_upload_post_ctx *post_ctx = s_log_upload_post_ctx;
+    uint32_t remaining;
+
+    if (!post_ctx) {
+        return post_data;
+    }
+
+    if (post_ctx->first_data && post_ctx->first_offset < post_ctx->first_size) {
+        remaining = post_ctx->first_size - post_ctx->first_offset;
+        if (remaining > LOG_UPLOAD_STREAM_CHUNK_SIZE) {
+            remaining = LOG_UPLOAD_STREAM_CHUNK_SIZE;
+        }
+        post_data.pData = (void *)(post_ctx->first_data + post_ctx->first_offset);
+        post_data.pLength = (int32_t)remaining;
+        post_ctx->first_offset += remaining;
+        return post_data;
+    }
+
+    if (post_ctx->second_data && post_ctx->second_offset < post_ctx->second_size) {
+        remaining = post_ctx->second_size - post_ctx->second_offset;
+        if (remaining > LOG_UPLOAD_STREAM_CHUNK_SIZE) {
+            remaining = LOG_UPLOAD_STREAM_CHUNK_SIZE;
+        }
+        post_data.pData = (void *)(post_ctx->second_data + post_ctx->second_offset);
+        post_data.pLength = (int32_t)remaining;
+        post_ctx->second_offset += remaining;
+    }
+
+    return post_data;
+}
+
+/* 读取完整 HTTP 响应体，并截取一小段内容用于日志打印。 */
 static int log_upload_read_response(HTTPParameters *http_param,
                                     uint32_t expected_len,
                                     struct log_upload_response *response)
@@ -223,116 +300,202 @@ static int log_upload_read_response(HTTPParameters *http_param,
         return -EINVAL;
     }
 
-    log_upload_response_reset(response);
+    response->preview_len = 0;
+    response->preview[0] = '\0';
     if (expected_len == 0) {
         return 0;
     }
 
     do {
         uint32_t to_read = expected_len - total_read;
+
         if (to_read > LOG_UPLOAD_READ_BUF_SIZE) {
             to_read = LOG_UPLOAD_READ_BUF_SIZE;
         }
 
+        received = 0;
         read_ret = HTTPC_read(http_param, read_buf, to_read, (void *)&received);
         if (received > 0) {
+            uint32_t copy_len = LOG_UPLOAD_RESPONSE_PREVIEW_MAX - response->preview_len;
+
             total_read += received;
-            log_upload_response_append(response, read_buf, received);
+            if (copy_len > received) {
+                copy_len = received;
+            }
+            if (copy_len > 0) {
+                memcpy(response->preview + response->preview_len, read_buf, copy_len);
+                response->preview_len += copy_len;
+                response->preview[response->preview_len] = '\0';
+            }
         }
     } while (read_ret == 0 && total_read < expected_len);
 
-    if (total_read != expected_len) {
-        LISA_LOGE(TAG, "upload response read incomplete: got=%u expect=%u", total_read, expected_len);
-        return -EIO;
+    /*
+     * HTTPC_read() 可能会在最后一批数据已经拷贝完成后再返回 HTTP_CLIENT_EOS。
+     * 只要我们已经读满服务端声明的长度，就按成功处理，避免误判失败。
+     */
+    if (total_read == expected_len) {
+        return 0;
     }
 
-    return 0;
+    if (read_ret != 0) {
+        LISA_LOGE(TAG, "Upload response read failed: ret=%d got=%u expect=%u",
+                  read_ret, total_read, expected_len);
+        return -read_ret;
+    }
+
+    LISA_LOGE(TAG, "Upload response read incomplete: got=%u expect=%u", total_read, expected_len);
+    return -EIO;
 }
 
-static int log_upload_send_request(const char *upload_url, const uint8_t *body, uint32_t body_len)
+/* 为一次上传请求分配 HTTP 参数和分片发送上下文。 */
+static int log_upload_request_init(struct log_upload_request *request,
+                                   const char *upload_url,
+                                   const struct log_upload_body_view *body_view)
 {
-    struct log_upload_response response = {0};
-    HTTPParameters *http_param;
-    HTTP_CLIENT http_client = {0};
-    int ret = -EIO;
-    bool opened = false;
+    uint32_t body_len;
 
-    if (!upload_url || upload_url[0] == '\0' || !body || body_len == 0) {
+    if (!request || !upload_url || upload_url[0] == '\0' || !body_view || body_view->total_len == 0) {
         return -EINVAL;
     }
 
-    http_param = lisa_mem_calloc(1, sizeof(*http_param));
-    if (!http_param) {
+    body_len = body_view->total_len;
+    memset(request, 0, sizeof(*request));
+
+    request->http_param = lisa_mem_calloc(1, sizeof(*request->http_param));
+    if (!request->http_param) {
         return -ENOMEM;
     }
 
-    if (strlen(upload_url) >= sizeof(http_param->Uri)) {
-        lisa_mem_free(http_param);
+    request->post_ctx = lisa_mem_calloc(1, sizeof(*request->post_ctx));
+    if (!request->post_ctx) {
+        lisa_mem_free(request->http_param);
+        request->http_param = NULL;
+        return -ENOMEM;
+    }
+
+    if (strlen(upload_url) >= sizeof(request->http_param->Uri)) {
         return -ENOSPC;
     }
 
-    strcpy(http_param->Uri, upload_url);
-    http_param->HttpVerb = VerbPost;
-    http_param->nTimeout = LOG_UPLOAD_TIMEOUT_SEC;
-    http_param->pData = (void *)body;
-    http_param->pLength = body_len;
+    strcpy(request->http_param->Uri, upload_url);
+    request->http_param->HttpVerb = VerbPost;
+    request->http_param->nTimeout = LOG_UPLOAD_TIMEOUT_SEC;
+    request->http_param->pLength = body_len;
 
-    LISA_LOGI(TAG, "log upload start url=%s body_len=%u", upload_url, body_len);
+    log_upload_prime_post_ctx(request->post_ctx, body_view);
+    request->http_param->pData = request->post_ctx->head_chunk;
+    return 0;
+}
 
-    if (HTTPC_open(http_param) != 0) {
-        LISA_LOGE(TAG, "HTTPC_open failed");
-        goto exit;
-    }
-    opened = true;
+/* 用当前日志快照执行一次真正的 HTTP 上传。 */
+static int log_upload_send_request(const char *upload_url, const struct log_upload_body_view *body_view)
+{
+    struct log_upload_response response = {0};
+    struct log_upload_request request = {0};
+    TickType_t start_tick;
+    TickType_t elapsed_tick;
+    uint32_t body_len;
+    int ret;
 
-    ret = HTTPC_request(http_param, log_upload_headers_callback);
+    ret = log_upload_request_init(&request, upload_url, body_view);
     if (ret != 0) {
-        LISA_LOGE(TAG, "HTTPC_request failed (%d)", ret);
-        ret = -EIO;
         goto exit;
     }
 
-    if (HTTPC_get_request_info(http_param, &http_client) != 0) {
-        LISA_LOGE(TAG, "HTTPC_get_request_info failed");
-        ret = -EIO;
-        goto exit;
-    }
+    body_len = body_view->total_len;
+    LISA_LOGI(TAG, "Start upload: url=%s body_len=%u timeout=%us first=%u second=%u chunk=%u",
+              upload_url,
+              body_len,
+              (unsigned int)request.http_param->nTimeout,
+              body_view->first_size,
+              body_view->second_size,
+              (unsigned int)LOG_UPLOAD_STREAM_CHUNK_SIZE);
 
-    ret = log_upload_read_response(http_param, http_client.TotalResponseBodyLength, &response);
+    ret = HTTPC_open(request.http_param);
     if (ret != 0) {
-        LISA_LOGE(TAG, "failed to read upload response");
+        LISA_LOGE(TAG, "HTTPC_open failed: ret=%d", ret);
+        ret = -ret;
+        goto exit;
+    }
+    request.opened = true;
+
+    start_tick = xTaskGetTickCount();
+    s_log_upload_post_ctx = request.post_ctx;
+    ret = HTTPC_request_r(request.http_param, log_upload_headers_callback, log_upload_get_post_data);
+    s_log_upload_post_ctx = NULL;
+    elapsed_tick = xTaskGetTickCount() - start_tick;
+    if (ret != 0) {
+        LISA_LOGE(TAG, "HTTPC_request failed: ret=%d body_len=%u elapsed=%ums",
+                  ret, body_len, (unsigned int)pdTICKS_TO_MS(elapsed_tick));
+        ret = -ret;
         goto exit;
     }
 
-    LISA_LOGI(TAG, "upload response status=%u body_len=%u",
-              http_client.HTTPStatusCode, http_client.TotalResponseBodyLength);
+    ret = HTTPC_get_request_info(request.http_param, &request.http_client);
+    if (ret != 0) {
+        LISA_LOGE(TAG, "HTTPC_get_request_info failed: ret=%d body_len=%u elapsed=%ums",
+                  ret, body_len, (unsigned int)pdTICKS_TO_MS(elapsed_tick));
+        ret = -ret;
+        goto exit;
+    }
+
+    ret = log_upload_read_response(request.http_param,
+                                   request.http_client.TotalResponseBodyLength,
+                                   &response);
+    if (ret != 0) {
+        LISA_LOGE(TAG, "Failed to read upload response: ret=%d body_len=%u elapsed=%ums",
+                  ret, body_len, (unsigned int)pdTICKS_TO_MS(elapsed_tick));
+        goto exit;
+    }
+
+    LISA_LOGI(TAG,
+              "Upload response: status=%u resp_body_len=%u delivered_body_len=%u expect_body_len=%u elapsed=%ums",
+              request.http_client.HTTPStatusCode,
+              request.http_client.TotalResponseBodyLength,
+              log_upload_post_ctx_delivered_len(request.post_ctx),
+              body_len,
+              (unsigned int)pdTICKS_TO_MS(elapsed_tick));
     if (response.preview[0] != '\0') {
-        LISA_LOGI(TAG, "upload response body: %s", response.preview);
+        LISA_LOGI(TAG, "Upload response body: %s", response.preview);
     } else {
-        LISA_LOGI(TAG, "upload response body: <empty>");
+        LISA_LOGI(TAG, "Upload response body: <empty>");
     }
 
-    if (http_client.HTTPStatusCode < 200 || http_client.HTTPStatusCode >= 300) {
-        LISA_LOGE(TAG, "upload rejected by server, status=%u", http_client.HTTPStatusCode);
-        ret = (int)http_client.HTTPStatusCode;
+    if (request.http_client.HTTPStatusCode < 200 || request.http_client.HTTPStatusCode >= 300) {
+        LISA_LOGE(TAG, "Upload rejected by server, status=%u", request.http_client.HTTPStatusCode);
+        ret = (int)request.http_client.HTTPStatusCode;
+        goto exit;
+    }
+
+    if (log_upload_post_ctx_delivered_len(request.post_ctx) != body_len) {
+        LISA_LOGE(TAG, "Upload body delivery mismatch: delivered=%u expect=%u",
+                  log_upload_post_ctx_delivered_len(request.post_ctx), body_len);
+        ret = -EIO;
         goto exit;
     }
 
     ret = 0;
 
- exit:
-    if (opened) {
-        HTTPC_close(http_param);
+exit:
+    s_log_upload_post_ctx = NULL;
+    if (request.opened && request.http_param) {
+        HTTPC_close(request.http_param);
     }
-    lisa_mem_free(http_param);
+    if (request.post_ctx) {
+        lisa_mem_free(request.post_ctx);
+    }
+    if (request.http_param) {
+        lisa_mem_free(request.http_param);
+    }
     return ret;
 }
 
+/* 组织一次完整上传：拿快照、发送、成功后清空缓冲区。 */
 static int log_upload_perform(const char *upload_url)
 {
     struct log_buffer_snapshot snapshot = {0};
-    uint8_t *body = NULL;
-    uint32_t body_len = 0;
+    struct log_upload_body_view body_view = {0};
     bool snapshot_acquired = false;
     int ret;
 
@@ -346,59 +509,65 @@ static int log_upload_perform(const char *upload_url)
     }
     snapshot_acquired = true;
 
-    ret = log_upload_build_text_body(&snapshot, &body, &body_len);
+    ret = log_upload_build_body_view(&snapshot, &body_view);
     if (ret != 0) {
         goto exit;
     }
-    if (body_len == 0) {
+    if (body_view.total_len == 0) {
         ret = -ENODATA;
         goto exit;
     }
 
-    ret = log_upload_send_request(upload_url, body, body_len);
+    LISA_LOGI(TAG, "Prepared upload body: total=%u first=%u second=%u",
+              body_view.total_len, body_view.first_size, body_view.second_size);
+
+    ret = log_upload_send_request(upload_url, &body_view);
     if (ret == 0) {
         log_buffer_reset();
+        LISA_LOGI(TAG, "Upload succeeded, log buffer cleared");
     }
 
- exit:
+exit:
     if (snapshot_acquired) {
         log_buffer_snapshot_release();
-    }
-    if (body) {
-        lisa_mem_free(body);
     }
     return ret;
 }
 
+/* 上传线程入口，负责驱动状态机并在结束时通知回调。 */
 static void log_upload_task(void *arg)
 {
     struct log_upload_task_ctx *ctx = (struct log_upload_task_ctx *)arg;
     int ret;
 
-    log_upload_set_state(LOG_UPLOAD_STATE_UPLOADING, 0);
+    /* 先让 STARTING 页面完成导航和首帧刷新，再打断云会话并抓取日志。 */
+    vTaskDelay(pdMS_TO_TICKS(LOG_UPLOAD_UI_READY_DELAY_MS));
+    log_upload_notify_state(LOG_UPLOAD_STATE_UPLOADING, 0);
     ret = log_upload_perform(ctx ? ctx->upload_url : NULL);
     if (ret == 0) {
-        LISA_LOGI(TAG, "log upload finished");
-        log_upload_set_state(LOG_UPLOAD_STATE_SUCCESSED, 0);
+        LISA_LOGI(TAG, "Log upload finished");
+        log_upload_notify_state(LOG_UPLOAD_STATE_SUCCESSED, 0);
     } else {
-        LISA_LOGE(TAG, "log upload failed (%d)", ret);
-        log_upload_set_state(LOG_UPLOAD_STATE_FAILED, ret);
+        LISA_LOGE(TAG, "Log upload failed (%d)", ret);
+        log_upload_notify_state(LOG_UPLOAD_STATE_FAILED, ret);
     }
 
     log_upload_clear_running();
-    log_upload_call_complete(ctx);
+    if (ctx && ctx->complete_cb) {
+        log_upload_state_t snapshot;
+
+        if (log_upload_get_state_snapshot(&snapshot) == 0) {
+            ctx->complete_cb(&snapshot, ctx->complete_cb_arg);
+        }
+    }
     if (ctx) {
         lisa_mem_free(ctx);
     }
     lisa_thread_delete(NULL);
 }
 
-int log_upload_trigger(void)
-{
-    return log_upload_trigger_with_url(NULL, NULL, NULL);
-}
-
-int log_upload_trigger_with_url(const char *upload_url, log_upload_complete_cb_t complete_cb, void *arg)
+/* 对外接口：启动一次异步日志上传，并在必要时通过回调返回最终结果。 */
+int log_upload_trigger(const char *upload_url, log_upload_complete_cb_t complete_cb, void *arg)
 {
     lisa_thread_attr_t attr = {
         .name = (uint8_t *)"log_upload",
@@ -426,7 +595,7 @@ int log_upload_trigger_with_url(const char *upload_url, log_upload_complete_cb_t
     ctx = lisa_mem_calloc(1, sizeof(*ctx));
     if (!ctx) {
         log_upload_clear_running();
-        log_upload_set_state(LOG_UPLOAD_STATE_FAILED, -ENOMEM);
+        log_upload_notify_state(LOG_UPLOAD_STATE_FAILED, -ENOMEM);
         return -ENOMEM;
     }
 
@@ -434,20 +603,20 @@ int log_upload_trigger_with_url(const char *upload_url, log_upload_complete_cb_t
     ctx->complete_cb_arg = arg;
     strcpy(ctx->upload_url, upload_url);
 
-    log_upload_set_state(LOG_UPLOAD_STATE_STARTING, 0);
-    voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, NULL, 0);
+    log_upload_notify_state(LOG_UPLOAD_STATE_STARTING, 0);
 
     if (lisa_thread_create(&attr, log_upload_task, ctx) == NULL) {
         lisa_mem_free(ctx);
         log_upload_clear_running();
-        log_upload_set_state(LOG_UPLOAD_STATE_FAILED, -ENOMEM);
+        log_upload_notify_state(LOG_UPLOAD_STATE_FAILED, -ENOMEM);
         return -ENOMEM;
     }
 
-    LISA_LOGI(TAG, "log upload scheduled");
+    LISA_LOGI(TAG, "Log upload scheduled");
     return 0;
 }
 
+/* 对外接口：读取当前上传状态快照，供上层查询进度/结果。 */
 int log_upload_get_state_snapshot(log_upload_state_t *state)
 {
     if (!state) {
@@ -455,13 +624,14 @@ int log_upload_get_state_snapshot(log_upload_state_t *state)
     }
 
     taskENTER_CRITICAL();
-    *state = g_log_upload_state;
+    *state = s_log_upload_state;
     taskEXIT_CRITICAL();
 
     return 0;
 }
 
+/* 对外接口：判断当前是否已经有上传任务在运行。 */
 int log_upload_is_running(void)
 {
-    return g_log_upload_running ? 1 : 0;
+    return s_log_upload_running ? 1 : 0;
 }

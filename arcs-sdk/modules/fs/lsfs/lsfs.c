@@ -283,6 +283,11 @@ int lsfs_close(struct lsfs_file_t *fp)
 		return 0;
 	}
 
+	if (fp->mp->fs == NULL) {
+		fp->mp = NULL;
+		return -ENODEV;
+	}
+
 	if(fp->mp->fs->close == NULL) {
 		return -ENOTSUP;
 	}
@@ -1223,5 +1228,4 @@ int lsfs_init(void)
 
 	return 0;
 }
-
 

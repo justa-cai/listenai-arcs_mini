@@ -12,6 +12,7 @@ target_sources(
     alarm_success_presenter.c
     alarm_ring_presenter.c
     quota_qrcode_presenter.c
+    sd_music_sync_presenter.c
 )
 
 if(CONFIG_OTA)

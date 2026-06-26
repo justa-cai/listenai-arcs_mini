@@ -513,7 +513,7 @@ static int arcs_set_orientation(lisa_device_t *dev, lisa_display_orientation_t o
     }
 
     if (orientation != LISA_DISPLAY_ORIENTATION_0 && orientation != LISA_DISPLAY_ORIENTATION_90
-        && orientation != LISA_DISPLAY_ORIENTATION_270) {
+        && orientation != LISA_DISPLAY_ORIENTATION_180 && orientation != LISA_DISPLAY_ORIENTATION_270) {
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
@@ -702,4 +702,3 @@ LISA_DEVICE_REGISTER(display, &arcs_display_api, &arcs_display_priv0, NULL, lisa
 #ifdef CONFIG_LISA_DUAL_DISPLAY
 LISA_DEVICE_REGISTER(display1, &arcs_display_api, &arcs_display_priv1, NULL, lisa_display_init_1, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 #endif
-

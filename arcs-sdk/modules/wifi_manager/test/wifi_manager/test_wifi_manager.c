@@ -56,6 +56,8 @@ static int s_lock_violation_count;
 static wifi_mgr_queue_message_t s_captured_queue_msgs[4];
 static int s_captured_queue_msg_count;
 static wifi_mgr_sta_config_t s_last_autoconn_cfg;
+static int disconnect_callback_call_count;
+static wifi_mgr_connection_info_t last_connection_info;
 
 static int custom_wifi_scan_ap_single(wifi_mgr_wifi_scan_info_t *ap_info, uint32_t size, uint32_t timeout);
 static int custom_wifi_storage_init(wifi_storage_ctx_t *ctx, wifi_storage_ops_t *ops, void *mutex);
@@ -65,10 +67,13 @@ static int custom_wifi_scan_same_ssid_diff_bssid(wifi_mgr_wifi_scan_info_t *ap_i
 static int custom_wifi_storage_search_saved_bssid(wifi_storage_ctx_t *ctx, wifi_mgr_sta_config_t **matched_list,
                                                   wifi_mgr_storage_search_mode_t search_modes, void *target);
 static int custom_wifi_sta_connect_autoconn(wifi_mgr_sta_config_t *sta_config, uint32_t timeout_ms);
+static int custom_wifi_sta_connect_pmk_fail_then_fallback_success(wifi_mgr_sta_config_t *sta_config,
+                                                                  uint32_t timeout_ms);
 static int custom_wifi_sta_connect_no_assert(wifi_mgr_sta_config_t *sta_config, uint32_t timeout_ms);
 static int custom_queue_push_record_size(void *queue, const void *item, size_t size, uint32_t timeout);
 static int custom_queue_push_capture_msgs(void *queue, const void *item, size_t size, uint32_t timeout);
 static void test_scan_done_callback(wifi_mgr_scan_info_t *ap_info, int ap_num, void *arg);
+static void test_disconnect_callback(wifi_mgr_connection_info_t *connection_info, void *arg);
 static int custom_queue_push_fail(void *queue, const void *item, size_t size, uint32_t timeout);
 static void test_public_apis_before_init_should_fail(void);
 static void test_wifi_manager_sta_get_status_before_init_should_return_disconnected(void);
@@ -462,6 +467,40 @@ void test_wifi_manager_autoconn_retry_without_pmk_on_handshake_timeout(void)
     TEST_ASSERT_TRUE(s_pmk_zeroed_history[1]);
 }
 
+void test_wifi_manager_autoconn_should_hide_pmk_failure_when_fallback_succeeds(void)
+{
+    wifi_mgr_queue_message_t msg_local = {0};
+    int ret = 0;
+
+    mock_wifi_scan_ap_fake.custom_fake = custom_wifi_scan_ap_single;
+    mock_wifi_sta_connect_fake.custom_fake = custom_wifi_sta_connect_pmk_fail_then_fallback_success;
+    mock_wifi_sta_is_enable_fake.return_val = true;
+    wifi_storage_search_ap_fake.custom_fake = custom_wifi_storage_search_ap_pmk;
+
+    disconnect_callback_call_count = 0;
+    memset(&last_connection_info, 0, sizeof(last_connection_info));
+    s_sta_connect_calls = 0;
+    memset(s_pmk_valid_history, 0, sizeof(s_pmk_valid_history));
+
+    wifi_mgr_sta_add_connection_cb(test_disconnect_callback, NULL);
+
+    msg_local.event = WIFI_MGR_QUEUE_MSG_EVENT_WIFI_AUTO_CONNECT_START;
+    msg_local.payload = mock_malloc(sizeof(wifi_mgr_autoconn_config_t));
+
+    ret = mock_queue_push(wifi_mgr_queue, &msg_local, sizeof(msg_local), 100);
+    TEST_ASSERT_EQUAL(0, ret);
+
+    usleep(200 * 1000);
+
+    TEST_ASSERT_EQUAL(2, s_sta_connect_calls);
+    TEST_ASSERT_EQUAL(1, s_pmk_valid_history[0]);
+    TEST_ASSERT_EQUAL(0, s_pmk_valid_history[1]);
+    TEST_ASSERT_EQUAL(1, disconnect_callback_call_count);
+    TEST_ASSERT_EQUAL(WIFI_MGR_STA_CONNECTED, last_connection_info.status);
+
+    wifi_mgr_sta_remove_connection_cb(test_disconnect_callback);
+}
+
 static int custom_sta_connect_failed(wifi_mgr_sta_config_t *sta_config, uint32_t timeout_ms)
 {
     (void)sta_config;
@@ -593,6 +632,36 @@ static int custom_wifi_sta_connect_autoconn(wifi_mgr_sta_config_t *sta_config, u
     }
     s_sta_connect_calls++;
     return -EIO;
+}
+
+static int custom_wifi_sta_connect_pmk_fail_then_fallback_success(wifi_mgr_sta_config_t *sta_config,
+                                                                  uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+
+    if (s_sta_connect_calls < (int)(sizeof(s_pmk_valid_history) / sizeof(s_pmk_valid_history[0]))) {
+        s_pmk_valid_history[s_sta_connect_calls] = sta_config->pmk_valid;
+    }
+    s_sta_connect_calls++;
+
+    wifi_mgr_wifi_event_cb_t *registered_cb = (wifi_mgr_wifi_event_cb_t *)mock_wifi_add_callback_fake.arg0_val;
+    TEST_ASSERT_NOT_NULL(registered_cb);
+    TEST_ASSERT_NOT_NULL(registered_cb->handler);
+
+    if (sta_config->pmk_valid) {
+        wifi_mgr_connect_fail_info_t fail_info = {
+            .error_code = -1,
+            .status_code = -1,
+            .reason_code = 3,
+        };
+        registered_cb->handler(WIFI_MGR_WIFI_EVT_STA_CONNECTION_FAILED,
+                               &fail_info, sizeof(fail_info), registered_cb->arg);
+        return -EIO;
+    }
+
+    registered_cb->handler(WIFI_MGR_WIFI_EVT_STA_CONNECTED,
+                           sta_config, sizeof(*sta_config), registered_cb->arg);
+    return 0;
 }
 
 static int custom_wifi_sta_connect_no_assert(wifi_mgr_sta_config_t *sta_config, uint32_t timeout_ms)
@@ -755,8 +824,6 @@ void test_wifi_manager_sta_is_enable(void)
 }
 
 // Test callback handler for disconnect events
-static int disconnect_callback_call_count = 0;
-static wifi_mgr_connection_info_t last_connection_info;
 static wifi_mgr_sta_config_t s_cb_recorded_sta_info;
 static int s_cb_modify_call_count;
 static int s_cb_record_call_count;
@@ -1707,6 +1774,7 @@ int main(void)
     RUN_TEST(test_wifi_manager_auto_connect_when_sta_disabled_should_not_scan);
     RUN_TEST(test_wifi_manager_auto_connect_when_sta_enabled_should_scan);
     RUN_TEST(test_wifi_manager_autoconn_retry_without_pmk_on_handshake_timeout);
+    RUN_TEST(test_wifi_manager_autoconn_should_hide_pmk_failure_when_fallback_succeeds);
     RUN_TEST(test_autoconn_next_interval_should_keep_base_during_warmup_no_candidate);
     RUN_TEST(test_autoconn_next_interval_should_backoff_after_warmup_no_candidate);
     RUN_TEST(test_autoconn_next_interval_should_backoff_on_connect_fail);

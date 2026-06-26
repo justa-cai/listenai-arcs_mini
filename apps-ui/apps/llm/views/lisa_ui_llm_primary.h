@@ -280,6 +280,18 @@ void lisa_ui_llm_primary_show_camera_image(lv_obj_t *obj, const uint16_t *rgb565
  */
 void lisa_ui_llm_primary_hide_camera_image(lv_obj_t *obj);
 lv_obj_t *lisa_ui_llm_primary_emoji_anim_get(lv_obj_t *obj);
+
+/**
+ * @brief 设置表情动画的横向和纵向偏移
+ *
+ * @param obj LLM UI主要组件对象
+ * @param offset_x 横向偏移值（正数向右，负数向左，单位像素）
+ * @param offset_y 纵向偏移值（正数向下，负数向上，单位像素）
+ *
+ * @note 表情中心点相对于屏幕中心点偏移
+ */
+void lisa_ui_llm_primary_set_emoji_offset(lv_obj_t *obj, int offset_x, int offset_y);
+
 /*===========================================
  * 内联函数
  *==========================================*/
@@ -298,6 +310,7 @@ static inline bool lisa_ui_llm_primary_is_valid(lv_obj_t *obj)
 void lisa_ui_llm_primary_img_show(lv_obj_t *obj, void *img);
 void lisa_ui_llm_primary_query_img_show(lv_obj_t *obj, const void *img);
 void lisa_ui_llm_primary_img_hide(lv_obj_t *obj);
+bool lisa_ui_llm_primary_img_is_visible(lv_obj_t *obj);
 void lisa_ui_llm_primary_img_hint_show(lv_obj_t *obj, const char *text);
 void lisa_ui_llm_primary_img_hint_hide(lv_obj_t *obj);
 void lisa_ui_llm_primary_finger_hint_show(lv_obj_t *obj, const char *text);

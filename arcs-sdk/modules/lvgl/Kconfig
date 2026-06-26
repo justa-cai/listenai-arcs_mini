@@ -95,6 +95,8 @@ if SDK_MODULE_LVGL
         config LV_DRIVER_ROTATE_90
             bool "Rotate 90 degrees clockwise"
             
+        config LV_DRIVER_ROTATE_180
+            bool "Rotate 180 degrees"
             
         config LV_DRIVER_ROTATE_270
             bool "Rotate 270 degrees clockwise"

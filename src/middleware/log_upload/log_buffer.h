@@ -6,8 +6,8 @@
 extern "C" {
 #endif
 
-/* Keep the latest 512KB of business logs for on-demand upload. */
-#define LOG_BUFFER_CAPACITY (512U * 1024U)
+/* 保存最近一段业务日志，容量可通过 Kconfig 配置，默认 512KB。 */
+#define LOG_BUFFER_CAPACITY (CONFIG_LOG_UPLOAD_BUFFER_CAPACITY_KB * 1024U)
 
 struct log_buffer_span {
     const uint8_t *data;
@@ -22,12 +22,11 @@ struct log_buffer_snapshot {
     uint32_t next_write_offset;
 };
 
-/*
- * Acquire a stable upload view by temporarily pausing this backend.
- * New logs are dropped until log_buffer_snapshot_release() is called.
- */
+/* 对外接口：获取一份稳定日志快照。调用后到 release 前，新日志会临时丢弃。 */
 int log_buffer_snapshot_acquire(struct log_buffer_snapshot *snapshot);
+/* 对外接口：释放快照窗口，恢复日志后端继续写入。 */
 void log_buffer_snapshot_release(void);
+/* 对外接口：清空当前缓冲日志，只保留之后的新日志。 */
 void log_buffer_reset(void);
 
 #ifdef __cplusplus
