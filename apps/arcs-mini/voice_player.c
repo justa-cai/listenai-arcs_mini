@@ -31,6 +31,9 @@
 #include "voice_intent/voice_intent_music.h"
 #include "voice_intent/voice_intent_photo_flow.h"
 #include "service_sd_music.h"
+#ifdef CONFIG_OTA
+#include "ota_manager.h"
+#endif
 #define ALARM_TTS_BUF_SIZE 512
 
 /* 异步播放队列相关定义 */
@@ -38,11 +41,10 @@
 #define ASYNC_PLAY_QUEUE_SIZE 5
 #define ASYNC_PLAY_TASK_STACK_SIZE 2048
 #define ASYNC_PLAY_TASK_PRIORITY 5
-#define PUSHUP_TTS_READY_POLL_MS 1000
-#define PUSHUP_TTS_READY_STABLE_COUNT 2
-#define PUSHUP_TTS_READY_MAX_ATTEMPTS 21
-#define PUSHUP_TTS_HTTP_TIMEOUT_MS 15000
-#define PUSHUP_TTS_DOWNLOAD_MAX_BYTES (3U * 1024U * 1024U)
+#define PUSHUP_TTS_PREFETCH_READY_BYTES (512U * 1024U)
+#define PUSHUP_TTS_PREFETCH_MAX_ATTEMPTS 3
+#define PUSHUP_TTS_PREFETCH_RETRY_MS 500
+#define PUSHUP_TTS_PREFETCH_HTTP_TIMEOUT_MS 8000
 #define CLOUD_OPEN_INFO_STATUS_BIND 3U
 
 /* 提示音排队播放：短时间内多次请求 tone 时，按顺序逐个播完，避免打架 */
@@ -51,7 +53,7 @@
 typedef struct {
     uint8_t type;
     uint8_t bypass_tts_gate;
-    uint8_t wait_mp3_ready;
+    uint8_t prefetch_mp3;
     uint8_t reserved;
     app_player_t *player;  /* 播放器实例指针 */
     char url[ASYNC_PLAY_URL_MAX];
@@ -99,10 +101,11 @@ static void voice_player_flush_tone_queue(void);
 #define CLOUD_UNSTABLE_TONE_GRACE_MS 800
 
 typedef struct {
-    uint8_t *buf;
+    const char *url;
     size_t len;
-    bool overflow;
-} pushup_tts_download_ctx_t;
+    bool ready;
+    bool stale;
+} pushup_tts_prefetch_ctx_t;
 
 static bool voice_player_url_is_mp3(const char *url)
 {
@@ -148,45 +151,46 @@ static void *pushup_tts_http_headers(void)
     return (void *)"Accept: audio/mpeg";
 }
 
-static int pushup_tts_download_on_chunk(lisa_http_data_t *data)
+static int pushup_tts_prefetch_on_chunk(lisa_http_data_t *data)
 {
-    pushup_tts_download_ctx_t *ctx;
-    size_t need;
+    pushup_tts_prefetch_ctx_t *ctx;
 
     if (data == NULL || data->user == NULL || data->len <= 0) {
         return 0;
     }
 
-    ctx = (pushup_tts_download_ctx_t *)data->user;
-    need = ctx->len + (size_t)data->len;
-    if (need > PUSHUP_TTS_DOWNLOAD_MAX_BYTES) {
-        ctx->overflow = true;
-        return -1;
+    ctx = (pushup_tts_prefetch_ctx_t *)data->user;
+    if (!voice_player_tts_url_is_latest(ctx->url)) {
+        ctx->stale = true;
+        return 1;
     }
 
-    memcpy(ctx->buf + ctx->len, data->buf, (size_t)data->len);
-    ctx->len = need;
+    ctx->len += (size_t)data->len;
+    if (ctx->len >= PUSHUP_TTS_PREFETCH_READY_BYTES) {
+        ctx->ready = true;
+        return 1;
+    }
 
     return 0;
 }
 
-static int voice_player_download_pushup_tts_mp3(const char *url, uint8_t *buf, size_t *out_len)
+static int voice_player_prefetch_pushup_tts_mp3_once(const char *url, size_t *out_len)
 {
-    pushup_tts_download_ctx_t ctx = {
-        .buf = buf,
+    pushup_tts_prefetch_ctx_t ctx = {
+        .url = url,
     };
     lisa_http_request_t req = {
         .method = LISA_HTTP_GET,
         .url = (uint8_t *)url,
         .headers = (uint8_t *)pushup_tts_http_headers,
-        .timeout = PUSHUP_TTS_HTTP_TIMEOUT_MS,
+        .timeout = PUSHUP_TTS_PREFETCH_HTTP_TIMEOUT_MS,
         .user = &ctx,
         .on_data = pushup_tts_http_ignore_data,
     };
     lisa_http_t *http;
     lisa_http_err_e ret;
 
-    if (url == NULL || buf == NULL || out_len == NULL) {
+    if (url == NULL || out_len == NULL) {
         return -1;
     }
 
@@ -194,103 +198,78 @@ static int voice_player_download_pushup_tts_mp3(const char *url, uint8_t *buf, s
 
     http = lisa_http_init(&req);
     if (http == NULL) {
-        LOGE("pushup tts mp3 http init failed");
+        LOGE("pushup tts mp3 prefetch http init failed");
         return -1;
     }
 
-    ret = lisa_http_perform_chunked_with_cb(http, pushup_tts_download_on_chunk);
+    ret = lisa_http_perform_chunked_with_cb(http, pushup_tts_prefetch_on_chunk);
     lisa_http_cleanup(http);
 
-    if (ret != LISA_HTTP_OK || ctx.overflow || ctx.len == 0) {
-        LOGW("pushup tts mp3 download failed, ret=%d, len=%u, overflow=%d",
-             ret,
-             (unsigned int)ctx.len,
-             ctx.overflow ? 1 : 0);
-        return -1;
-    }
-
     *out_len = ctx.len;
-    return 0;
-}
 
-static int voice_player_wait_pushup_tts_mp3_ready(const char *url)
-{
-    uint8_t *buf = NULL;
-    size_t latest_len = 0;
-    bool has_download = false;
-    uint8_t stable_count = 0;
-
-    buf = (uint8_t *)psram_malloc(PUSHUP_TTS_DOWNLOAD_MAX_BYTES);
-    if (buf == NULL) {
-        LOGE("pushup tts mp3 psram malloc failed, size=%u",
-             (unsigned int)PUSHUP_TTS_DOWNLOAD_MAX_BYTES);
-        return -1;
-    }
-
-    for (uint8_t attempt = 1; attempt <= PUSHUP_TTS_READY_MAX_ATTEMPTS; attempt++) {
-        size_t len = 0;
-
-        if (!voice_player_tts_url_is_latest(url)) {
-            LOGW("drop stale pushup tts mp3 url: %s", url);
-            psram_free(buf);
-            return 1;
-        }
-
-        if (voice_player_download_pushup_tts_mp3(url, buf, &len) != 0) {
-            LOGW("pushup tts mp3 ready attempt %u/%u failed",
-                 (unsigned int)attempt,
-                 (unsigned int)PUSHUP_TTS_READY_MAX_ATTEMPTS);
-            psram_free(buf);
-            return -1;
-        }
-
-        if (has_download && len == latest_len) {
-            stable_count++;
-        } else {
-            stable_count = 1;
-        }
-
-        latest_len = len;
-        has_download = true;
-
-        LOGI("pushup tts mp3 ready attempt %u/%u, size=%u, stable=%u/%u",
-             (unsigned int)attempt,
-             (unsigned int)PUSHUP_TTS_READY_MAX_ATTEMPTS,
-             (unsigned int)latest_len,
-             (unsigned int)stable_count,
-             (unsigned int)PUSHUP_TTS_READY_STABLE_COUNT);
-
-        if (stable_count >= PUSHUP_TTS_READY_STABLE_COUNT) {
-            break;
-        }
-
-        if (attempt < PUSHUP_TTS_READY_MAX_ATTEMPTS) {
-            vTaskDelay(pdMS_TO_TICKS(PUSHUP_TTS_READY_POLL_MS));
-        }
-    }
-
-    if (!has_download) {
-        psram_free(buf);
-        return -1;
-    }
-
-    if (!voice_player_tts_url_is_latest(url)) {
-        LOGW("drop stale pushup tts mp3 url before play: %s", url);
-        psram_free(buf);
+    if (ctx.stale) {
+        LOGW("drop stale pushup tts mp3 url during prefetch: %s", url);
         return 1;
     }
 
-    if (stable_count < PUSHUP_TTS_READY_STABLE_COUNT) {
-        LOGW("pushup tts mp3 still growing after %u ms, fallback direct url, latest size=%u",
-             (unsigned int)((PUSHUP_TTS_READY_MAX_ATTEMPTS - 1U) * PUSHUP_TTS_READY_POLL_MS),
-             (unsigned int)latest_len);
-        psram_free(buf);
-        return -1;
+    if (!voice_player_tts_url_is_latest(url)) {
+        LOGW("drop stale pushup tts mp3 url after prefetch: %s", url);
+        return 1;
     }
 
-    LOGI("pushup tts mp3 ready, size=%u, play direct url", (unsigned int)latest_len);
-    psram_free(buf);
-    return 0;
+    if (ctx.ready) {
+        LOGI("pushup tts mp3 prefetch reached %u bytes, size=%u",
+             (unsigned int)PUSHUP_TTS_PREFETCH_READY_BYTES,
+             (unsigned int)ctx.len);
+        return 0;
+    }
+
+    if (ret == LISA_HTTP_OK && ctx.len > 0U) {
+        LOGI("pushup tts mp3 prefetch completed before threshold, size=%u",
+             (unsigned int)ctx.len);
+        return 0;
+    }
+
+    LOGW("pushup tts mp3 prefetch failed, ret=%d, size=%u",
+         ret,
+         (unsigned int)ctx.len);
+    return -1;
+}
+
+static int voice_player_prefetch_pushup_tts_mp3(const char *url)
+{
+    size_t latest_len = 0;
+
+    if (!voice_player_url_is_mp3(url)) {
+        return 0;
+    }
+
+    for (uint8_t attempt = 1; attempt <= PUSHUP_TTS_PREFETCH_MAX_ATTEMPTS; attempt++) {
+        int ret;
+
+        if (!voice_player_tts_url_is_latest(url)) {
+            LOGW("drop stale pushup tts mp3 url before prefetch: %s", url);
+            return 1;
+        }
+
+        ret = voice_player_prefetch_pushup_tts_mp3_once(url, &latest_len);
+        if (ret >= 0) {
+            return ret;
+        }
+
+        LOGW("pushup tts mp3 prefetch attempt %u/%u not ready, size=%u",
+             (unsigned int)attempt,
+             (unsigned int)PUSHUP_TTS_PREFETCH_MAX_ATTEMPTS,
+             (unsigned int)latest_len);
+
+        if (attempt < PUSHUP_TTS_PREFETCH_MAX_ATTEMPTS) {
+            vTaskDelay(pdMS_TO_TICKS(PUSHUP_TTS_PREFETCH_RETRY_MS));
+        }
+    }
+
+    LOGW("pushup tts mp3 prefetch not ready after %u attempts, fallback direct url",
+         (unsigned int)PUSHUP_TTS_PREFETCH_MAX_ATTEMPTS);
+    return -1;
 }
 
 /* 异步播放任务 */
@@ -301,10 +280,10 @@ static void async_play_task(void *pvParameters)
     while (1) {
         /* 从队列中获取播放请求，阻塞等待 */
         if (xQueueReceive(s_async_play_queue, &request, portMAX_DELAY) == pdTRUE) {
-            LOGI("async play task received request, type=%u, player=%p, wait_mp3=%u, url=%s",
+            LOGI("async play task received request, type=%u, player=%p, prefetch=%u, url=%s",
                  (unsigned int)request.type,
                  request.player,
-                 (unsigned int)request.wait_mp3_ready,
+                 (unsigned int)request.prefetch_mp3,
                  request.url);
 
             if (request.type == ASYNC_PLAY_REQUEST_RESUME) {
@@ -318,15 +297,13 @@ static void async_play_task(void *pvParameters)
                 continue;
             }
 
-            if (request.player == tts_player &&
-                request.wait_mp3_ready &&
-                voice_player_url_is_mp3(request.url)) {
-                int ready_ret = voice_player_wait_pushup_tts_mp3_ready(request.url);
-                if (ready_ret > 0) {
+            if (request.player == tts_player && request.prefetch_mp3) {
+                int prefetch_ret = voice_player_prefetch_pushup_tts_mp3(request.url);
+                if (prefetch_ret > 0) {
                     continue;
                 }
-                if (ready_ret < 0) {
-                    LOGW("pushup tts mp3 ready workaround failed, fallback to direct url");
+                if (prefetch_ret < 0) {
+                    LOGW("pushup tts mp3 prefetch failed, fallback direct url");
                 }
             }
 
@@ -403,7 +380,7 @@ static void async_play_url(app_player_t *player, const char *url)
     async_play_url_internal(player, url, false);
 }
 
-static void async_play_tts_mp3_ready_url(const char *url)
+static void async_play_pushup_tts_url(const char *url)
 {
     if (s_async_play_queue == NULL || url == NULL) {
         LOGE("async play queue not ready or url is null");
@@ -412,7 +389,7 @@ static void async_play_tts_mp3_ready_url(const char *url)
 
     async_play_request_t request = {0};
     request.type = ASYNC_PLAY_REQUEST_URL;
-    request.wait_mp3_ready = 1U;
+    request.prefetch_mp3 = 1U;
     request.player = tts_player;
     strncpy(request.url, url, sizeof(request.url) - 1);
     request.url[sizeof(request.url) - 1] = '\0';
@@ -420,23 +397,10 @@ static void async_play_tts_mp3_ready_url(const char *url)
     s_tts_active = true;
 
     if (xQueueSend(s_async_play_queue, &request, pdMS_TO_TICKS(100)) != pdTRUE) {
-        LOGE("failed to send tts mp3 ready request to queue");
+        LOGE("failed to send pushup tts play request to queue");
     } else {
-        LOGI("tts mp3 ready request sent to async queue");
+        LOGI("pushup tts play request sent to async queue");
     }
-}
-
-static void voice_player_queue_pushup_tts_ready_check(const char *url)
-{
-    if (url == NULL || url[0] == '\0') {
-        LOGW("pushup tts ready check skipped: empty url");
-        return;
-    }
-
-    LOGW("queue pushup tts ready check every %u ms: %s",
-         (unsigned int)PUSHUP_TTS_READY_POLL_MS,
-         url);
-    async_play_tts_mp3_ready_url(url);
 }
 
 static void async_resume_player(app_player_t *player)
@@ -507,6 +471,13 @@ bool voice_player_latest_tts_url_copy(char *url_buf, size_t buf_len)
     taskEXIT_CRITICAL();
 
     return has_url;
+}
+
+void voice_player_latest_tts_url_clear(void)
+{
+    taskENTER_CRITICAL();
+    s_current_tts_url[0] = '\0';
+    taskEXIT_CRITICAL();
 }
 
 bool voice_player_tts_is_active(void)
@@ -804,9 +775,42 @@ static bool voice_player_is_cloud_unbound_active(void)
            voice_cloud_get_state() == VOICE_CLOUD_STATE_CONNECT_FAILED;
 }
 
+static void voice_player_clear_network_tone_state(void)
+{
+    s_disconnect_tone_played = false;
+    s_cloud_unstable_pending = false;
+    s_cloud_unstable_pending_tick = 0;
+    s_cloud_reconnect_pending = false;
+    s_cloud_success_tone_played = false;
+}
+
+static bool voice_player_should_suppress_network_tone_for_ota(void)
+{
+#ifdef CONFIG_OTA
+    switch (ota_manager_get_state()) {
+    case OTA_STATE_CHECKING:
+    case OTA_STATE_PACKAGE_INFO:
+    case OTA_STATE_UPDATING:
+    case OTA_STATE_APP_FAILED:
+    case OTA_STATE_RESOURCE_FAILED:
+        return true;
+    default:
+        return false;
+    }
+#else
+    return false;
+#endif
+}
+
 static bool voice_player_should_skip_disconnect_tone(const sys_network_status_t *network_status,
                                                      bool network_status_ok)
 {
+    if (voice_player_should_suppress_network_tone_for_ota()) {
+        voice_player_clear_network_tone_state();
+        LOGI("skip network disconnect tone during OTA");
+        return true;
+    }
+
     if (network_status_ok && network_status->switching) {
         return true;
     }
@@ -816,11 +820,7 @@ static bool voice_player_should_skip_disconnect_tone(const sys_network_status_t 
      * saved APs have been cleared (e.g. user multi-click to enter netcfg).
      */
     if (!sys_wifi_has_ap()) {
-        s_disconnect_tone_played = false;
-        s_cloud_unstable_pending = false;
-        s_cloud_unstable_pending_tick = 0;
-        s_cloud_reconnect_pending = false;
-        s_cloud_success_tone_played = false;
+        voice_player_clear_network_tone_state();
         LOGI("skip network disconnect tone because no saved AP");
         return true;
     }
@@ -1068,8 +1068,7 @@ void voice_player_play_msg(void *unused, uint32_t msg_id, void *data, uint32_t l
         if (voice_intent_photo_flow_should_gate_tts()) {
             break;
         }
-        /* 临时规避：pushup MP3 可能还在云端生成，下载到连续两次大小一致后再播。 */
-        voice_player_queue_pushup_tts_ready_check((char *)data);
+        async_play_pushup_tts_url((char *)data);
 
     } break;
     case VOICE_MSG_CLOUD_MCP_CALL_RESP:
@@ -1197,6 +1196,9 @@ static void voice_player_play_control(void *unused, uint32_t msg_id, void *data,
 
     /* ---- 停止 ---- */
     case VOICE_MSG_PLAY_CONTROL_STOP: {
+        if (!voice_intent_contains(INTENT_MUSIC)) {
+            break;
+        }
         voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, NULL, 0);
         voice_intent_pop(INTENT_MUSIC);
     } break;

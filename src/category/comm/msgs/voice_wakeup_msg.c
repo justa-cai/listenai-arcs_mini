@@ -52,7 +52,7 @@ static bool voice_wakeup_should_open_info(uint32_t *status_out)
         status = VOICE_WAKEUP_QR_STATUS_AUTH_FAILED;
         break;
     case VOICE_CLOUD_STATE_CONNECT_FAILED:
-        status = VOICE_WAKEUP_QR_STATUS_BIND;
+        status = voice_cloud_is_device_unbound() ? VOICE_WAKEUP_QR_STATUS_BIND : VOICE_WAKEUP_QR_STATUS_NOT_CONNECTED;
         break;
     default:
         return false;

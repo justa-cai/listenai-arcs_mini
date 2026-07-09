@@ -125,6 +125,34 @@ int model_camera_capture(uint8_t *in, uint32_t len)
     return 0;
 }
 
+#ifdef LISA_UI_PLATFORM_ARCS
+static void bn_camera_stop(void *data, uint32_t len, struct voice_invoke_rsp *rsp)
+{
+    (void)data;
+    (void)len;
+
+    rsp->err = service_camera_stop();
+}
+#endif
+
+int model_camera_stop(void)
+{
+#ifdef LISA_UI_PLATFORM_ARCS
+    struct voice_invoke_rsp rsp = {
+        .err = -1,
+    };
+
+    int r = voice_invoke_sync(bn_camera_stop, NULL, 0, &rsp, 1000);
+    if (r) {
+        LISA_UI_LOGE("camera stop invoke sync failed, r: %d", r);
+        return r;
+    }
+    return rsp.err;
+#else
+    return -5;
+#endif
+}
+
 int model_camera_get_framesize(uint16_t *width, uint16_t *height)
 {
     if (!width || !height) {

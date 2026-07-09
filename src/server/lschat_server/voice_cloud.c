@@ -99,6 +99,11 @@ int voice_cloud_is_connected(void)
     return g_cloud_connected ? 1 : 0;
 }
 
+int voice_cloud_is_device_unbound(void)
+{
+    return g_cloud_device_unbound ? 1 : 0;
+}
+
 voice_cloud_state_t voice_cloud_get_state(void)
 {
     sys_network_status_t status;
@@ -583,7 +588,6 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
     switch (evt) {
     case LSC_CONNECTING:
         g_cloud_connecting = 1;
-        g_cloud_device_unbound = 0;
         voice_msg_pub(VOICE_MSG_CLOUD_CONNECTING, NULL, 0);
         break;
     case LSC_CONNECTED: {
@@ -636,7 +640,6 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
         }
         g_cloud_connecting = 1;
         g_cloud_auth_failed = 0;
-        g_cloud_device_unbound = 0;
         voice_msg_pub(VOICE_MSG_CLOUD_CLOUD_AUTH_SUCCESS, NULL, 0);
         break;
     case LSC_DATA_RECEIVED: {

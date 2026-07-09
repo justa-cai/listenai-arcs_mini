@@ -11,6 +11,8 @@
 #include "voice_cloud.h"
 #include "app_player.h"
 #include "voice_player_comm.h"
+#include "voice_intent_mgr.h"
+#include "voice_intent_music.h"
 #include "voice_intent_photo_flow.h"
 #include "tone.h"
 #include "kv.h"
@@ -18,6 +20,7 @@
 #include "lisa_kv.h"
 #include "sys_init.h"
 #include "sys_network_manager.h"
+#include "voice_player.h"
 
 #define TAG "voice.app.cloud"
 #define VOICE_IDLE_EXIT_TIMEOUT_MS_DEFAULT ((uint32_t)CONFIG_CLOUD_IDLE_EXIT_TIMEOUT_MS)
@@ -101,7 +104,7 @@ static void voice_idle_exit_timer_cb(TimerHandle_t xTimer)
 
     LOGI("voice idle exit timeout reached, trigger mcp chat exit");
     voice_cloud_chat_stop();
-    voice_player_play_tone_url(app_tone_get_url(TONE_ID_72));
+    voice_player_play_prompt_tone_url(app_tone_get_url(TONE_ID_72));
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
 }
 
@@ -162,6 +165,40 @@ static bool voice_tts_is_playing(void)
     return s_voice_cloud_tts_active;
 }
 
+static bool voice_has_active_background_music(void)
+{
+    return voice_intent_contains(INTENT_MUSIC) &&
+           !voice_intent_music_is_user_paused();
+}
+
+static bool voice_finish_session_for_background_music(const char *reason)
+{
+    int stop_ret = 0;
+
+    if (!voice_has_active_background_music()) {
+        return false;
+    }
+
+    LOGI("finish voice session after TTS for background MUSIC (%s)",
+         reason ? reason : "unknown");
+
+    s_voice_cloud_session_restart_after_tts = false;
+    s_voice_cloud_tts_active = false;
+    s_voice_photo_result_restart_pending = false;
+    voice_idle_exit_timer_stop();
+
+    if (voice_cloud_session_is_running(reason)) {
+        stop_ret = voice_cloud_chat_stop();
+        if (stop_ret != 0) {
+            LOGW("stop voice session for background MUSIC failed: %d", stop_ret);
+        }
+    }
+
+    s_voice_cloud_session_running = false;
+    voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
+    return true;
+}
+
 static bool voice_interaction_mode_pauses_tts_uplink(void)
 {
     struct app_datas *app_datas = get_app_datas();
@@ -172,29 +209,47 @@ static bool voice_interaction_mode_pauses_tts_uplink(void)
     return app_datas->int_mode == APP_INTERACTION_MODE_MULTI_NO_INTERRUPT;
 }
 
-static void voice_tts_uplink_pause_if_needed(const char *reason)
+static bool voice_stop_current_session_during_tts(const char *reason, const char *policy)
 {
     int stop_ret = 0;
 
-    if (!voice_interaction_mode_pauses_tts_uplink()) {
-        return;
-    }
-
     if (!voice_cloud_session_is_running(reason)) {
-        return;
+        return false;
     }
 
-    LOGI("stop current session during TTS and restart after playback (%s)",
-         reason ? reason : "unknown");
+    LOGI("stop current session during TTS for %s (%s)",
+         policy ? policy : "policy", reason ? reason : "unknown");
     stop_ret = voice_cloud_chat_stop();
     if (stop_ret != 0) {
         LOGW("stop current session during TTS failed: %d", stop_ret);
-        return;
+        return false;
     }
 
     s_voice_cloud_session_running = false;
     voice_idle_exit_timer_stop();
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
+    return true;
+}
+
+static void voice_tts_uplink_pause_if_needed(const char *reason)
+{
+    if (!voice_interaction_mode_pauses_tts_uplink()) {
+        return;
+    }
+    if (voice_has_active_background_music()) {
+        return;
+    }
+
+    (void)voice_stop_current_session_during_tts(reason, "interaction mode");
+}
+
+static bool voice_background_music_stop_session_during_tts_if_needed(const char *reason)
+{
+    if (!voice_has_active_background_music()) {
+        return false;
+    }
+
+    return voice_stop_current_session_during_tts(reason, "background MUSIC");
 }
 
 static void voice_tts_uplink_resume_if_needed(const char *reason)
@@ -502,7 +557,9 @@ static void voice_cloud_tts_playing(void *unused, uint32_t msg_id, void *data, u
 
     s_voice_cloud_tts_active = true;
     LOGI("tts playing, mark TTS active and stop idle exit timer");
-    voice_tts_uplink_pause_if_needed("tts playing");
+    if (!voice_background_music_stop_session_during_tts_if_needed("tts playing")) {
+        voice_tts_uplink_pause_if_needed("tts playing");
+    }
     voice_idle_exit_timer_stop();
 }
 
@@ -529,6 +586,10 @@ static void voice_cloud_tts_stoped(void *unused, uint32_t msg_id, void *data, ui
         }
         LOGI("tts stopped during voice photo flow, keep idle exit timer paused");
         camera_preview_apply_guard("tts stopped");
+        return;
+    }
+
+    if (voice_finish_session_for_background_music("tts stopped")) {
         return;
     }
 
@@ -561,6 +622,7 @@ static void voice_cloud_session_finished(void *unused, uint32_t msg_id, void *da
 {
     LOGI("voice_cloud_session_finished, stop idle timer and mark session inactive");
     if (!camera_preview_is_active() &&
+        !voice_has_active_background_music() &&
         voice_interaction_mode_pauses_tts_uplink() && s_voice_cloud_tts_active) {
         s_voice_cloud_session_restart_after_tts = true;
         LOGI("session finished during TTS, schedule continuous session restart after TTS");

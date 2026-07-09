@@ -662,7 +662,7 @@ int model_qrcode_get_config_data(qrcode_data_t *data)
         return model_qrcode_get_auth_failed_data(data);
     }
     if (cloud_state == VOICE_CLOUD_STATE_CONNECT_FAILED) {
-        return model_qrcode_get_bind_data(data);
+        return voice_cloud_is_device_unbound() ? model_qrcode_get_bind_data(data) : model_qrcode_get_netcfg_data(data);
     }
 
     data->status = QR_STATUS_CONNECTED;

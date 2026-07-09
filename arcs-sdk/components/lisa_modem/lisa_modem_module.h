@@ -48,6 +48,8 @@ bool lisa_modem_dns_resolve_on(lisa_modem_t *modem, const char *domain, char *ip
 bool lisa_modem_get_imei_on(lisa_modem_t *modem, char *imei, size_t size);
 bool lisa_modem_get_iccid_on(lisa_modem_t *modem, char *iccid, size_t size);
 bool lisa_modem_get_signal_quality_on(lisa_modem_t *modem, int *rssi, int *ber);
+bool lisa_modem_start_gnss_on(lisa_modem_t *modem);
+bool lisa_modem_get_gps_location_on(lisa_modem_t *modem, double *lat, double *lon);
 
 int  lisa_modem_socket_open_on(lisa_modem_t *modem, int domain, int type, int protocol);
 bool lisa_modem_socket_connect_on(lisa_modem_t *modem, int sockfd, const struct sockaddr *addr, int addrlen);
@@ -72,6 +74,8 @@ bool lisa_modem_dns_resolve(const char *domain, char *ip_addr, size_t size);
 bool lisa_modem_get_imei(char *imei, size_t size);
 bool lisa_modem_get_iccid(char *iccid, size_t size);
 bool lisa_modem_get_signal_quality(int *rssi, int *ber);
+bool lisa_modem_start_gnss(void);
+bool lisa_modem_get_gps_location(double *lat, double *lon);
 
 int  lisa_modem_socket_open(int domain, int type, int protocol);
 bool lisa_modem_socket_connect(int sockfd, const struct sockaddr *addr, int addrlen);

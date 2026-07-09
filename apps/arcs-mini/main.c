@@ -80,7 +80,7 @@ static bool app_should_open_info_by_cloud_state(uint32_t *status_out)
         status = QR_STATUS_AUTH_FAILED;
         break;
     case VOICE_CLOUD_STATE_CONNECT_FAILED:
-        status = QR_STATUS_BIND;
+        status = voice_cloud_is_device_unbound() ? QR_STATUS_BIND : QR_STATUS_NOT_CONNECTED;
         break;
     default:
         return false;
@@ -355,7 +355,8 @@ static bool app_should_defer_wifi_provision_prompt(void)
     case OTA_STATE_CHECKING:
     case OTA_STATE_PACKAGE_INFO:
     case OTA_STATE_UPDATING:
-    case OTA_STATE_FAILED:
+    case OTA_STATE_APP_FAILED:
+    case OTA_STATE_RESOURCE_FAILED:
         return true;
     default:
         return false;

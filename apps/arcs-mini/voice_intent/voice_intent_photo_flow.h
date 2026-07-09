@@ -23,7 +23,8 @@ typedef enum {
 typedef struct {
     camera_preview_mode_t mode;
     uint8_t sync;
-    uint8_t reserved[2];
+    uint8_t no_pushup_tts;   /* MCP 拍照时 JSON args 带 "sync":true → 云端不会下发 pushup TTS URL */
+    uint8_t reserved[1];
     uint32_t auto_capture_delay_ms;
     char context_id[64];
 } voice_msg_camera_preview_req_t;

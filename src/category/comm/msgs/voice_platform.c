@@ -21,6 +21,7 @@
 
 #ifdef CONFIG_OTA
 static bool s_ota_checked_once = false;
+extern int network_probe_start(void);
 
 static bool voice_ota_is_active(void)
 {
@@ -150,6 +151,43 @@ static void voice_ota_up_to_date(void *unused, uint32_t msg_id, void *data, uint
 {
     do_voice_cloud_connect();
 }
+
+static void voice_ota_failed(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (data == NULL || len < sizeof(ota_state_t)) {
+        return;
+    }
+
+    ota_state_t *state = (ota_state_t *)data;
+    if (state->state != OTA_STATE_APP_FAILED) {
+        return;
+    }
+
+    LOGI("App OTA failed, restart network probe before cloud business");
+    network_probe_start();
+}
+
+static void voice_power_battery_update(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (data == NULL || len < sizeof(voice_msg_battery_info_t)) {
+        return;
+    }
+
+    voice_msg_battery_info_t *info = (voice_msg_battery_info_t *)data;
+    if (info->status == VOICE_MSG_BATTERY_STATUS_CHARGING ||
+        info->status == VOICE_MSG_BATTERY_STATUS_CHARGE_DONE) {
+        ota_manager_check_after_power_connected();
+    }
+}
+
 static int voice_ota_resources_updated(bool wake_word_updated, bool prompt_tone_updated, bool emoji_updated, void *user_data)
 {
     (void)wake_word_updated;
@@ -194,6 +232,8 @@ int voice_platform_evt_init(void)
     voice_msg_sub(VOICE_MSG_SYSTEM_NETWORK_PROBE_FAIL, voice_system_network_probe_fail, NULL);
 #ifdef CONFIG_OTA
     voice_msg_sub(VOICE_MSG_OTA_UP_TO_DATE, voice_ota_up_to_date, NULL);
+    voice_msg_sub(VOICE_MSG_OTA_FAILED, voice_ota_failed, NULL);
+    voice_msg_sub(VOICE_MSG_POWER_BATTERY_UPDATE, voice_power_battery_update, NULL);
 #ifdef CONFIG_BOARD_ARCS_MINI
     ota_manager_register_resources_updated_cb(voice_ota_resources_updated, NULL);
 #endif

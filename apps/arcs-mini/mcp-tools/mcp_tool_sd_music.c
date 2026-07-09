@@ -384,8 +384,7 @@ static cJSON *play_tf_card_call(const char *id, const char *name, cJSON *args)
 		voice_intent_pop(INTENT_VOICE_SESSION);
 	}
 	voice_intent_music_set_user_paused(false);
-	voice_cloud_chat_stop();
-	voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
+	voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
 	voice_intent_push(INTENT_MUSIC);
 
 	/* ---- 构建成功响应 ---- */

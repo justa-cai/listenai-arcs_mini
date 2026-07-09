@@ -408,6 +408,18 @@ static const char *home_get_session_emoji_name(const struct home_nav_scr_data *s
     return EMOJI_NAME_NEUTRAL;
 }
 
+static bool home_should_ignore_mcp_emoji(const char *emoji_name)
+{
+    if (!emoji_name || emoji_name[0] == '\0') {
+        return true;
+    }
+
+    return strcmp(emoji_name, "聆听") == 0 ||
+           strcmp(emoji_name, EMOJI_NAME_LISTENING) == 0 ||
+           strcmp(emoji_name, "待机") == 0 ||
+           strcmp(emoji_name, EMOJI_NAME_NEUTRAL) == 0;
+}
+
 static void home_restore_session_emoji(struct home_nav_scr_data *scr_data, uint8_t imm)
 {
     if (!scr_data || !scr_data->view) {
@@ -1465,6 +1477,16 @@ static void model_voice_on_oneshot_emoji(void *arg, const char *name)
 static void model_voice_on_mcp_emoji(void *arg, const char *name)
 {
     struct home_nav_scr_data *scr_data = arg;
+
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+    if (home_should_ignore_mcp_emoji(name)) {
+        LISA_UI_LOGW("ignore mcp emoji, name: %s", name ? name : "<null>");
+        return;
+    }
+
     if (scr_data->finished) {
         return;
     }

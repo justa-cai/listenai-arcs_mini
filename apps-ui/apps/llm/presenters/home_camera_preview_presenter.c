@@ -172,6 +172,7 @@ static void camera_preview_capture_timer_abort(struct home_nav_scr_data *scr_dat
      * session_finished / tts_stoped 的收尾，会卡在交互态。补发 EXIT 让 home_reset
      * 接管，否则首页停在"我在听"。 */
     voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
+    model_camera_stop();
     lv_timer_pause(timer);
 }
 
@@ -294,6 +295,7 @@ void camera_preview_hide(struct home_nav_scr_data *scr_data)
     scr_data->img_rec_is_mcp = 0;
     scr_data->img_rec_is_button = 0;
     model_camera_preview_publish_state(&scr_data->camera_preview);
+    model_camera_stop();
 }
 
 static void camera_preview_capture_now(struct home_nav_scr_data *scr_data)
@@ -329,18 +331,19 @@ static void camera_preview_capture_now(struct home_nav_scr_data *scr_data)
 
 #ifdef LISA_UI_PLATFORM_ARCS
     {
-        /* notify 会置 s_camera_capture_tone_active=true，等 tone 播完
-         * 由 on_tone_event 在 COMPLETED/STOPPED/ERROR 时清零；
-         * 但 TONE_ID_73 资源缺失时 app_player_play 在 url=NULL 早退，
-         * 不会触发任何 tone 事件，tone_active 永久挂死，会让随后到达的
-         * result TTS 进 voice_player_should_defer_camera_flow_tts 永远被压住，
-         * UI 卡在"正在上传"。
-         * 先取 URL，确认非 NULL 再 notify + play。 */
+        /* 使用 prompt tone 机制播放快门音：
+         * voice_player_play_prompt_tone_url 会在播放前 push INTENT_PROMPT_TONE，
+         * 主动触发 MUSIC 的 on_preempted → app_player_pause，避免 tone 在音频
+         * 焦点层直接抢占导致 focus 状态不一致（FOREGROUND→BACKGROUND→FOREGROUND
+         * →BACKGROUND 快速切换），进而引发 PA ON/OFF 风暴影响唤醒算法。
+         *
+         * TONE_ID_73 资源缺失时 voice_player_play_prompt_tone_url 内部校验
+         * url 为 NULL 会直接跳过，不会触发任何 tone 事件。 */
         const char *tone_url = app_tone_get_url(TONE_ID_73);
         if (tone_url) {
-            app_player_play(tone_player, tone_url);
+            voice_player_play_prompt_tone_url(tone_url);
         } else {
-            LISA_UI_LOGW("Camera capture tone (id=%d) url is null, skip tone notify",
+            LISA_UI_LOGW("Camera capture tone (id=%d) url is null, skip",
                          TONE_ID_73);
         }
     }

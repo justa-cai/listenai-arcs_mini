@@ -2038,6 +2038,24 @@ bool lisa_modem_get_signal_quality_on(lisa_modem_t *modem, int *rssi, int *ber)
     return result;
 }
 
+bool lisa_modem_get_gps_location_on(lisa_modem_t *modem, double *lat, double *lon)
+{
+    if (!modem || !modem->driver_ctx || !modem->ops || !modem->ops->get_gps_location) {
+        return false;
+    }
+
+    return modem->ops->get_gps_location(modem->driver_ctx, lat, lon);
+}
+
+bool lisa_modem_start_gnss_on(lisa_modem_t *modem)
+{
+    if (!modem || !modem->driver_ctx || !modem->ops || !modem->ops->start_gnss) {
+        return false;
+    }
+
+    return modem->ops->start_gnss(modem->driver_ctx);
+}
+
 int lisa_modem_socket_open_on(lisa_modem_t *modem, int domain, int type, int protocol)
 {
     return lisa_modem_socket_open_impl(modem, domain, type, protocol);
@@ -2117,6 +2135,16 @@ bool lisa_modem_get_iccid(char *iccid, size_t size)
 bool lisa_modem_get_signal_quality(int *rssi, int *ber)
 {
     return lisa_modem_get_signal_quality_on(s_default_modem, rssi, ber);
+}
+
+bool lisa_modem_start_gnss(void)
+{
+    return lisa_modem_start_gnss_on(s_default_modem);
+}
+
+bool lisa_modem_get_gps_location(double *lat, double *lon)
+{
+    return lisa_modem_get_gps_location_on(s_default_modem, lat, lon);
 }
 
 int lisa_modem_socket_open(int domain, int type, int protocol)

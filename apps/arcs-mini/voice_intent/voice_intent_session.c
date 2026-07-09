@@ -7,6 +7,7 @@
 #include "voice_msg.h"
 #include "voice_player_comm.h"
 #include "voice_intent_mgr.h"
+#include "voice_intent_music.h"
 #include "FreeRTOS.h"
 #include "timers.h"
 
@@ -98,6 +99,15 @@ static void on_cloud_session_finished(void *unused, uint32_t msg_id,
 	s_session_finished = true;
 
 	if (voice_player_tts_is_active()) {
+		return;
+	}
+	/* Idle timeout may push PROMPT_TONE before SESSION_FINISHED. In that
+	 * case VOICE_SESSION is no longer top, but it still needs to leave the
+	 * stack so the prompt tone can resume active background music when it exits. */
+	if (voice_intent_contains(INTENT_MUSIC) &&
+	    !voice_intent_music_is_user_paused()) {
+		LOGI("session finished with background MUSIC, pop VOICE_SESSION");
+		voice_intent_pop(INTENT_VOICE_SESSION);
 		return;
 	}
 	LOGI("session finished, tts inactive, arm pop timer %d ms",
