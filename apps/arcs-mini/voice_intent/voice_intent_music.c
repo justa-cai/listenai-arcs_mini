@@ -43,6 +43,11 @@ void voice_intent_music_set_user_paused(bool paused)
     s_user_paused = paused;
 }
 
+bool voice_intent_music_is_user_paused(void)
+{
+    return s_user_paused;
+}
+
 /* ---- 工具函数 ---- */
 
 static void music_intent_play_current(void)
@@ -132,19 +137,6 @@ static void on_music_playing(void *unused, uint32_t msg_id,
     voice_intent_push(INTENT_MUSIC);
 }
 
-/* MCP chat 退出 → 弹出 MUSIC 意图（on_exit 自动停止播放器） */
-static void on_cloud_mcp_chat_exit(void *unused, uint32_t msg_id,
-                                    void *data, uint32_t len, void *user_data)
-{
-    (void)unused; (void)msg_id; (void)data; (void)len; (void)user_data;
-
-    if (!voice_intent_contains(INTENT_MUSIC)) {
-        return;
-    }
-    LOGI("mcp chat exit: pop INTENT_MUSIC");
-    voice_intent_pop(INTENT_MUSIC);
-}
-
 /* ---- 注册 ---- */
 
 int voice_intent_music_register(void)
@@ -160,7 +152,6 @@ int voice_intent_music_register(void)
     }
 
     voice_msg_sub(VOICE_MSG_PLAYER_MUSIC_PLAYING, on_music_playing, NULL);
-    voice_msg_sub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, on_cloud_mcp_chat_exit, NULL);
 
     return voice_intent_register_ops(&(voice_intent_ops_t){
         .type = INTENT_MUSIC,

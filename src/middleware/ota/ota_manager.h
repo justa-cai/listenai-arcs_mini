@@ -9,7 +9,8 @@ typedef enum {
     OTA_STATE_PACKAGE_INFO,
     OTA_STATE_UPDATING,
     OTA_STATE_SUCCESSED,
-    OTA_STATE_FAILED,
+    OTA_STATE_APP_FAILED,
+    OTA_STATE_RESOURCE_FAILED,
     OTA_STATE_UP_TO_DATE,
 } ota_state_e;
 
@@ -53,6 +54,7 @@ typedef int (*ota_manager_resources_updated_cb_t)(bool wake_word_updated,
                                                   void *user_data);
 
 int ota_manager_check_all(void);
+int ota_manager_check_after_power_connected(void);
 ota_state_e ota_manager_get_state(void);
 int ota_manager_get_state_snapshot(ota_state_t *state);
 int ota_manager_register_resources_updated_cb(ota_manager_resources_updated_cb_t cb, void *user_data);

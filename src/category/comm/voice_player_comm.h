@@ -64,6 +64,20 @@ int voice_player_get_system_volume(void);
 void voice_player_play_tone_url(const char *url);
 
 /**
+ * @brief 播放提示音 URL（带 intent 栈管理）。
+ *
+ *        与 voice_player_play_tone_url 的区别：播放前会先 push INTENT_PROMPT_TONE，
+ *        主动触发当前栈顶意图（如 MUSIC）的 on_preempted → app_player_pause，
+ *        避免 tone 在音频焦点层直接抢占导致的 focus 状态不一致。
+ *        tone 播完后自动 pop INTENT_PROMPT_TONE 恢复被抢占意图。
+ *
+ *        适用于相机快门音等需要在播放期间暂停后台音乐的短促音效。
+ *
+ * @param url 提示音资源 URL（mem:// 或 http://）
+ */
+void voice_player_play_prompt_tone_url(const char *url);
+
+/**
  * @brief 复制最近一次收到的 TTS URL
  *
  * @param url_buf 输出缓冲区
@@ -71,6 +85,11 @@ void voice_player_play_tone_url(const char *url);
  * @return true 复制成功，false 当前没有缓存可用 URL
  */
 bool voice_player_latest_tts_url_copy(char *url_buf, size_t buf_len);
+
+/**
+ * @brief 清除保存的最新 TTS URL，防止下一轮拍照复播过期的 URL
+ */
+void voice_player_latest_tts_url_clear(void);
 
 /**
  * @brief 重播指定的 TTS URL（绕开门控，直接入异步队列）

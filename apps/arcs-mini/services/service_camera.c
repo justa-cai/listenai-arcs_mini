@@ -41,11 +41,13 @@
 #define CAMERA_CAPTURE_HEIGHT 480
 #define CAMERA_OUTPUT_WIDTH   320
 #define CAMERA_OUTPUT_HEIGHT  240
+#define CAMERA_CAPTURE_DROP_STALE_FRAMES 2
 
 /* ---- 模块级状态 --------------------------------------------------------- */
 
 struct camera_context {
     bool inited;
+    bool streaming;
     lisa_device_t *camera_dev;
     lisa_device_t *i2c_dev;
     lisa_device_t *dvp_dev;
@@ -67,6 +69,61 @@ static void service_camera_context_reset(void)
 static inline uint32_t service_camera_frame_bytes(uint16_t width, uint16_t height)
 {
     return (uint32_t)width * (uint32_t)height * 2U;
+}
+
+static int service_camera_start_streaming(void)
+{
+    int ret;
+
+    if (cam_ctx.streaming) {
+        return 0;
+    }
+
+    ret = lisa_camera_start(cam_ctx.camera_dev);
+    if (ret != LISA_DEVICE_OK) {
+        LISA_LOGE(TAG, "Start stream failed: %d", ret);
+        return -4;
+    }
+
+    cam_ctx.streaming = true;
+    LISA_LOGI(TAG, "Camera stream started");
+    return 0;
+}
+
+static void service_camera_stop_stream(void)
+{
+    if (!cam_ctx.streaming) {
+        return;
+    }
+
+    lisa_camera_stop(cam_ctx.camera_dev);
+    cam_ctx.streaming = false;
+    LISA_LOGI(TAG, "Camera stream stopped");
+}
+
+static int service_camera_capture_frame(lisa_camera_fb_t **fb, uint8_t drop_frames)
+{
+    lisa_camera_fb_t *frame = NULL;
+    int ret;
+
+    for (uint8_t i = 0; i <= drop_frames; i++) {
+        ret = lisa_camera_capture(cam_ctx.camera_dev, &frame);
+        if (ret != LISA_DEVICE_OK || !frame || !frame->buf || frame->width == 0) {
+            LISA_LOGE(TAG, "Capture frame failed: %d", ret);
+            return -5;
+        }
+
+        if (i < drop_frames) {
+            lisa_camera_release_fb(cam_ctx.camera_dev, frame);
+            frame = NULL;
+            continue;
+        }
+
+        *fb = frame;
+        return 0;
+    }
+
+    return -5;
 }
 
 /* ---- 公开 API ----------------------------------------------------------- */
@@ -255,17 +312,15 @@ int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
         return -3;
     }
 
-    ret = lisa_camera_start(cam_ctx.camera_dev);
-    if (ret != LISA_DEVICE_OK) {
-        LISA_LOGE(TAG, "Start failed: %d", ret);
-        return -4;
+    ret = service_camera_start_streaming();
+    if (ret != 0) {
+        return ret;
     }
 
-    ret = lisa_camera_capture(cam_ctx.camera_dev, &fb);
-    if (ret != LISA_DEVICE_OK || !fb || !fb->buf || fb->width == 0) {
-        LISA_LOGE(TAG, "Capture failed: %d", ret);
-        lisa_camera_stop(cam_ctx.camera_dev);
-        return -5;
+    ret = service_camera_capture_frame(&fb, CAMERA_CAPTURE_DROP_STALE_FRAMES);
+    if (ret != 0) {
+        service_camera_stop_stream();
+        return ret;
     }
 
     /* 最近邻下采样 640×480 → 320×240 + RGB565 字节交换 */
@@ -284,8 +339,17 @@ int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
     }
 
     lisa_camera_release_fb(cam_ctx.camera_dev, fb);
-    lisa_camera_stop(cam_ctx.camera_dev);
 
+    return 0;
+}
+
+int service_camera_stop(void)
+{
+    if (!cam_ctx.inited) {
+        return -1;
+    }
+
+    service_camera_stop_stream();
     return 0;
 }
 

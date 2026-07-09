@@ -25,6 +25,7 @@ static cJSON *exit_call(const char *id, const char *name, cJSON *args)
         return NULL;
     }
 
+    voice_msg_pub(VOICE_MSG_PLAY_CONTROL_STOP, NULL, 0);
     voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
 
     cJSON *content_array = cJSON_CreateArray();

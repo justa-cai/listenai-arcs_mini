@@ -129,6 +129,8 @@ bool ml307_endpoint_dns_resolve(ml307_endpoint_ctx_t *ctx, const char *domain, c
 bool ml307_endpoint_get_imei(ml307_endpoint_ctx_t *ctx, char *imei, size_t size);
 bool ml307_endpoint_get_iccid(ml307_endpoint_ctx_t *ctx, char *iccid, size_t size);
 bool ml307_endpoint_get_signal_quality(ml307_endpoint_ctx_t *ctx, int *rssi, int *ber);
+bool ml307_endpoint_start_gnss(ml307_endpoint_ctx_t *ctx);
+bool ml307_endpoint_get_gps_location(ml307_endpoint_ctx_t *ctx, double *lat, double *lon);
 
 int ml307_endpoint_open(ml307_endpoint_ctx_t *ctx, int domain, int protocol);
 bool ml307_endpoint_connect(ml307_endpoint_ctx_t *ctx, int endpoint_id, const char *host, uint16_t port);

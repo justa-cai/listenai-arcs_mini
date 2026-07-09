@@ -53,6 +53,7 @@ void voice_cloud_jpeg_img_url_free(void *url);
 int voice_cloud_tts_synth(const char *txt);
 int voice_cloud_is_connected(void);
 voice_cloud_state_t voice_cloud_get_state(void);
+int voice_cloud_is_device_unbound(void);
 int voice_cloud_is_session_active(void);
 int voice_cloud_is_uploading_audio(void);
 #endif

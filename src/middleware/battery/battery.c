@@ -139,7 +139,7 @@ static bool battery_charge_detected_stable_get(void)
 
 static bool battery_external_power_stable_get(void)
 {
-    return battery_usb_plugged_stable_get() || battery_charge_detected_stable_get();
+    return battery_usb_plugged_stable_get();
 }
 
 // 电池电压百分比查找表 (按10%步进，从0%到100%)
@@ -436,9 +436,7 @@ battery_status_t battery_get_status(void)
         ret = BATTERY_STATUS_NOT_CONNECT;
     }
 
-    bool usb_plugged = battery_usb_plugged_stable_get();
-    bool charge_detected = battery_charge_detected_stable_get();
-    bool external_power = usb_plugged || charge_detected;
+    bool external_power = battery_usb_plugged_stable_get();
 
     if (external_power) {
         if (s_discharge_static_cnt < 3) {

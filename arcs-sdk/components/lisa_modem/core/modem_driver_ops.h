@@ -88,6 +88,8 @@ typedef struct modem_driver_ops {
     bool (*get_imei)(void *driver_ctx, char *imei, size_t size);
     bool (*get_iccid)(void *driver_ctx, char *iccid, size_t size);
     bool (*get_signal_quality)(void *driver_ctx, int *rssi, int *ber);
+    bool (*start_gnss)(void *driver_ctx);
+    bool (*get_gps_location)(void *driver_ctx, double *lat, double *lon);
 
     int (*open_fn)(void *driver_ctx, int domain, int protocol);
     int (*connect_fn)(void *driver_ctx, int driver_endpoint_id, const modem_addr_t *addr);

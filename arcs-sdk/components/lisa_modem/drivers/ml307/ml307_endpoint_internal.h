@@ -56,6 +56,7 @@ struct ml307_endpoint_ctx {
     bool network_ready;
     uint8_t active_pdp_cid;
     char ip_address[16];
+    bool gnss_running;
 
     EventGroupHandle_t event_group;
     at_urc_callback_node_t *urc_node;

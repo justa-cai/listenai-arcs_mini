@@ -28,6 +28,7 @@
 #include "cJSON.h"
 #include "lisa_ui_nav_scr_ids.h"
 #include "model_alarm.h"
+#include "model_camera.h"
 #include "lisa_ui_toast.h"
 #include "power_manager.h"
 
@@ -1351,6 +1352,10 @@ static void async_task_img_upload(void *p, bool *should_stop)
         int r = voice_invoke_sync(voice_img_rec, &sync_msg, sizeof(struct voice_img_cloud_sync_msg),
                                   (struct voice_invoke_rsp *)&rsp, 1000);
         LISA_UI_LOGI("image recognition sync invoke done, invoke_ret=%d, cloud_ret=%d", r, rsp.err);
+
+        if (r == 0 && rsp.err == 0) {
+            model_camera_stop();
+        }
     } else if (msg->mode == IMG_REC_MODE_MCP) {
         char *url = NULL;
 
@@ -1374,6 +1379,7 @@ static void async_task_img_upload(void *p, bool *should_stop)
         if (result) {
             if (url && upload_ret == 0) {
                 LISA_UI_LOGI("jpeg upload success, url: %s", url);
+                model_camera_stop();
             } else {
                 LISA_UI_LOGE("jpeg upload failed");
             }

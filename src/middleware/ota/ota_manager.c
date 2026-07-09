@@ -61,8 +61,12 @@ static SemaphoreHandle_t s_app_decision_sem = NULL;
 static ota_app_decision_e s_app_decision = OTA_APP_DECISION_NONE;
 static TickType_t s_app_prompt_ready_tick = 0;
 static bool s_app_update_applied_this_boot = false;
+/* APP OTA 只在开机后首次联网检查一次；资源 OTA 不受这个标志影响。 */
+static bool s_app_ota_checked_this_boot = false;
+static bool s_low_battery_skip_wait_power = false;
 static ota_manager_resources_updated_cb_t s_resources_updated_cb = NULL;
 static void *s_resources_updated_cb_user_data = NULL;
+static TickType_t s_ota_state_changed_tick = 0;
 
 static int ota_manager_ensure_app_decision_sem(void)
 {
@@ -339,7 +343,8 @@ static void ota_manager_publish_state_event(void)
     case OTA_STATE_SUCCESSED:
         evt = VOICE_MSG_OTA_SUCCESSED;
         break;
-    case OTA_STATE_FAILED:
+    case OTA_STATE_APP_FAILED:
+    case OTA_STATE_RESOURCE_FAILED:
         evt = VOICE_MSG_OTA_FAILED;
         break;
     case OTA_STATE_UP_TO_DATE:
@@ -355,6 +360,7 @@ static void ota_manager_publish_state_event(void)
 static void ota_manager_notify_state(ota_state_e state)
 {
     s_ota_state.state = state;
+    s_ota_state_changed_tick = xTaskGetTickCount();
     ota_manager_publish_state_event();
 }
 
@@ -396,6 +402,20 @@ static void ota_manager_do_reboot(void)
         while (1) {
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
+    }
+}
+
+static void ota_manager_show_failure_notice(void)
+{
+    TickType_t min_display_ticks = pdMS_TO_TICKS(OTA_FAILURE_UI_DISPLAY_MS);
+    TickType_t elapsed_ticks;
+
+    /* 失败态 UI 要有最小展示时间；092 播完后再补足剩余时间，避免重启截断提示音。 */
+    ota_manager_play_tone_sync(TONE_ID_92, 1);
+
+    elapsed_ticks = xTaskGetTickCount() - s_ota_state_changed_tick;
+    if (elapsed_ticks < min_display_ticks) {
+        vTaskDelay(min_display_ticks - elapsed_ticks);
     }
 }
 
@@ -462,6 +482,8 @@ static int _ota_manager_check_all(void)
 
     uint32_t start_time = xTaskGetTickCount();
 
+    s_low_battery_skip_wait_power = false;
+
     /* 先把上一次 uboot 尝试的结果对账到 KV，必要时拉黑坏的 package_id */
     ota_manager_reconcile_last_attempt();
 
@@ -477,62 +499,6 @@ static int _ota_manager_check_all(void)
         skip_app_update = 0;
     }
 #endif
-
-    /* 老 boot 不消费 control store，app 升级无法落地；资源包升级不受影响 */
-    if (!skip_app_update && !uboot_features_has(UBOOT_FEATURE_OTA)) {
-        LISA_LOGI(TAG, "Skip app OTA: boot lacks OTA support");
-        skip_app_update = 1;
-    }
-
-    /* 电池供电且剩余 < 50% 时跳过系统 OTA，避免升级过程中掉电变砖。
-     * USB 已插入时不看电量；机器没带电池的情况下也按"非电池供电"处理。 */
-    if (!skip_app_update && !power_is_usb_plugged() &&
-        battery_get_status() != BATTERY_STATUS_NO_BATTERY) {
-        uint8_t pct = battery_get_pct_raw();
-        if (pct < 50) {
-            LISA_LOGI(TAG, "Skip app OTA: on battery and pct=%u%% < 50%%", pct);
-            skip_app_update = 1;
-        }
-    }
-
-    if (skip_app_update) {
-        LISA_LOGI(TAG, "App OTA disabled, skip");
-    } else {
-        s_ota_state.target = OTA_TARGET_APP;
-        ota_manager_notify_state(OTA_STATE_CHECKING);
-
-        ota_app_package_t app_pkg;
-        ret = ota_api_check_app(&app_pkg);
-        if (ret == 0 && app_pkg.available && ota_manager_is_blacklisted(app_pkg.package_id)) {
-            LISA_LOGW(TAG, "Skip app OTA: package_id=%s is blacklisted (prior boot failed to apply it)",
-                      app_pkg.package_id);
-        } else if (ret == 0 && app_pkg.available) {
-            ota_app_decision_e decision;
-
-            LISA_LOGI(TAG, "App OTA available (v%s -> v%s), waiting user confirmation", PROJECT_VERSION_STR,
-                      app_pkg.version);
-
-            s_ota_state.update_total = 1;
-            s_ota_state.update_index = 1;
-
-            decision = ota_manager_wait_app_decision(&app_pkg);
-            if (decision == OTA_APP_DECISION_SKIP) {
-                LISA_LOGI(TAG, "App OTA deferred by user, continue resource check");
-            } else if (ota_manager_app_update(&app_pkg) < 0) {
-                LISA_LOGE(TAG, "App OTA failed, will retry next boot");
-                ota_manager_update_reboot_strategy();
-                ota_manager_notify_state(OTA_STATE_FAILED);
-                goto reboot;
-            }
-            /* ota_manager_app_update 成功路径中会触发重启，不会返回 */
-        } else if (ret < 0) {
-            LISA_LOGW(TAG, "App OTA check failed (%d), proceed with resource check", ret);
-        } else {
-            LISA_LOGI(TAG, "App OTA: already up-to-date");
-        }
-    }
-
-    memset(&dev_conf, 0, sizeof(ota_dev_conf_t));
 
 #ifdef CONFIG_OTA_DISABLE_WAKEWORD_UPDATE
     skip_wake_word_update = 1;
@@ -561,8 +527,77 @@ static int _ota_manager_check_all(void)
     }
 #endif
 
+    /* 老 boot 不消费 control store，app 升级无法落地；资源包升级不受影响 */
+    if (!skip_app_update && !uboot_features_has(UBOOT_FEATURE_OTA)) {
+        LISA_LOGI(TAG, "Skip app OTA: boot lacks OTA support");
+        skip_app_update = 1;
+    }
+
+    if (!skip_app_update && s_app_ota_checked_this_boot) {
+        LISA_LOGI(TAG, "Skip app OTA: already checked this boot");
+        skip_app_update = 1;
+    }
+
+    /* 电池供电且剩余 < 10% 时跳过所有 OTA，避免升级过程中掉电变砖。
+     * USB 已插入时不看电量；机器没带电池的情况下也按"非电池供电"处理。 */
+    if (!power_is_usb_plugged() && battery_get_status() != BATTERY_STATUS_NO_BATTERY) {
+        uint8_t pct = battery_get_pct_raw();
+        if (pct < 10) {
+            LISA_LOGI(TAG, "Skip all OTA updates: on battery and pct=%u%% < 10%%", pct);
+            ota_manager_play_tone_sync(TONE_ID_93, 1);
+            skip_app_update = 1;
+            skip_wake_word_update = 1;
+            skip_prompt_tone_update = 1;
+            skip_emoji_update = 1;
+            s_low_battery_skip_wait_power = true;
+        }
+    }
+
+    if (skip_app_update) {
+        LISA_LOGI(TAG, "App OTA disabled, skip");
+    } else {
+        s_ota_state.target = OTA_TARGET_APP;
+        ota_manager_notify_state(OTA_STATE_CHECKING);
+
+        ota_app_package_t app_pkg;
+        /* 请求前置位：即使网络异常或下载失败，本次开机也不再重复弹 APP OTA。 */
+        s_app_ota_checked_this_boot = true;
+        ret = ota_api_check_app(&app_pkg);
+        if (ret == 0 && app_pkg.available && ota_manager_is_blacklisted(app_pkg.package_id)) {
+            LISA_LOGW(TAG, "Skip app OTA: package_id=%s is blacklisted (prior boot failed to apply it)",
+                      app_pkg.package_id);
+        } else if (ret == 0 && app_pkg.available) {
+            ota_app_decision_e decision;
+
+            LISA_LOGI(TAG, "App OTA available (v%s -> v%s), waiting user confirmation", PROJECT_VERSION_STR,
+                      app_pkg.version);
+
+            s_ota_state.update_total = 1;
+            s_ota_state.update_index = 1;
+
+            decision = ota_manager_wait_app_decision(&app_pkg);
+            if (decision == OTA_APP_DECISION_SKIP) {
+                LISA_LOGI(TAG, "App OTA deferred by user, continue resource check");
+            } else if ((ret = ota_manager_app_update(&app_pkg)) < 0) {
+                LISA_LOGE(TAG, "App OTA failed (%d)", ret);
+                if (s_ota_state.state != OTA_STATE_APP_FAILED) {
+                    ota_manager_notify_state(OTA_STATE_APP_FAILED);
+                }
+                ota_manager_show_failure_notice();
+                return ret;
+            }
+            /* ota_manager_app_update 成功路径中会触发重启，不会返回 */
+        } else if (ret < 0) {
+            LISA_LOGW(TAG, "App OTA check failed (%d), proceed with resource check", ret);
+        } else {
+            LISA_LOGI(TAG, "App OTA: already up-to-date");
+        }
+    }
+
+    memset(&dev_conf, 0, sizeof(ota_dev_conf_t));
+
     if (skip_wake_word_update && skip_prompt_tone_update && skip_emoji_update) {
-        LISA_LOGI(TAG, "Skip all resource updates as per user settings");
+        LISA_LOGI(TAG, "Skip all resource updates");
     } else {
         s_ota_state.target = OTA_TARGET_UNSPECIFIED;
         ota_manager_notify_state(OTA_STATE_CHECKING);
@@ -619,7 +654,7 @@ static int _ota_manager_check_all(void)
             if (ret < 0) {
                 LISA_LOGE(TAG, "Wake word update failed (%d)", ret);
                 ota_manager_update_reboot_strategy();
-                ota_manager_notify_state(OTA_STATE_FAILED);
+                ota_manager_notify_state(OTA_STATE_RESOURCE_FAILED);
                 goto reboot;
             }
             LISA_LOGI(TAG, "Wake word updated");
@@ -646,7 +681,7 @@ static int _ota_manager_check_all(void)
             if (ret < 0) {
                 LISA_LOGE(TAG, "Prompt tone update failed (%d)", ret);
                 ota_manager_update_reboot_strategy();
-                ota_manager_notify_state(OTA_STATE_FAILED);
+                ota_manager_notify_state(OTA_STATE_RESOURCE_FAILED);
                 goto reboot;
             }
             LISA_LOGI(TAG, "Prompt tone updated");
@@ -662,7 +697,7 @@ static int _ota_manager_check_all(void)
             if (ret < 0) {
                 LISA_LOGE(TAG, "Emoji update failed (%d)", ret);
                 ota_manager_update_reboot_strategy();
-                ota_manager_notify_state(OTA_STATE_FAILED);
+                ota_manager_notify_state(OTA_STATE_RESOURCE_FAILED);
                 goto reboot;
             }
             LISA_LOGI(TAG, "Emoji updated");
@@ -714,6 +749,10 @@ up_to_date:
     return 0;
 
 reboot:
+    if (s_ota_state.state == OTA_STATE_RESOURCE_FAILED) {
+        ota_manager_show_failure_notice();
+    }
+
     ota_manager_do_reboot();
 
     return ret;
@@ -766,6 +805,11 @@ int ota_manager_check_all(void)
         return 0;
     }
 
+    if (s_ota_state.state == OTA_STATE_APP_FAILED) {
+        LISA_LOGI(TAG, "App OTA failed this boot, skip duplicated OTA check");
+        return 0;
+    }
+
     lisa_thread_attr_t attr = {
         .name = "ota_check",
         .stack_size = 16 * 1024,
@@ -774,6 +818,29 @@ int ota_manager_check_all(void)
     lisa_thread_create(&attr, ota_manager_check_task, NULL);
 
     return 0;
+}
+
+int ota_manager_check_after_power_connected(void)
+{
+    if (!s_low_battery_skip_wait_power) {
+        return 0;
+    }
+
+    if (!power_is_usb_plugged()) {
+        return 0;
+    }
+
+    if (s_ota_state.state == OTA_STATE_CHECKING ||
+        s_ota_state.state == OTA_STATE_PACKAGE_INFO ||
+        s_ota_state.state == OTA_STATE_UPDATING) {
+        LISA_LOGI(TAG, "OTA check already active, keep low-battery retry pending");
+        return 0;
+    }
+
+    LISA_LOGI(TAG, "Power connected after low-battery OTA skip, retry OTA check");
+    s_low_battery_skip_wait_power = false;
+
+    return ota_manager_check_all();
 }
 
 int ota_manager_confirm_app_update(void)
@@ -842,7 +909,7 @@ static int ota_manager_app_update(const ota_app_package_t *pkg)
     if (ret < 0) {
         LISA_LOGE(TAG, "Begin staging failed (%d)", ret);
         ota_manager_update_reboot_strategy();
-        ota_manager_notify_state(OTA_STATE_FAILED);
+        ota_manager_notify_state(OTA_STATE_APP_FAILED);
         goto fail;
     }
 
@@ -851,7 +918,7 @@ static int ota_manager_app_update(const ota_app_package_t *pkg)
         LISA_LOGE(TAG, "Download app OTA failed (%d)", ret);
         ota_flash_update_finish(OTA_PART_APP_STAGING);  /* 释放 mutex，忽略返回值 */
         ota_manager_update_reboot_strategy();
-        ota_manager_notify_state(OTA_STATE_FAILED);
+        ota_manager_notify_state(OTA_STATE_APP_FAILED);
         goto fail;
     }
 
@@ -859,7 +926,7 @@ static int ota_manager_app_update(const ota_app_package_t *pkg)
     if (ret < 0) {
         LISA_LOGE(TAG, "Finish staging failed (%d)", ret);
         ota_manager_update_reboot_strategy();
-        ota_manager_notify_state(OTA_STATE_FAILED);
+        ota_manager_notify_state(OTA_STATE_APP_FAILED);
         goto fail;
     }
 
@@ -892,7 +959,7 @@ static int ota_manager_app_update(const ota_app_package_t *pkg)
          * 否则下次重启时 reconcile 会把 boot 无关的上次失败记录挂在它头上 */
         lisa_kv_set_string(KV_KEY_SYS_OTA_PENDING_PKG, "");
         ota_manager_update_reboot_strategy();
-        ota_manager_notify_state(OTA_STATE_FAILED);
+        ota_manager_notify_state(OTA_STATE_APP_FAILED);
         goto fail;
     }
 

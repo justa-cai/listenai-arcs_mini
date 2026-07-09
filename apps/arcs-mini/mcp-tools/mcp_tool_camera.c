@@ -160,10 +160,20 @@ static void take_photo_pending_error_response(const char *reason)
 static cJSON *take_photo_call(const char *id, const char *name, cJSON *args)
 {
     (void)name;
-    (void)args;
     voice_msg_camera_preview_req_t req = {0};
+    bool json_sync = false;
 
     LOGI("take photo mcp received");
+
+    /* 解析 JSON args 中的 "sync":true 标志：
+     * - 带 "sync":true  → sync 拍照，云端不下发 pushup TTS URL
+     * - 不带 sync 标志 → 常规拍照，云端会下发 pushup TTS URL */
+    if (args) {
+        cJSON *sync_item = cJSON_GetObjectItem(args, "sync");
+        if (sync_item && cJSON_IsBool(sync_item)) {
+            json_sync = cJSON_IsTrue(sync_item);
+        }
+    }
 
     if (!id || id[0] == '\0') {
         LOGE("take photo failed: invalid mcp id");
@@ -192,6 +202,7 @@ static cJSON *take_photo_call(const char *id, const char *name, cJSON *args)
 
     req.mode = CAMERA_PREVIEW_MODE_MCP;
     req.sync = 1;
+    req.no_pushup_tts = json_sync ? 1 : 0;
     req.auto_capture_delay_ms = 3000;
     strncpy(req.context_id, id, sizeof(req.context_id) - 1);
 

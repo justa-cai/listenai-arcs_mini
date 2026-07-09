@@ -14,6 +14,7 @@
 #include "sys_network_manager.h"
 #include "sys_wifi.h"
 #include "board.h"
+#include "project_version.h"
 
 #if CONFIG_FILE_SYSTEM
 #include "lsfs.h"
@@ -129,6 +130,7 @@ int arcs_nvs_init(void)
 
 static int voice_platform_init(void)
 {
+    LISA_LOGI(TAG,"Firmware version: %s-%s", PROJECT_VERSION_STR, PROJECT_VERSION_COMMIT);
     LISA_LOGI(TAG,"Solution build time: %s %s", __DATE__, __TIME__);
     struct ipc_master_cb_tag ipc_cb = {
         .wifi_tx_data_cfm   = NULL,

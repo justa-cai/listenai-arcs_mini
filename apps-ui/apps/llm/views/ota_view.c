@@ -317,12 +317,13 @@ void lisa_ui_ota_view_update(lv_obj_t *obj, const ota_state_t *state)
             lv_label_set_text_static(view->eta_label, "请手动重启设备");
         }
         break;
-    case OTA_STATE_FAILED:
-        if (state->target == OTA_TARGET_APP) {
-            lv_label_set_text_static(view->status_label, "系统更新下载失败");
-        } else {
-            lv_label_set_text_static(view->status_label, "更新失败");
-        }
+    case OTA_STATE_APP_FAILED:
+        lv_label_set_text_static(view->status_label, "系统更新失败");
+        lv_label_set_text_static(view->progress_label, "");
+        lv_label_set_text_static(view->eta_label, "");
+        break;
+    case OTA_STATE_RESOURCE_FAILED:
+        lv_label_set_text_static(view->status_label, "资源更新失败");
         lv_label_set_text_static(view->progress_label, "");
         if (state->reboot == OTA_REBOOT_STRATEGY_AUTO) {
             lv_label_set_text_static(view->eta_label, "正在重启…");

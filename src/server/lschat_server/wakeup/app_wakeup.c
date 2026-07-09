@@ -279,10 +279,6 @@ static void audio_stream_callback(const lisa_audio_event_t *event, void *user_da
         return;
     }
 
-#if CONFIG_APP_USB_AUDIO_ENABLE
-    wakeup_stream_debug_data_input(event->record_buffer, event->echo_buffer, event->record_samples,
-                                   event->echo_samples);
-#endif
 
 #if CONFIG_ACOMP_WAKEUP_ALGORITHM_TYPE_DUAL_MIC
     algo_ref_data = (ref_in_t*)event->echo_buffer;
@@ -553,16 +549,16 @@ static void wakeup_out_stream_to_cloud(uint8_t *data, int len)
 #define LS_RECORD_ONE_CHNNEL_SIZE (UAS_REC_FRM_SAMPS * sizeof(short))
 
     for (int j = 0; j < len / (LS_RECORD_ONE_CHNNEL_SIZE * UAS_REC_CHANNELS); j++) {
-        short rec_buf[UAS_REC_FRM_SAMPS] = {0};
-        short(*uac_rec)[UAS_REC_CHANNELS] =
+        short algo_out[UAS_REC_FRM_SAMPS] = {0};
+        short(*algo_frame)[UAS_REC_CHANNELS] =
             (short(*)[UAS_REC_CHANNELS])((uint8_t *)data + LS_RECORD_ONE_CHNNEL_SIZE * UAS_REC_CHANNELS * j);
         for (int i = 0; i < UAS_REC_FRM_SAMPS; i++) {
-            rec_buf[i] = uac_rec[i][3];
+            algo_out[i] = algo_frame[i][3];
         }
 
         /* Apply +6dB gain (x2) to clean audio before sending to cloud ASR */
         for (int i = 0; i < UAS_REC_FRM_SAMPS; i++) {
-            int32_t sample = (int32_t)rec_buf[i] << 1;
+            int32_t sample = (int32_t)algo_out[i] << 1;
             if (sample > SHRT_MAX) {
                 sample = SHRT_MAX;
             } else if (sample < SHRT_MIN) {
@@ -572,11 +568,11 @@ static void wakeup_out_stream_to_cloud(uint8_t *data, int len)
                 sample < CONFIG_LSCHAT_WAKEUP_CLOUD_NOISE_GATE_THRESHOLD) {
                 sample = 0;
             }
-            rec_buf[i] = (short)sample;
-            uac_rec[i][3] = (short)sample; // 声道4为上报云端
+            algo_frame[i][4] = (short)sample; // 保存上报云端的数据，后续UAC传出
+            algo_out[i] = (short)sample;
         }
 
-        voice_cloud_chat_send_audio((uint8_t *)rec_buf, LS_RECORD_ONE_CHNNEL_SIZE);
+        voice_cloud_chat_send_audio((uint8_t *)algo_out, LS_RECORD_ONE_CHNNEL_SIZE);
     }
 }
 

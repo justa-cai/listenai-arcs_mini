@@ -7,8 +7,11 @@
 #include "drivers/ml307/ml307_at_cmd.h"
 #include "drivers/ml307/ml307_netreg.h"
 #include "core/modem_probe_utils.h"
+#include "core/modem_bits.h"
 #include "at_mem.h"
+#include "task.h"
 #include <errno.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define TAG "ml307_endpoint"
@@ -22,11 +25,12 @@
 #define ML307_PULL_TIMEOUT_FALLBACK_MS 100U
 #define ML307_RX_HIGH_WATERMARK(bytes) (((bytes) * 5U) / 6U)
 #define ML307_RX_LOW_WATERMARK(bytes)  (((bytes) * 4U) / 5U)
+#define ML307_GNSS_EVENT_RUNNING       BIT2
+#define ML307_GNSS_START_TIMEOUT_MS    5000U
+#define ML307_GNSS_STATE_SETTLE_MS      200U
 
-static uint32_t ml307_endpoint_tick_elapsed_ms(TickType_t start, TickType_t end)
-{
-    return (uint32_t)((end - start) * portTICK_PERIOD_MS);
-}
+static bool ml307_endpoint_exec_ok(ml307_endpoint_ctx_t *ctx, const char *cmd, uint32_t timeout_ms);
+static bool ml307_endpoint_set_gnss_enabled(ml307_endpoint_ctx_t *ctx, bool enabled);
 
 static ml307_endpoint_t *ml307_endpoint_get(ml307_endpoint_ctx_t *ctx, int endpoint_id)
 {
@@ -50,6 +54,42 @@ static void ml307_endpoint_schedule_rx_ready(ml307_endpoint_t *endpoint)
     (void)modem_dispatcher_mark_rx_ready(endpoint->ctx->dispatcher,
                                          endpoint->public_sockfd,
                                          endpoint->generation);
+}
+
+static bool ml307_endpoint_gnss_status_is_running(int status)
+{
+    return status == 1 || status == 2;
+}
+
+static void ml307_endpoint_handle_gnss_urc(ml307_endpoint_ctx_t *ctx,
+                                           const char *command,
+                                           at_arg_value_t *arguments,
+                                           size_t arg_count)
+{
+    const char *kind;
+    int value;
+
+    if (!ctx || !command || strcmp(command, "MGNSSURC") != 0 ||
+        arg_count < 2 || !arguments ||
+        arguments[0].type != AT_ARG_TYPE_STRING ||
+        !arguments[0].data.string_val.value ||
+        arguments[1].type != AT_ARG_TYPE_INT) {
+        return;
+    }
+
+    kind = arguments[0].data.string_val.value;
+    value = arguments[1].data.int_val;
+    if (strcmp(kind, "state") == 0) {
+        if (ml307_endpoint_gnss_status_is_running(value)) {
+            ctx->gnss_running = true;
+            xEventGroupSetBits(ctx->event_group, ML307_GNSS_EVENT_RUNNING);
+        } else {
+            ctx->gnss_running = false;
+            xEventGroupClearBits(ctx->event_group, ML307_GNSS_EVENT_RUNNING);
+        }
+    } else if (strcmp(kind, "error") == 0) {
+        LISA_LOGW(TAG, "GNSS URC error=%d", value);
+    }
 }
 
 static uint32_t ml307_endpoint_effective_pull_timeout_ms(const ml307_endpoint_t *endpoint)
@@ -112,6 +152,7 @@ static void ml307_endpoint_modem_urc_handler(const char *command, at_arg_value_t
         ml307_at_cmd_handle_urc(endpoint, command, arguments, arg_count);
     }
 
+    ml307_endpoint_handle_gnss_urc(ctx, command, arguments, arg_count);
     ml307_netreg_handle_modem_urc(ctx, command, arguments, arg_count);
 }
 
@@ -300,6 +341,13 @@ void ml307_endpoint_shutdown(ml307_endpoint_ctx_t *ctx)
         return;
     }
 
+    if (ctx->gnss_running) {
+        (void)ml307_endpoint_exec_ok(ctx, "AT+MGNSSLOC=0", 2000U);
+        (void)ml307_endpoint_set_gnss_enabled(ctx, false);
+        ctx->gnss_running = false;
+        xEventGroupClearBits(ctx->event_group, ML307_GNSS_EVENT_RUNNING);
+    }
+
     for (i = 0; i < ML307_MAX_ENDPOINTS; ++i) {
         ml307_endpoint_t *endpoint = &ctx->endpoints[i];
 
@@ -430,6 +478,221 @@ bool ml307_endpoint_get_signal_quality(ml307_endpoint_ctx_t *ctx, int *rssi, int
         .cmd = "AT+CSQ", .expect_urc = "CSQ",
         .parse = ml307_endpoint_parse_csq, .timeout_ms = 1000U,
     }, &out);
+}
+
+typedef struct {
+    double *lat;
+    double *lon;
+    int *fix;
+} ml307_gps_out_t;
+
+static bool ml307_endpoint_nmea_coord_to_degrees(const at_arg_value_t *arg, double *degrees)
+{
+    const char *coord;
+    char value[24];
+    char *end = NULL;
+    size_t len;
+    char hemi;
+    double raw;
+    int deg;
+    double minutes;
+
+    if (!arg || !degrees ||
+        arg->type != AT_ARG_TYPE_STRING || !arg->data.string_val.value) {
+        return false;
+    }
+
+    coord = arg->data.string_val.value;
+    len = strlen(coord);
+    if (len < 3U || len >= sizeof(value)) {
+        return false;
+    }
+
+    hemi = coord[len - 1U];
+    if (hemi != 'N' && hemi != 'S' && hemi != 'E' && hemi != 'W') {
+        return false;
+    }
+
+    memcpy(value, coord, len - 1U);
+    value[len - 1U] = '\0';
+    raw = strtod(value, &end);
+    if (!end || end == value) {
+        return false;
+    }
+
+    deg = (int)(raw / 100.0);
+    minutes = raw - ((double)deg * 100.0);
+    if (minutes < 0.0 || minutes >= 60.0) {
+        return false;
+    }
+
+    *degrees = (double)deg + (minutes / 60.0);
+    if (hemi == 'S' || hemi == 'W') {
+        *degrees = -*degrees;
+    }
+    return true;
+}
+
+static bool ml307_endpoint_parse_mgnssloc(at_arg_value_t *args, size_t count, void *user_data)
+{
+    ml307_gps_out_t *out = (ml307_gps_out_t *)user_data;
+    int fix;
+    bool lat_ok;
+    bool lon_ok;
+
+    /* +MGNSSLOC: <UTC>,<lat>,<lon>,<hdop>,<alt>,<fix>,... */
+    if (!out || !out->lat || !out->lon || !out->fix ||
+        count < 6 || args[5].type != AT_ARG_TYPE_INT) {
+        return false;
+    }
+
+    fix = args[5].data.int_val;
+    *out->fix = fix;
+    lat_ok = ml307_endpoint_nmea_coord_to_degrees(&args[1], out->lat);
+    lon_ok = ml307_endpoint_nmea_coord_to_degrees(&args[2], out->lon);
+    if (!lat_ok) {
+        *out->lat = 0.0;
+    }
+    if (!lon_ok) {
+        *out->lon = 0.0;
+    }
+
+    return true;
+}
+
+static bool ml307_endpoint_parse_mgnss_status(at_arg_value_t *args, size_t count, void *user_data)
+{
+    int *status = (int *)user_data;
+
+    if (!status || count < 1 || args[0].type != AT_ARG_TYPE_INT) {
+        return false;
+    }
+
+    *status = args[0].data.int_val;
+    return true;
+}
+
+static bool ml307_endpoint_exec_ok(ml307_endpoint_ctx_t *ctx, const char *cmd, uint32_t timeout_ms)
+{
+    return ctx && cmd && at_client_exec_cmd(ctx->client, &(at_cmd_desc_t){
+        .cmd = cmd,
+        .expect_urc = NULL,
+        .parse = NULL,
+        .timeout_ms = timeout_ms,
+    }, NULL);
+}
+
+static bool ml307_endpoint_set_gnss_enabled(ml307_endpoint_ctx_t *ctx, bool enabled)
+{
+    return ml307_endpoint_exec_ok(ctx, enabled ? "AT+MGNSS=1" : "AT+MGNSS=0", 2000U);
+}
+
+static bool ml307_endpoint_query_gnss_status(ml307_endpoint_ctx_t *ctx, int *status)
+{
+    if (!ctx || !status) {
+        return false;
+    }
+
+    *status = 0;
+    return at_client_exec_cmd(ctx->client, &(at_cmd_desc_t){
+        .cmd = "AT+MGNSS?",
+        .expect_urc = "MGNSS",
+        .parse = ml307_endpoint_parse_mgnss_status,
+        .timeout_ms = 1000U,
+    }, status);
+}
+
+static bool ml307_endpoint_refresh_gnss_running(ml307_endpoint_ctx_t *ctx)
+{
+    int status = 0;
+
+    if (!ml307_endpoint_query_gnss_status(ctx, &status)) {
+        return false;
+    }
+
+    ctx->gnss_running = ml307_endpoint_gnss_status_is_running(status);
+    if (ctx->gnss_running) {
+        xEventGroupSetBits(ctx->event_group, ML307_GNSS_EVENT_RUNNING);
+    } else {
+        xEventGroupClearBits(ctx->event_group, ML307_GNSS_EVENT_RUNNING);
+    }
+    return ctx->gnss_running;
+}
+
+static bool ml307_endpoint_wait_gnss_running(ml307_endpoint_ctx_t *ctx)
+{
+    TickType_t timeout_ticks;
+    EventBits_t bits;
+
+    if (!ctx) {
+        return false;
+    }
+
+    timeout_ticks = pdMS_TO_TICKS(ML307_GNSS_START_TIMEOUT_MS);
+    bits = xEventGroupWaitBits(ctx->event_group,
+                               ML307_GNSS_EVENT_RUNNING,
+                               pdFALSE,
+                               pdFALSE,
+                               timeout_ticks);
+    if ((bits & ML307_GNSS_EVENT_RUNNING) != 0U) {
+        if (ML307_GNSS_STATE_SETTLE_MS > 0U) {
+            vTaskDelay(pdMS_TO_TICKS(ML307_GNSS_STATE_SETTLE_MS));
+        }
+        return true;
+    }
+
+    return ml307_endpoint_refresh_gnss_running(ctx);
+}
+
+bool ml307_endpoint_start_gnss(ml307_endpoint_ctx_t *ctx)
+{
+    if (!ctx) {
+        return false;
+    }
+
+    if (ctx->gnss_running) {
+        return true;
+    }
+
+    if (!ml307_endpoint_exec_ok(ctx, "AT+MGNSSCFG=\"nmea/mask\",63", 2000U)) {
+        return false;
+    }
+
+    if (!ml307_endpoint_refresh_gnss_running(ctx)) {
+        xEventGroupClearBits(ctx->event_group, ML307_GNSS_EVENT_RUNNING);
+        if (!ml307_endpoint_set_gnss_enabled(ctx, true)) {
+            return false;
+        }
+        if (!ml307_endpoint_wait_gnss_running(ctx)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool ml307_endpoint_get_gps_location(ml307_endpoint_ctx_t *ctx, double *lat, double *lon)
+{
+    int fix = 0;
+    ml307_gps_out_t out = { lat, lon, &fix };
+
+    if (!ctx || !lat || !lon) {
+        return false;
+    }
+
+    *lat = 0.0;
+    *lon = 0.0;
+
+    if (!at_client_exec_cmd(ctx->client, &(at_cmd_desc_t){
+        .cmd = "AT+MGNSSLOC",
+        .expect_urc = "MGNSSLOC",
+        .parse = ml307_endpoint_parse_mgnssloc,
+        .timeout_ms = 2000U,
+    }, &out)) {
+        return false;
+    }
+
+    return fix == 2 || fix == 3;
 }
 
 int ml307_endpoint_open(ml307_endpoint_ctx_t *ctx, int domain, int protocol)
@@ -879,6 +1142,20 @@ static int ml307_endpoint_driver_set_tls(void *driver_ctx, int driver_endpoint_i
          : -1;
 }
 
+static bool ml307_endpoint_driver_start_gnss(void *driver_ctx)
+{
+    return driver_ctx
+         ? ml307_endpoint_start_gnss((ml307_endpoint_ctx_t *)driver_ctx)
+         : false;
+}
+
+static bool ml307_endpoint_driver_get_gps_location(void *driver_ctx, double *lat, double *lon)
+{
+    return driver_ctx
+         ? ml307_endpoint_get_gps_location((ml307_endpoint_ctx_t *)driver_ctx, lat, lon)
+         : false;
+}
+
 static void ml307_endpoint_driver_get_status(void *driver_ctx, lisa_modem_status_t *status)
 {
     ml307_endpoint_ctx_t *ctx = (ml307_endpoint_ctx_t *)driver_ctx;
@@ -926,6 +1203,8 @@ static const modem_driver_ops_t s_ml307_driver_ops = {
     .get_imei = ml307_endpoint_driver_get_imei,
     .get_iccid = ml307_endpoint_driver_get_iccid,
     .get_signal_quality = ml307_endpoint_driver_get_signal_quality,
+    .start_gnss = ml307_endpoint_driver_start_gnss,
+    .get_gps_location = ml307_endpoint_driver_get_gps_location,
     .open_fn = ml307_endpoint_driver_open,
     .connect_fn = ml307_endpoint_driver_connect,
     .close_fn = ml307_endpoint_driver_close,
