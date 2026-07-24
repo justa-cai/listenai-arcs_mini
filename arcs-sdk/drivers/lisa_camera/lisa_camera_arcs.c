@@ -744,7 +744,17 @@ static int lisa_camera_set_subsample_arcs(lisa_device_t *dev, uint8_t row_ratio,
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
-    return priv->sensor.set_subsample(&priv->sensor, row_ratio, col_ratio);
+    int ret = priv->sensor.set_subsample(&priv->sensor, row_ratio, col_ratio);
+    /* 跳采后传感器输出为 crop/ratio，同步缩小缓存的帧尺寸并按新尺寸重建帧
+     * 缓冲（帧缓冲在 setup 时已按全画幅分配，不重建会错配/浪费内存）。*/
+    if (ret == LISA_DEVICE_OK && row_ratio > 0 && col_ratio > 0) {
+        priv->frame_width /= col_ratio;
+        priv->frame_height /= row_ratio;
+        LOGI("Subsample %ux%u: frame size -> %ux%u", col_ratio, row_ratio,
+             priv->frame_width, priv->frame_height);
+        ret = lisa_camera_fb_reinit(priv);
+    }
+    return ret;
 }
 
 /**

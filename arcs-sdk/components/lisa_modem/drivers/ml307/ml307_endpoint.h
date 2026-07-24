@@ -24,6 +24,8 @@ extern "C" {
 
 #define ML307_MAX_ENDPOINTS            5
 #define ML307_CONNECT_TIMEOUT_MS       10000
+#define ML307_MIPOPEN_TIMEOUT_SECONDS  (ML307_CONNECT_TIMEOUT_MS / 1000U)
+#define ML307_MIPOPEN_WAIT_TIMEOUT_MS  (ML307_CONNECT_TIMEOUT_MS + 5000U)
 #define ML307_SEND_TIMEOUT_MS          5000
 #define ML307_UDP_MAX_PACKET_SIZE      730
 #define ML307_DATA_FORMAT_TEXT         0
@@ -76,6 +78,7 @@ typedef struct ml307_endpoint {
     bool in_use;
     bool is_tls;
     bool connected;
+    bool connecting;
     bool instance_active;
     bool initialized;
     bool blocking;

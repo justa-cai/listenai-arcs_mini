@@ -3,11 +3,10 @@
 #include "voice_intent_session.h"
 
 #include "lisa_log.h"
-#include "app_player.h"
 #include "voice_msg.h"
-#include "voice_player_comm.h"
 #include "voice_intent_mgr.h"
 #include "voice_intent_music.h"
+#include "voice_player/voice_player_tts.h"
 #include "FreeRTOS.h"
 #include "timers.h"
 
@@ -26,12 +25,17 @@ static void voice_session_intent_on_enter(void)
 	LOGI("VOICE_SESSION on_enter");
 }
 
-/* 被更高优先级意图（PHOTO_FLOW / ALARM）抢占时，停止 TTS。
- * URL 的保存和重播由 PHOTO_FLOW（voice_intent_photo_flow）自行管理。 */
+/* 被更高优先级意图抢占时停止活跃 TTS。唤醒入口可能已主动停止 TTS，
+ * active 检查用于避免 PROMPT_TONE 再次 stop 并产生重复 STOPPED。 */
 static void voice_session_intent_on_preempted(void)
 {
+	if (!voice_player_tts_is_active()) {
+		LOGI("VOICE_SESSION on_preempted: tts inactive, skip stop");
+		return;
+	}
+
 	LOGI("VOICE_SESSION on_preempted: stop tts");
-	app_player_stop(tts_player);
+	voice_player_tts_stop();
 }
 
 static void voice_session_intent_on_resumed(void)
@@ -80,7 +84,6 @@ static void on_cloud_session_starting(void *unused, uint32_t msg_id,
 
 	if (voice_intent_contains(INTENT_VOICE_SESSION)) {
 		LOGI("cleanup stale VOICE_SESSION from previous session");
-		app_player_stop(tts_player);
 		voice_intent_pop(INTENT_VOICE_SESSION);
 	}
 
@@ -138,6 +141,11 @@ static void on_cloud_mcp_chat_exit(void *unused, uint32_t msg_id,
 	(void)unused; (void)msg_id; (void)data; (void)len; (void)user_data;
 
 	if (!voice_intent_contains(INTENT_VOICE_SESSION)) {
+		return;
+	}
+	if (voice_player_tts_is_active()) {
+		s_session_finished = true;
+		LOGI("mcp chat exit: tts active, defer VOICE_SESSION pop until tts stopped");
 		return;
 	}
 	LOGI("mcp chat exit: pop INTENT_VOICE_SESSION");

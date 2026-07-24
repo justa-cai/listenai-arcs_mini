@@ -40,6 +40,7 @@
 #define MAX_STANDBY_TEXTS 10
 #define MAX_TEXT_LENGTH 128
 #define MAX_LOADING_TEXT_LENGTH 128
+#define MAX_MUSIC_TEXT_LENGTH 256
 
 struct model_voice_context {
     uint32_t cloud_connected: 1;
@@ -70,6 +71,7 @@ struct model_voice_context {
     uint32_t standby_text_count;
     uint32_t standby_interval_ms;
     bool standby_enabled;
+    char music_text[MAX_MUSIC_TEXT_LENGTH];
 
 #if CONFIG_OTA
     char wake_word[20];
@@ -405,7 +407,7 @@ static void voice_cloud_pushup_tts_url_received(void *unused, uint32_t msg_id, v
 {
     LISA_UI_INVOKE_UI_ARG_NONE({
         model_voice_ctx.pushup_tts = 1;
-        LISA_UI_LOGI("Pushup TTS URL received, suppress UI state changes");
+        LISA_UI_LOGI("Pushup TTS URL received");
     });
 }
 
@@ -491,9 +493,6 @@ static void voice_cloud_tts_player_playing(void *unused, uint32_t msg_id, void *
         model_voice_ctx.tts_pending = 0;
         model_voice_ctx.tts_playing = 1;
         LISA_UI_LOGI("TTS playing started, tts_playing=1, pushup=%d", model_voice_ctx.pushup_tts);
-        if (model_voice_ctx.pushup_tts) {
-            return;
-        }
         if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_tts_playing) {
             model_voice_ctx.cbs->on_tts_playing(model_voice_ctx.arg);
         }
@@ -507,10 +506,7 @@ static void voice_cloud_tts_player_stoped(void *unused, uint32_t msg_id, void *d
         model_voice_ctx.tts_pending = 0;
         LISA_UI_LOGI("TTS playing stopped, tts_playing=0, running=%d, pushup=%d",
                      model_voice_ctx.running, model_voice_ctx.pushup_tts);
-        if (model_voice_ctx.pushup_tts) {
-            model_voice_ctx.pushup_tts = 0;
-            return;
-        }
+        model_voice_ctx.pushup_tts = 0;
         if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_tts_stoped) {
             model_voice_ctx.cbs->on_tts_stoped(model_voice_ctx.arg);
         }
@@ -912,18 +908,22 @@ static void voice_cloud_music_name_received(void *unused, uint32_t msg_id, void 
     LISA_UI_INVOKE_UI_ARG_PTR(data, len, {
         model_voice_ctx.music_playing = (_invoke_data && _invoke_len > 0) ? 1 : 0;
 
-        if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_standby_text_update) {
-            if (_invoke_data && _invoke_len > 0) {
-                char buf[256];
-                const char *name = (const char *)_invoke_data;
-                size_t name_len = strnlen(name, _invoke_len);
-                if (name_len > sizeof(buf) - 5) {
-                    name_len = sizeof(buf) - 5;
-                }
+        if (_invoke_data && _invoke_len > 0) {
+            const char *name = (const char *)_invoke_data;
+            size_t name_len = strnlen(name, _invoke_len);
+            if (name_len > sizeof(model_voice_ctx.music_text) - 5) {
+                name_len = sizeof(model_voice_ctx.music_text) - 5;
+            }
 
-                snprintf(buf, sizeof(buf), "\xE2\x99\xAA %.*s", (int)name_len, name);
-                model_voice_ctx.cbs->on_standby_text_update(model_voice_ctx.arg, buf, false);
-            } else {
+            snprintf(model_voice_ctx.music_text, sizeof(model_voice_ctx.music_text),
+                     "\xE2\x99\xAA %.*s", (int)name_len, name);
+            if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_standby_text_update) {
+                model_voice_ctx.cbs->on_standby_text_update(
+                    model_voice_ctx.arg, model_voice_ctx.music_text, false);
+            }
+        } else {
+            model_voice_ctx.music_text[0] = '\0';
+            if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_standby_text_update) {
                 model_voice_ctx.cbs->on_standby_text_update(model_voice_ctx.arg, NULL, false);
             }
         }
@@ -1136,6 +1136,15 @@ uint8_t model_voice_tts_is_pending(void)
 uint8_t model_voice_music_is_playing(void)
 {
     return (uint8_t)model_voice_ctx.music_playing;
+}
+
+const char *model_voice_music_text_get(void)
+{
+    if (!model_voice_ctx.music_playing || model_voice_ctx.music_text[0] == '\0') {
+        return NULL;
+    }
+
+    return model_voice_ctx.music_text;
 }
 
 const char *model_voice_last_iat_text_get(void)

@@ -117,10 +117,11 @@ typedef struct {
     uint8_t mclk_pin;
     lisa_device_t *pwdn_gpio_dev;    /* PWDN GPIO 设备指针 */
     uint8_t pwdn_pin;                /* PWDN 引脚号 */
-    uint8_t pwdn_inactive_level;     /* PWDN 释放电平: 0=低电平, 1=高电平 */
     uint32_t pwdn_delay_us;          /* PWDN 延时 (微秒) */
     uint32_t xclk_delay_us;          /* 时钟输出后延时 (微秒) */
     lisa_device_t *i2c_dev;          /* I2C 设备 */
+    /* 新字段追加在结构体末尾，保持既有按位置初始化/二进制布局兼容 */
+    uint8_t pwdn_inactive_level;     /* PWDN 释放电平: 0=低电平, 1=高电平 */
 } lisa_camera_hw_config_t;
 
 /**

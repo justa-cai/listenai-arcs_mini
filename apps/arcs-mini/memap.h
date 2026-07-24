@@ -23,18 +23,30 @@
 /* FLASH 分配 */
 #define MEM_TOTAL_FLASH_SIZE  __MB__(16)
 
+/* 大小按分区表收紧：ap 0x40000..0x100000(tone)，app 0x600000..0xA00000(ota)，
+ * 越界时链接期即报错，而不是烧写后踩相邻分区 */
 #define MEM_AP_FLASH_BASE  0x30040000
-#define MEM_AP_FLASH_SIZE  __KB__(1024)
+#define MEM_AP_FLASH_SIZE  __KB__(768)
 
 #define MEM_CP_FLASH_BASE  (0x30000000 + __MB__(6))
-#define MEM_CP_FLASH_SIZE  __MB__(8)
+#define MEM_CP_FLASH_SIZE  __MB__(4)
  
-/* PSRAM 分配 */
+/* PSRAM 分配随 SoC 型号（LS26x3=8M → AP=3MB/CP=5MB，
+ * LS26x4=16M → AP=8MB/CP=8MB；mini3=LS2663，mini=LS2684）。
+ * Kconfig 侧的 CONFIG_MEM_PSRAM_* 由 prj.conf / <BOARD>.conf 同步。*/
 #define MEM_AP_PSRAM_BASE  0x28000000
+#if defined(CONFIG_SOC_LS2663) || defined(CONFIG_SOC_LS2683)
+#define MEM_AP_PSRAM_SIZE  __MB__(3)
+#else
 #define MEM_AP_PSRAM_SIZE  __MB__(8)
+#endif
 
 #define MEM_CP_PSRAM_BASE  ((MEM_AP_PSRAM_BASE) + (MEM_AP_PSRAM_SIZE))
+#if defined(CONFIG_SOC_LS2663) || defined(CONFIG_SOC_LS2683)
+#define MEM_CP_PSRAM_SIZE  __MB__(5)
+#else
 #define MEM_CP_PSRAM_SIZE  __MB__(8)
+#endif
 
 #if CONFIG_ARCS_AP_CORE
 #define MEM_PSRAM_BASE  MEM_AP_PSRAM_BASE

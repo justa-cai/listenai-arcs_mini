@@ -35,7 +35,7 @@ typedef struct {
 static lisa_thread_t *s_led_task = NULL;
 static QueueHandle_t s_led_queue = NULL;
 
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
 typedef struct {
     const char *device_name;
     uint32_t pin;
@@ -64,7 +64,7 @@ static lisa_device_t *gpio_dev;
 
 static int led_hw_init(void)
 {
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
     for (uint32_t i = 0; i < sizeof(s_user_leds) / sizeof(s_user_leds[0]); i++) {
         s_user_leds[i].dev = lisa_device_get(s_user_leds[i].device_name);
         if (!lisa_device_ready(s_user_leds[i].dev)) {
@@ -100,7 +100,7 @@ static int led_hw_init(void)
 
 static void led_hw_on(void)
 {
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
     for (uint32_t i = 0; i < sizeof(s_user_leds) / sizeof(s_user_leds[0]); i++) {
         lisa_gpio_write_pin(s_user_leds[i].dev, s_user_leds[i].pin, led_level(true));
     }
@@ -111,7 +111,7 @@ static void led_hw_on(void)
 
 static void led_hw_off(void)
 {
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
     for (uint32_t i = 0; i < sizeof(s_user_leds) / sizeof(s_user_leds[0]); i++) {
         lisa_gpio_write_pin(s_user_leds[i].dev, s_user_leds[i].pin, led_level(false));
     }

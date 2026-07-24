@@ -7,7 +7,7 @@
 #include "alarm_ring.h"
 #include "alarm_handler.h"
 #include "voice_intent_mgr.h"
-#include "voice_player_comm.h"
+#include "voice_player/voice_player_tts.h"
 
 /* ==================== 状态 ====================
  *
@@ -57,13 +57,13 @@ static void on_alarm_trigger(void *unused, uint32_t msg_id,
     if (voice_intent_contains(INTENT_PHOTO_FLOW)) {
         LOGI("ALARM triggered during photo flow, pop PHOTO_FLOW first");
         voice_intent_pop(INTENT_PHOTO_FLOW);
-        /* on_exit 已清 gate，这里发布 PREVIEW_EXIT 触发 UI 退出 +
+        /* on_exit 已完成 TTS 收尾，这里发布 PREVIEW_EXIT 触发 UI 退出 +
          * mcp_tool 发错误 MCP 响应，完成拍照流的完整收尾。 */
         voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
     }
 
     if (voice_intent_contains(INTENT_VOICE_SESSION)) {
-        app_player_stop(tts_player);
+        voice_player_tts_stop();
         voice_intent_pop(INTENT_VOICE_SESSION);
     }
 

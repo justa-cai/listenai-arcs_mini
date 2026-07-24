@@ -37,6 +37,5 @@ config LISA_CH32V003_PWM_DEADTIME
 
 config LISA_CH32V003_PWM_BRAKE
 	bool "Enable CH32V003 PWM brake"
-	default n
 
 endif # LISA_CH32V003

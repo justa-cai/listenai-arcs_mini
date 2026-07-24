@@ -93,18 +93,6 @@ static int _twi_write(uint8_t slv_addr, uint16_t reg, unsigned char value, bool 
     return lisa_i2c_write(i2c_dev, slv_addr, buf, num);
 }
 
-int sensor_twi_probe_addr(uint8_t slv_addr)
-{
-    lisa_i2c_msg_t msg = {
-        .addr = slv_addr,
-        .flags = LISA_I2C_FLAG_NONE,
-        .len = 0,
-        .buf = NULL,
-    };
-
-    return lisa_i2c_transfer(i2c_dev, &msg, 1);
-}
-
 static int _twi_read(uint8_t slv_addr, uint16_t reg, unsigned char *value, bool reg16_width)
 {
     lisa_i2c_msg_t msgs[2];

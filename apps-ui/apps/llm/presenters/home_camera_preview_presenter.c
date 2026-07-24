@@ -31,35 +31,6 @@ static bool camera_preview_is_voice_source(const model_camera_preview_t *preview
     return model_camera_preview_source_get(preview) == MODEL_CAMERA_PREVIEW_SOURCE_MCP;
 }
 
-static int rotate_rgb565_cw90_inplace(uint8_t *rgb565_buf, uint16_t width, uint16_t height)
-{
-    if (!rgb565_buf || width == 0 || height == 0) {
-        return -1;
-    }
-
-    uint32_t pixel_count = (uint32_t)width * (uint32_t)height;
-    uint32_t buffer_size = pixel_count * sizeof(uint16_t);
-    uint16_t *src = (uint16_t *)rgb565_buf;
-    uint16_t *rotated = lisa_ui_malloc(buffer_size);
-
-    if (!rotated) {
-        return -2;
-    }
-
-    for (uint32_t y = 0; y < height; y++) {
-        for (uint32_t x = 0; x < width; x++) {
-            uint32_t dst_x = (uint32_t)height - 1 - y;
-            uint32_t dst_y = x;
-            rotated[dst_y * height + dst_x] = src[y * width + x];
-        }
-    }
-
-    memcpy(rgb565_buf, rotated, buffer_size);
-    lisa_ui_free(rotated);
-
-    return 0;
-}
-
 static void camera_preview_update_hint(struct home_nav_scr_data *scr_data)
 {
     if (!scr_data || !scr_data->view) {
@@ -244,23 +215,11 @@ void camera_preview_capture_timer_cb(lv_timer_t *timer)
         return;
     }
 
-    {
-        uint16_t display_width = width;
-        uint16_t display_height = height;
-        int rotate_ret = rotate_rgb565_cw90_inplace(scr_data->cap_buf, width, height);
-
-        if (rotate_ret == 0) {
-            display_width = height;
-            display_height = width;
-        } else {
-            LISA_UI_LOGW("Rotate preview image failed: %d", rotate_ret);
-        }
-
-        scr_data->img.data = scr_data->cap_buf;
-        scr_data->img.data_size = image_size;
-        scr_data->img.header.w = display_width;
-        scr_data->img.header.h = display_height;
-    }
+    /* capture 输出已是显示方向（service_camera 采集时同遍历旋转 90° CW） */
+    scr_data->img.data = scr_data->cap_buf;
+    scr_data->img.data_size = image_size;
+    scr_data->img.header.w = width;
+    scr_data->img.header.h = height;
 
     if (camera_preview_timer_should_stop(scr_data)) {
         lv_timer_pause(timer);
@@ -370,10 +329,9 @@ static void camera_preview_capture_now(struct home_nav_scr_data *scr_data)
         return;
     }
     
-    /* cap_buf 中的图像已由预览 timer (camera_preview_capture_timer_cb) 旋转 90° CW，
-     * 因此实际尺寸为原始宽高互换后的结果。 */
-    image_width = height;
-    image_height = width;
+    /* capture 输出即显示方向（采集时已旋转），framesize 就是实际尺寸 */
+    image_width = width;
+    image_height = height;
     image_size = (uint32_t)image_width * (uint32_t)image_height * 2U;
     LISA_UI_LOGI("photo capture frame ready, source=%s, raw=%ux%u, rotated=%ux%u, size=%u",
                  model_camera_preview_source_name(
@@ -391,6 +349,13 @@ static void camera_preview_capture_now(struct home_nav_scr_data *scr_data)
     if (submit_kind == MODEL_CAMERA_PREVIEW_SUBMIT_NONE) {
         camera_preview_hide(scr_data);
         return;
+    }
+
+    /* 当前帧已经复制到 cap_buf，后续 JPEG 编码和上传不再需要 DVP 持续采集。
+     * 及时停流可归还双帧缓冲，避免上传等待期间持续丢预览帧。 */
+    int camera_stop_ret = model_camera_stop();
+    if (camera_stop_ret != 0) {
+        LISA_UI_LOGW("Stop camera after photo capture failed: %d", camera_stop_ret);
     }
 
     camera_preview_update_text(scr_data);

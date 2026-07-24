@@ -1,17 +1,5 @@
-#include <string.h>
-
 #include "voice_player_comm.h"
-#include "sys_init.h"
-#include "voice_msg.h"
-#include "app_datas.h"
-
-#include "tone.h"
 #include "app_player.h"
-#include "lsc.h"
-#include "voice_music_list.h"
-#if CONFIG_LSFS
-#include "lsfs.h"
-#endif
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -38,85 +26,17 @@ static TaskHandle_t g_volume_thread = NULL;
 /** 音量线程信号量 */
 static SemaphoreHandle_t g_volume_sem = NULL;
 
-#define VOICE_PLAYER_SD_URL_PREFIX "/SD:/"
-
-static bool voice_player_url_is_sd_file(const char *url)
-{
-    return url != NULL &&
-           strncmp(url, VOICE_PLAYER_SD_URL_PREFIX,
-                   sizeof(VOICE_PLAYER_SD_URL_PREFIX) - 1) == 0;
-}
-
-static int voice_player_check_sd_file_accessible(const char *url)
-{
-    if (!voice_player_url_is_sd_file(url)) {
-        return APP_PLAYER_OK;
-    }
-
-#if CONFIG_LSFS
-    struct lsfs_dirent file_info = {0};
-    int ret = lsfs_stat(url, &file_info);
-    if (ret != 0) {
-        LOGW("Music SD file stat failed: url=%s ret=%d", url, ret);
-        return APP_PLAYER_ERR_IO;
-    }
-    if (file_info.type != LSFS_DIR_ENTRY_FILE) {
-        LOGW("Music SD path is not file: url=%s type=%d", url, file_info.type);
-        return APP_PLAYER_ERR_INVALID_PARAM;
-    }
-    return APP_PLAYER_OK;
-#else
-    LOGW("Music SD file check unsupported: url=%s", url);
-    return APP_PLAYER_ERR_NOT_SUPPORTED;
-#endif
-}
-
-static void voice_player_notify_sd_play_failed(const char *url)
-{
-    if (!voice_player_url_is_sd_file(url)) {
-        return;
-    }
-
-    voice_msg_pub(VOICE_MSG_APP_SD_MUSIC_PLAY_FAILED, NULL, 0);
-}
-
-int voice_player_play_music_url(const char *url)
-{
-    int ret;
-
-    if (!music_player || !url || url[0] == '\0') {
-        LOGW("Music play rejected: player=%p url=%p", (void *)music_player, (const void *)url);
-        return APP_PLAYER_ERR_INVALID_PARAM;
-    }
-
-    ret = voice_player_check_sd_file_accessible(url);
-    if (ret != APP_PLAYER_OK) {
-        voice_player_notify_sd_play_failed(url);
-        return ret;
-    }
-
-    ret = app_player_play(music_player, url);
-    if (ret != APP_PLAYER_OK) {
-        if (voice_player_url_is_sd_file(url)) {
-            LOGW("Music SD play failed: url=%s ret=%d", url, ret);
-        }
-        voice_player_notify_sd_play_failed(url);
-    }
-
-    return ret;
-}
-
 /**
  * @brief   PA 控制回调函数
  * @param   onoff 1 开启 PA，0 关闭 PA
  * @return  0 成功，其他失败
  */
-#ifndef CONFIG_BOARD_ARCS_MINI_V3
+#ifndef CONFIG_BOARD_ARCS_MINI3
 #define PA_PIN_NUM PA_EN_PIN
 #define PA_GPIO_DEVICE CONFIG_PA_DEVICE_NAME
 #endif
 
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
 #ifndef PA_MUTE_ACTIVE_LEVEL
 #define PA_MUTE_ACTIVE_LEVEL 1
 #endif
@@ -161,7 +81,7 @@ static int pa_mute_hw_init(void)
 
 static int pa_control_callback(int onoff)
 {
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
     if (pa_mute_hw_init() != 0) {
         return -1;
     }
@@ -172,157 +92,6 @@ static int pa_control_callback(int onoff)
     LOGI("PA %s", onoff ? "ON" : "OFF");
     return lisa_gpio_write_pin(lisa_device_get(PA_GPIO_DEVICE), PA_PIN_NUM, onoff ? LISA_GPIO_HIGH : LISA_GPIO_LOW);
 #endif
-}
-
-/**
- * @brief   播放器事件回调
- * @param   player    触发事件的播放器实例
- * @param   event     事件类型
- * @param   user_data 用户数据（播放器名称字符串）
- *
- * @note    音乐播放器在曲目播放完成后自动从 voice_music_list 获取下一首并播放，
- *          播放错误时也会尝试下一首。
- */
-static void player_event_callback(app_player_t *player, app_player_event_t event, void *user_data)
-{
-    const char *player_name = (const char *)user_data;
-
-    switch (event) {
-    case APP_PLAYER_EVENT_PREPARED:
-        LOGI("[%s] Player prepared", player_name);
-        break;
-    case APP_PLAYER_EVENT_PLAYING:
-        LOGI("[%s] Player playing", player_name);
-        if (player == music_player) {
-            music_item_t curr_track;
-            if (voice_music_list_get_current(&curr_track) == 0 && curr_track.m_name[0]) {
-                voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, curr_track.m_name, strlen(curr_track.m_name) + 1);
-            }
-            voice_msg_pub(VOICE_MSG_PLAYER_MUSIC_PLAYING, NULL, 0);
-        }
-        break;
-    case APP_PLAYER_EVENT_PAUSED:
-        LOGI("[%s] Player paused", player_name);
-        break;
-    case APP_PLAYER_EVENT_COMPLETED:
-        LOGI("[%s] Player completed", player_name);
-
-        /* 音乐播放完成后自动播放下一首 */
-        if (player == music_player) {
-            music_item_t next_track;
-            if (voice_music_list_get_next(&next_track) == 0) {
-                LOGI("Auto-advancing to next track");
-                if (voice_player_play_music_url(next_track.m_url) == APP_PLAYER_OK &&
-                    next_track.m_name[0]) {
-                    voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, next_track.m_name, strlen(next_track.m_name) + 1);
-                }
-            } else {
-                LOGI("Playlist completed");
-                voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, NULL, 0);
-            }
-        }
-        break;
-    case APP_PLAYER_EVENT_ERROR:
-        LOGE("[%s] Player error", player_name);
-
-        /* 播放错误时尝试播放下一首 */
-        if (player == music_player) {
-            music_item_t next_track;
-            music_item_t curr_track;
-            if (voice_music_list_get_current(&curr_track) == 0) {
-                voice_player_notify_sd_play_failed(curr_track.m_url);
-            }
-            if (voice_music_list_get_next(&next_track) == 0) {
-                LOGI("Error occurred, trying next track");
-                if (voice_player_play_music_url(next_track.m_url) == APP_PLAYER_OK &&
-                    next_track.m_name[0]) {
-                    voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, next_track.m_name, strlen(next_track.m_name) + 1);
-                }
-            } else {
-                voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, NULL, 0);
-            }
-        }
-        break;
-    case APP_PLAYER_EVENT_STOPPED:
-        LOGI("[%s] Player stopped", player_name);
-        break;
-    default:
-        break;
-    }
-}
-
-/**
- * @brief 焦点变化回调 - 音乐播放器专用
- *
- * @note 此回调仅用于监听焦点变化事件，不需要手动执行 pause/resume/stop
- *       app_player 会根据配置的 behavior 自动执行相应策略
- * @return false 表示让 app_player 执行默认策略，true 表示完全接管
- */
-static bool music_focus_change_callback(app_player_t *player,
-                                        app_player_focus_state_t state,
-                                        app_player_t *by_which,
-                                        void *user_data)
-{
-    const char *player_name = (const char *)user_data;
-
-    switch (state) {
-        case APP_PLAYER_FOCUS_FOREGROUND:
-            LOGI("[%s] Got FOREGROUND focus (by player %p)", player_name, by_which);
-
-            // 如果是 tone 完成后恢复焦点，先不做任何操作
-            if (by_which == tone_player) {
-                LOGI("[%s] Tone completed, but waiting for TTS...", player_name);
-                // 返回 true 阻止自动恢复播放
-                return true;
-            }
-            break;
-
-        case APP_PLAYER_FOCUS_BACKGROUND:
-            LOGI("[%s] Moved to BACKGROUND (by player %p)", player_name, by_which);
-            break;
-
-        case APP_PLAYER_FOCUS_NONE:
-            LOGI("[%s] Lost focus (by player %p)", player_name, by_which);
-            break;
-    }
-
-    // 返回 false，让 app_player 根据配置自动执行策略
-    return false;
-}
-
-/**
- * @brief   焦点变化回调 - 通用版本
- * @param   player     触发回调的播放器实例
- * @param   state      焦点状态变化
- * @param   by_which   触发变化的对方播放器
- * @param   user_data  用户数据（播放器名称字符串）
- *
- * @note    此回调仅记录日志，不干预焦点策略。
- * @return  false 表示让 app_player 根据配置自动执行策略
- */
-static bool focus_change_callback(app_player_t *player,
-                                   app_player_focus_state_t state,
-                                   app_player_t *by_which,
-                                   void *user_data)
-{
-    const char *player_name = (const char *)user_data;
-
-    switch (state) {
-        case APP_PLAYER_FOCUS_FOREGROUND:
-            LOGI("[%s] Got FOREGROUND focus (by player %p)", player_name, by_which);
-            break;
-
-        case APP_PLAYER_FOCUS_BACKGROUND:
-            LOGI("[%s] Moved to BACKGROUND (by player %p)", player_name, by_which);
-            break;
-
-        case APP_PLAYER_FOCUS_NONE:
-            LOGI("[%s] Lost focus (by player %p)", player_name, by_which);
-            break;
-    }
-
-    // 返回 false，让 app_player 根据配置自动执行策略
-    return false;
 }
 
 /**
@@ -395,7 +164,8 @@ static void voice_player_system_volume_init(void)
  * @return  0 成功，-1 失败
  *
  * @note    创建 tone/tts/music/alert 四个播放器实例，配置音频焦点通道，
- *          注册事件回调，启动音量控制线程，并从 KV 恢复初始音量。
+ *          启动音量控制线程，并从 KV 恢复初始音量。
+ *          各播放器的业务回调由对应 voice_player 子模块注册。
  */
 int voice_player_platform_init(void)
 {
@@ -403,7 +173,7 @@ int voice_player_platform_init(void)
 
     LOGI("voice_player_platform_init...");
 
-#ifndef CONFIG_BOARD_ARCS_MINI_V3
+#ifndef CONFIG_BOARD_ARCS_MINI3
     /* 初始化PA控制GPIO */
     lisa_device_t *gpio_dev = lisa_device_get(PA_GPIO_DEVICE);
     if (!lisa_device_ready(gpio_dev)) {
@@ -416,9 +186,11 @@ int voice_player_platform_init(void)
         return -1;
     }
 #else
+    /* PA mute 走 CH32 EXGPIO，外挂 MCU 未就绪时降级继续（pa_control_callback
+     * 每次开关 PA 都会重试初始化），不能因此中断整个播放器平台初始化 */
     ret = pa_mute_hw_init();
     if (ret != 0) {
-        return -1;
+        LOGW("PA mute GPIO init failed, continue without PA mute control: %d", ret);
     }
 #endif
 
@@ -441,7 +213,7 @@ int voice_player_platform_init(void)
             .capture_count = 1,
             .behavior = {
                 .on_background = APP_PLAYER_FOCUS_LOSS_STOP,
-                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_PAUSE,
+                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,
             }
         },
         {
@@ -451,7 +223,7 @@ int voice_player_platform_init(void)
             .capture_count = 0,
             .behavior = {
                 .on_background = APP_PLAYER_FOCUS_LOSS_PAUSE,
-                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,
+                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_PAUSE,
             }
         },
         {
@@ -503,12 +275,6 @@ int voice_player_platform_init(void)
         return -1;
     }
 
-    /* 注册事件回调 */
-    app_player_register_callback(music_player, player_event_callback, "MUSIC");
-
-    /* 注册焦点变化回调 */
-    app_player_register_focus_cb(music_player, music_focus_change_callback, "MUSIC");
-
     /* 创建音量控制线程 */
     g_volume_sem = xSemaphoreCreateBinary();
     if (g_volume_sem == NULL) {
@@ -525,9 +291,6 @@ int voice_player_platform_init(void)
 
     /* 音量初始化 */
     voice_player_system_volume_init();
-    
-    /* 初始化统一音乐列表 */
-    voice_music_list_init();
 
     return 0;
 }

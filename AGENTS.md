@@ -21,6 +21,7 @@ ARCS-MINI 语音助手固件，基于 LISTENAI ARCS SoC（RISC-V 双核 AP/CP �
 | Skill | 触发场景 | 说明 |
 | --- | --- | --- |
 | `device` | 引脚、pinmux、PWM/GPIO/I2C/SPI/UART、屏幕、panel、硬件选型、adb shell、设备配置、绑定云端应用 | 处理设备侧硬件适配、运行时配置和云端应用写入 |
+| `mcp` | MCP 工具、tools/list、tools/call、工具描述、参数 schema、工具调用处理 | 新增工具强制使用无前缀普通名称；维护既有工具时保持原工具名不变 |
 
 ## 关键路径
 

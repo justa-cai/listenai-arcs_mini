@@ -685,6 +685,22 @@ int emoji_anim_get_offset_x(const char *name)
     return s_emoji_offset_x;
 }
 
+int emoji_anim_has_name(const char *name)
+{
+    int idx;
+
+    if (name == NULL || name[0] == '\0') {
+        return 0;
+    }
+
+    idx = find_emoji_index_by_name(name);
+    if (idx < 0) {
+        return 0;
+    }
+
+    return emoji_anim_get_by_index((uint32_t)idx, 0) != NULL;
+}
+
 int emoji_anim_get_loaded_count(void)
 {
     return (int)s_emoji_count;

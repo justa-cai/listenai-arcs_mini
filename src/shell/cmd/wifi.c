@@ -58,20 +58,20 @@ static int wifi_save_ap_storage_only(wifi_mgr_sta_config_t *sta_cfg)
 static int wifi_connect(int argc, char **argv)
 {
     if (argc < 1 || argc > 2) {
-        printf("Usage: wifi connect ssid [password]\n");
+        shellPrint(shellGetCurrent(), "Usage: wifi connect ssid [password]\n");
         return -1;
     }
     char *ssid = argv[0];
     char *pwd = (argc >= 2) ? argv[1] : NULL;
 
     if (ssid == NULL || strlen(ssid) == 0) {
-        printf("wifi ssid param error\n");
+        shellPrint(shellGetCurrent(), "wifi ssid param error\n");
         return -1;
     }
     
     // 检查密码参数（如果提供了密码）
     if (pwd != NULL && strlen(pwd) == 0) {
-        printf("wifi password param error\n");
+        shellPrint(shellGetCurrent(), "wifi password param error\n");
         return -1;
     }
 
@@ -89,10 +89,10 @@ static int wifi_connect(int argc, char **argv)
 
     if (sys_network_get_status(&network_status) == 0 &&
         network_status.active_bearer == SYS_NETWORK_BEARER_MODEM) {
-        printf("4G network active, save wifi ap only\n");
+        shellPrint(shellGetCurrent(), "4G network active, save wifi ap only\n");
         int ret = wifi_save_ap_storage_only(&sta_cfg);
         if (ret != 0) {
-            printf("wifi save ap error %d", ret);
+            shellPrint(shellGetCurrent(), "wifi save ap error %d", ret);
             return -1;
         }
         return 0;
@@ -100,14 +100,14 @@ static int wifi_connect(int argc, char **argv)
 
     int ret = wifi_mgr_sta_connect(&sta_cfg, true);
     if (ret != 0) {
-        printf("wifi connect error %d", ret);
+        shellPrint(shellGetCurrent(), "wifi connect error %d", ret);
         return -1;
     }
 #else
     // 对于非wifi_manager版本，如果没有密码则传递空字符串
     int ret = ls_wifi_connect(ssid, pwd ? pwd : "");
     if (ret != 0) {
-        printf("wifi connect error %d", ret);
+        shellPrint(shellGetCurrent(), "wifi connect error %d", ret);
         return -1;
     }
 #endif
@@ -123,13 +123,13 @@ static int wifi_disconnect(int argc, char **argv)
 static int wifi_auto_connect(int argc, char **argv)
 {
     if (argc < 1) {
-        printf("invalid param index %d\n", argc);
+        shellPrint(shellGetCurrent(), "invalid param index %d\n", argc);
         return -1;
     }
     uint32_t interval_ms = atoi(argv[0]);
 
     if (interval_ms <= 0) {
-        printf("stop auto connect\n");
+        shellPrint(shellGetCurrent(), "stop auto connect\n");
         wifi_mgr_auto_connect_stop();
         return 0;
     }
@@ -160,7 +160,7 @@ static int wifi_cmd_help(int argc, char **argv)
     int cmd_len = sizeof(g_wifi_cmds) / sizeof(g_wifi_cmds[0]);
     for (int i = 0; i < cmd_len; i++) {
         if (g_wifi_cmds[i].help != NULL) {
-            printf("%-17s\t:\t%s\n", g_wifi_cmds[i].name, g_wifi_cmds[i].help);
+            shellPrint(shellGetCurrent(), "%-17s\t:\t%s\n", g_wifi_cmds[i].name, g_wifi_cmds[i].help);
         }
     }
 
@@ -177,33 +177,33 @@ static int wifi_scan(int argc, char **argv)
     // Allocate memory for scan results
     ap_info = malloc(sizeof(wifi_mgr_scan_info_t) * size);
     if (ap_info == NULL) {
-        printf("Failed to allocate memory for scan results\n");
+        shellPrint(shellGetCurrent(), "Failed to allocate memory for scan results\n");
         return -1;
     }
     
     // Perform WiFi scan (synchronous)
-    printf("Scanning for WiFi networks...\n");
+    shellPrint(shellGetCurrent(), "Scanning for WiFi networks...\n");
     ret = wifi_mgr_scan_ap(ap_info, size, false);
     
     if (ret < 0) {
-        printf("WiFi scan failed with error: %d\n", ret);
+        shellPrint(shellGetCurrent(), "WiFi scan failed with error: %d\n", ret);
         free(ap_info);
         return -1;
     }
     
     // Print scan results
-    printf("\nFound %d WiFi networks:\n", ret);
-    printf("%-4s %-32s %-18s %-8s %-8s\n", "No.", "SSID", "BSSID", "Channel", "RSSI");
-    printf("----------------------------------------------------------------\n");
+    shellPrint(shellGetCurrent(), "\nFound %d WiFi networks:\n", ret);
+    shellPrint(shellGetCurrent(), "%-4s %-32s %-18s %-8s %-8s\n", "No.", "SSID", "BSSID", "Channel", "RSSI");
+    shellPrint(shellGetCurrent(), "----------------------------------------------------------------\n");
     
     for (int i = 0; i < ret; i++) {
-        printf("%-4d %-32s %02x:%02x:%02x:%02x:%02x:%02x %-8d %-8d\n", 
-               i + 1,
-               ap_info[i].ssid,
-               ap_info[i].bssid[0], ap_info[i].bssid[1], ap_info[i].bssid[2],
-               ap_info[i].bssid[3], ap_info[i].bssid[4], ap_info[i].bssid[5],
-               ap_info[i].channel,
-               ap_info[i].rssi);
+        shellPrint(shellGetCurrent(), "%-4d %-32s %02x:%02x:%02x:%02x:%02x:%02x %-8d %-8d\n",
+                   i + 1,
+                   ap_info[i].ssid,
+                   ap_info[i].bssid[0], ap_info[i].bssid[1], ap_info[i].bssid[2],
+                   ap_info[i].bssid[3], ap_info[i].bssid[4], ap_info[i].bssid[5],
+                   ap_info[i].channel,
+                   ap_info[i].rssi);
     }
     
     // Free allocated memory
@@ -226,29 +226,29 @@ static int wifi_list(int argc, char **argv)
     ret = wifi_mgr_storage_search_ap(matched_list, 64, SEARCH_ALL, NULL);
 
     if (ret < 0) {
-        printf("Failed to get saved WiFi networks, error: %d\n", ret);
+        shellPrint(shellGetCurrent(), "Failed to get saved WiFi networks, error: %d\n", ret);
         psram_free(matched_list);
         return -1;
     }
     
     if (ret == 0 || matched_list == NULL) {
-        printf("No saved WiFi networks found\n");
+        shellPrint(shellGetCurrent(), "No saved WiFi networks found\n");
         psram_free(matched_list);
         return 0;
     }
     
     // 打印已保存的WiFi网络
-    printf("\nFound %d saved WiFi networks:\n", ret);
-    printf("%-4s %-32s %-18s %-8s\n", "No.", "SSID", "BSSID", "Channel");
-    printf("----------------------------------------------------------\n");
+    shellPrint(shellGetCurrent(), "\nFound %d saved WiFi networks:\n", ret);
+    shellPrint(shellGetCurrent(), "%-4s %-32s %-18s %-8s\n", "No.", "SSID", "BSSID", "Channel");
+    shellPrint(shellGetCurrent(), "----------------------------------------------------------\n");
     
     for (int i = 0; i < ret; i++) {
-        printf("%-4d %-32s %02x:%02x:%02x:%02x:%02x:%02x %-8d\n", 
-               i + 1,
-               matched_list[i].ssid,
-               matched_list[i].bssid[0], matched_list[i].bssid[1], matched_list[i].bssid[2],
-               matched_list[i].bssid[3], matched_list[i].bssid[4], matched_list[i].bssid[5],
-               matched_list[i].channel);
+        shellPrint(shellGetCurrent(), "%-4d %-32s %02x:%02x:%02x:%02x:%02x:%02x %-8d\n",
+                   i + 1,
+                   matched_list[i].ssid,
+                   matched_list[i].bssid[0], matched_list[i].bssid[1], matched_list[i].bssid[2],
+                   matched_list[i].bssid[3], matched_list[i].bssid[4], matched_list[i].bssid[5],
+                   matched_list[i].channel);
     }
 
     psram_free(matched_list);

@@ -11,7 +11,7 @@
 
 static cJSON *led_switch_list(const char *name)
 {
-    cJSON *tool = mcp_tool_list_info_create_default(name, "控制LED开关状态，可以是开启或关闭");
+    cJSON *tool = mcp_tool_list_info_create_default(name, "用于控制 LED 的静态开关状态，只处理打开、关闭或常亮请求；需要控制闪烁速度或停止闪烁时应使用 led_blink。强制调用顺序：首次响应必须先输出非空自然语言“我来处理设备控制。”，工具调用必须作为后续事件发送；禁止首事件直接调用工具，也禁止调用后再补前置文本。");
     if (!tool) {
         return NULL;
     }
@@ -57,7 +57,7 @@ static cJSON *led_switch_call(const char *id, const char *name, cJSON *args)
 
 static cJSON *led_blink_list(const char *name)
 {
-    cJSON *tool = mcp_tool_list_info_create_default(name, "控制LED闪烁模式，可以是关闭、普通、快速或慢速");
+    cJSON *tool = mcp_tool_list_info_create_default(name, "用于控制 LED 的闪烁模式，包括关闭闪烁、正常闪烁、快速闪烁和慢速闪烁。用户要求 LED 常亮或仅开关 LED 时不要调用本工具，应使用 led_switch。强制调用顺序：首次响应必须先输出非空自然语言“我来处理设备控制。”，工具调用必须作为后续事件发送；禁止首事件直接调用工具，也禁止调用后再补前置文本。");
     if (!tool) {
         return NULL;
     }

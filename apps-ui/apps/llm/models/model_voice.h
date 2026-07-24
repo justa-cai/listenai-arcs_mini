@@ -67,6 +67,7 @@ uint8_t model_voice_cloud_is_running(void);
 uint8_t model_voice_tts_is_playing(void);
 uint8_t model_voice_tts_is_pending(void);
 uint8_t model_voice_music_is_playing(void);
+const char *model_voice_music_text_get(void);
 uint8_t model_voice_img_rec_is_mcp(void);
 const char *model_voice_last_iat_text_get(void);
 

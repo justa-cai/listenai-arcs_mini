@@ -99,7 +99,7 @@ static int volume_parse_set_target(const cJSON *value_json, const char *unit)
 static cJSON *volume_control_list(const char *name)
 {
     cJSON *tool = mcp_tool_list_info_create_default(name,
-        "音量控制与调节工具。当用户发出调节音量、控制声音大小的指令时调用。支持绝对值设置（如：调到50%%）、相对值调节（如：大声点、小声点、调小2档）以及极值控制（如：静音、最大声、最小声）。");
+        "用于调节设备音量，支持设置绝对数值、相对调大或调小，以及静音、最小声、中等音量、最大声等操作；不得用于屏幕亮度。强制调用顺序：首次响应必须先输出非空自然语言“我来处理设备控制。”，工具调用必须作为后续事件发送；禁止首事件直接调用工具，也禁止调用后再补前置文本。若需要先查询当前音量再设置，前置文本也必须出现在第一个工具调用之前。音量上限为100；查询结果低于100不代表已经达到最大音量。");
     if (!tool) {
         return NULL;
     }

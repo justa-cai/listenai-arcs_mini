@@ -23,6 +23,14 @@
 #define BOOT_DISPLAY_HEIGHT     240
 #define BOOT_DISPLAY_BRIGHTNESS 100
 
+#ifndef CONFIG_BOOT_DISPLAY_MADCTL
+#define CONFIG_BOOT_DISPLAY_MADCTL 0x60
+#endif
+
+#if CONFIG_BOOT_DISPLAY_MADCTL > 0xFF
+#error "BOOT_DISPLAY_MADCTL must fit in 8 bits"
+#endif
+
 /* scatload_psram 会把 .psram.bss 清 0，main.c 后续还做了 PSRAM 的 DCache flush，
  * 所以这块缓冲 boot 到我们手里时就是可以直接给 DMA 用的全零数据。*/
 #define BOOT_DISPLAY_CLEAR_ROWS 10
@@ -38,22 +46,65 @@ static uint16_t s_clear_buf[BOOT_DISPLAY_WIDTH * BOOT_DISPLAY_CLEAR_ROWS];
 __attribute__((section(".psram.bss")))
 static uint16_t s_bar_buf[BOOT_OTA_BAR_WIDTH * BOOT_OTA_BAR_HEIGHT];
 
-/* charging UI 上指向 POWER_KEY (屏幕左侧那颗) 的提示箭头：贴在屏幕
- * 左边缘的填充三角形，顶点在 x=0。距底距离用宏控制以便对齐物理按键。
- * H = 2W - 1 时斜边正好 45°，每行 x_min 单调减/增 1 像素，没有台阶。*/
-#define BOOT_POWER_KEY_HINT_WIDTH         11
-#define BOOT_POWER_KEY_HINT_HEIGHT        21
-#define BOOT_POWER_KEY_HINT_BOTTOM_OFFSET 9
+/* charging UI 上指向 POWER_KEY 的提示箭头：贴边位置和指向都用手机九宫格
+ * 数字配置（1=左上 … 9=右下），见 Kconfig.public。
+ * 正交箭头底边 = 2*深度 - 1 时斜边正好 45°，每行边界单调变化 1 像素；
+ * 斜向箭头是直角顶点朝配置对角的等腰直角三角形，直角边取 15 让底宽和
+ * 顶点深度跟正交箭头基本一致。*/
+#define BOOT_POWER_KEY_HINT_DEPTH       11
+#define BOOT_POWER_KEY_HINT_BASE        21
+#define BOOT_POWER_KEY_HINT_DIAG_LEG    15
+#define BOOT_POWER_KEY_HINT_EDGE_MARGIN 9
+
+#ifndef CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_POSITION
+#define CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_POSITION 7
+#endif
+#ifndef CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION
+#define CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION 4
+#endif
+
+/* 九宫格数字拆成 -1/0/+1 的列、行分量 */
+#define BOOT_HINT_GRID_COL(n) (((n) - 1) % 3 - 1)
+#define BOOT_HINT_GRID_ROW(n) (((n) - 1) / 3 - 1)
+
+#define BOOT_HINT_DIR_DX  BOOT_HINT_GRID_COL(CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION)
+#define BOOT_HINT_DIR_DY  BOOT_HINT_GRID_ROW(CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION)
+#define BOOT_HINT_POS_COL BOOT_HINT_GRID_COL(CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_POSITION)
+#define BOOT_HINT_POS_ROW BOOT_HINT_GRID_ROW(CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_POSITION)
+
+#if CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_POSITION < 1 || CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_POSITION > 9
+#error "BOOT_DISPLAY_POWER_KEY_HINT_POSITION must be a keypad digit 1..9"
+#endif
+#if CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_POSITION == 5
+#error "BOOT_DISPLAY_POWER_KEY_HINT_POSITION=5 (center) overlaps the centered charging image"
+#endif
+#if CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION < 1 || CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION > 9
+#error "BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION must be a keypad digit 1..9"
+#endif
+#if CONFIG_BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION == 5
+#error "BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION=5 (center) has no pointing direction"
+#endif
+
+#if BOOT_HINT_DIR_DX != 0 && BOOT_HINT_DIR_DY != 0
+#define BOOT_POWER_KEY_HINT_WIDTH  BOOT_POWER_KEY_HINT_DIAG_LEG
+#define BOOT_POWER_KEY_HINT_HEIGHT BOOT_POWER_KEY_HINT_DIAG_LEG
+#elif BOOT_HINT_DIR_DX != 0
+#define BOOT_POWER_KEY_HINT_WIDTH  BOOT_POWER_KEY_HINT_DEPTH
+#define BOOT_POWER_KEY_HINT_HEIGHT BOOT_POWER_KEY_HINT_BASE
+#else
+#define BOOT_POWER_KEY_HINT_WIDTH  BOOT_POWER_KEY_HINT_BASE
+#define BOOT_POWER_KEY_HINT_HEIGHT BOOT_POWER_KEY_HINT_DEPTH
+#endif
 
 __attribute__((section(".psram.bss")))
 static uint16_t s_power_key_hint_buf[BOOT_POWER_KEY_HINT_WIDTH * BOOT_POWER_KEY_HINT_HEIGHT];
 
-/* 复制 ST7789P3 内置初始化序列，把 MADCTL 由 0x00 改成 0x60 (MV=1, MX=1)，
- * 让硬件扫描方向直接旋转 90° CW，省掉 CPU 旋转 buffer。*/
+/* 复制 ST7789P3 内置初始化序列，MADCTL 由板级 boot 配置控制，
+ * 让 boot recovery 图标方向跟板级 LCD 安装方向一致。*/
 static const uint8_t s_panel_init_seq[] = {
     0xB2, 5, 0x0C, 0x0C, 0x00, 0x33, 0x33,
     0x35, 1, 0x00,
-    0x36, 1, 0x60,
+    0x36, 1, (uint8_t)CONFIG_BOOT_DISPLAY_MADCTL,
     0x3A, 1, 0x05,
     0xB7, 1, 0x55,
     0xBB, 1, 0x16,
@@ -166,19 +217,34 @@ static void draw_power_key_hint(void)
         return;
     }
 
-    /* 行 y 处填充区间 [x_min, W-1]，x_min 随到垂直中线的距离线性增大。
-     * 用 2*y - (H-1) 度量距离，奇偶 H 都能得到对称三角形。*/
-    const int center2 = BOOT_POWER_KEY_HINT_HEIGHT - 1;
-    const int span = BOOT_POWER_KEY_HINT_WIDTH - 1;
-    for (uint16_t y = 0; y < BOOT_POWER_KEY_HINT_HEIGHT; y++) {
-        int dist2 = (int)y * 2 - center2;
-        if (dist2 < 0) {
-            dist2 = -dist2;
-        }
-        int x_min = dist2 * span / center2;
-        for (uint16_t x = 0; x < BOOT_POWER_KEY_HINT_WIDTH; x++) {
-            s_power_key_hint_buf[y * BOOT_POWER_KEY_HINT_WIDTH + x] =
-                (x >= (uint16_t)x_min) ? 0xFFFFu : 0x0000u;
+    const int w = BOOT_POWER_KEY_HINT_WIDTH;
+    const int h = BOOT_POWER_KEY_HINT_HEIGHT;
+    const int dx = BOOT_HINT_DIR_DX;
+    const int dy = BOOT_HINT_DIR_DY;
+
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            bool filled;
+            if (dx != 0 && dy != 0) {
+                /* 斜向：把坐标翻转到直角顶点所在角，填充 u + v <= 直角边 - 1
+                 * （此形态下 w == h == DIAG_LEG，用 w 保证与缓冲宏解耦） */
+                int u = dx < 0 ? x : w - 1 - x;
+                int v = dy < 0 ? y : h - 1 - y;
+                filled = u + v <= w - 1;
+            } else {
+                /* 正交：along 是朝指向顶点的深度，dist2 用 2*cross - (底边-1)
+                 * 度量到底边中线的距离，奇偶底边都能得到对称三角形。*/
+                int along = dx < 0 ? x : dx > 0 ? w - 1 - x : dy < 0 ? y : h - 1 - y;
+                int cross = dx != 0 ? y : x;
+                int base = dx != 0 ? h : w;
+                int depth = dx != 0 ? w : h;
+                int dist2 = cross * 2 - (base - 1);
+                if (dist2 < 0) {
+                    dist2 = -dist2;
+                }
+                filled = along >= dist2 * (depth - 1) / (base - 1);
+            }
+            s_power_key_hint_buf[y * w + x] = filled ? 0xFFFFu : 0x0000u;
         }
     }
 
@@ -195,9 +261,18 @@ static void draw_power_key_hint(void)
         .buf_size = sizeof(s_power_key_hint_buf),
     };
 
-    uint16_t hint_y = BOOT_DISPLAY_HEIGHT - BOOT_POWER_KEY_HINT_BOTTOM_OFFSET
-                      - BOOT_POWER_KEY_HINT_HEIGHT;
-    lisa_display_write(s_display_device, 0, hint_y, &desc, s_power_key_hint_buf);
+    /* 贴边规则：箭头指向的屏幕边贴死（0 留白），其余靠边方向留 EDGE_MARGIN */
+    const int col = BOOT_HINT_POS_COL;
+    const int row = BOOT_HINT_POS_ROW;
+    uint16_t hint_x = col < 0   ? (dx < 0 ? 0 : BOOT_POWER_KEY_HINT_EDGE_MARGIN)
+                      : col > 0 ? BOOT_DISPLAY_WIDTH - w -
+                                      (dx > 0 ? 0 : BOOT_POWER_KEY_HINT_EDGE_MARGIN)
+                                : (BOOT_DISPLAY_WIDTH - w) / 2;
+    uint16_t hint_y = row < 0   ? (dy < 0 ? 0 : BOOT_POWER_KEY_HINT_EDGE_MARGIN)
+                      : row > 0 ? BOOT_DISPLAY_HEIGHT - h -
+                                      (dy > 0 ? 0 : BOOT_POWER_KEY_HINT_EDGE_MARGIN)
+                                : (BOOT_DISPLAY_HEIGHT - h) / 2;
+    lisa_display_write(s_display_device, hint_x, hint_y, &desc, s_power_key_hint_buf);
 }
 
 void boot_display_show_charging(void)
@@ -215,6 +290,11 @@ void boot_display_show_ota(void)
     for (size_t i = 0; i < BOOT_OTA_BAR_WIDTH * BOOT_OTA_BAR_HEIGHT; i++) {
         s_bar_buf[i] = 0xFFFFu;
     }
+
+    /* 同 draw_power_key_hint：boot 未开 DCache，CPU 填充后必须手动 flush
+     * 才能保证 SPI DMA 读到进度条像素而不是 scatload 后的全零。*/
+    extern void HAL_FlushDCache_by_Addr(uint32_t *addr, uint32_t dsize);
+    HAL_FlushDCache_by_Addr((uint32_t *)s_bar_buf, sizeof(s_bar_buf));
 }
 
 void boot_display_ota_progress(uint8_t percent)

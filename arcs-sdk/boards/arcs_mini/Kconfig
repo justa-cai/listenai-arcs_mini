@@ -13,9 +13,10 @@ config BOARD_NAME
 config BOARD_ARCS_MINI
 	bool
 	default y
-	select SOC_LS2684
+	select SOC_LS2684 if !SOC_LS2663
 	help
-		Board is arcs_mini
+		Board is arcs_mini. Defaults to LS2684 unless the application explicitly
+		selects another SoC, for example CONFIG_SOC_LS2663=y.
 
 config BOARD_ARCS_MINI_MODEM_UART2_REMAP
 	bool "Remap UART2 to PA09/PA08 for modem"

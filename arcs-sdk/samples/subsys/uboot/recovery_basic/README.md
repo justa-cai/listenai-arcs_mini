@@ -30,6 +30,16 @@ boot 侧能力：
 ./build.sh -C -S samples/subsys/uboot/recovery_basic -DBOARD=arcs_evb
 ```
 
+ARCS Mini 3：
+
+```bash
+./build.sh -C -S ./arcs-sdk/samples/subsys/uboot/recovery_basic -B build-boot-mini3 -DBOARD=arcs_mini3
+```
+
+`arcs_mini3.conf` 会覆盖 Mini 3 的 AP 入口、USB_DET、power guard 和 boot LCD recovery 指示等 boot 侧配置。Mini 3 的 boot 功能与 `arcs_mini` 对齐：打开 recovery ADB/sync 与 boot display，关闭 boot TF OTA 和 ADB 的 SDMMC RAW/FS 路径。
+
+Mini 3 boot display 的 ST7789P3 MADCTL 使用 `0xC0`，方向以实机 LCD 安装为准；该方向下 240x240 可见窗口需要 `Y_OFFSET=80`。业务固件的 Mini 3 屏幕旋转走 LVGL flush 层，boot 则直接写 ST7789P3 初始化序列和像素数据，两者不是同一条显示路径。charging UI 的 POWER_KEY 提示箭头位置/指向按九宫格数字配置，Mini 3 取右上角、指向右上。
+
 ## 烧录
 
 1. 烧 `samples/subsys/uboot/recovery_basic/build/boot.bin` 到 `0x0`，boot image 本身掌控恢复 OTA 的执行逻辑。
