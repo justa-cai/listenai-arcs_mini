@@ -35,6 +35,39 @@ config BOOT_DISPLAY
         pwm0); other board/panel combos must extend this option with
         their own select lines.
 
+config BOOT_DISPLAY_MADCTL
+    hex "Bootloader ST7789P3 MADCTL value"
+    default 0x60
+    range 0x00 0xFF
+    depends on BOOT_DISPLAY
+    help
+      ST7789P3 memory access control value used by boot display init.
+      The default preserves the existing arcs_mini recovery image rotation.
+
+config BOOT_DISPLAY_POWER_KEY_HINT_POSITION
+    int "Boot charging power-key hint position (keypad grid 1-9)"
+    range 1 9
+    default 7
+    depends on BOOT_DISPLAY
+    help
+      Where the charging power-key hint arrow sits on screen, numbered
+      like a phone keypad: 1/2/3 = top-left/top-center/top-right,
+      4/6 = middle-left/middle-right, 7/8/9 = bottom-left/
+      bottom-center/bottom-right. 5 (center) fails the build: it would
+      overlap the centered charging image. The default 7 keeps the
+      original arcs_mini bottom-left placement.
+
+config BOOT_DISPLAY_POWER_KEY_HINT_DIRECTION
+    int "Boot charging power-key hint direction (keypad grid, 5 invalid)"
+    range 1 9
+    default 4
+    depends on BOOT_DISPLAY
+    help
+      Which way the hint arrow points, using the same phone keypad
+      numbering: 2 = up, 4 = left, 6 = right, 8 = down, and 1/3/7/9 for
+      the diagonals. 5 has no direction and fails the build. The default
+      4 keeps the original arcs_mini left-pointing arrow.
+
 config BOOT_ADB
     bool "Bootloader recovery ADB transport"
     default n
@@ -317,16 +350,29 @@ endif
 endif
 
 menuconfig BOOT_POWER_GUARD
-    bool "Stage0 power-up guard (PB long-press)"
+    bool "Stage0 power guard"
     default n
     select BOOT_SECOND_STAGE
     help
-      Require POWER_KEY long-press before latching PWR_LOCK on cold boot.
-      PB+USB at reset enters recovery; software reset honors
-      boot_info.shutdown_req. Runs entirely inside boot_f with bare-metal
-      register access and the mcycle CSR.
+      Manage POWER_KEY/PWR_LOCK during stage0 boot. The guard can either
+      require a POWER_KEY long-press before latching PWR_LOCK on cold boot,
+      or latch immediately for products that should boot directly. Recovery
+      gestures and boot_info.shutdown_req handling run entirely inside boot_f
+      with bare-metal register access and the mcycle CSR.
 
 if BOOT_POWER_GUARD
+
+config BOOT_POWER_GUARD_LONG_PRESS_STARTUP
+    bool "Require POWER_KEY long-press to start"
+    default y
+    help
+      When enabled, keep the original startup policy: cold boot waits for a
+      POWER_KEY long-press before normal boot, and USB-only cold boot enters
+      the charging-wait path.
+
+      When disabled, cold boot latches PWR_LOCK immediately and starts the
+      application directly. PB+reset and PB+USB recovery gestures are still
+      handled by the boot guard.
 
 config BOOT_POWER_GUARD_KEY_PORT
     int "Power-key IOMUX pad (0 = PAD_A, 1 = PAD_B)"

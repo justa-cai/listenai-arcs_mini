@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -53,6 +54,12 @@ typedef struct {
 
 /** 全局音乐列表实例（PSRAM 分配） */
 static voice_music_list_ctx_t *g_list;
+
+/* SD 扫描等异步调用方可能早于/无视 init 结果访问本模块，所有公开接口先查就绪 */
+static bool _list_ready(void)
+{
+    return g_list != NULL && g_list->lock != NULL;
+}
 
 /* ============================================================================
  * 内部辅助函数
@@ -335,23 +342,27 @@ static int _sub_list_set(voice_music_sub_list_t *list, music_item_t *items, int 
  */
 int voice_music_list_init(void)
 {
-    g_list = lisa_mem_calloc(1, sizeof(voice_music_list_ctx_t));
-    if (g_list == NULL) {
+    if (_list_ready()) {
+        return 0;
+    }
+
+    voice_music_list_ctx_t *ctx = lisa_mem_calloc(1, sizeof(voice_music_list_ctx_t));
+    if (ctx == NULL) {
         LOGE("Failed to alloc music list");
         return -1;
     }
 
-    g_list->active_list = MUSIC_LIST_ALL;
-    g_list->mode = MUSIC_MODE_SEQUENTIAL;
+    ctx->active_list = MUSIC_LIST_ALL;
+    ctx->mode = MUSIC_MODE_SEQUENTIAL;
 
-    g_list->lock = lisa_mutex_create();
-    if (g_list->lock == NULL) {
+    ctx->lock = lisa_mutex_create();
+    if (ctx->lock == NULL) {
         LOGE("Failed to create mutex");
-        lisa_mem_free(g_list);
-        g_list = NULL;
+        lisa_mem_free(ctx);
         return -1;
     }
 
+    g_list = ctx;
     return 0;
 }
 
@@ -367,6 +378,9 @@ int voice_music_list_init(void)
 int voice_music_list_set(voice_music_list_id_t id, music_item_t *items, int count)
 {
     if (items == NULL || count <= 0 || count > MUSIC_LIST_MAX_PER_LIST) {
+        return -1;
+    }
+    if (!_list_ready()) {
         return -1;
     }
 
@@ -398,6 +412,10 @@ int voice_music_list_set(voice_music_list_id_t id, music_item_t *items, int coun
  */
 int voice_music_list_clear(voice_music_list_id_t id)
 {
+    if (!_list_ready()) {
+        return -1;
+    }
+
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
 
     if (id == MUSIC_LIST_ALL) {
@@ -427,6 +445,9 @@ int voice_music_list_clear(voice_music_list_id_t id)
 int voice_music_list_get_by_index(int index, music_item_t *out)
 {
     if (out == NULL || index < 0) {
+        return -1;
+    }
+    if (!_list_ready()) {
         return -1;
     }
 
@@ -471,6 +492,9 @@ int voice_music_list_get_by_index(int index, music_item_t *out)
 int voice_music_list_get_current(music_item_t *out)
 {
     if (out == NULL) {
+        return -1;
+    }
+    if (!_list_ready()) {
         return -1;
     }
 
@@ -566,6 +590,9 @@ static int _get_next_in_list(voice_music_sub_list_t *list, music_item_t *out)
 int voice_music_list_get_next(music_item_t *out)
 {
     if (out == NULL) {
+        return -1;
+    }
+    if (!_list_ready()) {
         return -1;
     }
 
@@ -718,6 +745,9 @@ int voice_music_list_get_prev(music_item_t *out)
     if (out == NULL) {
         return -1;
     }
+    if (!_list_ready()) {
+        return -1;
+    }
 
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
 
@@ -794,6 +824,10 @@ int voice_music_list_get_prev(music_item_t *out)
  */
 int voice_music_list_count(void)
 {
+    if (!_list_ready()) {
+        return 0;
+    }
+
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
     int count = _list_count_for(g_list->active_list);
     lisa_mutex_unlock(g_list->lock);
@@ -806,6 +840,10 @@ int voice_music_list_count(void)
  */
 int voice_music_list_current_index(void)
 {
+    if (!_list_ready()) {
+        return -1;
+    }
+
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
 
     voice_music_sub_list_t *list = _playing_list();
@@ -817,6 +855,10 @@ int voice_music_list_current_index(void)
 
 void voice_music_list_set_current_index(int index)
 {
+    if (!_list_ready()) {
+        return;
+    }
+
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
 
     voice_music_sub_list_t *list = _playing_list();
@@ -833,6 +875,10 @@ void voice_music_list_set_current_index(int index)
  */
 void voice_music_list_set_active(voice_music_list_id_t id)
 {
+    if (!_list_ready()) {
+        return;
+    }
+
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
     g_list->active_list = id;
     /* 切换列表时清除各列表播放位置 */
@@ -848,6 +894,10 @@ void voice_music_list_set_active(voice_music_list_id_t id)
  */
 void voice_music_list_set_mode(voice_music_mode_t mode)
 {
+    if (!_list_ready()) {
+        return;
+    }
+
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
     g_list->mode = mode;
     lisa_mutex_unlock(g_list->lock);
@@ -859,6 +909,10 @@ void voice_music_list_set_mode(voice_music_mode_t mode)
  */
 voice_music_list_id_t voice_music_list_get_active(void)
 {
+    if (!_list_ready()) {
+        return MUSIC_LIST_ALL;
+    }
+
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
     voice_music_list_id_t id = g_list->active_list;
     lisa_mutex_unlock(g_list->lock);
@@ -871,6 +925,10 @@ voice_music_list_id_t voice_music_list_get_active(void)
  */
 voice_music_mode_t voice_music_list_get_mode(void)
 {
+    if (!_list_ready()) {
+        return MUSIC_MODE_SEQUENTIAL;
+    }
+
     lisa_mutex_lock(g_list->lock, LISA_WAIT_FOREVER);
     voice_music_mode_t mode = g_list->mode;
     lisa_mutex_unlock(g_list->lock);

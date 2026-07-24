@@ -620,12 +620,20 @@ static size_t lisa_modem_socket_tx_buffer_contiguous_used_locked(const lisa_mode
 static size_t lisa_modem_socket_tx_buffer_write_locked(lisa_modem_socket_record_t *record,
                                                        const uint8_t *data, size_t length)
 {
+    size_t free_space;
     size_t first_copy;
     size_t second_copy;
 
-    if (!record || !record->tx_buffer || !data || length == 0U ||
-        length > lisa_modem_socket_tx_buffer_free_locked(record)) {
+    if (!record || !record->tx_buffer || !data || length == 0U) {
         return 0U;
+    }
+
+    free_space = lisa_modem_socket_tx_buffer_free_locked(record);
+    if (free_space == 0U) {
+        return 0U;
+    }
+    if (length > free_space) {
+        length = free_space;
     }
 
     first_copy = MODEM_TCP_TX_BUFFER_SIZE - record->tx_buffer_tail;
@@ -950,6 +958,9 @@ static int lisa_modem_socket_send_impl(lisa_modem_t *modem, int sockfd,
 
                 modem->sockets[sockfd].tx_active = true;
                 lisa_modem_socket_tx_arm_deadline_locked(&modem->sockets[sockfd], now);
+                /* Treat the send timeout as a no-progress timeout for payloads
+                 * larger than the bounded TX ring buffer. */
+                start_tick = now;
             }
             lisa_modem_socket_table_unlock(modem);
 

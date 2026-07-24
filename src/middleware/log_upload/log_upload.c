@@ -16,7 +16,9 @@
 #include "log_buffer.h"
 #include "log_upload.h"
 
-#define LOG_UPLOAD_TIMEOUT_SEC 120U
+#define LOG_UPLOAD_TIMEOUT_SEC 60U
+#define LOG_UPLOAD_MAX_ATTEMPTS 2U
+#define LOG_UPLOAD_RETRY_DELAY_MS 2000U
 #define LOG_UPLOAD_HEADER_TEXT "Content-Type: text/plain; charset=utf-8"
 #define LOG_UPLOAD_READ_BUF_SIZE 256U
 #define LOG_UPLOAD_RESPONSE_PREVIEW_MAX 255U
@@ -396,6 +398,7 @@ static int log_upload_send_request(const char *upload_url, const struct log_uplo
     TickType_t start_tick;
     TickType_t elapsed_tick;
     uint32_t body_len;
+    uint32_t attempt;
     int ret;
 
     ret = log_upload_request_init(&request, upload_url, body_view);
@@ -404,30 +407,50 @@ static int log_upload_send_request(const char *upload_url, const struct log_uplo
     }
 
     body_len = body_view->total_len;
-    LISA_LOGI(TAG, "Start upload: url=%s body_len=%u timeout=%us first=%u second=%u chunk=%u",
-              upload_url,
-              body_len,
-              (unsigned int)request.http_param->nTimeout,
-              body_view->first_size,
-              body_view->second_size,
-              (unsigned int)LOG_UPLOAD_STREAM_CHUNK_SIZE);
+    for (attempt = 1U; attempt <= LOG_UPLOAD_MAX_ATTEMPTS; attempt++) {
+        log_upload_prime_post_ctx(request.post_ctx, body_view);
+        LISA_LOGI(TAG,
+                  "Start upload: attempt=%u/%u url=%s body_len=%u timeout=%us first=%u second=%u chunk=%u",
+                  attempt, LOG_UPLOAD_MAX_ATTEMPTS, upload_url, body_len,
+                  (unsigned int)request.http_param->nTimeout, body_view->first_size,
+                  body_view->second_size, (unsigned int)LOG_UPLOAD_STREAM_CHUNK_SIZE);
 
-    ret = HTTPC_open(request.http_param);
-    if (ret != 0) {
-        LISA_LOGE(TAG, "HTTPC_open failed: ret=%d", ret);
-        ret = -ret;
-        goto exit;
+        ret = HTTPC_open(request.http_param);
+        if (ret != 0) {
+            LISA_LOGE(TAG, "HTTPC_open failed: ret=%d attempt=%u/%u", ret, attempt,
+                      LOG_UPLOAD_MAX_ATTEMPTS);
+        } else {
+            request.opened = true;
+            start_tick = xTaskGetTickCount();
+            s_log_upload_post_ctx = request.post_ctx;
+            ret = HTTPC_request_r(request.http_param, log_upload_headers_callback,
+                                  log_upload_get_post_data);
+            s_log_upload_post_ctx = NULL;
+            elapsed_tick = xTaskGetTickCount() - start_tick;
+            if (ret != 0) {
+                LISA_LOGE(TAG,
+                          "HTTPC_request failed: ret=%d body_len=%u elapsed=%ums attempt=%u/%u",
+                          ret, body_len, (unsigned int)pdTICKS_TO_MS(elapsed_tick), attempt,
+                          LOG_UPLOAD_MAX_ATTEMPTS);
+            }
+        }
+
+        if (ret == 0) {
+            break;
+        }
+
+        if (request.opened) {
+            HTTPC_close(request.http_param);
+            request.opened = false;
+        }
+
+        if (attempt < LOG_UPLOAD_MAX_ATTEMPTS) {
+            LISA_LOGW(TAG, "Retrying upload after %ums", LOG_UPLOAD_RETRY_DELAY_MS);
+            vTaskDelay(pdMS_TO_TICKS(LOG_UPLOAD_RETRY_DELAY_MS));
+        }
     }
-    request.opened = true;
 
-    start_tick = xTaskGetTickCount();
-    s_log_upload_post_ctx = request.post_ctx;
-    ret = HTTPC_request_r(request.http_param, log_upload_headers_callback, log_upload_get_post_data);
-    s_log_upload_post_ctx = NULL;
-    elapsed_tick = xTaskGetTickCount() - start_tick;
     if (ret != 0) {
-        LISA_LOGE(TAG, "HTTPC_request failed: ret=%d body_len=%u elapsed=%ums",
-                  ret, body_len, (unsigned int)pdTICKS_TO_MS(elapsed_tick));
         ret = -ret;
         goto exit;
     }

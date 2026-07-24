@@ -398,6 +398,10 @@ static const char *home_get_session_emoji_name(const struct home_nav_scr_data *s
     }
 
     if (scr_data->speaking || model_voice_tts_is_playing()) {
+        if (!emoji_anim_has_name(EMOJI_NAME_SPEAKING)) {
+            LOGW("NO SPEAKING");
+            return scr_data->current_emoji_name[0] != '\0' ? scr_data->current_emoji_name : EMOJI_NAME_NEUTRAL;
+        }
         return EMOJI_NAME_SPEAKING;
     }
 
@@ -1324,8 +1328,8 @@ static void model_voice_on_tts_player_playing(void *arg)
         model_camera_preview_publish_state(&scr_data->camera_preview);
         home_camera_preview_uploading_clear(scr_data);
         home_restore_session_emoji(scr_data, 1);
-        LISA_UI_LOGI("voice photo: result TTS started, keep status at listening");
-        lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
+        LISA_UI_LOGI("voice photo: result TTS started, show speaking status");
+        lisa_ui_llm_primary_set_status_text(scr_data->view, _("speaking"));
         standby_text_timer_update(scr_data);
         return;
     }
@@ -1388,6 +1392,13 @@ static void model_voice_on_tts_player_stoped(void *arg)
         return;
     }
 
+    /* 会话结束时若 TTS 仍在播放，on_finished 会请求播完后再进入待机。
+     * 再次唤醒会让旧 TTS 的 STOPPED 先于新 SESSION_STARTING 到达；这里
+     * 复用现有延迟复检，避免先显示一帧“请唤醒我”再切回“我在听”。 */
+    if (home_try_enter_standby_after_tts(scr_data)) {
+        return;
+    }
+
     if (scr_data->img_rec_is_button) {
         if (model_voice_cloud_is_running()) {
             voice_cloud_chat_stop();
@@ -1445,18 +1456,39 @@ static void model_voice_on_tts_player_stoped(void *arg)
 static void model_voice_on_emoji(void *arg, const char *name)
 {
     struct home_nav_scr_data *scr_data = arg;
+    bool is_wifi_emoji = false;
 
-    if (scr_data->mcp_emoji_running) {
+    if (!scr_data) {
+        return;
+    }
+
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    is_wifi_emoji = name && strcmp(name, EMOJI_NAME_WIFI) == 0;
+#endif
+
+    if (scr_data->mcp_emoji_running && !is_wifi_emoji) {
         LISA_UI_LOGI("ignore emoji display, mcp emoji is running");
         return;
     }
 
-    if (scr_data->finished) {
+    if (scr_data->finished && !is_wifi_emoji) {
         return;
     }
 
     LISA_UI_LOGI("on emoji, name: %s", name);
 
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    if (is_wifi_emoji) {
+        home_handle_activity(scr_data);
+        if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
+            lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
+        }
+    }
+#endif
+
+#ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
+    lv_timer_set_period(scr_data->anim_timer, is_wifi_emoji ? 30000 : 5000);
+#endif
     if (show_emoji_anim(scr_data, name, 0) == 0) {
         home_anim_timer_reset_resume(scr_data);
     }
@@ -1582,6 +1614,8 @@ static void model_voice_on_start(void *arg)
 
     lisa_ui_llm_primary_set_content_text(scr_data->view, _("Please speak"));
 
+    /* 新会话已经接管 UI，旧会话遗留的延迟待机请求必须失效。 */
+    scr_data->standby_after_tts_pending = 0;
     scr_data->finished = 0;
     scr_data->work_type = WORK_TYPE_VOICE;
 
@@ -1596,6 +1630,7 @@ static void enter_standby(struct home_nav_scr_data *scr_data)
 static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const char *status_text, uint8_t imm)
 {
     bool keep_image;
+    const char *music_text;
 
     if (!scr_data || !scr_data->view) {
         return;
@@ -1604,9 +1639,14 @@ static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const c
     LISA_UI_LOGI("enter_standby");
 
     keep_image = home_should_keep_recognition_image(scr_data);
+    music_text = model_voice_music_text_get();
 
     scr_data->standby_after_tts_pending = 0;
     scr_data->finished = 1;
+    tts_text_stop_timer(scr_data);
+    scr_data->tts_text_len = 0;
+    scr_data->tts_text_displayed = 0;
+    scr_data->tts_text_stream_done = 0;
 
     if (!status_text || status_text[0] == '\0') {
         status_text =
@@ -1621,7 +1661,11 @@ static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const c
 
     if (keep_image) {
         lisa_ui_llm_primary_set_content_text(scr_data->view, "");
-    } else if (!scr_data->music_text_active && !model_voice_music_is_playing()) {
+    } else if (music_text) {
+        /* 对话字幕会覆盖歌曲名；返回待机/主页时直接恢复缓存的歌曲名，
+         * 不必等待播放器再次上报 PLAYING。 */
+        lisa_ui_llm_primary_set_content_text(scr_data->view, music_text);
+    } else {
         lisa_ui_llm_primary_set_content_text(scr_data->view, model_voice_role_propmt_get());
     }
     home_anim_timer_pause(scr_data);
@@ -2268,7 +2312,6 @@ static void show_oneshot_emoji_once(struct home_nav_scr_data *d, const char *emo
     one_shot_anim = *anim_config;
     if (one_shot_anim.loop.frame_count > 0 && one_shot_anim.loop.loop < 0) {
         one_shot_anim.loop.loop = 0;
-        one_shot_anim.loop.delays = NULL; // 解决睡眠表情中间卡一下
     }
 
     if (!lisa_ui_anim_ext_config_has_enough_heap(&one_shot_anim, &heap_check)) {

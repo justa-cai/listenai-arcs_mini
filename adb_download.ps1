@@ -68,9 +68,9 @@ function Write-Fail {
 function Show-Usage {
     Write-Host "Usage: powershell -ExecutionPolicy Bypass -File adb_download.ps1 [-S <res-dir>] [-B <build-dir>] [-Mode default|app|boot]"
     Write-Host "       powershell -ExecutionPolicy Bypass -File adb_download.ps1 [-S <res-dir>] [app|boot]"
-    Write-Host "  no mode/default: flash all partition_table.json images except boot"
-    Write-Host "  app:             only flash the app image from partition_table.json"
-    Write-Host "  boot:            flash all images from partition_table.json and run upgrade enter"
+    Write-Host "  no mode/default: flash lpk-tagged images except boot"
+    Write-Host "  app:             only flash the lpk-tagged app image"
+    Write-Host "  boot:            flash all lpk-tagged images and run upgrade enter"
     Write-Host "  -S <res-dir>:    resource directory containing partition_table.json (default: res/arcs-mini)"
     Write-Host "  -B <build-dir>:  build output directory for `${BUILD_DIR} entries (default: build)"
 }
@@ -198,6 +198,9 @@ function Build-FlashTable {
         if ([string]::IsNullOrEmpty($name) -or
             [string]::IsNullOrWhiteSpace($rawFile) -or
             [string]::IsNullOrWhiteSpace($addr)) {
+            continue
+        }
+        if ($image.tags -notcontains "lpk") {
             continue
         }
 

@@ -304,7 +304,12 @@ bool model_camera_preview_is_captured(const model_camera_preview_t *preview)
 
 bool model_camera_preview_is_result_active(const model_camera_preview_t *preview)
 {
-    return preview && preview->source == MODEL_CAMERA_PREVIEW_SOURCE_MCP && preview->captured;
+    if (!preview || !preview->captured) {
+        return false;
+    }
+
+    return preview->source == MODEL_CAMERA_PREVIEW_SOURCE_BUTTON ||
+           preview->source == MODEL_CAMERA_PREVIEW_SOURCE_MCP;
 }
 
 bool model_camera_preview_is_result_tts_ready(const model_camera_preview_t *preview)
@@ -441,6 +446,8 @@ void model_camera_preview_publish_state(const model_camera_preview_t *preview)
 void model_camera_preview_fill_voice_state(const model_camera_preview_t *preview,
                                            voice_msg_camera_preview_state_t *state)
 {
+    bool publish_result_state = false;
+
     if (!state) {
         return;
     }
@@ -452,8 +459,13 @@ void model_camera_preview_fill_voice_state(const model_camera_preview_t *preview
 
     state->active = preview->preview_active ? 1 : 0;
     state->captured = preview->captured ? 1 : 0;
+    publish_result_state = model_camera_preview_source_get(preview) ==
+                               MODEL_CAMERA_PREVIEW_SOURCE_MCP &&
+                           model_camera_preview_is_result_active(preview);
 
-    if (model_camera_preview_is_active(preview)) {
+    /* 按键拍照在提交后仍由 UI 保持结果态，但对 CP 继续发布 NONE。
+     * PHOTO_FLOW 依赖该状态识别“提交完成”，并据此放行照片结果 TTS。 */
+    if (model_camera_preview_is_preview_active(preview) || publish_result_state) {
         state->mode = model_camera_preview_source_get(preview) == MODEL_CAMERA_PREVIEW_SOURCE_MCP
                           ? CAMERA_PREVIEW_MODE_MCP
                           : CAMERA_PREVIEW_MODE_BUTTON;
@@ -463,7 +475,7 @@ void model_camera_preview_fill_voice_state(const model_camera_preview_t *preview
 
     if (model_camera_preview_keep_preview_alive(preview)) {
         state->phase = CAMERA_FLOW_PHASE_PREVIEW;
-    } else if (model_camera_preview_is_result_active(preview)) {
+    } else if (publish_result_state) {
         state->phase = model_camera_preview_is_result_tts_ready(preview)
                            ? CAMERA_FLOW_PHASE_RESULT_TTS
                            : CAMERA_FLOW_PHASE_PROCESSING;

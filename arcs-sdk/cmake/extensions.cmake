@@ -516,6 +516,7 @@ macro(listenai_add_boot_only name)
             -DBOARD=${BOARD}
             -DARCS_SDK_BASE=${ARCS_SDK_BASE}
             -DLISTENAI_TOOLS_PATH=${LISTENAI_TOOLS_PATH}
+            -DENABLE_DEBUG_PATH=${ENABLE_DEBUG_PATH}
             -DBOOT_STANDALONE_PROJECT_NAME=${name}
             -DBOOT_STANDALONE_CONFIG_DEFAULT=${_boot_only_config_path}
             -DCONFIG_FILES=${_boot_only_config_files_arg}

@@ -29,24 +29,24 @@ static int ble_net_start(int argc, char **argv)
         adv_type = (uint8_t)atoi(argv[1]);
 
         if (adv_type > BLE_ADV_DIR_HDC) {
-            printf("Invalid adv_type. Valid values: 0-3\n");
-            printf("  0: BLE_ADV_GEN (General)\n");
-            printf("  1: BLE_ADV_GEN_PAIRED (General Paired)\n");
-            printf("  2: BLE_ADV_DIR (Directed)\n");
-            printf("  3: BLE_ADV_DIR_HDC (Directed High Duty Cycle)\n");
+            shellPrint(shellGetCurrent(), "Invalid adv_type. Valid values: 0-3\n");
+            shellPrint(shellGetCurrent(), "  0: BLE_ADV_GEN (General)\n");
+            shellPrint(shellGetCurrent(), "  1: BLE_ADV_GEN_PAIRED (General Paired)\n");
+            shellPrint(shellGetCurrent(), "  2: BLE_ADV_DIR (Directed)\n");
+            shellPrint(shellGetCurrent(), "  3: BLE_ADV_DIR_HDC (Directed High Duty Cycle)\n");
             return -1;
         }
     }
 
-    printf("Starting BLE advertising (adv_id=%d, adv_type=%d)...\n", adv_id, adv_type);
+    shellPrint(shellGetCurrent(), "Starting BLE advertising (adv_id=%d, adv_type=%d)...\n", adv_id, adv_type);
 
     uint8_t ret = app_ble_adv_start(adv_id, adv_type);
     if (ret != pdTRUE) {
-        printf("Failed to start BLE advertising, error code: %d\n", ret);
+        shellPrint(shellGetCurrent(), "Failed to start BLE advertising, error code: %d\n", ret);
         return -1;
     }
 
-    printf("BLE advertising started successfully\n");
+    shellPrint(shellGetCurrent(), "BLE advertising started successfully\n");
     return 0;
 }
 
@@ -65,15 +65,15 @@ static int ble_net_stop(int argc, char **argv)
         adv_id = (uint8_t)atoi(argv[0]);
     }
 
-    printf("Stopping BLE advertising (adv_id=%d)...\n", adv_id);
+    shellPrint(shellGetCurrent(), "Stopping BLE advertising (adv_id=%d)...\n", adv_id);
 
     uint8_t ret = app_ble_adv_stop(adv_id);
     if (ret != pdTRUE) {
-        printf("Failed to stop BLE advertising, error code: %d\n", ret);
+        shellPrint(shellGetCurrent(), "Failed to stop BLE advertising, error code: %d\n", ret);
         return -1;
     }
 
-    printf("BLE advertising stopped successfully\n");
+    shellPrint(shellGetCurrent(), "BLE advertising stopped successfully\n");
     return 0;
 }
 
@@ -90,20 +90,20 @@ static int ble_cmd_help(int argc, char **argv)
 {
     int cmd_len = sizeof(g_ble_cmds) / sizeof(g_ble_cmds[0]);
 
-    printf("BLE Network Configuration Commands:\n");
-    printf("-----------------------------------\n");
+    shellPrint(shellGetCurrent(), "BLE Network Configuration Commands:\n");
+    shellPrint(shellGetCurrent(), "-----------------------------------\n");
 
     for (int i = 0; i < cmd_len; i++) {
         if (g_ble_cmds[i].help != NULL) {
-            printf("%-17s\t:\t%s\n", g_ble_cmds[i].name, g_ble_cmds[i].help);
+            shellPrint(shellGetCurrent(), "%-17s\t:\t%s\n", g_ble_cmds[i].name, g_ble_cmds[i].help);
         }
     }
 
-    printf("\nAdv Type Values:\n");
-    printf("  0: BLE_ADV_GEN (General)\n");
-    printf("  1: BLE_ADV_GEN_PAIRED (General Paired)\n");
-    printf("  2: BLE_ADV_DIR (Directed)\n");
-    printf("  3: BLE_ADV_DIR_HDC (Directed High Duty Cycle)\n");
+    shellPrint(shellGetCurrent(), "\nAdv Type Values:\n");
+    shellPrint(shellGetCurrent(), "  0: BLE_ADV_GEN (General)\n");
+    shellPrint(shellGetCurrent(), "  1: BLE_ADV_GEN_PAIRED (General Paired)\n");
+    shellPrint(shellGetCurrent(), "  2: BLE_ADV_DIR (Directed)\n");
+    shellPrint(shellGetCurrent(), "  3: BLE_ADV_DIR_HDC (Directed High Duty Cycle)\n");
 
     return 0;
 }
@@ -125,7 +125,7 @@ static int ble_cmd_handler(int argc, char **argv)
         }
     }
 
-    printf("Unknown command: %s\n", argv[1]);
+    shellPrint(shellGetCurrent(), "Unknown command: %s\n", argv[1]);
     ble_cmd_help(argc, argv);
 
     return 0;

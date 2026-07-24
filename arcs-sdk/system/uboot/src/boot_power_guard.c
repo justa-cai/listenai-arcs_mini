@@ -297,6 +297,7 @@ __boot_ramcode__ void boot_power_guard_run(uint32_t sysrst_status, uint32_t *boo
         return;
     }
 
+#ifdef CONFIG_BOOT_POWER_GUARD_LONG_PRESS_STARTUP
     /* 冷启动 + USB 插着 + PB 未按：用户刚插 USB（关机态插线），让 stage1
      * 显示「正在充电 / 长按电源键开机」3 秒再经 shutdown_req 路径回到
      * 假关机自旋。guard 自己做不到显示（需要 FreeRTOS + display 驱动），
@@ -323,6 +324,11 @@ __boot_ramcode__ void boot_power_guard_run(uint32_t sysrst_status, uint32_t *boo
     } else {
         led_set(1);
     }
+#else
+    /* 普通冷启动直接开机，不再要求 PB 长按，也不再进入 charging_wait。 */
+    latch_set(1);
+    led_set(1);
+#endif
     clear_sysrst_status();
 }
 

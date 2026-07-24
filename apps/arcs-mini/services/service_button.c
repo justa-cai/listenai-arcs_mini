@@ -22,8 +22,28 @@
 #define MINI_POWER_KEY_SHORT_PRESS_MS 800U
 #define MINI_POWER_KEY_LONG_PRESS_MS  1600U
 #define MINI_POWER_KEY_LONG_HOLD_MS   1600U
+#define MINI_POWER_KEY_ID             0U
 
 /* ---- 内部工具函数 ------------------------------------------------------- */
+
+/* 电源键只向应用发布最终点击次数和长按关机事件。 */
+static bool service_button_power_key_accepts_action(voice_msg_button_action_t action)
+{
+    switch (action) {
+    case VOICE_MSG_BUTTON_ACTION_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_DOUBLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_TRIPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_QUADRUPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_QUINTUPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_SEXTUPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_SEPTUPLE_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_REPEAT_CLICK:
+    case VOICE_MSG_BUTTON_ACTION_LONG_HOLD:
+        return true;
+    default:
+        return false;
+    }
+}
 
 static voice_msg_button_action_t map_lisa_btn_event(lisa_btn_event_t lisa_event)
 {
@@ -64,15 +84,26 @@ static voice_msg_button_action_t map_lisa_btn_event(lisa_btn_event_t lisa_event)
 }
 
 /*
- * 将按键事件发布到消息总线。
+ * 将应用关心的最终按键动作发布到消息总线。
  *
+ * 当前电源键只使用点击唤醒和长按关机，因此过滤 PRESS_DOWN、SHORT_UP、
+ * LONG_UP 等原始事件。其他按键 ID 保留完整事件，方便未来扩展按住说话等功能。
  * OTA 升级期间忽略所有按键事件，避免升级过程中意外触发语音交互。
- * OTA 包信息确认阶段仅放行 CLICK 和 LONG_HOLD 事件（用于确认/跳过升级），
- * 过滤 PRESS_DOWN/SHORT_UP 等原始事件，防止其他按键处理器（如 PTT 语音
- * 唤醒）误触发 INFO 页面导致 UI 在确认升级后闪烁跳转。
+ * OTA 包信息确认阶段仅放行 CLICK 和 LONG_HOLD 事件，用于确认或跳过升级。
  */
 static void publish_button_event(uint8_t btn_id, lisa_btn_event_t action)
 {
+    voice_msg_button_action_t mapped_action = map_lisa_btn_event(action);
+
+    if (mapped_action == VOICE_MSG_BUTTON_ACTION_UNKNOWN) {
+        return;
+    }
+
+    if (btn_id == MINI_POWER_KEY_ID &&
+        !service_button_power_key_accepts_action(mapped_action)) {
+        return;
+    }
+
 #ifdef CONFIG_OTA
     ota_state_e ota_state = ota_manager_get_state();
     if (ota_state == OTA_STATE_CHECKING || ota_state == OTA_STATE_UPDATING) {
@@ -97,17 +128,18 @@ static void publish_button_event(uint8_t btn_id, lisa_btn_event_t action)
         return;
     }
 
+    service_image_waiting_cancel();
+
     voice_msg_button_evt_t evt = {
         .button_id = btn_id,
-        .action = map_lisa_btn_event(action),
+        .action = mapped_action,
     };
-    service_image_waiting_cancel();
     LISA_LOGI(TAG, "[Button %d] action=%d", btn_id, action);
     voice_msg_pub(VOICE_MSG_BUTTON_CHANGE, &evt, sizeof(evt));
 }
 
 /*
- * lisa_btn 硬件层回调，将原始事件透传给 publish_button_event 统一处理。
+ * lisa_btn 硬件层回调，将事件交给 publish_button_event 统一筛选和发布。
  *
  * 不再展开 switch-case —— lisa_btn_event_t 到业务事件的映射已由
  * map_lisa_btn_event() 集中完成，回调只负责过滤和转发。

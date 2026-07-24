@@ -18,7 +18,7 @@
 
 #define CAMERA_DEVICE          "camera"
 #define DVP_DEVICE             "dvp0"
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
 #define I2C_DEVICE             "i2c1"
 #else
 #define I2C_DEVICE             "i2c0"
@@ -26,15 +26,18 @@
 #define DMA_CHANNEL            4
 #define CAMERA_HMIRROR         1 // 0: 画面正常; 1: 水平翻转 (照镜子效果)
 #define CAMERA_VFLIP           0 // 0: 画面正常; 1: 垂直翻转 (画面颠倒)
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
 /* v3 camera PWDN is active high. Keep it low long enough before sensor probe. */
 #define CAMERA_V3_PWDN_RELEASE_LEVEL    0
 #define CAMERA_V3_PWDN_RELEASE_DELAY_US 100000
 #endif
 
 /*
- * Sensor 采集 640×480 全画幅 → DVP 直出 → CPU 最近邻 resize 到 320×240。
- * GC0328 硬件跳采 (0x59+0x5A) 内部需读完整个模拟窗口再抽点，实测比软件 resize 慢。
+ * 输出 320×240 RGB565。两条采集路径按 SoC 选择：
+ *   16M（LS2684）：DVP 直出 640×480 全画幅 → CPU 最近邻 resize，画质优先；
+ *   8M（LS2663）：GC0328 硬件跳采直出 320×240，帧缓冲 1.2MB→300KB，省内存
+ *                （代价是每帧更慢）。
+ * 旋转按板型：MINI 摄像头旋转安装需 90° CW；MINI3 正装无需旋转。
  */
 
 #define CAMERA_CAPTURE_WIDTH  640
@@ -42,6 +45,20 @@
 #define CAMERA_OUTPUT_WIDTH   320
 #define CAMERA_OUTPUT_HEIGHT  240
 #define CAMERA_CAPTURE_DROP_STALE_FRAMES 2
+
+/* 8M PSRAM SoC 启用硬件跳采省内存；16M 保持全画幅软件降采样 */
+#if defined(CONFIG_SOC_LS2663) || defined(CONFIG_SOC_LS2683)
+#define CAMERA_USE_SUBSAMPLE 1
+#else
+#define CAMERA_USE_SUBSAMPLE 0
+#endif
+
+/* MINI3 摄像头正装无需旋转；其余（MINI）需要 90° CW */
+#ifdef CONFIG_BOARD_ARCS_MINI3
+#define CAMERA_ROTATE_CW90 0
+#else
+#define CAMERA_ROTATE_CW90 1
+#endif
 
 /* ---- 模块级状态 --------------------------------------------------------- */
 
@@ -159,11 +176,11 @@ int service_camera_init(void)
         return -3;
     }
 
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
     lisa_device_t *pwdn_gpio_dev = lisa_device_get(CAM_PWDN_DEVICE_NAME);
     if (!pwdn_gpio_dev || !lisa_device_ready(pwdn_gpio_dev)) {
         LISA_LOGE(TAG, "Camera PWDN GPIO device not ready");
-        return -4;
+        return -7;
     }
 #endif
 
@@ -174,7 +191,7 @@ int service_camera_init(void)
         .hw_config = {
             .mclk_pad      = CSK_IOMUX_PAD_A,
             .mclk_pin      = CAM_MCLK_PIN,
-#ifdef CONFIG_BOARD_ARCS_MINI_V3
+#ifdef CONFIG_BOARD_ARCS_MINI3
             .pwdn_gpio_dev        = pwdn_gpio_dev,
             .pwdn_pin             = CAM_PWDN_PIN,
             .pwdn_inactive_level  = CAMERA_V3_PWDN_RELEASE_LEVEL,
@@ -184,6 +201,8 @@ int service_camera_init(void)
             .i2c_dev       = cam_ctx.i2c_dev,
         },
         .xclk_freq_hz    = 18000000,
+        /* DVP 需双缓冲做乒乓：一个由 DMA 填充、一个交给消费者，单缓冲会导致
+         * ISR 永远腾不出空闲帧、capture 超时。*/
         .fb_count        = 2,
         .enable_colorbar = false,
     };
@@ -223,27 +242,18 @@ int service_camera_init(void)
     lisa_camera_set_hmirror(cam_ctx.camera_dev, hmirror);
     lisa_camera_set_vflip(cam_ctx.camera_dev, vflip);
 
-    /*
-     * 硬件跳采 (备选方案, 当前未启用):
-     *
-     * GC0328 支持通过 0x59/0x5A 寄存器在 sensor 内部做像素抽点。
-     * 用法: crop 设为 640×480, 调用 set_subsample(row, col) 设置跳采比例,
-     *       DVP 按 CAMERA_OUTPUT 尺寸捕获, capture 中只需 memcpy + 字节交换。
-     *
-     * 实测: 硬件跳采 ~250ms/帧, 软件 resize ~95ms/帧。
-     * 原因: GC0328 跳采需先内部读完整个 640×480 模拟窗口再走抽点流水线,
-     *       加上 EXTEND_PCLK 拉长输出时钟, 最终比 DVP 直出 640×480 + CPU
-     *       最近邻 resize 慢 2.5 倍。保留此注释供后续芯片验证参考。
-     */
-
-    // /* 3c. 跳采比例 (0x59, 0x5A): 全幅 ÷ 输出 */
-    // uint8_t row_ratio = CAMERA_CAPTURE_HEIGHT / CAMERA_OUTPUT_HEIGHT;
-    // uint8_t col_ratio = CAMERA_CAPTURE_WIDTH  / CAMERA_OUTPUT_WIDTH;
-    // ret = lisa_camera_set_subsample(cam_ctx.camera_dev, row_ratio, col_ratio);
-    // if (ret != LISA_DEVICE_OK) {
-    //     LISA_LOGE(TAG, "Subsample config failed: %d", ret);
-    //     return -6;
-    // }
+#if CAMERA_USE_SUBSAMPLE
+    /* 3c. 硬件跳采 (0x59/0x5A): sensor 内部抽点直出 320×240，DVP 帧缓冲
+     * 从 2×640×480×2 (1.2MB) 降到 2×320×240×2 (300KB)，为 8M PSRAM 上的
+     * 拍照留出堆空间。代价是每帧更慢，预览帧率降低。*/
+    uint8_t row_ratio = CAMERA_CAPTURE_HEIGHT / CAMERA_OUTPUT_HEIGHT;
+    uint8_t col_ratio = CAMERA_CAPTURE_WIDTH / CAMERA_OUTPUT_WIDTH;
+    ret = lisa_camera_set_subsample(cam_ctx.camera_dev, row_ratio, col_ratio);
+    if (ret != LISA_DEVICE_OK) {
+        LISA_LOGE(TAG, "Subsample config failed: %d", ret);
+        return -6;
+    }
+#endif
 
     /* ================================================================
      * Phase 4: DVP 总线配置
@@ -266,13 +276,25 @@ int service_camera_init(void)
         },
     };
 
-    /* DVP 按采集尺寸 640×480 捕获，resize 在 capture 中完成 */
+    /* 跳采路径 DVP 直出 320×240（帧缓冲 150KB/个）；全画幅路径直出 640×480，
+     * 由 capture 软件降采样到 320×240。*/
+#if CAMERA_USE_SUBSAMPLE
+    bus_config.width        = CAMERA_OUTPUT_WIDTH;
+    bus_config.height       = CAMERA_OUTPUT_HEIGHT;
+#else
     bus_config.width        = CAMERA_CAPTURE_WIDTH;
     bus_config.height       = CAMERA_CAPTURE_HEIGHT;
+#endif
     bus_config.pixel_format = lisa_camera_get_pixformat(cam_ctx.camera_dev);
 
+    /* 旋转路径对外尺寸为 240×320（宽高互换）；不旋转则 320×240 */
+#if CAMERA_ROTATE_CW90
+    cam_ctx.width        = CAMERA_OUTPUT_HEIGHT;
+    cam_ctx.height       = CAMERA_OUTPUT_WIDTH;
+#else
     cam_ctx.width        = CAMERA_OUTPUT_WIDTH;
     cam_ctx.height       = CAMERA_OUTPUT_HEIGHT;
+#endif
     cam_ctx.pixel_format = bus_config.pixel_format;
 
     ret = lisa_camera_attach_bus(cam_ctx.camera_dev, &bus_config);
@@ -323,20 +345,37 @@ int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
         return ret;
     }
 
-    /* 最近邻下采样 640×480 → 320×240 + RGB565 字节交换 */
+    /* fb→输出：最近邻降采样（fb==输出尺寸时退化为 1:1）+ RGB565 字节交换。
+     * 除法项统一处理 640×480 全画幅与 320×240 跳采两种输入。*/
     const uint8_t *src = fb->buf;
+#if CAMERA_ROTATE_CW90
+    /* 顺时针旋转 90° 写出 240×320：dst(x,y) ← 旋转前 (pre_x=y, pre_y=239-x)。*/
     for (uint32_t dst_y = 0; dst_y < cam_ctx.height; dst_y++) {
-        uint32_t src_y = (uint32_t)dst_y * fb->height / cam_ctx.height;
-        const uint8_t *src_row = src + src_y * fb->width * 2U;
+        uint32_t src_x = dst_y * fb->width / CAMERA_OUTPUT_WIDTH;
         uint8_t *dst_row = buffer + dst_y * cam_ctx.width * 2U;
         for (uint32_t dst_x = 0; dst_x < cam_ctx.width; dst_x++) {
-            uint32_t src_x = (uint32_t)dst_x * fb->width / cam_ctx.width;
-            const uint8_t *s = src_row + src_x * 2U;
+            uint32_t pre_y = (uint32_t)(CAMERA_OUTPUT_HEIGHT - 1U) - dst_x;
+            uint32_t src_y = pre_y * fb->height / CAMERA_OUTPUT_HEIGHT;
+            const uint8_t *s = src + (src_y * fb->width + src_x) * 2U;
             uint8_t *d = dst_row + dst_x * 2U;
-            d[0] = s[1];  /* 字节交换: little-endian → 标准 RGB565 */
+            d[0] = s[1];
             d[1] = s[0];
         }
     }
+#else
+    /* 不旋转，直接写出 320×240（摄像头正装）。*/
+    for (uint32_t dst_y = 0; dst_y < cam_ctx.height; dst_y++) {
+        uint32_t src_y = dst_y * fb->height / CAMERA_OUTPUT_HEIGHT;
+        uint8_t *dst_row = buffer + dst_y * cam_ctx.width * 2U;
+        for (uint32_t dst_x = 0; dst_x < cam_ctx.width; dst_x++) {
+            uint32_t src_x = dst_x * fb->width / CAMERA_OUTPUT_WIDTH;
+            const uint8_t *s = src + (src_y * fb->width + src_x) * 2U;
+            uint8_t *d = dst_row + dst_x * 2U;
+            d[0] = s[1];
+            d[1] = s[0];
+        }
+    }
+#endif
 
     lisa_camera_release_fb(cam_ctx.camera_dev, fb);
 

@@ -66,33 +66,34 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN) |
 
 static int threads_cmd(int argc, char **argv)
 {
+    Shell *shell = shellGetCurrent();
     uint32_t tasks = uxTaskGetNumberOfTasks();
     TaskStatus_t *item = lisa_mem_alloc(tasks * sizeof(TaskStatus_t));
     if (item) {
         uint32_t total = 0;
         tasks = uxTaskGetSystemState(item, tasks, &total);
         if (total > 0) {
-            printf("%s", "\n---------------------------------------------------------------------------------------------\n");
-            printf("%s", "Name                      State  Prio  Stack  MinFree    MaxUsed    Tid    Call100US      PCT\n");
-            printf("%s", "---------------------------------------------------------------------------------------------\n");
+            shellPrint(shell, "%s", "\n---------------------------------------------------------------------------------------------\n");
+            shellPrint(shell, "%s", "Name                      State  Prio  Stack  MinFree    MaxUsed    Tid    Call100US      PCT\n");
+            shellPrint(shell, "%s", "---------------------------------------------------------------------------------------------\n");
             for (uint32_t i = 0, pct = 0; i < tasks; i++) {
                 uint32_t stack_size = (item[i].pxEndOfStack - item[i].pxStackBase + 2) * sizeof(StackType_t);
                 uint32_t min_free = item[i].usStackHighWaterMark * sizeof(StackType_t);
                 float max_used_pct = 100.0f - (float)min_free / (float)stack_size * 100.0f;
                 
                 if ((pct = (uint32_t)(100.0f * item[i].ulRunTimeCounter / total))) {
-                    printf("%-25s %-6c %-6u %-6u %-10u %-10.1f %-6u %-12u %5u%%\n", item[i].pcTaskName,
-                           "XRBSD"[item[i].eCurrentState], item[i].uxCurrentPriority,
-                           stack_size, min_free, max_used_pct, item[i].xTaskNumber,
-                           item[i].ulRunTimeCounter, pct);
+                    shellPrint(shell, "%-25s %-6c %-6u %-6u %-10u %-10.1f %-6u %-12u %5u%%\n",
+                               item[i].pcTaskName, "XRBSD"[item[i].eCurrentState], item[i].uxCurrentPriority,
+                               stack_size, min_free, max_used_pct, item[i].xTaskNumber,
+                               item[i].ulRunTimeCounter, pct);
                 } else {
-                    printf("%-25s %-6c %-6u %-6u %-10u %-10.1f %-6u %-12u %5s%%\n", item[i].pcTaskName,
-                           "XRBSD"[item[i].eCurrentState], item[i].uxCurrentPriority,
-                           stack_size, min_free, max_used_pct, item[i].xTaskNumber,
-                           item[i].ulRunTimeCounter, "<1");
+                    shellPrint(shell, "%-25s %-6c %-6u %-6u %-10u %-10.1f %-6u %-12u %5s%%\n",
+                               item[i].pcTaskName, "XRBSD"[item[i].eCurrentState], item[i].uxCurrentPriority,
+                               stack_size, min_free, max_used_pct, item[i].xTaskNumber,
+                               item[i].ulRunTimeCounter, "<1");
                 }
             }
-            printf("%s", "---------------------------------------------------------------------------------------------\n\n");
+            shellPrint(shell, "%s", "---------------------------------------------------------------------------------------------\n\n");
         }
         lisa_mem_free(item);
     }

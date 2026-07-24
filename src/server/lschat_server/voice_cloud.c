@@ -73,6 +73,8 @@ static volatile uint32_t g_objrec_accept_seq = 0;
 #define VOICE_CLOUD_TTS_TEXT 1
 #define RESOURCE_UPDATE_REBOOT_DELAY_MS_DEFAULT 3000U
 
+static volatile uint32_t g_stream_text_generation = 1U;
+
 const char *lsc_get_firmware_type(void)
 {
 #ifdef CONFIG_BOARD_ARCS_MINI
@@ -281,6 +283,17 @@ static void pcm_send_en_timer_cb(TimerHandle_t xTimer)
 static void stream_text_cb_handle(int evt, const char *data, void *user)
 {
     static uint8_t is_first = 1;
+    static uint32_t active_generation = 0;
+    uint32_t generation = (uint32_t)(uintptr_t)user;
+
+    if (generation == 0U || generation != g_stream_text_generation) {
+        return;
+    }
+
+    if (active_generation != generation) {
+        active_generation = generation;
+        is_first = 1;
+    }
 
     int len = data ? strlen(data) + 1 : 0;
 
@@ -294,10 +307,12 @@ static void stream_text_cb_handle(int evt, const char *data, void *user)
         break;
     case SSE_EVT_DONE:
         is_first = 1;
+        active_generation = 0;
         voice_msg_pub(VOICE_MSG_CLOUD_TTS_TEXT_END, NULL, 0);
         break;
     case SSE_EVT_ABORT:
         is_first = 1;
+        active_generation = 0;
         break;
     default:
         break;
@@ -665,7 +680,8 @@ static void voice_event_cb(session_voice_event_e evt, void *data, uint32_t size,
         voice_msg_pub(VOICE_MSG_CLOUD_TTS_URL, (char *)data, size);
         break;
     case SESSION_VOICE_REPLY_URL:
-        lsc_stream_text_request_thread_async((char *)data, stream_text_cb_handle, NULL, true);
+        lsc_stream_text_request_thread_async((char *)data, stream_text_cb_handle,
+                                             (void *)(uintptr_t)g_stream_text_generation, true);
         break;
     case SESSION_VOICE_IAT:
         if (data != NULL && size > 0 && ((char *)data)[0] != '\0') {
@@ -1110,6 +1126,11 @@ int voice_cloud_chat_start(struct voice_cloud_chat_config *config)
     if (!cloud_init_done) {
         return -1;
     }
+
+    g_stream_text_generation++;
+    if (g_stream_text_generation == 0U) {
+        g_stream_text_generation = 1U;
+    }
     
     /* Disable audio sending first to prevent uploading wakeup word */
     voice_pcm_send_disable();
@@ -1201,7 +1222,8 @@ static void session_objrec_evt_cb(session_objrec_t s, int evt, void *data, uint3
     if (evt == SESSION_OBJREC_EVT_TEXT_URL) {
         if (data) {
 #if VOICE_CLOUD_TTS_TEXT
-            lsc_stream_text_request_thread_async((char *)data, stream_text_cb_handle, NULL, true);
+            lsc_stream_text_request_thread_async((char *)data, stream_text_cb_handle,
+                                                 (void *)(uintptr_t)g_stream_text_generation, true);
 #endif
         } else {
             LOGE("objec evt %d data is null", evt);

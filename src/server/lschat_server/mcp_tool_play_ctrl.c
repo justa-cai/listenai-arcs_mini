@@ -9,7 +9,7 @@
 static cJSON *ls_playback_control_list(const char *name)
 {
     cJSON *tool = mcp_tool_list_info_create_default(
-        name, "播放控制工具：用于控制播放器的相关功能，如'继续播放'、'暂停'、'上一个'、'下一个'、'重播'、'停止'");
+        name, "用于控制当前播放器，仅处理明确的播放控制指令，包括暂停、恢复播放、上一首、下一首、重播和停止。强制调用顺序：首次响应必须先输出非空自然语言“我来处理播放控制。”，工具调用必须作为后续事件发送；禁止首事件直接调用工具，也禁止调用后再补前置文本。用户明确说“继续播放、恢复播放、取消暂停”时必须调用本工具并使用 RESUME_PLAY，不得改用 play_music。若用户整句只有“继续、继续吧、接着、接着来”等裸词，且上下文没有正在播放或暂停的媒体，则不要调用本工具，应交由 play_music 处理。即使是“下一首、上一首、重播、停止、继续播放”等短指令，也必须先输出前置文本再调用本工具。");
     if (!tool) {
         return NULL;
     }
@@ -45,6 +45,7 @@ static cJSON *ls_playback_control_call(const char *id, const char *name, cJSON *
         voice_msg_pub(VOICE_MSG_PLAY_CONTROL_PLAY, NULL, 0);
     } else if (strcmp(cJSON_GetStringValue(intent), "PAUSE") == 0) {
         voice_msg_pub(VOICE_MSG_PLAY_CONTROL_PAUSE, NULL, 0);
+        voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
     } else if (strcmp(cJSON_GetStringValue(intent), "CHOOSE_PREVIOUS") == 0) {
         voice_msg_pub(VOICE_MSG_PLAY_CONTROL_PREVIOUS, NULL, 0);
     } else if (strcmp(cJSON_GetStringValue(intent), "CHOOSE_NEXT") == 0) {
@@ -53,6 +54,7 @@ static cJSON *ls_playback_control_call(const char *id, const char *name, cJSON *
         voice_msg_pub(VOICE_MSG_PLAY_CONTROL_REPLAY, NULL, 0);
     } else if (strcmp(cJSON_GetStringValue(intent), "STOP") == 0) {
         voice_msg_pub(VOICE_MSG_PLAY_CONTROL_STOP, NULL, 0);
+        voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
     } else {
         LOGE("invalid intent: %s", cJSON_GetStringValue(intent));
         return NULL;

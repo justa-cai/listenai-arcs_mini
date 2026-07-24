@@ -121,9 +121,9 @@ parse_args() {
         case "$1" in
             -h|--help|help)
                 echo "用法: $0 [-S <res-dir>] [-B <build-dir>] [-Mode default|app|boot] [app|boot]"
-                echo "  不带模式/default: 按 partition_table.json 烧录除 boot 外的所有镜像"
-                echo "  app:              只烧录 partition_table.json 中的 app 镜像"
-                echo "  boot:             烧录 partition_table.json 中的所有镜像，并执行 upgrade enter"
+                echo "  不带模式/default: 按 partition_table.json 烧录带 lpk 标签、且非 boot 的镜像"
+                echo "  app:              只烧录带 lpk 标签的 app 镜像"
+                echo "  boot:             烧录带 lpk 标签的所有镜像，并执行 upgrade enter"
                 echo "  -S <res-dir>:     包含 partition_table.json 的资源目录，默认 res/arcs-mini"
                 echo "  -B <build-dir>:   \${BUILD_DIR} 对应的构建目录，默认 build"
                 exit 0
@@ -251,6 +251,8 @@ base_dir = os.path.dirname(partition_file)
 for image in partition_table.get("images", []):
     name = image.get("name")
     if not name or not image.get("file") or not image.get("addr"):
+        continue
+    if "lpk" not in image.get("tags", []):
         continue
 
     if flash_mode == "app" and name != "app":

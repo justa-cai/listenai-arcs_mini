@@ -19,6 +19,9 @@
 #define ML307_TCP_PULL_CHUNK_SIZE 4096U
 #define ML307_PULL_TIMEOUT_FALLBACK_MS 100U
 #define ML307_PULL_TIMEOUT_MIN_MS      50U
+#define ML307_CME_TCPIP_ALREADY_IN_USE 552
+#define ML307_CME_TCPIP_NOT_CONNECTED  553
+#define ML307_CONNECT_MAX_ATTEMPTS     2
 
 typedef struct {
     int endpoint_id;
@@ -1294,12 +1297,14 @@ static void ml307_at_cmd_handle_mipopen(ml307_endpoint_t *endpoint, at_arg_value
     }
 
     result = arguments[1].data.int_val;
+    endpoint->connecting = false;
     endpoint->connected = (result == 0);
     if (endpoint->connected) {
         endpoint->instance_active = true;
         xEventGroupClearBits(endpoint->event_group, ML307_ENDPOINT_DISCONNECTED | ML307_ENDPOINT_ERROR);
         xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_CONNECTED);
     } else {
+        endpoint->instance_active = false;
         endpoint->last_error = result;
         xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_ERROR);
     }
@@ -1313,6 +1318,7 @@ static void ml307_at_cmd_handle_mipclose(ml307_endpoint_t *endpoint, at_arg_valu
         return;
     }
 
+    endpoint->connecting = false;
     endpoint->instance_active = false;
     endpoint->connected = false;
     endpoint->rx_hint.available_data_len = 0U;
@@ -1347,14 +1353,22 @@ static void ml307_at_cmd_handle_mipstate(ml307_endpoint_t *endpoint, at_arg_valu
 
     state = arguments[4].data.string_val.value;
     if (state && strcmp(state, "CONNECTED") == 0) {
+        endpoint->connecting = false;
         endpoint->connected = true;
         endpoint->instance_active = true;
         xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_CONNECTED);
     } else if (state && strcmp(state, "INITIAL") == 0) {
+        endpoint->connecting = false;
         endpoint->connected = false;
         endpoint->instance_active = false;
         xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_INITIALIZED);
+    } else if (state && strcmp(state, "CONNECTING") == 0) {
+        endpoint->connecting = true;
+        endpoint->connected = false;
+        endpoint->instance_active = true;
+        xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_INITIALIZED);
     } else {
+        endpoint->connecting = false;
         endpoint->connected = false;
         endpoint->instance_active = true;
         xEventGroupSetBits(endpoint->event_group, ML307_ENDPOINT_INITIALIZED);
@@ -1416,6 +1430,7 @@ static void ml307_at_cmd_handle_mipurc_tcp(ml307_endpoint_t *endpoint, at_arg_va
             ml307_at_cmd_refresh_pending(endpoint);
         }
     } else if (strcmp(urc_type, "disconn") == 0) {
+        endpoint->connecting = false;
         endpoint->connected = false;
         endpoint->instance_active = false;
         endpoint->rx_hint.available_data_len = 0U;
@@ -1454,6 +1469,7 @@ static void ml307_at_cmd_handle_mipurc_udp(ml307_endpoint_t *endpoint, at_arg_va
             ml307_at_cmd_refresh_pending(endpoint);
         }
     } else if (strcmp(urc_type, "disconn") == 0) {
+        endpoint->connecting = false;
         endpoint->connected = false;
         endpoint->instance_active = false;
         endpoint->rx_hint.unread_packet_count = 0U;
@@ -1505,7 +1521,46 @@ const at_line_stream_handler_t *ml307_at_cmd_get_line_stream_handler(void)
     return &s_ml307_line_stream_handler;
 }
 
-bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port)
+static bool ml307_at_cmd_close_instance(ml307_endpoint_t *endpoint, bool force)
+{
+    char command[32];
+    EventBits_t bits;
+    int close_error;
+
+    if (!endpoint || !endpoint->client) {
+        return false;
+    }
+    if (!force && !endpoint->instance_active) {
+        return true;
+    }
+
+    xEventGroupClearBits(endpoint->event_group, ML307_ENDPOINT_DISCONNECTED);
+    snprintf(command, sizeof(command), "AT+MIPCLOSE=%d", endpoint->id);
+    if (!at_client_send_cmd(endpoint->client, command, 1000, true)) {
+        close_error = at_client_get_cme_error(endpoint->client);
+        if (close_error == ML307_CME_TCPIP_NOT_CONNECTED) {
+            endpoint->connecting = false;
+            endpoint->instance_active = false;
+            endpoint->connected = false;
+            return true;
+        }
+        endpoint->last_error = close_error;
+        return false;
+    }
+
+    bits = xEventGroupWaitBits(endpoint->event_group, ML307_ENDPOINT_DISCONNECTED,
+                               pdTRUE, pdFALSE, pdMS_TO_TICKS(ML307_CONNECT_TIMEOUT_MS));
+    if ((bits & ML307_ENDPOINT_DISCONNECTED) == 0) {
+        return false;
+    }
+
+    endpoint->connecting = false;
+    endpoint->instance_active = false;
+    endpoint->connected = false;
+    return true;
+}
+
+static bool ml307_at_cmd_connect_once(ml307_endpoint_t *endpoint, const char *host, int port)
 {
     char command[128];
     EventBits_t bits;
@@ -1519,6 +1574,7 @@ bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port
         return false;
     }
 
+    endpoint->last_error = 0;
     socket_type = (endpoint->protocol == IPPROTO_TCP) ? "TCP" : "UDP";
     open_mode = (endpoint->protocol == IPPROTO_TCP) ? 2 : 3;
     use_tls = (endpoint->protocol == IPPROTO_TCP) ? endpoint->is_tls : false;
@@ -1530,6 +1586,7 @@ bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port
 
     snprintf(command, sizeof(command), "AT+MIPSTATE=%d", endpoint->id);
     if (!at_client_send_cmd(endpoint->client, command, 1000, true)) {
+        endpoint->last_error = at_client_get_cme_error(endpoint->client);
         return false;
     }
 
@@ -1540,15 +1597,28 @@ bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port
         return false;
     }
 
-    if (endpoint->instance_active) {
-        snprintf(command, sizeof(command), "AT+MIPCLOSE=%d", endpoint->id);
-        if (at_client_send_cmd(endpoint->client, command, 1000, true)) {
-            xEventGroupWaitBits(endpoint->event_group, ML307_ENDPOINT_DISCONNECTED,
-                                pdTRUE, pdFALSE, pdMS_TO_TICKS(ML307_CONNECT_TIMEOUT_MS));
+    if (endpoint->connecting) {
+        LISA_LOGI(TAG, "Endpoint %d is connecting, wait for MIPOPEN result", endpoint->id);
+        bits = xEventGroupWaitBits(endpoint->event_group,
+                                   ML307_ENDPOINT_CONNECTED | ML307_ENDPOINT_ERROR,
+                                   pdTRUE, pdFALSE,
+                                   pdMS_TO_TICKS(ML307_MIPOPEN_WAIT_TIMEOUT_MS));
+        if ((bits & ML307_ENDPOINT_CONNECTED) != 0) {
+            return true;
         }
+        if ((bits & ML307_ENDPOINT_ERROR) != 0) {
+            endpoint->connecting = false;
+            endpoint->instance_active = false;
+        }
+        return false;
+    }
+
+    if (endpoint->instance_active && !ml307_at_cmd_close_instance(endpoint, false)) {
+        return false;
     }
 
     if (!ml307_at_tls_configure_socket(endpoint->client, endpoint->id, use_tls)) {
+        endpoint->last_error = at_client_get_cme_error(endpoint->client);
         return false;
     }
 
@@ -1563,44 +1633,79 @@ bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port
              ML307_STRINGIFY(ML307_SEND_DATA_FORMAT),
              ML307_STRINGIFY(ML307_RECV_DATA_FORMAT));
     if (!at_client_send_cmd(endpoint->client, command, 1000, true)) {
-        return false;
-    }
-
-    endpoint->last_error = 0;
-    if (!at_client_exec_cmdf(endpoint->client, &(at_cmd_desc_t){
-            .cmd = "AT+MIPOPEN=%d,\"%s\",\"%s\",%d,60,%d,0",
-            .expect_urc = "MIPOPEN",
-            .parse = ml307_at_cmd_parse_mipopen,
-            .timeout_ms = ML307_CONNECT_TIMEOUT_MS + 5000U,
-        }, &open_out,
-        endpoint->id, socket_type, host, port, open_mode)) {
         endpoint->last_error = at_client_get_cme_error(endpoint->client);
         return false;
     }
 
+    endpoint->last_error = 0;
+    endpoint->connecting = true;
+    if (!at_client_exec_cmdf(endpoint->client, &(at_cmd_desc_t){
+            .cmd = "AT+MIPOPEN=%d,\"%s\",\"%s\",%d,%u,%d,0",
+            .expect_urc = "MIPOPEN",
+            .parse = ml307_at_cmd_parse_mipopen,
+            .timeout_ms = ML307_MIPOPEN_WAIT_TIMEOUT_MS,
+        }, &open_out,
+        endpoint->id, socket_type, host, port,
+        ML307_MIPOPEN_TIMEOUT_SECONDS, open_mode)) {
+        endpoint->last_error = at_client_get_cme_error(endpoint->client);
+        if (endpoint->last_error != 0) {
+            endpoint->connecting = false;
+            endpoint->instance_active = false;
+        }
+        return false;
+    }
+
+    endpoint->connecting = false;
     endpoint->last_error = open_out.result;
     endpoint->connected = (open_out.endpoint_id == endpoint->id && open_out.result == 0);
     endpoint->instance_active = endpoint->connected;
     return endpoint->connected;
 }
 
+bool ml307_at_cmd_connect(ml307_endpoint_t *endpoint, const char *host, int port)
+{
+    int attempt;
+
+    if (!endpoint || !endpoint->client || !host) {
+        return false;
+    }
+
+    for (attempt = 0; attempt < ML307_CONNECT_MAX_ATTEMPTS; ++attempt) {
+        if (ml307_at_cmd_connect_once(endpoint, host, port)) {
+            return true;
+        }
+        if (endpoint->last_error != ML307_CME_TCPIP_ALREADY_IN_USE ||
+            attempt + 1 >= ML307_CONNECT_MAX_ATTEMPTS) {
+            return false;
+        }
+
+        LISA_LOGW(TAG, "Endpoint %d is still in use, force close before retry", endpoint->id);
+        if (!ml307_at_cmd_close_instance(endpoint, true)) {
+            return false;
+        }
+        endpoint->last_error = 0;
+    }
+
+    return false;
+}
+
 int ml307_at_cmd_disconnect(ml307_endpoint_t *endpoint)
 {
-    char command[32];
+    bool force;
 
     if (!endpoint || !endpoint->client) {
         return -1;
     }
-    if (!endpoint->instance_active) {
+    if (endpoint->connecting) {
+        LISA_LOGI(TAG, "Endpoint %d is connecting, skip unsupported close", endpoint->id);
+        return 0;
+    }
+    force = endpoint->last_error == ML307_CME_TCPIP_ALREADY_IN_USE;
+    if (!endpoint->instance_active && !force) {
         return 0;
     }
 
-    snprintf(command, sizeof(command), "AT+MIPCLOSE=%d", endpoint->id);
-    if (at_client_send_cmd(endpoint->client, command, 1000, true)) {
-        xEventGroupWaitBits(endpoint->event_group, ML307_ENDPOINT_DISCONNECTED,
-                            pdTRUE, pdFALSE, pdMS_TO_TICKS(ML307_CONNECT_TIMEOUT_MS));
-    }
-    return 0;
+    return ml307_at_cmd_close_instance(endpoint, force) ? 0 : -1;
 }
 
 int ml307_at_cmd_send_chunk(ml307_endpoint_t *endpoint, const char *data, size_t length)

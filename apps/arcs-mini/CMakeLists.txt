@@ -8,6 +8,12 @@ if(NOT DEFINED BOARD)
     message(STATUS "Using default BOARD: ${BOARD}")
 endif()
 
+# 板型专属配置：存在 <BOARD>.conf 时自动合并，覆盖 prj.conf 中的默认值
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${BOARD}.conf)
+    list(APPEND CONFIG_FILES ${CMAKE_CURRENT_SOURCE_DIR}/${BOARD}.conf)
+    message(STATUS "Added board config: ${BOARD}.conf")
+endif()
+
 find_package(listenai-cmake REQUIRED HINTS $ENV{ARCS_BASE})
 
 project(arcs-mini)
@@ -33,15 +39,19 @@ endif()
 
 add_subdirectory(tone)
 add_subdirectory(services)
+add_subdirectory(button)
 add_subdirectory(mcp-tools)
 add_subdirectory(voice_intent)
+add_subdirectory(voice_player)
 
 listenai_add_executable(${PROJECT_NAME})
 
-# res 目录命名约定：<app-name>[_variant]，BOARD 去掉 "arcs_mini" 前缀后即变体后缀
-string(REGEX REPLACE "^arcs_mini" "" _VARIANT_SUFFIX ${BOARD})
+# res 目录命名约定：<app-name>[_variant]，BOARD 去掉 "arcs_mini" 前缀后即变体后缀。
+# 所有硬件/打包变体均应使用独立 BOARD，例如 arcs_mini_ls2663、arcs_mini3。
+string(REGEX REPLACE "^arcs_mini" "" _VARIANT_SUFFIX "${BOARD}")
 set(RES_DIR ${PROJECT_TOP_DIR}/res/arcs-mini${_VARIANT_SUFFIX})
 set(COMBINED_HEX ${CMAKE_BINARY_DIR}/${PROJECT_NAME}${_VARIANT_SUFFIX}.combined.hex)
+set(LPK ${CMAKE_BINARY_DIR}/${PROJECT_NAME}${_VARIANT_SUFFIX}.lpk)
 set(OTA_TXZ ${CMAKE_BINARY_DIR}/${PROJECT_NAME}${_VARIANT_SUFFIX}-v${PROJECT_VERSION_STR}.ota.txz)
 
 add_custom_target(
@@ -55,6 +65,18 @@ add_custom_target(
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 add_dependencies(combined_hex ${PROJECT_NAME})
+
+add_custom_target(
+    lpk ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "-- Generating LPK: ${LPK}"
+    COMMAND ${PYTHON3} ${PROJECT_TOP_DIR}/tools/make_package.py
+        --format lpk
+        --partition-table ${RES_DIR}/partition_table.json
+        --var BUILD_DIR=${CMAKE_BINARY_DIR}
+        ${LPK}
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+add_dependencies(lpk ${PROJECT_NAME})
 
 add_custom_target(
     ota_txz ALL
@@ -75,8 +97,6 @@ add_dependencies(ota_txz ${PROJECT_NAME})
 target_sources(
     ${PROJECT_NAME} PRIVATE
     main.c
-    voice_player.c
-    button_camera_preview.c
 )
 
 target_link_options(${PROJECT_NAME} PRIVATE

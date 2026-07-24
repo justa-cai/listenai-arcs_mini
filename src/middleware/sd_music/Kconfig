@@ -1,5 +1,11 @@
 config MIDDLEWARE_SD_MUSIC
     bool "SD card offline music middleware"
+    depends on FILE_SYSTEM
+    depends on FATFS_FILESYSTEM
+    depends on LSFS
+    depends on LSFS_FAT
+    depends on DISK_DRIVER_SDMMC
+    select FATFS_FFCONF_OVERRIDE
     default y
     help
       Core middleware for SD card offline music support:
@@ -8,3 +14,6 @@ config MIDDLEWARE_SD_MUSIC
       - Cloud upload of card events and file metadata
 
       This middleware is consumed by service_sd_music (apps/arcs-mini/services).
+      It also enables the FatFs ffconf override used for UTF-8 Chinese file
+      names. The app must point CONFIG_FATFS_FFCONF_NAME to the sd_music
+      override header.

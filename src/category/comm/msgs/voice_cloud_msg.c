@@ -20,7 +20,6 @@
 #include "lisa_kv.h"
 #include "sys_init.h"
 #include "sys_network_manager.h"
-#include "voice_player.h"
 
 #define TAG "voice.app.cloud"
 #define VOICE_IDLE_EXIT_TIMEOUT_MS_DEFAULT ((uint32_t)CONFIG_CLOUD_IDLE_EXIT_TIMEOUT_MS)
@@ -62,6 +61,14 @@ static bool camera_preview_is_result_tts_active(void)
 {
 	return camera_preview_is_mcp() &&
 	       s_camera_preview_state.phase == CAMERA_FLOW_PHASE_RESULT_TTS;
+}
+
+static void camera_preview_mark_mcp_starting(void)
+{
+    s_camera_preview_state.active = 1;
+    s_camera_preview_state.mode = CAMERA_PREVIEW_MODE_MCP;
+    s_camera_preview_state.captured = 0;
+    s_camera_preview_state.phase = CAMERA_FLOW_PHASE_PREVIEW;
 }
 
 static bool voice_cloud_session_is_running(const char *reason)
@@ -187,11 +194,19 @@ static bool voice_finish_session_for_background_music(const char *reason)
     s_voice_photo_result_restart_pending = false;
     voice_idle_exit_timer_stop();
 
-    if (voice_cloud_session_is_running(reason)) {
-        stop_ret = voice_cloud_chat_stop();
-        if (stop_ret != 0) {
-            LOGW("stop voice session for background MUSIC failed: %d", stop_ret);
-        }
+    /*
+     * TTS PLAYING 阶段已经停止并发布过一次 SESSION_FINISHED 时，
+     * TTS STOPPED 只负责让 intent 收口旧 VOICE_SESSION。这里若再次发布，
+     * 该旧结束事件可能排在新 SESSION_STARTING 后面，误删新会话。
+     */
+    if (!voice_cloud_session_is_running(reason)) {
+        LOGI("voice session already finished, let intent consume TTS stop");
+        return true;
+    }
+
+    stop_ret = voice_cloud_chat_stop();
+    if (stop_ret != 0) {
+        LOGW("stop voice session for background MUSIC failed: %d", stop_ret);
     }
 
     s_voice_cloud_session_running = false;
@@ -459,6 +474,29 @@ static void camera_preview_apply_guard(const char *reason)
     camera_preview_restore_session_if_needed(reason);
 }
 
+static void voice_camera_preview_start(void *unused, uint32_t msg_id, void *data,
+                                      uint32_t len, void *user_data)
+{
+    const voice_msg_camera_preview_req_t *req = data;
+
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (!req || len < sizeof(*req)) {
+        return;
+    }
+
+    if (req->mode != CAMERA_PREVIEW_MODE_MCP) {
+        return;
+    }
+
+    camera_preview_mark_mcp_starting();
+    LOGI("camera preview start marked active, mode=%u delay_ms=%u",
+         (unsigned)req->mode, (unsigned)req->auto_capture_delay_ms);
+    camera_preview_apply_guard("preview start");
+}
+
 static void voice_cloud_connected(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     LOGI("voice_cloud_connected");
@@ -491,6 +529,7 @@ static void voice_cloud_session_starting(void *unused, uint32_t msg_id, void *da
     LOGI("voice_cloud_session_starting");
     s_voice_cloud_session_running = true;
     s_voice_cloud_session_restart_after_tts = false;
+    s_voice_cloud_tts_active = false;
     s_voice_photo_result_restart_pending = false;
     if (camera_preview_is_active()) {
         camera_preview_apply_guard("session starting");
@@ -566,6 +605,7 @@ static void voice_cloud_tts_playing(void *unused, uint32_t msg_id, void *data, u
 static void voice_cloud_tts_stoped(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     bool result_tts_active = false;
+    bool restart_after_tts_pending = false;
 
     (void)unused;
     (void)msg_id;
@@ -574,22 +614,27 @@ static void voice_cloud_tts_stoped(void *unused, uint32_t msg_id, void *data, ui
     (void)user_data;
 
     result_tts_active = camera_preview_is_result_tts_active();
+    restart_after_tts_pending = s_voice_cloud_session_restart_after_tts;
 
     if (camera_preview_is_active()) {
         s_voice_cloud_tts_active = false;
         s_voice_cloud_session_restart_after_tts = false;
-        if (result_tts_active && voice_interaction_mode_pauses_tts_uplink()) {
+        if (voice_interaction_mode_pauses_tts_uplink() &&
+            (result_tts_active || restart_after_tts_pending)) {
+            if (result_tts_active) {
+                LOGI("voice photo result TTS stopped, restart continuous session after photo flow exit");
+            } else {
+                LOGI("voice photo inherited continuous session restart after interrupted TTS");
+            }
             s_voice_photo_result_restart_pending = true;
-            LOGI("voice photo result TTS stopped, restart continuous session after photo flow exit");
-        } else {
-            s_voice_photo_result_restart_pending = false;
         }
         LOGI("tts stopped during voice photo flow, keep idle exit timer paused");
         camera_preview_apply_guard("tts stopped");
         return;
     }
 
-    if (voice_finish_session_for_background_music("tts stopped")) {
+    if (s_voice_cloud_tts_active &&
+        voice_finish_session_for_background_music("tts stopped")) {
         return;
     }
 
@@ -689,7 +734,7 @@ static void voice_camera_preview_state_changed(void *unused, uint32_t msg_id, vo
             LOGI("voice photo result flow exited, continuous session restart pending");
         }
 
-        if (exited_result_tts &&
+        if (s_voice_photo_result_restart_pending &&
             voice_photo_result_restart_pending_consume("voice photo flow exit")) {
             return;
         }
@@ -735,6 +780,7 @@ int voice_cloud_evt_init(void)
     voice_msg_sub(VOICE_MSG_CLOUD_IAT_END, voice_cloud_iat_txt, NULL);
     voice_msg_sub(VOICE_MSG_PLAYER_TTS_PLAYING, voice_cloud_tts_playing, NULL);
     voice_msg_sub(VOICE_MSG_PLAYER_TTS_STOPED, voice_cloud_tts_stoped, NULL);
+    voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_START, voice_camera_preview_start, NULL);
     voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_STATE, voice_camera_preview_state_changed, NULL);
     voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, voice_camera_preview_exit, NULL);
 

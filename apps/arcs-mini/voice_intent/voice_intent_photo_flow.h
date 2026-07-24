@@ -39,6 +39,3 @@ typedef struct {
 /* ==================== PHOTO_FLOW intent API ==================== */
 
 int voice_intent_photo_flow_register(void);
-
-/** 拍照流期间是否应该拦截 TTS 播放（MCP 模式 + phase != NONE） */
-bool voice_intent_photo_flow_should_gate_tts(void);

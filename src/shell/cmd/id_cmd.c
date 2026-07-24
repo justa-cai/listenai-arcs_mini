@@ -55,7 +55,6 @@ static int device_cmd_set_pid(int argc, char **argv)
 static int device_cmd_set_sid(int argc, char **argv)
 {
     if (argc < 1) {
-        printf("Usage: device set_sid [secret_id]\n");
         shellPrint(shellGetCurrent(), "Usage: device set_sid [secret_id]\n");
         return -1;
     }

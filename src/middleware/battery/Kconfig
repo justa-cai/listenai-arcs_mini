@@ -15,7 +15,7 @@ config BATTERY_COLLECTION_ADC_CHANNEL
     range 0 7
 
 config BATTERY_COLLECTION_CHARGE_DETECT_PAD
-    string "Battery Charge Detect GPIO Pad (\"gpioa\" or \"gpiob\")"
+    string "Battery Charge Detect GPIO device name (e.g. \"gpioa\", \"gpiob\", \"exgpiod\")"
     default "gpiob"
 
 endif
