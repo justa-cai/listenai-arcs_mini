@@ -364,7 +364,11 @@ macro(listenai_add_executable name)
         if(LISTENAI_MKHDR_TARGET_CORE)
             list(APPEND _boot_hdr_args TARGET_CORE)
         endif()
-        listenai_generate_boot_header(${name} ${_boot_hdr_args})
+        # CONFIG_BOOT app keeps the final merged firmware at <name>.bin.
+        # system/boot.cmake generates and headers the app-only payload.
+        if(NOT DEFINED CONFIG_BOOT OR BOOT_STANDALONE_BUILD)
+            listenai_generate_boot_header(${name} ${_boot_hdr_args})
+        endif()
     endif()
 
     # 立即扫描并添加模块，但延迟链接操作

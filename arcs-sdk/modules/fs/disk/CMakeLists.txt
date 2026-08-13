@@ -22,7 +22,7 @@ if (CONFIG_DISK_IOCACHE_ENABLE)
 target_sources(disk PRIVATE iocache.c)
 endif()
 
-target_link_libraries(disk PUBLIC arcs-hal fs_env)
+target_link_libraries(disk PUBLIC hal fs_env)
 
 if(DEFINED LISTENAI_CMAKE_PATH)
 listenai_link_libraries(disk)

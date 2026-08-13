@@ -1,4 +1,4 @@
-# LISA Display 显示屏驱动示例
+# Display 显示屏驱动示例
 
 ## 功能说明
 

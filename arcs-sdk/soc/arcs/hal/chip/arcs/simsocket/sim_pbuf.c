@@ -15,7 +15,14 @@
 #include <lwip/opt.h>
 #include <lwip/pbuf.h>
 #include <lwip/netif.h>
-#include "sys_arch.h"
+
+#define SIMS_DEBUG(...)
+#define SIMS_ERR(...)
+#define SIMS_ASSERT(msg, assertion) do {\
+                    if (!(assertion)) { \
+                        SIMS_DEBUG(msg);} \
+                    } while(0)
+
 
 #define SIZEOF_STRUCT_PBUF        LWIP_MEM_ALIGN_SIZE(sizeof(struct pbuf))
 /* Since the pool is created in memp, PBUF_POOL_BUFSIZE will be automatically
@@ -68,7 +75,7 @@ static void *get_pbuf_mem(uint32_t size)
 }
 
 struct pbuf *
-pbuf_alloc_reference(void *payload, u16_t length, pbuf_type type)
+sim_pbuf_alloc_reference(void *payload, u16_t length, pbuf_type type)
 {
   struct pbuf *p;
   SIMS_ASSERT("invalid pbuf_type", (type == PBUF_REF) || (type == PBUF_ROM));
@@ -109,7 +116,7 @@ struct pbuf* pbuf_alloc(pbuf_layer layer, uint16_t length, pbuf_type type)
     }
     switch (type) {
         case PBUF_REF: /* fall through */
-          p = pbuf_alloc_reference(NULL, length, type);
+          p = sim_pbuf_alloc_reference(NULL, length, type);
           SIMS_DEBUG("pbuf_ref 0x%x\n", p);
           if (p == NULL) {
               return NULL;
@@ -264,7 +271,7 @@ uint8_t pbuf_free(struct pbuf *p)
 }
 #endif
 
-void pbuf_cat(struct pbuf *h, struct pbuf *t)
+void sim_pbuf_cat(struct pbuf *h, struct pbuf *t)
 {
     struct pbuf *p;
 
@@ -346,7 +353,7 @@ pbuf_add_header_impl(struct pbuf *p, size_t header_size_increment, u8_t force)
   return 0;
 }
 u8_t
-pbuf_remove_header(struct pbuf *p, size_t header_size_decrement)
+sim_pbuf_remove_header(struct pbuf *p, size_t header_size_decrement)
 {
   void *payload;
   u16_t increment_magnitude;
@@ -382,7 +389,7 @@ static u8_t
 pbuf_header_impl(struct pbuf *p, s16_t header_size_increment, u8_t force)
 {
   if (header_size_increment < 0) {
-    return pbuf_remove_header(p, (size_t) - header_size_increment);
+    return sim_pbuf_remove_header(p, (size_t) - header_size_increment);
   } else {
     return pbuf_add_header_impl(p, (size_t)header_size_increment, force);
   }
@@ -405,7 +412,7 @@ pbuf_init_alloced_pbuf(struct pbuf *p, void *payload, u16_t tot_len, u16_t len, 
   p->if_idx = NETIF_NO_INDEX;
 }
 struct pbuf *
-pbuf_alloced_custom(pbuf_layer l, u16_t length, pbuf_type type, struct pbuf_custom *p,
+sim_pbuf_alloced_custom(pbuf_layer l, u16_t length, pbuf_type type, struct pbuf_custom *p,
                     void *payload_mem, u16_t payload_mem_len)
 {
   u16_t offset = (u16_t)l;

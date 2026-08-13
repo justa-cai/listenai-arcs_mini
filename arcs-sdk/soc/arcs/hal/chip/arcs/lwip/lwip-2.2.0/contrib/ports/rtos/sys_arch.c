@@ -48,6 +48,10 @@
 #include "lwip/mem.h"
 #include "lwip/stats.h"
 
+#if LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX
+static rtos_mutex sys_arch_mutex;
+#endif
+
 /*---------------------------------------------------------------------------*
  * Routine:  sys_mbox_new
  *---------------------------------------------------------------------------*
@@ -380,6 +384,9 @@ void sys_sem_free( sys_sem_t *pxSemaphore )
  *---------------------------------------------------------------------------*/
 void sys_init(void)
 {
+#if LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX
+    rtos_mutex_create(&sys_arch_mutex);
+#endif
 }
 
 u32_t sys_now(void)
@@ -438,7 +445,12 @@ sys_thread_t sys_thread_new( const char *pcName, void( *pxThread )( void *pvPara
  *---------------------------------------------------------------------------*/
 sys_prot_t sys_arch_protect( void )
 {
+#if LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX
+    rtos_mutex_lock(sys_arch_mutex);
+    return 1;
+#else
     return rtos_protect();
+#endif
 }
 
 /*---------------------------------------------------------------------------*
@@ -454,7 +466,11 @@ sys_prot_t sys_arch_protect( void )
  *---------------------------------------------------------------------------*/
 void sys_arch_unprotect(sys_prot_t xValue)
 {
+#if LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX
+    rtos_mutex_unlock(sys_arch_mutex);
+#else
     rtos_unprotect(xValue);
+#endif
 }
 
 /*-------------------------------------------------------------------------*

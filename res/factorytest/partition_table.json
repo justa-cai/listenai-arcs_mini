@@ -1,0 +1,45 @@
+{
+    "flash_base": "0x30000000",
+    "images": [
+        {
+            "name": "boot",
+            "addr": "0x000000",
+            "file": "../arcs-mini/boot.bin",
+            "tags": ["lpk", "hex"]
+        },
+        {
+            "name": "boot_control",
+            "addr": "0x03E000",
+            "size": 4096,
+            "tags": []
+        },
+        {
+            "name": "ap",
+            "addr": "0x040000",
+            "file": "../arcs-mini/ap.bin",
+            "tags": ["lpk", "hex"]
+        },
+        {
+            "name": "config",
+            "addr": "0x0F0000",
+            "size": 4096,
+            "file": "./config.json",
+            "tags": ["lpk", "hex"]
+        },
+        {
+            "name": "app",
+            "addr": "0x600000",
+            "size": 4194304,
+            "file": "${BUILD_DIR}/factorytest.bin",
+            "tags": ["lpk", "hex"]
+        },
+        {
+            "name": "kv",
+            "addr": "0xF00000",
+            "size": 1048576,
+            "tags": []
+        }
+    ],
+    "lpk": {},
+    "hex": {}
+}

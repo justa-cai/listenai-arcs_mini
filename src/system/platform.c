@@ -7,7 +7,7 @@
 #include "voice_msg.h"
 #include "evs_utils.h"
 #include "remote_logger.h"
-#include "ipc_master.h"
+#include "ic_message.h"
 #include "app_wakeup.h"
 #include "voice_player_comm.h"
 #include "lisa_bluetooth.h"
@@ -132,36 +132,23 @@ static int voice_platform_init(void)
 {
     LISA_LOGI(TAG,"Firmware version: %s-%s", PROJECT_VERSION_STR, PROJECT_VERSION_COMMIT);
     LISA_LOGI(TAG,"Solution build time: %s %s", __DATE__, __TIME__);
-    struct ipc_master_cb_tag ipc_cb = {
-        .wifi_tx_data_cfm   = NULL,
-        .wifi_rx_data       = NULL,
-        .indication_handler = NULL
-    };
     heap_caps_malloc_extmem_enable(16);
     cJSON_InitHooks(&cjson_hooks);
 
     ls_sys_init(8);
 
-    ipc_mem_init(1);
-    int ipc_ready = (ipc_master_init(&ipc_cb) == 0);
+    /* HAL IPC is initialized by the SDK before the application. LSF uses its
+     * own initialization and must not be gated by the HAL link signal. */
+    int ipc_ready = (ic_message_init() == IC_MESSAGE_ERR_NONE);
 
 #if CONFIG_LISA_SHELL
     lisa_shell_init();
     // lisa_log_backend_add("user.shell", log_shell_backend_output, NULL);
 #endif
-    /**
-     * AP侧先核间通信建立后再进行wifi初始化
-     * 此处先进行核间通信的建立
-     */
-
     if (ipc_ready) {
-        if (ic_message_init() == 0) {
-            LISA_LOGI(TAG, "IC message init end");
-        } else {
-            LISA_LOGW(TAG, "IC message init failed, AP may not be ready");
-        }
+        LISA_LOGI(TAG, "IC message init end");
     } else {
-        LISA_LOGW(TAG, "IPC not ready, skip ic_message_init");
+        LISA_LOGW(TAG, "IC message init failed, AP may not be ready");
     }
 
 #if CONFIG_FILE_SYSTEM
@@ -372,15 +359,3 @@ static int voice_platform_init(void)
 }
 
 SYS_INIT(voice_platform_init, SYS_INIT_LEVEL_PRE_APPLICATION, 60);
-
-#if CONFIG_LISA_FLASH_ARCS_HALT_REMOTE_CORE && CONFIG_WIFI_LWIP_SAME_CORE
-static int app_ipc_init(void)
-{
-    ic_lock_init();
-    ipc_master_init(NULL);
-
-    return 0;
-}
-
-SYS_INIT(app_ipc_init,SYS_INIT_LEVEL_PRE_DEVICES_INIT,5); /* 优先级 */
-#endif

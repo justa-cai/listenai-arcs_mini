@@ -36,6 +36,7 @@ static lisa_ble_netcfg_handler_t s_netcfg_handler;
 /* Forward WiFi credentials to the peer image that owns the netcfg handler. */
 extern int32_t netcfg_wifi_connect_ipc(const char *ssid, const char *pwd);
 #endif
+static lisa_ble_netcfg_custom_op_handler_t s_custom_op_handler;
 
 extern void HAL_PMU_Chip_Software_Reset_Enable(void);
 
@@ -63,6 +64,15 @@ void lisa_ble_netcfg_set_handler(lisa_ble_netcfg_handler_t handler)
     s_netcfg_handler = handler;
 #else
     /* IPC receiver role forwards WiFi credentials to the peer image. */
+    (void)handler;
+#endif
+}
+
+void lisa_ble_netcfg_set_custom_op_handler(lisa_ble_netcfg_custom_op_handler_t handler)
+{
+#if !CONFIG_LISA_BLUETOOTH_BUILD_IPC_SERVER
+    s_custom_op_handler = handler;
+#else
     (void)handler;
 #endif
 }
@@ -113,6 +123,8 @@ uint16_t netcfg_ble_notify_wifi(struct netcfg_ble_data *data)
 
 uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op, uint8_t *p_value)
 {
+    (void)att_idx;
+    (void)p_value;
     uint16_t sta = NETCFG_BLE_ERR;
 
     switch (op) {
@@ -125,6 +137,13 @@ uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op
 #if (BLE_AUTO_SEND_NET_CFG_SUCESS == 1)
         netcfg_bles_send_connect_status_dummy(1000);
 #endif
+        break;
+    case NETCFG_BLE_AUTH_INFO:
+        if (s_custom_op_handler != NULL) {
+            sta = s_custom_op_handler(conidx, op);
+        } else {
+            sta = NETCFG_BLE_ERR;
+        }
         break;
     case NETCFG_BLE_OP_REBOOT:
         ble_gap_disconnect(conidx, 0x13);

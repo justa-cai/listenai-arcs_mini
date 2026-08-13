@@ -28,6 +28,7 @@
 
 // #include "bt_stack_hal.h"
 
+#include "bt_stack_hal.h"
 #include "bt_stack_cfg.h"
 #include "bt_ble_if.h"
 #include "bt_app_if.h"
@@ -77,6 +78,16 @@ ble_gap_cfg_t bt_stack_dev_cfg = {
     .pairing_mode = GAPM_PAIRING_LEGACY,
 };
 
+int bt_stack_cfg_set_local_addr(const gap_bdaddr_t *addr)
+{
+    if (!addr) {
+        return -1;
+    }
+
+    bt_stack_dev_cfg.addr = *addr;
+    return 0;
+}
+
 #if BT_STACK_PRESENT
 bt_gap_cfg_t bt_stack_classic_dev_cfg = {
     .cod = GAP_APP_HANDSFREE,
@@ -84,6 +95,7 @@ bt_gap_cfg_t bt_stack_classic_dev_cfg = {
     .connect_mode = GAPM_CONNECTABLE,
     .iscan_interval = 1280,
     .pscan_interval = 1280,
+    .bt_cfg_flag = BT_CLASSIC_CFG_FLAG,
 };
 #endif
 
@@ -131,31 +143,51 @@ void bt_stack_gen_addr(ble_gap_cfg_t *bt_cfg)
 }
 void bt_stack_cfg_enable(uint16_t status)
 {
-
-    ble_gap_cb_t  *bt_gap_cb = (ble_gap_cb_t  *)&bt_stack_gap_cb;
-    ble_gap_cfg_t *bt_cfg = &bt_stack_dev_cfg;
-
-    ///gen bt addr
-    bt_stack_gen_addr(bt_cfg);
-    ble_gap_enable(bt_cfg, bt_gap_cb);
-#if BT_STACK_PRESENT
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+    CLOGD("bt_stack_cfg_enable,open_state:%d", stack_env->bt_open);
+    if(stack_env->bt_open == BT_STATE_OPENING_WAITE_HOST)
     {
-        bt_gap_cfg_t * bt_cfg = (bt_gap_cfg_t *)&bt_stack_classic_dev_cfg;
-        bt_gap_cb_t  * bt_gap_cb = (bt_gap_cb_t  *)&bt_stack_classic_gap_cb;
 
-        bt_gap_enable(bt_cfg, bt_gap_cb);
+        ble_gap_cb_t  *bt_gap_cb = (ble_gap_cb_t  *)&bt_stack_gap_cb;
+        ble_gap_cfg_t *bt_cfg = &bt_stack_dev_cfg;
+
+        ///gen bt addr
+        // bt_stack_gen_addr(bt_cfg);
+        CLOGD("bt reset cmp: %02x:%02x:%02x:%02x:%02x:%02x",
+                            bt_cfg->addr.addr[5],bt_cfg->addr.addr[4],bt_cfg->addr.addr[3],
+                            bt_cfg->addr.addr[2],bt_cfg->addr.addr[1],bt_cfg->addr.addr[0]);
+
+        ble_gap_set_loc_pub_addr(bt_cfg->addr.addr);
+        ble_gap_enable(bt_cfg, bt_gap_cb);
+    #if BT_STACK_PRESENT
+        {
+            bt_gap_cfg_t * bt_cfg = (bt_gap_cfg_t *)&bt_stack_classic_dev_cfg;
+            bt_gap_cb_t  * bt_gap_cb = (bt_gap_cb_t  *)&bt_stack_classic_gap_cb;
+
+            bt_gap_enable(bt_cfg, bt_gap_cb);
+        }
+    #else///wait ble and bt enable cmp.
+        #if WHITE_LIST_ADD
+        bt_stack_ble_add_paired_to_wlist();
+        #endif
+        #if RESOVLE_LIST_ADD
+        ble_gap_add_paired_rpa_to_rlist();
+        #endif
+    #endif
     }
-#else///wait ble and bt enable cmp.
-    #if WHITE_LIST_ADD
-    bt_stack_ble_add_paired_to_wlist();
-    #endif
-    #if RESOVLE_LIST_ADD
-    ble_gap_add_paired_rpa_to_rlist();
-    #endif
-#endif
+
 }
 void bt_stack_reset_cmp(uint16_t status)
 {
-	app_user_bt_handler_init();
+	bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+
+    CLOGD("bt_stack_reset_cmp, bt_open:%d", stack_env->bt_open);
+    stack_env->bt_open = BT_STATE_OPENING_WAITE_HOST;
+    app_user_bt_handler_init();
     bt_stack_cfg_enable(status);
+}
+
+void bt_stack_classic_cfg_enable(uint16_t status)
+{
+    (void)status;
 }

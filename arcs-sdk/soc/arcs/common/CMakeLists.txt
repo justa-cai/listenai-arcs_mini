@@ -5,10 +5,8 @@ listenai_library_named(arcs_soc_common)
 
 listenai_library_sources(
     sys_reboot.c
-)
-
-listenai_include_directories(
-    ${ARCS_SDK_BASE}/system/os/inc
+    sys_reset_reason.c
+    sys_chip_id.c
 )
 
 add_subdirectory(startup)

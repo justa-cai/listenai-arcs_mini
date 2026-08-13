@@ -672,13 +672,22 @@ int app_wakeup_init(struct wakeup_algo_resources *algo_res)
     }
 #endif
 #endif
-    acomp_wakeup_init();
-    acomp_wakeup_add_callback(    WAKEUP_CB_EVENT_ENGINE_RLT 
-                                | WAKEUP_CB_EVENT_STREAM_UPDATE 
-                                | WAKEUP_CB_EVENT_ENGINE_TIMEOUT 
-                                | WAKEUP_CB_EVENT_ENGINE_ANGLE
-                                | WAKEUP_CB_EVENT_ENGINE_SWITCH_MODE,
-                           wakeup_event_handler, NULL);
+    ret = acomp_wakeup_init();
+    if (ret != ACOMP_ERR_OK) {
+        LISA_LOGE(TAG, "acomp_wakeup_init failed: %d", ret);
+        goto wakeup_init_failed;
+    }
+
+    ret = acomp_wakeup_add_callback(WAKEUP_CB_EVENT_ENGINE_RLT
+                                    | WAKEUP_CB_EVENT_STREAM_UPDATE
+                                    | WAKEUP_CB_EVENT_ENGINE_TIMEOUT
+                                    | WAKEUP_CB_EVENT_ENGINE_ANGLE
+                                    | WAKEUP_CB_EVENT_ENGINE_SWITCH_MODE,
+                                    wakeup_event_handler, NULL);
+    if (ret != ACOMP_ERR_OK) {
+        LISA_LOGE(TAG, "acomp_wakeup_add_callback failed: %d", ret);
+        goto wakeup_init_failed;
+    }
 
     const acomp_wakeup_resource_config_t wakeup_config = {
         .mlp = {
@@ -695,20 +704,42 @@ int app_wakeup_init(struct wakeup_algo_resources *algo_res)
 
     ret = acomp_wakeup_prepare_with_resources(&wakeup_config);
     LISA_LOGI(TAG, "acomp_wakeup_prepare ret:%d", ret);
+    if (ret != ACOMP_ERR_OK) {
+        goto wakeup_init_failed;
+    }
+
     ret = acomp_wakeup_start();
     LISA_LOGI(TAG, "acomp_wakeup_start ret:%d", ret);
+    if (ret != ACOMP_ERR_OK) {
+        goto wakeup_init_failed;
+    }
 
     ret = acomp_wakeup_set_algo_mode(ACOMP_WAKEUP_ALGO_MODE_WAKEUP);
     LISA_LOGI(TAG, "acomp_wakeup_set_algo_mode ret:%d", ret);
+    if (ret != ACOMP_ERR_OK) {
+        goto wakeup_started_failed;
+    }
 
     // TODO: arcs-mini 2.6版本使用
     // ret = acomp_wakeup_set_timeout(app_wakeup_get_esr_timeout_ms()); 
     ret = acomp_wakeup_set_timeout(0);
     LISA_LOGI(TAG, "acomp_wakeup_set_timeout ret:%d\r\n", ret);
+    if (ret != ACOMP_ERR_OK) {
+        goto wakeup_started_failed;
+    }
 
-    acomp_wakeup_stream_ch_enable(WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX,&desc);
+    ret = acomp_wakeup_stream_ch_enable(WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX, &desc);
+    if (ret != ACOMP_ERR_OK) {
+        LISA_LOGE(TAG, "Failed to enable wakeup input stream: %d", ret);
+        goto wakeup_started_failed;
+    }
 #if WAKEUP_AUDIO_OUT_STREAM
-    acomp_wakeup_stream_ch_enable(WAKEUP_AUDIO_OUT_STREAM_CH_INDEX,&rx_desc);
+    ret = acomp_wakeup_stream_ch_enable(WAKEUP_AUDIO_OUT_STREAM_CH_INDEX, &rx_desc);
+    if (ret != ACOMP_ERR_OK) {
+        LISA_LOGE(TAG, "Failed to enable wakeup output stream: %d", ret);
+        (void)acomp_wakeup_stream_ch_disable(WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX);
+        goto wakeup_started_failed;
+    }
 #endif
     mic_ref_in = (mic_ref_in_t *)psram_malloc(sizeof(mic_ref_in_t) * CONFIG_AUDIO_STEP_SAMPS);
     if(mic_ref_in == NULL)
@@ -750,6 +781,16 @@ int app_wakeup_init(struct wakeup_algo_resources *algo_res)
 #endif
 
     return ret;
+
+wakeup_started_failed:
+    (void)acomp_wakeup_stop();
+wakeup_init_failed:
+    s_wakeup_feed_enabled = false;
+#if CONFIG_BOARD_ARCS_MINI
+    s_wakeup_started = false;
+#endif
+    (void)acomp_wakeup_deinit();
+    return ret;
 }
 
 #ifdef CONFIG_BOARD_ARCS_MINI
@@ -772,19 +813,23 @@ int app_wakeup_stop(void)
 }
 #endif
 
-int app_wakeup_sensitivity_level_set(app_wakeup_sensitivity_level_e level){
-
-    static const int level_remap[] = {
+int app_wakeup_sensitivity_level_set(app_wakeup_sensitivity_level_e level)
+{
+    static const acomp_wakeup_threshold_level_e level_remap[] = {
         [APP_WAKEUP_SENSITIVITY_LEVEL_0] = ACOMP_WAKEUP_THRESHOLD_LEVEL_1,
-        [APP_WAKEUP_SENSITIVITY_LEVEL_1] = ACOMP_WAKEUP_THRESHOLD_LEVEL_2,
-        [APP_WAKEUP_SENSITIVITY_LEVEL_2] = ACOMP_WAKEUP_THRESHOLD_LEVEL_3,
-        [APP_WAKEUP_SENSITIVITY_LEVEL_3] = ACOMP_WAKEUP_THRESHOLD_LEVEL_4,
-        [APP_WAKEUP_SENSITIVITY_LEVEL_4] = ACOMP_WAKEUP_THRESHOLD_LEVEL_5,
+        [APP_WAKEUP_SENSITIVITY_LEVEL_1] = ACOMP_WAKEUP_THRESHOLD_LEVEL_1,
+        [APP_WAKEUP_SENSITIVITY_LEVEL_2] = ACOMP_WAKEUP_THRESHOLD_LEVEL_2,
+        [APP_WAKEUP_SENSITIVITY_LEVEL_3] = ACOMP_WAKEUP_THRESHOLD_LEVEL_3,
+        [APP_WAKEUP_SENSITIVITY_LEVEL_4] = ACOMP_WAKEUP_THRESHOLD_LEVEL_3,
     };
 
-        s_sensitivity_level = level;
-    acomp_wakeup_set_threshold(level_remap[level]);
-    LISA_LOGI(TAG,"app_wakeup_sensitivity_level_set %d",level);
+    if (level < APP_WAKEUP_SENSITIVITY_LEVEL_0 || level > APP_WAKEUP_SENSITIVITY_LEVEL_4) {
+        return -1;
+    }
+
+    s_sensitivity_level = level;
+    LISA_LOGI(TAG, "app_wakeup_sensitivity_level_set %d", level);
+    return acomp_wakeup_set_threshold(level_remap[level]);
 }
 
 app_wakeup_sensitivity_level_e app_wakeup_sensitivity_level_get(void){

@@ -1,9 +1,20 @@
-if (DEFINED CONFIG_IPC_LSF)
+if (CONFIG_IPC_LSF OR CONFIG_IPC_CIDU)
 
 listenai_library_named(ipclsf)
 
-listenai_library_sources(
+listenai_library_sources_ifdef(
+    CONFIG_IPC_LSF
     ic_message/ic_message.c
+)
+
+listenai_library_sources_ifdef(
+    CONFIG_IPC_CIDU
+    ic_message/ic_message_cidu.c
+)
+
+listenai_library_sources_ifdef(
+    CONFIG_IC_MESSAGE_AUTO_INIT
+    ic_message/ic_message_auto_init.c
 )
 
 listenai_library_sources_ifdef(
@@ -27,5 +38,13 @@ endif()
 target_include_directories(ipclsf PRIVATE port)
 
 listenai_include_directories(ic_message)
+
+if (CONFIG_IPC_CIDU)
+listenai_add_linker_section(
+    FILE ${CMAKE_CURRENT_SOURCE_DIR}/linker/ipc-cidu-check.ld
+    SLOT SECTIONS_END
+    SORT_KEY "30-component"
+)
+endif()
 
 endif()

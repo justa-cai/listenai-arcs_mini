@@ -1,11 +1,11 @@
 # HWTIMER 驱动
 
-基于 lisa_device 框架的硬件定时器设备驱动,为 ARCS 平台提供统一的硬件定时器操作接口。
+基于 lisa_device 框架的硬件定时器设备驱动,为 ARCS / Venusa 平台提供统一的硬件定时器操作接口。
 
 ## 功能特性
 
 - **设备支持**: 支持三种硬件定时器
-  - GPT Timer: 8通道高性能定时器
+  - GPT Timer: ARCS 8通道高性能定时器(支持32bit)；Venusa 2通道 16-bit GPT timer
   - AON Timer: 1通道低功耗定时器
   - Dual Timer: 2通道通用定时器
 - **工作模式**: 支持单次触发和周期触发模式
@@ -15,7 +15,9 @@
 
 ## 配置选项
 
-在 `prj.conf` 中启用驱动:
+在平台对应的配置文件中启用驱动。ARCS 保留历史配置名以兼容已有工程，Venusa 使用独立配置名；二者都会在内部选择通用 timer 能力。
+
+ARCS `prj.conf` 示例：
 
 ```kconfig
 CONFIG_LISA_HWTIMER_DEVICE=y
@@ -31,6 +33,27 @@ CONFIG_LISA_HWTIMER_ARCS_AON_TIMER=y
 
 # 启用 Dual Timer (2通道)
 CONFIG_LISA_HWTIMER_ARCS_DUAL_TIMER=y
+
+```
+
+Venusa `prj_venusa.conf` 示例：
+
+```kconfig
+CONFIG_LISA_HWTIMER_DEVICE=y
+
+# 启用 GPT Timer
+CONFIG_LISA_HWTIMER_VENUSA_GPT_TIMER=y
+
+# 启用 AON Timer
+CONFIG_LISA_HWTIMER_VENUSA_AON_TIMER=y
+
+# 启用 Dual Timer
+CONFIG_LISA_HWTIMER_VENUSA_DUAL_TIMER=y
+
+# Venusa AON 时钟源选择(三选一):
+# CONFIG_LISA_HWTIMER_VENUSA_AON_TIMER_CLK_RC32K=y          # 内部RC32K时钟源(默认)
+# CONFIG_LISA_HWTIMER_VENUSA_AON_TIMER_CLK_XO24M_DIV32K=y   # 外部XO24M分频到32K域
+# CONFIG_LISA_HWTIMER_VENUSA_AON_TIMER_CLK_RC24M_DIV32K=y   # 内部RC24M分频到32K域
 ```
 
 根据需要选择启用不同的定时器设备。
@@ -169,16 +192,13 @@ if (ret == LISA_DEVICE_ERR_NOT_SUPPORT) {
 
 ## 定时器类型对比
 
-| 特性 | GPT Timer | AON Timer | Dual Timer |
-|------|-----------|-----------|------------|
-| **通道数** | 8 | 1 | 2 |
-| **计数器位数** | 32位 | 24位 | 32位 |
-| **时钟源** | 100MHz | RC32K/XO32K | 16kHz |
-| **支持分频** | 1/2/4/8/16/32/64/128 | 固定 | 1/16/256 |
-| **频率范围** | 781.25kHz-100MHz | ~32.768kHz | 62Hz-16kHz |
-| **时钟精度** | 高 | RC32K:低, XO32K:高 | 中 |
-| **功耗** | 正常 | 低功耗 | 正常 |
-| **适用场景** | 高精度定时 | 低功耗应用 | 通用定时 |
+| 平台 | Timer | 通道数 | 计数器位数 | 时钟源/分频 | 频率范围 | 适用场景 |
+|------|-------|--------|------------|-------------|----------|----------|
+| ARCS | GPT Timer | 8 | 32位 | 100MHz, 1/2/4/8/16/32/64/128 | 781.25kHz-100MHz | 高精度定时 |
+| Venusa | GPT Timer | 2 | 16位 | PCLK/T0, divider 1-128, prediv 1-65536 | 运行时计算 | 中高频短周期定时 |
+| ARCS | AON Timer | 1 | 24位 | RC32K/XO32K | ~32.768kHz | 低功耗应用 |
+| Venusa | AON Timer | 1 | 24位 | RC32K/XO24M_DIV32K/RC24M_DIV32K | ~32.768kHz | 低功耗应用 |
+| ARCS/Venusa | Dual Timer | 2 | 32位 | 16kHz, 1/16/256 | 62Hz-16kHz | 通用定时 |
 
 ## 定时器模式
 
@@ -194,7 +214,7 @@ if (ret == LISA_DEVICE_ERR_NOT_SUPPORT) {
 
 ### GPT Timer 频率配置
 
-GPT Timer 基准时钟为 100MHz,支持以下频率:
+ARCS GPT Timer 基准时钟为 100MHz,支持以下频率:
 
 ```c
 // 支持的频率 (Hz)
@@ -208,6 +228,18 @@ GPT Timer 基准时钟为 100MHz,支持以下频率:
 781250      // 781.25kHz(分频/128)
 ```
 
+Venusa GPT Timer 使用 `PCLK` / `T0` 作为可选时钟源，计数频率公式为:
+
+```
+tick_hz = source_hz / divider / (prediv + 1)
+```
+
+- `divider` 支持 1/2/4/8/16/32/64/128
+- `prediv` 寄存器范围为 0-65535，对应实际分频 1-65536
+- LISA hwtimer API 直接用 `count / frequency_hz` 计算定时时间，因此 Venusa 适配层只接受可精确表示的 `freq_hz`
+- Venusa GPT Timer 当前使用 16-bit timer，`count` 范围为 1-65535
+- Venusa GPT Timer 当前不支持 32-bit period/count：`Driver_GPT_TIMER.h` 只暴露 `HAL_GPT_TIMER_16BITS_INDEX_0` 和两个 8-bit timer index，`HAL_GPT_ReadTimerCount()` / `HAL_GPT_SetTimerPeriodByCount()` 的 count 参数为 `uint16_t`；`gpt_reg.h` 中 `REG_CHx_RELOAD` 也拆分为 16-bit reload 配置和 16-bit 当前计数值，而不是 32-bit reload/count
+
 ### AON Timer 频率配置
 
 AON Timer 频率由 Kconfig 配置的时钟源决定:
@@ -219,6 +251,9 @@ AON Timer 频率由 Kconfig 配置的时钟源决定:
 
 // 使用外部32K晶振 (CONFIG_LISA_HWTIMER_ARCS_AON_TIMER_CLK_XO32K=y)
 32768       // 固定 32.768kHz (精度高, 需要外部晶振硬件支持)
+
+// Venusa 默认使用 CONFIG_LISA_HWTIMER_VENUSA_AON_TIMER_CLK_RC32K
+// 也可选择 XO24M_DIV32K 或 RC24M_DIV32K，均工作在 32K 域
 ```
 
 **时钟源选择建议:**
@@ -280,7 +315,10 @@ lisa_hwtimer_start(dual_timer, 0, 500, ...);        // 500/1000 = 0.5s
 ## 注意事项
 
 1. **通道范围**:
-   - GPT Timer: 0-7 (8个通道)
+   - GPT Timer(hwtimer API):
+     - ARCS 0-7 (8个独立 timer 通道)
+     - Venusa 0-1 (2个 timer 通道)
+       Venusa PWM 模式下每个 GPT channel 另有 4 个 PWM port，总计 8 路 PWM 输出
    - AON Timer: 0 (1个通道)
    - Dual Timer: 0-1 (2个通道)
 
@@ -289,8 +327,9 @@ lisa_hwtimer_start(dual_timer, 0, 500, ...);        // 500/1000 = 0.5s
 3. **回调上下文**: 超时回调在中断上下文中执行,应保持简短快速
 
 4. **AON Timer 时钟源选择**:
-   - **RC32K**: 内部RC振荡器, 频率动态获取, 精度较低但功耗最低
-   - **XO32K**: 外部32K晶振, 固定32768Hz, 精度高但需要硬件支持
+   - **ARCS RC32K / Venusa RC32K**: 内部RC振荡器, 频率动态获取, 精度较低但功耗最低
+   - **ARCS XO32K**: 外部32K晶振, 固定32768Hz, 精度高但需要硬件支持
+   - **Venusa XO24M_DIV32K / RC24M_DIV32K**: 24M 时钟分频到 32K 域
    - 建议在使用前通过 `get_capabilities` 查询实际频率
 
 5. **精度问题**:

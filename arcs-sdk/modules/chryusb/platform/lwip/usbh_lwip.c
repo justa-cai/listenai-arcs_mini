@@ -14,6 +14,17 @@
 
 #include "usbh_core.h"
 
+#ifndef CONFIG_CHERRYUSB_HOST_LWIP_RX_PSRAM
+#define CONFIG_CHERRYUSB_HOST_LWIP_RX_PSRAM 0
+#endif
+
+#if CONFIG_CHERRYUSB_HOST_LWIP_RX_PSRAM
+#include "sysheap.h"
+#if !LWIP_SUPPORT_CUSTOM_PBUF
+#error CONFIG_CHERRYUSB_HOST_LWIP_RX_PSRAM requires LWIP_SUPPORT_CUSTOM_PBUF
+#endif
+#endif
+
 #if LWIP_TCPIP_CORE_LOCKING_INPUT != 1
 #warning suggest you to set LWIP_TCPIP_CORE_LOCKING_INPUT to 1, usb handles eth input with own thread
 #endif
@@ -60,8 +71,67 @@ void usbh_lwip_eth_output_common(struct pbuf *p, uint8_t *buf)
     }
 }
 
+#if CONFIG_CHERRYUSB_HOST_LWIP_RX_PSRAM
+/* Wrapper, pbuf_custom and pbuf share the same starting address (each is the
+ * first member of the next), so a pbuf* received in the free callback round-
+ * trips back to the wrapper via a plain cast. */
+struct usbh_lwip_rx_psram_pbuf {
+    struct pbuf_custom custom;
+};
+
+static void usbh_lwip_rx_psram_pbuf_free(struct pbuf *p)
+{
+    psram_free(p);
+}
+
+static struct pbuf *usbh_lwip_alloc_rx_psram_pbuf(uint8_t *buf, uint32_t len)
+{
+    struct usbh_lwip_rx_psram_pbuf *copy_pbuf;
+    uint8_t *payload;
+    struct pbuf *p;
+    size_t alloc_len;
+
+    if (len == 0 || len > 0xffffu) {
+        return NULL;
+    }
+
+    alloc_len = sizeof(*copy_pbuf) + LWIP_MEM_ALIGN_SIZE(len) + MEM_ALIGNMENT;
+    copy_pbuf = psram_malloc(alloc_len);
+    if (copy_pbuf == NULL) {
+        return NULL;
+    }
+
+    payload = (uint8_t *)LWIP_MEM_ALIGN((uint8_t *)copy_pbuf + sizeof(*copy_pbuf));
+    usb_memcpy(payload, buf, len);
+    copy_pbuf->custom.custom_free_function = usbh_lwip_rx_psram_pbuf_free;
+
+    p = pbuf_alloced_custom(PBUF_RAW, (u16_t)len, PBUF_REF,
+                            &copy_pbuf->custom, payload, (u16_t)len);
+    if (p == NULL) {
+        psram_free(copy_pbuf);
+        return NULL;
+    }
+
+    return p;
+}
+#endif
+
 void usbh_lwip_eth_input_common(struct netif *netif, uint8_t *buf, uint32_t len)
 {
+#if CONFIG_CHERRYUSB_HOST_LWIP_RX_PSRAM
+    err_t err;
+    struct pbuf *p;
+
+    p = usbh_lwip_alloc_rx_psram_pbuf(buf, len);
+    if (p != NULL) {
+        err = netif->input(p, netif);
+        if (err != ERR_OK) {
+            pbuf_free(p);
+        }
+    } else {
+        USB_LOG_ERR("No PSRAM to alloc rx pbuf\r\n");
+    }
+#else
 #if LWIP_TCPIP_CORE_LOCKING_INPUT
     pbuf_type type = PBUF_REF;
 #else
@@ -84,6 +154,7 @@ void usbh_lwip_eth_input_common(struct netif *netif, uint8_t *buf, uint32_t len)
     } else {
         USB_LOG_ERR("No memory to alloc pbuf\r\n");
     }
+#endif
 }
 
 struct usb_osal_timer *dhcp_handle;

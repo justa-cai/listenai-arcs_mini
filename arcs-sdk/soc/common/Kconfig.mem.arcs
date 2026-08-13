@@ -1,0 +1,249 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+#
+# ARCS 默认 SRAM 分布（可通过 prj.conf 覆盖）
+#
+# 普通双核默认：
+#   0x20000000 ──────────────────────────────────────────────
+#              WFRAM            64KB    [0x20000000, 0x20010000)
+#   0x20010000 ──────────────────────────────────────────────
+#              CP SRAM         146KB    [0x20010000, 0x20034800)
+#   0x20034800 ──────────────────────────────────────────────
+#              AP SRAM         102KB    [0x20034800, 0x2004E000)
+#              └─ .sharedmem.* 段通过 .luna.* 收集后放入普通 SRAM
+#   0x2004E000 ──────────────────────────────────────────────
+#              IPC RAM           8KB    [0x2004E000, 0x20050000)
+#   0x20050000 ──────────────────────────────────────────────
+#              APRAM           384KB    [0x20050000, 0x200B0000)
+#   0x200B0000 ──────────────────────────────────────────────
+#              LUNA private     24KB    [0x200B0000, 0x200B6000)
+#   0x200C0000 ──────────────────────────────────────────────
+#              Bluetooth RAM    24KB    [0x200C0000, 0x200C6000)
+#
+# WIFI_LWIP_DIFF_CORE 默认：
+#   0x20000000 ──────────────────────────────────────────────
+#              CP WFRAM    0x6380 bytes [0x20000000, 0x20006380)
+#   0x20006400 ──────────────────────────────────────────────
+#              CP SRAM          96KB    [0x20006400, 0x2001E400)
+#   0x2001E400 ──────────────────────────────────────────────
+#              AP WFRAM         52KB    [0x2001E400, 0x2002B400)
+#   0x2002B400 ──────────────────────────────────────────────
+#              AP SRAM         139KB    [0x2002B400, 0x2004E000)
+#              └─ .sharedmem.* 段通过 .luna.* 收集后放入普通 SRAM
+#   0x2004E000 ──────────────────────────────────────────────
+#              IPC RAM           8KB    [0x2004E000, 0x20050000)
+#   0x20050000 ──────────────────────────────────────────────
+#              APRAM           384KB    [0x20050000, 0x200B0000)
+
+config MEM_CONFIG
+	bool
+	default y
+
+menu "Memory Layout"
+
+config MEM_INTERRUPT_STACK_SIZE
+	hex "interrupt stack size"
+	default 0x1000
+
+config MEM_HEAP_SIZE
+	int "heap size (bytes)"
+	default 512
+
+menu "SRAM"
+config MEM_SRAM_BASE
+	hex "base address"
+	default 0x2002B400 if WIFI_LWIP_DIFF_CORE && ARCS_AP_CORE
+	default 0x20006400 if WIFI_LWIP_DIFF_CORE && ARCS_CP_CORE
+	default 0x20034800 if ARCS_AP_CORE
+	default 0x20010000
+	help
+		SoC SRAM 起始地址。AP/CP 核心使用不同的 SRAM 窗口。
+		双核 WiFi 场景（WIFI_LWIP_DIFF_CORE）下 SDK 自动给出
+		分区默认值，仍可在 prj.conf 中覆盖。
+
+config MEM_SRAM_SIZE
+	hex "size"
+	default 0x00022C00 if WIFI_LWIP_DIFF_CORE && ARCS_AP_CORE
+	default 0x00018000 if WIFI_LWIP_DIFF_CORE && ARCS_CP_CORE
+	default 0x00019800 if ARCS_AP_CORE
+	default 0x00024800
+	help
+		SoC SRAM 大小。
+		CP 默认 146KB（0x20010000-0x20034800）。
+		AP 默认 102KB（0x20034800-0x2004E000）。
+		双核 WiFi 场景：AP 139KB / CP 96KB。
+endmenu
+
+menu "PSRAM"
+config MEM_PSRAM_BASE
+	hex "base address"
+	default 0x28000000 if ARCS_AP_CORE
+	default 0x28800000 if ARCS_CP_CORE
+	help
+		外部 PSRAM 起始地址，由芯片硬件决定。
+		仅双核内存分区场景可覆盖。
+
+config MEM_PSRAM_SIZE
+	hex "size"
+	default 0x00800000 if !SOC_SERIES_LS26XX
+	help
+		外部 PSRAM 大小。双核分区时可按核心调整。
+		设为 0 表示该核心不使用 PSRAM。
+		选择了 LS26xx 具体型号时，由型号 defconfig 覆盖此默认值。
+endmenu
+
+menu "Flash"
+config MEM_FLASH_BASE
+	hex "base address"
+	default 0x30000000
+	help
+		Flash 映射起始地址，由芯片硬件决定。
+		仅双核内��分区场景可覆盖。
+
+config MEM_FLASH_SIZE
+	hex "size"
+	default 0x00800000
+	help
+		Flash 可用大小。双核分区时可按核心调整。
+endmenu
+
+menu "Local Memory (TCM)"
+config MEM_ILM_BASE
+	hex "ILM base address"
+	default 0x00080000 if ARCS_AP_CORE
+	default 0x00280000 if ARCS_CP_CORE
+	help
+		指令紧耦合内存起始地址，由芯片硬件决定，AP/CP 核心各有独立地址。
+		通常无需覆盖。
+
+config MEM_ILM_SIZE
+	hex "ILM size"
+	default 0x00004000
+
+config MEM_DLM_BASE
+	hex "DLM base address"
+	default 0x00100000 if ARCS_AP_CORE
+	default 0x00300000 if ARCS_CP_CORE
+	help
+		数据紧耦合内存起始地址，由芯片硬件决定，AP/CP 核心各有独立地址。
+		通常无需覆盖。
+
+config MEM_DLM_SIZE
+	hex "DLM size"
+	default 0x00002000
+endmenu
+
+menu "LUNA RAM"
+config MEM_LUNA_BASE
+	hex "base address"
+	default 0x200B0000
+	help
+		LUNA 核专属 SRAM 起始地址，由芯片硬件决定。通常无需覆盖。
+
+config MEM_LUNA_SIZE
+	hex "size"
+	default 0x00006000
+
+config MEM_LUNA_SHARED_BASE
+	hex "shared memory base address"
+	default 0x20045400 if WIFI_LWIP_DIFF_CORE
+	default 0x20048000
+	help
+		兼容旧配置保留。当前 ARCS 链接脚本不再创建独立 LUNA_RAM
+		MEMORY 区域，.sharedmem.* 段直接放入普通 SRAM。
+
+config MEM_LUNA_SHARED_SIZE
+	hex "shared memory size"
+	default 0x00008C00 if WIFI_LWIP_DIFF_CORE
+	default 0x00006000
+	help
+		设为 0 可禁用 .sharedmem.* 段收集；非 0 时这些段直接放入
+		普通 SRAM，不再创建独立 LUNA_RAM MEMORY 区域。
+endmenu
+
+menu "Bluetooth RAM"
+config MEM_BTRAM_BASE
+	hex "base address"
+	default 0x200C0000
+	help
+		蓝牙 RAM 起始地址，由芯片硬件决定。通常无需覆盖。
+
+config MEM_BTRAM_SIZE
+	hex "size"
+	default 0x00006000
+endmenu
+
+menu "IPC Shared Memory"
+config MEM_IPC_ISOLATED
+	bool "Isolated IPC RAM region"
+	default y
+
+config MEM_IPC_BASE
+	hex "base address"
+	default 0x2004E000
+	depends on MEM_IPC_ISOLATED
+	help
+		IPC 共享内存起始地址。默认位于普通 AP SRAM 之后（0x2004E000）。
+		通常无需覆盖。
+
+config MEM_IPC_SIZE
+	hex "size"
+	default 0x00002000
+	depends on MEM_IPC_ISOLATED
+endmenu
+
+menu "Algorithm RAM"
+config MEM_APRAM_BASE
+	hex "base address"
+	default 0x20050000
+	help
+		算法专用 SRAM 起始地址。
+		双核分区时需在 prj.conf 中根据内存布局覆盖。
+
+config MEM_APRAM_SIZE
+	hex "size"
+	default 0x00060000
+	help
+		算法专用 SRAM 大小（默认 384KB）。设为 0 表示不使用。
+		不同项目可按需调整，注意避免与其他 SRAM 区域重叠。
+endmenu
+
+menu "WiFi Memory"
+config MEM_WFRAM_BASE
+	hex "WiFi RAM base address"
+	default 0x2001E400 if WIFI_LWIP_DIFF_CORE && ARCS_AP_CORE
+	default 0x20000000
+	help
+		WiFi RAM 起始地址，由芯片硬件决定。通常无需覆盖。
+		双核 WiFi 场景的 AP 核紧贴 CP-SRAM 之后。
+
+config MEM_WFRAM_SIZE
+	hex "WiFi RAM size"
+	default 0x0000D000 if WIFI_LWIP_DIFF_CORE && ARCS_AP_CORE
+	default 0x00006380 if WIFI_LWIP_DIFF_CORE && ARCS_CP_CORE
+	default 0x00000000 if ARCS_AP_CORE
+	default 0x00010000
+	help
+		WiFi RAM 大小。AP 核默认不使用独立 WiFi RAM（size=0）。
+		CP 核默认 64KB。
+		双核 WiFi 场景：AP 52KB / CP 25KB-128B。
+
+config MEM_WIFI_CALIBRATION_SIZE
+	hex "WiFi calibration data size"
+	default 0x4000 if WIFI
+	default 0x0000
+	help
+		WiFi 校准数据预留大小。启用 WiFi 的核心默认预留 16KB。
+		未启用 WiFi 的场景可在 prj.conf 中按需覆盖。
+
+config MEM_WIFI_TRACE_SIZE
+	hex "WiFi trace data size"
+	default 0x2000 if ARCS_AP_CORE
+	default 0x0000
+	help
+		WiFi 跟踪数据预留大小。双核场景下仅 AP 核需要。
+		单核场景如需 WiFi 跟踪，可在 prj.conf 中覆盖。
+
+endmenu
+
+endmenu # Memory Layout

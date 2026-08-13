@@ -35,6 +35,10 @@
 
 #include "string.h"
 
+#ifndef __UNCONST
+#define __UNCONST(a) ((void *)(unsigned long)(const void *)(a))
+#endif
+
 /*-
  * This code is derived from software contributed to Berkeley by
  * Chris Torek.

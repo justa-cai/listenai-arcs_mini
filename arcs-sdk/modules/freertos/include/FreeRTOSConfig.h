@@ -78,6 +78,11 @@
 /* Here is a good place to include header files that are required across
 your application. */
 
+#ifndef configMAX_SYSCALL_INTERRUPT_PRIORITY
+// See function prvCheckMaxSysCallPrio and prvCalcMaxSysCallMTH
+#define configMAX_SYSCALL_INTERRUPT_PRIORITY    7
+#endif
+
 #define USER_MODE_TASKS                         0
 #define configUSE_POSIX_ERRNO                   1
 #define configSYSTICK_CLOCK_HZ                  1000000 // 1MHz

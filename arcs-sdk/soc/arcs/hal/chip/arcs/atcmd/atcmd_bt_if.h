@@ -290,6 +290,10 @@ enum bt_at_msg_id
     BT_AT_BT_SET_TX_POWER_CMD                                   = BT_AT_CMD_ID(TEST, 0x12),
 
     BT_AT_BT_SET_EVT_FILTER_CMD                                 = BT_AT_CMD_ID(TEST, 0x13),
+
+    BT_AT_BT_SET_BD_ADDR_CMD                                    = BT_AT_CMD_ID(TEST, 0x14),
+
+    //BT_AT_BT_GET_BD_ADDR_CMD                                    = BT_AT_CMD_ID(TEST, 0x15),
 };
 
 
@@ -427,6 +431,11 @@ typedef struct rf_set_tx_power_cmd
     uint8_t power;
 }rf_set_tx_power_cmd_t;
 
+typedef struct bt_set_bd_addr_cmd
+{
+    struct out_bd_addr  bd_addr;;
+}bt_set_bd_addr_cmd_t;
+
 typedef struct
 {
     ///Scan type - 0=passive / 1=active
@@ -450,7 +459,7 @@ typedef struct
     ///
     uint16_t       filter_type;
     ///
-    uint8_t        filter_param[__ARRAY_EMPTY];
+    uint8_t        filter_param[BD_ADDR_LEN];
 }ble_scan_t;
 
 typedef struct
@@ -797,11 +806,15 @@ uint8_t atcmd_ble_nonsignal_rx_send(uint8_t channel, uint8_t phy, uint8_t mod_id
 uint8_t atcmd_ble_nonsignal_end_send(void);
 uint8_t atcmd_bt_scan_send(uint8_t enable);
 uint8_t atcmd_bt_dutmode_send(uint8_t enable);
+uint8_t atcmd_hbt_open_send(uint8_t modes);
+uint8_t atcmd_hbt_close_send(uint8_t modes);
 uint8_t atcmd_hble_adv_start_send(uint8_t modes);
 uint8_t atcmd_hble_adv_stop_send(void);
 uint8_t atcmd_rf_test_tone_start_send(uint16_t channel, uint8_t power);
 uint8_t atcmd_rf_test_tone_stop_send();
 uint8_t atcmd_bt_hci_mode_send();
+uint8_t atcmd_bt_set_bd_addr(uint8_t *bd_addr);
+
 void bt_at_cmd_msg_handle(bt_at_cmd_t* msg);
 bt_at_cmd_t *atcmd_msg_alloc( btos_event_t *ev, uint32_t size);
 uint8_t atcmd_bt_set_event_filter_send(uint8_t filter_type, uint8_t filter_con_type, uint8_t *con);

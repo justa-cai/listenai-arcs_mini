@@ -16,6 +16,10 @@
 #include <string.h>
 #include <lisa_mutex.h>
 
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
+
 #define LOG_TAG "arcs_gpt_timer"
 #include <lisa_log.h>
 
@@ -482,35 +486,129 @@ static const lisa_hwtimer_api_t gpt_timer_api = {
     .set_callback = gpt_timer_set_callback,
 };
 
-/* GPT Timer 初始化函数 */
-static int arcs_gpt_timer_init(void)
+/**
+ * @brief OS 资源初始化（mutex），仅 _init 阶段调用一次，跨 suspend/resume 保留
+ */
+static int arcs_gpt_timer_init_resources(lisa_hwtimer_gpt_data_t *priv)
 {
-    /* 创建互斥锁 */
-    gpt_timer_priv.mutex = lisa_mutex_create();
-    if (!gpt_timer_priv.mutex) {
+    priv->mutex = lisa_mutex_create();
+    if (!priv->mutex) {
         LISA_LOGE(LOG_TAG, "Failed to create mutex");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
+    return LISA_DEVICE_OK;
+}
 
-    /* 初始化 GPT Timer 硬件 */
-    gpt_timer_priv.gpt_timer_handler = GPT0_TIMER();
-    if (!gpt_timer_priv.gpt_timer_handler) {
+/**
+ * @brief 幂等的 GPT Timer HAL 硬件初始化
+ *
+ * 由 _init 调用；只动 HAL，不分配 mutex / 堆内存。唤醒后经 reinit 重新走 _init
+ * 路径时，destroy 阶段已先 HAL_GPT_TimerPowerControl(OFF) + HAL_GPT_TimerUninitialize
+ * 清零 HAL 状态；启动期首次调用时 HAL 状态本就为零，重复 Initialize 无副作用。
+ */
+static int arcs_gpt_timer_init_hw(lisa_hwtimer_gpt_data_t *priv)
+{
+    priv->gpt_timer_handler = GPT0_TIMER();
+    if (!priv->gpt_timer_handler) {
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    int32_t ret = HAL_GPT_TimerInitialize(gpt_timer_priv.gpt_timer_handler, NULL);
+    int32_t ret = HAL_GPT_TimerInitialize(priv->gpt_timer_handler, NULL);
     if (ret != 0) {
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    ret = HAL_GPT_TimerPowerControl(gpt_timer_priv.gpt_timer_handler, CSK_POWER_FULL);
+    ret = HAL_GPT_TimerPowerControl(priv->gpt_timer_handler, CSK_POWER_FULL);
     if (ret != 0) {
         return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    /* 唤醒路径下硬件已被 PowerControl(OFF) 重置，逻辑通道运行态也必须清零。 */
+    for (int i = 0; i < GPT_TIMER_CHANNEL_COUNT; ++i) {
+        priv->channels[i].is_running = false;
     }
 
     return LISA_DEVICE_OK;
 }
 
+/* GPT Timer 初始化函数 */
+static int arcs_gpt_timer_init(void)
+{
+    int ret = arcs_gpt_timer_init_resources(&gpt_timer_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
 
-LISA_DEVICE_REGISTER(gpt_timer, &gpt_timer_api, &gpt_timer_priv, NULL, arcs_gpt_timer_init,
-                     LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+    return arcs_gpt_timer_init_hw(&gpt_timer_priv);
+}
+
+/* ===== 设备反初始化函数 ===== */
+
+/**
+ * @brief 停止并释放 GPT Timer 设备的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用。释放顺序与 _init 申请相反：
+ *   1) HAL 下电：先 HAL_GPT_TimerPowerControl(OFF) 再 HAL_GPT_TimerUninitialize
+ *      （PowerControl(OFF) 会停所有通道计数）；
+ *   2) 释放 OS 资源 mutex；
+ *   3) memset 整个 priv，回到 _init 之前的零初值（各通道 is_running / 应用配置
+ *      随之清零，强制唤醒后业务侧重新 start()）。
+ *
+ * 约定：调用方需保证此时无并发业务在使用本设备。
+ */
+static int arcs_gpt_timer_deinit(void)
+{
+    lisa_hwtimer_gpt_data_t *priv = &gpt_timer_priv;
+
+    if (priv->gpt_timer_handler) {
+        HAL_GPT_TimerPowerControl(priv->gpt_timer_handler, CSK_POWER_OFF);
+        HAL_GPT_TimerUninitialize(priv->gpt_timer_handler);
+    }
+
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+    }
+
+    memset(&gpt_timer_priv, 0, sizeof(gpt_timer_priv));
+    return LISA_DEVICE_OK;
+}
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在睡眠前
+ * 调 lisa_device_destroy(gpt_timer) 释放全部软硬件资源（HAL 下电 + mutex），唤醒后经
+ * lisa_device_reinit(gpt_timer) 重建到 _init 后的状态，并由业务重新 start()。因此
+ * prepare_suspend / resume_restore 不再需要（原先它们只做 HAL 拆卸 / 运行态清零，已被
+ * destroy/reinit 覆盖，且二者运行于 PM 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：任一通道 is_running 即代表应用要求 GPT Timer 持续计数，禁止
+ * AUTO_LIGHT_SLEEP。只读 priv，不取 mutex / 不读 HAL。
+ */
+static int32_t arcs_gpt_timer_pm_check_idle(void *ctx)
+{
+    lisa_hwtimer_gpt_data_t *priv = (lisa_hwtimer_gpt_data_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    for (int i = 0; i < GPT_TIMER_CHANNEL_COUNT; ++i) {
+        if (priv->channels[i].is_running) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static const lisa_pm_system_ops_t arcs_gpt_timer_pm_ops = {
+    .check_idle      = arcs_gpt_timer_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif /* CONFIG_LISA_PM */
+
+
+LISA_DEVICE_REGISTER_DEINIT(gpt_timer, &gpt_timer_api, &gpt_timer_priv, NULL, arcs_gpt_timer_init,
+                            arcs_gpt_timer_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(gpt_timer, &arcs_gpt_timer_pm_ops, NULL, &gpt_timer_priv);
+#endif

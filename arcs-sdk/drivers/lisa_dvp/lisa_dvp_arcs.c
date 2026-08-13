@@ -9,6 +9,10 @@
 #define LOG_TAG "lisa_dvp"
 #include "lisa_log.h"
 
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
+
 /* DVP 设备私有数据结构 */
 typedef struct {
     void *hal_handler;              /* HAL 层 DVP 句柄 */
@@ -380,20 +384,123 @@ static const lisa_dvp_api_t arcs_dvp_api = {
     .enable_clockout  = arcs_dvp_enable_clockout
 };
 
+/**
+ * @brief 创建 DVP 设备 OS 资源（启动期 arcs_dvp_init / 唤醒后 reinit 调用）
+ *
+ * 仅创建 mutex；由 arcs_dvp_deinit 在 destroy 时配对删除。
+ */
+static int arcs_dvp_init_resources(lisa_dvp_priv_t *priv)
+{
+    priv->lock = lisa_mutex_create();
+    if (!priv->lock) {
+        LISA_LOGE(LOG_TAG, "Failed to create mutex");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+    return LISA_DEVICE_OK;
+}
+
+/**
+ * @brief 幂等的 DVP HAL 硬件初始化
+ *
+ * 由 arcs_dvp_init 调用，将 priv 拉到 “未配置 / stop” 形态。DVP HAL 的
+ * Initialize / GPDMA 配置依赖业务侧 lisa_dvp_config_t（frame size / format 等），
+ * 由 arcs_dvp_setup 完成；本函数不分配 mutex / 堆内存。
+ */
+static int arcs_dvp_init_hw(lisa_dvp_priv_t *priv)
+{
+    priv->hal_handler = NULL;
+    priv->callback    = NULL;
+    priv->user_data   = NULL;
+    priv->gpdma_ch    = 0;
+    priv->initialized = false;
+    priv->stop_flag   = true;
+    return LISA_DEVICE_OK;
+}
+
 /* DVP 设备初始化函数 */
 static int arcs_dvp_init(void)
 {
     /* 初始化私有数据 */
     memset(&dvp_priv, 0, sizeof(dvp_priv));
-    dvp_priv.lock = lisa_mutex_create();
-    if (!dvp_priv.lock) {
-        LISA_LOGE(LOG_TAG, "Failed to create mutex");
-        return LISA_DEVICE_ERR_INIT_FAIL;
+    int ret = arcs_dvp_init_resources(&dvp_priv);
+    if (ret) {
+        return ret;
     }
-    
+    ret = arcs_dvp_init_hw(&dvp_priv);
+    if (ret) {
+        return ret;
+    }
+
     LISA_LOGI(LOG_TAG, "DVP driver initialized");
     return LISA_DEVICE_OK;
 }
 
+/**
+ * @brief 停止并释放 DVP 设备的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用。释放顺序与 arcs_dvp_init 申请顺序相反：
+ *   1) 取 lock，复用 arcs_dvp_release_locked 完成 HAL 拆卸（必要时先 DVP_Stop +
+ *      GPDMA_Stop，再 GPDMA_Uninitialize + DVP_Uninitialize）并清业务字段；
+ *   2) 释放并删除 mutex；
+ *   3) memset 整个 priv，回到 arcs_dvp_init 之前的零初值。
+ *
+ * 注：GPDMA 在 rgb / qspilcd 等驱动间共享，本批未做 refcount，依赖 HAL
+ *     GPDMA_Initialize / GPDMA_Uninitialize 自身的幂等性；refcount 留作 follow-up。
+ *
+ * 约定：调用方需保证此时采集已停止、无并发业务在使用本设备。
+ */
+static int arcs_dvp_deinit(void)
+{
+    lisa_dvp_priv_t *priv = &dvp_priv;
+
+    if (priv->lock) {
+        lisa_mutex_lock(priv->lock, -1);
+        arcs_dvp_release_locked();
+        lisa_mutex_unlock(priv->lock);
+        lisa_mutex_delete(priv->lock);
+    } else {
+        arcs_dvp_release_locked();
+    }
+
+    memset(&dvp_priv, 0, sizeof(dvp_priv));
+    return LISA_DEVICE_OK;
+}
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在睡眠前
+ * 调 lisa_device_destroy(dvp0) 释放全部软硬件资源（含 DVP/GPDMA HAL 拆卸与 mutex），
+ * 唤醒后在 PM after_wake 回调中调 lisa_device_reinit(dvp0) 重建到 arcs_dvp_init 后的
+ * 状态，并由业务重新 lisa_dvp_setup。因此 prepare_suspend / resume_restore 不再需要
+ * （原先它们只做 HAL 拆卸 / 字段清零，已被 destroy/reinit 覆盖，且二者运行于 PM
+ * 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：在 AUTO_LIGHT_SLEEP 策略下，采集运行中（DVP + GPDMA 持续搬运
+ * 帧数据）阻止系统自动进入轻睡眠。只读 priv 运行标记，不取 mutex / 不访问 HAL。
+ * busy = initialized && !stop_flag（stop_flag 为 inverted-logic running 标记）。
+ */
+static int32_t arcs_dvp_pm_check_idle(void *ctx)
+{
+    lisa_dvp_priv_t *priv = (lisa_dvp_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    /* DVP busy iff initialized 且未停止；stop_flag 为 inverted-logic running */
+    return (priv->initialized && !priv->stop_flag) ? 0 : 1;
+}
+
+static const lisa_pm_system_ops_t arcs_dvp_pm_ops = {
+    .check_idle      = arcs_dvp_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif /* CONFIG_LISA_PM */
+
 /* 注册 DVP 设备 */
-LISA_DEVICE_REGISTER(dvp0, &arcs_dvp_api, &dvp_priv, NULL, arcs_dvp_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+
+LISA_DEVICE_REGISTER_DEINIT(dvp0, &arcs_dvp_api, &dvp_priv, NULL, arcs_dvp_init,
+                            arcs_dvp_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(dvp0, &arcs_dvp_pm_ops, NULL, &dvp_priv);
+#endif

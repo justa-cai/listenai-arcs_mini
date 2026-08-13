@@ -16,7 +16,7 @@
 #define  SINGLE_RUN_ON_DUAL   1
 
 //# host
-#define  BLE_HOST_PRESENT     1
+#define  BLE_HOST_PRESENT     0
 #define  BT_STACK_PRESENT     0
 //# classic profile
 #define  BT_MUSIC_PRESENT     0
@@ -27,10 +27,12 @@
 #define  LEA_PRESENT          0
 #define  MESH_PRESENT         0
 //# transport
-#define  HCIT_UART_PRESENT    1
+#define  HCIT_UART_PRESENT    0
 #define  HCIT_USB_PRESENT     0
 //#hci audio access
 #define  HCIT_AUD_PRESENT     0
+
+#define  HCI_IPC              1
 
 #define  HCI_PRESENT          1
 #define  AHI_PRESENT          0
@@ -67,7 +69,7 @@
 #define  TRACE_CFG_MASK           0xffffffff
 
 //#/// Support HL Message API
-#define  BLE_HL_MSG_API           1
+#define  BLE_HL_MSG_API           0
 //#/// Support GATT Client
 #define  BLE_GATT_CLI             1
 
@@ -102,9 +104,9 @@
 
 //# ISO configure
 //#// Connected Isochronous Stream
-#define  BLE_CIS                   1
+#define  BLE_CIS                   0
 //#// Broadcast Isochronous Stream
-#define  BLE_BIS                   1
+#define  BLE_BIS                   0
 //#/// Maximum number of ISO channel / streams
 #define  BLE_ISO_CON               4
 //#/// Proprietary ISO over HCI

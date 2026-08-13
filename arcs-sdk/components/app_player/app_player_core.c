@@ -67,8 +67,13 @@ static int __lisa_player_core_callback_handler(PlayerEvt evt, int arg1, int arg2
                 lisa_semaphore_give(player->preparing_sem);
                 break;
             }
-            if (lisa_player_play(player->hld) == PLAYER_OP_FAIL) {
-                LISA_LOGE(TAG, "Core: Auto play failed: %s", player->name);
+            /* Enable the PA before the decoder can submit its first PCM frame. */
+            __app_player_pa_acquire(player);
+            PlayerErr play_ret = lisa_player_play(player->hld);
+            if (play_ret != PLAYER_OK) {
+                LISA_LOGE(TAG, "Core: Auto play failed: %s, ret=%d",
+                          player->name, play_ret);
+                __app_player_pa_release(player, 0);
                 player->prepare_error = true;
                 // 播放失败，通知上层处理错误
                 if (player->core_upper_callback) {
@@ -366,9 +371,11 @@ int app_player_core_resume(app_player_t *player)
     // 如果是在准备阶段被暂停的，清除pause_preparing标志并开始播放
     if (player->pause_preparing) {
         player->pause_preparing = false;
+        __app_player_pa_acquire(player);
         PlayerErr ret = lisa_player_play(player->hld);
         if (ret != PLAYER_OK) {
             LISA_LOGE(TAG, "Core resume failed: lisa_player_play error %d", ret);
+            __app_player_pa_release(player, 0);
             PLAYER_MUTEX_UNLOCK(player->core_lock);
             return -1;
         }
@@ -377,9 +384,11 @@ int app_player_core_resume(app_player_t *player)
     }
 
     // 调用底层的恢复接口
+    __app_player_pa_acquire(player);
     PlayerErr ret = lisa_player_resume(player->hld);
     if (ret != PLAYER_OK) {
         LISA_LOGE(TAG, "Core resume failed: lisa_player_resume error %d", ret);
+        __app_player_pa_release(player, 0);
         PLAYER_MUTEX_UNLOCK(player->core_lock);
         return -1;
     }
@@ -404,9 +413,11 @@ int app_player_core_resume_sync(app_player_t *player)
     // 如果是在准备阶段被暂停的，清除pause_preparing标志并开始播放
     if (player->pause_preparing) {
         player->pause_preparing = false;
+        __app_player_pa_acquire(player);
         PlayerErr ret = lisa_player_play(player->hld);
         if (ret != PLAYER_OK) {
             LISA_LOGE(TAG, "Core resume sync failed: lisa_player_play error %d", ret);
+            __app_player_pa_release(player, 0);
             PLAYER_MUTEX_UNLOCK(player->core_lock);
             return -1;
         }
@@ -415,9 +426,11 @@ int app_player_core_resume_sync(app_player_t *player)
     }
 
     // 调用底层的同步恢复接口
+    __app_player_pa_acquire(player);
     PlayerErr ret = lisa_player_resume_sync(player->hld);
     if (ret != PLAYER_OK) {
         LISA_LOGE(TAG, "Core resume sync failed: lisa_player_resume_sync error %d", ret);
+        __app_player_pa_release(player, 0);
         PLAYER_MUTEX_UNLOCK(player->core_lock);
         return -1;
     }

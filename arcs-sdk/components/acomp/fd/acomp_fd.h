@@ -110,6 +110,16 @@ typedef struct {
     int     feature_cnt;                            /* 人脸特征点个数 */
 }acomp_fd_feature_result_t;
 
+#if defined(CONFIG_SOC_VENUSA)
+/**
+ * @brief 人脸有效性结构体
+ */
+typedef struct {
+	float valid_socre;		// 有效性分数
+	int   valid_state;		// 有效性状态
+}acomp_fd_face_valid_t;
+#endif
+
 /**
  * @brief 人脸检测完整结果
  */
@@ -120,11 +130,14 @@ typedef struct {
 	int                             n_align_point;                          /* 人脸标定点个数 */
 	acomp_fd_head_pose_t            pose;                                   /* 人脸头部姿势 */
 	acomp_fd_live_detect_result_t   live_result;                            /* 活体检测结果 */
+#if defined(CONFIG_SOC_VENUSA)
+	acomp_fd_face_valid_t			face_valid;								/* 人脸有效性 */
+#endif
 	int			                    face_id;                                /* 人脸id */
     float                           features[ACOMP_FD_MAX_FEATURE_CNT];     /* 人脸特征点 */
     int                             feature_cnt;                            /* 人脸特征点个数 */
     float                           compare_scores[ACOMP_FD_MAX_RESULT_CNT];/* 输入图片和已注册人脸特征(最大10个人脸注册)的比较得分 */
-    int                             compare_cnt;                            /* 已经注册人脸特征个数 */    
+    int                             compare_cnt;                            /* 已经注册人脸特征个数 */
 }acomp_fd_result_t;
 
 typedef struct {

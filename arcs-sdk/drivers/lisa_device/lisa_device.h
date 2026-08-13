@@ -17,6 +17,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -44,11 +48,13 @@ extern "C" {
  *
  * - EARLY:   在 heap/RTOS 之前初始化（无锁、无日志），适用于日志串口等关键设备
  * - NORMAL:  在 lisa_device_init() 中正常初始化（heap 可用、日志可用）
+ * - POST_KERNEL: 在 RTOS scheduler 启动后初始化（可使用任务/IPC worker）
  *
  * ======================================================================== */
 
-#define LISA_DEVICE_LEVEL_EARLY    0  /* 早期初始化 - PRE_SYSTEM_INIT 阶段，无锁无日志 */
-#define LISA_DEVICE_LEVEL_NORMAL   1  /* 正常初始化 - PRE_DEVICES_INIT 阶段 */
+#define LISA_DEVICE_LEVEL_EARLY       0  /* 早期初始化 - PRE_SYSTEM_INIT 阶段，无锁无日志 */
+#define LISA_DEVICE_LEVEL_NORMAL      1  /* 正常初始化 - PRE_KERNEL 阶段 */
+#define LISA_DEVICE_LEVEL_POST_KERNEL 2  /* RTOS 启动后初始化 - POST_KERNEL 阶段 */
 
 /* ========================================================================
  * 设备优先级定义（同一级别内的子优先级）
@@ -83,6 +89,98 @@ typedef struct {
     uint32_t init_timestamp; /* 初始化时间戳 (ms) */
 } lisa_device_stats_t;
 
+#if CONFIG_LISA_PM
+/* forward declaration: lisa_device_t typedef 在文件下方，wakeup_ops callback
+ * 需要先看到 struct lisa_device 这个名字才能避免参数列表局部声明。 */
+struct lisa_device;
+
+/**
+ * @brief Device-side wakeup-source 能力 vtable
+ *
+ * wakeup_ops 描述“设备如何作为唤醒源”。应用或驱动先通过设备自己的
+ * configure API 设置唤醒条件，再由 lisa_device_wakeup_enable() 调用
+ * set_enabled() 统一下发或撤销硬件唤醒配置。
+ *
+ * wakeup_ops 不参与系统是否允许睡眠的决策，也不负责睡前挂起/唤醒后恢复；
+ * 这些动作由 system_ops 负责。sub_idx / trigger 由 driver 自行解释
+ * （GPIO: sub_idx=pin, trigger=lisa_gpio_wakeup_trigger_t）。
+ *
+ * 强一致规则：configure / clear 仅更新 driver 内部缓存，不下发硬件。
+ * 硬件下发仅在 set_enabled(true) 发生；set_enabled(false) 撤销所有已下发的配置。
+ * 在线变更触发条件必须 set_enabled(false) -> configure -> set_enabled(true)。
+ */
+typedef struct {
+    /**
+     * @brief 配置 driver 内部 wakeup 缓存
+     *
+     * @param dev 设备指针
+     * @param sub_idx driver 自定义子索引（GPIO: pin）
+     * @param trigger driver 自定义触发条件
+     *
+     * @return 0 成功
+     * @return LISA_DEVICE_ERR_RANGE sub_idx 越界
+     * @return LISA_DEVICE_ERR_INVALID trigger 参数非法
+     * @return LISA_DEVICE_ERR_NOT_SUPPORT 该 trigger 在当前 SoC 上不支持
+     */
+    int32_t (*configure)(struct lisa_device *dev, uint32_t sub_idx, uint32_t trigger);
+
+    /**
+     * @brief 清除 driver 内部某子索引的 wakeup 缓存
+     *
+     * @param dev 设备指针
+     * @param sub_idx driver 自定义子索引
+     *
+     * @return 0 成功（含幂等清除未配置的 sub_idx）
+     * @return LISA_DEVICE_ERR_RANGE sub_idx 越界
+     */
+    int32_t (*clear)(struct lisa_device *dev, uint32_t sub_idx);
+
+    /**
+     * @brief 将 driver 内部缓存一次性下发到硬件，或撤销已下发的配置
+     *
+     * 缓存为空时 set_enabled(true) 约定返回 0（幂等空启用），不下发任何 HAL 调用。
+     *
+     * @param dev 设备指针
+     * @param enable true=下发并启用 / false=禁用并撤销
+     *
+     * @return 0 成功（含幂等空启用）
+     * @return <0 底层 HAL 调用失败
+     */
+    int32_t (*set_enabled)(struct lisa_device *dev, bool enable);
+} lisa_pm_wakeup_ops_t;
+
+/**
+ * @brief 设备 PM 描述
+ *
+ * 可由兼容 PM 注册宏挂到 lisa_device_t::pm，也可由 LISA_DEVICE_PM_ATTACH
+ * 作为独立 PM 能力条目声明。两个 ops 槽位职责独立，NULL 表示不支持该能力。
+ */
+typedef struct {
+    /* System PM: 睡眠决策、睡前挂起、唤醒后基础恢复。NULL 表示设备不参与 system PM 调度。 */
+    const lisa_pm_system_ops_t *system_ops;
+    /* Wakeup-source: 唤醒条件缓存和硬件唤醒源启停。NULL 表示设备不能作为 wakeup-source。 */
+    const lisa_pm_wakeup_ops_t *wakeup_ops;
+    /* PM 回调上下文，通常填设备私有数据指针。system_ops 使用该 ctx；wakeup_ops 直接接收 lisa_device_t。 */
+    void *ctx;
+} lisa_device_pm_t;
+
+/**
+ * @brief 独立 PM 能力注册条目
+ *
+ * 用于把设备本体注册与可选 PM 能力解耦。设备仍通过普通
+ * LISA_DEVICE_REGISTER / LISA_DEVICE_REGISTER_DEINIT 注册，PM 能力通过
+ * LISA_DEVICE_PM_ATTACH 单独放入链接器段，供 lisa_pm 初始化时发现。
+ */
+typedef struct {
+    struct lisa_device *device;
+    lisa_device_pm_t pm;
+} lisa_device_pm_registry_entry_t;
+
+typedef int (*lisa_device_pm_iterator_cb)(struct lisa_device *dev,
+                                          const lisa_device_pm_t *pm,
+                                          void *user_data);
+#endif
+
 /**
  * @brief 设备结构
  */
@@ -101,6 +199,11 @@ typedef struct lisa_device {
     void *priv_data; /* 设备私有数据 */
     void *user_data; /* 用户自定义数据 */
 
+#if CONFIG_LISA_PM
+    /* ===== 可选 PM 能力 ===== */
+    const lisa_device_pm_t *pm; /* 设备 system PM 描述 */
+#endif
+
     /* ===== 链表节点 (用于设备管理) ===== */
     struct lisa_device *next;
 } lisa_device_t;
@@ -109,31 +212,26 @@ typedef struct lisa_device {
  * @brief 设备注册条目结构
  */
 typedef struct {
-    lisa_device_t *device; /* 设备指针 */
-    int (*init_fn)(void);  /* 可选的初始化函数 */
-    uint8_t init_level;    /* 初始化级别 (LISA_DEVICE_LEVEL_EARLY/NORMAL) */
-    uint32_t priority;     /* 同级别内子优先级 (数字越小越先初始化，0-99) */
+    lisa_device_t *device;  /* 设备指针 */
+    int (*init_fn)(void);   /* 可选的初始化函数 */
+    int (*deinit_fn)(void); /* 可选的反初始化函数：停止并释放驱动软硬件资源，恢复芯片上电初始状态 */
+    uint8_t init_level;     /* 初始化级别 (LISA_DEVICE_LEVEL_EARLY/NORMAL) */
+    uint32_t priority;      /* 同级别内子优先级 (数字越小越先初始化，0-99) */
 } lisa_device_registry_entry_t;
 
 /* ===== 段属性定义 ===== */
 #define LISA_DEVICE_SECTION(x) __attribute__((used, section(".lisa_device_registry." #x)))
+#if CONFIG_LISA_PM
+#define LISA_DEVICE_PM_SECTION(_name) __attribute__((used, section(".lisa_device_pm_registry." #_name)))
+#endif
 
-/**
- * @brief 静态设备注册宏 - 统一声明和注册设备实例
- *
- * @param _name 设备名称标识符 (如 gpioa，用于生成变量名和设备名称字符串)
- * @param _api_ptr 设备 API 结构体指针
- * @param _priv_data_ptr 私有数据指针
- * @param _user_data_ptr 用户数据指针 (可选，传 NULL)
- * @param _init_fn 初始化函数（必须提供，返回0表示成功）
- * @param _level 初始化级别 (LISA_DEVICE_LEVEL_EARLY 或 LISA_DEVICE_LEVEL_NORMAL)
- * @param _priority 同级别内子优先级 (数值越小优先级越高，范围：0-99)
- *
- * @note EARLY 级别设备在 heap 之前初始化，不能使用日志/mutex
- * @note 推荐使用预定义常量：LISA_DEVICE_PRIORITY_CRITICAL/HIGH/NORMAL/LOW/LOWEST
- *
- */
-#define LISA_DEVICE_REGISTER(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority)             \
+#if CONFIG_LISA_PM
+#define LISA_DEVICE_PM_INIT(_pm_ptr) .pm = (_pm_ptr),
+#else
+#define LISA_DEVICE_PM_INIT(_pm_ptr)
+#endif
+
+#define LISA_DEVICE_REGISTER_COMMON(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority, _pm_ptr, _deinit_fn) \
     typedef char __priority_range_check_##_name                                                                        \
         [((_priority) >= LISA_DEVICE_PRIORITY_CRITICAL && (_priority) <= LISA_DEVICE_PRIORITY_LOWEST) ? 1 : -1];       \
     static lisa_device_t __lisa_device_instance_##_name = {                                                            \
@@ -143,14 +241,64 @@ typedef struct {
         .api = (void *)(_api_ptr),                                                                                     \
         .priv_data = (_priv_data_ptr),                                                                                 \
         .user_data = (_user_data_ptr),                                                                                 \
+        LISA_DEVICE_PM_INIT(_pm_ptr)                                                                                   \
         .next = NULL,                                                                                                  \
     };                                                                                                                 \
     static const lisa_device_registry_entry_t __lisa_device_registry_##_name LISA_DEVICE_SECTION(_priority) = {        \
         .device = &__lisa_device_instance_##_name,                                                                     \
         .init_fn = (_init_fn),                                                                                         \
+        .deinit_fn = (_deinit_fn),                                                                                     \
         .init_level = (_level),                                                                                        \
         .priority = (_priority),                                                                                       \
     }
+
+#define LISA_DEVICE_REGISTER(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority)             \
+    LISA_DEVICE_REGISTER_COMMON(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority, NULL, NULL)
+
+/* 带 deinit_fn 的注册：deinit_fn 由 lisa_device_destroy() 调用，负责停止并释放该设备
+ * 驱动的软硬件资源，使其恢复到芯片上电初始状态。参数顺序为 init_fn 后紧跟 deinit_fn。 */
+#define LISA_DEVICE_REGISTER_DEINIT(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _deinit_fn, _level, _priority) \
+    LISA_DEVICE_REGISTER_COMMON(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority, NULL, _deinit_fn)
+
+#if CONFIG_LISA_PM
+#define LISA_DEVICE_PM_ATTACH(_name, _system_ops, _wakeup_ops, _ctx)                                                   \
+    static const lisa_device_pm_registry_entry_t __lisa_device_pm_registry_##_name LISA_DEVICE_PM_SECTION(_name) = {   \
+        .device = &__lisa_device_instance_##_name,                                                                     \
+        .pm = {                                                                                                        \
+            .system_ops = (_system_ops),                                                                               \
+            .wakeup_ops = (_wakeup_ops),                                                                               \
+            .ctx = (_ctx),                                                                                             \
+        },                                                                                                             \
+    }
+
+#define LISA_DEVICE_REGISTER_PM(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority,           \
+                                _system_ops, _wakeup_ops)                                                              \
+    static const lisa_device_pm_t __lisa_device_pm_##_name = {                                                         \
+        .system_ops = (_system_ops),                                                                                   \
+        .wakeup_ops = (_wakeup_ops),                                                                                   \
+        .ctx        = (_priv_data_ptr),                                                                                \
+    };                                                                                                                 \
+    LISA_DEVICE_REGISTER_COMMON(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority, &__lisa_device_pm_##_name, NULL)
+
+#define LISA_DEVICE_REGISTER_PM_DEINIT(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _deinit_fn, _level,   \
+                                       _priority, _system_ops, _wakeup_ops)                                            \
+    static const lisa_device_pm_t __lisa_device_pm_##_name = {                                                         \
+        .system_ops = (_system_ops),                                                                                   \
+        .wakeup_ops = (_wakeup_ops),                                                                                   \
+        .ctx        = (_priv_data_ptr),                                                                                \
+    };                                                                                                                 \
+    LISA_DEVICE_REGISTER_COMMON(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority, &__lisa_device_pm_##_name, _deinit_fn)
+#else
+#define LISA_DEVICE_PM_ATTACH(_name, _system_ops, _wakeup_ops, _ctx)
+
+#define LISA_DEVICE_REGISTER_PM(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority,           \
+                                _system_ops, _wakeup_ops)                                                              \
+    LISA_DEVICE_REGISTER(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _level, _priority)
+
+#define LISA_DEVICE_REGISTER_PM_DEINIT(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _deinit_fn, _level,   \
+                                       _priority, _system_ops, _wakeup_ops)                                            \
+    LISA_DEVICE_REGISTER_DEINIT(_name, _api_ptr, _priv_data_ptr, _user_data_ptr, _init_fn, _deinit_fn, _level, _priority)
+#endif
 
 /* ===== 设备操作辅助函数 ===== */
 
@@ -211,6 +359,15 @@ int lisa_device_early_init(void);
 int lisa_device_init(void);
 
 /**
+ * @brief 初始化所有 LISA_DEVICE_LEVEL_POST_KERNEL 级别的设备
+ *
+ * @return 当前设备总数
+ *
+ * @note 在 RTOS scheduler 启动后调用，用于需要任务/IPC worker 的设备。
+ */
+int lisa_device_post_kernel_init(void);
+
+/**
  * @brief 通过名称获取设备
  *
  * 获取设备并自动增加引用计数
@@ -231,6 +388,56 @@ lisa_device_t *lisa_device_get(const char *name);
  * @note 推荐在使用设备前调用此接口进行检查
  */
 bool lisa_device_ready(const lisa_device_t *dev);
+
+/**
+ * @brief 销毁设备：停止并释放该设备驱动的软硬件资源，恢复芯片上电初始状态
+ *
+ * 这是设备框架的通用运行期生命周期接口，不依赖 CONFIG_LISA_PM。它可用于
+ * 低功耗场景，也可用于普通运行期的设备热释放、错误恢复或资源重建。
+ *
+ * 调用设备注册时提供的 deinit_fn（通过 LISA_DEVICE_REGISTER_DEINIT /
+ * LISA_DEVICE_REGISTER_PM_DEINIT 挂载），由驱动负责关闭外设时钟、注销中断、
+ * 释放运行期申请的软件资源等，使硬件回到上电初始态。
+ *
+ * 框架侧行为：
+ * - CONFIG_LISA_PM=y 且设备当前作为活跃唤醒源时，先撤销唤醒配置与状态记录；
+ * - 调用 deinit_fn（若驱动未提供则仅复位框架状态）；
+ * - 将设备状态复位为 LISA_DEVICE_STATE_UNINITIALIZED 并清空统计信息；
+ * - 设备仍保留在管理器注册表中，后续可重新初始化。
+ *
+ * 幂等：设备已处于 UNINITIALIZED 状态时调用为空操作。
+ *
+ * @param dev 设备指针；为 NULL 或无效时为空操作
+ * @note deinit_fn 在不持有设备管理锁的情况下调用，约束与 init_fn 一致。
+ */
+void lisa_device_destroy(lisa_device_t *dev);
+
+/**
+ * @brief 重新初始化设备：再次调用注册时的 init_fn，恢复到 init_fn 执行后的状态
+ *
+ * 与 lisa_device_destroy() 对称，用于设备被 destroy 后的通用运行期重建。重新执行驱动注册时
+ * 提供的 init_fn（重新分配 OS 资源、重配硬件等），并把框架状态恢复为
+ * LISA_DEVICE_STATE_INITIALIZED。
+ *
+ * 典型用法（与 PM 配合）：应用在“正常任务上下文”中睡眠前调用
+ * lisa_device_destroy() 释放设备资源；唤醒后在 PM after_wake 回调（同样是正常任务
+ * 上下文，例如 lisa_pm 的 after_wake 任务）中调用本接口完成重建。
+ *
+ * @warning 严禁在关中断 / 调度器停摆的上下文（如 PM system_ops 的
+ *          prepare_suspend / resume_restore，二者运行于 HAL __disable_irq() 临界区）
+ *          中调用本接口或 lisa_device_destroy()：init_fn / deinit_fn 通常会创建或删除
+ *          FreeRTOS 对象与堆内存，在该上下文中会触发断言或死机。
+ *
+ * 幂等：设备已处于 INITIALIZED 状态时直接返回成功，不重复执行 init_fn。
+ *
+ * @param dev 设备指针
+ *
+ * @retval LISA_DEVICE_OK 重新初始化成功（含已初始化的幂等返回）
+ * @retval LISA_DEVICE_ERR_INVALID dev 为 NULL 或无效
+ * @retval LISA_DEVICE_ERR_NOT_SUPPORT 未找到注册条目或未提供 init_fn
+ * @retval LISA_DEVICE_ERR_INIT_FAIL init_fn 返回非 0
+ */
+int lisa_device_reinit(lisa_device_t *dev);
 
 /* ========================================================================
  * 查询接口
@@ -257,6 +464,63 @@ void lisa_device_get_stats(const lisa_device_t *dev, lisa_device_stats_t *stats)
  * @param dev 设备指针
  */
 void lisa_device_reset_stats(lisa_device_t *dev);
+
+#if CONFIG_LISA_PM
+/* ========================================================================
+ * Device-side wakeup-source API（与源类型无关的总闸）
+ * ======================================================================== */
+
+/**
+ * @brief 查询某 device 是否硬件支持作唤醒源
+ *
+ * 实现等价：dev->pm != NULL && dev->pm->wakeup_ops != NULL
+ *
+ * @param dev 设备指针
+ *
+ * @retval true 该 device 已挂载 wakeup_ops vtable
+ * @retval false dev 为 NULL、未挂载 PM 描述、或未挂载 wakeup_ops
+ */
+bool lisa_device_wakeup_is_capable(lisa_device_t *dev);
+
+/**
+ * @brief 启用或禁用某 device 作为活跃唤醒源
+ *
+ * 必须先通过 device 自己的 configure API 配置好触发条件（如
+ * lisa_gpio_configure_wakeup）。否则 set_enabled(true) 在 driver 内部
+ * 会因 cache 为空返回 0（幂等空启用），实际硬件 wakeup 路径不开通。
+ *
+ * @param dev 设备指针
+ * @param enable true=启用 / false=禁用
+ *
+ * @retval 0 成功
+ * @retval LISA_DEVICE_ERR_INVALID dev 为 NULL
+ * @retval LISA_DEVICE_ERR_NOT_SUPPORT 该 device 不支持作唤醒源
+ * @retval <0 driver set_enabled 透传的错误
+ */
+int32_t lisa_device_wakeup_enable(lisa_device_t *dev, bool enable);
+
+/**
+ * @brief 查询某 device 当前是否处于"已启用 wakeup"状态
+ *
+ * 反映 device 框架维护的 per-device 状态，不实时向 driver 查询。
+ *
+ * @param dev 设备指针
+ *
+ * @retval true 上一次调用是 enable(true) 且未被 enable(false) 撤销
+ * @retval false 其他情况（含 dev 为 NULL、不 capable）
+ */
+bool lisa_device_wakeup_is_enabled(lisa_device_t *dev);
+
+/**
+ * @brief 遍历通过 LISA_DEVICE_PM_ATTACH 声明的 PM 能力
+ *
+ * @param callback 遍历回调；返回非 0 时停止遍历
+ * @param user_data 透传给回调的用户数据
+ *
+ * @return 遍历到的有效 PM attach 条目数量；参数非法时返回 LISA_DEVICE_ERR_INVALID
+ */
+int lisa_device_pm_foreach(lisa_device_pm_iterator_cb callback, void *user_data);
+#endif /* CONFIG_LISA_PM */
 
 /* ========================================================================
  * 遍历接口

@@ -18,8 +18,8 @@
  */
 #include <stdint.h>
 #include <stdbool.h>
-#include "ipc_shared.h"
-#include "ipc_core.h"
+#include "amp_shared.h"
+#include "ipc_types.h"
 #include "ls_event.h"
 
 #define CFG_IND_EVENT_LEN_MAX      64
@@ -56,7 +56,6 @@ struct cfg_ind_event
     uint8_t event_data[CFG_IND_EVENT_LEN_MAX];
 };
 
-void ipc_send_notify(uint32_t event);
 void ipc_set_app_status(uint32_t bit_mask);
 uint32_t ipc_get_app_status(uint32_t bit_mask);
 void ipc_clear_app_status(uint32_t bit_mask);
@@ -65,5 +64,11 @@ int32_t ipc_halt_peer_init(void);
 int32_t ipc_halt_peer_core(void);
 int32_t ipc_resume_peer_core(void);
 volatile struct amp_shared_info* ipc_get_shared_info(void);
+#ifdef CFG_AMP_IPC
+int32_t ipc_peer_msg_push(uint32_t ep_idx, int32_t len, void *data);
+#endif
+#ifdef CFG_AMP_IPC_INDICATION
+int32_t ipc_indication_handler(struct ipc_msg_desc *desc, void *arg);
+#endif
 
 #endif

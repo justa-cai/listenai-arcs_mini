@@ -24,10 +24,6 @@
 static Shell *g_shell;
 static lisa_device_t *shell_dev;
 
-/* UART接收缓冲区 */
-static uint8_t rx_buffer[CONFIG_LISA_SHELL_RX_BUF_SIZE];
-
-
 static signed short shell_write(char *data, unsigned short size)
 {
     for (size_t i = 0; i < size; i++) {
@@ -36,22 +32,44 @@ static signed short shell_write(char *data, unsigned short size)
     return size;
 }
 
+#ifdef CONFIG_LISA_SHELL_RX_MODE_POLL_IN
+static signed short shell_read(char *data, unsigned short len)
+{
+    unsigned short read_len = 0;
 
+    while (read_len < len) {
+        uint8_t byte;
+        int ret = lisa_uart_poll_in(shell_dev, &byte);
 
+        if (ret != LISA_DEVICE_OK) {
+            if (read_len == 0 && ret == LISA_DEVICE_ERR_TIMEOUT) {
+                vTaskDelay(pdMS_TO_TICKS(CONFIG_LISA_SHELL_POLL_IN_INTERVAL_MS));
+            }
+            break;
+        }
 
+        data[read_len++] = (char)byte;
+    }
+
+    return read_len;
+}
+#else
 static signed short shell_read(char *data, unsigned short len)
 {
     int ret = lisa_uart_read_sync(shell_dev, (uint8_t *)data, len);
-    if(ret == LISA_DEVICE_ERR_OVERFLOW){
+
+    if (ret == LISA_DEVICE_ERR_OVERFLOW) {
         lisa_uart_rx_disable(shell_dev);
         if (lisa_uart_rx_enable(shell_dev) == 0) {
             LISA_LOGI(TAG, "Reception restarted");
         } else {
             LISA_LOGE(TAG, "Failed to restart reception");
-        }     
+        }
     }
+
     return (ret > 0) ? ret : 0;
 }
+#endif
 
 void log_shell_backend_output(const uint8_t *log, uint32_t len, void *data)
 {
@@ -70,8 +88,10 @@ int lisa_shell_init(void)
 
     lisa_uart_config_t config = LISA_UART_CONFIG_DEFAULT();
     config.baudrate = CONFIG_CONSOLE_UART_BAUDRATE;
+#ifndef CONFIG_LISA_SHELL_RX_MODE_POLL_IN
     config.rx_buf_config.buffer_count = 2;
     config.rx_buf_config.buffer_size = CONFIG_LISA_SHELL_RX_BUF_SIZE;
+#endif
     if (lisa_uart_configure(shell_dev, &config) != 0) {
         LISA_LOGE(LOG_TAG, "Failed to configure UART");
         return -1;

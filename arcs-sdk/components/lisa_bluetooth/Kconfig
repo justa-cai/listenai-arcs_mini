@@ -18,6 +18,15 @@ if LISA_BLUETOOTH
 		help
 			Device name used for BLE advertising / BT classic.
 
+	config LISA_BLUETOOTH_MAX_DISCOVERED_DEVICES
+		int "Maximum discovered Bluetooth devices"
+		default 10
+		range 1 255
+		help
+			Maximum number of devices cached during Bluetooth discovery.
+			BT Classic inquiry uses the same value as the controller
+			response limit for time-based scans.
+
 	config LISA_BLUETOOTH_CLASSIC
 		bool "Enable Lisa Bluetooth Classic"
 		help
@@ -28,6 +37,16 @@ if LISA_BLUETOOTH
 			bool "Enable Lisa Bluetooth Classic HFP"
 			help
 				Enable Lisa Bluetooth Classic HFP component.
+
+		config LISA_BLUETOOTH_HFP_MSBC_SUPPORT
+			bool "Enable HFP mSBC wideband speech"
+			depends on LISA_BLUETOOTH_CLASSIC_HFP
+			default y
+			select AUDIO_CODEC
+			select AUDIO_CODEC_MSBC
+			help
+				Enable mSBC/WBS negotiation for HFP calls. Disable this to
+				force CVSD/NBS 8 kHz HFP audio.
 
 		config LISA_BLUETOOTH_CLASSIC_AUDIO
 			bool "Enable Lisa Bluetooth Classic Audio"
@@ -163,12 +182,14 @@ config LISA_BLUETOOTH_BUILD_IPC_CLIENT
 	depends on ARCS_HAL_IPC
 	default y if LISA_BLUETOOTH_BLE && LISA_BLUETOOTH_ROLE_IPC_CALLER
 	select ARCS_HAL_IPC_MRPC_CLIENT_BT
+	select ARCS_HAL_IPC_MRPC_SERVER_BT_S2M if LISA_BLUETOOTH_BLE_NETCFG
 
 config LISA_BLUETOOTH_BUILD_IPC_SERVER
 	bool
 	depends on ARCS_HAL_IPC
 	default y if LISA_BLUETOOTH_BLE && LISA_BLUETOOTH_ROLE_IPC_RECEIVER
 	select ARCS_HAL_IPC_MRPC_SERVER_BT
+	select ARCS_HAL_IPC_MRPC_CLIENT_BT_S2M if LISA_BLUETOOTH_BLE_NETCFG
 
 config LISA_BLUETOOTH_WHITE_LIST_ADD
 	bool "Enable BLE white list add"
@@ -186,6 +207,31 @@ config LISA_BLUETOOTH_NVDS
 	bool "Enable Lisa Bluetooth NVDS"
 	help
 		Enable Lisa Bluetooth NVDS component.
+
+choice LISA_BLUETOOTH_STORAGE_BACKEND
+	prompt "Bluetooth pairing storage backend"
+	default LISA_BLUETOOTH_STORAGE_NONE
+	help
+		Select where Bluetooth pairing data is persisted.
+
+	config LISA_BLUETOOTH_STORAGE_NONE
+		bool "Disabled"
+		help
+			Do not persist Bluetooth pairing data.
+
+	config LISA_BLUETOOTH_STORAGE_NVS
+		bool "NVS"
+		depends on ARCS_HAL_NVS || ARCS_HAL_IPC_MRPC_CLIENT_NVS
+		help
+			Save Bluetooth pairing data through the legacy NVDS/NVS backend.
+
+	config LISA_BLUETOOTH_STORAGE_KV
+		bool "Lisa KV"
+		select LISA_KV
+		help
+			Save Bluetooth pairing data through Lisa KV.
+
+endchoice
 
 config LISA_BLUETOOTH_TASK_STACK_SIZE
 	int "Bluetooth task stack size(x4 bytes)"

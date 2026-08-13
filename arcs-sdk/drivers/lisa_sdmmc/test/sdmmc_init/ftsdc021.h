@@ -1,0 +1,6 @@
+#ifndef TEST_FTSDC021_H
+#define TEST_FTSDC021_H
+
+#define UHS_SDR25_BUS_SPEED 25U
+
+#endif

@@ -14,6 +14,7 @@
 #ifndef __VRTC_H__
 #define __VRTC_H__
 
+#define VRTC_FLAGS_WAITING_RCCALI_DONE        0x00000001
 
 enum
 {
@@ -29,6 +30,8 @@ int32_t vrtc_set_timer(int32_t timer_idx, uint32_t duration_us, void (*handler) 
 uint64_t vrtc_get_time_us(void);
 int32_t vrtc_get_time(int32_t origin, uint32_t *sec, uint32_t *usec);
 int32_t vrtc_set_timer_from_ipc(void);
+int32_t vrtc_is_allow_sleep(uint16_t auto_mode);
+void vrtc_set_flag(uint32_t flag_bit);
 
 #endif
 

@@ -17,7 +17,7 @@
 #include "log_print.h"
 
 #define NETCFG_BLE_PREFIX_ID    0x03e4
-#define NETCFG_BLE_DBG          1
+#define NETCFG_BLE_DBG          0
 
 #define NETCFG_BLE_SSID_MAX_LEN 36
 #define NETCFG_BLE_PWD_MAX_LEN  64

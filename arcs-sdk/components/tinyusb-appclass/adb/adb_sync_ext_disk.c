@@ -66,37 +66,55 @@ static uint8_t *adb_sync_ext_disk_boot_flash_stage_buf_get(bool *from_psram)
     return boot_flash_stage_buf;
 }
 
-static void adb_sync_ext_disk_boot_watchdog_feed(void)
-{
-    extern int boot_watchdog_feed(void);
-
-    boot_watchdog_feed();
-}
 #endif
 
-__attribute__((weak)) bool adb_sync_ext_disk_policy_can_access(const char *name, uint64_t addr, uint64_t size,
-                                                               bool write)
+/* Policy ops registered by the caller (NULL = no caller has registered yet,
+ * see adb_sync_ext_disk.h for default semantics). */
+static const struct adb_sync_ext_disk_policy_ops *g_policy_ops;
+
+void adb_sync_ext_disk_set_policy(const struct adb_sync_ext_disk_policy_ops *ops)
 {
-    (void)name;
-    (void)addr;
-    (void)size;
-    (void)write;
+    g_policy_ops = ops;
+}
+
+/* Runtime hooks 与 policy 正交，单独 setter。 */
+static const struct adb_sync_ext_disk_runtime_ops *g_runtime_ops;
+
+void adb_sync_ext_disk_set_runtime_ops(const struct adb_sync_ext_disk_runtime_ops *ops)
+{
+    g_runtime_ops = ops;
+}
+
+/* 长块 erase/write 中的协作 yield 点：组件不反向依赖任何 wdt 实现，
+ * 由 caller 通过 runtime_ops->yield 注入；未注册即 no-op。 */
+static void adb_sync_ext_disk_yield(void)
+{
+    if (g_runtime_ops != NULL && g_runtime_ops->yield != NULL) {
+        g_runtime_ops->yield();
+    }
+}
+
+static bool adb_sync_ext_disk_policy_can_access(const char *name, uint64_t addr, uint64_t size, bool write)
+{
+    if (g_policy_ops != NULL && g_policy_ops->can_access != NULL) {
+        return g_policy_ops->can_access(name, addr, size, write);
+    }
     return true;
 }
 
-__attribute__((weak)) int adb_sync_ext_disk_policy_write_start(const char *name, uint64_t addr, uint64_t size)
+static int adb_sync_ext_disk_policy_write_start(const char *name, uint64_t addr, uint64_t size)
 {
-    (void)name;
-    (void)addr;
-    (void)size;
+    if (g_policy_ops != NULL && g_policy_ops->write_start != NULL) {
+        return g_policy_ops->write_start(name, addr, size);
+    }
     return 0;
 }
 
-__attribute__((weak)) void adb_sync_ext_disk_policy_write_done(const char *name, uint64_t addr, uint64_t size)
+static void adb_sync_ext_disk_policy_write_done(const char *name, uint64_t addr, uint64_t size)
 {
-    (void)name;
-    (void)addr;
-    (void)size;
+    if (g_policy_ops != NULL && g_policy_ops->write_done != NULL) {
+        g_policy_ops->write_done(name, addr, size);
+    }
 }
 
 static uint64_t adb_sync_ext_disk_final_size(const struct adb_sync_ext_disk_ctx *ctx)
@@ -170,9 +188,9 @@ static int adb_sync_ext_disk_boot_flash_ensure_erased(struct adb_sync_ext_disk_c
 
     erase_len = (uint32_t)(required_size - ctx->erased_size);
     begin_tick = adb_sync_ext_disk_ticks_now();
-    adb_sync_ext_disk_boot_watchdog_feed();
+    adb_sync_ext_disk_yield();
     r = boot_flash_erase(adb_sync_ext_disk_boot_flash_ptr(ctx->start_addr + ctx->erased_size), erase_len);
-    adb_sync_ext_disk_boot_watchdog_feed();
+    adb_sync_ext_disk_yield();
     if (r) {
         ADB_LOGE("boot raw flash erase failed, addr:0x%08x size:0x%08x err:%d\n",
                  (uint32_t)(ctx->start_addr + ctx->erased_size), erase_len, r);
@@ -201,9 +219,9 @@ static int adb_sync_ext_disk_boot_flash_program(struct adb_sync_ext_disk_ctx *ct
     }
 
     begin_tick = adb_sync_ext_disk_ticks_now();
-    adb_sync_ext_disk_boot_watchdog_feed();
+    adb_sync_ext_disk_yield();
     r = boot_flash_write(adb_sync_ext_disk_boot_flash_ptr(flash_addr), (uint8_t *)data, len);
-    adb_sync_ext_disk_boot_watchdog_feed();
+    adb_sync_ext_disk_yield();
     if (r) {
         ADB_LOGE("boot raw flash write failed, addr:0x%08x size:0x%08x err:%d\n",
                  (uint32_t)flash_addr, len, r);
@@ -343,10 +361,10 @@ struct adb_sync_ext_disk_ctx *adb_sync_ext_disk_ctx_init(const char *name, uint6
 
 #ifdef CONFIG_BOOT_ADB
     if (ctx->direct_flash && write) {
-        adb_sync_ext_disk_boot_watchdog_feed();
+        adb_sync_ext_disk_yield();
         boot_flash_session_begin();
         ctx->direct_flash_session_active = true;
-        adb_sync_ext_disk_boot_watchdog_feed();
+        adb_sync_ext_disk_yield();
     }
 #endif
 
@@ -384,7 +402,9 @@ static int adb_sync_ext_disk_flush(struct adb_sync_ext_disk_ctx *ctx)
     }
 #endif
 
+    adb_sync_ext_disk_yield();
     r = disk_access_write(ctx->name, ctx->buf, ctx->curr_sec, 1);
+    adb_sync_ext_disk_yield();
     if (r) {
         return r;
     }
@@ -447,7 +467,9 @@ static int adb_sync_ext_disk_write_align_start_sector(struct adb_sync_ext_disk_c
 
     sector_count = len / ctx->sec_size;
     if (sector_count != 0) {
+        adb_sync_ext_disk_yield();
         r = disk_access_write(ctx->name, data, ctx->curr_sec, sector_count);
+        adb_sync_ext_disk_yield();
         if (r) {
             return r;
         }
@@ -588,7 +610,9 @@ int adb_sync_ext_disk_read(struct adb_sync_ext_disk_ctx *ctx, uint8_t *data, uin
 #endif
 
     sector_count = (len / ctx->sec_size) + ((len % ctx->sec_size) ? 1u : 0u);
+    adb_sync_ext_disk_yield();
     r = disk_access_read(ctx->name, data, ctx->curr_sec, sector_count);
+    adb_sync_ext_disk_yield();
     if (r) {
         return r;
     }

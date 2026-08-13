@@ -1,0 +1,7 @@
+tests:
+  samples.subsys.lua.lua_binding_lvgl:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "LVGL display/touch ready"

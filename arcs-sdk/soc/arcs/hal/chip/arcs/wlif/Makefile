@@ -27,8 +27,6 @@ CFLAGS  = -I$(TOPDIR)/include/NMSIS/Core/Include \
           -I$(TOPDIR)/include/rtos \
           -I$(TOPDIR)/chip/${CHIP}/include \
           -I$(TOPDIR)/chip/$(CHIP)/include/utils\
-          -I$(TOPDIR)/chip/${CHIP}/ipc/ipc_core\
-          -I$(TOPDIR)/chip/$(CHIP)/ipc/ipc_utils\
           -I$(TOPDIR)/chip/$(CHIP)/include/ipc\
           -I$(TOPDIR)/chip/$(CHIP)/include/net\
           -I$(TOPDIR)/chip/$(CHIP)/include/wifi\

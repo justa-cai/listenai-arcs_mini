@@ -45,6 +45,71 @@ config LWIP_SOCKET_UDP_TX_COPY
         Copy UDP and RAW socket payloads into lwIP-owned buffers in
         sendto/sendmsg without enabling the broader WiFi/L2 TX_BUF_COPY path.
 
+config LWIP_USB_ECM_TUNING
+    bool "Use USB ECM tuned lwIP TCP options"
+    default n
+    help
+        Enable TCP defaults tuned for USB CDC ECM/cellular links. The default
+        keeps the historical lwIP values so existing WiFi projects are not
+        changed unless a project selects this profile or overrides the values
+        below explicitly.
+
+config LWIP_TCPIP_CORE_LOCKING_INPUT
+    int "lwIP TCP/IP core locking input"
+    default 1
+    range 0 1
+    help
+        Value assigned to LWIP_TCPIP_CORE_LOCKING_INPUT in lwipopts.h.
+        The default keeps the existing input processing model.
+
+config LWIP_PBUF_POOL_SIZE
+    int "lwIP pbuf pool size"
+    default 0
+    range 0 4096
+    help
+        Value assigned to PBUF_POOL_SIZE in lwipopts.h.
+        The default keeps the existing project behavior. Increasing this
+        value allocates more lwIP pbuf pool memory and may affect RAM usage.
+
+config LWIP_TCP_WND_MSS_MULTIPLIER
+    int "lwIP TCP receive window multiplier of TCP_MSS"
+    default 128 if LWIP_USB_ECM_TUNING
+    default 20
+    range 1 256
+    help
+        Value assigned to TCP_WND as a multiplier of TCP_MSS. The default 20
+        keeps the historical SDK value. USB ECM tuning uses a larger window
+        for cellular throughput.
+
+config LWIP_TCP_OOSEQ_MAX_BYTES_MSS_MULTIPLIER
+    int "lwIP TCP OOSEQ max bytes multiplier of TCP_MSS"
+    default 64 if LWIP_USB_ECM_TUNING
+    default 0
+    range 0 1024
+    help
+        Value assigned to TCP_OOSEQ_MAX_BYTES as a multiplier of TCP_MSS.
+        Set to 0 to leave TCP_OOSEQ_MAX_BYTES undefined, matching the
+        historical SDK behavior.
+
+config LWIP_TCP_OOSEQ_MAX_PBUFS
+    int "lwIP TCP OOSEQ max pbufs"
+    default 96 if LWIP_USB_ECM_TUNING
+    default 0
+    range 0 4096
+    help
+        Value assigned to TCP_OOSEQ_MAX_PBUFS. Set to 0 to leave it
+        undefined, matching the historical SDK behavior.
+
+config LWIP_TCP_RTO_TIME
+    int "lwIP initial TCP retransmission timeout in ms"
+    default 3000 if LWIP_USB_ECM_TUNING
+    default 1000
+    range 250 60000
+    help
+        Value assigned to LWIP_TCP_RTO_TIME in lwipopts.h. The default 1000
+        keeps the historical SDK value; USB ECM tuning restores the standard
+        3000 ms initial timeout for weak cellular links.
+
 config LWIP_NETAL_TX_BUF_SIZE
     int "lwip net-al tx buffer size"
     default 1536

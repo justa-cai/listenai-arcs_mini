@@ -1,5 +1,0 @@
-tests:
-  test.components.uboot_ota_api:
-    programmer: arcs
-    runner: uart
-    log_analyzer: Unity

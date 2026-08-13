@@ -214,6 +214,12 @@ enum bt_hfp_phb_vr_res
     BT_HF_VR_RES_ANS_APPEND,
 };
 
+enum bt_hfp_at_codec_type
+{
+    BT_BAC_HF_CODEC_TYPE = 0,
+    BT_BCS_HF_CODEC_TYPE = 1,
+};
+
 typedef enum
 {
     HFP_MEDIA_CODEC_AUTO = 0,

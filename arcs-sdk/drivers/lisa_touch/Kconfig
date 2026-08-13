@@ -22,5 +22,6 @@ rsource "Kconfig.arcs.ft5336"
 rsource "Kconfig.arcs.cst816d"
 rsource "Kconfig.arcs.st77921"
 rsource "Kconfig.arcs.bl6133"
+rsource "Kconfig.arcs.chsc6540"
 
 endif # LISA_TOUCH_DEVICE

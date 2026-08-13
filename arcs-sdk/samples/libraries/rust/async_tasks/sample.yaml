@@ -1,0 +1,9 @@
+tests:
+  samples.libraries.rust.async_tasks:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "async_tasks:ok"

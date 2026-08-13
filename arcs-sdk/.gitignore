@@ -1,5 +1,6 @@
 guardian-out*/
 /build*/
+/system/uboot/
 listenai-tools/
 .vscode
 listenai-dev-tools
@@ -11,12 +12,14 @@ listenai-dev-tools
 
 # AI tools & editors
 .agent/
-.agents/
+.agents/*
+!.agents/skills/
 .augment/
 .claude/*
 .codex
 !.claude/skills
-.windsurf/
+.windsurf/*
+!.windsurf/skills/
 /skills/
 skills-lock.json
 .openclaw/
@@ -29,6 +32,10 @@ TOOLS.md
 USER.md
 docs/superpowers/plans/
 docs/superpowers/specs/
+
+# Zig build artifacts
+zig/.zig-cache/
+zig/zig-out/
 
 # ── GSD baseline (auto-generated) ──
 .gsd
@@ -57,3 +64,15 @@ vendor/
 *.log
 coverage/
 tmp/
+
+# Rust build artifacts
+modules/rust/target/
+modules/rust/**/cargo-out/
+samples/libraries/rust/**/cargo-out/
+test/rust/**/cargo-out/
+
+# ignore macOS
+.DS_Store
+
+# for local Unit Test
+test/local/

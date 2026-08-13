@@ -47,6 +47,7 @@ extern uint16_t dis_profile_get_cb(uint8_t conidx, uint8_t att_idx, uint8_t *p_v
 extern uint8_t app_ble_adv_start(uint8_t adv_id, uint8_t adv_type);
 extern uint8_t bt_stack_nvs_get(uint8_t param_id, uint8_t * lengthPtr, uint8_t *buf);
 extern uint8_t bt_stack_nvs_del(uint8_t param_id);
+extern void bt_paired_record_update(const gap_bdaddr_t *addr, uint8_t transport);
 extern void gapc_con_param_clear_peer_feat(uint8_t conidx);
 extern uint8_t ble_gap_get_ltk_nocon(gap_addr_t * addr, uint8_t *p_ltk);
 extern uint8_t app_hid_rcv_data(uint8_t conidx, uint16_t index, uint16_t length, uint16_t offset, uint8_t *data);
@@ -55,8 +56,8 @@ extern uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint
 #endif
 
 void bt_stack_ble_hid_rcv(uint8_t conidx, uint16_t index, uint16_t length, uint16_t offset, uint8_t *data);
-static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id);
-static void  bt_stack_ble_hid_read_cmp(uint32_t token, uint8_t val_id);
+static void bt_stack_ble_hid_send_cmp(uint8_t conidx, uint32_t token, uint8_t val_id);
+static void  bt_stack_ble_hid_read_cmp(uint8_t conidx, uint32_t token, uint8_t val_id);
 uint8_t *bt_stack_vbat_percent_get(void);
 void bt_stack_ble_parameter_update_by_timer(uint32_t milli_seconds);
 
@@ -65,6 +66,8 @@ void bt_stack_ble_parameter_update_by_timer(uint32_t milli_seconds);
  ****************************************************************************************
  */
 extern struct ble_rf_api lsip_rf;
+static gap_bdaddr_t s_ble_peer_addr;
+static bool s_ble_peer_valid;
 
 /// Message callback handle from APP
 const hogpd_cb_t bt_stack_ble_hogpd_msg_cb =
@@ -276,8 +279,32 @@ void bt_stack_ble_enable_cmp(uint16_t status)
     ble_gap_set_con_param_dis(1);
 #endif
 
+#if !BT_STACK_PRESENT
+    if (status == 0) {
+        bt_stack_if_get_env()->bt_open = BT_STATE_OPENED;
+    }
+#endif
+
     /// notify user that BLE stack is ready for custom GATT services
     lisa_ble_notify_enable_cmp(status);
+}
+
+///actv         0:stop, 1:start
+///resquester   0:auto, 1:user
+void bt_stack_ble_actv_ind(uint8_t actv, uint8_t type, uint8_t actv_id, uint8_t resquester, int16_t status)
+{
+    switch(type)
+    {
+        case GAPM_ACTV_TYPE_ADV :
+        case GAPM_ACTV_TYPE_SCAN :
+        case GAPM_ACTV_TYPE_INIT :
+        case GAPM_ACTV_TYPE_PER_SYNC :
+        {
+            CLOGD("ble actv :act-type-id:%d-%d-%d,req:%d,sta:0x%x", actv, type, actv_id, resquester, status);
+        }
+        break;
+        default : break;
+    }
 }
 
 void bt_stack_ble_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *peer_addr)
@@ -285,7 +312,12 @@ void bt_stack_ble_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *peer_a
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
 
     stack_env->bt_ble_connected = 1;
+    stack_env->bt_ble_conidx = conidx;
     CLOGD("ble connected!");
+    if (peer_addr) {
+        s_ble_peer_addr = *peer_addr;
+        s_ble_peer_valid = true;
+    }
     /// save last device address
     bt_stack_nvs_set(NVS_ID_PEER_ADDRESS, GAP_BD_ADDR_LEN, peer_addr->addr);
 
@@ -327,6 +359,11 @@ void bt_stack_ble_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
 
     /// notify user of BLE disconnection
     lisa_ble_notify_disconnected(conidx, conhdl, reason);
+
+    if(stack_env->bt_open != BT_STATE_OPENED)
+    {
+        bt_stack_if_close_discon(0);
+    }
 }
 
 void bt_stack_ble_key_req(uint8_t conidx, uint8_t key_type, uint32_t key)
@@ -354,6 +391,9 @@ void bt_stack_ble_bond_ind(uint8_t conidx, uint16_t status)
                 ble_gap_add_paired_rpa_to_rlist();
 #endif
                 stack_env->bt_ble_encryption = 1;
+                if (s_ble_peer_valid) {
+                    bt_paired_record_update(&s_ble_peer_addr, BT_PAIRED_TRANSPORT_BLE);
+                }
             }
             break;
         case GAP_PAIRING_FAILED :
@@ -482,7 +522,7 @@ uint8_t bt_stack_ble_hid_send(uint8_t conidx, uint8_t report_idx, uint8_t length
     return status;
 }
 
-static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id)
+static void bt_stack_ble_hid_send_cmp(uint8_t conidx, uint32_t token, uint8_t val_id)
 {
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
 
@@ -497,7 +537,7 @@ static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id)
     //}
 }
 
-static void  bt_stack_ble_hid_read_cmp(uint32_t token, uint8_t val_id)
+static void  bt_stack_ble_hid_read_cmp(uint8_t conidx, uint32_t token, uint8_t val_id)
 {
     ///to do;
 }

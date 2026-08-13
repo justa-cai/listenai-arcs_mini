@@ -11,6 +11,10 @@
 #include "lisa_audio.h"
 #include "lisa_audio_internal.h"
 
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
+
 #define MAX_AUDIO_OBSERVERS 4
 #define WAIT_DATA_TIMEOUT    (20)
 #define DISPATCH_QUEUE_SIZE (CONFIG_LISA_AUDIO_RECORD_BUFFER_COUNT - 1)
@@ -278,61 +282,192 @@ int audio_submit_event_from_isr(internal_audio_event_t *event)
 }
 
 
-static int audio_init(void)
+/**
+ * @brief 创建 audio 设备的 OS 资源与子模块 HAL 句柄（仅启动期调用一次）
+ *
+ * 这里集中分配跨 suspend/resume 必须保留的全部资源：
+ *   - 顶层 mutex / record_queue / echo_queue / dispatch_task
+ *   - 子模块 record / play 的 HAL 句柄与 sub-priv 初始化（其内部 memset
+ *     仅作用于 sub-priv，不会触碰顶层资源；submodule 的 OS 资源由后续
+ *     audio_record_config / audio_play_config 按需创建，跨 PM 保留）
+ *
+ * resume_restore 路径不会调用本函数，避免对已存在 OS 句柄的二次创建/泄漏。
+ */
+static int arcs_audio_init_resources(lisa_audio_priv_t *priv)
 {
-    int ret;
-
-    memset(&audio_priv, 0, sizeof(audio_priv));
-
-    audio_priv.mutex = lisa_mutex_create();
-    if (!audio_priv.mutex) {
+    priv->mutex = lisa_mutex_create();
+    if (!priv->mutex) {
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
     /* Create queues for record and echo events */
-    audio_priv.record_queue = xQueueCreate(DISPATCH_QUEUE_SIZE, sizeof(internal_audio_event_t));
+    priv->record_queue = xQueueCreate(DISPATCH_QUEUE_SIZE, sizeof(internal_audio_event_t));
 #if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
-    audio_priv.echo_queue = xQueueCreate(DISPATCH_QUEUE_SIZE, sizeof(internal_audio_event_t));
+    priv->echo_queue = xQueueCreate(DISPATCH_QUEUE_SIZE, sizeof(internal_audio_event_t));
 #endif
 
-    if (!audio_priv.record_queue
+    if (!priv->record_queue
 #if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
-        || !audio_priv.echo_queue
+        || !priv->echo_queue
 #endif
     ) {
-        if (audio_priv.record_queue) vQueueDelete(audio_priv.record_queue);
+        if (priv->record_queue) vQueueDelete(priv->record_queue);
 #if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
-        if (audio_priv.echo_queue) vQueueDelete(audio_priv.echo_queue);
+        if (priv->echo_queue) vQueueDelete(priv->echo_queue);
 #endif
-        lisa_mutex_delete(audio_priv.mutex);
+        lisa_mutex_delete(priv->mutex);
         return LISA_DEVICE_ERR_NO_MEM;
     }
 
     if (xTaskCreate(audio_dispatch_thread, "audio_dispatch",
                     CONFIG_LISA_AUDIO_DISPATCH_TASK_STACK_SIZE / sizeof(StackType_t),
-                    &audio_priv,
+                    priv,
                     configMAX_PRIORITIES - CONFIG_LISA_AUDIO_DISPATCH_TASK_PRIORITY - 1,
-                    &audio_priv.dispatch_task) != pdPASS) {
-        vQueueDelete(audio_priv.record_queue);
+                    &priv->dispatch_task) != pdPASS) {
+        vQueueDelete(priv->record_queue);
 #if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
-        if (audio_priv.echo_queue) vQueueDelete(audio_priv.echo_queue);
+        if (priv->echo_queue) vQueueDelete(priv->echo_queue);
 #endif
-        lisa_mutex_delete(audio_priv.mutex);
+        lisa_mutex_delete(priv->mutex);
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    ret = arcs_audio_record_init(&audio_priv.record);
+    int ret = arcs_audio_record_init(&priv->record);
     if (ret != LISA_DEVICE_OK) {
         return ret;
     }
 
-    ret = arcs_audio_play_init(&audio_priv.play);
+    ret = arcs_audio_play_init(&priv->play);
     if (ret != LISA_DEVICE_OK) {
         return ret;
     }
 
     return LISA_DEVICE_OK;
 }
+
+/**
+ * @brief 幂等的 HAL/codec 层重置；启动期与 resume_restore 共用
+ *
+ * audio 的子模块 (record / play) 没有提供原子的 HAL re-init 接口，且 sub-priv
+ * 内含 _config 阶段分配的 OS 资源（queue / buffer pool / event group），重新
+ * memset 会泄漏。因此本函数只负责把"运行标记"与本驱动层的同步业务字段拉回
+ * 出口形态：codec / DMA / I2C 等掉电硬件由应用层 after_wake 重新配置
+ * （详见 spec 注）。
+ *
+ * Red-line：不分配任何 OS 资源，不删除任何已有 OS 句柄，不释放堆内存。
+ */
+static int arcs_audio_init_hw(lisa_audio_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    priv->record_running = false;
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    priv->play_running = false;
+    priv->echo_drop_samples = 0;
+#endif
+    priv->record_drop_samples = 0;
+    priv->pending_record_drops = 0;
+    priv->pending_echo_drops = 0;
+
+    return LISA_DEVICE_OK;
+}
+
+static int audio_init(void)
+{
+    memset(&audio_priv, 0, sizeof(audio_priv));
+
+    int ret = arcs_audio_init_resources(&audio_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    return arcs_audio_init_hw(&audio_priv);
+}
+
+/**
+ * @brief 停止并释放 audio0 设备的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用。释放顺序与 arcs_audio_init_resources 申请顺序相反：
+ *   1) 先删除 dispatch 线程，避免其在队列被删除后继续访问已释放资源；
+ *   2) 反初始化 play / record 子模块（HAL 下电 + 运行期 OS/堆资源释放）；
+ *   3) 删除顶层 record_queue / echo_queue / mutex；
+ *   4) memset 整个顶层 priv，回到 audio_init 之前的零初值。
+ *
+ * 约定：调用方需保证此时录/放已停止、无并发业务在使用本设备（与初始化路径一致）。
+ */
+static int audio_deinit(void)
+{
+    lisa_audio_priv_t *priv = &audio_priv;
+
+    /* 1) 先删 dispatch 线程，停止对 record_queue / echo_queue 的访问 */
+    if (priv->dispatch_task) {
+        vTaskDelete(priv->dispatch_task);
+        priv->dispatch_task = NULL;
+    }
+
+    /* 2) 反初始化子模块（内部完成 HAL 下电与运行期资源释放） */
+    arcs_audio_play_deinit(&priv->play);
+    arcs_audio_record_deinit(&priv->record);
+
+    /* 3) 删除顶层 OS 资源 */
+    if (priv->record_queue) {
+        vQueueDelete(priv->record_queue);
+        priv->record_queue = NULL;
+    }
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    if (priv->echo_queue) {
+        vQueueDelete(priv->echo_queue);
+        priv->echo_queue = NULL;
+    }
+#endif
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+        priv->mutex = NULL;
+    }
+
+    /* 4) 清空顶层状态，回到上电初始态 */
+    memset(&audio_priv, 0, sizeof(audio_priv));
+
+    return LISA_DEVICE_OK;
+}
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在正常任务上下文中睡眠前调
+ * lisa_device_destroy(audio0) 释放全部软硬件资源，唤醒后在 PM after_wake 回调中调
+ * lisa_device_reinit(audio0) 重建到 audio_init 后的状态。因此 prepare_suspend /
+ * resume_restore 不再需要（原先它们只做字段清零 / arcs_audio_init_hw，已被
+ * destroy/reinit 覆盖，且二者运行于 HAL __disable_irq() 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：在 AUTO_LIGHT_SLEEP 策略下，录/放运行中（DMA 搬运 DAC/ADC）
+ * 阻止系统自动进入轻睡眠。只读 priv 运行标记，不取 mutex / 不读 HAL。
+ */
+static int32_t arcs_audio_pm_check_idle(void *ctx)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    if (priv->record_running) {
+        return 0;
+    }
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    if (priv->play_running) {
+        return 0;
+    }
+#endif
+    return 1;
+}
+
+static const lisa_pm_system_ops_t arcs_audio_pm_ops = {
+    .check_idle      = arcs_audio_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif /* CONFIG_LISA_PM */
 
 static void audio_dispatch_thread(void *arg)
 {
@@ -382,10 +517,15 @@ static void audio_dispatch_thread(void *arg)
     }
 }
 
-LISA_DEVICE_REGISTER(audio0,
-                     &audio_api,
-                     &audio_priv,
-                     NULL,
-                     audio_init,
-                     LISA_DEVICE_LEVEL_NORMAL,
-                     CONFIG_LISA_AUDIO_INIT_PRIORITY);
+LISA_DEVICE_REGISTER_DEINIT(audio0,
+                            &audio_api,
+                            &audio_priv,
+                            NULL,
+                            audio_init,
+                            audio_deinit,
+                            LISA_DEVICE_LEVEL_NORMAL,
+                            CONFIG_LISA_AUDIO_INIT_PRIORITY);
+
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(audio0, &arcs_audio_pm_ops, NULL, &audio_priv);
+#endif

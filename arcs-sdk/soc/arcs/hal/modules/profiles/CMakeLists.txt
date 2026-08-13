@@ -1,4 +1,4 @@
-if (CONFIG_BLE OR CONFIG_BT)
+if (CONFIG_BLE OR CONFIG_BT_DUAL)
     add_subdirectory(hogp)
     add_subdirectory(bas)
     add_subdirectory(dis)

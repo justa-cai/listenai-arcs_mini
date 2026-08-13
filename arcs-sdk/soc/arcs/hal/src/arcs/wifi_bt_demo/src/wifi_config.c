@@ -53,6 +53,9 @@
 
 
 struct wifi_ops ops = {
+    #if MFG_RF_TEST
+    .dpd_track_connect_en = 1,
+    #endif
     .get_mac = ls_get_wifi_mac,
     .get_temp = ls_read_temp_voltage,
 };

@@ -1,6 +1,6 @@
 SET(ARCS_HAL_LIB_PATH ${CMAKE_CURRENT_SOURCE_DIR}/)
 
-listenai_library_named(arcs-hal)
+listenai_library_named(hal)
 
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/bsp)
 add_subdirectory(${ARCS_HAL_LIB_PATH}/chip/arcs/driver)
@@ -67,11 +67,11 @@ else()
     listenai_compile_definitions(IC_HAL_DCACHE_IS_COHERENT=0)
 endif()
 
-if (DEFINED CONFIG_BOOT_HART)
-    listenai_compile_definitions(-DBOOT_HARTID=${CONFIG_HARTID})
-else()
-    listenai_compile_definitions(-DBOOT_HARTID=0)
+if(NOT DEFINED CONFIG_HARTID)
+    message(FATAL_ERROR "CONFIG_HARTID is not defined. Set CONFIG_ARCS_AP_CORE or CONFIG_ARCS_CP_CORE.")
 endif()
+
+listenai_compile_definitions(-DBOOT_HARTID=${CONFIG_HARTID})
 
 if(${CONFIG_HARTID} EQUAL 0)
     listenai_compile_definitions(MBX_AP_WORK=1)
@@ -80,4 +80,3 @@ elseif(${CONFIG_HARTID} EQUAL 1)
 endif()
 
 listenai_compile_definitions_ifdef(CONFIG_MODULE_FREERTOS CFG_RTOS=1 IC_USE_RTOS=1)
-

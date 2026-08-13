@@ -1,0 +1,32 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+osource "$ARCS_BASE/Kconfig"
+
+orsource "$ARCS_BASE/labs/lnn/common/arcs/libraries/Kconfig"
+
+config THINKER_RESNET18_MODEL_ADDR
+	hex "Thinker ResNet18 model flash address"
+	default 0x30300000
+	help
+	  XIP flash address of resnet18_model.bin. Burn the model at
+	  offset 0x300000 when MEM_FLASH_BASE is 0x30000000.
+
+config THINKER_RESNET18_MODEL_SIZE
+	hex "Thinker ResNet18 model size"
+	default 0x1FD1E0
+	help
+	  Size of resnet18_arcs.bin in bytes.
+
+config THINKER_RESNET18_PSRAM_POOL_SIZE
+	hex "Thinker ResNet18 PSRAM pool size"
+	default 0x10000
+	help
+	  PSRAM pool used for Thinker runtime memory plan entries.
+
+config THINKER_RESNET18_SHARE_POOL_SIZE
+	hex "Thinker ResNet18 share pool size"
+	default 0x58000
+	help
+	  APRAM pool used for Thinker SHARE_MEM memory plan entries. APRAM
+	  starts at 0x20050000 and is visible to Luna as shared memory.

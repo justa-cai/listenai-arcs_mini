@@ -32,7 +32,6 @@
 #define MAX_SCAN_BLE_DEVICE     (8)
 #define MAX_BOND_BLE_DEVICE     (8)
 
-#define MAX_DISCOVER_DEVICE     (8)
 #define MAX_BOND_CLASSIC_DEVICE (8)
 
 #define CONNECT_LAST_PEER_DEV     (0)
@@ -75,10 +74,16 @@
 
 #define BLE_CON_PHY                  (GAP_PHY_LE_1MBPS)
 
+#define BLE_CON_UPDATE_PARAM_CFG     1
+
 /// white list & ral list
 #define WHITE_LIST_ADV_ENABLE        0
 #define WHITE_LIST_ADD               1
 #define RESOVLE_LIST_ADD             1
+
+ /// profile config
+#define BLE_HID_CFG                        1
+#define BLE_HID_SEND_DUMMY_MOUSE_DATA      0
 
  /**
  * Default Scan response data

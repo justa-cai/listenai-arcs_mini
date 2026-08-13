@@ -31,16 +31,21 @@ MEMORY
   ilm (rxa!w) : ORIGIN = 0x00280000, LENGTH = 16K
   dlm (wxa!r) : ORIGIN = 0x00300000, LENGTH = 8K
   NETRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 45K /*lwip pbuf*/
-  ram (wxa!r) : ORIGIN = 0x20042000, LENGTH = 64K - 8K
-  IPCSHRAM (rwx) : ORIGIN = 0x20040000, LENGTH = 8K /*ipc*/
+  ram (wxa!r) : ORIGIN = 0x20041c00, LENGTH = 64K - 7K
+  IPCSHRAM (rwx) : ORIGIN = 0x20040000, LENGTH = 7K /*ipc*/
   psram(wxa!r) : ORIGIN = 0x28000000, LENGTH = 256K
+  snapshot_psram (wxa!r) : ORIGIN = 0x28070000, LENGTH = 64K
 }
 
 REGION_ALIAS("ROM", flash)
 REGION_ALIAS("RAM", ram)
 REGION_ALIAS("DATA_LMA", flash)
-REGION_ALIAS("ILM", ram)
+REGION_ALIAS("ILM", ilm)
+#if CONFIG_PM && !CONFIG_PM_PSRAM
 REGION_ALIAS("DLM", ram)
+#else
+REGION_ALIAS("DLM", dlm)
+#endif
 REGION_ALIAS("PSRAM", psram)
 
 SECTIONS
@@ -54,13 +59,14 @@ SECTIONS
   __TOT_STACK_SIZE = __STACK_SIZE * __SMP_CPU_CNT;
   PROVIDE(psram_start = ORIGIN(psram));
   PROVIDE(psram_end = ORIGIN(psram) + LENGTH(psram));
+  PROVIDE(__pm_snapshot_psram_start = ORIGIN(snapshot_psram));
+  PROVIDE(__pm_snapshot_psram_end = ORIGIN(snapshot_psram) + LENGTH(snapshot_psram));
 
   /* ipc shared RAM */
   IPCSHARED (NOLOAD):
   {
       _ipcshram = . ;
       *(SHAREDRAM_AMP_IPC_ENV)
-      *(SHAREDRAM_AMP_IPC)
       _eipcshram = . ;
       *(.ic_lock_shared_mem)
   } > IPCSHRAM
@@ -119,6 +125,7 @@ SECTIONS
     *(.text.cp_ilm .text.cp_ilm.* .text.entry .text.irq .text.irq.* .text.xPortTaskSwitch)
     *(.text.vTaskSwitchContext .text.vPortEnterCritical .text.vPortExitCritical)
     . = ALIGN(4);
+    *(.pm.ilm)
     __cp_ilm_text_end__ = .;
   } >ILM AT>ROM
 
@@ -284,6 +291,13 @@ SECTIONS
   PROVIDE( _data = ADDR(.data) );
   PROVIDE( _edata = . );
   PROVIDE( edata = . );
+
+  .pm_startup_bss (NOLOAD) : ALIGN(16)
+  {
+    __pm_startup_reserved_start = .;
+    *(.pm.startup_bss .pm.startup_bss.*)
+    __pm_startup_reserved_end = .;
+  } >RAM AT>RAM
 
   .cali_luna_bss (NOLOAD) : ALIGN(8)
   {

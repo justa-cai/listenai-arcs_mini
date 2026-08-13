@@ -57,6 +57,7 @@
  * LOCAL FUNCTIONS DECLARATION
  ****************************************************************************************
  */
+extern void *btos_calloc(uint32_t nb_elt, uint32_t size);
 extern void btos_free(void *ptr);
 /*
  * LOCAL VARIABLES

@@ -17,6 +17,10 @@
 #include "bt_ipc_api.h"
 #include "bt_os_task.h"
 
+#if CONFIG_LISA_BLUETOOTH_BUILD_NETCFG_BLE_SERVER || CONFIG_BLE_PROFILE_NETCFG_BLES
+#include "netcfg_bles.h"
+#endif
+
 /*
  * Internal data structures (match AP-side bt_app_if.h / bt_os_task event params)
  */
@@ -229,6 +233,24 @@ uint8_t lisa_ble_netcfg_send_notify(uint8_t conidx, uint8_t op, uint8_t state, u
                                           (uint32_t)BTOS_TASK_MAX_DELAY);
 }
 
+uint8_t lisa_ble_netcfg_send_custom_data(uint8_t conidx, uint16_t length, uint8_t *value)
+{
+    if (length == 0 || value == NULL) {
+        return 0xff;
+    }
+
+    if (length > LISA_BLE_NETCFG_CUSTOM_DATA_MAX_LEN) {
+        return 0xff;
+    }
+
+#if CONFIG_LISA_BLUETOOTH_BUILD_NETCFG_BLE_SERVER || CONFIG_BLE_PROFILE_NETCFG_BLES
+    return ble_netcfg_bles_send_notify_custom_data(conidx, length, value) == 0 ? 0 : 0xff;
+#else
+    (void)conidx;
+    return 0xff;
+#endif
+}
+
 /*
  * BLE netcfg handler on CP side (dual-core mode).
  * AP forwards WiFi credentials via MRPC; the MRPC server handler calls
@@ -239,6 +261,11 @@ static lisa_ble_netcfg_handler_t s_netcfg_handler;
 void lisa_ble_netcfg_set_handler(lisa_ble_netcfg_handler_t handler)
 {
     s_netcfg_handler = handler;
+}
+
+void lisa_ble_netcfg_set_custom_op_handler(lisa_ble_netcfg_custom_op_handler_t handler)
+{
+    (void)handler;
 }
 
 int lisa_ble_netcfg_ipc_handler(const char *ssid, const char *pwd)

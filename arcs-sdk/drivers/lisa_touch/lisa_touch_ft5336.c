@@ -455,10 +455,35 @@ static int lisa_touch_ft5336_init(void)
 }
 
 /* ===== 设备注册 ===== */
-LISA_DEVICE_REGISTER(touch_ft5336,
-                     &ft5336_touch_api,
-                     &touch_ft5336_priv,
-                     NULL,
-                     lisa_touch_ft5336_init,
-                     LISA_DEVICE_LEVEL_NORMAL,
-                     LISA_DEVICE_PRIORITY_NORMAL);
+/**
+ * @brief 停止并释放 FT5336 触摸设备的全部软硬件资源，恢复上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用：关中断 → 删读取任务 → 删 mutex → memset 归零
+ * （i2c/gpio 为外部设备引用、非本驱动持有）。
+ */
+static int lisa_touch_ft5336_deinit(void)
+{
+    lisa_touch_ft5336_priv_t *priv = &touch_ft5336_priv;
+
+    if (priv->interrupt_mode_active && priv->int_gpio) {
+        lisa_gpio_disable_irq(priv->int_gpio, priv->int_pin);
+    }
+    if (priv->read_task_handle) {
+        vTaskDelete(priv->read_task_handle);
+    }
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+    }
+
+    memset(&touch_ft5336_priv, 0, sizeof(lisa_touch_ft5336_priv_t));
+    return LISA_DEVICE_OK;
+}
+
+LISA_DEVICE_REGISTER_DEINIT(touch_ft5336,
+                            &ft5336_touch_api,
+                            &touch_ft5336_priv,
+                            NULL,
+                            lisa_touch_ft5336_init,
+                            lisa_touch_ft5336_deinit,
+                            LISA_DEVICE_LEVEL_NORMAL,
+                            LISA_DEVICE_PRIORITY_NORMAL);

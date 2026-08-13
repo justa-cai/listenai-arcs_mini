@@ -1,0 +1,3 @@
+tests:
+  samples.subsys.lisa_kv.easyflash:
+    build_only: true

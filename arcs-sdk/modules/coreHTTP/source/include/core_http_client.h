@@ -50,7 +50,7 @@
 #include "core_http_config_defaults.h"
 
 /* Transport interface include. */
-#include "transport_interface.h"
+#include "../interface/transport_interface.h"
 
 /* Convenience macros for some HTTP request methods. */
 

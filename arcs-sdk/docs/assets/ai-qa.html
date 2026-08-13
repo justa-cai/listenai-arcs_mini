@@ -1,0 +1,74 @@
+<!-- AI 问答组件 -->
+<div id="ai-qa-widget" class="ai-qa-embedded">
+  <button id="ai-qa-toggle" class="ai-qa-toggle" type="button" aria-label="打开 AI 助手">
+    <span class="ai-qa-toggle-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" role="img" focusable="false">
+        <path d="M5 6.5C5 5.1 6.1 4 7.5 4h9C17.9 4 19 5.1 19 6.5v6.2c0 1.4-1.1 2.5-2.5 2.5H11l-4.2 3.1c-.3.2-.8 0-.8-.4v-2.8c-.6-.2-1-.5-1.3-1-.4-.4-.7-1-.7-1.7V6.5Z"/>
+        <path d="M8.2 8.4h7.6M8.2 11.1h5.9"/>
+      </svg>
+    </span>
+    <span class="ai-qa-toggle-label">AI 助手</span>
+  </button>
+  <div id="ai-qa-panel" class="ai-qa-panel">
+    <div class="ai-qa-header">
+      <div class="ai-qa-header-content">
+        <button
+          id="ai-qa-minimize"
+          class="ai-qa-header-icon ai-qa-header-minimize"
+          type="button"
+          aria-label="收起 AI 助手"
+          title="收起 AI 助手"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M6 6L18 18M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <div class="ai-qa-header-copy">
+          <h3>ARCS SDK AI 助手</h3>
+          <p>回答由AI生成 仅供参考</p>
+        </div>
+      </div>
+      <div class="ai-qa-header-actions">
+        <div class="ai-qa-version-switcher">
+          <div
+            class="ai-qa-version-button"
+            aria-label="AI 助手检索版本"
+          >
+            <span class="ai-qa-version-button-label" id="ai-qa-version">Assistant: latest</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ai-qa-messages" id="ai-qa-messages">
+      <div class="ai-qa-welcome">
+        <p>你好，我会结合当前ARCS SDK文档回答您的问题。</p>
+        <ul>
+          <li>询问模块能力、接口说明和配置步骤</li>
+          <li>在当前问题的上下文里继续追问细节</li>
+          <li>提供检索问题所对应资料的文档链接</li>
+        </ul>
+        <p class="ai-qa-welcome-tip">试试问我：“如何快速开始，配置开发环境？”</p>
+      </div>
+    </div>
+
+    <div class="ai-qa-input-area">
+      <div class="ai-qa-input-wrapper">
+        <textarea
+          id="ai-qa-input"
+          class="ai-qa-input"
+          placeholder="请输入你的问题"
+          rows="1"
+        ></textarea>
+        <button id="ai-qa-send" class="ai-qa-send-btn" aria-label="发送">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 21L23 12L2 3V10L17 12L2 14V21Z" fill="currentColor"/>
+          </svg>
+        </button>
+      </div>
+      <div class="ai-qa-footer">
+        <span class="ai-qa-status" id="ai-qa-status"></span>
+      </div>
+    </div>
+  </div>
+</div>

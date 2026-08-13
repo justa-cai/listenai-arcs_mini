@@ -17,8 +17,10 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "net_al.h"
+#include "wifi_api.h"
 #include "wlif.h"
 #include "ipc.h"
+#include "ipc_master_wifi.h"
 
 #define  WLIF_TX_LOCK()
 #define  WLIF_TX_UNLOCK()
@@ -132,10 +134,10 @@ void wlif_get_status(struct wlif_status *status)
 
 static void wlif_rx_buf_free(void *net_buf)
 {
-    struct ipc_rxcfm entry;
+    struct ipc_wifi_rxcfm entry;
 
     entry.data = net_buf;
-    ipc_master_wifi_rxcfm_push((void*)(&entry), sizeof(struct ipc_rxcfm));
+    ipc_master_wifi_rxcfm_push((void*)(&entry), sizeof(struct ipc_wifi_rxcfm));
 }
 
 /**
@@ -195,7 +197,7 @@ LWIP_FUNC_ATTR static void wlif_tx_req(net_if_t *net_if, void *buf,
                          void *cfm_cb_arg)
 {
     struct ipc_txbuf_hdr *head;
-    struct ipc_txdesc entry;
+    struct ipc_wifi_txdesc entry;
 #ifdef TX_BUF_COPY
     struct net_tx_buf_tag *tx_buf = buf;
     head = (struct ipc_txbuf_hdr*)((uint8_t*)tx_buf->buf - sizeof(struct ipc_txbuf_hdr));
@@ -208,7 +210,7 @@ LWIP_FUNC_ATTR static void wlif_tx_req(net_if_t *net_if, void *buf,
     head->cfm_cb     = cfm_cb;
     head->cfm_cb_arg = cfm_cb_arg;
     entry.data       = (void*)tx_buf;
-    if (ipc_master_wifi_tx_push((void*)&entry, sizeof(struct ipc_txdesc)) < 0)
+    if (ipc_master_wifi_tx_push((void*)&entry, sizeof(struct ipc_wifi_txdesc)) < 0)
         wlif_tx_cfm(tx_buf, -1);
 }
 
@@ -261,7 +263,7 @@ net_if_t* wlif_get_default_if(void)
     return (netif_env.vif[0].netif);
 }
 
-int32_t wlif_init(void)
+static int32_t wlif_init(void)
 {
     net_if_call_fun net_cb = {.tx_start_fn = wlif_tx_start};
 
@@ -305,4 +307,38 @@ void wlif_netif_down(uint8_t vif_idx)
     }
 }
 
-/// @}
+#define WLIF_START_TASK_STACK_SIZE      512
+#define WLIF_START_TASK_PRIORITY        RTOS_TASK_PRIORITY(2)
+#define WLIF_START_LINKUP_TIMEOUT       10000
+
+static RTOS_TASK_FCT(wlif_start_task)
+{
+    uint8_t mac_addr[6];
+
+    if (ipc_master_wait_linkup(WLIF_START_LINKUP_TIMEOUT))
+    {
+        if (wifi_get_sta_mac(mac_addr) == LS_OK)
+        {
+            for (int32_t i = 0; i < WLIF_IDX_MAX; i++)
+                wlif_vif_init(i, mac_addr);
+            CLOGD("mac: %02x-%02x-%02x-%02x-%02x-%02x", mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
+        }
+    }
+    rtos_task_delete(NULL);
+}
+
+int32_t wlif_start(void)
+{
+    wlif_init();
+
+#ifdef TASK_CREATE_STATIC
+    static rtos_stack_type wlif_start_task_stack_buf[WLIF_START_TASK_STACK_SIZE];
+    static rtos_static_task_tcb wlif_start_task_control;
+    rtos_task_create_static(wlif_start_task, "wifi_init", INIT_WIFI_TASK, WLIF_START_TASK_STACK_SIZE, NULL,
+                           WLIF_START_TASK_PRIORITY, NULL, wlif_start_task_stack_buf, &wlif_start_task_control);
+#else
+    rtos_task_create(wlif_start_task, "wifi_init", INIT_WIFI_TASK, WLIF_START_TASK_STACK_SIZE, NULL,
+                           WLIF_START_TASK_PRIORITY, NULL);
+#endif
+    return 0;
+}

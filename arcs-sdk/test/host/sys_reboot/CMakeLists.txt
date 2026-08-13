@@ -8,14 +8,14 @@ set(CMAKE_C_EXTENSIONS OFF)
 set(REPO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../..)
 
 add_executable(tests
-    ${REPO_ROOT}/system/os/reboot.c
+    ${REPO_ROOT}/system/sys/sys_reboot.c
     ${REPO_ROOT}/soc/arcs/common/sys_reboot.c
     test_sys_reboot.c
 )
 
 target_include_directories(tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/fakes
-    ${REPO_ROOT}/system/os/inc
+    ${REPO_ROOT}/system/sys/inc
 )
 
 enable_testing()

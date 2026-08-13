@@ -47,8 +47,8 @@
 // NOTE: for ARCS, USB DMA works ONLY in burst mode 0 if buffer locates on PSRAM
 // and NOT work in burst mode 1/2/3 on PSRAM!
 //
-#define USB_DMA_BURST_MODE  USB_ARCS_DMA_CNTL_DMA_BRSTM_0 // ONLY BRSTM_0 WORK for PSRAM
-//#define USB_DMA_BURST_MODE  USB_ARCS_DMA_CNTL_DMA_BRSTM_3 // _1, _2, _3 DON'T WORK for PSRAM
+#define USB_DMA_BURST_MODE  USB_DMA_CNTL_DMA_BRSTM_0 // ONLY BRSTM_0 WORK for PSRAM
+//#define USB_DMA_BURST_MODE  USB_DMA_CNTL_DMA_BRSTM_3 // _1, _2, _3 DON'T WORK for PSRAM
 
 //----------------------------------------------------------------------------------
 #define DEBUG_LOG   0 // 1
@@ -107,8 +107,8 @@ static void DBG_PIN_INIT() { }
 #endif
 
 #define TX_IS_IDLE()  \
-    (!(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_TXPKTRDY) && \
-     !(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_FIFONOTEMPTY))
+    (!(CSK_USBC->TXCSRL & USB_TXCSRL_TXPKTRDY) && \
+     !(CSK_USBC->TXCSRL & USB_TXCSRL_FIFONOTEMPTY))
 
 
 //CMN_SYS_RegDef *g_CmnSys = IP_CMN_SYS;
@@ -185,32 +185,32 @@ static void config_dbg_ep()
 
     // BULK OUT EP (receive DBG descriptor)
     CSK_USBC->RXMAXP = DBG_EP_MPS; //64 bytes
-    CSK_USBC->RXFIFOSZ = USB_ARCS_FIFOSZ_SZ_64; //0x3, 64 bytes
+    CSK_USBC->RXFIFOSZ = USB_FIFOSZ_SZ_64; //0x3, 64 bytes
     CSK_USBC->RXFIFOADD = (USB_EP_FIFO_TOTAL_SIZE - DBG_EP_MPS) >> 3; //0x1F8, last 64 bytes of 4KB
-    CSK_USBC->RXCSRL = USB_ARCS_RXCSRL_CLRDATATOG; //0x80, Set ClrDataTog
+    CSK_USBC->RXCSRL = USB_RXCSRL_CLRDATATOG; //0x80, Set ClrDataTog
     //0xB8, Set DMAReqEnab, DMAReqMode1, DisNyet, AutoClear
-    CSK_USBC->RXCSRH = USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1 |
-            USB_ARCS_RXCSRH_DISNYET | USB_ARCS_RXCSRH_AUTOCLEAR;
+    CSK_USBC->RXCSRH = USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1 |
+            USB_RXCSRH_DISNYET | USB_RXCSRH_AUTOCLEAR;
 
     CSK_USBC->USB_DMA[DBG_EP_OUT_DMA_CH].ADDR = USB_DM_BASE;
     CSK_USBC->USB_DMA[DBG_EP_OUT_DMA_CH].COUNT = 0xFFFFFFFF; // max. value unsigned 32bits? FIXME:
     //0x685, Set Burst Mode = 2'b11 (INCR16), EP assigned = 8, set DMA DIR = 0 (RX) DMAMODE mode1
-    CSK_USBC->USB_DMA[DBG_EP_OUT_DMA_CH].CNTL = USB_DMA_BURST_MODE | USB_ARCS_DMA_CNTL_DMAEP(USB_EP_NO_DBG) |
-            USB_ARCS_DMA_CNTL_DMA_DIR(DIR_IDX_OUT) | USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAMODE_1;
+    CSK_USBC->USB_DMA[DBG_EP_OUT_DMA_CH].CNTL = USB_DMA_BURST_MODE | USB_DMA_CNTL_DMAEP(USB_EP_NO_DBG) |
+            USB_DMA_CNTL_DMA_DIR(DIR_IDX_OUT) | USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAMODE_1;
 
     // BULK IN EP (send Operation result)
     CSK_USBC->TXMAXP = DBG_EP_MPS; //64 bytes
-    CSK_USBC->TXFIFOSZ = USB_ARCS_FIFOSZ_SZ_64; //0x3, 64 bytes
+    CSK_USBC->TXFIFOSZ = USB_FIFOSZ_SZ_64; //0x3, 64 bytes
     CSK_USBC->TXFIFOADD = (USB_EP_FIFO_TOTAL_SIZE - DBG_EP_MPS * 2) >> 3; //0x1F0, last 128 ~ 64 bytes of 4KB
-    CSK_USBC->TXCSRL = USB_ARCS_TXCSRL_CLRDATATOG | USB_ARCS_TXCSRL_SENDSTALL; //0x50, set ClrDataTog & SendStall(why to send STALL, FIXME:)
+    CSK_USBC->TXCSRL = USB_TXCSRL_CLRDATATOG | USB_TXCSRL_SENDSTALL; //0x50, set ClrDataTog & SendStall(why to send STALL, FIXME:)
     //0x94, Set AutoSet, DMAReqEnab, DMAReqMode, Clear Mode = 0
-    CSK_USBC->TXCSRH = USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | USB_ARCS_TXCSRH_DMAREQMODE;
+    CSK_USBC->TXCSRH = USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | USB_TXCSRH_DMAREQMODE;
 
     CSK_USBC->USB_DMA[DBG_EP_IN_DMA_CH].ADDR = USB_DM_BASE;
     CSK_USBC->USB_DMA[DBG_EP_IN_DMA_CH].COUNT = 0xFFFFFFFF; // max. value unsigned 32bits? FIXME:
     //0x687, Set Burst Mode = 2'b11 (INCR16), EP assigned = 8, set DMA DIR = 1 (TX) DMAMODE mode1
-    CSK_USBC->USB_DMA[DBG_EP_IN_DMA_CH].CNTL = USB_DMA_BURST_MODE | USB_ARCS_DMA_CNTL_DMAEP(USB_EP_NO_DBG) |
-            USB_ARCS_DMA_CNTL_DMA_DIR(DIR_IDX_IN) | USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAMODE_1;
+    CSK_USBC->USB_DMA[DBG_EP_IN_DMA_CH].CNTL = USB_DMA_BURST_MODE | USB_DMA_CNTL_DMAEP(USB_EP_NO_DBG) |
+            USB_DMA_CNTL_DMA_DIR(DIR_IDX_IN) | USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAMODE_1;
 }
 
 #endif // CONFIG_DBG_EP
@@ -224,10 +224,10 @@ static bool usbd_ep_is_valid(uint8_t ep_idx, uint8_t dir_idx)
 {
     //assert(dir_idx == 0 || dir_idx == 1);
     if (dir_idx == DIR_IDX_OUT) {
-        if (ep_idx >= USB_ARCS_OUT_EP_NUM)
+        if (ep_idx >= USB_OUT_EP_NUM)
             return false;
     } else {
-        if (ep_idx >= USB_ARCS_IN_EP_NUM)
+        if (ep_idx >= USB_IN_EP_NUM)
             return false;
     }
 
@@ -257,7 +257,7 @@ void dcd_init       (uint8_t rhport)
     (void)memset(&usb_arcs_ctrl, 0, sizeof(usb_arcs_ctrl));
 
     /* Initial usb_arcs_ctrl */
-    usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+    usb_arcs_ctrl.status = USB_STS_SETUP;
 
     /* Endpoint0 is fifo size is fixed to 16 bytes */
     usb_arcs_ctrl.ep_info[0][0].fixed.mps = USB_MAX_CTRL_MPS;
@@ -265,49 +265,49 @@ void dcd_init       (uint8_t rhport)
     usb_arcs_ctrl.ep_info[1][0].fixed.mps = USB_MAX_CTRL_MPS;
     usb_arcs_ctrl.ep_info[1][0].fixed.fifo_size = USB_CTRL_FIFO_SIZE;
 
-    usb_arcs_ctrl.ep_info[0][0].dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
-    usb_arcs_ctrl.ep_info[1][0].dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+    usb_arcs_ctrl.ep_info[0][0].dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
+    usb_arcs_ctrl.ep_info[1][0].dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
 
     /* Set RX/TX FIFO space base address */
     //BSD: MUST reserve USB_CTRL_FIFO_SIZE bytes (Starting from 0) for EP0 FIFO
     usb_arcs_ctrl.fifo_alloc_addr = (USB_EP_FIFO_BASE + USB_CTRL_FIFO_SIZE) >> 3;
 
-    /* USB_ARCS_IN_EP_NUM == USB_ARCS_OUT_EP_NUM */
+    /* USB_IN_EP_NUM == USB_OUT_EP_NUM */
     uint32_t i;
-    for(i = 1; i < USB_ARCS_IN_EP_NUM; i++){
-        usb_arcs_ctrl.ep_info[0][i].dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
-        usb_arcs_ctrl.ep_info[1][i].dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+    for(i = 1; i < USB_IN_EP_NUM; i++){
+        usb_arcs_ctrl.ep_info[0][i].dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
+        usb_arcs_ctrl.ep_info[1][i].dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
         // enable EP DMA by default except EP0
         usb_arcs_ctrl.ep_info[0][i].dma_ena = 1;
         usb_arcs_ctrl.ep_info[1][i].dma_ena = 1;
     }
 
     // Reset USB controller first of all
-    //CSK_USBC->SOFT_RST |= (USB_ARCS_SOFT_RST_NRST | USB_ARCS_SOFT_RST_NRSTX);
+    //CSK_USBC->SOFT_RST |= (USB_SOFT_RST_NRST | USB_SOFT_RST_NRSTX);
 
     // enable the SUSPENDM output (CPU can trigger RESUME signaling)
-    //CSK_USBC->POWER |= USB_ARCS_POWER_EN_SUSPENDM;
+    //CSK_USBC->POWER |= USB_POWER_EN_SUSPENDM;
 
 #if TUD_OPT_HIGH_SPEED
     /* Set device speed to High Speed */
-    CSK_USBC->POWER |= USB_ARCS_POWER_HSENABLE;   //high speed enable
+    CSK_USBC->POWER |= USB_POWER_HSENABLE;   //high speed enable
 #else
     /* Set device speed to Full Speed */
-    CSK_USBC->POWER &= ~USB_ARCS_POWER_HSENABLE;   //Full speed enable
+    CSK_USBC->POWER &= ~USB_POWER_HSENABLE;   //Full speed enable
 #endif
 
     //BSD: dcd_int_enable SHOULD be called in the end, so move it downward ...
 //    // Enable soft connect
-//    CSK_USBC->POWER |= USB_ARCS_POWER_SOFTCONN;
+//    CSK_USBC->POWER |= USB_POWER_SOFTCONN;
 
     /* Register USB ISR */
     register_ISR(IRQ_USBC_VECTOR, (ISR)usb_arcs_isr_handler, NULL);
 
     // Initialize usb interrupt enable
     //TODO: enable SOF interrupt if necessary...
-    usb_arcs_ctrl.intr_usbe = USB_ARCS_INTRUSBE_RESET | USB_ARCS_INTRUSBE_SUSPEND |
-                               USB_ARCS_INTRUSBE_RESUME | USB_ARCS_INTRUSBE_DISCON; //USB_ARCS_INTRUSBE_CONN |
-    usb_arcs_ctrl.intr_txe = USB_ARCS_INTRTX_EP0;
+    usb_arcs_ctrl.intr_usbe = USB_INTRUSBE_RESET | USB_INTRUSBE_SUSPEND |
+                               USB_INTRUSBE_RESUME | USB_INTRUSBE_DISCON; //USB_INTRUSBE_CONN |
+    usb_arcs_ctrl.intr_txe = USB_INTRTX_EP0;
     usb_arcs_ctrl.intr_rxe = 0;
 
 #if CONFIG_SOF_CNT
@@ -334,7 +334,7 @@ void dcd_init       (uint8_t rhport)
 
     //BSD: DON'T connect on the initiative, tud_connect (calling dcd_connect) SHOULD be called explicitly...
 //    // Enable soft connect
-//    CSK_USBC->POWER |= USB_ARCS_POWER_SOFTCONN;
+//    CSK_USBC->POWER |= USB_POWER_SOFTCONN;
 
     LOG_DBG("%s has been called!", __func__);
 }
@@ -348,7 +348,7 @@ void dcd_set_address(uint8_t rhport, uint8_t dev_addr)
   //TODO: select either this solution or the below one...
     ARG_UNUSED(rhport);
 
-    if (dev_addr > USB_ARCS_FADDR_ADDR_MASK || dev_addr == 0) {
+    if (dev_addr > USB_FADDR_ADDR_MASK || dev_addr == 0) {
         CLOGW("%s: invalid USB dev_addr (%d)!", __func__, dev_addr);
         return;
     }
@@ -357,24 +357,24 @@ void dcd_set_address(uint8_t rhport, uint8_t dev_addr)
     usb_arcs_ctrl.addressed = 0; // restore to un-addressed state once called
 
     // The only case to force entering STATUS stage!!
-    usb_arcs_ctrl.status = USB_ARCS_STS_STATUS;
+    usb_arcs_ctrl.status = USB_STS_STATUS;
 
 /*
     ARG_UNUSED(rhport);
 
-    if (dev_addr > USB_ARCS_FADDR_ADDR_MASK || dev_addr == 0) {
+    if (dev_addr > USB_FADDR_ADDR_MASK || dev_addr == 0) {
         CLOGW("%s: invalid USB dev_addr (%d)!", __func__, dev_addr);
         return;
     }
 
     // wait until ZLP is sent out
-//    while(CSK_USBC->CSR0L & USB_ARCS_CSR0L_TXPKTRDY); // NOT WORK!!
+//    while(CSK_USBC->CSR0L & USB_CSR0L_TXPKTRDY); // NOT WORK!!
 //    volatile uint32_t count = 100; //1000; // 100 WORK, 1000 NOT WORK!!
 //    while(count-- > 0);
 
     // call memory barrier + flush instruction pipeline for short-delay delay after sending ZLP
     __DMB(); __ISB(); // WORK!!
-    CSK_USBC->FADDR = dev_addr & USB_ARCS_FADDR_ADDR_MASK;
+    CSK_USBC->FADDR = dev_addr & USB_FADDR_ADDR_MASK;
     usb_arcs_ctrl.address = dev_addr; // save the new address
     usb_arcs_ctrl.addressed = 1; // addressed
 
@@ -390,7 +390,7 @@ void dcd_connect(uint8_t rhport)
     ARG_UNUSED(rhport);
 
     /* Enable soft connect */
-    CSK_USBC->POWER |= USB_ARCS_POWER_SOFTCONN;
+    CSK_USBC->POWER |= USB_POWER_SOFTCONN;
 }
 
 // Disconnect by disabling internal pull-up resistor on D+/D-
@@ -399,7 +399,7 @@ void dcd_disconnect(uint8_t rhport)
     ARG_UNUSED(rhport);
 
     // Enable soft disconnect
-    CSK_USBC->POWER &= ~USB_ARCS_POWER_SOFTCONN;
+    CSK_USBC->POWER &= ~USB_POWER_SOFTCONN;
 }
 
 
@@ -456,10 +456,10 @@ static int usbd_ep_set(uint8_t ep_idx, uint8_t dir_idx, uint16_t ep_mps, tusb_xf
         return CSK_DRIVER_OK;
     }
 
-    if ((dir_idx && ep_idx >= USB_ARCS_OUT_EP_NUM) || (!dir_idx && ep_idx >= USB_ARCS_IN_EP_NUM))
+    if ((dir_idx && ep_idx >= USB_OUT_EP_NUM) || (!dir_idx && ep_idx >= USB_IN_EP_NUM))
         return CSK_DRIVER_ERROR_PARAMETER;
 
-    if (ep_mps > USB_ARCS_MAXP_MASK || ep_type > TUSB_XFER_INTERRUPT)
+    if (ep_mps > USB_MAXP_MASK || ep_type > TUSB_XFER_INTERRUPT)
         return CSK_DRIVER_ERROR_PARAMETER;
 
     uint16_t fifo_size, val;
@@ -491,10 +491,10 @@ static int usbd_ep_set(uint8_t ep_idx, uint8_t dir_idx, uint16_t ep_mps, tusb_xf
         // Set ISO type bit
         if (dir_idx == DIR_IDX_OUT) {
             //epp->dma_reqmode = 1;  // 1 for RX
-            CSK_USBC->RXCSRH |= USB_ARCS_RXCSRH_ISO;
+            CSK_USBC->RXCSRH |= USB_RXCSRH_ISO;
         } else {
             //epp->dma_reqmode = 0;  // 0 for TX
-            CSK_USBC->TXCSRH |= USB_ARCS_TXCSRH_ISO;
+            CSK_USBC->TXCSRH |= USB_TXCSRH_ISO;
         }
     } else { // BULK or INT
         //BSD2013.1.22 HID button experiment (INT IN EP):
@@ -514,10 +514,10 @@ static int usbd_ep_set(uint8_t ep_idx, uint8_t dir_idx, uint16_t ep_mps, tusb_xf
         if (dir_idx == DIR_IDX_OUT) {
             epp->dma_reqmode = 1; // 1 for RX, notify complete event in DMA ISR
             /* Clear ISO type bit */
-            CSK_USBC->RXCSRH &= (~USB_ARCS_RXCSRH_ISO_MASK);
+            CSK_USBC->RXCSRH &= (~USB_RXCSRH_ISO_MASK);
             /* force the endpoint data toggle */
             if (ep_type == TUSB_XFER_BULK)
-                CSK_USBC->RXCSRL |= USB_ARCS_RXCSRL_CLRDATATOG;
+                CSK_USBC->RXCSRL |= USB_RXCSRL_CLRDATATOG;
         } else {
         #if CONFIG_DPB_IN
             epp->dma_reqmode = 0; // 0 for TX, notify complete event in IN EP ISR
@@ -525,23 +525,23 @@ static int usbd_ep_set(uint8_t ep_idx, uint8_t dir_idx, uint16_t ep_mps, tusb_xf
             epp->dma_reqmode = 1; // 1 for TX, notify complete event in DMA ISR
         #endif
             /* Clear ISO type bit */
-            CSK_USBC->TXCSRH &= (~USB_ARCS_TXCSRH_ISO_MASK);
+            CSK_USBC->TXCSRH &= (~USB_TXCSRH_ISO_MASK);
             /* force the endpoint data toggle */
             if (ep_type == TUSB_XFER_BULK)
-                CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_CLRDATATOG;
-                //CSK_USBC->TXCSRH |= USB_ARCS_TXCSRH_FRCDATATOG;
+                CSK_USBC->TXCSRL |= USB_TXCSRL_CLRDATATOG;
+                //CSK_USBC->TXCSRH |= USB_TXCSRH_FRCDATATOG;
         }
     }
 
     //val = GET_FIFOSZ_CFG(ep_mps); // mps => FIFOSZ
     if (dir_idx == DIR_IDX_OUT) {
 #if CONFIG_DPB_OUT
-        val = GET_FIFOSZ_CFG(ep_mps << 1) | USB_ARCS_FIFOSZ_DPB;
+        val = GET_FIFOSZ_CFG(ep_mps << 1) | USB_FIFOSZ_DPB;
 #else
         val = GET_FIFOSZ_CFG(ep_mps); // mps => FIFOSZ
 #endif
         // set endpoint fifo size and fifo address
-        //CSK_USBC->RXFIFOSZ &= ~(USB_ARCS_FIFOSZ_DPB_MASK | USB_ARCS_FIFOSZ_SZ_MASK);
+        //CSK_USBC->RXFIFOSZ &= ~(USB_FIFOSZ_DPB_MASK | USB_FIFOSZ_SZ_MASK);
         //CSK_USBC->RXFIFOSZ |= val; // GET_FIFOSZ_CFG(ep_mps);
         CSK_USBC->RXFIFOSZ = val;
 
@@ -565,27 +565,27 @@ static int usbd_ep_set(uint8_t ep_idx, uint8_t dir_idx, uint16_t ep_mps, tusb_xf
         }
 
         if(usb_arcs_ctrl.ep_info[0][ep_idx].dma_ena) {
-            CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_DMAREQMODE_1);
-            //CSK_USBC->RXCSRH |= (USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
-            CSK_USBC->RXCSRH |= (USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_ARCS_RXCSRH_DMAREQMODE_POS));
+            CSK_USBC->RXCSRH &= ~(USB_RXCSRH_DMAREQMODE_1);
+            //CSK_USBC->RXCSRH |= (USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
+            CSK_USBC->RXCSRH |= (USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_RXCSRH_DMAREQMODE_POS));
         }else{
             /* The DMAReqEnab bit (D13) of the appropriate RxCSR register set to 0. */
-            CSK_USBC->RXCSRH &= ~USB_ARCS_RXCSRH_DMAREQENAB_MASK;
+            CSK_USBC->RXCSRH &= ~USB_RXCSRH_DMAREQENAB_MASK;
         }
     } else {
 #if CONFIG_DPB_IN
-        val = GET_FIFOSZ_CFG(ep_mps << 1) | USB_ARCS_FIFOSZ_DPB;
+        val = GET_FIFOSZ_CFG(ep_mps << 1) | USB_FIFOSZ_DPB;
 #else
         val = GET_FIFOSZ_CFG(ep_mps); // mps => FIFOSZ
 #endif
         // set endpoint fifo size and fifo address
-        //CSK_USBC->TXFIFOSZ &= ~(USB_ARCS_FIFOSZ_DPB_MASK | USB_ARCS_FIFOSZ_SZ_MASK);
+        //CSK_USBC->TXFIFOSZ &= ~(USB_FIFOSZ_DPB_MASK | USB_FIFOSZ_SZ_MASK);
         //CSK_USBC->TXFIFOSZ |= val; // GET_FIFOSZ_CFG(ep_mps);
         CSK_USBC->TXFIFOSZ = val;
 
-        if(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_FIFONOTEMPTY) {
+        if(CSK_USBC->TXCSRL & USB_TXCSRL_FIFONOTEMPTY) {
             //The CPU write 1 to this bit to flush the latest packet from endpoint TX FIFO
-            CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_FLUSHFIFO;
+            CSK_USBC->TXCSRL |= USB_TXCSRL_FLUSHFIFO;
         }
 
         usb_arcs_ctrl.ep_info[1][ep_idx].fixed.mps = ep_mps;
@@ -608,12 +608,12 @@ static int usbd_ep_set(uint8_t ep_idx, uint8_t dir_idx, uint16_t ep_mps, tusb_xf
         }
 
         if(usb_arcs_ctrl.ep_info[1][ep_idx].dma_ena) {
-            CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_DMAREQMODE_1);
-            //BSD NOTE: USB_ARCS_TXCSRH_DMAREQMODE_0 had better be used if we need IN EP interrupt (usb_arcs_int_iep_handler) together with DMA interrupt!!
-            CSK_USBC->TXCSRH |= (USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_ARCS_TXCSRH_DMAREQMODE_POS)); //USB_ARCS_TXCSRH_DMAREQMODE_1
+            CSK_USBC->TXCSRH &= ~(USB_TXCSRH_DMAREQMODE_1);
+            //BSD NOTE: USB_TXCSRH_DMAREQMODE_0 had better be used if we need IN EP interrupt (usb_arcs_int_iep_handler) together with DMA interrupt!!
+            CSK_USBC->TXCSRH |= (USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_TXCSRH_DMAREQMODE_POS)); //USB_TXCSRH_DMAREQMODE_1
         }else{
             /* The DMAReqEnab bit (D13) of the appropriate RxCSR register set to 0. */
-            CSK_USBC->TXCSRH &= ~USB_ARCS_TXCSRH_DMAREQENAB_MASK;
+            CSK_USBC->TXCSRH &= ~USB_TXCSRH_DMAREQENAB_MASK;
         }
     }
 
@@ -648,18 +648,18 @@ bool dcd_edpt_open(uint8_t rhport, tusb_desc_endpoint_t const * p_endpoint_desc)
 
     // enable EP interrupts etc.
     if (dir_idx == DIR_IDX_IN || ep_idx == 0) { //TX (IN) EP or EP0
-        if (CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_TXPKTRDY) { // TX packet ready
-            CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_FLUSHFIFO; // flush TX FIFO
+        if (CSK_USBC->TXCSRL & USB_TXCSRL_TXPKTRDY) { // TX packet ready
+            CSK_USBC->TXCSRL |= USB_TXCSRL_FLUSHFIFO; // flush TX FIFO
         }
-        val = USB_ARCS_DAINT_IN_EP_INT(ep_idx);
+        val = USB_DAINT_IN_EP_INT(ep_idx);
         usb_arcs_ctrl.intr_txe |= val;
         CSK_USBC->INTRTXE |= val;
     } else { //RX (OUT) EP
-        if (CSK_USBC->RXCSRL & USB_ARCS_RXCSRL_RXPKTRDY) { // RX packet ready
-            CSK_USBC->RXCSRL |= USB_ARCS_RXCSRL_FLUSHFIFO; // flush RX FIFO
-            //CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_RXPKTRDY;
+        if (CSK_USBC->RXCSRL & USB_RXCSRL_RXPKTRDY) { // RX packet ready
+            CSK_USBC->RXCSRL |= USB_RXCSRL_FLUSHFIFO; // flush RX FIFO
+            //CSK_USBC->RXCSRL &= ~USB_RXCSRL_RXPKTRDY;
         }
-        val = USB_ARCS_DAINT_OUT_EP_INT(ep_idx);
+        val = USB_DAINT_OUT_EP_INT(ep_idx);
         usb_arcs_ctrl.intr_rxe |= val;
         CSK_USBC->INTRRXE |= val;
     }
@@ -691,18 +691,18 @@ static void dcd_edpt_cancel_xfer_internal (uint8_t rhport, uint8_t ep_idx, uint8
     epp = &usb_arcs_ctrl.ep_info[dir_idx][ep_idx];
     val = epp->dma_ch;
 
-    if (val != USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED) {
+    if (val != USB_DMA_CHANNEL_NOT_ASSIGNED) {
         if (dir_idx == 0) {
-            CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
+            CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
         } else {
-            //CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | USB_ARCS_TXCSRH_DMAREQMODE_1);
-            CSK_USBC->TXCSRH &= ~USB_ARCS_TXCSRH_DMAREQENAB;
-            CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQMODE_1);
+            //CSK_USBC->TXCSRH &= ~(USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | USB_TXCSRH_DMAREQMODE_1);
+            CSK_USBC->TXCSRH &= ~USB_TXCSRH_DMAREQENAB;
+            CSK_USBC->TXCSRH &= ~(USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQMODE_1);
         }
-        CSK_USBC->USB_DMA[val].CNTL &= ~(USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAIE | USB_ARCS_DMA_CNTL_DMAERR);
+        CSK_USBC->USB_DMA[val].CNTL &= ~(USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAIE | USB_DMA_CNTL_DMAERR);
         CSK_USBC->USB_DMA[val].COUNT = 0;
         usb_dma_clear_channel_active_flag(val);
-        epp->dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+        epp->dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
         LOG_DBG("%s: abort dma for EP 0x%x(dir = %d)\n", __func__, ep_idx, dir_idx);
     }
 
@@ -742,18 +742,18 @@ void dcd_edpt_close (uint8_t rhport, uint8_t ep_addr)
     // abort DMA operation if any...
     val = epp->dma_ch;
 
-    if (val != USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED) {
+    if (val != USB_DMA_CHANNEL_NOT_ASSIGNED) {
         if (dir_idx == 0) {
-            CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
+            CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
         } else {
-            //CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | USB_ARCS_TXCSRH_DMAREQMODE_1);
-            CSK_USBC->TXCSRH &= ~USB_ARCS_TXCSRH_DMAREQENAB;
-            CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQMODE_1);
+            //CSK_USBC->TXCSRH &= ~(USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | USB_TXCSRH_DMAREQMODE_1);
+            CSK_USBC->TXCSRH &= ~USB_TXCSRH_DMAREQENAB;
+            CSK_USBC->TXCSRH &= ~(USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQMODE_1);
         }
-        CSK_USBC->USB_DMA[val].CNTL &= ~(USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAIE | USB_ARCS_DMA_CNTL_DMAERR);
+        CSK_USBC->USB_DMA[val].CNTL &= ~(USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAIE | USB_DMA_CNTL_DMAERR);
         CSK_USBC->USB_DMA[val].COUNT = 0;
         usb_dma_clear_channel_active_flag(val);
-        epp->dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+        epp->dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
         LOG_DBG("%s: abort dma for EP 0x%x\n", __func__, ep_addr);
     }
 
@@ -765,12 +765,12 @@ void dcd_edpt_close (uint8_t rhport, uint8_t ep_addr)
 
     /* Disable EP interrupts */
     if (dir_idx == DIR_IDX_IN || ep_idx == 0) { //TX (IN) EP or EP0
-        val = USB_ARCS_DAINT_IN_EP_INT(ep_idx);
+        val = USB_DAINT_IN_EP_INT(ep_idx);
         usb_arcs_ctrl.intr_txe &= ~val;
         CSK_USBC->INTRTXE &= ~val;
 
     } else { //RX (OUT) EP
-        val = USB_ARCS_DAINT_OUT_EP_INT(ep_idx);
+        val = USB_DAINT_OUT_EP_INT(ep_idx);
         usb_arcs_ctrl.intr_rxe &= ~val;
         CSK_USBC->INTRRXE &= ~val;
     }
@@ -821,13 +821,13 @@ void dcd_edpt_stall (uint8_t rhport, uint8_t ep_addr)
 
     EDPxReg_SEL(ep_idx);
     if(ep_idx == 0) { //endpoint0
-        CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SENDSTALL;
+        CSK_USBC->CSR0L |= USB_CSR0L_SENDSTALL;
     } else {        //endpoint1-15
         if (dir_idx == DIR_IDX_OUT) {
-            CSK_USBC->RXCSRL |= USB_ARCS_RXCSRL_SENDSTALL;
+            CSK_USBC->RXCSRL |= USB_RXCSRL_SENDSTALL;
         } else {
             // When STALL handshake is transmitted, FIFO is flushed and the TxPktRdy bit is cleared
-            CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_SENDSTALL;
+            CSK_USBC->TXCSRL |= USB_TXCSRL_SENDSTALL;
         }
     }
     CLOGW("SW SENDSTALL on EP(0x%02x)!\n", ep_addr);
@@ -856,9 +856,9 @@ void dcd_edpt_clear_stall (uint8_t rhport, uint8_t ep_addr)
     EDPxReg_SEL(ep_idx);
     //NOTE: it's SEN'D'STALL, NOT SEN'T'STALL!!
     if (dir_idx == DIR_IDX_OUT)
-        CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_SENDSTALL; // D NOT T!!
+        CSK_USBC->RXCSRL &= ~USB_RXCSRL_SENDSTALL; // D NOT T!!
     else
-        CSK_USBC->TXCSRL &= ~USB_ARCS_TXCSRL_SENDSTALL; // D NOT T!!
+        CSK_USBC->TXCSRL &= ~USB_TXCSRL_SENDSTALL; // D NOT T!!
 
     CLOGW("CLEAR SENDSTALL on EP(0x%02x)!\n", ep_addr);
 }
@@ -879,17 +879,17 @@ int32_t usbd_ep_is_stalled(uint8_t ep_addr, uint8_t *stalled)
 
     EDPxReg_SEL(ep_idx);
     if(ep_idx == 0) {
-        //if(CSK_USBC->CSR0L & USB_ARCS_CSR0L_SENTSTALL)
-        if(CSK_USBC->CSR0L & USB_ARCS_CSR0L_SENDSTALL) // D NOT T!!
+        //if(CSK_USBC->CSR0L & USB_CSR0L_SENTSTALL)
+        if(CSK_USBC->CSR0L & USB_CSR0L_SENDSTALL) // D NOT T!!
             *stalled = 1U;
     } else {
         if (dir_idx == DIR_IDX_OUT) {
-            //if (CSK_USBC->RXCSRL & USB_ARCS_RXCSRL_SENTSTALL)
-            if (CSK_USBC->RXCSRL & USB_ARCS_RXCSRL_SENDSTALL) // D NOT T!!
+            //if (CSK_USBC->RXCSRL & USB_RXCSRL_SENTSTALL)
+            if (CSK_USBC->RXCSRL & USB_RXCSRL_SENDSTALL) // D NOT T!!
                 *stalled = 1U;
         } else {
-            //if(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_SENTSTALL)
-            if(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_SENDSTALL) // D NOT T!!
+            //if(CSK_USBC->TXCSRL & USB_TXCSRL_SENTSTALL)
+            if(CSK_USBC->TXCSRL & USB_TXCSRL_SENDSTALL) // D NOT T!!
                 *stalled = 1U;
         }
     }
@@ -915,17 +915,17 @@ int usbd_ep_flush(const uint8_t ep_addr)
     EDPxReg_SEL(ep_idx);
     if(ep_idx > 0) {
         if (dir_idx == DIR_IDX_OUT) {
-            if (CSK_USBC->RXCSRL & USB_ARCS_RXCSRL_RXPKTRDY) // RX packet ready
-                CSK_USBC->RXCSRL |= USB_ARCS_RXCSRL_FLUSHFIFO;
+            if (CSK_USBC->RXCSRL & USB_RXCSRL_RXPKTRDY) // RX packet ready
+                CSK_USBC->RXCSRL |= USB_RXCSRL_FLUSHFIFO;
         } else {
-            if (CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_TXPKTRDY) // TX packet ready
-                CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_FLUSHFIFO;
+            if (CSK_USBC->TXCSRL & USB_TXCSRL_TXPKTRDY) // TX packet ready
+                CSK_USBC->TXCSRL |= USB_TXCSRL_FLUSHFIFO;
         }
     }
     else{
         /* Endpoint0 fifo flush */
-        if (CSK_USBC->CSR0L & (USB_ARCS_CSR0L_RXPKTRDY | USB_ARCS_CSR0L_TXPKTRDY)) // RX or TX packet ready
-            CSK_USBC->CSR0H |= USB_ARCS_CSR0H_FLUSHFIFO;
+        if (CSK_USBC->CSR0L & (USB_CSR0L_RXPKTRDY | USB_CSR0L_TXPKTRDY)) // RX or TX packet ready
+            CSK_USBC->CSR0H |= USB_CSR0H_FLUSHFIFO;
     }
     EDPxReg_SEL(0);
 
@@ -1018,7 +1018,7 @@ _FAST_FUNC_RO static int32_t usb_arcs_dma_setting(uint8_t ep_addr, uint32_t addr
     }
 
     //check whether dma channel is assigned before
-    if (epp->dma_ch != USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED)
+    if (epp->dma_ch != USB_DMA_CHANNEL_NOT_ASSIGNED)
         return 0;
 
     int ret;
@@ -1037,57 +1037,57 @@ _FAST_FUNC_RO static int32_t usb_arcs_dma_setting(uint8_t ep_addr, uint32_t addr
 /*
     // The DMAReqEnab bit (D13) of the appropriate RxCSR register set to 1.
 #if DMA_MULTIPLE // DMA multiple packet
-    if(dir_idx == USB_ARCS_DMA_DIR_RX_ENDPOINT){
-        CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
-        CSK_USBC->RXCSRH |= (USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
+    if(dir_idx == USB_DMA_DIR_RX_ENDPOINT){
+        CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
+        CSK_USBC->RXCSRH |= (USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
     }else{
-        CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | USB_ARCS_TXCSRH_DMAREQMODE_1);
-        //BSD NOTE: USB_ARCS_TXCSRH_DMAREQMODE_0 MUST be used if we need IN EP interrupt (usb_arcs_int_iep_handler) together with DMA interrupt!!
-        CSK_USBC->TXCSRH |= (USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | USB_ARCS_TXCSRH_DMAREQMODE_0); //USB_ARCS_TXCSRH_DMAREQMODE_1
-        CSK_USBC->TXCSRL &= ~USB_ARCS_TXCSRL_UNDERRUN; //BSD:
+        CSK_USBC->TXCSRH &= ~(USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | USB_TXCSRH_DMAREQMODE_1);
+        //BSD NOTE: USB_TXCSRH_DMAREQMODE_0 MUST be used if we need IN EP interrupt (usb_arcs_int_iep_handler) together with DMA interrupt!!
+        CSK_USBC->TXCSRH |= (USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | USB_TXCSRH_DMAREQMODE_0); //USB_TXCSRH_DMAREQMODE_1
+        CSK_USBC->TXCSRL &= ~USB_TXCSRL_UNDERRUN; //BSD:
     }
 #else // DMA single packet
-    if(dir_idx == USB_ARCS_DMA_DIR_RX_ENDPOINT){
-        CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR_MASK | USB_ARCS_RXCSRH_DMAREQENAB_MASK | USB_ARCS_RXCSRH_DMAREQMODE_MASK);
+    if(dir_idx == USB_DMA_DIR_RX_ENDPOINT){
+        CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR_MASK | USB_RXCSRH_DMAREQENAB_MASK | USB_RXCSRH_DMAREQMODE_MASK);
     }else{
-        CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_AUTOSET_MASK | USB_ARCS_TXCSRH_DMAREQENAB_MASK | USB_ARCS_TXCSRH_DMAREQMODE_MASK);
+        CSK_USBC->TXCSRH &= ~(USB_TXCSRH_AUTOSET_MASK | USB_TXCSRH_DMAREQENAB_MASK | USB_TXCSRH_DMAREQMODE_MASK);
     }
 #endif
 */
 
-    if(dir_idx == USB_ARCS_DMA_DIR_RX_ENDPOINT){
+    if(dir_idx == USB_DMA_DIR_RX_ENDPOINT){
 /*
-        CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
-        CSK_USBC->RXCSRH |= (USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_ARCS_RXCSRH_DMAREQMODE_POS));
-        CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_OVERRUN;
+        CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
+        CSK_USBC->RXCSRH |= (USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_RXCSRH_DMAREQMODE_POS));
+        CSK_USBC->RXCSRL &= ~USB_RXCSRL_OVERRUN;
 */
         uint32_t reg_val = CSK_USBC->RXCSRH;
-        reg_val &= ~(USB_ARCS_RXCSRH_DMAREQMODE_1);
-        reg_val |= (USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_ARCS_RXCSRH_DMAREQMODE_POS));
+        reg_val &= ~(USB_RXCSRH_DMAREQMODE_1);
+        reg_val |= (USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_RXCSRH_DMAREQMODE_POS));
         CSK_USBC->RXCSRH = reg_val;
 
     }else{
 #if CONFIG_DPB_IN
         if (TX_IS_IDLE()) { // TxPktRdy & NOTEMPTY NOT SET, indicates idle
             if (length > epp->fixed.mps) // >= MPS
-                CSK_USBC->TXFIFOSZ |= USB_ARCS_FIFOSZ_DPB;
-                //CSK_USBC->TXFIFOSZ = GET_FIFOSZ_CFG(epp->fixed.mps << 1) | USB_ARCS_FIFOSZ_DPB;
+                CSK_USBC->TXFIFOSZ |= USB_FIFOSZ_DPB;
+                //CSK_USBC->TXFIFOSZ = GET_FIFOSZ_CFG(epp->fixed.mps << 1) | USB_FIFOSZ_DPB;
             else // < MPS
-                CSK_USBC->TXFIFOSZ &= ~USB_ARCS_FIFOSZ_DPB;
+                CSK_USBC->TXFIFOSZ &= ~USB_FIFOSZ_DPB;
                 //CSK_USBC->TXFIFOSZ = GET_FIFOSZ_CFG(epp->fixed.mps);
         }
 #endif
 /*
-        CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | USB_ARCS_TXCSRH_DMAREQMODE_1);
-        //BSD NOTE: USB_ARCS_TXCSRH_DMAREQMODE_0 had better be used if we need IN EP interrupt (usb_arcs_int_iep_handler) together with DMA interrupt!!
-        //CSK_USBC->TXCSRH |= ((length >= epp->fixed.mps ? USB_ARCS_TXCSRH_AUTOSET : 0) | USB_ARCS_TXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_ARCS_TXCSRH_DMAREQMODE_POS));
-        CSK_USBC->TXCSRH |= (USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_ARCS_TXCSRH_DMAREQMODE_POS));
-        CSK_USBC->TXCSRL &= ~USB_ARCS_TXCSRL_UNDERRUN;
+        CSK_USBC->TXCSRH &= ~(USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | USB_TXCSRH_DMAREQMODE_1);
+        //BSD NOTE: USB_TXCSRH_DMAREQMODE_0 had better be used if we need IN EP interrupt (usb_arcs_int_iep_handler) together with DMA interrupt!!
+        //CSK_USBC->TXCSRH |= ((length >= epp->fixed.mps ? USB_TXCSRH_AUTOSET : 0) | USB_TXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_TXCSRH_DMAREQMODE_POS));
+        CSK_USBC->TXCSRH |= (USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_TXCSRH_DMAREQMODE_POS));
+        CSK_USBC->TXCSRL &= ~USB_TXCSRL_UNDERRUN;
 */
         //NOTE: if EP TX is NOT in idle state, it may have side effect to change TXCSRH, e.g. clear DMAREQENAB to cause IN EP interrupt, cause ZLP?
         uint32_t reg_val = CSK_USBC->TXCSRH;
-        reg_val &= ~(USB_ARCS_TXCSRH_DMAREQMODE_1);
-        reg_val |= (USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_ARCS_TXCSRH_DMAREQMODE_POS));
+        reg_val &= ~(USB_TXCSRH_DMAREQMODE_1);
+        reg_val |= (USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | (epp->dma_reqmode << USB_TXCSRH_DMAREQMODE_POS));
         CSK_USBC->TXCSRH = reg_val;
     }
 
@@ -1104,8 +1104,8 @@ _FAST_FUNC_RO static int32_t usb_arcs_dma_setting(uint8_t ep_addr, uint32_t addr
     //usb_arcs_ctrl.ep_info[dir_idx][ep_idx].last_len = length; // to be transferred
     CSK_USBC->USB_DMA[dma_channel].ADDR = address;
     CSK_USBC->USB_DMA[dma_channel].COUNT = length;
-    CSK_USBC->USB_DMA[dma_channel].CNTL = USB_ARCS_DMA_CNTL_DMA_ENAB | (dir_idx << USB_ARCS_DMA_CNTL_DMA_DIR_POS) | (epp->dma_mode << USB_ARCS_DMA_CNTL_DMAMODE_POS) |
-                                     USB_ARCS_DMA_CNTL_DMAIE | USB_DMA_BURST_MODE | (ep_idx << USB_ARCS_DMA_CNTL_DMAEP_POS);
+    CSK_USBC->USB_DMA[dma_channel].CNTL = USB_DMA_CNTL_DMA_ENAB | (dir_idx << USB_DMA_CNTL_DMA_DIR_POS) | (epp->dma_mode << USB_DMA_CNTL_DMAMODE_POS) |
+                                     USB_DMA_CNTL_DMAIE | USB_DMA_BURST_MODE | (ep_idx << USB_DMA_CNTL_DMAEP_POS);
 
     return 0;
 }
@@ -1168,7 +1168,7 @@ static int32_t usbd_ep_disable_dma(const uint8_t ep_addr)
         // clear DMA operation status
         usb_arcs_ctrl.ep_info[dir_idx][ep_idx].req_addr = 0;
         usb_arcs_ctrl.ep_info[dir_idx][ep_idx].req_len = 0;
-        usb_arcs_ctrl.ep_info[dir_idx][ep_idx].dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+        usb_arcs_ctrl.ep_info[dir_idx][ep_idx].dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
 
         // release DMA channel
         usb_dma_clear_channel_active_flag(ch);
@@ -1245,7 +1245,7 @@ static bool usbd_ep0_read()
     uint16_t pkt_len = 0;
     bool bret = false;
 
-    if (usb_arcs_ctrl.status == USB_ARCS_STS_IN) {
+    if (usb_arcs_ctrl.status == USB_STS_IN) {
         CLOGW("%s: Error, read EP0 in DATA IN stage!!", __func__);
     }
 
@@ -1256,9 +1256,9 @@ static bool usbd_ep0_read()
 
     // continue reading only if XXX_RXPKTRDY bit is set
     //NOTE: COUNT0 / RXCOUNT is VALID only if XXX_RXPKTRDY bit is set
-    if( !(CSK_USBC->CSR0L & USB_ARCS_CSR0L_RXPKTRDY) )
+    if( !(CSK_USBC->CSR0L & USB_CSR0L_RXPKTRDY) )
         return false;
-    pkt_len = CSK_USBC->COUNT0 & USB_ARCS_COUNT0_MASK;
+    pkt_len = CSK_USBC->COUNT0 & USB_COUNT0_MASK;
 
 //    if (pkt_len == 0) {
 //        LOG_DBG("%s: ZLP is received in stage 0x%x!!", __func__, usb_arcs_ctrl.status);
@@ -1288,20 +1288,20 @@ static bool usbd_ep0_read()
             //epp->xfer_len == usb_arcs_ctrl.ep0_data_len) {
             usb_arcs_ctrl.ep0_xfer_len == usb_arcs_ctrl.ep0_data_len) {
             //last packet, set DATAEND flag
-            CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDRXPKTRDY | USB_ARCS_CSR0L_DATAEND;
+            CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDRXPKTRDY | USB_CSR0L_DATAEND;
 
-            //uint32_t changed = USB_ARCS_CSR0L_SERVICEDRXPKTRDY;
-            //if (usb_arcs_ctrl.status == USB_ARCS_STS_OUT)
-            //    changed |= USB_ARCS_CSR0L_DATAEND;
+            //uint32_t changed = USB_CSR0L_SERVICEDRXPKTRDY;
+            //if (usb_arcs_ctrl.status == USB_STS_OUT)
+            //    changed |= USB_CSR0L_DATAEND;
             //CSK_USBC->CSR0L |= changed;
 
             //TODO: SW driver bypasses STATUS stage and restore to next SETUP stage
-            //usb_arcs_ctrl.status = USB_ARCS_STS_STATUS;
-            usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+            //usb_arcs_ctrl.status = USB_STS_STATUS;
+            usb_arcs_ctrl.status = USB_STS_SETUP;
             bret = true;
 
         } else {
-            CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDRXPKTRDY;
+            CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDRXPKTRDY;
         }
     }
 
@@ -1316,7 +1316,7 @@ static int32_t usbd_epx_read(uint8_t ep_idx)
     uint32_t bytes_to_read;
     uint16_t pkt_len = 0;
 
-    if (ep_idx == 0 || ep_idx >= USB_ARCS_OUT_EP_NUM)
+    if (ep_idx == 0 || ep_idx >= USB_OUT_EP_NUM)
         return -1;
 
     epp = &usb_arcs_ctrl.ep_info[0][ep_idx];
@@ -1326,9 +1326,9 @@ static int32_t usbd_epx_read(uint8_t ep_idx)
 
     // continue reading only if XXX_RXPKTRDY bit is set
     //NOTE: COUNT0 / RXCOUNT is VALID only if XXX_RXPKTRDY bit is set
-    if( !(CSK_USBC->RXCSRL & USB_ARCS_RXCSRL_RXPKTRDY) )
+    if( !(CSK_USBC->RXCSRL & USB_RXCSRL_RXPKTRDY) )
         return -1;
-    pkt_len = CSK_USBC->RXCOUNT & USB_ARCS_RXCOUNT_MASK;
+    pkt_len = CSK_USBC->RXCOUNT & USB_RXCOUNT_MASK;
 
 //    if (pkt_len == 0) {
 //        LOG_DBG("%s: ZLP is received in stage 0x%x!!", __func__, usb_arcs_ctrl.status);
@@ -1339,11 +1339,11 @@ static int32_t usbd_epx_read(uint8_t ep_idx)
         return -1;
 
     // make sure to clear DMA operation
-    CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
-    if (epp->dma_ch != USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED) {
-        CSK_USBC->USB_DMA[epp->dma_ch].CNTL &= ~(USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAIE | USB_ARCS_DMA_CNTL_DMAERR);
+    CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
+    if (epp->dma_ch != USB_DMA_CHANNEL_NOT_ASSIGNED) {
+        CSK_USBC->USB_DMA[epp->dma_ch].CNTL &= ~(USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAIE | USB_DMA_CNTL_DMAERR);
         usb_dma_clear_channel_active_flag(epp->dma_ch);
-        epp->dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+        epp->dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
     }
 
     if (pkt_len > 0) {
@@ -1362,7 +1362,7 @@ static int32_t usbd_epx_read(uint8_t ep_idx)
     // notify host of DATA received if the packet is read out,
     // or else NAK will be responded to host for later incoming packet..
     if (bytes_to_read == pkt_len) {
-        CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_RXPKTRDY;
+        CSK_USBC->RXCSRL &= ~USB_RXCSRL_RXPKTRDY;
     }
 
     return bytes_to_read;
@@ -1380,7 +1380,7 @@ static bool usbd_ep0_write(bool send_zlp_if_none)
     epp = &usb_arcs_ctrl.ep_info[1][0];
     bytes_to_write = epp->req_len - epp->xfer_len;
 
-    if (usb_arcs_ctrl.status == USB_ARCS_STS_OUT) {
+    if (usb_arcs_ctrl.status == USB_STS_OUT) {
         CLOGW("%s: Error, write EP0 in DATA OUT stage!!", __func__);
     }
 
@@ -1388,7 +1388,7 @@ static bool usbd_ep0_write(bool send_zlp_if_none)
 
     // continue writing only if XXX_TXPKTRDY bit is cleared
     //TODO: check if TX FIFO is empty or available?
-    if(CSK_USBC->CSR0L & USB_ARCS_CSR0L_TXPKTRDY)
+    if(CSK_USBC->CSR0L & USB_CSR0L_TXPKTRDY)
        return false;
 
     if (bytes_to_write == 0) { // nothing to be written
@@ -1411,20 +1411,20 @@ static bool usbd_ep0_write(bool send_zlp_if_none)
         //epp->xfer_len == usb_arcs_ctrl.ep0_data_len) {
         usb_arcs_ctrl.ep0_xfer_len == usb_arcs_ctrl.ep0_data_len) {
         //last packet, set DATAEND flag
-        CSK_USBC->CSR0L |= USB_ARCS_CSR0L_TXPKTRDY | USB_ARCS_CSR0L_DATAEND;
+        CSK_USBC->CSR0L |= USB_CSR0L_TXPKTRDY | USB_CSR0L_DATAEND;
 
-        //uint32_t changed = USB_ARCS_CSR0L_TXPKTRDY;
-        //if (usb_arcs_ctrl.status == USB_ARCS_STS_IN)
-        //    changed |= USB_ARCS_CSR0L_DATAEND;
+        //uint32_t changed = USB_CSR0L_TXPKTRDY;
+        //if (usb_arcs_ctrl.status == USB_STS_IN)
+        //    changed |= USB_CSR0L_DATAEND;
         //CSK_USBC->CSR0L |= changed;
 
         //TODO: SW driver bypasses STATUS stage and restore to next SETUP stage
-        //usb_arcs_ctrl.status = USB_ARCS_STS_STATUS;
-        usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+        //usb_arcs_ctrl.status = USB_STS_STATUS;
+        usb_arcs_ctrl.status = USB_STS_SETUP;
         bret = true;
         //LOG_DBG("set TXRDY & DATAEND");
     } else {
-        CSK_USBC->CSR0L |= USB_ARCS_CSR0L_TXPKTRDY;
+        CSK_USBC->CSR0L |= USB_CSR0L_TXPKTRDY;
         //LOG_DBG("set TXRDY only");
     }
 
@@ -1439,7 +1439,7 @@ static int32_t usbd_epx_write(uint8_t ep_idx, bool send_zlp_if_none)
     struct usb_ep_ctrl_prv *epp;
     uint32_t bytes_to_write, xferred_bytes;
 
-    if (ep_idx == 0 || ep_idx >= USB_ARCS_IN_EP_NUM)
+    if (ep_idx == 0 || ep_idx >= USB_IN_EP_NUM)
         return -1;
 
     epp = &usb_arcs_ctrl.ep_info[1][ep_idx];
@@ -1448,13 +1448,13 @@ static int32_t usbd_epx_write(uint8_t ep_idx, bool send_zlp_if_none)
     EDPxReg_SEL(ep_idx);
 
     // continue writing only if XXX_TXPKTRDY bit is cleared
-    if(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_TXPKTRDY)
+    if(CSK_USBC->TXCSRL & USB_TXCSRL_TXPKTRDY)
         return -1;
 
 //    //FIXME: CAN it go here??
-//    if(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_FIFONOTEMPTY) {
+//    if(CSK_USBC->TXCSRL & USB_TXCSRL_FIFONOTEMPTY) {
 //        CLOGW("%s: TX FIFO NOT empty, but TXPKTRDY flag NOT set!\n", __func__);
-//        CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_TXPKTRDY;
+//        CSK_USBC->TXCSRL |= USB_TXCSRL_TXPKTRDY;
 //        return -1;
 //    }
 
@@ -1464,11 +1464,11 @@ static int32_t usbd_epx_write(uint8_t ep_idx, bool send_zlp_if_none)
     }
 
     // make sure to clear DMA operation
-    CSK_USBC->TXCSRH &= ~(USB_ARCS_TXCSRH_AUTOSET | USB_ARCS_TXCSRH_DMAREQENAB | USB_ARCS_TXCSRH_DMAREQMODE_1);
-    if (epp->dma_ch != USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED) {
-        CSK_USBC->USB_DMA[epp->dma_ch].CNTL &= ~(USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAIE | USB_ARCS_DMA_CNTL_DMAERR);
+    CSK_USBC->TXCSRH &= ~(USB_TXCSRH_AUTOSET | USB_TXCSRH_DMAREQENAB | USB_TXCSRH_DMAREQMODE_1);
+    if (epp->dma_ch != USB_DMA_CHANNEL_NOT_ASSIGNED) {
+        CSK_USBC->USB_DMA[epp->dma_ch].CNTL &= ~(USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAIE | USB_DMA_CNTL_DMAERR);
         usb_dma_clear_channel_active_flag(epp->dma_ch);
-        epp->dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+        epp->dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
     }
 
     // fill TX FIFO with prepared data
@@ -1480,7 +1480,7 @@ static int32_t usbd_epx_write(uint8_t ep_idx, bool send_zlp_if_none)
     }
     epp->last_len = bytes_to_write; // bytes_to_write may be 0...
     epp->last_io = 2; // PIO
-    CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_TXPKTRDY;
+    CSK_USBC->TXCSRL |= USB_TXCSRL_TXPKTRDY;
 
     //LOG_DBG("Write EP%d %d bytes!", ep_idx, bytes_to_write);
     return bytes_to_write;
@@ -1495,8 +1495,8 @@ static void update_ep_rx_status(uint8_t ep_idx)
 //            // last packet has been transfered, change to STS_STATUS or STS_SETUP...
 //            if (ep_idx == 0 && epp->last_len < epp->fixed.mps) {
 //                //TODO: SW driver bypasses STATUS stage and restore to next SETUP stage
-//                //usb_arcs_ctrl.status = USB_ARCS_STS_STATUS;
-//                usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+//                //usb_arcs_ctrl.status = USB_STS_STATUS;
+//                usb_arcs_ctrl.status = USB_STS_SETUP;
 //            }
 
             // cleanup last read operation?
@@ -1521,8 +1521,8 @@ static void update_ep_tx_status(uint8_t ep_idx)
 //        // last packet has been transfered, change to STS_STATUS or STS_SETUP...
 //        if (ep_idx == 0 && epp->last_len < epp->fixed.mps) {
 //            //TODO: SW driver bypasses STATUS stage and restore to next SETUP stage
-//            //usb_arcs_ctrl.status = USB_ARCS_STS_STATUS;
-//            usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+//            //usb_arcs_ctrl.status = USB_STS_STATUS;
+//            usb_arcs_ctrl.status = USB_STS_SETUP;
 //        }
         if (epp->xfer_len == epp->req_len) {
             // cleanup last read operation?
@@ -1566,10 +1566,10 @@ bool dcd_edpt_xfer (uint8_t rhport, uint8_t ep_addr, uint8_t * buffer, uint32_t 
     epp->term_early = 0;
 
     if (ep_idx == 0) { // EP0 Control Read / Write
-        if (dir_idx == DIR_IDX_OUT) { // && usb_arcs_ctrl.status == USB_ARCS_STS_OUT
+        if (dir_idx == DIR_IDX_OUT) { // && usb_arcs_ctrl.status == USB_STS_OUT
              usbd_ep0_read();
              update_ep_rx_status(0);
-        } else if (dir_idx == DIR_IDX_IN) { // && usb_arcs_ctrl.status == USB_ARCS_STS_IN
+        } else if (dir_idx == DIR_IDX_IN) { // && usb_arcs_ctrl.status == USB_STS_IN
             // send ZLP when no more data? so, device can enter into IDLE (SETUP) stage...
             // update TX status in advance if last packet of EP0 data
 //            usbd_ep0_write(total_bytes==0);
@@ -1618,9 +1618,9 @@ bool dcd_edpt_xfer (uint8_t rhport, uint8_t ep_addr, uint8_t * buffer, uint32_t 
         // read, address is NOT aligned with 4, and packet has already arrived...
         // if NOT RxPkgRdy, defer following operations into ISR of RxPkgRdy...
         EDPxReg_SEL(ep_idx);
-        if(CSK_USBC->RXCSRL & USB_ARCS_RXCSRL_RXPKTRDY) { // dir_idx == DIR_IDX_OUT
+        if(CSK_USBC->RXCSRL & USB_RXCSRL_RXPKTRDY) { // dir_idx == DIR_IDX_OUT
             count = 4 - (addr & 0x3);
-            pkt_len = CSK_USBC->RXCOUNT & USB_ARCS_RXCOUNT_MASK;
+            pkt_len = CSK_USBC->RXCOUNT & USB_RXCOUNT_MASK;
             if (total_bytes - count < 4  && total_bytes <= pkt_len) { // just PIO read if less than 4
                 usbd_epx_read(ep_idx);
                 update_ep_rx_status(ep_idx);
@@ -1647,7 +1647,7 @@ bool dcd_edpt_xfer (uint8_t rhport, uint8_t ep_addr, uint8_t * buffer, uint32_t 
     // EP PIO Read / Write (other than EP0)
     if (dir_idx == DIR_IDX_OUT) {
         EDPxReg_SEL(ep_idx);
-        if(CSK_USBC->RXCSRL & USB_ARCS_RXCSRL_RXPKTRDY) {
+        if(CSK_USBC->RXCSRL & USB_RXCSRL_RXPKTRDY) {
             usbd_epx_read(ep_idx);
             update_ep_rx_status(ep_idx);
         }
@@ -1678,30 +1678,30 @@ static void usb_arcs_ep0_isr(void)
     EDPxReg_SEL(ep_idx);
 
     //endpoint0 setupend interrupt
-    if(CSK_USBC->CSR0L & USB_ARCS_CSR0L_SETUPEND){
-        CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDSETUPEND;
-        usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+    if(CSK_USBC->CSR0L & USB_CSR0L_SETUPEND){
+        CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDSETUPEND;
+        usb_arcs_ctrl.status = USB_STS_SETUP;
         LOG_DBG("Endpoint0 setupend interrupt generated");
         return; //TODO: is it OK?
     }
 
-    if(CSK_USBC->CSR0L & USB_ARCS_CSR0L_SENTSTALL){
-        CSK_USBC->CSR0L &= ~USB_ARCS_CSR0L_SENTSTALL;
+    if(CSK_USBC->CSR0L & USB_CSR0L_SENTSTALL){
+        CSK_USBC->CSR0L &= ~USB_CSR0L_SENTSTALL;
         //BSD: NO SentStall interrupt according to MUSB datasheet!!
         CLOGW("SENTSTALL on EP0!");
         //LOG_DBG("Endpoint0 sentstall interrupt generated");
-        usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+        usb_arcs_ctrl.status = USB_STS_SETUP;
         return; //TODO: is it OK?
     }
 
     switch (usb_arcs_ctrl.status) {
-    case USB_ARCS_STS_SETUP:
+    case USB_STS_SETUP:
         /* Call the registered callback if any */
 //      LOG_DBG("usb ep0 SETUP phase (idle state)"); //BSD: open it?
         //rx packet ready
-        if(CSK_USBC->CSR0L & USB_ARCS_CSR0L_RXPKTRDY) {
+        if(CSK_USBC->CSR0L & USB_CSR0L_RXPKTRDY) {
             EDPxReg_SEL(0);
-            pkt_len = CSK_USBC->COUNT0 & USB_ARCS_COUNT0_MASK;
+            pkt_len = CSK_USBC->COUNT0 & USB_COUNT0_MASK;
 //            LOG_DBG("usb ep0: usb_arcs_ctrl status %u, size %u",
 //                    usb_arcs_ctrl.status, pkt_len);
             if(pkt_len >= sizeof(tusb_control_request_t)) {
@@ -1714,53 +1714,53 @@ static void usb_arcs_ep0_isr(void)
                 usb_arcs_ctrl.ep0_data_len = setup_tmp->wLength;
                 usb_arcs_ctrl.ep0_xfer_len = 0; // initialize to 0 once new request arrives
                 if (setup_tmp->wLength == 0) {
-                    //CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDRXPKTRDY;
+                    //CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDRXPKTRDY;
                     // DATAEND must be set here. Because status stage don't check txpktrdy signal,
                     // if software don't set DATAEND before status stage end, SETUPEND flag will be set.
-                    CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDRXPKTRDY | USB_ARCS_CSR0L_DATAEND;
+                    CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDRXPKTRDY | USB_CSR0L_DATAEND;
 
                     //TODO: SW driver bypasses STATUS stage and re-enters into next SETUP stage...
-                    //usb_arcs_ctrl.status = USB_ARCS_STS_STATUS;
+                    //usb_arcs_ctrl.status = USB_STS_STATUS;
 
                 } else { // if (setup_tmp->wLength > 0)
                     //data phase expected
                     if (setup_tmp->bmRequestType_bit.direction == REQTYPE_DIR_TO_DEVICE) {
-                        usb_arcs_ctrl.status = USB_ARCS_STS_OUT;
+                        usb_arcs_ctrl.status = USB_STS_OUT;
                         // clear RXPKTRDY only if no data left in FIFO
-                        if ((CSK_USBC->COUNT0 & USB_ARCS_COUNT0_MASK) == 0)
-                            CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDRXPKTRDY;
+                        if ((CSK_USBC->COUNT0 & USB_COUNT0_MASK) == 0)
+                            CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDRXPKTRDY;
                     } else {
-                        usb_arcs_ctrl.status = USB_ARCS_STS_IN;
-                        CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDRXPKTRDY;
+                        usb_arcs_ctrl.status = USB_STS_IN;
+                        CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDRXPKTRDY;
                     }
                 }
 
                 dcd_event_setup_received(0, (uint8_t const *)data, true);
 
             } else { // if(pkt_len == 0 || pkt_len < sizeof(tusb_control_request_t))
-                CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDRXPKTRDY;
+                CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDRXPKTRDY;
                 if (pkt_len == 0) {
                     LOG_DBG("ZLP received in SETUP / STATUS stage!");
                 } else {
                     LOG_DBG("Illegal EP0 packet size (%d bytes) in SETUP stage!", pkt_len);
                 }
             }
-        } else { // no USB_ARCS_CSR0L_RXPKTRDY flag set
+        } else { // no USB_CSR0L_RXPKTRDY flag set
 //            LOG_DBG("Unknown interrupt (maybe ZLP xmitted?) in SETUP / STATUS stage!"); //BSD: open it?
         }
         break;
 
-    case USB_ARCS_STS_OUT:
-        if(CSK_USBC->CSR0L & USB_ARCS_CSR0L_RXPKTRDY) {
+    case USB_STS_OUT:
+        if(CSK_USBC->CSR0L & USB_CSR0L_RXPKTRDY) {
             usbd_ep0_read();
             update_ep_rx_status(0);
             //LOG_DBG("usb ep0 DATA OUT stage (RX packet arrived)");
         }
         break;
 
-    case USB_ARCS_STS_IN:
+    case USB_STS_IN:
         // TXPKTRDY = 1, no interrupt of TX send out
-        if (!(CSK_USBC->CSR0L & USB_ARCS_CSR0L_TXPKTRDY)) {
+        if (!(CSK_USBC->CSR0L & USB_CSR0L_TXPKTRDY)) {
             // don't send ZLP when no more data
 //            usbd_ep0_write(false);
 //            update_ep_tx_status(0);
@@ -1770,19 +1770,19 @@ static void usb_arcs_ep0_isr(void)
         }
         break;
 
-    case USB_ARCS_STS_STATUS:
+    case USB_STS_STATUS:
         LOG_DBG("usb ep0 STATUS stage");
         if (!usb_arcs_ctrl.addressed && usb_arcs_ctrl.address) {
-            CSK_USBC->FADDR = (usb_arcs_ctrl.address) & USB_ARCS_FADDR_ADDR_MASK;
+            CSK_USBC->FADDR = (usb_arcs_ctrl.address) & USB_FADDR_ADDR_MASK;
             __DSB(); //TODO: make sure memory access is done before next instruction execution
             usb_arcs_ctrl.addressed = 1; // addressed
             LOG_DBG("Config. Addr = 0x%x", usb_arcs_ctrl.address);
         }
         // Clear RxPktRdy bit if ZLP is received in STATUS stage
-        //if(CSK_USBC->CSR0L & USB_ARCS_CSR0L_RXPKTRDY)
-        //    CSK_USBC->CSR0L |= USB_ARCS_CSR0L_SERVICEDRXPKTRDY;
+        //if(CSK_USBC->CSR0L & USB_CSR0L_RXPKTRDY)
+        //    CSK_USBC->CSR0L |= USB_CSR0L_SERVICEDRXPKTRDY;
 
-        usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+        usb_arcs_ctrl.status = USB_STS_SETUP;
         break;
 
     default:
@@ -1803,7 +1803,7 @@ static inline void usb_arcs_oep_remainpkt_handler(uint8_t ep_idx, uint8_t dir_id
 //    dir_idx = USB_EP_GET_DIR_IDX(ep);
 
     EDPxReg_SEL(ep_idx);
-    //CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
+    //CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
 
     epp = &usb_arcs_ctrl.ep_info[0][ep_idx];
     dma_channel = epp->dma_ch;
@@ -1826,11 +1826,11 @@ static inline void usb_arcs_oep_remainpkt_handler(uint8_t ep_idx, uint8_t dir_id
 
     // read RX FIFO directly & abandon DMA operation if too short packet
     if (rxcnt < 8) { //TODO: 8 => ?
-        CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1);
-        CSK_USBC->USB_DMA[dma_channel].CNTL &= ~(USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAIE | USB_ARCS_DMA_CNTL_DMAERR);
+        CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1);
+        CSK_USBC->USB_DMA[dma_channel].CNTL &= ~(USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAIE | USB_DMA_CNTL_DMAERR);
         CSK_USBC->USB_DMA[dma_channel].COUNT = 0;
         usb_dma_clear_channel_active_flag(dma_channel);
-        epp->dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+        epp->dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
 
         if (rxcnt > 0) {
             epp->last_io = 2; // PIO
@@ -1840,22 +1840,22 @@ static inline void usb_arcs_oep_remainpkt_handler(uint8_t ep_idx, uint8_t dir_id
             epp->xfer_len += epp->last_len - remained;
         }
 
-        CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_RXPKTRDY;
+        CSK_USBC->RXCSRL &= ~USB_RXCSRL_RXPKTRDY;
         update_ep_rx_status(ep_idx);
 
     } else { // continue using DMA to read short packet
         // The DMAReqEnab bit (D13) of the appropriate RxCSR register set to 0.
         // DMA single packet register setting
-        //CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1); // work (bus reset, slow)
-        //CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQMODE_1); // | USB_ARCS_RXCSRH_DMAREQENAB, NOT work (bus reset, slow)
-        //CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR | USB_ARCS_RXCSRH_DMAREQENAB); //  | USB_ARCS_RXCSRH_DMAREQMODE_1, work (bus reset, slow)
-        //CSK_USBC->RXCSRH &= ~(USB_ARCS_RXCSRH_AUTOCLEAR); // | USB_ARCS_RXCSRH_DMAREQENAB | USB_ARCS_RXCSRH_DMAREQMODE_1, work
+        //CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1); // work (bus reset, slow)
+        //CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQMODE_1); // | USB_RXCSRH_DMAREQENAB, NOT work (bus reset, slow)
+        //CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR | USB_RXCSRH_DMAREQENAB); //  | USB_RXCSRH_DMAREQMODE_1, work (bus reset, slow)
+        //CSK_USBC->RXCSRH &= ~(USB_RXCSRH_AUTOCLEAR); // | USB_RXCSRH_DMAREQENAB | USB_RXCSRH_DMAREQMODE_1, work
 
         epp->last_io = 1; // DMA
         if (remained > rxcnt)
             CSK_USBC->USB_DMA[dma_channel].COUNT = rxcnt;
-        CSK_USBC->USB_DMA[dma_channel].CNTL = USB_ARCS_DMA_CNTL_DMA_ENAB | (dir_idx << USB_ARCS_DMA_CNTL_DMA_DIR_POS) | USB_ARCS_DMA_CNTL_DMAMODE_0 |
-                                         USB_ARCS_DMA_CNTL_DMAIE | USB_DMA_BURST_MODE | (ep_idx << USB_ARCS_DMA_CNTL_DMAEP_POS);
+        CSK_USBC->USB_DMA[dma_channel].CNTL = USB_DMA_CNTL_DMA_ENAB | (dir_idx << USB_DMA_CNTL_DMA_DIR_POS) | USB_DMA_CNTL_DMAMODE_0 |
+                                         USB_DMA_CNTL_DMAIE | USB_DMA_BURST_MODE | (ep_idx << USB_DMA_CNTL_DMAEP_POS);
     }
 
 }
@@ -1864,10 +1864,10 @@ static inline void usb_arcs_oep_remainpkt_handler(uint8_t ep_idx, uint8_t dir_id
 static inline bool usb_ep_dma_is_started(uint8_t dma_ch)
 {
     //NOTE:  EDPxReg_SEL(ep_idx) SHOULD be called before
-    assert(dma_ch != USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED);
-    //if (dma_ch == USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED)
+    assert(dma_ch != USB_DMA_CHANNEL_NOT_ASSIGNED);
+    //if (dma_ch == USB_DMA_CHANNEL_NOT_ASSIGNED)
     //    return false;
-    return ((CSK_USBC->USB_DMA[dma_ch].CNTL & USB_ARCS_DMA_CNTL_DMA_ENAB) != 0 &&
+    return ((CSK_USBC->USB_DMA[dma_ch].CNTL & USB_DMA_CNTL_DMA_ENAB) != 0 &&
             CSK_USBC->USB_DMA[dma_ch].COUNT > 0);
 }
 */
@@ -1877,8 +1877,8 @@ static inline int32_t usb_ep_get_xfer_bytes(struct usb_ep_ctrl_prv *epp)
     assert(epp != NULL);
     int32_t bytes = 0;
     uint8_t dma_ch = epp->dma_ch;
-    if (dma_ch != USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED &&
-        (CSK_USBC->USB_DMA[dma_ch].CNTL & USB_ARCS_DMA_CNTL_DMA_ENAB) != 0) {
+    if (dma_ch != USB_DMA_CHANNEL_NOT_ASSIGNED &&
+        (CSK_USBC->USB_DMA[dma_ch].CNTL & USB_DMA_CNTL_DMA_ENAB) != 0) {
         bytes = epp->last_len - CSK_USBC->USB_DMA[dma_ch].COUNT;
         assert(bytes >= 0);
     }
@@ -1893,8 +1893,8 @@ static inline void usb_arcs_int_oep_handler(uint32_t intsr)
     uint8_t ep_idx;
 
     //LOG_DBG("usb_arcs_int_oep_handler");
-    for (ep_idx = 1U; ep_idx < USB_ARCS_OUT_EP_NUM; ep_idx++) {
-        if (intsr & (USB_ARCS_INTRRX_EP_POS << ep_idx)) {
+    for (ep_idx = 1U; ep_idx < USB_OUT_EP_NUM; ep_idx++) {
+        if (intsr & (USB_INTRRX_EP_POS << ep_idx)) {
             /* Read OUT RX EP interrupt status */
             EDPxReg_SEL(ep_idx);
             ep_int_status = CSK_USBC->RXCSRL;
@@ -1906,24 +1906,24 @@ static inline void usb_arcs_int_oep_handler(uint32_t intsr)
             // and call usb_arcs_oep_remainpkt_handler if NOT max packet size
             //     or even if max packet size but usb_arcs_dma_setting has not called yet!
 
-            if (ep_int_status & USB_ARCS_RXCSRL_SENTSTALL) { // SentStall
-                CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_SENTSTALL;
+            if (ep_int_status & USB_RXCSRL_SENTSTALL) { // SentStall
+                CSK_USBC->RXCSRL &= ~USB_RXCSRL_SENTSTALL;
                 LOG_DBG("SentStall on OUT EP%d, clear it", ep_idx);
             }
 
-            if (ep_int_status & USB_ARCS_RXCSRL_OVERRUN) { // Overrun
+            if (ep_int_status & USB_RXCSRL_OVERRUN) { // Overrun
                 // OVERRUN is set if an OUT packet cannot be loaded into the Rx FIFO.
                 // Note: it is only valid for ISO EP. For Bulk EP, it always returns zero.
                 // FIXME:Here we just set Flush RX FIFO (?),
                 // or else it could trap into the EP's OVERRUN interrupt repeatedly...
-                if (ep_int_status & USB_ARCS_RXCSRL_RXPKTRDY)
-                    CSK_USBC->RXCSRL |= USB_ARCS_RXCSRL_FLUSHFIFO;
+                if (ep_int_status & USB_RXCSRL_RXPKTRDY)
+                    CSK_USBC->RXCSRL |= USB_RXCSRL_FLUSHFIFO;
 
-                CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_OVERRUN;
+                CSK_USBC->RXCSRL &= ~USB_RXCSRL_OVERRUN;
                 CLOGW("Overrun on OUT EP%d! clear it", ep_idx);
             }
 
-            if (!(ep_int_status & USB_ARCS_RXCSRL_RXPKTRDY))
+            if (!(ep_int_status & USB_RXCSRL_RXPKTRDY))
                 continue;
 
             epp = &usb_arcs_ctrl.ep_info[0][ep_idx];
@@ -1934,7 +1934,7 @@ static inline void usb_arcs_int_oep_handler(uint32_t intsr)
                 //if (epp->req_len == 0 || (epp->req_len > 0 && epp->xfer_len == 0)) {
                 if (epp->req_len == 0 || (epp->req_len > 0 && usb_ep_get_xfer_bytes(epp) == 0)) {
                     LOG_DBG("%s: RXCOUNT is 0 on EP%d, skip it", __func__, ep_idx);
-                    CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_RXPKTRDY;
+                    CSK_USBC->RXCSRL &= ~USB_RXCSRL_RXPKTRDY;
                     EDPxReg_SEL(0);
                     continue; // check next EP
                 }
@@ -1943,10 +1943,10 @@ static inline void usb_arcs_int_oep_handler(uint32_t intsr)
             if (epp->req_addr == 0 || epp->req_len == 0) {  // NO user RX
                 LOG_DBG("%s: NO dcd_edpt_xfer (RX) is called!, keep data in RX FIFO!", __func__);
                 //LOG_DBG("%s: NO dcd_edpt_xfer (RX) is called!, just flush RX FIFO!", __func__);
-                //CSK_USBC->RXCSRL |= USB_ARCS_RXCSRL_FLUSHFIFO;
+                //CSK_USBC->RXCSRL |= USB_RXCSRL_FLUSHFIFO;
 
             //} else if(epp->dma_ena) {
-            } else if(epp->dma_ch != USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED) {
+            } else if(epp->dma_ch != USB_DMA_CHANNEL_NOT_ASSIGNED) {
 
 //              if (usb_ep_dma_is_started(epp->dma_ch)) { // DMA has already started
 //                  EDPxReg_SEL(0);
@@ -1965,7 +1965,7 @@ static inline void usb_arcs_int_oep_handler(uint32_t intsr)
                 } else { // NOT aligned with 4, indicating that DMA has not been started
                     uint16_t count, pkt_len;
                     count = 4 - (epp->req_addr & 0x3);
-                    pkt_len = CSK_USBC->RXCOUNT & USB_ARCS_RXCOUNT_MASK;
+                    pkt_len = CSK_USBC->RXCOUNT & USB_RXCOUNT_MASK;
                     if (epp->req_len - count < 4  && epp->req_len <= pkt_len) { // just PIO read if less than 4
                         usbd_epx_read(ep_idx);
                         update_ep_rx_status(ep_idx);
@@ -1982,7 +1982,7 @@ static inline void usb_arcs_int_oep_handler(uint32_t intsr)
                             epp->last_io = 1; // DMA
                             usb_arcs_dma_setting(USB_EP_GET_ADDR(ep_idx, USB_EP_DIR_OUT), epp->req_addr+count, epp->last_len);
                         } else {
-                            CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_RXPKTRDY;
+                            CSK_USBC->RXCSRL &= ~USB_RXCSRL_RXPKTRDY;
                             update_ep_rx_status(ep_idx);
                         }
                     }
@@ -2009,8 +2009,8 @@ static inline void usb_arcs_int_iep_handler(uint32_t intsr)
     uint32_t xferred_bytes;
 
     //LOG_DBG("usb_arcs_int_iep_handler");
-    for (ep_idx = 1U; ep_idx < USB_ARCS_IN_EP_NUM; ep_idx++) {
-        if (intsr & (USB_ARCS_INTRTX_EP_POS << ep_idx)) {
+    for (ep_idx = 1U; ep_idx < USB_IN_EP_NUM; ep_idx++) {
+        if (intsr & (USB_INTRTX_EP_POS << ep_idx)) {
             /* Read IN TX EP interrupt status */
             EDPxReg_SEL(ep_idx);
             ep_int_status = CSK_USBC->TXCSRL;
@@ -2018,12 +2018,12 @@ static inline void usb_arcs_int_iep_handler(uint32_t intsr)
             //LOG_DBG("USB IN EP%u interrupt status: 0x%x", ep_idx, ep_int_status);
 
             // check all EP interrupts, including TxPktRdy, UnderRun, SentStall etc.
-            if (ep_int_status & USB_ARCS_TXCSRL_SENTSTALL) { // SentStall
-                CSK_USBC->TXCSRL &= ~USB_ARCS_TXCSRL_SENTSTALL;
+            if (ep_int_status & USB_TXCSRL_SENTSTALL) { // SentStall
+                CSK_USBC->TXCSRL &= ~USB_TXCSRL_SENTSTALL;
                 CLOGW("SentStall on IN EP%d, clear it", ep_idx);
             }
 
-            if (ep_int_status & USB_ARCS_TXCSRL_UNDERRUN) { // UnderRun
+            if (ep_int_status & USB_TXCSRL_UNDERRUN) { // UnderRun
                 //BSD: UnderRun is set if an IN token is received when TxPktRdy is not set
                 // Here we just set TxPktRdy, and it could send an ZLP packet,
                 // or else it will be trapped into the EP's UNDERRUN interrupt repeatedly...
@@ -2031,10 +2031,10 @@ static inline void usb_arcs_int_iep_handler(uint32_t intsr)
                 //BSD: It may cause ERROR to set TxPktRdy to send ZLP, and host may request to RESET USB controller,
                 //  e.g. in MSC transfer... The correct way is to do nothing, and let USBC respond with NAK...
                 //
-                //if (!(ep_int_status & USB_ARCS_TXCSRL_TXPKTRDY))
-                //    CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_TXPKTRDY;
+                //if (!(ep_int_status & USB_TXCSRL_TXPKTRDY))
+                //    CSK_USBC->TXCSRL |= USB_TXCSRL_TXPKTRDY;
 
-                CSK_USBC->TXCSRL &= ~USB_ARCS_TXCSRL_UNDERRUN;
+                CSK_USBC->TXCSRL &= ~USB_TXCSRL_UNDERRUN;
                 LOG_DBG("Underrun on IN EP%d, clear it");
             }
 
@@ -2050,9 +2050,9 @@ static inline void usb_arcs_int_iep_handler(uint32_t intsr)
             if (TX_IS_IDLE() && epp->last_len > 0) { // TxPktRdy & NOTEMPTY NOT SET, indicates idle
 #else
             if (TX_IS_IDLE() && epp->last_len > 0) { // TxPktRdy & NOTEMPTY NOT SET, indicates idle
-            //if (!(ep_int_status & USB_ARCS_TXCSRL_TXPKTRDY) && epp->last_len > 0) { // TX done
+            //if (!(ep_int_status & USB_TXCSRL_TXPKTRDY) && epp->last_len > 0) { // TX done
 #endif
-                //if (epp->dma_ch == USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED || epp->dma_reqmode == 0) { // PIO or DMA with Request Mode 0
+                //if (epp->dma_ch == USB_DMA_CHANNEL_NOT_ASSIGNED || epp->dma_reqmode == 0) { // PIO or DMA with Request Mode 0
                 if (epp->last_io == 2 || (epp->last_io == 1 && epp->dma_reqmode == 0)) { // PIO or DMA with Request Mode 0
                 epp = &usb_arcs_ctrl.ep_info[1][ep_idx];
                 epp->xfer_len += epp->last_len;
@@ -2088,31 +2088,31 @@ static void usb_arcs_dma_isr(uint32_t dmaintsr)
 
     //LOG_DBG("usb_arcs_dma_isr");
     for(ch = 0; ch < USB_DMA_CH_COUNT_AVAIL; ch++) {
-        if( (CSK_USBC->USB_DMA[ch].CNTL & USB_ARCS_DMA_CNTL_DMAIE) && (dmaintsr & (0x01 << ch)) ) {
+        if( (CSK_USBC->USB_DMA[ch].CNTL & USB_DMA_CNTL_DMAIE) && (dmaintsr & (0x01 << ch)) ) {
             //interrupt enabled and interrupt flag is set
 
-            ep_idx = (CSK_USBC->USB_DMA[ch].CNTL & USB_ARCS_DMA_CNTL_DMAEP_MASK) >> USB_ARCS_DMA_CNTL_DMAEP_POS;
-            dir_idx = (CSK_USBC->USB_DMA[ch].CNTL & USB_ARCS_DMA_CNTL_DMA_DIR_MASK) >> USB_ARCS_DMA_CNTL_DMA_DIR_POS;
+            ep_idx = (CSK_USBC->USB_DMA[ch].CNTL & USB_DMA_CNTL_DMAEP_MASK) >> USB_DMA_CNTL_DMAEP_POS;
+            dir_idx = (CSK_USBC->USB_DMA[ch].CNTL & USB_DMA_CNTL_DMA_DIR_MASK) >> USB_DMA_CNTL_DMA_DIR_POS;
             epp = &usb_arcs_ctrl.ep_info[dir_idx][ep_idx];
             //LOG_DBG("%s: ep_idx = %d, dir_idx = %d\r\n", __func__, ep_idx, dir_idx);
 
             EDPxReg_SEL(ep_idx);
 
             // clear DMA enable & interrupt enable bits of DMA channel
-            CSK_USBC->USB_DMA[ch].CNTL &= ~(USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAEP_MASK |
-                                        USB_ARCS_DMA_CNTL_DMAIE | USB_ARCS_DMA_CNTL_DMAERR); //BSD:
+            CSK_USBC->USB_DMA[ch].CNTL &= ~(USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAEP_MASK |
+                                        USB_DMA_CNTL_DMAIE | USB_DMA_CNTL_DMAERR); //BSD:
 
             usb_dma_clear_channel_active_flag(ch);
-            epp->dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+            epp->dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
 
             //EDPxReg_SEL(ep_idx);
             if(dir_idx == DIR_IDX_OUT) { // OUT, read
-                if (CSK_USBC->RXCSRL & USB_ARCS_RXCSRL_RXPKTRDY) {
+                if (CSK_USBC->RXCSRL & USB_RXCSRL_RXPKTRDY) {
                     uint32_t len = epp->last_len % epp->fixed.mps;
-                    if (!(CSK_USBC->RXCSRH & USB_ARCS_RXCSRH_AUTOCLEAR) ||
+                    if (!(CSK_USBC->RXCSRH & USB_RXCSRH_AUTOCLEAR) ||
                         //(epp->last_len > 0 && epp->last_len < epp->fixed.mps))
                         (len > 0 && len < epp->fixed.mps))
-                        CSK_USBC->RXCSRL &= ~USB_ARCS_RXCSRL_RXPKTRDY;
+                        CSK_USBC->RXCSRL &= ~USB_RXCSRL_RXPKTRDY;
                 }
 
                 //BSD NOTE: USB DMAC can access M5(AP CODE RAM) only, and is it cacheable?
@@ -2124,29 +2124,29 @@ static void usb_arcs_dma_isr(uint32_t dmaintsr)
 
             } else { // IN, write
                 //uint8_t txcsrl = CSK_USBC->TXCSRL;
-                if (CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_UNDERRUN)
-                    CSK_USBC->TXCSRL &= ~USB_ARCS_TXCSRL_UNDERRUN;
+                if (CSK_USBC->TXCSRL & USB_TXCSRL_UNDERRUN)
+                    CSK_USBC->TXCSRL &= ~USB_TXCSRL_UNDERRUN;
 
                 //handle "last short packet" if AUTOSET is not set, SHOULD set TXPKTRDY manually!
-                if (!(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_TXPKTRDY)) {
-//                    if (!(CSK_USBC->TXCSRH & USB_ARCS_TXCSRH_AUTOSET) ||
+                if (!(CSK_USBC->TXCSRL & USB_TXCSRL_TXPKTRDY)) {
+//                    if (!(CSK_USBC->TXCSRH & USB_TXCSRH_AUTOSET) ||
 //                        (epp->last_len > 0 && epp->last_len < epp->fixed.mps))
-//                        CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_TXPKTRDY;
+//                        CSK_USBC->TXCSRL |= USB_TXCSRL_TXPKTRDY;
 
                     uint32_t len = epp->last_len % epp->fixed.mps;
-                    bool auto_set = CSK_USBC->TXCSRH & USB_ARCS_TXCSRH_AUTOSET;
+                    bool auto_set = CSK_USBC->TXCSRH & USB_TXCSRH_AUTOSET;
                     if (!auto_set || (len > 0 && len < epp->fixed.mps)) {
-                        CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_TXPKTRDY;
+                        CSK_USBC->TXCSRL |= USB_TXCSRL_TXPKTRDY;
                         //CLOGI("short len = %d\n", len);
-                        //if (!(CSK_USBC->TXCSRL & USB_ARCS_TXCSRL_FIFONOTEMPTY)) {
+                        //if (!(CSK_USBC->TXCSRL & USB_TXCSRL_FIFONOTEMPTY)) {
                         //    LOG_DBG("ERR, ZLP!\n");
                         //}
                     }
                 }
 
-//                flag = USB_ARCS_TXCSRL_FIFONOTEMPTY | USB_ARCS_TXCSRL_TXPKTRDY;
-//                if ((txcsrl & flag) == USB_ARCS_TXCSRL_FIFONOTEMPTY)
-//                  CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_TXPKTRDY;
+//                flag = USB_TXCSRL_FIFONOTEMPTY | USB_TXCSRL_TXPKTRDY;
+//                if ((txcsrl & flag) == USB_TXCSRL_FIFONOTEMPTY)
+//                  CSK_USBC->TXCSRL |= USB_TXCSRL_TXPKTRDY;
 
 //                if(epp->dma_cb)
 //                    epp->dma_cb(USB_EP_GET_ADDR(ep_idx, USB_EP_DIR_IN), USB_DC_EP_DATA_IN);
@@ -2201,32 +2201,32 @@ static void usbd_reset_internal_state(void)
     flag = usb_arcs_ctrl.channel_active;
     for (i=0; i<USB_DMA_CH_COUNT_AVAIL; i++) {
         if ((flag & (1U << i)) != 0) {
-            CSK_USBC->USB_DMA[i].CNTL &= ~(USB_ARCS_DMA_CNTL_DMA_ENAB | USB_ARCS_DMA_CNTL_DMAIE | USB_ARCS_DMA_CNTL_DMAERR);
+            CSK_USBC->USB_DMA[i].CNTL &= ~(USB_DMA_CNTL_DMA_ENAB | USB_DMA_CNTL_DMAIE | USB_DMA_CNTL_DMAERR);
             CSK_USBC->USB_DMA[i].COUNT = 0;
             CSK_USBC->USB_DMA[i].ADDR = 0;
         }
     }
     usb_arcs_ctrl.channel_active = 0;
 
-    //NOTE: USB_ARCS_IN_EP_NUM == USB_ARCS_OUT_EP_NUM
+    //NOTE: USB_IN_EP_NUM == USB_OUT_EP_NUM
     // flush RX FIFO
-    for (i = 1U; i < USB_ARCS_IN_EP_NUM; i++) {
+    for (i = 1U; i < USB_IN_EP_NUM; i++) {
         EDPxReg_SEL(i);
-        CSK_USBC->RXCSRL |= USB_ARCS_RXCSRL_FLUSHFIFO; //TODO: check USB_ARCS_RXCSRL_RXPKTRDY bit?
-        CSK_USBC->TXCSRL |= USB_ARCS_TXCSRL_FLUSHFIFO; //TODO: check USB_ARCS_TXCSRL_TXPKTRDY bit?
+        CSK_USBC->RXCSRL |= USB_RXCSRL_FLUSHFIFO; //TODO: check USB_RXCSRL_RXPKTRDY bit?
+        CSK_USBC->TXCSRL |= USB_TXCSRL_FLUSHFIFO; //TODO: check USB_TXCSRL_TXPKTRDY bit?
     }
     EDPxReg_SEL(0);
 
     // clear private data of all EPs except EP0
     (void)memset(&usb_arcs_ctrl.ep_info[0][1], 0,
-            sizeof(struct usb_ep_ctrl_prv) * (USB_ARCS_IN_EP_NUM -1));
+            sizeof(struct usb_ep_ctrl_prv) * (USB_IN_EP_NUM -1));
     (void)memset(&usb_arcs_ctrl.ep_info[1][1], 0,
-            sizeof(struct usb_ep_ctrl_prv) * (USB_ARCS_IN_EP_NUM -1));
+            sizeof(struct usb_ep_ctrl_prv) * (USB_IN_EP_NUM -1));
 
     // initialize some private of all EPs except EP0
-    for(i = 1; i < USB_ARCS_IN_EP_NUM; i++){
-        usb_arcs_ctrl.ep_info[0][i].dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
-        usb_arcs_ctrl.ep_info[1][i].dma_ch = USB_ARCS_DMA_CHANNEL_NOT_ASSIGNED;
+    for(i = 1; i < USB_IN_EP_NUM; i++){
+        usb_arcs_ctrl.ep_info[0][i].dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
+        usb_arcs_ctrl.ep_info[1][i].dma_ch = USB_DMA_CHANNEL_NOT_ASSIGNED;
         // enable EP DMA by default except EP0
         usb_arcs_ctrl.ep_info[0][i].dma_ena = 1;
         usb_arcs_ctrl.ep_info[1][i].dma_ena = 1;
@@ -2239,7 +2239,7 @@ static void usbd_reset_internal_state(void)
     usb_arcs_ctrl.address = 0;
     //usb_arcs_ctrl.configured = 0; // restore to NOT configured
 
-    usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+    usb_arcs_ctrl.status = USB_STS_SETUP;
     usb_arcs_ctrl.ep0_data_len = 0;
 
     if (irq_en) enable_IRQ(IRQ_USBC_VECTOR);
@@ -2254,27 +2254,27 @@ static void usb_arcs_handle_reset(void)
     //usb_arcs_ctrl.address = 0;
     //usb_arcs_ctrl.addressed = 0;
 
-    usb_arcs_ctrl.status = USB_ARCS_STS_SETUP;
+    usb_arcs_ctrl.status = USB_STS_SETUP;
 
-    CSK_USBC->SOFT_RST |= (USB_ARCS_SOFT_RST_NRST | USB_ARCS_SOFT_RST_NRSTX);
+    CSK_USBC->SOFT_RST |= (USB_SOFT_RST_NRST | USB_SOFT_RST_NRSTX);
     /* enable global EP interrupts */
     /* enable EP0 interrupts */
-//    CSK_USBC->INTRTXE |= USB_ARCS_INTRTX_EP0;
+//    CSK_USBC->INTRTXE |= USB_INTRTX_EP0;
 
     // resume USB core
-    //CSK_USBC->POWER |= USB_ARCS_POWER_RESUME;
+    //CSK_USBC->POWER |= USB_POWER_RESUME;
 
 #if TUD_OPT_HIGH_SPEED
     /* Set device speed to High Speed */
-    CSK_USBC->POWER |= USB_ARCS_POWER_HSENABLE;   //high speed enable
+    CSK_USBC->POWER |= USB_POWER_HSENABLE;   //high speed enable
 #else
     /* Set device speed to Full Speed */
-    CSK_USBC->POWER &= ~USB_ARCS_POWER_HSENABLE;   //Full speed enable
+    CSK_USBC->POWER &= ~USB_POWER_HSENABLE;   //Full speed enable
 #endif
 
     //BSD: DON'T connect on the initiative, tud_connect (calling dcd_connect) SHOULD be called explicitly...
 //  /* Enable soft connect */
-//  CSK_USBC->POWER |= USB_ARCS_POWER_SOFTCONN;
+//  CSK_USBC->POWER |= USB_POWER_SOFTCONN;
 
 #if CONFIG_DBG_EP
     config_dbg_ep();
@@ -2282,7 +2282,7 @@ static void usb_arcs_handle_reset(void)
 
     /* Enable usb module interrupt */
     CSK_USBC->INTRUSBE = 0x00;
-    //CSK_USBC->INTRUSBE |= USB_ARCS_INTRUSBE_RESET;
+    //CSK_USBC->INTRUSBE |= USB_INTRUSBE_RESET;
     CSK_USBC->INTRUSBE = usb_arcs_ctrl.intr_usbe;
 
     /* enable EP0 interrupts */
@@ -2295,7 +2295,7 @@ static void usb_arcs_handle_reset(void)
     //FIXME: SHOULD clear RESUME bit about 10 ms after RESUME bit is set...
     //volatile uint32_t i = 10000;
     //while (i-- > 0);
-    //CSK_USBC->POWER &= ~USB_ARCS_POWER_RESUME;
+    //CSK_USBC->POWER &= ~USB_POWER_RESUME;
 
 }
 
@@ -2318,14 +2318,14 @@ static void usb_arcs_isr_handler(const void *unused)
     txsr = CSK_USBC->INTRTX & CSK_USBC->INTRTXE;
     rxsr = CSK_USBC->INTRRX & CSK_USBC->INTRRXE;
     for(uint32_t i=0; i<6; i++){
-        dmaie |= (((CSK_USBC->USB_DMA[i].CNTL & USB_ARCS_DMA_CNTL_DMAIE) >> USB_ARCS_DMA_CNTL_DMAIE_POS)<<i);
+        dmaie |= (((CSK_USBC->USB_DMA[i].CNTL & USB_DMA_CNTL_DMAIE) >> USB_DMA_CNTL_DMAIE_POS)<<i);
     }
     dmaintsr = CSK_USBC->DMA_INTR & dmaie;
 
 //  LOG_DBG("USB interrupt handler entered");
 //  LOG_DBG("USB INTRUSB= 0x%x, INTRTX = 0x%x, INTRRX = 0x%x, DMA_INTR = 0x%x", intsr, txsr, rxsr, dmaintsr);
 
-    if (intsr & USB_ARCS_INTRUSB_RESET) {
+    if (intsr & USB_INTRUSB_RESET) {
         /* Reset detected */
         //LOG_DBG("usb reset interrupt");
     #if TUD_OPT_HIGH_SPEED
@@ -2337,29 +2337,29 @@ static void usb_arcs_isr_handler(const void *unused)
     }
 
 /*
-    if (intsr & USB_ARCS_INTRUSB_CONN) { // Only valid in Host mode
+    if (intsr & USB_INTRUSB_CONN) { // Only valid in Host mode
         LOG_DBG("usb connect interrupt");
         //dcd_event_bus_signal(0, DCD_EVENT_PLUGGED, true); //NO PLUGGED event!
     }
 
-    if (intsr & USB_ARCS_INTRUSB_DISCON) { // Work when OTG is supported
+    if (intsr & USB_INTRUSB_DISCON) { // Work when OTG is supported
         LOG_DBG("usb disconnect interrupt");
         dcd_event_bus_signal(0, DCD_EVENT_UNPLUGGED, true);
     }
 */
 
-    if (intsr & USB_ARCS_INTRUSB_SUSPEND) {
+    if (intsr & USB_INTRUSB_SUSPEND) {
         LOG_DBG("usb suspend interrupt");
         dcd_event_bus_signal(0, DCD_EVENT_SUSPEND, true);
     }
 
-    if (intsr & USB_ARCS_INTRUSB_RESUME) {
+    if (intsr & USB_INTRUSB_RESUME) {
         //NOTE: no RESUME interrupt if RESUME signal is triggered by CPU
         LOG_DBG("usb resume interrupt");
         dcd_event_bus_signal(0, DCD_EVENT_RESUME, true);
     }
 
-    if (intsr & USB_ARCS_INTRUSB_SOF) {
+    if (intsr & USB_INTRUSB_SOF) {
         LOG_DBG("usb sof interrupt");
         dcd_event_bus_signal(0, DCD_EVENT_SOF, true);
     }
@@ -2370,19 +2370,19 @@ static void usb_arcs_isr_handler(const void *unused)
     }
 
     /* EP0 tx&rx endpoint interrupt */
-    if (txsr & USB_ARCS_INTRTX_EP0_MASK) {
+    if (txsr & USB_INTRTX_EP0_MASK) {
 //      LOG_DBG("usb endpoint 0 interrupt");
         usb_arcs_ep0_isr();
     }
 
     /* EP1-5 tx endpoint interrupt for IN endpoint */
-    if (txsr & USB_ARCS_INTRTX_EP_MASK) {
+    if (txsr & USB_INTRTX_EP_MASK) {
 //      LOG_DBG("usb endpoint x IN interrupt");
         usb_arcs_int_iep_handler(txsr);
     }
 
     /* EP1-5 rx endpoint interrupt for OUT endpoint */
-    if (rxsr & USB_ARCS_INTRRX_EP_MASK) {
+    if (rxsr & USB_INTRRX_EP_MASK) {
 //      LOG_DBG("usb endpoint x OUT interrupt");
         usb_arcs_int_oep_handler(rxsr);
     }

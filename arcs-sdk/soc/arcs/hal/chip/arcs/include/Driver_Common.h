@@ -41,7 +41,19 @@ typedef enum _CSK_POWER_STATE
 
 
 //-------------------------------------------------------------
-// For PingPong block transfer
+/**
+ * @brief Input Block Type for Ping-Pong Transfer Mode
+ *        Used to describe a single block of samples for circular buffer operation
+ *
+ * @var reserved
+ *      Must be initialized to 0 (reserved for future expansion)
+ * @var sample_data
+ *      Pointer to sample data buffer (must be word-aligned)
+ * @var sample_cnt
+ *      Number of samples in this block (MUST BE EVEN for 16-bit samples!)
+ * @var flags
+ *      Control flags - Bit[0]: Stop Ping-Pong after this block completes
+ */
 typedef struct {
     uint32_t reserved; // SHOULD set to 0
     uint32_t *sample_data;
@@ -50,6 +62,19 @@ typedef struct {
     uint32_t flags;
 } PIPO_IN_BLOCK;
 
+/**
+ * @brief Output Block Type for Ping-Pong Transfer Completion Status
+ *       Mirrors input block structure but optimized for completion reporting
+ *
+ * @var sample_data
+ *      Pointer to completed transfer buffer
+ * @var reserved
+ *      Reserved field (set to 0)
+ * @var sample_cnt
+ *      Actual number of samples transferred
+ * @var flags
+ *      Completion flags matching original request flags
+ */
 typedef struct {
     uint32_t *sample_data;
     uint32_t reserved; // SHOULD set to 0
@@ -65,12 +90,15 @@ typedef struct {
     uint32_t flags; //1: Stop PingPing after this block transfer
 } PIPO_XFER_BLOCK;
 
+/**
+ * @brief Unified I/O Block Type Combining Input/Output Semantics
+ *       Allows reuse of same memory area for both request submission and completion status
+ */
 typedef union {
     PIPO_IN_BLOCK in;
     PIPO_OUT_BLOCK out;
     PIPO_XFER_BLOCK xfer;
 } PIPO_IO_BLOCK;
-
 
 //-------------------------------------------------------------
 // Audio buffer used for DMA transfer of multiple non-continuous buffers

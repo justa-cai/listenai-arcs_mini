@@ -6,10 +6,12 @@
 
 #include "unity.h"
 
+#include <errno.h>
 #include <stdbool.h>
 #include <string.h>
 
 #include "fff.h"
+#include "event_groups.h"
 #include "mock_ls_event.h"
 #include "mock_mem_ops.h"
 #include "mock_os_ops.h"
@@ -114,6 +116,7 @@ static void teardown_wifi_manager(void)
     s_last_event = 0;
     memset(&s_last_fail_info, 0, sizeof(s_last_fail_info));
     s_last_fail_info_valid = false;
+    mock_event_group_reset();
 }
 
 void setUp(void)
@@ -396,6 +399,31 @@ void test_wifi_connection_fail_propagates_fail_info(void)
     wifi_manager_arcs_wifi_ops_get()->remove_callback(&cb);
 }
 
+/* Simulate connect-then-immediate-disconnect race during wifi_sta_connect */
+static ls_err_t custom_wifi_sta_connect_then_disconnect(wifi_connect_cfg_t *cfg)
+{
+    (void)cfg;
+    mock_ls_event_trigger(EVENT_WIFI, EVENT_WIFI_CONNECTED, NULL);
+    mock_ls_event_trigger(EVENT_WIFI, EVENT_WIFI_DISCONNECT, NULL);
+    return LS_OK;
+}
+
+void test_wifi_connect_then_immediate_disconnect_returns_econnreset(void)
+{
+    wifi_mgr_sta_config_t cfg = {
+        .ssid = "FlickerAP",
+        .pwd = "password",
+        .encryption_mode = WIFI_MGR_WIFI_AUTH_WPA2_PSK,
+    };
+
+    wifi_sta_connect_fake.custom_fake = custom_wifi_sta_connect_then_disconnect;
+    mock_event_group_set_wait_return(1 << 0); /* GROUP_EVENTS_WIFI_STA_CONNECT_FINISH */
+
+    int ret = wifi_mgr_sta_connect(&cfg, false);
+
+    TEST_ASSERT_EQUAL(-ECONNRESET, ret);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
@@ -407,5 +435,6 @@ int main(void)
     RUN_TEST(test_wifi_disconnect_while_switching_ap_reports_previous_connection);
     RUN_TEST(test_wifi_disconnect_event_propagates_fail_info);
     RUN_TEST(test_wifi_connection_fail_propagates_fail_info);
+    RUN_TEST(test_wifi_connect_then_immediate_disconnect_returns_econnreset);
     return UNITY_END();
 }

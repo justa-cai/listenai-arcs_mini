@@ -62,6 +62,10 @@ enum bt_os_msg_id
     BT_OS_CONNECT_EVT                                       = OS_MSG_ID(BT, 0x0a),
     /// Disconnect
     BT_OS_DISCONNECT_EVT                                    = OS_MSG_ID(BT, 0x0b),
+
+    /// BLE whitelist / resolve list
+    BT_OS_BLE_ADD_WLIST_EVT                                 = OS_MSG_ID(BT, 0x0c),
+    BT_OS_BLE_ADD_RLIST_EVT                                 = OS_MSG_ID(BT, 0x0d),
 #if LEA_PRESENT
     /// Scan lea peer dev
     BT_OS_LEA_SCAN_EVT                                      = OS_MSG_ID(BT, 0x10),
@@ -101,71 +105,64 @@ enum bt_os_msg_id
 #endif
     BT_OS_DATA_SEND_CNF_EVT                                 = OS_MSG_ID(BT, 0x1e),
 
-
     /// Hid send
-    BT_OS_HID_SEND_EVT                                      = OS_MSG_ID(BT, 0x50),
-    BT_OS_VOICE_DATA_SEND_EVT                               = OS_MSG_ID(BT, 0x51),
+    BT_OS_HID_SEND_EVT                                      = OS_MSG_ID(BT, 0x20),
+    BT_OS_VOICE_DATA_SEND_EVT                               = OS_MSG_ID(BT, 0x21),
 
     /// Net config
-    BT_OS_NET_CFG_SEND_EVT                                  = OS_MSG_ID(BT, 0x55),
+    BT_OS_NET_CFG_SEND_EVT                                  = OS_MSG_ID(BT, 0x22),
+    BT_OS_CONNECT_UPDATE_EVT                                = OS_MSG_ID(BT, 0x23),
 
-    /// AT test
-    BT_OS_AT_SEND_EVT                                       = OS_MSG_ID(BT, 0x60),
-
-    BT_OS_CONNECT_UPDATE_EVT                                = OS_MSG_ID(BT, 0x70),
-
-    BT_OS_BT_INQ_START_EVT                                  = OS_MSG_ID(BT, 0x71),
-
-    BT_OS_BT_INQ_STOP_EVT                                   = OS_MSG_ID(BT, 0x72),
-
-    BT_OS_BT_SCAN_EVT                                       = OS_MSG_ID(BT, 0x73),
-
-    BT_OS_BT_CONNECT_EVT                                    = OS_MSG_ID(BT, 0x74),
-
-    BT_OS_BT_CONNECT_CANCEL_EVT                             = OS_MSG_ID(BT, 0x75),
-
-    BT_OS_BT_DISCONNECT_EVT                                 = OS_MSG_ID(BT, 0x76),
-
+    /// Classic
+    BT_OS_BT_INQ_START_EVT                                  = OS_MSG_ID(BT, 0x40),
+    BT_OS_BT_INQ_STOP_EVT                                   = OS_MSG_ID(BT, 0x41),
+    BT_OS_BT_SCAN_EVT                                       = OS_MSG_ID(BT, 0x42),
+    BT_OS_BT_CONNECT_EVT                                    = OS_MSG_ID(BT, 0x43),
+    BT_OS_BT_CONNECT_CANCEL_EVT                             = OS_MSG_ID(BT, 0x44),
+    BT_OS_BT_DISCONNECT_EVT                                 = OS_MSG_ID(BT, 0x45),
 
     /// A2DP
-    BT_OS_A2DP_SEND_MEDIA_EVT                               = OS_MSG_ID(BT, 0x80),
-    BT_OS_A2DP_ENABLE_EVT,
-    BT_OS_A2DP_CONNECT_EVT,
-    BT_OS_A2DP_START_EVT,
+    BT_OS_A2DP_SEND_MEDIA_EVT                               = OS_MSG_ID(BT, 0x50),
+    BT_OS_A2DP_ENABLE_EVT                                   = OS_MSG_ID(BT, 0x51),
+    BT_OS_A2DP_CONNECT_EVT                                  = OS_MSG_ID(BT, 0x52),
+    BT_OS_A2DP_START_EVT                                    = OS_MSG_ID(BT, 0x53),
 
     /// HFP
-    BT_OS_HFP_ENABLE_EVT,
-    BT_OS_HFP_CONNECT_EVT,
-    BT_OS_HFP_SET_CODEC_TYPE_EVT,
-    BT_OS_HFP_CALL_START_EVT,
-    BT_OS_HFP_CALL_ADD_AUDIO_EVT,
-    BT_OS_HFP_CALL_REMOVE_AUDIO_EVT,
-    BT_OS_HFP_CALL_INCOMMING_EVT,
-    BT_OS_HFP_SEND_AUD_EVT,
+    BT_OS_HFP_ENABLE_EVT                                    = OS_MSG_ID(BT, 0x54),
+    BT_OS_HFP_CONNECT_EVT                                   = OS_MSG_ID(BT, 0x55),
+    BT_OS_HFP_SET_CODEC_TYPE_EVT                            = OS_MSG_ID(BT, 0x56),
+    BT_OS_HFP_CALL_START_EVT                                = OS_MSG_ID(BT, 0x57),
+    BT_OS_HFP_CALL_ADD_AUDIO_EVT                            = OS_MSG_ID(BT, 0x58),
+    BT_OS_HFP_CALL_REMOVE_AUDIO_EVT                         = OS_MSG_ID(BT, 0x59),
+    BT_OS_HFP_CALL_INCOMMING_EVT                            = OS_MSG_ID(BT, 0x5a),
+    BT_OS_HFP_SEND_AUD_EVT                                  = OS_MSG_ID(BT, 0x5b),
 
     /// AVRCP
-    BT_OS_AVRCP_PLAY_STATUS_SET_EVT,
+    BT_OS_AVRCP_PLAY_STATUS_SET_EVT                         = OS_MSG_ID(BT, 0x60),
 
     /// GAP
-    BT_OS_GAP_AUTH_REQ_EVT,
-    BT_OS_GAP_SAVE_LK_EVT,
-    BT_OS_BT_SET_ASIC_CVSD_EVT,
+    BT_OS_GAP_AUTH_REQ_EVT                                  = OS_MSG_ID(BT, 0x65),
+    BT_OS_GAP_SAVE_LK_EVT                                   = OS_MSG_ID(BT, 0x66),
+    BT_OS_BT_SET_ASIC_CVSD_EVT                              = OS_MSG_ID(BT, 0x67),
 
     /// Audio HAL
-    BT_OS_AUD_A2DP_SEND_START_EVT,
-    BT_OS_AUD_A2DP_SEND_STOP_EVT,
-    BT_OS_AUD_A2DP_SEND_DATA_EVT,
-    BT_OS_AUD_HFP_SEND_START_EVT,
-    BT_OS_AUD_HFP_SEND_STOP_EVT,
-    BT_OS_AUD_HFP_SEND_DATA_EVT,
+    BT_OS_AUD_A2DP_SEND_START_EVT                           = OS_MSG_ID(BT, 0x70),
+    BT_OS_AUD_A2DP_SEND_STOP_EVT                            = OS_MSG_ID(BT, 0x71),
+    BT_OS_AUD_A2DP_SEND_DATA_EVT                            = OS_MSG_ID(BT, 0x72),
+    BT_OS_AUD_HFP_SEND_START_EVT                            = OS_MSG_ID(BT, 0x73),
+    BT_OS_AUD_HFP_SEND_STOP_EVT                             = OS_MSG_ID(BT, 0x74),
+    BT_OS_AUD_HFP_SEND_DATA_EVT                             = OS_MSG_ID(BT, 0x75),
 
     /// Timer
-    BT_OS_TIMER_CREAT_EVT,
-    BT_OS_TIMER_STOP_EVT,
+    BT_OS_TIMER_CREAT_EVT                                   = OS_MSG_ID(BT, 0x76),
+    BT_OS_TIMER_STOP_EVT                                    = OS_MSG_ID(BT, 0x77),
 
-    /// BLE whitelist / resolve list
-    BT_OS_BLE_ADD_WLIST_EVT,
-    BT_OS_BLE_ADD_RLIST_EVT,
+    /// AT test
+    BT_OS_AT_SEND_EVT                                       = OS_MSG_ID(BT, 0x7a),
+
+    // IPC 
+    BT_OS_IPC_HCI_H2C_SEND_EVT                              = OS_MSG_ID(BT, 0x80),
+    BT_OS_IPC_HCI_C2H_SEND_EVT                              = OS_MSG_ID(BT, 0x81),
 
 };
 

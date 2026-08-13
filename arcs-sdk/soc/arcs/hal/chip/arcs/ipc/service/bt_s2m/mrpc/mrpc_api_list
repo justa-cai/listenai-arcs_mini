@@ -1,0 +1,47 @@
+BEGIN CLIENT_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "bt_ipc_api.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_bt_s2m_api_msg.h"
+#include "mrpc_bt_s2m_api_server.h"
+END
+
+BEGIN SERVER_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_bt_s2m_api_msg.h"
+#include "mrpc_bt_s2m_api_server.h"
+
+END
+
+BEGIN MSG_HDR_INCLUDE_FILE
+#include <stddef.h>    // standard definitions
+#include <stdint.h>    // standard integer definition
+#include <stdbool.h>   // boolean definition
+#include "ls_err.h"
+#include "ls_bt_type.h"
+#include "mrpc.h"
+#include "btos_def.h"
+#include "bt_ipc_api.h"
+END
+
+BEGIN MSG_MAX_SIZE
+IPC_MSG_BUFFER_SIZE
+END
+
+
+BEGIN API_DECLARE_TYPE_OTHER
+
+ls_err_t cp_btos_malloc_api(in void **buffer_ptr, uint32_t size);
+
+ls_err_t cp_btos_free_api(out void **ptr);
+
+END

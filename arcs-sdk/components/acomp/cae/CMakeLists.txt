@@ -1,0 +1,5 @@
+if(CONFIG_ACOMP_CAE)
+    listenai_library_sources(acomp_cae.c)
+    listenai_include_directories(./)
+    listenai_include_directories(./private)
+endif()

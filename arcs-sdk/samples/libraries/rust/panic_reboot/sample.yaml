@@ -1,0 +1,9 @@
+tests:
+  samples.libraries.rust.panic_reboot:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "R4 panic-reboot demo"

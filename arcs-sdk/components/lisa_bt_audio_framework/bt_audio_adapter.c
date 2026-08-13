@@ -16,19 +16,26 @@
 #include "bt_call_hal.h"
 #include "bt_stack_hal.h"
 #include "lisa_log.h"
+#include <stdbool.h>
 #include <string.h>
 
 #define TAG "BT_AUDIO_ADAPTER"
 
-#define BT_STACK_HFP_CODEC_TYPE    (BT_STACK_HFP_MSBC_SUPPORT + HFP_MEDIA_CODEC_CVSD)
+#define BT_STACK_HFP_CODEC_TYPE    (BT_STACK_HFP_MSBC_SUPPORT ? HFP_MEDIA_CODEC_MSBC : HFP_MEDIA_CODEC_CVSD)
+#define BT_AUDIO_INVALID_CONIDX    0xFF
 
-static uint8_t g_a2dp_conidx = 0xFF;  /* A2DP 连接索引 */
-static uint8_t g_hfp_conidx = 0xFF;   /* HFP 连接索引 */
+static uint8_t g_a2dp_conidx = BT_AUDIO_INVALID_CONIDX;  /* A2DP 连接索引 */
+static uint8_t g_hfp_conidx = BT_AUDIO_INVALID_CONIDX;   /* HFP 连接索引 */
 static bt_audio_adapter_event_ops_t *g_event_ops = NULL;
 static bt_audio_profile_e g_current_profile = BT_PROFILE_NONE;
 
+extern bool bt_stack_classic_connected(void);
+
 static uint8_t bt_audio_adapter_handle_data(void *data);
 static void bt_audio_adapter_send_data_confirm(const void *pkt_data, size_t len);
+static void bt_audio_adapter_clear_connection(uint8_t conidx);
+extern void bt_stack_bt_send_a2dp_media_to_peer(uint8_t conidx, uint8_t frame_num,
+                                                uint16_t len, uint8_t *data);
 
 /**
  * @brief 根据 codec 类型推断 profile 类型
@@ -45,6 +52,25 @@ static inline bt_audio_profile_e codec_to_profile(uint8_t aud_type)
             return BT_PROFILE_LEA;
         default:
             return BT_PROFILE_NONE;
+    }
+}
+
+static void bt_audio_adapter_clear_connection(uint8_t conidx)
+{
+    bool clear_all = (conidx == BT_AUDIO_INVALID_CONIDX);
+
+    if (clear_all || g_a2dp_conidx == conidx) {
+        g_a2dp_conidx = BT_AUDIO_INVALID_CONIDX;
+        if (g_current_profile == BT_PROFILE_A2DP) {
+            g_current_profile = BT_PROFILE_NONE;
+        }
+    }
+
+    if (clear_all || g_hfp_conidx == conidx) {
+        g_hfp_conidx = BT_AUDIO_INVALID_CONIDX;
+        if (g_current_profile == BT_PROFILE_HFP) {
+            g_current_profile = BT_PROFILE_NONE;
+        }
     }
 }
 
@@ -87,6 +113,8 @@ uint8_t bt_audio_adapter_os_msg_handle(btos_event_t *msg)
         
         case AUD_OS_STOP_EVT:
         {
+            bt_audio_profile_e stopped_profile = g_current_profile;
+
             if (!msg->msg_body->param) {
                 LISA_LOGE(TAG, "AUD_OS_STOP_EVT: invalid param");
                 break;
@@ -95,6 +123,15 @@ uint8_t bt_audio_adapter_os_msg_handle(btos_event_t *msg)
             uint8_t status = *(msg->msg_body->param + 1);
             LISA_LOGI(TAG, "AUD_OS_STOP_EVT: conidx=%d, status=0x%x", conidx, status);
             g_current_profile = BT_PROFILE_NONE;
+            if (conidx == BT_AUDIO_INVALID_CONIDX) {
+                bt_audio_adapter_clear_connection(BT_AUDIO_INVALID_CONIDX);
+            } else if (!bt_stack_classic_connected()) {
+                bt_audio_adapter_clear_connection(conidx);
+            } else if (stopped_profile == BT_PROFILE_A2DP && g_a2dp_conidx == conidx) {
+                LISA_LOGI(TAG, "A2DP stream stopped, keep active connection conidx=%d", conidx);
+            } else if (stopped_profile == BT_PROFILE_HFP && g_hfp_conidx == conidx) {
+                LISA_LOGI(TAG, "HFP audio stopped, keep active connection conidx=%d", conidx);
+            }
             if (g_event_ops && g_event_ops->bt_event_stop) {
                 g_event_ops->bt_event_stop(conidx, status);
             }
@@ -141,7 +178,14 @@ uint8_t bt_audio_adapter_os_msg_handle(btos_event_t *msg)
             uint8_t conidx = *msg->msg_body->param;
             
             LISA_LOGI(TAG, "AUD_OS_A2DP_CONNECTION_UPDATE_EVT: conidx=%d", conidx);
-            g_a2dp_conidx = conidx;
+            if (conidx == BT_AUDIO_INVALID_CONIDX) {
+                g_a2dp_conidx = BT_AUDIO_INVALID_CONIDX;
+                if (g_current_profile == BT_PROFILE_A2DP) {
+                    g_current_profile = BT_PROFILE_NONE;
+                }
+            } else {
+                g_a2dp_conidx = conidx;
+            }
         }
         break;
         
@@ -153,7 +197,14 @@ uint8_t bt_audio_adapter_os_msg_handle(btos_event_t *msg)
             }
             uint8_t conidx = *msg->msg_body->param;
             LISA_LOGI(TAG, "AUD_OS_HFP_CONNECTION_UPDATE_EVT: conidx=%d", conidx);
-            g_hfp_conidx = conidx;
+            if (conidx == BT_AUDIO_INVALID_CONIDX) {
+                g_hfp_conidx = BT_AUDIO_INVALID_CONIDX;
+                if (g_current_profile == BT_PROFILE_HFP) {
+                    g_current_profile = BT_PROFILE_NONE;
+                }
+            } else {
+                g_hfp_conidx = conidx;
+            }
         }
         break;
         
@@ -228,6 +279,8 @@ static uint8_t bt_audio_adapter_handle_data(void *data)
     
     if (g_event_ops && g_event_ops->bt_event_rcv_data) {
         g_event_ops->bt_event_rcv_data(pkt_data, pkt_len);
+    } else {
+        LISA_LOGW(TAG, "No event handler for received data");
     }
 
     return 0;
@@ -276,21 +329,22 @@ os_task_cb_t *bt_audio_adapter_get_os_task_cb(void)
 int bt_audio_adapter_send_frames(uint8_t conidx, const uint8_t *data, 
                                     size_t frame_count, size_t total_bytes)
 {
-    if (!data || total_bytes == 0 || conidx == 0xFF) {
+    if (!data || total_bytes == 0 || conidx == BT_AUDIO_INVALID_CONIDX) {
         return -1;
     }
     
     if (g_current_profile == BT_PROFILE_A2DP) {
-        extern void app_a2dp_send_media_to_peer(uint8_t conidx, uint8_t frame_num, 
-                                                    uint16_t len, uint8_t *data);
-        
 #if BT_MUSIC_PRESENT
         bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
-        if (stack_env && stack_env->bt_music_send_cnt <= 4) {
-            app_a2dp_send_media_to_peer(conidx, (uint8_t)frame_count, 
-                                         (uint16_t)total_bytes, (uint8_t *)data);
-            stack_env->bt_music_send_cnt++;
+        if (!stack_env) {
+            return -1;
         }
+        if (stack_env->bt_music_send_cnt >= BT_STACK_CLASSIC_BIG_ACL_SEND_MAX) {
+            stack_env->bt_music_full = 1;
+            return -2;
+        }
+        bt_stack_bt_send_a2dp_media_to_peer(conidx, (uint8_t)frame_count,
+                                            (uint16_t)total_bytes, (uint8_t *)data);
 #endif
     } else if (g_current_profile == BT_PROFILE_HFP) {
 #if BT_CALL_PRESENT
@@ -305,6 +359,17 @@ int bt_audio_adapter_send_frames(uint8_t conidx, const uint8_t *data,
     return 0;
 }
 
+void bt_audio_adapter_a2dp_media_rsp(uint8_t conidx, uint8_t *data, uint16_t status)
+{
+    if (g_event_ops && g_event_ops->bt_audio_send_buffer_release) {
+        g_event_ops->bt_audio_send_buffer_release(conidx, data, status);
+    }
+
+    if (g_event_ops && g_event_ops->bt_audio_send_complete) {
+        g_event_ops->bt_audio_send_complete();
+    }
+}
+
 bt_audio_profile_e bt_audio_adapter_get_profile(void)
 {
     return g_current_profile;
@@ -314,8 +379,17 @@ int bt_audio_adapter_start_audio_stream(bt_audio_profile_e profile)
 {
     // 检查对应 profile 的 conidx 是否已设置
     uint8_t conidx = (profile == BT_PROFILE_A2DP) ? g_a2dp_conidx : g_hfp_conidx;
-    if (conidx == 0xFF) {
+    if (profile != BT_PROFILE_A2DP && profile != BT_PROFILE_HFP) {
+        LISA_LOGE(TAG, "Unsupported profile: %d", profile);
+        return -1;
+    }
+    if (conidx == BT_AUDIO_INVALID_CONIDX) {
         LISA_LOGW(TAG, "No active connection for profile %d yet.", profile);
+        return -1;
+    }
+    if (!bt_stack_classic_connected()) {
+        LISA_LOGW(TAG, "Classic link is disconnected, drop cached conidx=%d for profile %d", conidx, profile);
+        bt_audio_adapter_clear_connection(conidx);
         return -1;
     }
     
@@ -338,10 +412,8 @@ int bt_audio_adapter_start_audio_stream(bt_audio_profile_e profile)
         /* 先设置呼叫为激活状态 */
         app_hfp_call_start(conidx, 0);
 
-        // app_bt_set_asic_cvsd_en(1);
-        /* 建立 SCO 连接 */
-        app_hfp_call_add_audio(conidx, BT_STACK_HFP_CODEC_TYPE);
-        LISA_LOGI(TAG, "HFP SCO connection requested");
+        /* codec select status callback will request SCO; avoid duplicate add_audio. */
+        LISA_LOGI(TAG, "HFP call/codec setup requested, wait codec callback for SCO");
         
     } else {
         LISA_LOGE(TAG, "Unsupported profile: %d", profile);
@@ -354,6 +426,14 @@ int bt_audio_adapter_start_audio_stream(bt_audio_profile_e profile)
 int bt_audio_adapter_stop_audio_stream(bt_audio_profile_e profile)
 {
     uint8_t conidx = (profile == BT_PROFILE_A2DP) ? g_a2dp_conidx : g_hfp_conidx;
+    if (profile != BT_PROFILE_A2DP && profile != BT_PROFILE_HFP) {
+        LISA_LOGE(TAG, "Unsupported profile: %d", profile);
+        return -1;
+    }
+    if (conidx == BT_AUDIO_INVALID_CONIDX) {
+        LISA_LOGW(TAG, "No active connection for profile %d yet.", profile);
+        return -1;
+    }
     
     if (profile == BT_PROFILE_A2DP) {
         /* A2DP Source: 停止音乐流 */
@@ -367,6 +447,8 @@ int bt_audio_adapter_stop_audio_stream(bt_audio_profile_e profile)
         app_hfp_call_remove_audio(conidx, CO_ERROR_REMOTE_USER_TERM_CON);
         LISA_LOGI(TAG, "HFP SCO disconnect requested");
     }
+
+    return 0;
 }
 
 int bt_audio_adapter_registeer(bt_audio_adapter_event_ops_t *ops)

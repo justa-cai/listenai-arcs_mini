@@ -9,3 +9,4 @@
     ../modules/fs/README.md
     lisa_shell/README.md
     lisa_evt_pub/README.md
+    lisa_pm/README.md

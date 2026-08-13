@@ -11,5 +11,6 @@ USB Host 示例
     cherryusb_serial/README.md
     cherryusb_video/README.md
     cherryusb_video_serial_audio/README.md
+    cherryusb_ec801e_ecm/README.md
 
 

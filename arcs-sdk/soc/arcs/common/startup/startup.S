@@ -26,9 +26,15 @@
 
 #include "riscv_encoding.h"
 
-/* If BOOT_HARTID is not defined, default value is 0 */
+/* BOOT_HARTID 必须由构建系统通过 -DBOOT_HARTID=<0|1> 显式提供
+ * (soc/arcs/hal/CMakeLists.txt 已根据 CONFIG_HARTID 传入),
+ * 它会被直接嵌入 image header reserved[0], 供 boot 在
+ * CONFIG_BOOT_APP_CORE_AUTO 场景下决定加载到 AP/CP 哪个核. */
 #ifndef BOOT_HARTID
-    .equ BOOT_HARTID,    0
+#  error "BOOT_HARTID is not defined; expected -DBOOT_HARTID=<0|1> from cmake"
+#endif
+#if (BOOT_HARTID != 0) && (BOOT_HARTID != 1)
+#  error "BOOT_HARTID must be 0 (AP) or 1 (CP)"
 #endif
 
 .macro DECLARE_INT_HANDLER  INT_HDL_NAME
@@ -145,7 +151,7 @@ vector_base:
     .short   0x00                                        /*   byte(28~29): patch_offset*/
     .short   0x00                                        /*   byte(30~31): gpt_offset  */
 
-    .word    0                                           /*   byte(32~59): reserved         */
+    .byte    BOOT_HARTID, 0, 0, 0                        /*   byte(32~35): target hart id (reserved[0]) */
     .word    0                                           /*   byte(36~39): reserved         */
     .word    0                                           /*   byte(40~43): reserved         */
     .word    0                                           /*   byte(44~47): reserved         */
@@ -224,11 +230,25 @@ _start:
     /* Enable mcycle and minstret counter */
     csrci CSR_MCOUNTINHIBIT, 0x5
 
+    /* Early startup hook — runs after sp/gp/tp/MTVT setup but BEFORE scatload.
+     * .data NOT copied, .bss NOT zeroed: hook must NOT use globals/.bss/.data,
+     * only registers + MMIO. Default impl returns immediately; apps that need
+     * a very early branch (e.g. AP-side PM wakeup dispatch) override the
+     * symbol with a strong definition. Hook may also not return (e.g. enter
+     * WFI loop) to skip the rest of startup. */
+    call arcs_early_startup_hook
+
     /* ===== Startup Stage 3 ===== */
     /* Load each prev-stage section from ROM to RAM when the LMA!=VMA and LEN > 0 */
     call scatload
     /* Enter system C code — never returns */
     call system_entry
+
+/* Default weak no-op for the early startup hook. */
+.weak arcs_early_startup_hook
+.type arcs_early_startup_hook, @function
+arcs_early_startup_hook:
+    ret
 
 /* Early boot exception entry before main */
 .align 6

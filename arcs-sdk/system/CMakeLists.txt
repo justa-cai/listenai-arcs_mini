@@ -6,7 +6,7 @@ listenai_library_sources(
     copy_table.c
     newlib_stubs.c
     printk.c
-    ipc_print_auto_init.c
+    ipc_auto_init.c
 )
 
 add_subdirectory(init)
@@ -18,6 +18,7 @@ add_subdirectory(heap)
 add_subdirectory(workq)
 add_subdirectory(log)
 add_subdirectory(os)
+add_subdirectory(sys)
 
 if(DEFINED CONFIG_BOOT
    OR DEFINED CONFIG_BOOT_OTA_PACKAGE
@@ -37,6 +38,6 @@ if (DEFINED CONFIG_BACK_TRACE)
     add_compile_definitions(CFG_BACK_TRACE)
 endif()
 
-if (DEFINED CONFIG_BOOT AND NOT BOOT_STANDALONE_BUILD AND NOT SKIP_STARTUP_BOOT)
+if(CONFIG_BOOT AND NOT BOOT_STANDALONE_BUILD AND NOT SKIP_STARTUP_BOOT)
     include(${CMAKE_CURRENT_SOURCE_DIR}/boot.cmake)
 endif()

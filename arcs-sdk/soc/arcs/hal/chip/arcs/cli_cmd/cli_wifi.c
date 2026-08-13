@@ -23,7 +23,12 @@
 #include "wifi_ota.h"
 #endif
 #include "cache.h"
-#include "pm_impl.h"
+#include "pm.h"
+#include "net_al.h"
+#if BT_WIFI_COEX
+#include "ls_wf_coex.h"
+#endif
+
 #ifndef MAC2STR
 #define MAC2STR(a) (a)[0], (a)[1], (a)[2], (a)[3], (a)[4], (a)[5]
 #define MACSTR "%02x:%02x:%02x:%02x:%02x:%02x"
@@ -395,7 +400,11 @@ static int wifi_cli_get_scan_results(char *params)
 
     ret = wifi_get_scan_result(&scan_results,&cnt);
 
-    for (i = 0; i < MAX_AP_SCAN; i++)
+    /* To compatible with old lib , default max scan num 32 */
+    if (cnt < MAX_AP_SCAN)
+        cnt = MAX_AP_SCAN;
+
+    for (i = 0; i < cnt; i++)
     {
         if (((wifi_scan_result_t *)(scan_results + i))->is_used)
         {
@@ -502,6 +511,16 @@ static int wifi_cli_connet_params(wifi_connect_cfg_t *cfg, char *params)
                 *next_freq++ = '\0';
                 token = next_freq;
                 next_freq = strchr(token, ',');
+            }
+            break;
+        }
+        case 'r':
+        {
+            cfg->roam_rssi_thold = atoi(token);
+            if (cfg->roam_rssi_thold > 0)
+            {
+                CLI_LOGE("roaming rssi threshold should smaller than 0\n");
+                res = CLI_ERROR;
             }
             break;
         }
@@ -785,16 +804,12 @@ static int wifi_cli_powersave(char *params)
     if (!strcmp(ptr, "on"))
     {
         wifi_ps_mode_set(WIFI_PS_DEFAULT_TYPE);
-        #if CONFIG_PM && CONFIG_PM_KEEP_ALIVE
-        pm_enable_keep_alive(true);
-        #endif
+        net_enable_keep_alive();
     }
     else if (!strcmp(ptr, "off"))
     {
         wifi_ps_mode_set(WIFI_PS_MODE_OFF);
-        #if CONFIG_PM && CONFIG_PM_KEEP_ALIVE
-        pm_enable_keep_alive(false);
-        #endif
+        net_disable_keep_alive();
     }
     else if (!strcmp(ptr, "dbg"))
     {
@@ -1563,24 +1578,133 @@ static int wifi_cli_twt_teardown(char *params)
     return res;
 }
 
+static void wifi_cli_log_pwr_table(const struct pwr_table *pwr)
+{
+    if (!pwr)
+        return;
+
+    CLI_LOG("11b pwr:%d %d %d %d", pwr->pwr_11b[0], pwr->pwr_11b[1], pwr->pwr_11b[2], pwr->pwr_11b[3]);
+    CLI_LOG("11g pwr: %d %d %d %d %d %d %d %d",
+        pwr->pwr_11g[0], pwr->pwr_11g[1], pwr->pwr_11g[2], pwr->pwr_11g[3],
+        pwr->pwr_11g[4], pwr->pwr_11g[5], pwr->pwr_11g[6], pwr->pwr_11g[7]);
+    CLI_LOG("11n pwr: %d %d %d %d %d %d %d %d ",
+        pwr->pwr_11n_ht20[0], pwr->pwr_11n_ht20[1], pwr->pwr_11n_ht20[2], pwr->pwr_11n_ht20[3],
+        pwr->pwr_11n_ht20[4], pwr->pwr_11n_ht20[5], pwr->pwr_11n_ht20[6], pwr->pwr_11n_ht20[7]);
+    CLI_LOG("11ax pwr: %d %d %d %d %d %d %d %d %d %d",
+        pwr->pwr_11ax_he20[0], pwr->pwr_11ax_he20[1], pwr->pwr_11ax_he20[2], pwr->pwr_11ax_he20[3],
+        pwr->pwr_11ax_he20[4], pwr->pwr_11ax_he20[5], pwr->pwr_11ax_he20[6], pwr->pwr_11ax_he20[7],
+        pwr->pwr_11ax_he20[8], pwr->pwr_11ax_he20[9]);
+}
+
+static int wifi_cli_channel_to_pwr_tbl_type(int chan, int8_t *type)
+{
+    if (!type)
+        return CLI_ERROR;
+
+    if (chan == 1) {
+        *type = LOW_CHAN;
+        return CLI_SUCCESS;
+    }
+
+    if (chan >= 2 && chan <= 12) {
+        *type = MID_CHAN;
+        return CLI_SUCCESS;
+    }
+
+    if (chan == 13) {
+        *type = HIGH_CHAN;
+        return CLI_SUCCESS;
+    }
+
+    return CLI_ERROR;
+}
+
+static int wifi_cli_parse_pwr_tbl_type(const char *value, uint8_t allow_current, int8_t *type)
+{
+    int chan = 0;
+    int parsed_type = 0;
+    ls_err_t ret = LS_OK;
+
+    if (!value || !type)
+        return CLI_ERROR;
+
+    if (allow_current && !strcmp(value, "current")) {
+        ret = wifi_get_channel(&chan);
+        if (ret) {
+            CLI_LOGE("get current channel failed: %d\r\n", ret);
+            return CLI_ERROR;
+        }
+
+        if (wifi_cli_channel_to_pwr_tbl_type(chan, type)) {
+            CLI_LOGE("current channel %d cannot map to power table type\r\n", chan);
+            return CLI_ERROR;
+        }
+
+        CLI_LOG("current channel %d resolved power table type %d\r\n", chan, *type);
+        return CLI_SUCCESS;
+    }
+
+    parsed_type = atoi(value);
+    if (parsed_type < CHAN_ALL || parsed_type > HIGH_CHAN) {
+        CLI_LOGE("Invlid Type= %s\r\n", value);
+        return CLI_ERROR;
+    }
+
+    *type = parsed_type;
+    return CLI_SUCCESS;
+}
+
+static int wifi_cli_pwr_tbl_get(char *params)
+{
+    int res = CLI_SUCCESS;
+    ls_err_t ret = LS_OK;
+    struct pwr_table pwr = {0};
+    int8_t type = -1;
+    char *token = NULL;
+    char *next = params;
+
+    while ((token = utils_next_token(&next))) {
+        if (!strncmp(token, "type=", 5)) {
+            if (wifi_cli_parse_pwr_tbl_type(token + 5, 1, &type))
+                res = CLI_ERROR;
+        } else {
+            CLI_LOGE("unknown param %s\r\n", token);
+            res = CLI_ERROR;
+        }
+    }
+
+    if (type < 0 && wifi_cli_parse_pwr_tbl_type("current", 1, &type))
+        res = CLI_ERROR;
+
+    if (res)
+        return CLI_ERROR;
+
+    ret = wifi_get_max_tx_pwr(&pwr, type);
+    if (ret) {
+        CLI_LOGE(" %d \r\n", ret);
+        return CLI_ERROR;
+    }
+
+    CLI_LOG("Get tx power table type=%d", type);
+    wifi_cli_log_pwr_table(&pwr);
+    return CLI_SUCCESS;
+}
+
 static int wifi_cli_pwr_tbl_set(char *params)
 {
     int res = CLI_SUCCESS;
     ls_err_t ret = LS_OK;
     struct pwr_table pwr={0};
-    uint8_t type = 0, i=0, b_cnt = 0, g_cnt = 0, n_cnt = 0, ax_cnt = 0;
+    int8_t type = 0;
+    uint8_t i=0, b_cnt = 0, g_cnt = 0, n_cnt = 0, ax_cnt = 0;
     char *token, *next = params, *p = NULL;
 
     while ((token = utils_next_token(&next))) {
 
         if (!strncmp(token, "type=", 5))
         {
-            type = atoi(token+5);
-            if (type > 3 || type < 0)
-            {
-                CLI_LOGE("Invlid Type= %d", type);
+            if (wifi_cli_parse_pwr_tbl_type(token + 5, 0, &type))
                 res = CLI_ERROR;
-            }
         }
         else if (!strncmp(token, "11b=", 4))
         {
@@ -1661,26 +1785,26 @@ static int wifi_cli_pwr_tbl_set(char *params)
             }
             break;
         }
+        else
+        {
+            CLI_LOGE("unknown param %s\r\n", token);
+            res = CLI_ERROR;
+        }
 
     }
-    CLI_LOG("11b pwr:%d %d %d %d", pwr.pwr_11b[0],pwr.pwr_11b[1],pwr.pwr_11b[2],pwr.pwr_11b[3]);
-    CLI_LOG("11g pwr: %d %d %d %d %d %d %d %d", pwr.pwr_11g[0],pwr.pwr_11g[1],pwr.pwr_11g[2],pwr.pwr_11g[3],pwr.pwr_11g[4],pwr.pwr_11g[5],pwr.pwr_11g[6],pwr.pwr_11g[7]);
-    CLI_LOG("11n pwr: %d %d %d %d %d %d %d %d ", pwr.pwr_11n_ht20[0],pwr.pwr_11n_ht20[1],pwr.pwr_11n_ht20[2],pwr.pwr_11n_ht20[3],pwr.pwr_11n_ht20[4],pwr.pwr_11n_ht20[5],pwr.pwr_11n_ht20[6],pwr.pwr_11n_ht20[7]);
-    CLI_LOG("11ax pwr: %d %d %d %d %d %d %d %d %d %d", pwr.pwr_11ax_he20[0], pwr.pwr_11ax_he20[1],pwr.pwr_11ax_he20[2],pwr.pwr_11ax_he20[3],pwr.pwr_11ax_he20[4],pwr.pwr_11ax_he20[5],pwr.pwr_11ax_he20[6],pwr.pwr_11ax_he20[7],pwr.pwr_11ax_he20[8],pwr.pwr_11ax_he20[9]);
+    wifi_cli_log_pwr_table(&pwr);
 
     if (res || g_cnt!=8 || b_cnt!=4 || n_cnt!=8 || ax_cnt!=10)
     {
         CLI_LOGE(" %d 11b cnt %d 11g cnt %d 11n cnt %d 11ax cnt %d \r\n", res, b_cnt, g_cnt, n_cnt, ax_cnt);
+        return CLI_ERROR;
     }
     ret = wifi_set_max_tx_pwr(&pwr, type);
     // get power table to verify
     memset(&pwr, 0, sizeof(struct pwr_table));
     wifi_get_max_tx_pwr(&pwr, type);
     CLI_LOG("Get back tx power table");
-    CLI_LOG("11b pwr:%d %d %d %d", pwr.pwr_11b[0],pwr.pwr_11b[1],pwr.pwr_11b[2],pwr.pwr_11b[3]);
-    CLI_LOG("11g pwr: %d %d %d %d %d %d %d %d", pwr.pwr_11g[0],pwr.pwr_11g[1],pwr.pwr_11g[2],pwr.pwr_11g[3],pwr.pwr_11g[4],pwr.pwr_11g[5],pwr.pwr_11g[6],pwr.pwr_11g[7]);
-    CLI_LOG("11n pwr: %d %d %d %d %d %d %d %d ", pwr.pwr_11n_ht20[0],pwr.pwr_11n_ht20[1],pwr.pwr_11n_ht20[2],pwr.pwr_11n_ht20[3],pwr.pwr_11n_ht20[4],pwr.pwr_11n_ht20[5],pwr.pwr_11n_ht20[6],pwr.pwr_11n_ht20[7]);
-    CLI_LOG("11ax pwr: %d %d %d %d %d %d %d %d %d %d", pwr.pwr_11ax_he20[0], pwr.pwr_11ax_he20[1],pwr.pwr_11ax_he20[2],pwr.pwr_11ax_he20[3],pwr.pwr_11ax_he20[4],pwr.pwr_11ax_he20[5],pwr.pwr_11ax_he20[6],pwr.pwr_11ax_he20[7],pwr.pwr_11ax_he20[8],pwr.pwr_11ax_he20[9]);
+    wifi_cli_log_pwr_table(&pwr);
 
     if (ret)
     {
@@ -1791,6 +1915,7 @@ int wifi_cli_exec_sta_auto_conn(void)
             }
             len = NVDS_LEN_WIFI_BSSID;
             nvds_get(NVDS_TAG_WIFI_BSSID, (size_t *)&len, sta_config.bssid);
+            CLI_LOG("auto connect to ssid %s \n", sta_config.ssid);
             ret = wifi_sta_connect(&sta_config);
             if (ret == LS_OK)
             {
@@ -1882,13 +2007,101 @@ static int wifi_cli_ota(char *params)
 }
 #endif
 
+#if 0 //BT_WIFI_COEX
+extern void wifi_pta_statistics_show(bool show_cfg, uint32_t delt_time, bool clear_flag);
+
+static int wifi_coex_cli_cmd(char *params)
+{
+    static uint32_t prev_tick = 0;
+    char *token, *next = params;
+    uint32_t delt;
+    uint32_t cur_tick = rtos_get_time();
+    bool show_cfg = false;
+    bool clear_flag = false;
+    uint32_t prio = 0;
+    uint32_t wifi_us = 0;
+    bool set_prio = false;
+
+    do {
+        token = utils_next_token(&next);
+        if (token != NULL) {
+            if (!strcmp(token, "cfg")) {
+                show_cfg = true;
+            }
+            if (!strcmp(token, "clear")) {
+                clear_flag = true;
+            }
+
+            ///set wifi/bt slot pti config
+            if (!strcmp(token, "pti_def")) {
+                coex_win_set_policy_pti(COEX_OP_WIFI_BT_DEF, true);
+                return CLI_SUCCESS;
+            } else if (!strcmp(token, "wifi_force")) {
+                coex_win_set_policy_pti(COEX_OP_WIFI_FORCE_BT_DEF, true);
+                return CLI_SUCCESS;
+            } else if (!strcmp(token, "high_pti")) {
+                coex_win_set_policy_pti(COEX_OP_WIFI_HIGH_PTI, true);
+                return CLI_SUCCESS;
+            } else if (!strcmp(token, "wifibt_force")) {
+                coex_win_set_policy_pti(COEX_OP_WIFI_BT_FORCE, true);
+                return CLI_SUCCESS;
+            }
+
+            if (!strcmp(token, "force_win=disable")) {
+                coex_win_set_policy_pti(COEX_OP_FORCE_TIME_SLOT, false);
+                return CLI_SUCCESS;
+            } else if (!strcmp(token, "force_win=enable")) {
+                coex_win_set_policy_pti(COEX_OP_FORCE_TIME_SLOT, true);
+                return CLI_SUCCESS;
+            } else if (!strcmp(token, "force_disable_win=disable")) {
+                coex_win_set_policy_pti(COEX_OP_DISABLE_TIME_SLOT, false);
+                return CLI_SUCCESS;
+            } else if (!strcmp(token, "force_disable_win=enable")) {
+                coex_win_set_policy_pti(COEX_OP_DISABLE_TIME_SLOT, true);
+                return CLI_SUCCESS;
+            }
+
+            if (!strncmp(token, "prio=", 5)) {
+                prio = atoi(token+5);
+                set_prio = true;
+                continue;
+            }
+            if (!strncmp(token, "wifi=", 5)) {
+                wifi_us = atoi(token+5);
+                set_prio = true;
+                continue;
+            }
+        } else {
+            break;
+        }
+    }while(1);
+
+    if (set_prio) {
+        logDbg("set period %d wifi_time %d\n", prio, wifi_us);
+        coex_win_slot_time_set(prio, wifi_us);
+        return CLI_SUCCESS;
+    }
+
+    delt = cur_tick - prev_tick;
+    if (!(delt < 0x7FFFFFFFU))
+        delt = (0xFFFFFFFFU - prev_tick + 1) + cur_tick;
+
+    CLI_LOG("[Coex]duration[%d %d] %d mS\n", prev_tick, cur_tick, delt);
+    wifi_pta_statistics_show(show_cfg, delt, clear_flag);
+
+    prev_tick = cur_tick;
+
+    return CLI_SUCCESS;
+}
+#endif
+
 static int wifi_cli_help(char *params)
 {
     uint8_t i = 0;
 
     for (; cli_wifi_commands[i].exec != NULL; i++)
     {
-        CLOG(" - %s %s\n", cli_wifi_commands[i].name, cli_wifi_commands[i].params);
+        CLI_LOG(" - %s %s\n", cli_wifi_commands[i].name, cli_wifi_commands[i].params);
     }
 
     return CLI_SUCCESS;
@@ -1907,7 +2120,7 @@ static const struct cli_cmd cli_wifi_commands[] =
     {wifi_cli_get_scan_results, "wifi_scan_results", ":show scan results"},
     {wifi_cli_disconnect, "wifi_disconnect", ""},
     {wifi_cli_connect, "wifi_connect", "-s <ssid> [-k <pwd>]"
-     "[-f <freq>[,freq]] [-b <bssid>]"
+     "[-f <freq>[,freq]] [-b <bssid>] [-r <roaming rssi threshold 0: use default value -68, 255: disable roaming>]"
      "[-d <0:dhcp client mode/1:static ip mode>] [-i <static ip>] [-m <static ip mask>] [-g <static ip gateway>]\r\n"
      "            static ip: -d 1 -i 192.168.1.100 -m 255.255.255.0 -g 192.168.1.1 \n"
      "            example: wifi_connect -s test -k 12345678 \n"
@@ -1957,8 +2170,13 @@ static const struct cli_cmd cli_wifi_commands[] =
     "intv=<val> (wake interval unit:ms)  wake=<val> (wake duration, unit: ms, max 255)"},
     {wifi_cli_twt_teardown, "wifi_twt_teardown", ""},
     {wifi_cli_pwr_tbl_set, "wifi_pwr_set", "type=<val> 11b=<p1,p2,p3,p4> 11g=<p1,p2,p3,p4,p5,p6,p7,p8> 11n=<p1,p2,p3,p4,p5,p6,p7,p8> 11ax=<p1,p2,p3,p4,p5,p6,p7,p8,p9,p10>\n"
-     "type: 0 for all channel, 1 for low channel 1, 2 for middle channel 2~10, 3 for high channel 11~13 \n"
+     "type: 0 for all channel, 1 for channel 1(2412), 2 for channel 2~12(2417~2467), 3 for channel 13(2472)\n"
      "wifi_pwr_set type=0 11b=18,18,18,18 11g=17,17,17,17,17,16,16,15 11n=17,17,17,17,16,16,15,15 11ax=17,17,17,16,16,16,14,14,14,14 \n"
+    },
+    {wifi_cli_pwr_tbl_get, "wifi_pwr_get", "type=<0|1|2|3|current>\n"
+     "type: 0 for all channel, 1 for channel 1(2412), 2 for channel 2~12(2417~2467), 3 for channel 13(2472)\n"
+     "type=current resolves by current wifi channel: 1 -> 1, 2~12 -> 2, 13 -> 3\n"
+     "wifi_pwr_get type=current\n"
     },
     {wifi_cli_dbg_level_set, "wifi_dbg", "fw_level=<val> fw_mod=<val> wpa=<val> \n"
      "            fw_level 0~5: none/CRT/ERR/WAR/INFO/VRB \r\n"
@@ -1967,9 +2185,11 @@ static const struct cli_cmd cli_wifi_commands[] =
     },
     {wifi_cli_autoconn, "wifi_autoconn", "<enable>\n"
      "            enable : 1 means enable sta mode auto connect after reboot, 0 means disable sta mode auto connect after reboot\n"},
+#if 0//BT_WIFI_COEX
+    {wifi_coex_cli_cmd, "wifi_coex", "wifi_coex wifi_force/high_pti/wifibt_force/pti_def/coex_disable/coex_enable; prio=xxx wifi=xxx"},
+#endif
     {wifi_cli_wifi_on, "wifi_on", "restart wifi \n"},
     {wifi_cli_wifi_off, "wifi_off", "turn off wifi \n"},
-
 #if WIFI_OTA
     {wifi_cli_ota, "wifi_ota", "-p <port> | -i <ip_addr> | -f <fw>\n"
      "            fw: target fw name, should be less than 32 bytes\n"},

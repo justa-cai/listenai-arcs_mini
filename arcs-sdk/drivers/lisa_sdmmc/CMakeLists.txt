@@ -15,6 +15,14 @@ if(CONFIG_SOC_ARCS)
     listenai_include_directories(port/arcs)
 endif()
 
+if(CONFIG_SOC_VENUSA)
+    listenai_library_sources(
+        lisa_sdmmc_venusa.c
+        port/venusa/sdmmc_init.c
+    )
+    listenai_include_directories(port/venusa)
+endif()
+
 listenai_include_directories(.)
 
 endif() # CONFIG_LISA_SDMMC_DEVICE

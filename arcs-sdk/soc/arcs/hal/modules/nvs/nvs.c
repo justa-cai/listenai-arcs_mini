@@ -188,6 +188,14 @@ end:
 	return rc;
 }
 
+static int nvs_flash_read_memcpy(FLASH_DEV *dev, uint32_t offset, void *data, size_t len)
+{
+    int ret = 0;
+    //CLOGD("flash_read_memcpy:%d-0x%x-0x%x", len, offset, data);
+    memcpy(data, (const void *)(dev->base_addr + offset), len);
+    return ret;
+}
+
 /* basic flash read from nvs address */
 static int nvs_flash_rd(struct nvs_fs *fs, uint32_t addr, void *data,
 			 size_t len)
@@ -207,6 +215,7 @@ static int nvs_flash_rd(struct nvs_fs *fs, uint32_t addr, void *data,
 #else
     /* Read from Flash using API */
     rc = flash_read(fs->flash_device, offset, data, len);
+    //rc = nvs_flash_read_memcpy(fs->flash_device, offset, data, len);
 #endif
 	return rc;
 }

@@ -1,0 +1,6 @@
+#
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+#
+
+osource "$LISTENAI_MODULES"

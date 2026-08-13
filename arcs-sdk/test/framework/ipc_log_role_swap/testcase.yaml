@@ -1,0 +1,12 @@
+tests:
+  test.framework.ipc_log_role_swap:
+    programmer: arcs
+    runner: uart
+    images:
+      - file: "remote/ipc_log_role_swap_ap.bin"
+        address: "0x0"
+      - file: "ipc_log_role_swap_cp.bin"
+        address: "0x80000"
+    log_analyzer:
+      type: "regex"
+      pattern: "\\[REMOTE\\].*AP role swap IPC log passed"

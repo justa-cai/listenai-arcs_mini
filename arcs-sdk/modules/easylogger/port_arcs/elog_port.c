@@ -28,7 +28,6 @@
 
 #include <elog.h>
 #include <stdio.h>
-#include "arcs_ap.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
@@ -39,6 +38,25 @@
 TaskHandle_t elog_task_handle = NULL;
 SemaphoreHandle_t elog_async_semphr = NULL;
 SemaphoreHandle_t lock = NULL;
+int soc_cpu_id_get(void);
+
+static int elog_port_scheduler_suspended(void)
+{
+#if (INCLUDE_xTaskGetSchedulerState == 1) || (configUSE_TIMERS == 1)
+    return xTaskGetSchedulerState() == taskSCHEDULER_SUSPENDED;
+#else
+    return 0;
+#endif
+}
+
+static int elog_port_scheduler_running(void)
+{
+#if (INCLUDE_xTaskGetSchedulerState == 1) || (configUSE_TIMERS == 1)
+    return xTaskGetSchedulerState() == taskSCHEDULER_RUNNING;
+#else
+    return 1;
+#endif
+}
 
 #if CONFIG_EASYLOGGER_LOG_MODE_ASYNC
 #include "esp_heap_caps.h"
@@ -161,6 +179,9 @@ void elog_port_output_lock(void)
         // 临界区内跳过锁定，避免死锁
         return;
     }
+    if (elog_port_scheduler_suspended()) {
+        return;
+    }
 
     xSemaphoreTakeRecursive(lock, portMAX_DELAY);
 }
@@ -177,6 +198,9 @@ void elog_port_output_unlock(void)
     }
     if (xPortIsInsideCritical()) {
         // 临界区内跳过解锁
+        return;
+    }
+    if (elog_port_scheduler_suspended()) {
         return;
     }
 
@@ -217,9 +241,15 @@ const char *elog_port_get_time(void)
 
 const char *elog_port_get_p_info(void)
 {
-    static char pid_str[4] = {0};
-    snprintf(pid_str, 4, "%ld", (unsigned long)(__RV_CSR_READ(CSR_MHARTID) & 0xff));
-    return pid_str;
+    static char cpu_id_str[12];
+    int cpu_id = soc_cpu_id_get();
+
+    if (cpu_id < 0) {
+        return "na";
+    }
+
+    snprintf(cpu_id_str, sizeof(cpu_id_str), "%d", cpu_id);
+    return cpu_id_str;
 }
 
 const char *elog_port_get_t_info(void)
@@ -238,6 +268,10 @@ const char *elog_port_get_t_info(void)
 void elog_async_output_notice(void)
 {
 #if CONFIG_EASYLOGGER_LOG_MODE_ASYNC
+    if (!elog_port_scheduler_running()) {
+        return;
+    }
+
     if (xPortIsInsideInterrupt()) {
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
         xSemaphoreGiveFromISR(elog_async_semphr, &xHigherPriorityTaskWoken);

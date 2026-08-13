@@ -1,4 +1,4 @@
-# LISA RGB Bounce Buffer 显示示例
+# RGB Bounce Buffer 显示示例
 
 ## 功能说明
 

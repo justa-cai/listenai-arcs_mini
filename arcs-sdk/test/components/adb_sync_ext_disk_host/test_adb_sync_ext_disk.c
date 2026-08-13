@@ -90,12 +90,6 @@ int boot_flash_write(uint8_t *addr, uint8_t *data, uint32_t size)
     return 0;
 }
 
-int boot_watchdog_feed(void)
-{
-    g_watchdog_feed_calls++;
-    return 0;
-}
-
 void boot_flash_session_begin(void)
 {
     g_boot_flash_session_begin_calls++;
@@ -151,7 +145,7 @@ int disk_access_write(const char *name, const uint8_t *data, uint64_t start_sect
     return 0;
 }
 
-bool adb_sync_ext_disk_policy_can_access(const char *name, uint64_t addr, uint64_t size, bool write)
+static bool test_policy_can_access(const char *name, uint64_t addr, uint64_t size, bool write)
 {
     (void)addr;
     (void)size;
@@ -159,7 +153,7 @@ bool adb_sync_ext_disk_policy_can_access(const char *name, uint64_t addr, uint64
     return name != NULL && strcmp(name, "FLASH") == 0;
 }
 
-int adb_sync_ext_disk_policy_write_start(const char *name, uint64_t addr, uint64_t size)
+static int test_policy_write_start(const char *name, uint64_t addr, uint64_t size)
 {
     if (name == NULL || strcmp(name, "FLASH") != 0) {
         return -1;
@@ -171,7 +165,7 @@ int adb_sync_ext_disk_policy_write_start(const char *name, uint64_t addr, uint64
     return 0;
 }
 
-void adb_sync_ext_disk_policy_write_done(const char *name, uint64_t addr, uint64_t size)
+static void test_policy_write_done(const char *name, uint64_t addr, uint64_t size)
 {
     if (name == NULL || strcmp(name, "FLASH") != 0) {
         return;
@@ -181,6 +175,21 @@ void adb_sync_ext_disk_policy_write_done(const char *name, uint64_t addr, uint64
     g_last_policy_done_addr = addr;
     g_last_policy_done_size = size;
 }
+
+static const struct adb_sync_ext_disk_policy_ops test_policy_ops = {
+    .can_access = test_policy_can_access,
+    .write_start = test_policy_write_start,
+    .write_done = test_policy_write_done,
+};
+
+static void test_runtime_yield(void)
+{
+    g_watchdog_feed_calls++;
+}
+
+static const struct adb_sync_ext_disk_runtime_ops test_runtime_ops = {
+    .yield = test_runtime_yield,
+};
 
 static void fill_pattern(uint8_t *data, size_t len, uint8_t seed)
 {
@@ -210,10 +219,16 @@ void setUp(void)
     g_last_policy_done_size = 0u;
     g_policy_start_calls = 0u;
     g_policy_done_calls = 0u;
+    adb_sync_ext_disk_set_policy(&test_policy_ops);
+    adb_sync_ext_disk_set_runtime_ops(&test_runtime_ops);
 }
 
 void tearDown(void)
 {
+    /* Reset the global registrations so each test owns its own setup; per
+     * the lifetime contract no transfer is in flight here. */
+    adb_sync_ext_disk_set_policy(NULL);
+    adb_sync_ext_disk_set_runtime_ops(NULL);
 }
 
 void test_parser_accepts_raw_path_without_size_for_streaming_push(void)

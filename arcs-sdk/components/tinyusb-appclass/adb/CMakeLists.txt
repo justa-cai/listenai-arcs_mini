@@ -27,11 +27,5 @@ if (DEFINED CONFIG_ADB)
 
     listenai_include_directories(
         ./
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../modules/tinyusb/src
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../modules/tinyusb/src/device
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../modules/fs/lsfs
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../modules/fs/disk/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../modules/fs/port/include
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../system/uboot/src
     )
 endif()

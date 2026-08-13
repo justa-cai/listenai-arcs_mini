@@ -228,24 +228,6 @@ int video_camera_init(camera_config_t *config)
     LOGI("Camera capabilities: max_width=%u, max_height=%u, supported_formats=0x%08X",
          caps.max_width, caps.max_height, caps.supported_formats);
 
-    /* 配置 DVP 总线接口 */
-    lisa_camera_bus_config_t bus_config = {
-        .dma_channel = DMA_CHANNEL,
-        .bus_type = LISA_CAMERA_BUS_DVP,
-        .config.dvp = {
-            .dvp_dev        = lisa_device_get("dvp0"),
-            .dvp_freq = 12000000,
-            .data_align     = 1,
-            .line_offset    = 0,
-            .pixel_offset   = 0,
-            .pclk_polarity  = 0,
-            .vsync_polarity = 1,
-            .hsync_polarity = 1,
-        }
-    };
-    lisa_camera_get_framesize(camera_dev, &bus_config.width, &bus_config.height);
-    bus_config.pixel_format = lisa_camera_get_pixformat(camera_dev);
-
     lisa_camera_crop_t crop = {
         .x = 0,
         .y = 0,
@@ -263,6 +245,24 @@ int video_camera_init(camera_config_t *config)
         LOGE("Failed to set pixformat: %d, ret:%d", config->format, ret);
         return -1;
     }
+
+    /* 配置 DVP 总线接口 */
+    lisa_camera_bus_config_t bus_config = {
+        .dma_channel = DMA_CHANNEL,
+        .bus_type = LISA_CAMERA_BUS_DVP,
+        .config.dvp = {
+            .dvp_dev        = lisa_device_get("dvp0"),
+            .dvp_freq = 12000000,
+            .data_align     = 1,
+            .line_offset    = 0,
+            .pixel_offset   = 0,
+            .pclk_polarity  = 0,
+            .vsync_polarity = 1,
+            .hsync_polarity = 1,
+        }
+    };
+    lisa_camera_get_framesize(camera_dev, &bus_config.width, &bus_config.height);
+    bus_config.pixel_format = lisa_camera_get_pixformat(camera_dev);
 
     ret = lisa_camera_attach_bus(camera_dev, &bus_config);
     if (ret != LISA_DEVICE_OK) {

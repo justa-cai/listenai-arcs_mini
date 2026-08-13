@@ -1,0 +1,117 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+#
+# avi_player: AVI demux + IO backends
+
+menu "avi_player"
+
+comment "--- Buffer Pools ---"
+
+config AVI_PLAYER_MJPEG_POOL
+	bool "Enable MJPEG packet buffer pool"
+	help
+	  Use a dedicated buffer pool for MJPEG compressed frames.
+
+config AVI_PLAYER_MJPEG_POOL_SLOTS
+	int "MJPEG pool slot count"
+	range 1 8
+	default 2
+	depends on AVI_PLAYER_MJPEG_POOL
+
+config AVI_PLAYER_MJPEG_POOL_SLOT_BYTES
+	int "MJPEG pool slot size (bytes)"
+	range 4096 524288
+	default 65536
+	depends on AVI_PLAYER_MJPEG_POOL
+
+config AVI_PLAYER_AUDIO_POOL
+	bool "Enable PCM audio block pool"
+	help
+	  Use a dedicated buffer pool for decoded PCM audio blocks.
+
+config AVI_PLAYER_AUDIO_POOL_SLOTS
+	int "PCM pool slot count"
+	range 1 8
+	default 4
+	depends on AVI_PLAYER_AUDIO_POOL
+
+config AVI_PLAYER_AUDIO_POOL_SLOT_BYTES
+	int "PCM pool slot size (bytes)"
+	range 256 65536
+	default 4096
+	depends on AVI_PLAYER_AUDIO_POOL
+
+comment "--- HTTP Data Source ---"
+
+config AVI_PLAYER_HTTP_RANGE
+	bool "Enable HTTP Range data source (httpclient)"
+	select MODULE_HTTPCLIENT
+	select WIFI_MANAGER
+	help
+	  Enable a minimal HTTP Range-based AVI data source.
+
+config AVI_PLAYER_HTTP_URL
+	string "HTTP URL for AVI playback"
+	default "http://example.com/default.avi"
+	depends on AVI_PLAYER_HTTP_RANGE
+
+config AVI_PLAYER_WIFI_SSID
+	string "WiFi SSID"
+	default "your_wifi_ssid"
+	depends on AVI_PLAYER_HTTP_RANGE
+
+config AVI_PLAYER_WIFI_PWD
+	string "WiFi Password"
+	default "your_wifi_pwd"
+	depends on AVI_PLAYER_HTTP_RANGE
+
+config AVI_PLAYER_WIFI_CONNECT_TIMEOUT_S
+	int "WiFi connect timeout (seconds)"
+	range 5 120
+	default 30
+	depends on AVI_PLAYER_HTTP_RANGE
+
+comment "--- Adaptive FPS ---"
+
+config AVI_PLAYER_ADAPTIVE_DECODE_SLOW_FPS
+	bool "Adaptive video FPS when decode is slow"
+	help
+	  Dynamically lower video target FPS when video push latency remains high,
+	  then recover FPS when pressure is reduced. This helps stabilize audio.
+
+config AVI_PLAYER_ADAPTIVE_DECODE_SLOW_FPS_MIN
+	int "Adaptive FPS minimum"
+	range 5 60
+	default 12
+	depends on AVI_PLAYER_ADAPTIVE_DECODE_SLOW_FPS
+
+config AVI_PLAYER_ADAPTIVE_DECODE_SLOW_FPS_STEP
+	int "Adaptive FPS step"
+	range 1 10
+	default 2
+	depends on AVI_PLAYER_ADAPTIVE_DECODE_SLOW_FPS
+
+config AVI_PLAYER_ADAPTIVE_DECODE_SLOW_WINDOW_FRAMES
+	int "Adaptive window (video frames)"
+	range 4 64
+	default 16
+	depends on AVI_PLAYER_ADAPTIVE_DECODE_SLOW_FPS
+
+config AVI_PLAYER_ADAPTIVE_DECODE_SLOW_DOWN_MS
+	int "Slow decode threshold (ms)"
+	range 10 200
+	default 45
+	depends on AVI_PLAYER_ADAPTIVE_DECODE_SLOW_FPS
+
+config AVI_PLAYER_ADAPTIVE_DECODE_SLOW_UP_MS
+	int "Recover threshold (ms)"
+	range 5 150
+	default 32
+	depends on AVI_PLAYER_ADAPTIVE_DECODE_SLOW_FPS
+
+comment "--- Debug ---"
+
+config AVI_PLAYER_POOL_STATS_LOG
+	bool "Enable pool/queue statistics logs"
+
+endmenu

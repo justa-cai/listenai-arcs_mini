@@ -29,7 +29,6 @@ CFLAGS  = -I$(TOPDIR)/include/NMSIS/Core/Include \
           -I$(TOPDIR)/chip/$(CHIP)/include/utils\
           -I$(TOPDIR)/chip/$(CHIP)/include/wifi\
           -I$(TOPDIR)/chip/$(CHIP)/include/ipc\
-          -I$(TOPDIR)/chip/$(CHIP)/ipc/ipc_core\
           -I$(TOPDIR)/chip/${CHIP}/rtos/rtos_al \
           -I$(TOPDIR)/chip/${CHIP}/driver/spiflash \
           -I$(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure \

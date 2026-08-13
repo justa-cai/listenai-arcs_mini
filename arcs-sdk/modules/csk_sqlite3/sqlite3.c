@@ -219701,7 +219701,7 @@ struct sha256 {
     int n;
 };
 
-void sha256_init(struct sha256 *ctx)
+static void sha256_init(struct sha256 *ctx)
 {
     ctx->state[0] = 0x6a09e667; /* sqrt(2) */
     ctx->state[1] = 0xbb67ae85; /* sqrt(3) */

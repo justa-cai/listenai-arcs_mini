@@ -123,20 +123,6 @@ _FAST_FUNC_RO void RGB_IRQ_Handler()
         rgb_dev->Instance->REG_RGB_INTR_CLR.bit.FIFO_RD_FULL_CLR = 1;
 
         /* Update error code */
-        rgb_dev->ErrorCode |= RGB_ERROR_FIFO_RD_EMPTY;
-
-        /* Change the state */
-        rgb_dev->State = RGB_STATE_ERROR;
-
-        if(rgb_dev->cb_event)
-            rgb_dev->cb_event(RGB_IRQ_EVENT_FIFO_RD_EMPTY, 0);
-    }
-
-    if((status & RGB_INTERFACE_RGB_INTR_STATUS_FIFO_RD_EMPTY_ISR_Msk) == RGB_INTERFACE_RGB_INTR_STATUS_FIFO_RD_EMPTY_ISR_Msk)
-    {
-        rgb_dev->Instance->REG_RGB_INTR_CLR.bit.FIFO_RD_EMPTY_CLR = 1;
-
-        /* Update error code */
         rgb_dev->ErrorCode |= RGB_ERROR_FIFO_RD_FULL;
 
         /* Change the state */
@@ -144,6 +130,20 @@ _FAST_FUNC_RO void RGB_IRQ_Handler()
 
         if(rgb_dev->cb_event)
             rgb_dev->cb_event(RGB_IRQ_EVENT_FIFO_RD_FULL, 0);
+    }
+
+    if((status & RGB_INTERFACE_RGB_INTR_STATUS_FIFO_RD_EMPTY_ISR_Msk) == RGB_INTERFACE_RGB_INTR_STATUS_FIFO_RD_EMPTY_ISR_Msk)
+    {
+        rgb_dev->Instance->REG_RGB_INTR_CLR.bit.FIFO_RD_EMPTY_CLR = 1;
+
+        /* Update error code */
+        rgb_dev->ErrorCode |= RGB_IRQ_EVENT_FIFO_RD_EMPTY;
+
+        /* Change the state */
+        rgb_dev->State = RGB_STATE_ERROR;
+
+        if(rgb_dev->cb_event)
+            rgb_dev->cb_event(RGB_IRQ_EVENT_FIFO_RD_EMPTY, 0);
     }
 }
 
@@ -548,8 +548,18 @@ int32_t RGB_Start(void *pRgbDev)
     /* Enable RGB */
     rgb_dev->Instance->REG_RGB_CONTROL1.bit.FIFO_WR_CLR = 1;
     rgb_dev->Instance->REG_RGB_CONTROL1.bit.FIFO_RD_CLR = 1;
-    rgb_dev->Instance->REG_RGB_CONTROL0.bit.RGB_EN = 1;
-    rgb_dev->Instance->REG_RGB_CONTROL0.bit.RGB_START = 1;
+    /*
+     * NOTE: RGB_EN 与 RGB_START 必须一次性合并写入。
+     * 若先写 RGB_EN=1 再做第二次 RMW（读-改-写）写 RGB_START=1，
+     * 第二次 RMW 的 load 阶段会在 AHB 上 hang —— RGB controller 在
+     * RGB_EN=1 后会进入 armed 状态，对 REG_RGB_CONTROL0 的读响应被门控。
+     */
+    {
+        uint32_t v = rgb_dev->Instance->REG_RGB_CONTROL0.all;
+        v |= (1u << RGB_INTERFACE_RGB_CONTROL0_RGB_EN_Pos)
+           | (1u << RGB_INTERFACE_RGB_CONTROL0_RGB_START_Pos);
+        rgb_dev->Instance->REG_RGB_CONTROL0.all = v;
+    }
 
     /* Return function status */
     return CSK_DRIVER_OK;

@@ -132,7 +132,7 @@ static void app_ble_netcfg_adv_start_task(void *arg)
     vTaskDelay(pdMS_TO_TICKS(APP_BLE_NETCFG_ADV_DELAY_MS));
 
     ret = app_ble_adv_start(0, BLE_ADV_GEN);
-    if (ret != 0) {
+    if (ret != pdTRUE) {
         LISA_LOGW(TAG, "Delayed BLE adv start failed: %u", (unsigned)ret);
     }
 

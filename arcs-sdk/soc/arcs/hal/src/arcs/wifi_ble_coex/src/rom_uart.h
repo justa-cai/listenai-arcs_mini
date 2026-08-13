@@ -80,6 +80,7 @@ enum
 #define UART2_IO_RTS_PIN         (17)
 #define UART2_IO_RTS_SEL         (CSK_IOMUX_FUNC_ALTER3)
 
+extern void assert_err(const char *condition, const char * file, int line);
 
 #define FAKE_WHILE()   do{\
     int fake_i = 0;\

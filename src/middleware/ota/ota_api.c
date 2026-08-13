@@ -26,7 +26,7 @@
 #define APP_OTA_API  "api.listenai.com/v1/ota/packages"
 
 #define CONF_URL_LEN 512
-#define OTA_HTTP_RETRY_COUNT 3
+#define OTA_HTTP_REQUEST_MAX_ATTEMPTS 1
 #define OTA_HTTP_RETRY_DELAY_BASE_MS 300
 #define OTA_HTTP_REQUEST_TIMEOUT_SEC 3
 #define OTA_HTTP_DOWNLOAD_TIMEOUT_SEC 10
@@ -39,18 +39,19 @@ static lisa_http_err_e ota_api_http_perform_with_retry(lisa_http_t *http, const 
         return LISA_HTTP_PARAM_ERROR;
     }
 
-    for (int attempt = 0; attempt < OTA_HTTP_RETRY_COUNT; ++attempt) {
+    for (int attempt = 0; attempt < OTA_HTTP_REQUEST_MAX_ATTEMPTS; ++attempt) {
         err = lisa_http_perform(http);
         if (err == LISA_HTTP_OK) {
             if (attempt > 0) {
-                LISA_LOGI(TAG, "%s HTTP succeeded on retry %d/%d", purpose, attempt + 1, OTA_HTTP_RETRY_COUNT);
+                LISA_LOGI(TAG, "%s HTTP succeeded on retry %d/%d", purpose, attempt + 1,
+                          OTA_HTTP_REQUEST_MAX_ATTEMPTS);
             }
             return err;
         }
 
         LISA_LOGW(TAG, "%s HTTP failed on attempt %d/%d: %d",
-                  purpose, attempt + 1, OTA_HTTP_RETRY_COUNT, err);
-        if (attempt + 1 < OTA_HTTP_RETRY_COUNT) {
+                  purpose, attempt + 1, OTA_HTTP_REQUEST_MAX_ATTEMPTS, err);
+        if (attempt + 1 < OTA_HTTP_REQUEST_MAX_ATTEMPTS) {
             vTaskDelay(pdMS_TO_TICKS(OTA_HTTP_RETRY_DELAY_BASE_MS * (attempt + 1)));
         }
     }

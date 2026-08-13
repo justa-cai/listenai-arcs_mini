@@ -279,11 +279,11 @@ int lite_adc_init(void)
     #endif
     );
     REC_ASSERT(0==ret, goto EXIT);
-    // volume: analog=-12~+36db, digital=0db
+    // volume: analog=-12~+36db, digital=-83~+42db
     ret = ADC_PDM_SetVolume(lite_adc.hdrv
-        , ADC_PDM_GAIN_A_VAL(CONFIG_AADC_GAIN_A)
-        , ADC_PDM_GAIN_D_VAL(CONFIG_AADC_GAIN_D)
-        , ADC_PDM_VOL_FLAG_A_LEFT | ADC_PDM_VOL_FLAG_A_RIGHT 
+        , ADC_PDM_GAIN_A_VAL(CONFIG_AADC_GAIN_A) | (ADC_PDM_GAIN_A_VAL(CONFIG_AADC_GAIN_A) << 16)
+        , ADC_PDM_GAIN_D_VAL(CONFIG_AADC_GAIN_D) | (ADC_PDM_GAIN_D_VAL(CONFIG_AADC_GAIN_D) << 16)
+        , ADC_PDM_VOL_FLAG_A_LEFT | ADC_PDM_VOL_FLAG_A_RIGHT
         | ADC_PDM_VOL_FLAG_D_LEFT | ADC_PDM_VOL_FLAG_D_RIGHT
     );
     REC_ASSERT(0==ret, goto EXIT);

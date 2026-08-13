@@ -212,9 +212,9 @@ struct usb_ep_ctrl_prv {
  */
 struct usb_arcs_ctrl_prv {
 //  usb_dc_status_callback status_cb;  //BSD: TODO:
-//  struct usb_ep_ctrl_prv in_ep_ctrl[USB_ARCS_IN_EP_NUM];     /* USB IN endpoint information */
-//  struct usb_ep_ctrl_prv out_ep_ctrl[USB_ARCS_OUT_EP_NUM];   /* USB OUT endpoint information */
-    struct usb_ep_ctrl_prv ep_info[2][USB_ARCS_IN_EP_NUM];     /* USB IN & OUT endpoint information, 0=OUT, 1=IN */
+//  struct usb_ep_ctrl_prv in_ep_ctrl[USB_IN_EP_NUM];     /* USB IN endpoint information */
+//  struct usb_ep_ctrl_prv out_ep_ctrl[USB_OUT_EP_NUM];   /* USB OUT endpoint information */
+    struct usb_ep_ctrl_prv ep_info[2][USB_IN_EP_NUM];     /* USB IN & OUT endpoint information, 0=OUT, 1=IN */
 
 //    uint32_t txfifo_alloc_addr;                                 /* USB TxFifo address allocated */
 //    uint32_t rxfifo_alloc_addr;                                 /* USB RxFifo address allocated */

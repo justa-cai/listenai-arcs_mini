@@ -62,6 +62,7 @@ extern uint8_t app_ble_adv_start_handler(ble_adv_info_t *adv_info);
  ****************************************************************************************
  */
 app_handler_by_user_cb_t app_bt_user_handler;
+static app_bt_close_cmp_cb_t s_app_bt_close_cmp_cb;
 
 /*
  * LOCAL FUNCTIONS
@@ -79,6 +80,62 @@ app_handler_by_user_cb_t app_bt_user_handler;
  * GLOBAL FUNCTIONS
  ****************************************************************************************
  */
+
+void app_bt_register_close_cmp_cb(app_bt_close_cmp_cb_t cb)
+{
+    s_app_bt_close_cmp_cb = cb;
+}
+
+void app_bt_close_cmp_ind(uint8_t type, uint8_t status)
+{
+    CLOGD("app_bt_close_cmp_ind:%d,%d", type, status);
+    if (s_app_bt_close_cmp_cb) {
+        s_app_bt_close_cmp_cb(type, status);
+    }
+}
+ 
+uint8_t app_bt_open(uint8_t type)
+{
+    uint8_t status = 0;
+
+    btos_event_t ev;
+    bt_open_info_t *open_info;
+    uint16_t ev_len = sizeof(btos_msg_t) + sizeof(bt_open_info_t);
+
+    ev.msg_body = btos_malloc(ev_len);
+    ev.msg_body->msg_id = BT_OS_OPEN_EVT;
+    ev.msg_body->param_len = ev_len;
+
+    open_info = (bt_open_info_t *)ev.msg_body->param;
+    open_info->type = type;
+
+    CLOGD("app_bt_open:%d", type);
+
+    status = btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+    return status;
+}
+
+uint8_t app_bt_close(uint8_t type)
+{
+    uint8_t status = 0;
+
+    btos_event_t ev;
+    bt_open_info_t *open_info;
+    uint16_t ev_len = sizeof(btos_msg_t) + sizeof(bt_open_info_t);
+
+    ev.msg_body = btos_malloc(ev_len);
+    ev.msg_body->msg_id = BT_OS_CLOSE_EVT;
+    ev.msg_body->param_len = ev_len;
+
+    open_info = (bt_open_info_t *)ev.msg_body->param;
+    open_info->type = type;
+
+    CLOGD("app_bt_close:%d", type);
+
+    status = btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+    return status;
+
+}
 uint8_t app_ble_adv_start(uint8_t adv_id, uint8_t adv_type)
 {
     uint8_t status = 0;

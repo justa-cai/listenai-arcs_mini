@@ -27,7 +27,6 @@ CFLAGS = -I$(TOPDIR)/include/debug \
 		 -I$(TOPDIR)/chip/${CHIP}/bsp \
 		 -I$(TOPDIR)/chip/${CHIP}/include/utils \
 		 -I$(TOPDIR)/chip/${CHIP}/include/ipc \
-		 -I$(TOPDIR)/chip/${CHIP}/ipc/ipc_core \
 		 -I$(TOPDIR)/chip/${CHIP}/ic_lock
 
 

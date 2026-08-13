@@ -1,11 +1,35 @@
 {%- extends "!layout.html" -%}
 
+{%- block document %}
+<div class="docs-ai-shell">
+  <div class="docs-ai-main" itemprop="articleBody">
+    {% block body %}{% endblock %}
+  </div>
+  {%- if ai_qa_widget %}
+  <aside class="docs-ai-rail" aria-label="ARCS SDK AI 助手" hidden>
+    {{ ai_qa_widget|safe }}
+  </aside>
+  {%- endif %}
+</div>
+{%- if self.comments()|trim %}
+  <div class="articleComments">
+    {%- block comments %}{% endblock %}
+  </div>
+{%- endif %}
+{%- endblock %}
+
 {%- block footer %}
 {{ super() }}
 
 {# Version switcher widget #}
 {%- if version_switcher_html %}
 {{ version_switcher_html|safe }}
+{%- endif %}
+
+{%- if ai_qa_widget %}
+<script>
+  window.AI_ASSISTANT_CONFIG = {{ ai_qa_config|tojson|safe }};
+</script>
 {%- endif %}
 
 {%- endblock %}

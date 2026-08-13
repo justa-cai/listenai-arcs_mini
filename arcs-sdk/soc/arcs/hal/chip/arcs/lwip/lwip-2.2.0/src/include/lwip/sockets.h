@@ -52,10 +52,6 @@
 #include "lwip/err.h"
 #include "lwip/inet.h"
 #include "lwip/errno.h"
-#ifdef CFG_SIM_SOCKET
-#include "sim_socket_api.h"
-#endif
-
 #include <string.h>
 
 #ifdef __cplusplus

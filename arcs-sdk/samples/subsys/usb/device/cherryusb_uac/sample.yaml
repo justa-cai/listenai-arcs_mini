@@ -1,0 +1,3 @@
+tests:
+  samples.usb.device.cherryusb_uac:
+    build_only: true

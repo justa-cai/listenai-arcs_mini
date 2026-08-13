@@ -1,0 +1,112 @@
+#
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+#
+
+osource "$ARCS_BASE/Kconfig"
+
+menu "Game NES Options"
+
+config GAME_NES_ROM_PATH
+		string "NES ROM file path"
+	default "/SD:/roms/mario.nes"
+		help
+			回退 ROM 路径：当 /SD:/roms/ 未扫描到 .nes 文件或选择失败时使用。
+
+config GAME_NES_AUDIO_ENABLE
+	bool "Enable NES audio"
+	default y
+
+config GAME_NES_AUDIO_FAST_S16_COPY
+	bool "Use fast s16 audio copy path"
+	default y
+	depends on GAME_NES_AUDIO_ENABLE
+	help
+		APU 输出采样率与音频设备一致时，直接复制 s16 PCM 到播放 ring，跳过额外插值和滤波。
+
+config GAME_NES_FRAME_SKIP
+	int "NES render frame skip"
+	default 1
+	range 0 10
+	help
+		0 表示每个逻辑帧都渲染；1 表示约 30 FPS 绘制；2 表示约 20 FPS 绘制。
+
+config GAME_NES_DRAW_FPS_TARGET
+	int "NES draw FPS target"
+	default 0
+	range 0 60
+	help
+		0 使用 GAME_NES_FRAME_SKIP；非 0 时按目标绘制帧率进行节拍控制。
+
+config GAME_NES_PERF_LOG_ENABLE
+	bool "Enable NES port performance log"
+	default y
+	help
+		每 120 个逻辑帧输出一次 logic FPS、draw FPS、draw/lvgl/audio 平均耗时和音频队列状态。
+
+config GAME_NES_USB_HOST_KEYBOARD
+	bool "Enable USB Host keyboard input"
+	select CHERRYUSB
+	select CHERRYUSB_HOST
+	select CHERRYUSB_HOST_HID
+	help
+		启用 CherryUSB Host，支持外接 USB Hub 与 USB HID Boot Keyboard。
+		键盘会映射为 NES 1P 手柄：方向键/WASD 为方向，X/K 为 A，
+		Z/J 为 B，Enter 为 Start，Space/Tab 为 Select。
+
+config GAME_NES_CORE_PROFILE_ENABLE
+	bool "Enable NES core performance profile"
+	help
+		周期性输出 NES core 内部 CPU、BG、sprite、mapper、APU 等模块耗时占比。
+
+config GAME_NES_CPU_OPCODE_PROFILE_ENABLE
+	bool "Enable NES CPU opcode profile"
+	depends on GAME_NES_CORE_PROFILE_ENABLE
+	help
+		输出热点 opcode 和热点 PC 统计。该选项会增加明显运行开销，仅用于深度分析。
+
+config GAME_NES_PROFILE_LOG_MS
+	int "NES core profile log interval"
+	default 2000
+	range 500 10000
+	help
+		NES core 和 opcode profile 的日志输出周期，单位 ms。
+
+config GAME_NES_FAST_VISIBLE_RENDER
+	bool "Render only the visible 240-pixel NES window"
+	default y
+
+config GAME_NES_FAST_PPU_PACKED_PATTERN
+	bool "Use packed CHR pattern rows for faster PPU rendering"
+	default y
+
+config GAME_NES_CHR_PACKED_DYNAMIC_MAX_BYTES
+	int "Max dynamic packed CHR cache bytes"
+	default 262144
+	range 0 524288
+	depends on GAME_NES_FAST_PPU_PACKED_PATTERN
+	help
+		大 CHR ROM 使用 PSRAM 建立 packed pattern row 缓存，避免 mapper bank 切换时重复打包。
+		262144 bytes 可覆盖 256KB CHR ROM；0 表示仅使用静态 8KB mapper bank cache。
+
+config GAME_NES_FAST_CPU_BRANCH
+	bool "Use fast CPU branch and fetch helpers"
+	default y
+
+config GAME_NES_FAST_CPU_JMP_IDLE
+	bool "Fast-forward simple CPU idle loops"
+	default y
+
+config GAME_NES_FAST_SKIP_SPRITES
+	bool "Skip full sprite rendering on dropped draw frames"
+	default y
+
+config GAME_NES_MAPPER_INFONES_ENABLE
+	bool "Enable InfoNES mapper compatibility layer"
+	default y
+
+config GAME_NES_MAPPER_INFONES_DEFAULT_SET
+	bool "Enable the default InfoNES mapper set"
+	default y
+
+endmenu

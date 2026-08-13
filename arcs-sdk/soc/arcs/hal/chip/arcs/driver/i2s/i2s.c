@@ -117,40 +117,6 @@ I2S_DEV * safe_i2s_dev(void *i2s_dev)
 }
 
 
-/*
-static inline void enable_i2s_rx(I2S_DEV *i2s, uint8_t bmp_in) {
-    //assert(i2s != NULL);
-    //assert(bmp_in != 0);
-    i2s->ch_cfg.enbmp_in |= bmp_in;
-    //if (i2s->reg->REG_I2S_CFG0.bit.RX_OFF == 1)
-    //    i2s->reg->REG_I2S_CFG0.bit.RX_OFF = 0; //FIXME: enable RX
-}
-
-static inline void disable_i2s_rx(I2S_DEV *i2s, uint8_t bmp_in) {
-    //assert(i2s != NULL);
-    //assert(bmp_in != 0);
-    i2s->ch_cfg.enbmp_in &= ~bmp_in;
-    //if (i2s->ch_cfg.enbmp_in == 0 && i2s->reg->REG_I2S_CFG0.bit.RX_OFF == 0)
-    //    i2s->reg->REG_I2S_CFG0.bit.RX_OFF = 1; //FIXME: disable RX
-}
-
-static inline void enable_i2s_tx(I2S_DEV *i2s, uint8_t bmp_out) {
-    //assert(i2s != NULL);
-    //assert(bmp_out != 0);
-    i2s->ch_cfg.enbmp_out |= bmp_out;
-//    if (i2s->reg->REG_I2S_CFG0.bit.TX_OFF == 1)
-//        i2s->reg->REG_I2S_CFG0.bit.TX_OFF = 0; //enable TX
-}
-
-static inline void disable_i2s_tx(I2S_DEV *i2s, uint8_t bmp_out) {
-    //assert(i2s != NULL);
-    //assert(bmp_out != 0);
-    i2s->ch_cfg.enbmp_out &= ~bmp_out;
-//    if (i2s->ch_cfg.enbmp_out == 0 && i2s->reg->REG_I2S_CFG0.bit.TX_OFF == 0)
-//        i2s->reg->REG_I2S_CFG0.bit.TX_OFF = 1; //disable TX
-}
-*/
-
 static int32_t i2s_enable_rx_channels(I2S_DEV *i2s, uint8_t ch_bmp_in);
 //static int32_t i2s_enable_tx_channels(I2S_DEV *i2s, uint8_t ch_bmp_out);
 //static int32_t i2s_enable_echo_channels(I2S_DEV *i2s, uint8_t ch_bmp_echo);
@@ -159,7 +125,7 @@ static int32_t i2s_disable_rx_channels(I2S_DEV *i2s, uint8_t ch_bmp_in);
 //static int32_t i2s_disable_tx_channels(I2S_DEV *i2s, uint8_t ch_bmp_out);
 //static int32_t i2s_disable_echo_channels(I2S_DEV *i2s, uint8_t ch_bmp_echo);
 
-static void i2s_reset(I2S_DEV *i2s);
+static void i2s_reset(I2S_DEV *i2s, bool include_fifo_rst);
 
 //------------------------------------------------------------------------------------------
 
@@ -488,10 +454,10 @@ I2S_PowerControl(void *i2s_dev, CSK_POWER_STATE state)
         if (i2s->info->flags & I2S_FLAG_CONFIGURED)
             I2S_Abort_Channels(i2s_dev, i2s->ch_cfg.chbmp_in, i2s->ch_cfg.chbmp_out, i2s->ch_cfg.chbmp_echo);
 
-        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 0; //set to default 0!
-
         // disable I2S module
-        disable_i2s(i2s);
+        //disable_i2s(i2s);
+        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 0;
+        i2s->reg->REG_I2S_CFG0.bit.ENABLE = 0;
 
         // disable I2S clock -- the clock is shared with adc or dac
         // FIXME: is it correct to disable the clock?
@@ -510,20 +476,20 @@ I2S_PowerControl(void *i2s_dev, CSK_POWER_STATE state)
         if ((i2s->info->flags & I2S_FLAG_POWERED) != 0U)
             return CSK_DRIVER_OK;
 
-        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 0; //set to default 0!
+        // disable I2S initially
+        //disable_i2s(i2s);
+        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 0;
+        i2s->reg->REG_I2S_CFG0.bit.ENABLE = 0;
 
         // I2S reset works ONLY IF ENABLED in the default state, and
         // Set RSTN_BYPASS to 1 to make that I2S CAN be reset when disabled!
         i2s->reg->REG_I2S_CFG0.bit.RSTN_BYPASS = 1;
 
-        // disable I2S initially
-        disable_i2s(i2s);
-
         // enable I2S clock here
         i2s_clk_enable(i2s);
 
         // reset I2S
-        i2s_reset(i2s);
+        i2s_reset(i2s, true);
 
         //TODO: clear I2S run-time resources
 
@@ -678,10 +644,9 @@ I2S_Send_Body(void *i2s_dev, const uint32_t *data, uint32_t num,
     // NO NEED to enable FORCE_ON on FPGA & ASIC if RSTN_BYPASS = 1!!
     // [SUPPLEMENT] FOR Slave TX, EN_FORCE_ON SHOULD NOT be set,
     //              or else an extra word 0 may be sent to master!!
-    //#if (IC_BOARD == 0) // enable FORCE_ON on FPGA, but NOT on ASIC?
+    // [CHANGE] Move it into enable_i2s!
     //    if(!i2s->info->master)
     //        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 1;
-    //#endif
     }
 
     return ret;
@@ -773,10 +738,9 @@ I2S_Send_PiPo(void *i2s_dev, PIPO_OUT_BLOCK *blks, uint8_t *blk_cnt_p,
         // NO NEED to enable FORCE_ON on FPGA & ASIC if RSTN_BYPASS = 1!!
         // [SUPPLEMENT] FOR Slave TX, EN_FORCE_ON SHOULD NOT be set,
         //              or else an extra word 0 may be sent to master!!
-        //#if (IC_BOARD == 0) // enable FORCE_ON on FPGA, but NOT on ASIC?
+        // [CHANGE] Move it into enable_i2s!
         //    if(!i2s->info->master)
         //        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 1;
-        //#endif
         }
     }
 
@@ -939,7 +903,6 @@ I2S_Send_LLP_Body(void *i2s_dev, AUDIO_BUFFER_USER *bufs, uint32_t buf_cnt,
     i2s->info->status.bit.tx_unf = 0;
 
     if (start_now) {
-//        enable_i2s(i2s); // enable I2S module
         ret = i2s_enable_tx_channels(i2s, bmp);
         enable_i2s(i2s); // enable I2S module
     }
@@ -1021,10 +984,9 @@ I2S_Receive(void *i2s_dev, uint32_t *data, uint32_t num, uint8_t ch_bmp, uint8_t
     // NO NEED to enable FORCE_ON on FPGA & ASIC if RSTN_BYPASS = 1!!
     // [SUPPLEMENT] FOR Slave RX, EN_FORCE_ON SHOULD be set,
     //              or else the first data from master may be lost!!
-    //#if (IC_BOARD == 0) // enable FORCE_ON on FPGA, but NOT on ASIC?
-        if(!i2s->info->master)
-            i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 1;
-    //#endif
+    // [CHANGE] Move it into enable_i2s!
+    //    if(!i2s->info->master)
+    //        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 1;
     }
 
     return ret;
@@ -1305,10 +1267,9 @@ I2S_Receive_PiPo(void *i2s_dev, PIPO_IN_BLOCK *blks, uint8_t *blk_cnt_p,
             // NO NEED to enable FORCE_ON on FPGA & ASIC if RSTN_BYPASS = 1!!
             // [SUPPLEMENT] FOR Slave RX, EN_FORCE_ON SHOULD be set,
             //              or else the first data from master may be lost!!
-            //#if (IC_BOARD == 0) // enable FORCE_ON on FPGA, but NOT on ASIC?
-                if(!i2s->info->master)
-                    i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 1;
-            //#endif
+            // [CHANGE] Move it into enable_i2s!
+            //    if(!i2s->info->master)
+            //        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 1;
         }
     }
 
@@ -1354,7 +1315,7 @@ I2S_Abort_Channels(void *i2s_dev, uint8_t ch_bmp_in, uint8_t ch_bmp_out, uint8_t
 {
     uint8_t bmp;
     APC_DCH apc_dch;
-    uint32_t ret = CSK_DRIVER_OK;
+    uint32_t ret, ret_all = CSK_DRIVER_OK;
     I2S_DEV *i2s = safe_i2s_dev(i2s_dev);
     if (i2s == NULL || (ch_bmp_in == 0 && ch_bmp_out == 0 && ch_bmp_echo == 0)) {
         LOGD("%s: invalid parameter: I2S device (0x%08x), ch_bmp_in = 0x%x, ch_bmp_out = 0x%x, ch_bmp_echo = 0x%x!",
@@ -1363,61 +1324,42 @@ I2S_Abort_Channels(void *i2s_dev, uint8_t ch_bmp_in, uint8_t ch_bmp_out, uint8_t
     }
 
     if ((ch_bmp_in & i2s->ch_cfg.chbmp_in & CH_BMP_STEREO) != 0) { // IN channels
-        //apc_dch = i2s->info->dch_in;
         apc_dch = i2s->apc_res.dch_in;
-
         ret = apc_dual_channel_abort(apc_dch);
         if (ret != CSK_DRIVER_OK)
-            goto MY_EXIT;
+            ret_all = ret;
+            //goto MY_EXIT;
 
         i2s->info->status.bit.rx_busy = 0;
-        //TODO: abort i2s-specific transfer on IN both L/R channels...
     }
 
     if ((ch_bmp_out & i2s->ch_cfg.chbmp_out & CH_BMP_STEREO) != 0) { // OUT channels
         apc_dch = i2s->apc_res.dch_out;
         ret = apc_dual_channel_abort(apc_dch);
         if (ret != CSK_DRIVER_OK)
-            goto MY_EXIT;
+            ret_all = ret;
+            //goto MY_EXIT;
 
         i2s->info->status.bit.tx_busy = 0;
-        //TODO: abort i2s-specific transfer on OUT both L/R channels...
     }
 
     if ((ch_bmp_echo & i2s->ch_cfg.chbmp_echo & CH_BMP_STEREO) != 0) { // ECHO channels
         apc_dch = i2s->apc_res.dch_echo;
         ret = apc_dual_channel_abort(apc_dch);
         if (ret != CSK_DRIVER_OK)
-            goto MY_EXIT;
+            ret_all = ret;
+            //goto MY_EXIT;
 
         i2s->info->status.bit.ech_busy = 0;
-        //TODO: abort i2s-specific transfer on ECHO both L/R channels...
     }
 
     //BSD: just disable I2S module if no RX, TX, ECHO RX operation
     //!status.bit.tx_busy && !status.bit.rx_busy && !status.bit.ech_busy
-    if ((i2s->info->status.all & CSK_I2S_STATUS_BUSY_MASK) == 0)
+    if ((i2s->info->status.all & (CSK_I2S_STATUS_RX_BUSY | CSK_I2S_STATUS_TX_BUSY)) == 0)
         disable_i2s(i2s);
 
-MY_EXIT:
-//    if (ch_bmp_in != 0) {
-//        bmp = i2s->ch_cfg.chbmp_in;
-//        bmp = ch_bmp_in & ~bmp;
-//        if ( bmp != 0) {
-//            LOGD("%s: There are invalid IN I2S%d channels (bmp=0x%x)!!",
-//                    __func__, i2s->dev_idx, bmp);
-//        }
-//    }
-//    if (ch_bmp_out != 0) {
-//        bmp = i2s->ch_cfg.chbmp_out;
-//        bmp = ch_bmp_in & ~bmp;
-//        if ( bmp != 0) {
-//            LOGD("%s: There are invalid OUT I2S%d channels (bmp=0x%x)!!",
-//                    __func__, i2s->dev_idx, bmp);
-//        }
-//    }
-
-    return ret;
+//MY_EXIT:
+    return ret_all;
 }
 
 
@@ -1443,19 +1385,7 @@ int32_t i2s_enable_rx_channels(I2S_DEV *i2s, uint8_t ch_bmp_in)
         } else {
             assert(0);
         }
-
-//        if (ret0 == CSK_DRIVER_OK)
-//            enable_i2s_rx(i2s, bmp); //enable I2S RX
     }
-
-//    if (ch_bmp_in != 0) {
-//        bmp = i2s->ch_cfg.chbmp_in;
-//        bmp = ch_bmp_in & ~bmp;
-//        if ( bmp != 0) {
-//            LOGD("%s: There are invalid IN I2S%d channels (bmp=0x%x)!!",
-//                    __func__, i2s->dev_idx, bmp);
-//        }
-//    }
 
     return ret0;
 }
@@ -1465,12 +1395,6 @@ int32_t i2s_enable_tx_channels(I2S_DEV *i2s, uint8_t ch_bmp_out)
     uint8_t bmp;
     APC_DCH apc_dch;
     int32_t ret = CSK_DRIVER_OK;
-
-/*  //REMOVED:
-    // if OUT SRC (SRC48K) is enabled, start it here...
-    if (apc_out_src_is_enabled())
-        apc_out_src_start(true);
-*/
 
     assert(i2s != NULL);
     bmp = (ch_bmp_out & i2s->ch_cfg.chbmp_out);
@@ -1489,19 +1413,7 @@ int32_t i2s_enable_tx_channels(I2S_DEV *i2s, uint8_t ch_bmp_out)
         } else {
             assert(0);
         }
-
-//        if (ret == CSK_DRIVER_OK)
-//            enable_i2s_tx(i2s, bmp); //enable I2S TX
     }
-
-//    if (ch_bmp_out != 0) {
-//        bmp = i2s->ch_cfg.chbmp_out;
-//        bmp = ch_bmp_out & ~bmp;
-//        if ( bmp != 0) {
-//            LOGD("%s: There are invalid OUT I2S%d channels (bmp=0x%x)!!",
-//                    __func__, i2s->dev_idx, bmp);
-//        }
-//    }
 
     return ret;
 }
@@ -1800,6 +1712,8 @@ I2S_GetEchoCount(void *i2s_dev, uint8_t ch_bmp)
 #define SLOT_LRCK_MASK      ((1 << SLOT_LRCK_BITLEN) - 1)
 #define BCK_DIV_MASK        ((1 << BCK_DIV_BITLEN) - 1)
 #define BCK_DIV_MAX         BCK_DIV_MASK
+#define BCK_LRCK_MAX        BCK_LRCK_MASK
+#define SLOT_LRCK_MAX       SLOT_LRCK_MASK
 
 //#if (IC_BOARD == 0) // FPGA, 25bits for 24bits_H/L may not work for SLAVE RX on FPGA platform...
 //static const uint32_t bck_factors[] = { 30, 50, 75, 100, 150, 200, 250, 300, 500 };
@@ -1989,7 +1903,7 @@ static int32_t i2s_set_echo_params(I2S_DEV *i2s, ECHO_PARAMS *params)
     return CSK_DRIVER_OK;
 }
 
-static void i2s_reset(I2S_DEV *i2s)
+static void i2s_reset(I2S_DEV *i2s, bool include_fifo_rst)
 {
     assert(i2s != NULL);
     i2s->reg->REG_I2S_CFG0.bit.SW_RESET = 1; // [RW] set 1 to reset
@@ -1998,8 +1912,29 @@ static void i2s_reset(I2S_DEV *i2s)
     volatile uint32_t delay = 100;
     while (delay-- > 0);
     i2s->reg->REG_I2S_CFG0.bit.SW_RESET = 0; // [RW] restore to 0!
+
+    // reset I2S-related FIFO
+    if (include_fifo_rst) {
+        if (i2s->ch_cfg.chbmp_in != 0)
+            apc_reset_fifo(i2s->apc_res.dch_in, APC_DCH_BMP_STEREO);
+        if (i2s->ch_cfg.chbmp_out != 0)
+            apc_reset_fifo(i2s->apc_res.dch_out, APC_DCH_BMP_STEREO);
+        if (i2s->ch_cfg.chbmp_echo != 0)
+            apc_reset_fifo(i2s->apc_res.dch_echo, APC_DCH_BMP_STEREO);
+    }
 }
 
+// reset internal logic of i2s module
+void I2S_Reset(void *i2s_dev, bool include_fifo_rst)
+{
+    I2S_DEV *i2s = safe_i2s_dev(i2s_dev);
+    if (i2s == NULL) {
+        LOGD("%s: invalid I2S device (0x%08x)!", __func__, i2s_dev);
+        return;
+    }
+
+    i2s_reset(i2s, include_fifo_rst);
+}
 
 /**
  \fn          int32_t I2S_Control (void *i2s_dev, uint32_t control, uint32_t arg)
@@ -2062,7 +1997,7 @@ I2S_Control(void *i2s_dev, uint32_t control, uint32_t arg)
 
         // Reset I2S module
         case CSK_I2S_RESET:
-            i2s_reset(i2s);
+            i2s_reset(i2s, true);
             return CSK_DRIVER_OK;
 
         default:
@@ -2479,9 +2414,10 @@ I2S_Control(void *i2s_dev, uint32_t control, uint32_t arg)
             // arg is supposed to be BCK / LRCK, should be even
             // use it to evaluate cfg0.bit.BCK_LRCK...
             if (arg != 0) {
-                if ((arg & 0x1) || arg < i2s->ch_cfg.data_len * 2)
+                int32_t tmp_val = arg - i2s->ch_cfg.data_len * 2;
+                if ((arg & 0x1) || tmp_val < 0 || tmp_val > BCK_LRCK_MAX)
                     return CSK_DRIVER_ERROR_PARAMETER;
-                cfg0.bit.BCK_LRCK = i2s->info->pad_bcks = (arg >> 1) - i2s->ch_cfg.data_len;
+                cfg0.bit.BCK_LRCK = i2s->info->pad_bcks = tmp_val >> 1; // (arg >> 1) - i2s->ch_cfg.data_len;
             }
         } else { // reset to 0 if other protocols in slave mode
             cfg0.bit.BCK_LRCK = cfg1.bit.SLOT_LRCK = i2s->info->pad_bcks = 0;

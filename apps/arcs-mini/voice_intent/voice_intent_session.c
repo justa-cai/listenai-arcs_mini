@@ -134,9 +134,9 @@ static void on_tts_stoped(void *unused, uint32_t msg_id,
 	voice_intent_pop(INTENT_VOICE_SESSION);
 }
 
-/* MCP chat 退出 → 弹出 VOICE_SESSION 意图 */
-static void on_cloud_mcp_chat_exit(void *unused, uint32_t msg_id,
-                                    void *data, uint32_t len, void *user_data)
+/* 云端会话退出 → 弹出 VOICE_SESSION 意图 */
+static void on_cloud_session_exit(void *unused, uint32_t msg_id,
+                                  void *data, uint32_t len, void *user_data)
 {
 	(void)unused; (void)msg_id; (void)data; (void)len; (void)user_data;
 
@@ -145,10 +145,10 @@ static void on_cloud_mcp_chat_exit(void *unused, uint32_t msg_id,
 	}
 	if (voice_player_tts_is_active()) {
 		s_session_finished = true;
-		LOGI("mcp chat exit: tts active, defer VOICE_SESSION pop until tts stopped");
+		LOGI("cloud session exit: tts active, defer VOICE_SESSION pop until tts stopped");
 		return;
 	}
-	LOGI("mcp chat exit: pop INTENT_VOICE_SESSION");
+	LOGI("cloud session exit: pop INTENT_VOICE_SESSION");
 	voice_intent_pop(INTENT_VOICE_SESSION);
 }
 
@@ -168,7 +168,8 @@ int voice_intent_session_register(void)
 	voice_msg_sub(VOICE_MSG_CLOUD_SESSION_STARTING, on_cloud_session_starting, NULL);
 	voice_msg_sub(VOICE_MSG_CLOUD_SESSION_FINISHED, on_cloud_session_finished, NULL);
 	voice_msg_sub(VOICE_MSG_PLAYER_TTS_STOPED, on_tts_stoped, NULL);
-	voice_msg_sub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, on_cloud_mcp_chat_exit, NULL);
+	voice_msg_sub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, on_cloud_session_exit, NULL);
+	voice_msg_sub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, on_cloud_session_exit, NULL);
 
 	return voice_intent_register_ops(&(voice_intent_ops_t){
 		.type = INTENT_VOICE_SESSION,

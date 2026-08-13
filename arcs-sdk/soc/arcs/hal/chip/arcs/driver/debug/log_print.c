@@ -12,6 +12,10 @@
 #include "ClockManager.h"
 #include "IOMuxManager.h"
 
+#ifdef CONFIG_RTOS_AL
+#include "rtos_al.h"
+#endif
+
 #define UART_TX_FIFO_DEPTH                16
 
 static UART_RegDef* uart = NULL;
@@ -35,11 +39,21 @@ WEAK_LOG_LEVEL_VAR(5)
 WEAK_LOG_LEVEL_VAR(5)
 #endif
 
-void (*log_print_hook)(const char *, va_list) = NULL;
+void (*log_print_hook)(const char *, va_list) = tfp_vprintf;
 
 #define hal_SendByte(uart, byte_to_send)      uart->REG_RXTX_BUFFER.all = byte_to_send;
 
-#if defined(CFG_RTOS) && defined(CFG_AMP_IPC) && (CFG_IPC_PRINT)
+/*
+ * IPC log writer direction flag. Normally provided by the build system;
+ * legacy builds that only define CFG_IPC_PRINT fall back to the historical
+ * role-based direction (slave = writer).
+ */
+#if !defined(CFG_IPC_PRINT_WRITER) && !defined(CFG_IPC_PRINT_READER) && \
+    defined(CFG_AMP_IPC_SLAVE) && (CFG_IPC_PRINT)
+#define CFG_IPC_PRINT_WRITER 1
+#endif
+
+#if defined(CFG_RTOS) && defined(CFG_AMP_IPC) && defined(CFG_IPC_PRINT_WRITER)
 extern int32_t ipc_dbg_output(char *string, int32_t len);
 #endif
 //// put char function can accelerate by using FIFO
@@ -65,10 +79,10 @@ __attribute__((weak)) int _write(int file, char *data, int len){
 }
 #endif
 __attribute__((weak)) void log_write(void *unused, char c){
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_SLAVE) && (CFG_IPC_PRINT)
+#if defined(CFG_AMP_IPC) && defined(CFG_IPC_PRINT_WRITER)
     if (rtos_os_started())
     {
-        ipc_dbg_output(c);
+        ipc_dbg_output(&c, 1);
     }
     else
     {
@@ -238,6 +252,16 @@ void log_print_level_set(uint32_t level)
 uint32_t log_print_level_get(void)
 {
     return cloglvl;
+}
+
+void log_time()
+{
+#ifdef CONFIG_RTOS_AL
+    uint32_t sec,us;
+
+    rtos_get_sys_time(SINCE_BOOT, &sec, &us);
+    tfp_printf("[%5lu.%03lu] ", sec, us / 1000);
+#endif
 }
 
 

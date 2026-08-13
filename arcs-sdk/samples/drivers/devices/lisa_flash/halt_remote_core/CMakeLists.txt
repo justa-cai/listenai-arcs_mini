@@ -14,6 +14,20 @@ target_sources(${PROJECT_NAME} PRIVATE src/main.c)
 
 include(ExternalProject)
 
+if(CONFIG_SOC_VENUSA)
+    set(LISA_FLASH_HALT_REMOTE_CORE_REMOTE_CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/remote/prj_venusa.conf)
+    set(LISA_FLASH_HALT_REMOTE_CORE_SAMPLE_NAME "VenusA LISA Flash Hook Sample")
+else()
+    set(LISA_FLASH_HALT_REMOTE_CORE_REMOTE_CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/remote/prj.conf)
+    set(LISA_FLASH_HALT_REMOTE_CORE_SAMPLE_NAME "LISA Flash Dual-Core Example")
+endif()
+
+if(CONFIG_DEFAULT)
+    set(LISA_FLASH_HALT_REMOTE_CORE_CP_CONFIG ${CONFIG_DEFAULT})
+else()
+    set(LISA_FLASH_HALT_REMOTE_CORE_CP_CONFIG ${CMAKE_CURRENT_SOURCE_DIR}/prj.conf)
+endif()
+
 ExternalProject_Add(
     remote_core
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/remote
@@ -23,6 +37,7 @@ ExternalProject_Add(
         -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
         -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
         -DBOARD=${BOARD}
+        -DCONFIG_DEFAULT=${LISA_FLASH_HALT_REMOTE_CORE_REMOTE_CONFIG}
         $<$<BOOL:${BOARD_SEARCH_PATH}>:-DBOARD_SEARCH_PATH=${BOARD_SEARCH_PATH}>
     BUILD_ALWAYS 1
     INSTALL_COMMAND ""
@@ -33,7 +48,7 @@ add_dependencies(${PROJECT_NAME} remote_core)
 find_program(PYTHON3 python3 REQUIRED)
 set(MERGE_SCRIPT "$ENV{ARCS_BASE}/tools/scripts/merge_bins.py")
 
-file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/prj.conf" PRJ_CONF REGEX "^CONFIG_MEM_FLASH_BASE=")
+file(STRINGS "${LISA_FLASH_HALT_REMOTE_CORE_CP_CONFIG}" PRJ_CONF REGEX "^CONFIG_MEM_FLASH_BASE=")
 string(REGEX REPLACE "^CONFIG_MEM_FLASH_BASE=(0x[0-9a-fA-F]+)" "\\1" FLASH_BASE_ADDR ${PRJ_CONF})
 
 if(NOT FLASH_BASE_ADDR)
@@ -52,8 +67,15 @@ add_custom_target(merge_images ALL
 )
 
 message(STATUS "========================================")
-message(STATUS "LISA Flash Dual-Core Example")
+message(STATUS "${LISA_FLASH_HALT_REMOTE_CORE_SAMPLE_NAME}")
 message(STATUS "========================================")
-message(STATUS "CP Core (Master): ${PROJECT_NAME}")
-message(STATUS "Remote Core (AP): ${LISA_FLASH_HALT_REMOTE_CORE_AP_TARGET}")
+if(CONFIG_SOC_VENUSA)
+    message(STATUS "CP Core (Flash operator): ${PROJECT_NAME}")
+    message(STATUS "CP Core config: ${LISA_FLASH_HALT_REMOTE_CORE_CP_CONFIG}")
+    message(STATUS "AP Core (Hook waiter): ${LISA_FLASH_HALT_REMOTE_CORE_AP_TARGET}")
+    message(STATUS "AP Core config: ${LISA_FLASH_HALT_REMOTE_CORE_REMOTE_CONFIG}")
+else()
+    message(STATUS "CP Core (Master): ${PROJECT_NAME}")
+    message(STATUS "Remote Core (AP): ${LISA_FLASH_HALT_REMOTE_CORE_AP_TARGET}")
+endif()
 message(STATUS "========================================")

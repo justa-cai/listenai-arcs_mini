@@ -7,6 +7,14 @@ config ARCS_HAL_PM
 
 if ARCS_HAL_PM
 
+config PM_SNAPSHOT_PSRAM_SIZE
+    hex "PM PSRAM snapshot region size"
+    default 0x10000
+    help
+        睡眠/唤醒 RAM 镜像保存区大小，从 PSRAM 尾部预留。
+        实际工程把 ILM/DLM/SRAM 用满后需要相应放大此值。
+        默认 64KB。
+
 config ARCS_HAL_PM_UART_WAKEUP
     bool "PM UART wakeup support"
     default n

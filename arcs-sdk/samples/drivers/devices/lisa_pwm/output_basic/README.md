@@ -1,4 +1,4 @@
-# LISA PWM 基础输出示例
+# PWM 基础输出示例
 
 ## 功能说明
 
@@ -8,9 +8,10 @@ PWM（脉冲宽度调制）信号广泛应用于 LED 调光、电机控制、音
 
 ## 硬件连接
 
-- **PA20**: PWM0 通道 0 输出引脚
+- **arcs_evb**: PA20 为 PWM0 通道 0 输出引脚
+- **venusa_rd_evb**: PA14 为 PWM0 逻辑通道 0 输出引脚（GPT0 channel 0 / PWM port 0，ALT11）
 
-可连接 LED（带限流电阻）或示波器到 PA20 引脚进行验证。连接 LED 时，LED 正极通过限流电阻（推荐 220Ω-1kΩ）连接到 PA20，负极连接到 GND。
+可连接 LED（带限流电阻）或示波器到对应引脚进行验证。连接 LED 时，LED 正极通过限流电阻（推荐 220Ω-1kΩ）连接到 PWM 输出引脚，负极连接到 GND。
 
 ## 示例步骤
 
@@ -41,7 +42,7 @@ PWM enabled: 5kHz, 50% duty cycle
 ```
 
 **PWM 输出：**
-- PA20 引脚输出 5kHz 的 PWM 信号
+- `arcs_evb` PA20 或 `venusa_rd_evb` PA14 输出 5kHz PWM 信号
 - 占空比为 50%（高电平和低电平时间各占一半）
 
 ## 核心 API
@@ -84,7 +85,7 @@ LISA_LOGI(LOG_TAG, "PWM enabled: 5kHz, 50%% duty cycle");
 
 ```c
 int lisa_pwm_set(lisa_device_t *dev, uint32_t channel,
-                 uint32_t frequency, uint32_t duty_cycle);
+                 uint32_t frequency, uint8_t duty_cycle);
 ```
 
 - **`dev`**: PWM 设备指针
@@ -98,7 +99,7 @@ int lisa_pwm_set(lisa_device_t *dev, uint32_t channel,
 - **50%**: 高电平和低电平时间各占一半（中等亮度）
 - **90%-99%**: 高占空比，高亮度/高速
 
-**注意**：硬件限制不支持 0% 或 100% 占空比
+**注意**：ARCS 和 Venusa 驱动都会对 0% 和 100% 使用静态电平路径处理；Venusa 这样做是因为 datasheet 说明边界占空比动态切换时 shadow register 不生效，可能产生脉冲。
 
 ### 频率选择
 
@@ -112,13 +113,13 @@ int lisa_pwm_set(lisa_device_t *dev, uint32_t channel,
 
 ### 方法 1: LED 验证
 
-1. 连接 LED（带限流电阻）到 PA20 引脚
+1. 连接 LED（带限流电阻）到当前板型的 PWM 输出引脚（`arcs_evb` PA20，`venusa_rd_evb` PA14）
 2. LED 应以 **中等亮度** 持续点亮（50% 占空比）
 3. 如果 LED 全亮或全灭，检查接线和代码配置
 
 ### 方法 2: 示波器验证
 
-1. 连接示波器探头到 PA20 引脚
+1. 连接示波器探头到当前板型的 PWM 输出引脚（`arcs_evb` PA20，`venusa_rd_evb` PA14）
 2. 观察波形应为矩形波，参数如下：
    - **频率**: 5000 Hz (5 kHz)
    - **占空比**: 50%（高电平时间 = 低电平时间 = 100μs）
@@ -135,8 +136,8 @@ int lisa_pwm_set(lisa_device_t *dev, uint32_t channel,
 
 ## 注意事项
 
-1. **占空比范围**：占空比参数范围为 1-99，硬件不支持 0% 或 100%
+1. **占空比范围**：占空比参数范围为 0-100；ARCS/Venusa 对 0%/100% 都使用静态电平路径
 2. **频率限制**：PWM 频率受硬件限制，过高或过低的频率可能无法精确输出
 3. **限流保护**：连接 LED 时必须串联限流电阻，防止电流过大损坏引脚
-4. **通道独立**：每个 PWM 通道可独立配置不同的频率和占空比
+4. **平台差异**：ARCS 通道频率相互独立；Venusa 支持组级自动分频，但同组 4 port 共享频率：逻辑通道 0-3 共用一组 GPT clock/divider/reload，4-7 共用另一组 GPT clock/divider/reload
 5. **引脚复用**：确保引脚已正确配置为 PWM 功能（示例中通过 pinmux 自动配置）

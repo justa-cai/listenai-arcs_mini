@@ -4,7 +4,7 @@
 #define	FLASH_QUAD_MODE_EN
 
 #ifdef CONFIG_EXT_RAM
-#define _EXT_RAM __attribute__((section (".ramcode")))
+#define _EXT_RAM __attribute__((section (CONFIG_ARCS_HAL_EXT_RAM_SECTION)))
 #else
 #define _EXT_RAM
 #endif
@@ -71,4 +71,3 @@ extern unsigned int spib_prepare_dctrl2(unsigned int cmden,
 extern void spib_exe_cmmd2(unsigned long base, unsigned int op, unsigned int addr, unsigned int spib_dctrl);
 
 #endif
-

@@ -5,9 +5,11 @@
 
 config LISA_HWTIMER_ARCS_DUAL_TIMER
 	bool "Enable LISA Hardware Timer ARCS Dual Timer support"
+	depends on SOC_ARCS
+	select LISA_HWTIMER_DUAL_TIMER
 	help
 		Enable LISA Hardware Timer ARCS Dual Timer support.
 
-if LISA_HWTIMER_ARCS_DUAL_TIMER
+if LISA_HWTIMER_DUAL_TIMER && SOC_ARCS
 
-endif # LISA_HWTIMER_ARCS_DUAL_TIMER
+endif # LISA_HWTIMER_DUAL_TIMER && SOC_ARCS

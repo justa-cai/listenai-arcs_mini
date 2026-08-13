@@ -1,0 +1,66 @@
+///! ARCS SoC IOMUX manager bindings.
+///! Mirrors IOMuxManager.h.
+const c = @cImport({
+    @cInclude("IOMuxManager.h");
+});
+
+pub const c_api = c;
+
+pub const PAD_A = c.CSK_IOMUX_PAD_A;
+pub const PAD_B = c.CSK_IOMUX_PAD_B;
+pub const PAD_A_MAX_PIN = c.CSK_IOMUX_PAD_A_MAX_PIN;
+pub const PAD_B_MAX_PIN = c.CSK_IOMUX_PAD_B_MAX_PIN;
+
+pub const FUNC_DEFAULT = c.CSK_IOMUX_FUNC_DEFAULT;
+pub const FUNC_ALTER1 = c.CSK_IOMUX_FUNC_ALTER1;
+pub const FUNC_ALTER2 = c.CSK_IOMUX_FUNC_ALTER2;
+pub const FUNC_ALTER3 = c.CSK_IOMUX_FUNC_ALTER3;
+pub const FUNC_ALTER4 = c.CSK_IOMUX_FUNC_ALTER4;
+pub const FUNC_ALTER5 = c.CSK_IOMUX_FUNC_ALTER5;
+pub const FUNC_ALTER6 = c.CSK_IOMUX_FUNC_ALTER6;
+pub const FUNC_ALTER7 = c.CSK_IOMUX_FUNC_ALTER7;
+pub const FUNC_ALTER8 = c.CSK_IOMUX_FUNC_ALTER8;
+pub const FUNC_ALTER9 = c.CSK_IOMUX_FUNC_ALTER9;
+pub const FUNC_ALTER10 = c.CSK_IOMUX_FUNC_ALTER10;
+pub const FUNC_ALTER11 = c.CSK_IOMUX_FUNC_ALTER11;
+pub const FUNC_ALTER12 = c.CSK_IOMUX_FUNC_ALTER12;
+pub const FUNC_ALTER13 = c.CSK_IOMUX_FUNC_ALTER13;
+pub const FUNC_ALTER14 = c.CSK_IOMUX_FUNC_ALTER14;
+pub const FUNC_ALTER15 = c.CSK_IOMUX_FUNC_ALTER15;
+pub const FUNC_ALTER16 = c.CSK_IOMUX_FUNC_ALTER16;
+pub const FUNC_ALTER17 = c.CSK_IOMUX_FUNC_ALTER17;
+pub const FUNC_ALTER18 = c.CSK_IOMUX_FUNC_ALTER18;
+pub const FUNC_ALTER19 = c.CSK_IOMUX_FUNC_ALTER19;
+pub const FUNC_ALTER20 = c.CSK_IOMUX_FUNC_ALTER20;
+pub const FUNC_ALTER21 = c.CSK_IOMUX_FUNC_ALTER21;
+pub const FUNC_ALTER22 = c.CSK_IOMUX_FUNC_ALTER22;
+pub const FUNC_ALTER23 = c.CSK_IOMUX_FUNC_ALTER23;
+pub const FUNC_ALTER24 = c.CSK_IOMUX_FUNC_ALTER24;
+pub const FUNC_ALTER25 = c.CSK_IOMUX_FUNC_ALTER25;
+pub const FUNC_ALTER26 = c.CSK_IOMUX_FUNC_ALTER26;
+pub const FUNC_ALTER27 = c.CSK_IOMUX_FUNC_ALTER27;
+pub const FUNC_ALTER28 = c.CSK_IOMUX_FUNC_ALTER28;
+pub const FUNC_ALTER29 = c.CSK_IOMUX_FUNC_ALTER29;
+pub const FUNC_ALTER30 = c.CSK_IOMUX_FUNC_ALTER30;
+pub const FUNC_ALTER31 = c.CSK_IOMUX_FUNC_ALTER31;
+
+pub const AON_FUNC_DEFAULT = c.CSK_AON_IOMUX_FUNC_DEFAULT;
+pub const AON_FUNC_ALTER1 = c.CSK_AON_IOMUX_FUNC_ALTER1;
+pub const AON_FUNC_ALTER2 = c.CSK_AON_IOMUX_FUNC_ALTER2;
+pub const AON_FUNC_ALTER3 = c.CSK_AON_IOMUX_FUNC_ALTER3;
+pub const AON_FUNC_ALTER4 = c.CSK_AON_IOMUX_FUNC_ALTER4;
+pub const AON_FUNC_ALTER5 = c.CSK_AON_IOMUX_FUNC_ALTER5;
+pub const AON_FUNC_ALTER6 = c.CSK_AON_IOMUX_FUNC_ALTER6;
+
+pub const PULLUP_MODE = c.HAL_IOMUX_PULLUP_MODE;
+pub const PULLDOWN_MODE = c.HAL_IOMUX_PULLDOWN_MODE;
+pub const FORCE_OUT_LOW = c.HAL_IOMUX_FORCE_OUT_LOW;
+pub const FORCE_OUT_HIGH = c.HAL_IOMUX_FORCE_OUT_HIGH;
+
+pub const pinConfigure = c.IOMuxManager_PinConfigure;
+pub const modeConfigure = c.IOMuxManager_ModeConfigure;
+pub const pinForce = c.IOMuxManager_PinForce;
+pub const aonPinConfigure = c.AON_IOMuxManager_PinConfigure;
+pub const aonModeConfigure = c.AON_IOMuxManager_ModeConfigure;
+pub const aonPinForce = c.AON_IOMuxManager_PinForce;
+pub const anaPinConfigure = c.ANA_IOMuxManager_PinConfigure;

@@ -16,8 +16,26 @@ menuconfig LISA_HWTIMER_DEVICE
 
 if LISA_HWTIMER_DEVICE
 
+config LISA_HWTIMER_DUAL_TIMER
+	bool
+	help
+		Internal platform-neutral enable selected by platform Dual Timer options.
+
+config LISA_HWTIMER_AON_TIMER
+	bool
+	help
+		Internal platform-neutral enable selected by platform AON Timer options.
+
+config LISA_HWTIMER_GPT_TIMER
+	bool
+	help
+		Internal platform-neutral enable selected by platform GPT Timer options.
+
 rsource "Kconfig.arcs.dual_timer"
 rsource "Kconfig.arcs.aon_timer"
 rsource "Kconfig.arcs.gpt_timer"
+rsource "Kconfig.venusa.dual_timer"
+rsource "Kconfig.venusa.aon_timer"
+rsource "Kconfig.venusa.gpt_timer"
 
 endif # LISA_HWTIMER_DEVICE

@@ -16,18 +16,68 @@ choice
 		select SDK_MODULE_EASYLOGGER
 endchoice
 
-choice
-	prompt "log backend"
-	default LOG_BACKEND_CONSOLE
-	config LOG_BACKEND_CONSOLE
-		bool "console backend"
-endchoice
+config LOG_BACKEND_CONSOLE
+	bool "console backend"
+	default y
+
+rsource "Kconfig.early_log"
+
+config LOG_BACKEND_IPC_WRITER
+	bool "IPC log writer backend"
+	select ARCS_HAL_IPC
+	select ARCS_HAL_IPC_PRINT_WRITER
+	help
+		Forward local logs to the peer core through the IPC debug ring buffer.
+		Works on either IPC role (master or slave); the peer image must
+		enable LOG_BACKEND_IPC_READER.
+
+config LOG_BACKEND_IPC_READER
+	bool "IPC log reader"
+	select ARCS_HAL_IPC
+	select ARCS_HAL_IPC_PRINT_READER
+	help
+		Receive peer-core logs from the IPC debug ring buffer and print them
+		locally. Works on either IPC role (master or slave); the peer image
+		must enable LOG_BACKEND_IPC_WRITER.
 
 config LOG_BACKEND_SEGGER_RTT
 	bool "SEGGER RTT backend"
 	select SUPPORT_SEGGER_RTT
 	help
 		Enable SEGGER RTT as log backend.
+
+config LOG_CLOG_EARLY_UART_FALLBACK
+	bool "Route CLOG to early UART before lisa_log init"
+	depends on SOC_EARLY_LOG
+	default y
+	help
+		Route HAL CLOG/logDbg output to the SoC early UART logger before
+		lisa_log_init() has initialized the normal EasyLogger frontend.
+		After lisa_log_init(), CLOG/logDbg continues through the normal
+		lisa_log path.
+
+if LOG_BACKEND_IPC_WRITER
+
+config LOG_BACKEND_IPC_NAME
+	string "IPC log backend name"
+	default "ipc.log"
+	help
+		Define the name of the IPC log backend.
+
+config LOG_BACKEND_IPC_PREFIX
+	string "IPC log prefix"
+	default "[REMOTE] "
+	help
+		Prefix added to AP-side logs forwarded through the IPC backend.
+
+config LOG_BACKEND_IPC_CACHE_SIZE
+	int "IPC log backend cache size"
+	default 4096
+	range 256 65536
+	help
+		Size of the AP-side cache used before the IPC debug ring is ready.
+
+endif
 
 if LOG_BACKEND_SEGGER_RTT
 

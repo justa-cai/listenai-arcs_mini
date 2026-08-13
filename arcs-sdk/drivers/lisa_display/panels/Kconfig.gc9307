@@ -1,0 +1,38 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menu "GC9307 Display Panel"
+
+if LISA_DISPLAY_PANEL_GC9307
+
+config PANEL_GC9307_WIDTH
+	int "screen width"
+	default 240
+	help
+	The pixel length in the x-axis direction of the display screen.
+
+config PANEL_GC9307_HEIGHT
+	int "screen height"
+	default 320
+	help
+	The pixel length in the y-axis direction of the display screen.
+
+config PANEL_GC9307_X_OFFSET
+	int "display screen x offset"
+	default 0
+	help
+	The pixel offset in the x-axis direction of the display screen.
+
+config PANEL_GC9307_Y_OFFSET
+	int "screen y offset"
+	default 0
+	help
+	The pixel offset in the y-axis direction of the display screen.
+
+config ROTATE_BUF_MAX_HEIGHT
+	int "rotate buffer max height"
+	default PANEL_GC9307_WIDTH
+
+endif
+
+endmenu

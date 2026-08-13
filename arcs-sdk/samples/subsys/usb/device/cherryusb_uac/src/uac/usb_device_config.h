@@ -1,0 +1,18 @@
+/*
+ * Copyright (c) 2026, LISTENAI
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#ifndef CHERRYUSB_UAC_USB_DEVICE_CONFIG_H
+#define CHERRYUSB_UAC_USB_DEVICE_CONFIG_H
+
+#define USB_DEVICE_BUS_ID     0
+#define USB_DEVICE_VID        0x12D1
+#define USB_DEVICE_PID        0x1080
+#define USB_DEVICE_MAX_POWER  100
+
+#define USB_DEVICE_MFR_STRING      "ListenAI"
+#define USB_DEVICE_PRODUCT_STRING  "ListenAI CherryUSB UAC"
+#define USB_DEVICE_SERIAL_STRING   "2026060401"
+
+#endif /* CHERRYUSB_UAC_USB_DEVICE_CONFIG_H */

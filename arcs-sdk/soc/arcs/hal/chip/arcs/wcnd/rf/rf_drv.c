@@ -265,8 +265,8 @@ void rf_por_config(uint8_t rf_ver)
     /* Following code piece is generated from Arcs_D0_POR.xls (modem, register/bt_modem_reg.h) */
     /* Following code piece is generated from Arcs_D0_POR.xls (link, register/ble_reg.h) */
     /* Following code piece is generated from Arcs_D0_POR.xls (aon_ctrl, register/aon_ctrl_reg.h) */
-    IP_AON_CTRL->REG_XO24M_CTRL.bit.XO24M_IBIT = 6; // xyshi1@2024-12-04
-    IP_AON_CTRL->REG_XO24M_CTRL.bit.XO24M_LDO_OUT = 0; //xiaoyang @2025-04-24
+    IP_AON_CTRL->REG_XO24M_CTRL.bit.XO24M_IBIT = 4; // xyshi1@2026-04-03
+    IP_AON_CTRL->REG_XO24M_CTRL.bit.XO24M_LDO_OUT = 3; //xiaoyang @2026-04-03
     /* Following code piece is generated from Arcs_D0_POR.xls (CMN_SYSCFG, register/cmn_syscfg_reg.h) */
     IP_CMN_SYS->REG_SYS_EFUSE_SEL.bit.LDEFU_RF_TX_PA_BIASL_WF = 1; // fkxiong@2025-03-24
     IP_CMN_SYS->REG_SYS_EFUSE_SEL.bit.LDEFU_RF_TX_PPA_CAP_SW_BT = 1; // fkxiong@2025-03-24
@@ -485,7 +485,6 @@ void rf_set_wf_dig_gain_by_idx(uint32_t base_addr, uint8_t index, uint16_t dig_v
     uint32_t mask = 0xfff << lsf;
     uint32_t val = dig_val << lsf;
     uint32_t wdata = (rdata & (~mask)) | val;
-
     MEM_WR32(addr, wdata);
 }
 
@@ -840,12 +839,12 @@ bool rf_por_temp_config(int32_t temp)
     } else {
         IP_RFIF->REG_SX_REG0.bit.RF_SX_LDO_OUT = 4;
     }
-    CLOGI("Die temp:%d, idx:%d, power_offset:%d, dac_trim:%d\n",\
+   /* CLOGI("Die temp:%d, idx:%d, power_offset:%d, dac_trim:%d\n",\
         temp,\
         tbl_idx,\
         IP_NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET,\
         IP_RFIF->REG_TX_DAC_LOGIC0.bit.REG_RFDAC_SRC_10U_TRIM_DSSS
-        );
+        );*/
     return ret;
 }
 
@@ -910,13 +909,16 @@ void rf_init()
     rf_load_nv_config();
     rf_delay_config(CRM_GetCmn_peri_pclkFreq());
     rf_war_config();
-#if defined(WCN_TYPE_WF)
-    /* Get parameters from efuse */
+    #if defined(WCN_TYPE_WF) || RFCALI_WF_EN == 1
+    //get para from efuse
     ls_get_efuse_para();
-    ls_temp_default_por(); /* default 26C temperature POR */
+    ls_temp_default_por(); //default 26 temp por
+    #endif
     wf_clk_init();
     wf_soc_init();
-    /* Update efuse calibration data */
+
+#if defined(WCN_TYPE_WF)
+    /* update efuse calibrate data */
     nv_fixzone_load_rf_config();
 #endif
 #if defined(WCN_TYPE_BT)
@@ -965,7 +967,7 @@ _PM_TEXT_TEXT void rf_set_channel(uint16_t freq)
     RFIF->REG_SX_LOGIC1.bit.RF_SX_DIVN_FRAC_FORCE = 0;
     RFIF->REG_SX_LOGIC1.bit.RF_SX_DIG_START_FORCE = 0;
 
-#if defined(WCN_TYPE_WF)
+#if defined(WCN_TYPE_WF) || RFCALI_WF_EN == 1
     /* Set wf_channel level for PA balun cap */
     /* PA_CAP_SW_0 [2412M, 2435M]
      * PA_CAP_SW_1 [2436M, 2459M]
@@ -1189,7 +1191,7 @@ RF_OPS rf_ops = {
     #if defined(WCN_TYPE_WF)
     .calc_temp = ls_calc_temp,
     .temp_rf_por_config = ls_temp_rf_por_config,
-    .get_wf_factory_partition_addr = nv_fixzone_get_wf_conf_base_addr,
+    .get_wf_factory_partition_addr = nv_get_wf_mfg_conf_base_addr,
     #endif
 };
 
@@ -1204,10 +1206,6 @@ RF_ENTRY rf_entry = {
 void ls_rf_probe(void)
 {
     if (!rf_entry.params.init_done) {
-        #if defined(WCN_TYPE_WF)
-        extern void wifi_rf_register_cb(RF_OPS *ops);
-        wifi_rf_register_cb(&rf_ops);
-        #endif
         rf_entry.ops->init();
         rf_entry.params.init_done = 1;
     }

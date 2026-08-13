@@ -1,0 +1,22 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config BUTTON
+	bool "include gpio button"
+
+if BUTTON
+	config BUTTON_THREAD_SCAN_FREQ_HZ
+		int "button thread scan freq hz"
+		default 50
+
+	config BUTTON_THREAD_PRIORITY
+		int "button thread priority"
+		default 8
+
+	config BUTTON_THREAD_STACK_SIZE
+		int "button thread stack size"
+		default 4096
+
+	config GPIO_BUTTON
+		bool "gpio button"
+endif

@@ -316,44 +316,16 @@ GPIO_Status(void* res, _GPIO_** status, uint32_t* size){
     return CSK_DRIVER_OK;
 }
 
-int32_t 
-GPIO_SetCallback(void* res, uint32_t pin_mask, CSK_GPIO_SignalEvent_t cb_event, void* usr){
-    CHECK_RESOURCES(res);
-    GPIO_RESOURCES* gpio = (GPIO_RESOURCES*)res;
-
-    // Find the index of the set bit using CTZ (Count Trailing Zeros)
-    uint32_t pin_idx = __builtin_ctz(pin_mask);
-    
-    // Verify it's a single bit and within range
-    if ((pin_mask & (pin_mask - 1)) != 0 || pin_idx >= gpio->max_num) {
-        return CSK_DRIVER_ERROR_PARAMETER;
-    }
-    
-    gpio->info->gpio_info[pin_idx].cb = cb_event;
-    gpio->info->gpio_info[pin_idx].usr = usr;
-    
-    return CSK_DRIVER_OK;
-}
 
 static void _FAST_FUNC_SRAM
 GPIO_IRQ_Handler(GPIO_RESOURCES* gpio){
     uint32_t iir;
     iir = gpio->reg->REG_INTRSTATUS.all;
+    // clear gpio interrupt status
+    gpio->reg->REG_INTRSTATUS.all = iir;
 
-    if(gpio->info->cb_event){
-        // clear gpio interrupt status
-        gpio->reg->REG_INTRSTATUS.all = iir;
+    if(gpio->info->cb_event) {
         gpio->info->cb_event(iir, gpio->info->workspace);
-    }
-
-    uint32_t i = 0;
-    for(i = 0; i < gpio->max_num; i++){
-        if(iir & (0x1 << i)){
-            if(gpio->info->gpio_info[i].cb){
-                gpio->reg->REG_INTRSTATUS.all = (0x1 << i);
-                gpio->info->gpio_info[i].cb(iir, gpio->info->gpio_info[i].usr);
-            }
-        }
     }
 }
 

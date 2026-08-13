@@ -308,7 +308,8 @@ lisa_audio_record_stop(audio0);
 ## 文件说明
 
 - `lisa_audio.h` - 驱动头文件，包含所有 API 和类型定义
-- `lisa_audio_arcs.c` - ARCS 平台适配实现
+- `lisa_audio_arcs.c` - ARCS Audio 设备层实现
+- `lisa_audio_venusa.c` - Venusa Audio 设备层实现
 - `lisa_audio_internal.h` - 内部实现头文件
 - `CMakeLists.txt` - 构建配置
 - `Kconfig` - 配置选项

@@ -291,8 +291,13 @@ cat_status cat_is_unsolicited_event_buffered(struct cat_object *self, struct cat
 
 static const char *get_new_line_chars(struct cat_object *self)
 {
-        static const char *crlf = "\r\n";
-        return &crlf[(self->cr_flag != false) ? 0 : 1];
+        (void)self;
+        return "\r\n";
+}
+
+static const char *get_unsolicited_new_line_chars(void)
+{
+        return "\r\n";
 }
 
 static void start_flush_io_buffer(struct cat_object *self, cat_state state_after)
@@ -311,7 +316,7 @@ static void unsolicited_start_flush_io_buffer(struct cat_object *self, cat_unsol
         assert(self != NULL);
 
         self->unsolicited_fsm.position = 0;
-        self->unsolicited_fsm.write_buf = get_new_line_chars(self);
+        self->unsolicited_fsm.write_buf = get_unsolicited_new_line_chars();
         self->unsolicited_fsm.write_state = CAT_WRITE_STATE_BEFORE;
         self->unsolicited_fsm.write_state_after = state_after;
         self->unsolicited_fsm.state = CAT_UNSOLICITED_STATE_FLUSH_IO_WRITE_WAIT;
@@ -2514,7 +2519,7 @@ static cat_status unsolicited_process_io_write(struct cat_object *self)
                         break;
                 case CAT_WRITE_STATE_MAIN_BUFFER:
                         self->unsolicited_fsm.position = 0;
-                        self->unsolicited_fsm.write_buf = get_new_line_chars(self);
+                        self->unsolicited_fsm.write_buf = get_unsolicited_new_line_chars();
                         self->unsolicited_fsm.write_state = CAT_WRITE_STATE_AFTER;
                         break;
                 case CAT_WRITE_STATE_AFTER:

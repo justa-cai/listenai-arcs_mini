@@ -1,0 +1,60 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_JPEG
+	bool "LISA JPEG codec"
+	help
+	  JPEG codec component migrated from soc/arcs/hal/chip/arcs/ls_jpeg,
+	  providing hardware JPEG encode/decode interfaces.
+
+if LISA_JPEG
+
+config LISA_JPEG_DECODER_RGB565_ONLY
+	bool "JPEG decoder RGB565 only"
+	help
+	  Force decoder output format to RGB565 only.
+
+config LISA_JPEG_DECODER_WAIT_TIMEOUT_US
+	int "JPEG decoder DMA wait timeout (us)"
+	range 1000 1000000
+	default 50000
+	help
+	  Timeout for waiting JPEG decode DMA completion.
+	  Shorter timeout avoids long stalls on occasional hardware timeout.
+
+config LISA_JPEG_ENCODE_GPDMA_IN_CH
+	int "JPEG encode GPDMA input channel"
+	range 0 15
+	default 0
+
+config LISA_JPEG_ENCODE_DMA2D_OUT_CH
+	int "JPEG encode DMA2D output channel"
+	range 0 15
+	default 6
+
+config LISA_JPEG_ENCODE_EXT_DMA2D_IN_CH
+	int "JPEG encode-ext DMA2D input channel"
+	range 0 15
+	default 6
+
+config LISA_JPEG_ENCODE_EXT_DMA2D_TRANSFER_CH
+	int "JPEG encode-ext DMA2D transfer channel"
+	range 0 15
+	default 7
+
+config LISA_JPEG_ENCODE_EXT_DMA2D_OUT_CH
+	int "JPEG encode-ext DMA2D output channel"
+	range 0 15
+	default 8
+
+config LISA_JPEG_DECODE_GPDMA_IN_CH
+	int "JPEG decode GPDMA input channel"
+	range 0 15
+	default 2
+
+config LISA_JPEG_DECODE_GPDMA_OUT_CH
+	int "JPEG decode GPDMA output channel"
+	range 0 15
+	default 3
+
+endif

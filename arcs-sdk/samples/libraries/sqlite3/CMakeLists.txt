@@ -17,4 +17,4 @@ endif()
 target_sources(${PROJECT_NAME} PRIVATE 
     src/main.c)
 
-target_compile_options(arcs-hal PRIVATE -DCONFIG_EXT_RAM)
+target_compile_options(hal PRIVATE -DCONFIG_EXT_RAM)

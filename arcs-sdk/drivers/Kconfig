@@ -28,6 +28,17 @@ config LISA_DEVICE_MANUAL_INIT
 			This allows test code to control the exact timing of device initialization,
 			useful for testing initialization logic, error handling, and edge cases.
 
+config LISA_DEVICE_WAKEUP_STATE_POOL_SIZE
+	int "Maximum number of devices with active wakeup-source state"
+	depends on LISA_PM
+	default 8
+	help
+			Static node pool size backing the device-side wakeup-source enabled
+			state list maintained by lisa_device_wakeup_enable(). Each entry tracks
+			one device whose set_enabled(true) has been accepted. Sized for the
+			typical number of wakeup-capable devices on a board (GPIO controllers,
+			timer wakeup blocks, etc).
+
 rsource "lisa_adc/Kconfig"
 rsource "lisa_audio/Kconfig"
 rsource "lisa_misc/Kconfig"

@@ -68,12 +68,15 @@ struct plf_sys_config bt_stack_plf_cfg =
 
 ble_gap_cfg_t bt_stack_dev_cfg = {
     .addr = {{0x44, 0x55, 0x66, 0x03, 0x23, 0x20}, 0},
+    .privacy_cfg = 0,
     .name_len = sizeof(DEVICE_NAME),
     .name = DEVICE_NAME,
     .appearance = GAP_APP_GENERIC_MEDIA_PLAYER, // hid_keyboard
     .iocap = GAP_IO_CAP_NO_INPUT_NO_OUTPUT,
     .auth = GAP_SEC_NOT_ENC,
     .pairing_mode = GAPM_PAIRING_LEGACY,
+    .renew_dur = 0x96, //update time 150s.
+    .att_cfg = GAP_ATT_CLI_DIS_AUTO_FEAT_EN_MASK|GAP_ATT_CLI_DIS_AUTO_EATT_MASK|GAP_ATT_CLI_DIS_AUTO_MTU_EXCH_MASK,
 };
 
 #if BT_STACK_PRESENT

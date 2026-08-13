@@ -1,0 +1,30 @@
+# Board Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_NAME
+	string
+	default "csk7s_yt_evb"
+	prompt "Board Name"
+	help
+		Board Name
+
+config BOARD_CSK7S_YT_EVB
+	bool
+	default y
+	select SOC_CSK7004J8U
+	help
+		Board is csk7s_yt_evb
+
+config BOARD_CSK7S_YT_EVB_HAS_DVP
+	bool
+	default y
+	help
+		csk7s_yt_evb exposes the camera DVP interface.
+
+config BOARD_CSK7S_YT_EVB_HAS_KEY
+	bool
+	default y
+	help
+		csk7s_yt_evb exposes board keys.

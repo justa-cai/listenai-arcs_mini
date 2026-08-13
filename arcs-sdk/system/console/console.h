@@ -26,13 +26,9 @@ extern "C" {
 typedef struct {
     int (*write)(const char *data, int len);
     int (*read)(char *data, int len);
+    void (*flush)(void);
 } console_backend_t;
 
-/**
- * @brief 注册 console 后端
- *
- * @param backend 后端操作接口（必须为静态生命周期）
- */
 /**
  * @brief 初始化 console 子系统（创建互斥锁等）
  *
@@ -55,6 +51,11 @@ void console_backend_register(const console_backend_t *backend);
  * @return 实际写入的字节数，负数表示错误
  */
 int console_write(const char *data, int len);
+
+/**
+ * @brief 等待 console 输出缓冲区中的数据全部发送完成
+ */
+void console_flush(void);
 
 /**
  * @brief 从 console 读数据

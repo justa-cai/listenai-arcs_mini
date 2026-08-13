@@ -65,6 +65,9 @@ void power_shutdown(void);
  */
 void power_reboot_soft(void) __attribute__((noreturn));
 
+/** Enter boot recovery without depending on AP IPC or the RTOS scheduler. */
+void power_reboot_recovery(void) __attribute__((noreturn));
+
 #ifdef __cplusplus
 }
 #endif

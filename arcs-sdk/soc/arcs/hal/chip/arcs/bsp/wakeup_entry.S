@@ -7,6 +7,9 @@
 #include "riscv_encoding.h"
 
 .extern pm_sleep_startup
+#ifdef CONFIG_PM_HEAP_IN_PSRAM
+.extern pm_psram_exit_sleep
+#endif
 
 
 #if 1
@@ -14,40 +17,26 @@
 .globl __light_sleep_entry
 .type __light_sleep_entry, @function
 __light_sleep_entry:
+#if PM_CORE_PRIMARY
     /* Set LDO_AON_VTRIM to 0.*/
     li      a0, 0x480000d4
     lw      a1, 0(a0)
     li      a2, 0x7E
-    not     a2, a2
-    and     a1, a1, a2
+    andn    a1, a1, a2
     sw      a1, 0(a0)
 
-    /* To utilize the necessary 100μs transition time,
-     * the system executes instructions from Flash memory
-     */
+#endif
     /* ===== Startup Stage 1 ===== */
     /* Disable Global Interrupt */
     csrc CSR_MSTATUS, MSTATUS_MIE
-
-    /* Initialize GP and TP */
-    .option push
-    .option norelax
-    la gp, __global_pointer$
-    la tp, __tls_base
-    .option pop
-    la sp, _sp
 
     call  sleep_wakeup
 #else
 
-.section .ramcode
+.section .pm.ramcode
 .globl __light_sleep_entry
 .type __light_sleep_entry, @function
 __light_sleep_entry:
-    /* ===== Startup Stage 1 ===== */
-    /* Disable Global Interrupt */
-    csrc CSR_MSTATUS, MSTATUS_MIE
-
     /* Initialize GP and TP */
     .option push
     .option norelax
@@ -57,9 +46,22 @@ __light_sleep_entry:
     la sp, _sp
 #endif
 
-.section .ramcode
+#if PM_CORE_PRIMARY
+.section .pm.ramcode
+#else
+.section .text
+#endif
 .type sleep_wakeup, @function
 sleep_wakeup:
+
+    /* Initialize GP and TP */
+    .option push
+    .option norelax
+    la gp, __global_pointer$
+    la tp, __tls_base
+    .option pop
+    la sp, _sp
+
     /*
      * Set the the NMI base mnvec to share
      * with mtvec by setting CSR_MMISC_CTL
@@ -69,12 +71,6 @@ sleep_wakeup:
     csrs CSR_MMISC_CTL, t0
 
     /*
-     * Intialize ECLIC vector interrupt
-     * base address mtvt to vector_base
-     */
-    la t0, vector_base /* vector_base */
-    csrw CSR_MTVT, t0
-    /*
      * Set ECLIC non-vector entry to be controlled
      * by mtvt2 CSR register.
      * Intialize ECLIC non-vector interrupt
@@ -83,7 +79,6 @@ sleep_wakeup:
     la t0, irq_entry
     csrw CSR_MTVT2, t0
     csrs CSR_MTVT2, 0x1
-
 
     /*
      * When all initialization steps done
@@ -137,86 +132,163 @@ sleep_wakeup:
     call pm_sleep_startup
 
 
-.section .bss
+.section .pm.startup_bss,"aw",@nobits
 .align 2
 __light_sleep_stash:
+#ifdef CONFIG_PM_HEAP_IN_PSRAM
+    .space 60
+#else
     .space 4
+#endif
 
-.section .ramcode
+.section .pm.ramcode
 .globl __light_sleep_save
 .type __light_sleep_save, @function
 __light_sleep_save:
-    add	sp,sp,-112
+#ifdef CONFIG_PM_HEAP_IN_PSRAM
+    la   t0, __light_sleep_stash
+    sw   ra, 0(t0)
+    sw   tp, 4(t0)
+    sw   s0, 8(t0)
+    sw   s1, 12(t0)
+    sw   s2, 16(t0)
+    sw   s3, 20(t0)
+    sw   s4, 24(t0)
+    sw   s5, 28(t0)
+    sw   s6, 32(t0)
+    sw   s7, 36(t0)
+    sw   s8, 40(t0)
+    sw   s9, 44(t0)
+    sw   s10,48(t0)
+    sw   s11,52(t0)
+    sw   sp, 56(t0)
+#if PM_CORE_PRIMARY
+    li      t0, 0x480000d4
+    lw      t1, 0(t0)
+    li      t2, 0x7e
+    andn    t1, t1, t2
+    ori     t1, t1, 0x44
+    sw      t1, 0(t0)
+    call  __set_aon_and_sleep
+#else
+    wfi
+    ret  /* SP 未改,无帧可弹 */
+#endif
+#else  /* !CONFIG_PM_HEAP_IN_PSRAM*/
+    add	sp,sp,-64
     sw ra,0(sp)
     sw tp,4(sp)
-    sw t0,8(sp)
-    sw t1,12(sp)
-    sw t2,16(sp)
-    sw a0,20(sp)
-    sw a1,24(sp)
-    sw a2,28(sp)
-    sw a3,32(sp)
-    sw a4,36(sp)
-    sw a5,40(sp)
-    sw a6,44(sp)
-    sw a7,48(sp)
-    sw t3,52(sp)
-    sw t4,56(sp)
-    sw t5,60(sp)
-    sw t6,64(sp)
-    sw s0,68(sp)
-    sw s1,72(sp)
-    sw s2,76(sp)
-    sw s3,80(sp)
-    sw s4,84(sp)
-    sw s5,88(sp)
-    sw s6,92(sp)
-    sw s7,96(sp)
-    sw s8,100(sp)
-    sw s9,104(sp)
-    sw s10,108(sp)
+    sw s0,8(sp)
+    sw s1,12(sp)
+    sw s2,16(sp)
+    sw s3,20(sp)
+    sw s4,24(sp)
+    sw s5,28(sp)
+    sw s6,32(sp)
+    sw s7,36(sp)
+    sw s8,40(sp)
+    sw s9,44(sp)
+    sw s10,48(sp)
+    sw s11,52(sp)
     la t0, __light_sleep_stash
     sw sp,0(t0)
+#if PM_CORE_PRIMARY
+    li      t0, 0x480000d4
+    lw      t1, 0(t0)
+    li      t2, 0x7e            /* bit[6:1] */
+    andn    t1, t1, t2          /* t1 &= ~0x7e */
+    ori     t1, t1, 0x44        /* 0x22 << 1 */
+    sw      t1, 0(t0)
+    call  __set_aon_and_sleep
+#else
     wfi
+    add sp,sp,64
+    ret
+#endif
+#endif /* CONFIG_PM_HEAP_IN_PSRAM */
 
-.section .ramcode
+.section .pm.ramcode
 .globl __light_sleep_restore
 .type __light_sleep_restore, @function
 __light_sleep_restore:
+#ifdef CONFIG_PM_HEAP_IN_PSRAM
+    la a0, __light_sleep_stash
+    la t0, _sp
+    csrw mscratch, t0
+    lw sp, 56(a0)
+    lw ra, 0(a0)
+    lw tp, 4(a0)
+    lw s0, 8(a0)
+    lw s1, 12(a0)
+    lw s2, 16(a0)
+    lw s3, 20(a0)
+    lw s4, 24(a0)
+    lw s5, 28(a0)
+    lw s6, 32(a0)
+    lw s7, 36(a0)
+    lw s8, 40(a0)
+    lw s9, 44(a0)
+    lw s10,48(a0)
+    lw s11,52(a0)
+    ret
+#else  /* !CONFIG_PM_HEAP_IN_PSRAM*/
     la a0, __light_sleep_stash
     la t0, _sp
     csrw mscratch, t0
     lw sp, 0(a0)
     lw ra,0(sp)
     lw tp,4(sp)
-    lw t0,8(sp)
-    lw t1,12(sp)
-    lw t2,16(sp)
-    lw a0,20(sp)
-    lw a1,24(sp)
-    lw a2,28(sp)
-    lw a3,32(sp)
-    lw a4,36(sp)
-    lw a5,40(sp)
-    lw a6,44(sp)
-    lw a7,48(sp)
-    lw t3,52(sp)
-    lw t4,56(sp)
-    lw t5,60(sp)
-    lw t6,64(sp)
-    lw s0,68(sp)
-    lw s1,72(sp)
-    lw s2,76(sp)
-    lw s3,80(sp)
-    lw s4,84(sp)
-    lw s5,88(sp)
-    lw s6,92(sp)
-    lw s7,96(sp)
-    lw s8,100(sp)
-    lw s9,104(sp)
-    lw s10,108(sp)
-    add sp,sp,112
+    lw s0,8(sp)
+    lw s1,12(sp)
+    lw s2,16(sp)
+    lw s3,20(sp)
+    lw s4,24(sp)
+    lw s5,28(sp)
+    lw s6,32(sp)
+    lw s7,36(sp)
+    lw s8,40(sp)
+    lw s9,44(sp)
+    lw s10,48(sp)
+    lw s11,52(sp)
+    add sp,sp,64
     ret
+#endif /* CONFIG_PM_HEAP_IN_PSRAM */
+
+#if PM_CORE_PRIMARY
+.section .pm.ilm
+.type __set_aon_and_sleep, @function
+__set_aon_and_sleep:
+    wfi
+    call __restore_from_wfi
+
+.section .text
+.type __restore_from_wfi, @function
+__restore_from_wfi:
+    li      a0, 0x480000d4
+    lw      a1, 0(a0)
+    li      a2, 0x7E
+    andn    a1, a1, a2
+    sw      a1, 0(a0)
+
+    li      t0, 5000
+loop:
+    addi    t0, t0, -1
+    bnez    t0, loop
+
+#ifdef CONFIG_PM_HEAP_IN_PSRAM
+    /* Warm wakeup, temporarily use the internal stack */
+    la   sp, _sp
+    call pm_psram_exit_sleep
+    la   t0, __light_sleep_stash
+    lw   ra, 0(t0)
+    lw   sp, 56(t0)
+    ret
+#else
+    lw ra,0(sp)
+    add sp,sp,64
+    ret
+#endif /*CONFIG_PM_HEAP_IN_PSRAM*/
+#endif /*PM_CORE_PRIMARY*/
 
 .section .text.mem_copy
 .globl mem_copy

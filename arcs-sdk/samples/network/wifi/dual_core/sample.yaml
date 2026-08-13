@@ -9,4 +9,4 @@ tests:
         address: "0x800000"
     log_analyzer:
       type: "regex"
-      pattern: "WiFi dual-core sample passed"
+      pattern: "DHCP Success on VIF-\\d+: IP=\\d+\\.\\d+\\.\\d+\\.\\d+"

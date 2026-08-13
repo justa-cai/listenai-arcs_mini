@@ -12,7 +12,7 @@
 
 #define RVB_CALL_STACK_MAX_DEPTH       16
 
-#define rvb_println(...)                 printf(__VA_ARGS__)
+#define rvb_println(...)                 logDbg(__VA_ARGS__)
 
 extern uint32_t _rom_code_start[], _rom_code_end[], _ram_code_start[], _ram_code_end[];
 extern uint32_t _sstack[], _estack[];
@@ -30,7 +30,7 @@ static void rv_get_cur_thread_info(char **name, uint32_t *start, uint32_t *end)
 
     vTaskGetInfo(task_hdl, &task_status, pdFALSE, eInvalid);
 
-    *name = (uint32_t)task_status.pcTaskName;
+    *name = task_status.pcTaskName;
     *start = (uint32_t)task_status.pxStackBase;
     *end = (uint32_t)task_status.pxEndOfStack;
 }

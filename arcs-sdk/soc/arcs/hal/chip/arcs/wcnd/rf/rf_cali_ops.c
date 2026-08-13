@@ -47,7 +47,6 @@ extern uint32_t CALI_MEM_START_OFFSET;
 extern uint32_t CALI_MEM_MID_OFFSET;
 extern uint32_t CALI_MEM_END_OFFSET;
 
-
 #define HW_TIMEOUT 8000
 //#define REG_ADDR_CALIBR_MEM_DATA ((uint32_t)&NEW_DFE->REG_CALIBR_MEM_DATA)
 #define REG_ADDR_PUMPING_MEM_DATA (&(NEW_DFE->REG_PUMPING_DATA))
@@ -353,135 +352,136 @@ const uint32_t wf_rxrc_high_data[128] = {
     0x009900fe,
     0x005100e3
 };
+/* Ni=6 3.75MHz */
 const uint32_t wf_txiq_ttg_data[128] = {
-    0x000001b6,
-    0x00ce0182,
-    0x016c00f3,
-    0x01b4002b,
-    0x01957f58,
-    0x01167ead,
-    0x00557e52,
-    0x7f817e5d,
-    0x7eca7eca,
-    0x7e5d7f81,
-    0x7e520055,
-    0x7ead0116,
-    0x7f580195,
-    0x002b01b4,
-    0x00f3016c,
-    0x018200ce,
-    0x01b60000,
-    0x01827f32,
-    0x00f37e94,
-    0x002b7e4c,
-    0x7f587e6b,
-    0x7ead7eea,
-    0x7e527fab,
-    0x7e5d007f,
-    0x7eca0136,
-    0x7f8101a3,
-    0x005501ae,
-    0x01160153,
-    0x019500a8,
-    0x01b47fd5,
-    0x016c7f0d,
-    0x00ce7e7e,
-    0x00007e4a,
-    0x7f327e7e,
-    0x7e947f0d,
-    0x7e4c7fd5,
-    0x7e6b00a8,
-    0x7eea0153,
-    0x7fab01ae,
-    0x007f01a3,
-    0x01360136,
-    0x01a3007f,
-    0x01ae7fab,
-    0x01537eea,
-    0x00a87e6b,
-    0x7fd57e4c,
-    0x7f0d7e94,
-    0x7e7e7f32,
-    0x7e4a0000,
-    0x7e7e00ce,
-    0x7f0d016c,
-    0x7fd501b4,
-    0x00a80195,
-    0x01530116,
-    0x01ae0055,
-    0x01a37f81,
-    0x01367eca,
-    0x007f7e5d,
-    0x7fab7e52,
-    0x7eea7ead,
-    0x7e6b7f58,
-    0x7e4c002b,
-    0x7e9400f3,
-    0x7f320182,
-    0x000001b6,
-    0x00ce0182,
-    0x016c00f3,
-    0x01b4002b,
-    0x01957f58,
-    0x01167ead,
-    0x00557e52,
-    0x7f817e5d,
-    0x7eca7eca,
-    0x7e5d7f81,
-    0x7e520055,
-    0x7ead0116,
-    0x7f580195,
-    0x002b01b4,
-    0x00f3016c,
-    0x018200ce,
-    0x01b60000,
-    0x01827f32,
-    0x00f37e94,
-    0x002b7e4c,
-    0x7f587e6b,
-    0x7ead7eea,
-    0x7e527fab,
-    0x7e5d007f,
-    0x7eca0136,
-    0x7f8101a3,
-    0x005501ae,
-    0x01160153,
-    0x019500a8,
-    0x01b47fd5,
-    0x016c7f0d,
-    0x00ce7e7e,
-    0x00007e4a,
-    0x7f327e7e,
-    0x7e947f0d,
-    0x7e4c7fd5,
-    0x7e6b00a8,
-    0x7eea0153,
-    0x7fab01ae,
-    0x007f01a3,
-    0x01360136,
-    0x01a3007f,
-    0x01ae7fab,
-    0x01537eea,
-    0x00a87e6b,
-    0x7fd57e4c,
-    0x7f0d7e94,
-    0x7e7e7f32,
-    0x7e4a0000,
-    0x7e7e00ce,
-    0x7f0d016c,
-    0x7fd501b4,
-    0x00a80195,
-    0x01530116,
-    0x01ae0055,
-    0x01a37f81,
-    0x01367eca,
-    0x007f7e5d,
-    0x7fab7e52,
-    0x7eea7ead,
-    0x7e6b7f58,
-    0x7e4c002b,
-    0x7e9400f3,
-    0x7f320182
+    0x00000200,
+    0x009501ea,
+    0x011c01aa,
+    0x018c0145,
+    0x01d900c4,
+    0x01fe0032,
+    0x01f67f9c,
+    0x01c47f0f,
+    0x016a7e96,
+    0x00f17e3c,
+    0x00647e0a,
+    0x7fce7e02,
+    0x7f3c7e27,
+    0x7ebb7e74,
+    0x7e567ee4,
+    0x7e167f6b,
+    0x7e000000,
+    0x7e160095,
+    0x7e56011c,
+    0x7ebb018c,
+    0x7f3c01d9,
+    0x7fce01fe,
+    0x006401f6,
+    0x00f101c4,
+    0x016a016a,
+    0x01c400f1,
+    0x01f60064,
+    0x01fe7fce,
+    0x01d97f3c,
+    0x018c7ebb,
+    0x011c7e56,
+    0x00957e16,
+    0x00007e00,
+    0x7f6b7e16,
+    0x7ee47e56,
+    0x7e747ebb,
+    0x7e277f3c,
+    0x7e027fce,
+    0x7e0a0064,
+    0x7e3c00f1,
+    0x7e96016a,
+    0x7f0f01c4,
+    0x7f9c01f6,
+    0x003201fe,
+    0x00c401d9,
+    0x0145018c,
+    0x01aa011c,
+    0x01ea0095,
+    0x02000000,
+    0x01ea7f6b,
+    0x01aa7ee4,
+    0x01457e74,
+    0x00c47e27,
+    0x00327e02,
+    0x7f9c7e0a,
+    0x7f0f7e3c,
+    0x7e967e96,
+    0x7e3c7f0f,
+    0x7e0a7f9c,
+    0x7e020032,
+    0x7e2700c4,
+    0x7e740145,
+    0x7ee401aa,
+    0x7f6b01ea,
+    0x00000200,
+    0x009501ea,
+    0x011c01aa,
+    0x018c0145,
+    0x01d900c4,
+    0x01fe0032,
+    0x01f67f9c,
+    0x01c47f0f,
+    0x016a7e96,
+    0x00f17e3c,
+    0x00647e0a,
+    0x7fce7e02,
+    0x7f3c7e27,
+    0x7ebb7e74,
+    0x7e567ee4,
+    0x7e167f6b,
+    0x7e000000,
+    0x7e160095,
+    0x7e56011c,
+    0x7ebb018c,
+    0x7f3c01d9,
+    0x7fce01fe,
+    0x006401f6,
+    0x00f101c4,
+    0x016a016a,
+    0x01c400f1,
+    0x01f60064,
+    0x01fe7fce,
+    0x01d97f3c,
+    0x018c7ebb,
+    0x011c7e56,
+    0x00957e16,
+    0x00007e00,
+    0x7f6b7e16,
+    0x7ee47e56,
+    0x7e747ebb,
+    0x7e277f3c,
+    0x7e027fce,
+    0x7e0a0064,
+    0x7e3c00f1,
+    0x7e96016a,
+    0x7f0f01c4,
+    0x7f9c01f6,
+    0x003201fe,
+    0x00c401d9,
+    0x0145018c,
+    0x01aa011c,
+    0x01ea0095,
+    0x02000000,
+    0x01ea7f6b,
+    0x01aa7ee4,
+    0x01457e74,
+    0x00c47e27,
+    0x00327e02,
+    0x7f9c7e0a,
+    0x7f0f7e3c,
+    0x7e967e96,
+    0x7e3c7f0f,
+    0x7e0a7f9c,
+    0x7e020032,
+    0x7e2700c4,
+    0x7e740145,
+    0x7ee401aa,
+    0x7f6b01ea
 };
 #endif
 
@@ -788,6 +788,7 @@ __STATIC struct _restore_regs cali_restore_reg_list[] = {
     {&NEW_DFE->REG_TPC_CTRL_CFREN1.all,              0x00000000,    0x07ffffff},
     {&NEW_DFE->REG_CFR_POST_DIG_GAIN_8.all,          0x00000000,    0xffffffff},
     {&NEW_DFE->REG_CFR_POST_DIG_GAIN_9.all,          0x00000000,    0xffffffff},
+    {&NEW_DFE->REG_NEW_DFE_INTERRUPT.all,            0x00000000,    0xffffffff},
     {(volatile uint32_t *)0x4B800854, 0x00000000}, //scramble seed
 };
 
@@ -1233,7 +1234,7 @@ __STATIC int8_t wf_cali_wait_iq_done(void)
             goto cali_fail;
         }
     } while (NEW_DFE->REG_DUMP_EST_RESULT_VLD_RPT.bit.DFE_DCI_DCQ_RESULT_VLD_RPT != 1);
-    CLOGD("wait calibration complete(%d)\n", timeout);
+    //CLOGW("wait calibration complete(%d)\n", timeout);
     NEW_DFE->REG_DFE_EST_DUMP_EN.bit.REG_DFE_EST_DUMP_EN = 0;
     return 0;
 cali_fail:
@@ -1765,8 +1766,8 @@ __STATIC void wf_cali_txiq_tia_fb_path(void)
 {
     RFIF->REG_RX_LOGIC1.bit.RF_RX_RXIQCAL_TTG_EN_FORCE = 1;
     //RFIF->REG_RX_LOGIC1.bit.RF_RX_RSSI_EN_FORCE = 0;
-    RFIF->REG_RSV_REG0.bit.RF_D2A_RSV |= 1 << 5;;
-    RFIF->REG_RX_REG1.bit.RF_RX_LO_BUF = 1;
+    RFIF->REG_RSV_REG0.bit.RF_D2A_RSV |= 1 << 5;
+    RFIF->REG_RX_REG1.bit.RF_RX_LO_BUF |= 1 << 0;
     RFIF->REG_RX_LOGIC0.bit.RF_RX_LNA_EN_FORCE = 1;
     RFIF->REG_RX_LOGIC0.bit.RF_RX_DIV_EN_FORCE = 1;
     RFIF->REG_RX_LOGIC0.bit.RF_RX_MXR_EN_FORCE = 1;
@@ -1781,8 +1782,8 @@ __STATIC void wf_cali_txiq_tia_fb_path(void)
 __STATIC void wf_cali_txiq_tia_fb_path_dis(void)
 {
     RFIF->REG_RX_LOGIC1.bit.RF_RX_RXIQCAL_TTG_EN_FORCE = 0;
-    RFIF->REG_RSV_REG0.bit.RF_D2A_RSV &= ~(1<<5);
-    RFIF->REG_RX_REG1.bit.RF_RX_LO_BUF = 0;
+    RFIF->REG_RSV_REG0.bit.RF_D2A_RSV &= ~(1 << 5);
+    RFIF->REG_RX_REG1.bit.RF_RX_LO_BUF &= ~(1 << 0);
     RFIF->REG_RX_LOGIC0.bit.RF_RX_LNA_EN_FORCE = 0;
     RFIF->REG_RX_LOGIC0.bit.RF_RX_DIV_EN_FORCE = 0;
     RFIF->REG_RX_LOGIC0.bit.RF_RX_MXR_EN_FORCE = 0;
@@ -1794,48 +1795,191 @@ __STATIC void wf_cali_txiq_tia_fb_path_dis(void)
     RFIF->REG_RX_LOGIC62.bit.REG_RF_RX_DPD_MXR_TIA_EN = 0;
 }
 
-__STATIC int8_t wf_cali_txiq_tx_result(int16_t c21, int16_t c22)
+__STATIC void wf_cali_txiq_tx_result_set_idx(uint8_t idx, int16_t c21, int16_t c22)
 {
-    //wf_cali_set_txsqr_iqdc_param(2, 0, 0, phase_err, amp_err);
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I0.bit.CFG_TPC_IQCOMP_I_0 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I0.bit.CFG_TPC_IQCOMP_I_1 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I1.bit.CFG_TPC_IQCOMP_I_2 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I1.bit.CFG_TPC_IQCOMP_I_3 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I2.bit.CFG_TPC_IQCOMP_I_4 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I2.bit.CFG_TPC_IQCOMP_I_5 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I3.bit.CFG_TPC_IQCOMP_I_6 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I3.bit.CFG_TPC_IQCOMP_I_7 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I4.bit.CFG_TPC_IQCOMP_I_8 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I4.bit.CFG_TPC_IQCOMP_I_9 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I5.bit.CFG_TPC_IQCOMP_I_10 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I5.bit.CFG_TPC_IQCOMP_I_11 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I6.bit.CFG_TPC_IQCOMP_I_12 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I6.bit.CFG_TPC_IQCOMP_I_13 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I7.bit.CFG_TPC_IQCOMP_I_14 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I7.bit.CFG_TPC_IQCOMP_I_15 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I8.bit.CFG_TPC_IQCOMP_I_16 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I8.bit.CFG_TPC_IQCOMP_I_17 = c21;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_I9.bit.CFG_TPC_IQCOMP_I_18 = c21;
+    switch (idx) {
+    case 0:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I0.bit.CFG_TPC_IQCOMP_I_0 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q0.bit.CFG_TPC_IQCOMP_Q_0 = c22;
+        break;
+    case 1:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I0.bit.CFG_TPC_IQCOMP_I_1 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q0.bit.CFG_TPC_IQCOMP_Q_1 = c22;
+        break;
+    case 2:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I1.bit.CFG_TPC_IQCOMP_I_2 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q1.bit.CFG_TPC_IQCOMP_Q_2 = c22;
+        break;
+    case 3:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I1.bit.CFG_TPC_IQCOMP_I_3 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q1.bit.CFG_TPC_IQCOMP_Q_3 = c22;
+        break;
+    case 4:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I2.bit.CFG_TPC_IQCOMP_I_4 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q2.bit.CFG_TPC_IQCOMP_Q_4 = c22;
+        break;
+    case 5:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I2.bit.CFG_TPC_IQCOMP_I_5 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q2.bit.CFG_TPC_IQCOMP_Q_5 = c22;
+        break;
+    case 6:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I3.bit.CFG_TPC_IQCOMP_I_6 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q3.bit.CFG_TPC_IQCOMP_Q_6 = c22;
+        break;
+    case 7:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I3.bit.CFG_TPC_IQCOMP_I_7 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q3.bit.CFG_TPC_IQCOMP_Q_7 = c22;
+        break;
+    case 8:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I4.bit.CFG_TPC_IQCOMP_I_8 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q4.bit.CFG_TPC_IQCOMP_Q_8 = c22;
+        break;
+    case 9:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I4.bit.CFG_TPC_IQCOMP_I_9 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q4.bit.CFG_TPC_IQCOMP_Q_9 = c22;
+        break;
+    case 10:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I5.bit.CFG_TPC_IQCOMP_I_10 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q5.bit.CFG_TPC_IQCOMP_Q_10 = c22;
+        break;
+    case 11:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I5.bit.CFG_TPC_IQCOMP_I_11 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q5.bit.CFG_TPC_IQCOMP_Q_11 = c22;
+        break;
+    case 12:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I6.bit.CFG_TPC_IQCOMP_I_12 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q6.bit.CFG_TPC_IQCOMP_Q_12 = c22;
+        break;
+    case 13:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I6.bit.CFG_TPC_IQCOMP_I_13 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q6.bit.CFG_TPC_IQCOMP_Q_13 = c22;
+        break;
+    case 14:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I7.bit.CFG_TPC_IQCOMP_I_14 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q7.bit.CFG_TPC_IQCOMP_Q_14 = c22;
+        break;
+    case 15:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I7.bit.CFG_TPC_IQCOMP_I_15 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q7.bit.CFG_TPC_IQCOMP_Q_15 = c22;
+        break;
+    case 16:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I8.bit.CFG_TPC_IQCOMP_I_16 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q8.bit.CFG_TPC_IQCOMP_Q_16 = c22;
+        break;
+    case 17:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I8.bit.CFG_TPC_IQCOMP_I_17 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q8.bit.CFG_TPC_IQCOMP_Q_17 = c22;
+        break;
+    case 18:
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_I9.bit.CFG_TPC_IQCOMP_I_18 = c21;
+        NEW_DFE->REG_TPC_CTRL_IQCOMP_Q9.bit.CFG_TPC_IQCOMP_Q_18 = c22;
+        break;
+    default:
+        break;
+    }
+}
 
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q0.bit.CFG_TPC_IQCOMP_Q_0 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q0.bit.CFG_TPC_IQCOMP_Q_1 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q1.bit.CFG_TPC_IQCOMP_Q_2 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q1.bit.CFG_TPC_IQCOMP_Q_3 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q2.bit.CFG_TPC_IQCOMP_Q_4 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q2.bit.CFG_TPC_IQCOMP_Q_5 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q3.bit.CFG_TPC_IQCOMP_Q_6 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q3.bit.CFG_TPC_IQCOMP_Q_7 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q4.bit.CFG_TPC_IQCOMP_Q_8 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q4.bit.CFG_TPC_IQCOMP_Q_9 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q5.bit.CFG_TPC_IQCOMP_Q_10 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q5.bit.CFG_TPC_IQCOMP_Q_11 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q6.bit.CFG_TPC_IQCOMP_Q_12 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q6.bit.CFG_TPC_IQCOMP_Q_13 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q7.bit.CFG_TPC_IQCOMP_Q_14 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q7.bit.CFG_TPC_IQCOMP_Q_15 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q8.bit.CFG_TPC_IQCOMP_Q_16 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q8.bit.CFG_TPC_IQCOMP_Q_17 = c22;
-    NEW_DFE->REG_TPC_CTRL_IQCOMP_Q9.bit.CFG_TPC_IQCOMP_Q_18 = c22;
+__STATIC int16_t wf_cali_txiq_get_max_power_qdbm(void)
+{
+    return (int16_t)SIGN(NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_MAX_POWER, 8);
+}
+
+__STATIC int16_t wf_cali_txiq_get_min_power_qdbm(void)
+{
+    return (int16_t)SIGN(NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_MIN_POWER, 8);
+}
+
+__STATIC int8_t wf_cali_txiq_get_power_offset_qdbm(void)
+{
+    return (int8_t)SIGN(NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_PWR_OFFSET, 6);
+}
+
+__STATIC uint8_t wf_cali_txiq_get_step_db(void)
+{
+    switch (NEW_DFE->REG_TPC_CTRL_COMMON.bit.CFG_TPC_STEP) {
+    case 1:
+        return 2;
+    case 2:
+        return 4;
+    default:
+        return 8;
+    }
+}
+
+__STATIC uint8_t wf_cali_txiq_cmd_power_dbm_to_idx(int16_t power_dbm)
+{
+    int16_t max_power_qdbm = wf_cali_txiq_get_max_power_qdbm();
+    int16_t min_power_qdbm = wf_cali_txiq_get_min_power_qdbm();
+    int16_t tx_power_qdbm = (int16_t)(power_dbm << 2);
+    int16_t tx_power_with_offset_qdbm = tx_power_qdbm + wf_cali_txiq_get_power_offset_qdbm();
+    int16_t delta_power_dbm;
+    int16_t backoff_idx;
+    int16_t table_idx;
+    uint8_t step_db = wf_cali_txiq_get_step_db();
+
+    if (tx_power_with_offset_qdbm > max_power_qdbm)
+        tx_power_with_offset_qdbm = max_power_qdbm;
+    else if (tx_power_with_offset_qdbm < min_power_qdbm)
+        tx_power_with_offset_qdbm = min_power_qdbm;
+
+    /*
+     * Match RTL:
+     * delta_pwr        = cfg_tpc_Max_Power - txpwr_exc;
+     * delta_pwr[8:2]   keeps only integer-dBm difference;
+     * backoff_idx      groups that integer difference by cfg_tpc_Step.
+     */
+    delta_power_dbm = (max_power_qdbm - tx_power_with_offset_qdbm) >> 2;
+    backoff_idx = delta_power_dbm / step_db;
+    table_idx = 18 - backoff_idx;
+
+    if (table_idx > 18)
+        table_idx = 18;
+    else if (table_idx < 0)
+        table_idx = 0;
+
+    return (uint8_t)table_idx;
+}
+
+__STATIC int16_t wf_cali_txiq_idx_get_low_cmd_power_qdbm(uint8_t idx)
+{
+    int16_t min_power_dbm = wf_cali_txiq_get_min_power_qdbm() >> 2;
+    int16_t max_power_dbm = wf_cali_txiq_get_max_power_qdbm() >> 2;
+    int16_t search_min_dbm = min_power_dbm - 32;
+    int16_t search_max_dbm = max_power_dbm + 32;
+
+    for (int16_t power_dbm = search_min_dbm; power_dbm <= search_max_dbm; power_dbm++) {
+        if (wf_cali_txiq_cmd_power_dbm_to_idx(power_dbm) == idx)
+            return (power_dbm << 2);
+    }
+
+    return (search_min_dbm << 2);
+}
+
+__STATIC uint8_t wf_cali_txiq_idx_match_range(uint8_t idx, uint8_t range)
+{
+    int16_t idx_low_power_qdbm = wf_cali_txiq_idx_get_low_cmd_power_qdbm(idx);
+
+    /* Use the lowest integer-dBm tx_pwr_index value that maps to this RTL table_idx. */
+    switch (range) {
+    case RF_TXIQ_PWR_RANGE_LOW:
+        return idx_low_power_qdbm < ((RF_TXIQ_LOW_PWR_MAX_DBM + 1) << 2);
+    case RF_TXIQ_PWR_RANGE_MID:
+        return (idx_low_power_qdbm >= ((RF_TXIQ_LOW_PWR_MAX_DBM + 1) << 2)) &&
+               (idx_low_power_qdbm < (RF_TXIQ_HIGH_PWR_MIN_DBM << 2));
+    case RF_TXIQ_PWR_RANGE_HIGH:
+        return idx_low_power_qdbm >= (RF_TXIQ_HIGH_PWR_MIN_DBM << 2);
+    case RF_TXIQ_PWR_RANGE_ALL:
+    default:
+        return true;
+    }
+}
+
+__STATIC int8_t wf_cali_txiq_tx_result(int16_t c21, int16_t c22, uint8_t range)
+{
+    for (uint8_t idx = 0; idx <= 18; idx++) {
+        if (wf_cali_txiq_idx_match_range(idx, range))
+            wf_cali_txiq_tx_result_set_idx(idx, c21, c22);
+    }
 
     #if RFCALI_BT_EN
     BT_MODEM->REG_TX_CFG1.bit.TX_C_MATRIX_1_2 = c21<<3;
@@ -1862,7 +2006,7 @@ __STATIC int8_t wf_cali_txiq_fb_init(uint8_t dbg, uint8_t abb_gain)
         NEW_DFE->REG_COMPS_CFG0.bit.RX_IQ_COMPS_EN = 0;
     RFIF->REG_RX_LOGIC0.bit.RF_RX_ABB_DCOCDAC_EN_FORCE = 1;
     RFIF->REG_RX_LOGIC0.bit.REG_RF_RX_ABB_DCOCDAC_EN = 0;
-    wf_cali_txiq_tx_result(0, 2048);
+    wf_cali_txiq_tx_result(0, 2048, RF_TXIQ_PWR_RANGE_ALL);
     wf_cali_txiq_tia_fb_path();
     wf_cali_cmn_rf_init(RX_IQ_CALI/*mode*/, 2434/*freq*/, 4/*lna*/, abb_gain/*abb_bq*/, 10/*abb_buf*/);
     wf_m1_est_init(4, 12);
@@ -2207,7 +2351,8 @@ __STATIC void dpd_tx_packet(uint8_t tx_pwr, uint8_t mcs, uint32_t tx_mem_addr, u
 
 __STATIC int8_t wf_cali_txiq_send_testtone(uint8_t tx_pwr, int8_t dir)
 {
-    wf_forge_tone(wf_txiq_ttg_data, dir, 1);
+    NEW_DFE->REG_DFE_TX_PWR_INDEX.bit.REG_TX_PWR_INDEX = (tx_pwr<<2);
+    wf_forge_tone(wf_txiq_ttg_data, dir, 0);
     return 0;
 }
 
@@ -2246,25 +2391,91 @@ __STATIC int8_t wf_cali_send_ttg_stop()
     restore_reg_config();
     return 0;
 }
-__STATIC int8_t wf_cali_txiq_tx_init(void)
-{
-    /* disable Tx_Comps */
-    wf_cali_txiq_tx_result(0, 2048);
-    wf_cali_txiq_ttg_fb_enable();
 
+__STATIC void wf_cali_ttg_replace_rxlo(void)
+{
+    SYS_NODFT->REG_BBPLL_CFG2.bit.BBPLL_TO_TTG_CLK_EN = 1;
+    SYS_NODFT->REG_PLL_CTRL0.bit.MPLL_TTG_ENABLE = 1;
+    SYS_NODFT->REG_PLL_CTRL3.bit.MPLL_TTG_N_INT = 13;
+    SYS_NODFT->REG_PLL_CTRL3.bit.MPLL_TTG_N_FRAC = 1; //2440M
+    // SYS_NODFT->REG_PLL_CTRL3.bit.MPLL_TTG_N_INT = 13;
+    // SYS_NODFT->REG_PLL_CTRL3.bit.MPLL_TTG_N_FRAC = 2; //2480M
+    RFIF->REG_RSV_REG0.bit.RF_D2A_RSV |= (1 << 6); //64;
+    RFIF->REG_RX_REG1.bit.RF_RX_LO_BUF |= (1 << 1);
+    RFIF->REG_RX_LOGIC62.bit.REG_RF_RX_DPD_DIVIDER_EN = 0;
+    RFIF->REG_RX_LOGIC62.bit.RF_RX_DPD_DIVIDER_EN_FORCE = 1;
+}
+
+
+__STATIC void wf_cali_ttg_replace_rxlo_dis(void)
+{
+    SYS_NODFT->REG_BBPLL_CFG2.bit.BBPLL_TO_TTG_CLK_EN = 0;
+    SYS_NODFT->REG_PLL_CTRL0.bit.MPLL_TTG_ENABLE = 0;
+    RFIF->REG_RSV_REG0.bit.RF_D2A_RSV &= ~(1 << 6); //~64;
+    RFIF->REG_RX_REG1.bit.RF_RX_LO_BUF &= ~(1 << 1);
+    RFIF->REG_RX_LOGIC62.bit.RF_RX_DPD_DIVIDER_EN_FORCE = 0;
+}
+
+__STATIC int8_t wf_cali_txiq_tx_init(int8_t pwr_level)
+{
+    uint8_t range = RF_TXIQ_PWR_RANGE_HIGH;
+
+    if (pwr_level <= RF_TXIQ_LOW_PWR_MAX_DBM)
+        range = RF_TXIQ_PWR_RANGE_LOW;
+    else if (pwr_level <= RF_TXIQ_MID_PWR_MAX_DBM)
+        range = RF_TXIQ_PWR_RANGE_MID;
+
+    /* disable Tx_Comps */
+    wf_cali_txiq_tx_result(0, 2048, range);
+    wf_cali_txiq_ttg_fb_enable();
+    wf_cali_ttg_replace_rxlo();
+    wf_m1_est_init(4, 12);
+    wf_cali_cmn_rf_init(TX_IQ_TTG_CALI/*mode*/, 2442/*freq*/, 4/*lna*/, 13/*abb_bq*/, 10/*abb_buf*/);
+    if (pwr_level >= RF_TXIQ_HIGH_PWR_MIN_DBM)
+        set_abb_1st_gain(10);
+    else if (pwr_level <= RF_TXIQ_LOW_PWR_MAX_DBM)
+        set_abb_1st_gain(1);
+    else
+        set_abb_1st_gain(6);
+    NEW_DFE->REG_CALIBR_TX_0.bit.CALIBR_START_POS = 0;
+    NEW_DFE->REG_CALIBR_TX_0.bit.CALIBR_END_POS = 127;
+    NEW_DFE->REG_CALIBR_FORCE_MODULE_EN.bit.REG_CALIBR_FORCE_MODULE_EN = 1;
+    NEW_DFE->REG_DFE_EST_CTRL_EN.bit.REG_DFE_EST_RESULT_SHIFT_EN = 0;
+    NEW_DFE->REG_RX_CALIBR_FREQSHIFT.bit.RX_CALIBR_FREQ_SHIFT_STEP = 0x2CCCCD; //int(round((1.75e6 / 40e6) * 2 ** 26))
+    NEW_DFE->REG_RX_CALIBR_FREQSHIFT.bit.RX_CALIBR_FO_BYPASS = 0;
+    //NEW_DFE->REG_DFE_EST_LEN.bit.REG_EST_LEN_POWER = 14; //16384 samples
+    wf_cali_txiq_send_testtone(pwr_level, 0);
     //CLOGD("wf_cali_txiq_tx_init\n");
     return 0;
 }
 
-__STATIC int8_t wf_cali_txiq_tx_measure(void)
+__STATIC int8_t wf_cali_txiq_tx_measure(uint32_t *irr)
 {
-    wf_cali_cmn_rf_init(TX_IQ_TTG_CALI/*mode*/, 2434/*freq*/, 8/*lna*/, 6/*abb_bq*/, 6/*abb_buf*/);
-    wf_cali_txiq_send_testtone(19, 0);
-    wf_cali_work_en(0);
-    //wf_cali_txiq_ttg_fb_disable();
-    NEW_DFE->REG_CALIBR_TX_0.bit.CALIBR_DUMP_MODE = 0;
-    NEW_DFE->REG_CALIBR_TX_0.bit.CALIBR_EST_MODE = 0;
+    int32_t dc_i = 0;
+    int32_t dc_q = 0;
+    int32_t timeout = 0;
+
+    wf_cali_wait_iq_done();
+    dc_i = SIGN28(NEW_DFE->REG_EST_RESULT_I_RPT.bit.DFE_EST_I_RPT);
+    dc_q = SIGN28(NEW_DFE->REG_EST_RESULT_Q_RPT.bit.DFE_EST_Q_RPT);
+    *irr = (uint32_t)(((int64_t)(dc_i) * (int64_t)(dc_i) + (int64_t)(dc_q) * (int64_t)(dc_q))>>8);
+    CLOGD("dc_i=%ld, dc_q=%ld, irr=%u", dc_i, dc_q, *irr);
     //CLOGD("wf_cali_txiq_tx_measure\n");
+    return 0;
+}
+
+__STATIC int8_t wf_cali_txiq_tx_deinit(void)
+{
+    wf_cali_work_en(0);
+    NEW_DFE->REG_CALIBR_FORCE_MODULE_EN.bit.REG_CALIBR_FORCE_MODULE_EN = 0;
+    NEW_DFE->REG_DFE_EST_CTRL_EN.bit.REG_DFE_EST_RESULT_SHIFT_EN = 1;
+    NEW_DFE->REG_RX_CALIBR_FREQSHIFT.bit.RX_CALIBR_FREQ_SHIFT_STEP = 0;
+    NEW_DFE->REG_RX_CALIBR_FREQSHIFT.bit.RX_CALIBR_FO_BYPASS = 1;
+    RFIF->REG_RX_LOGIC52.bit.REG_RF_RX_ABB_1ST_GC_WF_0 = 0xa;
+    RFIF->REG_RX_LOGIC52.bit.RF_RX_ABB_1ST_GC_WF_FORCE = 0;
+    wf_cali_ttg_replace_rxlo_dis();
+    wf_cali_txiq_ttg_fb_disable();
+    //CLOGD("wf_cali_txiq_tx_deinit\n");
     return 0;
 }
 
@@ -2992,7 +3203,7 @@ __STATIC void wf_cali_env_init(void)
     NEW_DFE->REG_TPC_CTRL_CFREN1.bit.CFG_TPC_CFREN_18 = 0x0;
 
     NEW_DFE->REG_NEW_DFE_TX_FILT_GAIN.bit.CFG_NEW_TXMASK_FLT_EN = 0;
-
+    NEW_DFE->REG_NEW_DFE_INTERRUPT.bit.IRQMACCCATIMEOUTEN = 0;
     //CLOGD("wf_cali_env_init\n");
 }
 #endif
@@ -3003,7 +3214,7 @@ __STATIC void bt_cali_env_init(void)
     ls_rf_probe();
     save_reg_config();
 
-#if defined(WCN_TYPE_WF)
+#if defined(WCN_TYPE_WF) || RFCALI_WF_EN == 1
     RFIF->REG_CTRL0.bit.WF_END = 1;
 #endif
 
@@ -3048,7 +3259,7 @@ __STATIC void bt_cali_env_deinit(void)
     RFIF->REG_SX_LOGIC1.bit.RF_SX_DIG_START_FORCE = 0;
     RFIF->REG_CTRL0.bit.REG_BT_WF = 0;
     RFIF->REG_CTRL0.bit.BT_WF_FORCE = 0;
-#if defined(WCN_TYPE_WF)
+#if defined(WCN_TYPE_WF) || RFCALI_WF_EN == 1
     RFIF->REG_CTRL0.bit.WF_START = 1;
 #endif
     restore_reg_config();
@@ -3078,6 +3289,7 @@ RF_CALI_OPS wf_cali_ops = {
     .txiq_tx_init = wf_cali_txiq_tx_init,
     .txiq_tx_measure = wf_cali_txiq_tx_measure,
     .txiq_tx_result = wf_cali_txiq_tx_result,
+    .txiq_tx_deinit = wf_cali_txiq_tx_deinit,
     .txiq_dump_data = wf_cali_txiq_dump_data,
     .txiq_restore_rxiq_result = wf_cali_txiq_restore_rxiq_result,
     .txdpd_remap_pred = wf_cali_txdpd_remap_pred,

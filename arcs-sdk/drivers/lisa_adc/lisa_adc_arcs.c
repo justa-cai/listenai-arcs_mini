@@ -14,9 +14,14 @@
 #include "lisa_adc.h"
 #include "Driver_GPADC.h"
 #include <stddef.h>
+#include <stdbool.h>
 #include <string.h>
 #include "lisa_mutex.h"
 #include "board.h"
+
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
 
 #define LOG_TAG "lisa_adc_arcs"
 #include <lisa_log.h>
@@ -76,6 +81,8 @@ typedef struct {
     void *hal_handler;                    /* HAL GPADC 句柄 */
     lisa_mutex_t *mutex;                  /* 互斥锁 */
     channel_config_entry_t channel_configs[8];  /* 每个通道的配置 */
+    volatile bool conversion_in_flight;   /* 转换是否进行中：HAL_GPADC_Start 入口置 1，
+                                             轮询完成或错误退出清 0 */
 } lisa_adc_priv_t;
 
 /* ===== ADC 设备静态实例 ===== */
@@ -231,8 +238,10 @@ static int arcs_adc_read(lisa_device_t *dev, uint32_t channel, uint16_t *value)
     HAL_GPADC_Control(priv->hal_handler, hal_channel_sel | CSK_GPADC_DMA_ENABLE(0));
     HAL_GPADC_SetTriggerNum(GPADC(), LISA_ADC_TRIGGER_COUNT);
 
-    /* 启动ADC转换 */
+    /* 启动ADC转换：进入前置位 busy flag，给 PM check_idle 看到 */
+    priv->conversion_in_flight = true;
     if (HAL_GPADC_Start(priv->hal_handler) != 0) {
+        priv->conversion_in_flight = false;
         DEVICE_UNLOCK(priv);
         LISA_LOGE(LOG_TAG, "Failed to start ADC");
         return LISA_DEVICE_ERR_IO;
@@ -240,6 +249,7 @@ static int arcs_adc_read(lisa_device_t *dev, uint32_t channel, uint16_t *value)
 
     /* 等待转换完成 */
     if (HAL_GPADC_PollForConversion(priv->hal_handler, 0) != 0) {
+        priv->conversion_in_flight = false;
         DEVICE_UNLOCK(priv);
         LISA_LOGE(LOG_TAG, "ADC conversion timeout");
         return LISA_DEVICE_ERR_IO;
@@ -252,6 +262,7 @@ static int arcs_adc_read(lisa_device_t *dev, uint32_t channel, uint16_t *value)
     }
     *value = adc_value;
 
+    priv->conversion_in_flight = false;
     DEVICE_UNLOCK(priv);
 
     LISA_LOGD(LOG_TAG, "Channel %lu: raw value 0x%x (%u)", channel, adc_value, adc_value);
@@ -266,43 +277,147 @@ static const lisa_adc_api_t arcs_adc_api = {
 
 /* ===== 设备初始化函数 ===== */
 
+/**
+ * @brief 初始化 OS 资源（仅启动期一次，不可在 resume 路径调用）
+ */
+static int arcs_adc_init_resources(lisa_adc_priv_t *priv)
+{
+    priv->mutex = lisa_mutex_create();
+    if (!priv->mutex) {
+        LISA_LOGE(LOG_TAG, "Failed to create mutex");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+    return LISA_DEVICE_OK;
+}
+
+/**
+ * @brief 初始化 HAL 硬件（幂等：启动期 _init 与唤醒后 resume_restore 共用）
+ *
+ * HAL_GPADC 仅暴露 Initialize / Uninitialize（无 PowerControl）；suspend 路径
+ * 调 HAL_GPADC_Uninitialize 清 HAL 状态、并清应用层 channel_configs，
+ * resume 路径再次调用本函数完成 HAL_GPADC_Initialize + pinmux。
+ */
+static int arcs_adc_init_hw(lisa_adc_priv_t *priv)
+{
+    /* 获取 HAL GPADC 句柄 */
+    priv->hal_handler = GPADC();
+    if (!priv->hal_handler) {
+        LISA_LOGE(LOG_TAG, "Failed to get GPADC handler");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    /* 初始化 HAL GPADC */
+    if (HAL_GPADC_Initialize(priv->hal_handler) != 0) {
+        LISA_LOGE(LOG_TAG, "Failed to initialize GPADC");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    /* 唤醒路径下硬件被清零，应用层通道配置缓存必须同步清除，
+     * 强制 wake 后业务侧重新 channel_setup() 才能拿到正确参考电压 */
+    for (int i = 0; i < 8; i++) {
+        priv->channel_configs[i].configured = false;
+    }
+
+    priv->conversion_in_flight = false;
+
+    lisa_adc_pinmux();
+
+    return LISA_DEVICE_OK;
+}
+
 static int arcs_adc0_init(void)
 {
     /* 清空私有数据 */
     memset(&adc0_priv, 0, sizeof(lisa_adc_priv_t));
 
-    /* 获取 HAL GPADC 句柄 */
-    adc0_priv.hal_handler = GPADC();
-    if (!adc0_priv.hal_handler) {
-        LISA_LOGE(LOG_TAG, "Failed to get GPADC handler");
-        return LISA_DEVICE_ERR_INIT_FAIL;
+    int ret = arcs_adc_init_resources(&adc0_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
     }
 
-    /* 创建互斥锁 */
-    adc0_priv.mutex = lisa_mutex_create();
-    if (!adc0_priv.mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create mutex");
-        return LISA_DEVICE_ERR_INIT_FAIL;
+    ret = arcs_adc_init_hw(&adc0_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
     }
-
-    /* 初始化 HAL GPADC */
-    if (HAL_GPADC_Initialize(adc0_priv.hal_handler) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to initialize GPADC");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    lisa_adc_pinmux();
 
     LISA_LOGI(LOG_TAG, "ADC0 initialized successfully");
 
     return LISA_DEVICE_OK;
 }
 
+#if CONFIG_LISA_PM
+/* ===== System PM 三回调 =====
+ *
+ * 契约（详见 docs/superpowers/specs/2026-05-12-lisa-device-pm-ops-design.md §6.2）：
+ * - check_idle 只读 priv->conversion_in_flight；同步 read 路径在 HAL_GPADC_Start
+ *   入口置 1、轮询结束/出错清 0，期间禁止 AUTO_LIGHT_SLEEP。
+ *   不取 mutex / 不读 HAL，避免在 PM 临界区阻塞或递归。
+ * - prepare_suspend：HAL_GPADC 暴露 Uninitialize（无 PowerControl），
+ *   调 HAL_GPADC_Uninitialize 清 HAL 状态后再清应用层 channel_configs，
+ *   强制应用 wake 后重新 channel_setup()。
+ * - resume_restore 复用 arcs_adc_init_hw，把硬件拉回 _init 出口形态。
+ *
+ * Red-line check（spec §5）：
+ *   1) _init_hw 不调 lisa_mutex_create / sem_create / 堆分配          ✓
+ *   2) prepare_suspend 不释放 mutex                                    ✓
+ *   3) prepare_suspend 不调 lisa_mem_free（本驱动无堆 buffer）          ✓
+ *   4) prepare_suspend 只清 channel_configs，priv->mutex 保留          ✓
+ *   5) resume_restore 不重建 OS 资源                                    ✓
+ *   6) check_idle 只读 priv，无 lock / HAL / log                        ✓
+ *   7) _init_hw 幂等：suspend 已先 HAL_GPADC_Uninitialize；
+ *      启动期首次调用 HAL 状态本就为零                                  ✓
+ */
+static int32_t arcs_adc_pm_check_idle(void *ctx)
+{
+    lisa_adc_priv_t *priv = (lisa_adc_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    return priv->conversion_in_flight ? 0 : 1;
+}
+
+static int32_t arcs_adc_pm_prepare_suspend(void *ctx)
+{
+    lisa_adc_priv_t *priv = (lisa_adc_priv_t *)ctx;
+    if (priv == NULL) {
+        return -1;
+    }
+
+    /* HAL 仅暴露 Uninitialize（无 PowerControl）；调之以清 HAL 状态。
+     * priv->hal_handler 仍指向同一全局 HAL 资源，无需置 NULL；resume 路径
+     * 在 _init_hw 内重新取回并 Initialize。 */
+    if (priv->hal_handler != NULL) {
+        HAL_GPADC_Uninitialize(priv->hal_handler);
+    }
+
+    /* 清应用层通道配置缓存，强制 wake 后业务侧重新 channel_setup() */
+    for (int i = 0; i < 8; i++) {
+        priv->channel_configs[i].configured = false;
+    }
+
+    return 0;
+}
+
+static int32_t arcs_adc_pm_resume_restore(void *ctx)
+{
+    lisa_adc_priv_t *priv = (lisa_adc_priv_t *)ctx;
+    if (priv == NULL) {
+        return -1;
+    }
+    return arcs_adc_init_hw(priv);
+}
+
+static const lisa_pm_system_ops_t arcs_adc_pm_ops = {
+    .check_idle      = arcs_adc_pm_check_idle,
+    .prepare_suspend = arcs_adc_pm_prepare_suspend,
+    .resume_restore  = arcs_adc_pm_resume_restore,
+};
+#endif /* CONFIG_LISA_PM */
+
 /* ===== 设备注册 ===== */
-LISA_DEVICE_REGISTER(adc0,                        /* 设备名称 */
-                     &arcs_adc_api,               /* API指针 */
-                     &adc0_priv,                  /* 私有数据指针 */
-                     NULL,                        /* 用户数据 */
-                     arcs_adc0_init,              /* 初始化函数 */
-                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
-                     LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
+
+
+LISA_DEVICE_REGISTER(adc0, &arcs_adc_api, &adc0_priv, NULL, arcs_adc0_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(adc0, &arcs_adc_pm_ops, NULL, &adc0_priv);
+#endif

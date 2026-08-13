@@ -17,7 +17,11 @@
 #define URPC_ASYNC_QSIZE     16
 #define URPC_SYNC_QSIZE      2
 #define URPC_SYNC_TIMEOUT    500   //ms
+#if defined(CONFIG_ARCS_HAL_URPC_STACK_SIZE) && (CONFIG_ARCS_HAL_URPC_STACK_SIZE > 0)
+#define URPC_SERVER_STACK_SIZE  CONFIG_ARCS_HAL_URPC_STACK_SIZE
+#else
 #define URPC_SERVER_STACK_SIZE  configMINIMAL_STACK_SIZE
+#endif
 
 static QueueHandle_t async_queue, sync_queue;
 static urpc_frame recv_frame __attribute__((aligned(32)));

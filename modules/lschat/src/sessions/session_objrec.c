@@ -17,6 +17,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 
+#define SESSION_OBJREC_TIMEOUT_MS (15000)
+
 struct session_objrec_async_ctx {
 	struct session_objrec_result *result;
 	lisa_semaphore_t *done_sem;
@@ -26,6 +28,7 @@ struct session_objrec {
 	session_t *ss;
 	void *user;
 	session_objrec_evt_cb_t cb;
+	bool active;
 };
 
 static void session_evt_cb_handle_default(session_objrec_t s, int evt, void *data, uint32_t len, void *user)
@@ -72,7 +75,15 @@ static int obj_rec_run_with_base64(session_t *s, uint8_t *base64_pic, uint32_t s
 		return err;
 	}
 
-	return err;
+	/* The image and prompt are a complete request; close it so the cloud
+	 * scheduler can dispatch object recognition and generate the result. */
+	err = session_end(s);
+	if (err) {
+		LISA_NLOGE("session_end failed, err:%d", err);
+		return err;
+	}
+
+	return LSC_OK;
 }
 
 static void sessions_obj_event_cb_handle(sessions_event_e evt, void *data, uint32_t size, void *usr)
@@ -91,6 +102,18 @@ static void sessions_obj_event_cb_handle(sessions_event_e evt, void *data, uint3
 		objrec_evt = SESSION_OBJREC_EVT_TEXT_URL;
 	} else if (evt & SESSION_TTS_URL) {
 		objrec_evt = SESSION_OBJREC_EVT_TTS_URL;
+	} else if (evt & SESSION_FINISH) {
+		objrec_evt = SESSION_OBJREC_EVT_FINISH;
+	} else if (evt & SESSION_ERR_FRAME) {
+		objrec_evt = SESSION_OBJREC_EVT_ERROR;
+	} else if (evt & SESSION_TIMEOUT) {
+		objrec_evt = SESSION_OBJREC_EVT_TIMEOUT;
+	}
+
+	if (objrec_evt == SESSION_OBJREC_EVT_FINISH ||
+	    objrec_evt == SESSION_OBJREC_EVT_ERROR ||
+	    objrec_evt == SESSION_OBJREC_EVT_TIMEOUT) {
+		objrec->active = false;
 	}
 
 	if (objrec_evt >= 0) {
@@ -126,7 +149,11 @@ session_objrec_t session_objrec_new()
 
 	strcpy(objrec->ss->params.data_type, "text");
 
-	err = session_add_evt_callback(objrec->ss, sessions_obj_event_cb_handle, SESSION_REPLY_URL | SESSION_TTS_URL,
+	objrec->ss->params.session_timeout = SESSION_OBJREC_TIMEOUT_MS;
+
+	err = session_add_evt_callback(objrec->ss, sessions_obj_event_cb_handle,
+				       SESSION_REPLY_URL | SESSION_TTS_URL | SESSION_FINISH |
+					       SESSION_ERR_FRAME | SESSION_TIMEOUT,
 				       objrec);
 	if (err) {
 		goto err_exit;
@@ -160,6 +187,12 @@ int session_objrec_run_async(session_objrec_t s, const void *jpg_img, uint32_t s
 		return LSC_INVALID_PARAM;
 	}
 
+	if (objrec->active) {
+		LISA_NLOGI("cancel previous object recognition session");
+		(void)session_cancel(objrec->ss);
+		objrec->active = false;
+	}
+
 	objrec->cb = cb;
 	objrec->user = user;
 
@@ -174,7 +207,25 @@ int session_objrec_run_async(session_objrec_t s, const void *jpg_img, uint32_t s
 		return err;
 	}
 
+	objrec->active = true;
+
 	return 0;
+}
+
+int session_objrec_cancel(session_objrec_t s)
+{
+	struct session_objrec *objrec = s;
+
+	if (objrec == NULL || objrec->ss == NULL) {
+		return LSC_INVALID_PARAM;
+	}
+
+	if (!objrec->active) {
+		return 0;
+	}
+
+	objrec->active = false;
+	return session_cancel(objrec->ss);
 }
 
 int session_objrec_run(session_objrec_t s, const void *jpg_img, uint32_t size, struct session_objrec_result *result,

@@ -60,6 +60,10 @@
 应用数据 → bt_source → session 编码 → 定时器 → 蓝牙发送
 ```
 
+### Stream Lifecycle
+
+Source 和 Sink 使用 `core/bt_audio_stream_lifecycle` 统一管理流状态、session 快照和活跃操作计数。场景代码只在短临界区内获取 session/元数据快照，不能持锁调用 session IO、`stop/destroy` 或硬件接口回调，避免关闭流程与数据收发并发访问同一个 session。
+
 ---
 
 ## 核心特性
@@ -300,7 +304,7 @@ bt_audio_error_t bt_audio_framework_deinit(void);
 ```c
 // bt_sink/bt_sink.h
 bt_audio_error_t bt_sink_init(void);
-bt_audio_error_t bt_sink_deinit(void);
+bt_audio_error_t bt_sink_set_audio_interface(const bt_audio_interface_ops_t *ops);
 ```
 
 ### Source 场景 API
@@ -318,6 +322,14 @@ bt_audio_error_t vintf_profile_close(void);
 
 // 发送音频数据
 int vintf_playback_write(const void *buffer, size_t size);
+
+// 等待已写入的播放数据排空，成功后再关闭可避免尾音丢失
+bt_audio_error_t vintf_playback_drain(uint32_t timeout_ms);
+
+// 安全关闭播放流示例
+if (vintf_playback_drain(5000) == BT_AUDIO_OK) {
+    vintf_profile_close();
+}
 
 // 模式配置
 bt_audio_error_t bt_vintf_set_encode_mode(bool encode_pcm);
@@ -351,6 +363,9 @@ bt_audio_error_t bt_audio_session_capture_write_pcm(
 bt_audio_error_t bt_audio_session_capture_read_frame(
     bt_audio_session_handle_t session,
     void *buffer, size_t buffer_size, size_t *frame_size);
+bt_audio_error_t bt_audio_session_capture_is_drained(
+    bt_audio_session_handle_t session,
+    bool *drained);
 ```
 
 ### Adapter API

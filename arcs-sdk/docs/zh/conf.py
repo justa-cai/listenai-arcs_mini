@@ -49,7 +49,7 @@ templates_path = ['_templates']
 
 DOXY_OUT.mkdir(parents = True, exist_ok = True)
 doxyrunner_doxygen = os.environ.get("DOXYGEN_EXECUTABLE", "doxygen")
-doxyrunner_doxyfile = SDK_BASE / "docs" / "doxygen" / "Doxyfile" 
+doxyrunner_doxyfile = SDK_BASE / "docs" / "doxygen" / "Doxyfile"
 doxyrunner_outdir = DOXY_OUT
 doxyrunner_fmt = True
 doxyrunner_fmt_vars = {"SDK_BASE": str(SDK_BASE)}
@@ -86,6 +86,8 @@ external_content_contents = [
     (SDK_BASE, "samples/**/*.md"),
     (SDK_BASE, "demos/**/*.rst"),
     (SDK_BASE, "demos/**/*.md"),
+    (SDK_BASE, "labs/**/*.rst"),
+    (SDK_BASE, "labs/**/*.md"),
     (SDK_BASE, "tools/**/*.rst"),
     (SDK_BASE, "tools/**/*.md"),
     ## modules目录下存在很多不规范的README.md，指定添加构建目录
@@ -103,7 +105,7 @@ external_content_exclude = [
     "samples/drivers/devices/Devices_Samples_Spec.md",
     "samples/modules/sqlite3/README.md",
     "components/acomp/logger/**/README.md",
-    "demos/face_detect/src/button/FlexibleButton/README.md",
+    "demos/arcs/face_detect/src/button/FlexibleButton/README.md",
 ]
 
 # Keep template files from being deleted by external_content
@@ -138,7 +140,7 @@ def get_version_from_git():
         ci_tag = os.environ.get('CI_COMMIT_TAG')
         if ci_tag:
             return ci_tag
-        
+
         # 从 Git 命令获取
         result = subprocess.run(
             ['git', 'describe', '--tags', '--exact-match', 'HEAD'],
@@ -153,6 +155,17 @@ def get_version_from_git():
         pass
     return 'latest'
 
+
+def load_ai_assistant_build_config():
+    defaults = {
+        "apiEndpoint": "https://staging-api-docs2.listenai.com/api/v1/ask",
+        "versionsEndpoint": "https://staging-api-docs2.listenai.com/api/v1/versions",
+    }
+    return {
+        "apiEndpoint": os.environ.get("AI_ASSISTANT_API_ENDPOINT", str(defaults.get("apiEndpoint"))),
+        "versionsEndpoint": os.environ.get("AI_ASSISTANT_VERSIONS_ENDPOINT", str(defaults.get("versionsEndpoint"))),
+    }
+
 html_context = {
     # 当前版本（从环境变量或 Git tag 自动检测，默认 'latest'）
     'current_version': get_version_from_git(),
@@ -166,11 +179,14 @@ html_context = {
 html_css_files = [
     'version-switcher.css',
     'feedback-widget.css',
+    'ai-qa.css',
 ]
 
 html_js_files = [
     'version-switcher.js',
     'feedback-widget.js',
+    'markdown-it.min.js',
+    'ai-qa.js',
 ]
 
 suppress_warnings = ['toc.excluded',
@@ -201,11 +217,11 @@ myst_enable_extensions = [
 ]
 
 def setup(app):
-    """Sphinx setup hook to add custom HTML for version switcher"""
+    """Sphinx setup hook to add custom HTML for version switcher and AI widget."""
     def add_version_switcher(app, pagename, templatename, context, doctree):
         """Add version switcher HTML to every page"""
         current_version = context.get('current_version', 'latest')
-        
+
         # 生成最小化的版本切换器 HTML（版本列表由 JS 从 OSS JSON 动态加载）
         version_html = f'''
 <div class="rst-versions" data-toggle="rst-versions" role="note">
@@ -223,8 +239,19 @@ def setup(app):
 </div>
 '''
         context['version_switcher_html'] = version_html
-    
+
+    def add_ai_qa_widget(app, pagename, templatename, context, doctree):
+        ai_qa_html_path = Path(__file__).resolve().parents[1] / "assets" / "ai-qa.html"
+        if ai_qa_html_path.exists():
+            context['ai_qa_widget'] = ai_qa_html_path.read_text(encoding='utf-8')
+
+        context['ai_qa_config'] = {
+            **load_ai_assistant_build_config(),
+            'version': context.get('current_version', 'latest'),
+        }
+
     app.connect('html-page-context', add_version_switcher)
+    app.connect('html-page-context', add_ai_qa_widget)
 
 
 # -- Source Link Configuration -----------------------------------------------

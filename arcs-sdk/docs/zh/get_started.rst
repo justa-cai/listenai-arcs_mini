@@ -7,23 +7,62 @@
 本文档介绍如何快速开始使用 ARCS SDK 进行开发，包括环境搭建、编译示例和烧录运行。
 
 .. note::
-   目前仅支持 Linux 平台，推荐使用 Ubuntu 18.04 以上版本。
+   SDK 支持 Linux 和 Windows PowerShell 开发环境；Linux 推荐使用 Ubuntu 18.04 以上版本。
 
 .. _environment_setup:
 
 环境搭建
 ========
 
-安装系统依赖
+Linux 系统依赖
 ----------------
 
 .. code-block:: shell
 
    sudo apt update
-   sudo apt install -y wget bzip2 python3 git
+   sudo apt install -y wget bzip2 python3 git vim-common
 
-自动搭建（推荐）
+.. note::
+   ``vim-common`` 提供 ``tools/mkhdr/mkhdr.sh`` 写 image header 所需的 ``xxd`` 命令。
+
+Windows 前置条件
 ----------------
+
+Windows 环境请使用 PowerShell，建议使用 Windows 10/11 自带的 Windows PowerShell 5.1 或更新版本。
+
+Windows 系统依赖：
+
+- ``Git for Windows``：用于获取 SDK 仓库；构建时 CMake 也会用 ``git`` 生成版本信息。
+- ``Python 3``：用于运行 ``tools/mkhdr/mkhdr.py`` 等 Python 工具，需确保命令行中可直接执行 ``python``。
+- 网络访问：首次运行 ``env.ps1`` 时会下载 Windows 工具包和 GCC 工具链。
+- ``Invoke-WebRequest`` / ``Expand-Archive``：PowerShell 内置下载与解压能力；下载失败时 ``env.ps1`` 会回退使用系统 ``curl.exe``。
+- ``cmd.exe`` / ``subst``：当 SDK 路径包含中文、空格或 OneDrive 同步目录时，``env.ps1`` 会使用 ``subst`` 做兼容路径映射。
+
+可通过以下命令快速检查 Git 和 Python：
+
+.. code-block:: powershell
+
+   git --version
+   python --version
+
+``env.ps1`` 会自动下载以下工具包，也可以手动下载后解压：
+
+- ``listenai-tools-windows-v0.0.1.zip``：包含 Windows 版本的 CMake、Ninja、Kconfig、menuconfig 等工具
+- ``nuclei_riscv_newlibc_prebuilt_win64_2025.10.zip``：Windows 版本 RISC-V GCC 工具链
+
+Windows 版本工具下载地址：
+
+- `Windows 开发工具包下载地址 <https://listenai-firmware-delivery.oss-cn-beijing.aliyuncs.com/ARCS/tools/dev-tools/windows-amd64/v0.0.1/listenai-tools-windows-v0.0.1.zip>`_
+- `Windows 工具链下载地址 <https://listenai-firmware-delivery.oss-cn-beijing.aliyuncs.com/ARCS/tools/toolchain/windows-amd64/nuclei_riscv_newlibc_prebuilt_win64_2025.10.zip>`_
+
+如遇 PowerShell 执行策略限制，可在当前终端临时放开：
+
+.. code-block:: powershell
+
+   Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+Linux 自动搭建（推荐）
+-----------------------
 
 在 SDK 根目录下执行：
 
@@ -36,7 +75,7 @@
 - 检测工具链环境变量，已有有效配置则直接使用，不覆盖
 - 工具链缺失时自动查找或下载安装
 - 设置环境变量（``NUCLEI_TOOLCHAIN_PATH``、``LISTENAI_TOOLS_PATH``、``PATH``）
-- 检测子模块状态，有异常时提示修复命令
+- 检测子模块状态，有异常时提示修复命令（`labs/zig/adapter` 已随主仓分发，不需要单独初始化）
 
 已就绪的环境 source 后秒完成，可重复执行。
 
@@ -50,8 +89,8 @@
       source env.sh submodule sync     # 仅同步子模块
       source env.sh info               # 查看版本信息
 
-手动搭建
---------
+Linux 手动搭建
+--------------
 
 如果自动搭建失败，可以手动搭建开发环境：
 
@@ -96,6 +135,56 @@
    - ``NUCLEI_TOOLCHAIN_PATH`` 指向 ``$HOME/.listenai/gcc``\ （工具链安装目录）
    - ``LISTENAI_TOOLS_PATH`` 指向 ``$HOME/.listenai/listenai-tools``\ （开发工具包安装目录）
 
+Windows 环境搭建（推荐）
+-------------------------
+
+Windows 版本工具默认安装到 ``%USERPROFILE%\.listenai``，目录结构需要保持如下形式：
+
+.. code-block:: text
+
+   %USERPROFILE%\.listenai\
+   ├── gcc\
+   │   └── bin\riscv64-unknown-elf-gcc.exe
+   └── listenai-tools\
+       ├── cmake\bin\cmake.exe
+       ├── ninja\ninja.exe
+       ├── kconfig\
+       └── menuconfig\
+
+1. **自动搭建**
+
+   在 SDK 根目录执行：
+
+   .. code-block:: powershell
+
+      .\env.ps1
+
+   该命令会检测 ``%USERPROFILE%\.listenai\gcc`` 和 ``%USERPROFILE%\.listenai\listenai-tools``，缺失时自动下载并解压，然后设置当前 PowerShell 会话的环境变量。
+
+   如需重新下载工具包，可执行：
+
+   .. code-block:: powershell
+
+      .\env.ps1 setup
+
+2. **手动解压（可选）**
+
+   如需离线安装，可手动下载上述两个压缩包后解压：
+
+   .. code-block:: powershell
+
+      New-Item -ItemType Directory -Force "$env:USERPROFILE\.listenai" | Out-Null
+      Expand-Archive .\nuclei_riscv_newlibc_prebuilt_win64_2025.10.zip "$env:USERPROFILE\.listenai" -Force
+      Expand-Archive .\listenai-tools-windows-v0.0.1.zip "$env:USERPROFILE\.listenai" -Force
+      .\env.ps1
+
+   上述两个压缩包内已经带有 ``gcc`` 或 ``listenai-tools`` 顶层目录；如果使用其他来源的压缩包，请以最终目录中能直接找到上面列出的 ``*.exe`` 为准。
+
+   ``env.ps1`` 会设置 ``ARCS_BASE``、``NUCLEI_TOOLCHAIN_PATH``、``LISTENAI_TOOLS_PATH``，并把工具链、CMake、Ninja、Kconfig、menuconfig 加入当前终端的 ``PATH``。
+
+   .. note::
+      Windows 下建议将 SDK 放在纯英文且不含空格的目录中。若 SDK 路径包含中文、空格或 OneDrive 同步目录，``env.ps1`` 会自动启用兼容路径，避免部分构建工具对非 ASCII 路径兼容不佳。
+
 .. _quick_start:
 
 快速开始
@@ -110,19 +199,28 @@
 
    在 SDK 根目录下执行：
 
+   Linux：
+
    .. code-block:: shell
 
       ./build.sh -C -S samples/helloworld -DBOARD=arcs_evb
 
-   命令参数说明：
+   Windows PowerShell：
+
+   .. code-block:: powershell
+
+      .\build.ps1 -C -S samples/helloworld -DBOARD=arcs_evb
+
+   命令参数说明（Linux / Windows 一致）：
 
    - ``-S``: 指定项目源码路径
-   - ``-DBOARD``: 指定目标板型(必需参数,如 arcs_mini、arcs_evb 等)
-   - ``-C``: 清理构建目录(可选)
+   - ``-DBOARD``: 指定目标板型（必需参数，如 ``arcs_mini``、``arcs_evb`` 等）
+   - ``-C``: 清理构建目录（可选）
+   - ``-B``: 指定构建目录（可选，默认 ``build``）
 
 2. **编译输出**
 
-   编译成功后会在 ``build`` 目录下生成构建产物，包括：
+   编译成功后会在构建目录下生成构建产物，Linux 和 Windows 默认目录均为 ``build``，包括：
    
    - ``helloworld.bin``: 烧录文件
    - ``helloworld.elf``: 调试文件
@@ -166,9 +264,17 @@
 
 使用 cskburn 工具进行烧录：
 
+Linux：
+
 .. code-block:: shell
 
    ./tools/burn/cskburn -s /dev/ttyUSB0 -b 3000000 0x0 build/helloworld.bin -C arcs
+
+Windows PowerShell：
+
+.. code-block:: powershell
+
+   .\tools\burn\cskburn.exe -C arcs -s COM7 -b 3000000 0x0 .\build\helloworld.bin
 
 命令参数说明：
 
@@ -177,13 +283,14 @@
   .. note::
      请根据实际情况选择正确的串口设备：
 
-     - 使用 ``ls /dev/ttyUSB*`` 或 ``ls /dev/ttyACM*`` 查看可用设备
-     - 常见设备名：``/dev/ttyUSB0``、``/dev/ttyUSB1``、``/dev/ttyACM0`` 等
+     - Linux 使用 ``ls /dev/ttyUSB*`` 或 ``ls /dev/ttyACM*`` 查看可用设备
+     - Windows 在“设备管理器”中查看端口号，常见形式为 ``COM7``、``COM8`` 等
+     - Linux 常见设备名：``/dev/ttyUSB0``、``/dev/ttyUSB1``、``/dev/ttyACM0`` 等
      - 插入串口板时可使用 ``dmesg | tail`` 查看系统分配的设备名
 
 - ``-b``: 指定烧录波特率（推荐使用 3000000）
 - ``0x0``: 烧录起始地址（基于 0x30000000 flash 起始地址的偏移）
-- ``build/helloworld.bin``: 烧录文件路径
+- ``build/helloworld.bin`` 或 ``.\build\helloworld.bin``: 烧录文件路径
 - ``-C arcs``: 指定芯片类型
 
 验证运行
@@ -226,3 +333,12 @@
    .. code-block:: shell
 
       source env.sh check
+
+   Windows PowerShell 可执行：
+
+   .. code-block:: powershell
+
+      .\env.ps1
+      riscv64-unknown-elf-gcc --version
+      cmake --version
+      ninja --version

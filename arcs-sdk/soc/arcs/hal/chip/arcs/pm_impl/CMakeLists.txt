@@ -13,16 +13,14 @@ if(CONFIG_ARCS_HAL_PM)
         pm.c
     )
 
-    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+    listenai_include_directories(
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${ARCS_HAL_LIB_PATH}/chip/${CHIP}/driver/spiflash
+    )
 
     listenai_library_compile_options_ifdef(
         CONFIG_ARCS_HAL_WARNING_DISABLE
         PRIVATE
         -w
     )
-else()
-    listenai_library_named(arcs_hal_pm_stub)
-    listenai_library_sources(pm_stub.c)
-    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-
 endif()

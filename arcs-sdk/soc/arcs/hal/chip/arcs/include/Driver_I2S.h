@@ -202,7 +202,7 @@ static const uint32_t csk_i2s_samp_rates[] = {
 // I2S status bit definitions
 #define CSK_I2S_STATUS_RX_BUSY      (0x1 << 0)
 #define CSK_I2S_STATUS_TX_BUSY      (0x1 << 1)
-#define CSK_I2S_STATUS_ECHO_BUSY    (0x1 << 1)
+#define CSK_I2S_STATUS_ECHO_BUSY    (0x1 << 2)
 #define CSK_I2S_STATUS_BUSY_MASK    (CSK_I2S_STATUS_RX_BUSY | CSK_I2S_STATUS_TX_BUSY | CSK_I2S_STATUS_ECHO_BUSY)
 typedef struct _CSK_I2S_STATUS_BIT
 {
@@ -522,6 +522,8 @@ I2S_Control(void *i2s_dev, uint32_t control, uint32_t arg);
 int32_t
 I2S_GetStatus(void *i2s_dev, CSK_I2S_STATUS *status);
 
+// reset internal logic of i2s module
+void I2S_Reset(void *i2s_dev, bool include_fifo_rst);
 
 // EQ API
 int32_t I2S_EQ_Set_Coef_Array(void *i2s_dev, uint32_t *eqcoefs, uint32_t num);

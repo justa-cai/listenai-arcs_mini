@@ -1,0 +1,5 @@
+tests:
+  test.host.sys_reset_reason:
+    runner: linux
+    builder: cmake
+    log_analyzer: "unity"

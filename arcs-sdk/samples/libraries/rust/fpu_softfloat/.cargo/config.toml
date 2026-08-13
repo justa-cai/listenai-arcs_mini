@@ -1,0 +1,18 @@
+[build]
+target     = "riscv32imac-unknown-none-elf"
+target-dir = "cargo-out"
+
+[target.riscv32imac-unknown-none-elf]
+# Pure soft-float: no `+f`, so the target stays plain rv32imac and all f32 math
+# lowers to soft-float library routines (__addsf3 / __mulsf3 / __divsf3 in
+# libgcc). Same soft-float ilp32 ABI as the SDK, so it links cleanly against the
+# soft-float newlib/libgcc.
+#
+# (Enabling `+f` tags the Rust objects "single-float", which GNU ld then refuses
+# to merge with the soft-float SDK — "can't link soft-float modules with
+# single-float modules". Driving the hardware FPU from Rust therefore requires
+# the full hard-float ilp32f build; see the companion fpu_hardfloat sample.)
+rustflags = [
+    "-C", "target-feature=+zba,+zbb,+zbc,+zbs",
+    "-C", "link-arg=-nostartfiles",
+]

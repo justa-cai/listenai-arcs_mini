@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdbool.h>
 
+#include "Driver_GPDMA.h"
 #include "Driver_I2S.h"
 #include "cache.h"
 #include "lisa_device.h"
@@ -21,6 +22,10 @@
 
 #define LOG_TAG "lisa_i2s_arcs"
 #include <lisa_log.h>
+
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
 
 #define I2S_CLK_IN_24M 24000000
 
@@ -42,12 +47,25 @@ typedef struct {
     uint32_t len;
 } lisa_i2s_msg_t;
 
+typedef enum {
+    LISA_I2S_RX_FIFO_FREE,
+    LISA_I2S_RX_FIFO_ACTIVE,
+    LISA_I2S_RX_FIFO_QUEUED,
+} lisa_i2s_rx_fifo_state_t;
+
 typedef struct {
     lisa_i2s_stream_state_e state;
 	QueueHandle_t queue;
     uint8_t *fifo[CONFIG_LISA_I2S_BLOCK_COUNT];
     volatile uint32_t index;
     uint32_t fifo_size;
+    lisa_i2s_rx_fifo_state_t fifo_state[CONFIG_LISA_I2S_BLOCK_COUNT];
+    uint32_t drop_count;
+#if CONFIG_LISA_I2S_PIPO
+    uint32_t pipo_fifo_index[2];
+    bool pipo_active;
+    uint8_t pipo_active_count;
+#endif
 } lisa_i2s_stream_t;
 
 /* I2S 私有数据结构 */
@@ -83,6 +101,369 @@ static lisa_i2s_priv_t i2s1_priv = {0};
 #define ALIGN32(x) (((x) + 31) / 32 * 32)
 
 static int arcs_i2s_stop(lisa_device_t *dev, lisa_i2s_direction_t dir);
+
+static void i2s_rx_fifo_state_clear(lisa_i2s_stream_t *rx_stream)
+{
+    for (uint32_t i = 0; i < CONFIG_LISA_I2S_BLOCK_COUNT; i++) {
+        rx_stream->fifo_state[i] = LISA_I2S_RX_FIFO_FREE;
+    }
+
+    rx_stream->drop_count = 0;
+}
+
+static int i2s_rx_fifo_find_index(lisa_i2s_stream_t *rx_stream, const uint8_t *buffer)
+{
+    for (uint32_t i = 0; i < CONFIG_LISA_I2S_BLOCK_COUNT; i++) {
+        if (rx_stream->fifo[i] == buffer) {
+            return (int)i;
+        }
+    }
+
+    return -1;
+}
+
+static int i2s_rx_fifo_find_free(lisa_i2s_stream_t *rx_stream)
+{
+    for (uint32_t i = 0; i < CONFIG_LISA_I2S_BLOCK_COUNT; i++) {
+        if (rx_stream->fifo_state[i] == LISA_I2S_RX_FIFO_FREE) {
+            return (int)i;
+        }
+    }
+
+    return -1;
+}
+
+static void i2s_rx_fifo_release_queued(lisa_i2s_stream_t *rx_stream, uint8_t *buffer)
+{
+    int index = i2s_rx_fifo_find_index(rx_stream, buffer);
+
+    if (index < 0) {
+        LISA_LOGW(LOG_TAG, "I2S RX unknown fifo: %p", buffer);
+        return;
+    }
+
+    if (rx_stream->fifo_state[index] == LISA_I2S_RX_FIFO_QUEUED) {
+        rx_stream->fifo_state[index] = LISA_I2S_RX_FIFO_FREE;
+    }
+}
+
+static void i2s_rx_log_drop(lisa_i2s_stream_t *rx_stream, const char *reason)
+{
+    uint32_t count = ++rx_stream->drop_count;
+
+    if (count <= 4U || (count % 64U) == 0U) {
+        LISA_LOGW(LOG_TAG, "%s, drop current count=%u", reason, count);
+    }
+}
+
+static void arcs_i2s_reset_streams(lisa_i2s_priv_t *priv, int cb_bmp_rx, int cb_bmp_tx)
+{
+    if (cb_bmp_tx) {
+        priv->tx_stream.index = 0;
+        xQueueReset(priv->tx_stream.queue);
+        priv->tx_stream.state = LISA_I2S_STREAM_STATE_INIT;
+#if CONFIG_LISA_I2S_PIPO
+        priv->tx_stream.pipo_active = false;
+        priv->tx_stream.pipo_active_count = 0;
+#endif
+    }
+
+    if (cb_bmp_rx) {
+        priv->rx_stream.index = 0;
+        xQueueReset(priv->rx_stream.queue);
+        priv->rx_stream.state = LISA_I2S_STREAM_STATE_INIT;
+        i2s_rx_fifo_state_clear(&priv->rx_stream);
+#if CONFIG_LISA_I2S_PIPO
+        priv->rx_stream.pipo_active = false;
+        priv->rx_stream.pipo_active_count = 0;
+#endif
+    }
+}
+
+#if CONFIG_LISA_I2S_PIPO
+#if CONFIG_LISA_I2S_BLOCK_COUNT < 2
+#error "CONFIG_LISA_I2S_PIPO requires CONFIG_LISA_I2S_BLOCK_COUNT >= 2"
+#endif
+
+static int i2s_rx_pipo_reload(lisa_i2s_priv_t *priv, uint32_t slot,
+                              uint32_t reload_index, bool start_now)
+{
+    lisa_i2s_stream_t *rx_stream = &priv->rx_stream;
+    uint8_t rxcnt = 1;
+    PIPO_IN_BLOCK block = {
+        .sample_data = (uint32_t *)rx_stream->fifo[reload_index],
+        .sample_cnt = priv->one_transfer_recv_cnt,
+        .flags = 0,
+    };
+
+    int ret = I2S_Receive_PiPo(priv->hal_dev, &block, &rxcnt,
+                               priv->config.slot_mask, start_now);
+    if (ret == CSK_DRIVER_OK) {
+        rx_stream->pipo_fifo_index[slot] = reload_index;
+        rx_stream->fifo_state[reload_index] = LISA_I2S_RX_FIFO_ACTIVE;
+    }
+
+    return ret;
+}
+
+static BaseType_t i2s_tx_queue_peek_second(QueueHandle_t queue,
+                                           lisa_i2s_msg_t *msg)
+{
+    lisa_i2s_msg_t first_msg;
+    BaseType_t ret;
+    BaseType_t restore_ret;
+
+    ret = xQueueReceive(queue, &first_msg, 0);
+    if (ret != pdPASS) {
+        return ret;
+    }
+
+    ret = xQueuePeek(queue, msg, 0);
+    restore_ret = xQueueSendToFront(queue, &first_msg, 0);
+    if (restore_ret != pdPASS) {
+        LISA_LOGE(LOG_TAG, "I2S TX PiPo queue restore failed");
+        return restore_ret;
+    }
+
+    return ret;
+}
+
+static BaseType_t i2s_tx_queue_peek_second_from_isr(QueueHandle_t queue,
+                                                    lisa_i2s_msg_t *msg,
+                                                    uint32_t *yield)
+{
+    lisa_i2s_msg_t first_msg;
+    BaseType_t ret;
+    BaseType_t restore_ret;
+
+    ret = xQueueReceiveFromISR(queue, &first_msg, yield);
+    if (ret != pdPASS) {
+        return ret;
+    }
+
+    ret = xQueuePeekFromISR(queue, msg);
+    restore_ret = xQueueSendToFrontFromISR(queue, &first_msg, yield);
+    if (restore_ret != pdPASS) {
+        LISA_LOGE(LOG_TAG, "I2S TX PiPo queue restore failed in ISR");
+        return restore_ret;
+    }
+
+    return ret;
+}
+
+static PIPO_OUT_BLOCK i2s_tx_pipo_block_from_msg(const lisa_i2s_msg_t *msg)
+{
+    PIPO_OUT_BLOCK block = {
+        .sample_data = (uint32_t *)msg->data,
+        .reserved = 0,
+        .sample_cnt = msg->len,
+        .flags = 0,
+    };
+
+    return block;
+}
+
+static int i2s_tx_pipo_submit(lisa_i2s_priv_t *priv,
+                              const lisa_i2s_msg_t *first_msg,
+                              const lisa_i2s_msg_t *second_msg,
+                              bool start_now)
+{
+    lisa_i2s_stream_t *tx_stream = &priv->tx_stream;
+    PIPO_OUT_BLOCK blocks[2];
+    uint8_t txcnt = 2;
+    int ret;
+
+    blocks[0] = i2s_tx_pipo_block_from_msg(first_msg);
+    blocks[1] = i2s_tx_pipo_block_from_msg(second_msg);
+
+    ret = I2S_Send_PiPo(priv->hal_dev, blocks, &txcnt,
+                        priv->config.slot_mask,
+                        start_now ? I2S_TX_FLAG_START_NOW : 0);
+    if (ret == CSK_DRIVER_OK) {
+        tx_stream->pipo_active = true;
+        tx_stream->pipo_active_count = txcnt;
+    }
+
+    return ret;
+}
+
+static int i2s_tx_pipo_reload_msg(lisa_i2s_priv_t *priv,
+                                  const lisa_i2s_msg_t *msg,
+                                  bool start_now)
+{
+    lisa_i2s_stream_t *tx_stream = &priv->tx_stream;
+    PIPO_OUT_BLOCK block;
+    uint8_t txcnt = 1;
+    int ret;
+
+    block = i2s_tx_pipo_block_from_msg(msg);
+    ret = I2S_Send_PiPo(priv->hal_dev, &block, &txcnt,
+                        priv->config.slot_mask,
+                        start_now ? I2S_TX_FLAG_START_NOW : 0);
+    if (ret == CSK_DRIVER_OK) {
+        tx_stream->pipo_active_count += txcnt;
+    }
+
+    return ret;
+}
+
+static int i2s_tx_pipo_start_from_queue(lisa_i2s_priv_t *priv, bool start_now)
+{
+    lisa_i2s_stream_t *tx_stream = &priv->tx_stream;
+    lisa_i2s_msg_t first_msg;
+    lisa_i2s_msg_t second_msg;
+    int ret;
+
+    ret = xQueuePeek(tx_stream->queue, &first_msg, 0);
+    if (ret != pdPASS) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    ret = i2s_tx_queue_peek_second(tx_stream->queue, &second_msg);
+    if (ret != pdPASS) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    LISA_LOGI(LOG_TAG, "I2S start TX PiPo: ping=%p, pong=%p, len=%d/%d, slot_mask=%d, start_now=%d",
+              first_msg.data, second_msg.data, first_msg.len, second_msg.len,
+              priv->config.slot_mask, start_now);
+
+    return i2s_tx_pipo_submit(priv, &first_msg, &second_msg, start_now);
+}
+
+static bool i2s_tx_hw_busy(lisa_i2s_priv_t *priv)
+{
+    CSK_I2S_STATUS status;
+
+    if (I2S_GetStatus(priv->hal_dev, &status) != CSK_DRIVER_OK) {
+        return false;
+    }
+
+    return status.bit.tx_busy != 0;
+}
+
+static UBaseType_t i2s_tx_pipo_start_threshold(void)
+{
+    return 2U;
+}
+
+static int i2s_tx_pipo_reload_from_isr(lisa_i2s_priv_t *priv,
+                                       uint32_t *yield,
+                                       bool start_now)
+{
+    lisa_i2s_stream_t *tx_stream = &priv->tx_stream;
+    lisa_i2s_msg_t msg;
+    int ret;
+
+    if (tx_stream->pipo_active_count != 1) {
+        return CSK_DRIVER_OK;
+    }
+
+    ret = i2s_tx_queue_peek_second_from_isr(tx_stream->queue, &msg, yield);
+    if (ret != pdPASS) {
+        return CSK_DRIVER_OK;
+    }
+
+    return i2s_tx_pipo_reload_msg(priv, &msg, start_now);
+}
+
+static int i2s_tx_pipo_force_restart(lisa_i2s_priv_t *priv, bool start_now)
+{
+    lisa_i2s_stream_t *tx_stream = &priv->tx_stream;
+    UBaseType_t queued = uxQueueMessagesWaiting(tx_stream->queue);
+    UBaseType_t start_threshold = i2s_tx_pipo_start_threshold();
+    int ret;
+
+    if (queued < start_threshold) {
+        return CSK_DRIVER_ERROR_BUSY;
+    }
+
+    LISA_LOGW(LOG_TAG, "I2S TX PiPo force restart: queued=%u threshold=%u active=%u hw_busy=%d",
+              (uint32_t)queued, (uint32_t)start_threshold,
+              tx_stream->pipo_active_count, i2s_tx_hw_busy(priv));
+
+    tx_stream->pipo_active = false;
+    tx_stream->pipo_active_count = 0;
+
+    ret = I2S_Abort_Channels(priv->hal_dev, 0, priv->config.slot_mask, 0);
+    if (ret != CSK_DRIVER_OK) {
+        LISA_LOGE(LOG_TAG, "I2S TX PiPo abort before restart failed: %d", ret);
+        return ret;
+    }
+
+    ret = i2s_tx_pipo_start_from_queue(priv, start_now);
+    if (ret != CSK_DRIVER_OK) {
+        tx_stream->pipo_active = false;
+        tx_stream->pipo_active_count = 0;
+        LISA_LOGE(LOG_TAG, "I2S TX PiPo force restart failed: %d", ret);
+    } else {
+        LISA_LOGW(LOG_TAG, "I2S TX PiPo force restart recovered");
+    }
+
+    return ret;
+}
+
+static void i2s_tx_pipo_service_after_write(lisa_i2s_priv_t *priv,
+                                            const lisa_i2s_msg_t *msg)
+{
+    lisa_i2s_stream_t *tx_stream = &priv->tx_stream;
+    UBaseType_t queued;
+    UBaseType_t start_threshold;
+    int ret;
+    bool force_restart = false;
+
+    if (tx_stream->state < LISA_I2S_STREAM_STATE_ENABLE) {
+        return;
+    }
+
+    queued = uxQueueMessagesWaiting(tx_stream->queue);
+    if (tx_stream->pipo_active && tx_stream->pipo_active_count == 0U) {
+        tx_stream->pipo_active = false;
+    }
+
+    if (tx_stream->pipo_active) {
+        if (tx_stream->pipo_active_count == 1 && queued == 2U && msg != NULL) {
+            ret = i2s_tx_pipo_reload_msg(priv, msg, true);
+            if (ret != CSK_DRIVER_OK) {
+                LISA_LOGW(LOG_TAG, "I2S TX PiPo reload failed, force restart: %d", ret);
+                tx_stream->pipo_active = false;
+                tx_stream->pipo_active_count = 0;
+                (void)i2s_tx_pipo_force_restart(priv, true);
+            }
+        }
+        return;
+    }
+
+    if (queued < 2U) {
+        return;
+    }
+
+    start_threshold = i2s_tx_pipo_start_threshold();
+    if (queued < start_threshold) {
+        return;
+    }
+
+    if (i2s_tx_hw_busy(priv)) {
+        force_restart = true;
+        ret = i2s_tx_pipo_force_restart(priv, true);
+    } else {
+        ret = i2s_tx_pipo_start_from_queue(priv, true);
+    }
+
+    if (ret != CSK_DRIVER_OK) {
+        tx_stream->pipo_active = false;
+        tx_stream->pipo_active_count = 0;
+        if (!force_restart) {
+            LISA_LOGW(LOG_TAG, "I2S TX PiPo restart failed, force restart: %d", ret);
+            ret = i2s_tx_pipo_force_restart(priv, true);
+        }
+        if (ret != CSK_DRIVER_OK && ret != CSK_DRIVER_ERROR_BUSY) {
+            LISA_LOGE(LOG_TAG, "I2S TX PiPo restart failed: %d", ret);
+        }
+    }
+}
+#endif
+
 /* ===== API 实现函数 ===== */
 
 void i2s_drv_event_callback(uint32_t event_info, uint32_t usr_param)
@@ -92,7 +473,6 @@ void i2s_drv_event_callback(uint32_t event_info, uint32_t usr_param)
     lisa_i2s_msg_t tx_msg;
     uint8_t *buffer;
     uint32_t yield = pdFALSE;
-    uint32_t recv_cnt = 0;
 
     lisa_device_t *device = (lisa_device_t *)usr_param;
     lisa_i2s_priv_t *i2s_priv = (lisa_i2s_priv_t *)device->priv_data;
@@ -102,43 +482,127 @@ void i2s_drv_event_callback(uint32_t event_info, uint32_t usr_param)
     lisa_i2s_slot_mask_t slot_mask = i2s_priv->config.slot_mask;
 
     uint16_t event = event_info & CSK_I2S_EVENT_MASK; //use 13bits event type?
+#if CONFIG_LISA_I2S_PIPO
+    (void)i2s_dev;
+    (void)slot_mask;
+    bool tx_pipo_event_handled = false;
+#endif
 
     LISA_LOGD(LOG_TAG, "event: %d", event);
 
-    if(event & (CSK_I2S_EVENT_RECEIVE_COMPLETE
 #if CONFIG_LISA_I2S_PIPO
-        | CSK_I2S_EVENT_RX_BLOCK_COMPLETE
-#endif
+    if (event & CSK_I2S_EVENT_RX_BLOCK_COMPLETE) {
+        const uint32_t done_mask[2] = {
+            CSK_I2S_EVENT_RX_PING_DONE,
+            CSK_I2S_EVENT_RX_PONG_DONE,
+        };
+
+        for (uint32_t slot = 0; slot < 2; slot++) {
+            if ((event & done_mask[slot]) == 0) {
+                continue;
+            }
+
+            if (rx_stream->state < LISA_I2S_STREAM_STATE_ENABLE) {
+                continue;
+            }
+
+            uint32_t done_index = rx_stream->pipo_fifo_index[slot];
+            int free_index = i2s_rx_fifo_find_free(rx_stream);
+
+            if (done_index >= CONFIG_LISA_I2S_BLOCK_COUNT) {
+                LISA_LOGE(LOG_TAG, "I2S RX PiPo invalid fifo index: %d", done_index);
+                continue;
+            }
+
+            if (free_index < 0) {
+                i2s_rx_log_drop(rx_stream, "rx fifo busy");
+                ret = i2s_rx_pipo_reload(i2s_priv, slot, done_index, start_now);
+                if (ret != CSK_DRIVER_OK) {
+                    LISA_LOGE(LOG_TAG, "I2S RX PiPo reload failed: %d", ret);
+                }
+                continue;
+            }
+
+            buffer = rx_stream->fifo[done_index];
+            dcache_invalidate_range(buffer, buffer + rx_stream->fifo_size);
+
+            ret = xQueueSendFromISR(rx_stream->queue, &buffer, &yield);
+            if (ret != pdPASS) {
+                i2s_rx_log_drop(rx_stream, "rx buffer full");
+                ret = i2s_rx_pipo_reload(i2s_priv, slot, done_index, start_now);
+                if (ret != CSK_DRIVER_OK) {
+                    LISA_LOGE(LOG_TAG, "I2S RX PiPo reload failed: %d", ret);
+                }
+                continue;
+            }
+
+            rx_stream->fifo_state[done_index] = LISA_I2S_RX_FIFO_QUEUED;
+            rx_stream->drop_count = 0;
+
+            ret = i2s_rx_pipo_reload(i2s_priv, slot, (uint32_t)free_index, start_now);
+            if (ret != CSK_DRIVER_OK) {
+                LISA_LOGE(LOG_TAG, "I2S RX PiPo reload failed: %d", ret);
+            }
+
+            if (i2s_priv->callback) {
+                i2s_priv->callback(LISA_I2S_EVENT_RX_DONE, i2s_priv->user_data);
+            }
+        }
+    }
+#else
+    if(event & (CSK_I2S_EVENT_RECEIVE_COMPLETE
     )) {
+        uint32_t recv_cnt = 0;
+        uint32_t done_index = rx_stream->index;
+        int free_index = -1;
+
         recv_cnt = I2S_GetRxCount(i2s_dev, slot_mask);
         if (recv_cnt != i2s_priv->one_transfer_recv_cnt){
             LISA_LOGE(LOG_TAG, "recved_cnt: %d != should_recv_cnt:%d", recv_cnt, i2s_priv->one_transfer_recv_cnt);
         }
 
-        buffer = rx_stream->fifo[rx_stream->index];
+        free_index = i2s_rx_fifo_find_free(rx_stream);
+        if (free_index < 0) {
+            i2s_rx_log_drop(rx_stream, "rx fifo busy");
+            ret = I2S_Receive(i2s_dev, (uint32_t *)rx_stream->fifo[done_index], i2s_priv->one_transfer_recv_cnt, slot_mask, start_now);
+            if (ret != CSK_DRIVER_OK) {
+                LISA_LOGE(LOG_TAG, "I2S RX reload failed: %d", ret);
+            }
+            goto rx_non_pipo_done;
+        }
+
+        buffer = rx_stream->fifo[done_index];
         dcache_invalidate_range(buffer, buffer + rx_stream->fifo_size);
 
         ret = xQueueSendFromISR(rx_stream->queue, &buffer, &yield);
         if (ret != pdPASS) {
-            LISA_LOGE(LOG_TAG, "rx buffer full");
-            // arcs_i2s_stop(device, LISA_I2S_DIRECTION_RX);
+            i2s_rx_log_drop(rx_stream, "rx buffer full");
+            ret = I2S_Receive(i2s_dev, (uint32_t *)rx_stream->fifo[done_index], i2s_priv->one_transfer_recv_cnt, slot_mask, start_now);
+            if (ret != CSK_DRIVER_OK) {
+                LISA_LOGE(LOG_TAG, "I2S RX reload failed: %d", ret);
+            }
+            goto rx_non_pipo_done;
         }
 
-        rx_stream->index = (rx_stream->index + 1) % CONFIG_LISA_I2S_BLOCK_COUNT;
+        rx_stream->fifo_state[done_index] = LISA_I2S_RX_FIFO_QUEUED;
+        rx_stream->drop_count = 0;
+        rx_stream->index = (uint32_t)free_index;
 
-    #if CONFIG_LISA_I2S_PIPO
-        uint8_t rxcnt = 1;
-        ret = I2S_Receive_PiPo(i2s_dev, (PIPO_IN_BLOCK[]){
-                { .sample_data = (void *)(rx_stream->fifo[rx_stream->index]), .sample_cnt = i2s_priv->one_transfer_recv_cnt, .flags = 0 },
-            }, &rxcnt, slot_mask, start_now);
-    #else
-        ret = I2S_Receive(i2s_dev, (uint32_t *)rx_stream->fifo[rx_stream->index], i2s_priv->one_transfer_recv_cnt, slot_mask, start_now);
-    #endif
+        ret = I2S_Receive(i2s_dev, (uint32_t *)rx_stream->fifo[free_index], i2s_priv->one_transfer_recv_cnt, slot_mask, start_now);
+        if (ret == CSK_DRIVER_OK) {
+            rx_stream->fifo_state[free_index] = LISA_I2S_RX_FIFO_ACTIVE;
+        } else {
+            LISA_LOGE(LOG_TAG, "I2S RX reload failed: %d", ret);
+        }
 
         if (i2s_priv->callback) {
             i2s_priv->callback(LISA_I2S_EVENT_RX_DONE, i2s_priv->user_data);
         }
+
+rx_non_pipo_done:
+        ;
     }
+#endif
 
     if (event & (CSK_I2S_EVENT_RX_FIFO_OVERRUN | CSK_I2S_EVENT_RX_FIFO_FULL)) {
         arcs_i2s_stop(device, LISA_I2S_DIRECTION_RX);
@@ -147,11 +611,95 @@ void i2s_drv_event_callback(uint32_t event_info, uint32_t usr_param)
         }
     }
 
-    if (event & (CSK_I2S_EVENT_TRANSMIT_COMPLETE
-    #if CONFIG_LISA_I2S_PIPO
-        | CSK_I2S_EVENT_TX_BLOCK_COMPLETE
-    #endif
-    )) {
+#if CONFIG_LISA_I2S_PIPO
+    if (tx_stream->pipo_active &&
+        (event & (CSK_I2S_EVENT_TX_BLOCK_COMPLETE | CSK_I2S_EVENT_TRANSMIT_COMPLETE))) {
+        const uint32_t done_mask[2] = {
+            CSK_I2S_EVENT_TX_PING_DONE,
+            CSK_I2S_EVENT_TX_PONG_DONE,
+        };
+        uint32_t done_count = 0;
+
+        tx_pipo_event_handled = true;
+        if (event & CSK_I2S_EVENT_TX_BLOCK_COMPLETE) {
+            for (uint32_t slot = 0; slot < 2; slot++) {
+                if ((event & done_mask[slot]) == 0) {
+                    continue;
+                }
+
+                ret = xQueueReceiveFromISR(tx_stream->queue, &tx_msg, &yield);
+                if (ret != pdPASS) {
+                    tx_stream->pipo_active = false;
+                    tx_stream->pipo_active_count = 0;
+                    break;
+                }
+
+                done_count++;
+                if (i2s_priv->callback) {
+                    i2s_priv->callback(LISA_I2S_EVENT_TX_DONE, i2s_priv->user_data);
+                }
+            }
+        } else if (event & CSK_I2S_EVENT_TRANSMIT_COMPLETE) {
+            uint8_t complete_count = tx_stream->pipo_active_count;
+
+            while (complete_count > 0U) {
+                ret = xQueueReceiveFromISR(tx_stream->queue, &tx_msg, &yield);
+                if (ret != pdPASS) {
+                    break;
+                }
+
+                complete_count--;
+                done_count++;
+                if (i2s_priv->callback) {
+                    i2s_priv->callback(LISA_I2S_EVENT_TX_DONE, i2s_priv->user_data);
+                }
+            }
+        }
+
+        if (event & CSK_I2S_EVENT_TRANSMIT_COMPLETE) {
+            tx_stream->pipo_active = false;
+            tx_stream->pipo_active_count = 0;
+        } else {
+            if (tx_stream->pipo_active_count > done_count) {
+                tx_stream->pipo_active_count -= done_count;
+            } else {
+                tx_stream->pipo_active_count = 0;
+            }
+
+            if (tx_stream->pipo_active_count == 0U) {
+                tx_stream->pipo_active = false;
+            }
+
+            while (tx_stream->pipo_active && tx_stream->pipo_active_count < 2) {
+                uint8_t active_count = tx_stream->pipo_active_count;
+
+                ret = i2s_tx_pipo_reload_from_isr(i2s_priv, &yield, start_now);
+                if (ret != CSK_DRIVER_OK) {
+                    if (ret != CSK_DRIVER_ERROR_BUSY) {
+                        LISA_LOGE(LOG_TAG, "I2S TX PiPo reload failed: %d", ret);
+                    }
+                    tx_stream->pipo_active = false;
+                    tx_stream->pipo_active_count = 0;
+                    break;
+                }
+                if (tx_stream->pipo_active_count == active_count) {
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!tx_pipo_event_handled &&
+        tx_stream->state >= LISA_I2S_STREAM_STATE_ENABLE &&
+        (event & CSK_I2S_EVENT_TRANSMIT_COMPLETE)) {
+        tx_stream->pipo_active = false;
+        tx_stream->pipo_active_count = 0;
+        if (i2s_priv->callback) {
+            i2s_priv->callback(LISA_I2S_EVENT_TX_DONE, i2s_priv->user_data);
+        }
+    }
+#else
+    if (event & CSK_I2S_EVENT_TRANSMIT_COMPLETE) {
         /* 发送完成，然后queue_receive这个已经发送的缓存， 方便i2s_write继续send */
         ret = xQueueReceiveFromISR(tx_stream->queue, &tx_msg,  &yield);
         if (ret != pdPASS) {
@@ -163,22 +711,17 @@ void i2s_drv_event_callback(uint32_t event_info, uint32_t usr_param)
         if (ret != pdPASS) {
             LISA_LOGE(LOG_TAG, "%s, %d, no buffer to send", __FUNCTION__, __LINE__);
         } else {
-    #if CONFIG_LISA_I2S_PIPO
-            uint8_t txcnt = 1;
-            ret = I2S_Send_PiPo(i2s_dev, (PIPO_OUT_BLOCK[]){
-                    { .sample_data = (void *)(tx_msg.data), .sample_cnt = tx_msg.len, .flags = 0 },
-                }, &txcnt, slot_mask, start_now);
-    #else
             ret = I2S_Send(i2s_dev, (uint32_t *)tx_msg.data, tx_msg.len, slot_mask, start_now);
-    #endif
         }
 
         if (i2s_priv->callback) {
             i2s_priv->callback(LISA_I2S_EVENT_TX_DONE, i2s_priv->user_data);
         }
     }
+#endif
 
-    if (event & CSK_I2S_EVENT_TX_FIFO_UNDERRUN) {
+    if ((event & CSK_I2S_EVENT_TX_FIFO_UNDERRUN) &&
+        tx_stream->state >= LISA_I2S_STREAM_STATE_ENABLE) {
         arcs_i2s_stop(device, LISA_I2S_DIRECTION_TX);
     
         if (i2s_priv->callback) {
@@ -314,6 +857,7 @@ static int arcs_i2s_software_init(lisa_device_t *dev, const lisa_i2s_config_t *c
         xQueueReset(priv->rx_stream.queue);
         priv->rx_stream.index = 0;
         priv->rx_stream.state = LISA_I2S_STREAM_STATE_INIT;
+        i2s_rx_fifo_state_clear(&priv->rx_stream);
     }
 
     priv->state = LISA_I2S_STATE_SOFTWARE_INIT;
@@ -349,6 +893,7 @@ I2S_INIT_FAILED:
         }
         
         priv->rx_stream.state = LISA_I2S_STREAM_STATE_IDLE;
+        i2s_rx_fifo_state_clear(&priv->rx_stream);
     }
 
     return LISA_DEVICE_ERR_INIT_FAIL;
@@ -515,6 +1060,7 @@ static int arcs_i2s_configure(lisa_device_t *dev, const lisa_i2s_config_t *confi
             }
         }
         priv->rx_stream.state = LISA_I2S_STREAM_STATE_IDLE;
+        i2s_rx_fifo_state_clear(&priv->rx_stream);
         
         /* 重置状态 */
         priv->state = LISA_I2S_STATE_IDLE;
@@ -758,6 +1304,10 @@ static int arcs_i2s_write(lisa_device_t *dev, uint32_t *data, uint32_t cnt, uint
         return LISA_DEVICE_ERR_NOT_READY;
     }
 
+#if CONFIG_LISA_I2S_PIPO
+    i2s_tx_pipo_service_after_write(priv, NULL);
+#endif
+
     is_timeout = true;
     
     /* 等待队列有空间，支持timeout_ms=0的情况（非阻塞） */
@@ -793,6 +1343,9 @@ static int arcs_i2s_write(lisa_device_t *dev, uint32_t *data, uint32_t cnt, uint
         } else {
             tx_stream->index = (tx_stream->index + 1) % CONFIG_LISA_I2S_BLOCK_COUNT;
             LISA_LOGD(LOG_TAG, "send ok");
+#if CONFIG_LISA_I2S_PIPO
+            i2s_tx_pipo_service_after_write(priv, &msg);
+#endif
             ret = LISA_DEVICE_OK;
         }
     } else {
@@ -822,6 +1375,7 @@ static int arcs_i2s_read(lisa_device_t *dev, uint8_t **data, uint32_t *len, uint
 
     *data = (uint8_t *)rx_data;
     *len = rx_stream->fifo_size;
+    i2s_rx_fifo_release_queued(rx_stream, rx_data);
 
     LISA_LOGD(LOG_TAG, "I2S read: len=%d, len=%d", rx_stream->fifo_size, *len);
     
@@ -859,21 +1413,43 @@ static int arcs_i2s_start(lisa_device_t *dev, lisa_i2s_direction_t dir)
         
         /* 清空接收数据队列（queue用于存放已接收的数据，初始应为空） */
         xQueueReset(priv->rx_stream.queue);
+        i2s_rx_fifo_state_clear(&priv->rx_stream);
 
-        LISA_LOGI(LOG_TAG, "I2S start RX: data=%p, len=%d, slot_mask=%d, start_now=%d", 
-                                        priv->rx_stream.fifo[0], 
+#if CONFIG_LISA_I2S_PIPO
+        priv->rx_stream.pipo_fifo_index[0] = 0;
+        priv->rx_stream.pipo_fifo_index[1] = 1;
+        priv->rx_stream.pipo_active = true;
+        priv->rx_stream.pipo_active_count = 2;
+        priv->rx_stream.index = 0;
+        priv->rx_stream.fifo_state[0] = LISA_I2S_RX_FIFO_ACTIVE;
+        priv->rx_stream.fifo_state[1] = LISA_I2S_RX_FIFO_ACTIVE;
+
+        LISA_LOGI(LOG_TAG, "I2S start RX PiPo: ping=%p, pong=%p, len=%d, slot_mask=%d, start_now=%d",
+                                        priv->rx_stream.fifo[0],
+                                        priv->rx_stream.fifo[1],
+                                        priv->one_transfer_recv_cnt, slot_mask, start_now);
+
+        uint8_t rxcnt = 2;
+        ret = I2S_Receive_PiPo(priv->hal_dev, (PIPO_IN_BLOCK[]){
+                { .sample_data = (uint32_t *)priv->rx_stream.fifo[0], .sample_cnt = priv->one_transfer_recv_cnt, .flags = 0 },
+                { .sample_data = (uint32_t *)priv->rx_stream.fifo[1], .sample_cnt = priv->one_transfer_recv_cnt, .flags = 0 },
+            }, &rxcnt, slot_mask, start_now);
+
+#else
+        priv->rx_stream.fifo_state[0] = LISA_I2S_RX_FIFO_ACTIVE;
+
+        LISA_LOGI(LOG_TAG, "I2S start RX: data=%p, len=%d, slot_mask=%d, start_now=%d",
+                                        priv->rx_stream.fifo[0],
                                         priv->one_transfer_recv_cnt, slot_mask, start_now);
 
         /* 启动第一次接收到fifo[0] */
-    #if CONFIG_LISA_I2S_PIPO
-        uint8_t rxcnt = 1;
-        ret = I2S_Receive_PiPo(priv->hal_dev, (PIPO_IN_BLOCK[]){
-                { .sample_data = (void *)(priv->rx_stream.fifo[0]), .sample_cnt = priv->one_transfer_recv_cnt, .flags = 0 },
-            }, &rxcnt, slot_mask, start_now);
-
-    #else
         ret = I2S_Receive(priv->hal_dev, (uint32_t *)priv->rx_stream.fifo[0], priv->one_transfer_recv_cnt, slot_mask, start_now);
-    #endif
+#endif
+
+        if (ret != CSK_DRIVER_OK) {
+            LISA_LOGE(LOG_TAG, "I2S start RX failed: %d", ret);
+            return LISA_DEVICE_ERR_IO;
+        }
     }
 
     if (dir & LISA_I2S_DIRECTION_TX) {
@@ -883,19 +1459,59 @@ static int arcs_i2s_start(lisa_device_t *dev, lisa_i2s_direction_t dir)
         ret = xQueuePeek(priv->tx_stream.queue, &tx_msg, 0);
         if (ret != pdTRUE) {
             LISA_LOGE(LOG_TAG, "I2S start: failed to receive tx message");
+            if (cb_bmp_rx) {
+                I2S_Abort_Channels(priv->hal_dev, cb_bmp_rx, 0, 0);
+                arcs_i2s_reset_streams(priv, cb_bmp_rx, 0);
+            }
             return LISA_DEVICE_ERR_INVALID;
         }
 
-        LISA_LOGI(LOG_TAG, "I2S start TX: data=%p, len=%d, slot_mask=%d, start_now=%d", tx_msg.data, tx_msg.len, slot_mask, start_now);
+#if CONFIG_LISA_I2S_PIPO
+        ret = i2s_tx_queue_peek_second(priv->tx_stream.queue, &tx_msg);
+        if (ret != pdTRUE) {
+            priv->tx_stream.pipo_active = false;
+            priv->tx_stream.pipo_active_count = 0;
+            if (cb_bmp_rx) {
+                I2S_Abort_Channels(priv->hal_dev, cb_bmp_rx, 0, 0);
+                arcs_i2s_reset_streams(priv, cb_bmp_rx, 0);
+            }
+            return LISA_DEVICE_ERR_BUSY;
+        }
 
-    #if CONFIG_LISA_I2S_PIPO
-        uint8_t txcnt = 1;
-        ret = I2S_Send_PiPo(priv->hal_dev, (PIPO_OUT_BLOCK[]){
-                { .sample_data = (void *)(tx_msg.data), .sample_cnt = tx_msg.len, .flags = 0 },
-            }, &txcnt, slot_mask, start_now);
-    #else
-        ret = I2S_Send(priv->hal_dev, (uint32_t *)tx_msg.data, tx_msg.len, slot_mask, start_now);
-    #endif
+        ret = i2s_tx_pipo_start_from_queue(priv, start_now);
+        if (ret != CSK_DRIVER_OK) {
+            LISA_LOGE(LOG_TAG, "I2S start TX PiPo failed: %d", ret);
+            if (cb_bmp_rx || cb_bmp_tx) {
+                I2S_Abort_Channels(priv->hal_dev, cb_bmp_rx, cb_bmp_tx, 0);
+                arcs_i2s_reset_streams(priv, cb_bmp_rx, cb_bmp_tx);
+            }
+            return LISA_DEVICE_ERR_IO;
+        }
+#else
+        {
+            ret = xQueuePeek(priv->tx_stream.queue, &tx_msg, 0);
+            if (ret != pdTRUE) {
+                LISA_LOGE(LOG_TAG, "I2S start: failed to receive tx message");
+                if (cb_bmp_rx) {
+                    I2S_Abort_Channels(priv->hal_dev, cb_bmp_rx, 0, 0);
+                    arcs_i2s_reset_streams(priv, cb_bmp_rx, 0);
+                }
+                return LISA_DEVICE_ERR_INVALID;
+            }
+
+            LISA_LOGI(LOG_TAG, "I2S start TX: data=%p, len=%d, slot_mask=%d, start_now=%d", tx_msg.data, tx_msg.len, slot_mask, start_now);
+
+            ret = I2S_Send(priv->hal_dev, (uint32_t *)tx_msg.data, tx_msg.len, slot_mask, start_now);
+            if (ret != CSK_DRIVER_OK) {
+                LISA_LOGE(LOG_TAG, "I2S start TX failed: %d", ret);
+                if (cb_bmp_rx || cb_bmp_tx) {
+                    I2S_Abort_Channels(priv->hal_dev, cb_bmp_rx, cb_bmp_tx, 0);
+                    arcs_i2s_reset_streams(priv, cb_bmp_rx, cb_bmp_tx);
+                }
+                return LISA_DEVICE_ERR_IO;
+            }
+        }
+#endif
     }
 
     LISA_LOGD(LOG_TAG, "I2S cb_bmp_rx: 0x%x, cb_bmp_tx: 0x%x", cb_bmp_rx, cb_bmp_tx);
@@ -904,6 +1520,8 @@ static int arcs_i2s_start(lisa_device_t *dev, lisa_i2s_direction_t dir)
         ret = I2S_Enable_Channels(priv->hal_dev, cb_bmp_rx, cb_bmp_tx);
         if (ret != LISA_DEVICE_OK) {
             LISA_LOGE(LOG_TAG, "I2S enable channels failed: %d", ret);
+            I2S_Abort_Channels(priv->hal_dev, cb_bmp_rx, cb_bmp_tx, 0);
+            arcs_i2s_reset_streams(priv, cb_bmp_rx, cb_bmp_tx);
             return ret;
         }
 
@@ -934,20 +1552,18 @@ static int arcs_i2s_drop(lisa_device_t *dev, lisa_i2s_direction_t dir)
     lisa_i2s_priv_t *priv = (lisa_i2s_priv_t *)dev->priv_data;
     lisa_i2s_slot_mask_t slot_mask = priv->config.slot_mask;
 
-    if ((dir & LISA_I2S_DIRECTION_RX) && (priv->rx_stream.state < LISA_I2S_STREAM_STATE_ENABLE)) {
-        return LISA_DEVICE_OK;
+    if ((dir & LISA_I2S_DIRECTION_RX) &&
+        priv->rx_stream.state >= LISA_I2S_STREAM_STATE_ENABLE) {
+        cb_bmp_rx = slot_mask;
     }
 
-    if ((dir & LISA_I2S_DIRECTION_TX) && (priv->tx_stream.state < LISA_I2S_STREAM_STATE_ENABLE)) {
-        return LISA_DEVICE_OK;
-    }
-
-    if (dir & LISA_I2S_DIRECTION_TX) {
+    if ((dir & LISA_I2S_DIRECTION_TX) &&
+        priv->tx_stream.state >= LISA_I2S_STREAM_STATE_ENABLE) {
         cb_bmp_tx = slot_mask;
     }
 
-    if (dir & LISA_I2S_DIRECTION_RX) {
-        cb_bmp_rx = slot_mask;
+    if (cb_bmp_rx == 0 && cb_bmp_tx == 0) {
+        return LISA_DEVICE_OK;
     }
 
     if (dir & LISA_I2S_DIRECTION_BOTH) {
@@ -961,12 +1577,21 @@ static int arcs_i2s_drop(lisa_device_t *dev, lisa_i2s_direction_t dir)
             priv->tx_stream.index = 0;
             xQueueReset(priv->tx_stream.queue);
             priv->tx_stream.state = LISA_I2S_STREAM_STATE_INIT;
+#if CONFIG_LISA_I2S_PIPO
+            priv->tx_stream.pipo_active = false;
+            priv->tx_stream.pipo_active_count = 0;
+#endif
         }
 
         if (cb_bmp_rx) {
             priv->rx_stream.index = 0;
             xQueueReset(priv->rx_stream.queue);
             priv->rx_stream.state = LISA_I2S_STREAM_STATE_INIT;
+            i2s_rx_fifo_state_clear(&priv->rx_stream);
+#if CONFIG_LISA_I2S_PIPO
+            priv->rx_stream.pipo_active = false;
+            priv->rx_stream.pipo_active_count = 0;
+#endif
         }
 
         LISA_LOGI(LOG_TAG, "I2S %s %s disabled", 
@@ -990,12 +1615,14 @@ static int arcs_i2s_stop(lisa_device_t *dev, lisa_i2s_direction_t dir)
     lisa_i2s_priv_t *priv = (lisa_i2s_priv_t *)dev->priv_data;
     lisa_i2s_slot_mask_t slot_mask = priv->config.slot_mask;
 
-    if ((dir & LISA_I2S_DIRECTION_RX) && (priv->rx_stream.state < LISA_I2S_STREAM_STATE_ENABLE)) {
-        return LISA_DEVICE_OK;
+    if ((dir & LISA_I2S_DIRECTION_RX) &&
+        priv->rx_stream.state >= LISA_I2S_STREAM_STATE_ENABLE) {
+        cb_bmp_rx = slot_mask;
     }
 
-    if ((dir & LISA_I2S_DIRECTION_TX) && (priv->tx_stream.state < LISA_I2S_STREAM_STATE_ENABLE)) {
-        return LISA_DEVICE_OK;
+    if ((dir & LISA_I2S_DIRECTION_TX) &&
+        priv->tx_stream.state >= LISA_I2S_STREAM_STATE_ENABLE) {
+        cb_bmp_tx = slot_mask;
     }
 
     if (priv->config.echo.enable){
@@ -1003,12 +1630,8 @@ static int arcs_i2s_stop(lisa_device_t *dev, lisa_i2s_direction_t dir)
         cb_bmp_echo = CH_BMP_STEREO;
     }
 
-    if (dir & LISA_I2S_DIRECTION_TX) {
-        cb_bmp_tx = slot_mask;
-    }
-
-    if (dir & LISA_I2S_DIRECTION_RX) {
-        cb_bmp_rx = slot_mask;
+    if (cb_bmp_rx == 0 && cb_bmp_tx == 0 && cb_bmp_echo == 0) {
+        return LISA_DEVICE_OK;
     }
 
     if ((dir & LISA_I2S_DIRECTION_BOTH) || (cb_bmp_echo)) {
@@ -1022,12 +1645,21 @@ static int arcs_i2s_stop(lisa_device_t *dev, lisa_i2s_direction_t dir)
             priv->tx_stream.index = 0;
             xQueueReset(priv->tx_stream.queue);
             priv->tx_stream.state = LISA_I2S_STREAM_STATE_INIT;
+#if CONFIG_LISA_I2S_PIPO
+            priv->tx_stream.pipo_active = false;
+            priv->tx_stream.pipo_active_count = 0;
+#endif
         }
 
         if (cb_bmp_rx) {
             priv->rx_stream.index = 0;
             xQueueReset(priv->rx_stream.queue);
             priv->rx_stream.state = LISA_I2S_STREAM_STATE_INIT;
+            i2s_rx_fifo_state_clear(&priv->rx_stream);
+#if CONFIG_LISA_I2S_PIPO
+            priv->rx_stream.pipo_active = false;
+            priv->rx_stream.pipo_active_count = 0;
+#endif
         }
 
         LISA_LOGI(LOG_TAG, "I2S %s %s stopped", 
@@ -1081,45 +1713,56 @@ static int arcs_i2s_trigger(lisa_device_t *dev, lisa_i2s_direction_t dir, lisa_i
 /* ===== 设备初始化函数 ===== */
 
 #ifdef CONFIG_LISA_I2S0
-static int arcs_i2s0_init(void)
+/**
+ * @brief 幂等的 I2S0 HAL 硬件初始化
+ *
+ * 由 _init 调用；只配置 hal_dev / id 与 pinmux，I2S_Initialize / I2S_PowerControl
+ * 由 configure() 阶段按业务参数完成。不分配 mutex / 堆内存。唤醒后经 reinit 重新
+ * 走本路径。
+ */
+static int arcs_i2s0_init_hw(lisa_i2s_priv_t *priv)
 {
-    int ret = 0;
-    lisa_i2s_priv_t *priv = &i2s0_priv;
-
-    memset(priv, 0, sizeof(lisa_i2s_priv_t));
-
     priv->hal_dev = I2S0();
     priv->id = 0;
 
     lisa_i2s0_pinmux();
 
+    priv->state = LISA_I2S_STATE_IDLE;
+
     LISA_LOGD(LOG_TAG, "I2S0 initialized");
 
-    priv->state = LISA_I2S_STATE_IDLE;
-    
     return LISA_DEVICE_OK;
+}
 
+static int arcs_i2s0_init(void)
+{
+    memset(&i2s0_priv, 0, sizeof(i2s0_priv));
+    return arcs_i2s0_init_hw(&i2s0_priv);
 }
 #endif
 
 #ifdef CONFIG_LISA_I2S1
-static int arcs_i2s1_init(void)
+/**
+ * @brief 幂等的 I2S1 HAL 硬件初始化（同 arcs_i2s0_init_hw 注释）
+ */
+static int arcs_i2s1_init_hw(lisa_i2s_priv_t *priv)
 {
-    int ret = 0;
-    lisa_i2s_priv_t *priv = &i2s1_priv;
-
-    memset(priv, 0, sizeof(lisa_i2s_priv_t));
-
     priv->hal_dev = I2S1();
     priv->id = 1;
 
     lisa_i2s1_pinmux();
 
+    priv->state = LISA_I2S_STATE_IDLE;
+
     LISA_LOGD(LOG_TAG, "I2S1 initialized");
 
-    priv->state = LISA_I2S_STATE_IDLE;
-    
     return LISA_DEVICE_OK;
+}
+
+static int arcs_i2s1_init(void)
+{
+    memset(&i2s1_priv, 0, sizeof(i2s1_priv));
+    return arcs_i2s1_init_hw(&i2s1_priv);
 }
 #endif
 
@@ -1133,11 +1776,129 @@ static const lisa_i2s_api_t arcs_i2s_api = {
     .trigger = arcs_i2s_trigger,
 };
 
-/* ===== 设备注册 ===== */
+/* ===== 设备反初始化函数 ===== */
+
+/**
+ * @brief 停止并释放单个 I2S 实例的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 经各实例 deinit 包装调用。释放顺序与 configure() 分配相反
+ * （与 configure() 内 reconfigure 清理路径一致）：
+ *   1) HAL 下电（仅在已 hardware_init 时）：先 I2S_PowerControl(OFF) 再
+ *      I2S_Uninitialize，停 DMA / IRQ；
+ *   2) 释放 configure() 阶段分配的软件资源 mutex / tx&rx queue / tx&rx fifo[]
+ *      （psram_free）；
+ *   3) memset 整个 priv，回到 _init 之前的零初值（config / stream.state 随之清零，
+ *      强制唤醒后业务侧重新 configure()）。
+ *
+ * 约定：调用方需保证此时录/放已停止、无并发业务在使用本设备。
+ */
+static int arcs_i2s_deinit_instance(lisa_i2s_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    if (priv->state >= LISA_I2S_STATE_HARDWARE_INIT && priv->hal_dev) {
+        I2S_PowerControl(priv->hal_dev, CSK_POWER_OFF);
+        I2S_Uninitialize(priv->hal_dev);
+    }
+
+    if (priv->mutex) {
+        vSemaphoreDelete(priv->mutex);
+    }
+    if (priv->tx_stream.queue) {
+        vQueueDelete(priv->tx_stream.queue);
+    }
+    if (priv->rx_stream.queue) {
+        vQueueDelete(priv->rx_stream.queue);
+    }
+    for (int i = 0; i < CONFIG_LISA_I2S_BLOCK_COUNT; i++) {
+        if (priv->tx_stream.fifo[i]) {
+            psram_free(priv->tx_stream.fifo[i]);
+        }
+        if (priv->rx_stream.fifo[i]) {
+            psram_free(priv->rx_stream.fifo[i]);
+        }
+    }
+
+    memset(priv, 0, sizeof(*priv));
+    return LISA_DEVICE_OK;
+}
+
 #ifdef CONFIG_LISA_I2S0
-LISA_DEVICE_REGISTER(i2s0, &arcs_i2s_api, &i2s0_priv, NULL, arcs_i2s0_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+static int arcs_i2s0_deinit(void)
+{
+    return arcs_i2s_deinit_instance(&i2s0_priv);
+}
 #endif
 
 #ifdef CONFIG_LISA_I2S1
-LISA_DEVICE_REGISTER(i2s1, &arcs_i2s_api, &i2s1_priv, NULL, arcs_i2s1_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+static int arcs_i2s1_deinit(void)
+{
+    return arcs_i2s_deinit_instance(&i2s1_priv);
+}
+#endif
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在睡眠前
+ * 调 lisa_device_destroy(i2sN) 释放全部软硬件资源（HAL 下电 + mutex / queue / fifo），
+ * 唤醒后在 PM after_wake 回调中调 lisa_device_reinit(i2sN) 重建到 _init 后的状态，并由
+ * 业务重新 configure()。因此 prepare_suspend / resume_restore 不再需要（原先它们只做
+ * HAL 拆卸 / 业务字段清零并刻意保留 queue / fifo，已被 destroy/reinit 覆盖，且二者
+ * 运行于 PM 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：只读 tx_stream.state / rx_stream.state，任一非 IDLE 即视为占用
+ * 总线、阻塞 AUTO_LIGHT_SLEEP。不取 mutex、不访问 HAL。各实例共用本 check_idle。
+ */
+static int32_t arcs_i2s_pm_check_idle(void *ctx)
+{
+    lisa_i2s_priv_t *priv = (lisa_i2s_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    if (priv->tx_stream.state != LISA_I2S_STREAM_STATE_IDLE) {
+        return 0;
+    }
+    if (priv->rx_stream.state != LISA_I2S_STREAM_STATE_IDLE) {
+        return 0;
+    }
+    return 1;
+}
+
+#ifdef CONFIG_LISA_I2S0
+static const lisa_pm_system_ops_t arcs_i2s0_pm_ops = {
+    .check_idle      = arcs_i2s_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif
+
+#ifdef CONFIG_LISA_I2S1
+static const lisa_pm_system_ops_t arcs_i2s1_pm_ops = {
+    .check_idle      = arcs_i2s_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif
+#endif /* CONFIG_LISA_PM */
+
+/* ===== 设备注册 ===== */
+
+
+#ifdef CONFIG_LISA_I2S0
+LISA_DEVICE_REGISTER_DEINIT(i2s0, &arcs_i2s_api, &i2s0_priv, NULL, arcs_i2s0_init,
+                            arcs_i2s0_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(i2s0, &arcs_i2s0_pm_ops, NULL, &i2s0_priv);
+#endif
+#endif
+
+#ifdef CONFIG_LISA_I2S1
+LISA_DEVICE_REGISTER_DEINIT(i2s1, &arcs_i2s_api, &i2s1_priv, NULL, arcs_i2s1_init,
+                            arcs_i2s1_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(i2s1, &arcs_i2s1_pm_ops, NULL, &i2s1_priv);
+#endif
 #endif

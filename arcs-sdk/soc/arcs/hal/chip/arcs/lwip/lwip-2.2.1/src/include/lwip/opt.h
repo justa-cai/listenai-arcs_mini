@@ -2038,7 +2038,11 @@
  * (only used if you use sockets.c)
  */
 #if !defined LWIP_COMPAT_SOCKETS || defined __DOXYGEN__
+#if !CONFIG_SAL_USING_POSIX
 #define LWIP_COMPAT_SOCKETS             1
+#else
+#define LWIP_COMPAT_SOCKETS             0
+#endif
 #endif
 
 /**

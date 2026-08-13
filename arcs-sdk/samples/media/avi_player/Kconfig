@@ -1,0 +1,14 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+osource "$ARCS_BASE/Kconfig"
+
+# All playback knobs are now under:
+#   component -> lisa_media_player
+
+config AVI_PLAYER_LVGL_RENDER
+	bool "Enable LVGL video renderer for avi_player"
+	default y
+	help
+	  When enabled, avi_player registers a custom av_render video renderer that
+	  updates frames through LVGL image widgets.

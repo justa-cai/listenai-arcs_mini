@@ -50,8 +50,6 @@ set(ENV{LISTENAI_MODULES} ${CMAKE_BINARY_DIR}/module.Kconfig)
 
 file(APPEND ${LISTENAI_MODULES_KCONFIG_FILE} "menu \"modules\"\n")
 
-file(APPEND ${LISTENAI_MODULES_KCONFIG_FILE} "osource \"${LISTENAI_CMAKE_PATH}/Kconfig\"\n")
-
 foreach(module IN LISTS LISTENAI_MODULES_PROPERTY)
     list(FIND LISTENAI_KCONFIG_CUSTOM_PARSE_DIR_LIST ${module} idx)
     if (idx EQUAL -1)

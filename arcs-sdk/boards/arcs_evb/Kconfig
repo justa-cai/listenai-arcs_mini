@@ -16,3 +16,23 @@ config BOARD_ARCS_EVB
 	select SOC_LS2684
 	help
 		Board is arcs_evb
+
+config BOARD_PANEL_ST7789P3
+	bool
+	default y
+
+config BOARD_PANEL_ST7789P3_WIDTH
+	int
+	default 320
+
+config BOARD_PANEL_ST7789P3_HEIGHT
+	int
+	default 240
+
+config BOARD_PANEL_ST7789P3_X_OFFSET
+	int
+	default 0
+
+config BOARD_PANEL_ST7789P3_Y_OFFSET
+	int
+	default 0

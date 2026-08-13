@@ -1,0 +1,7 @@
+tests:
+  labs.lnn.thinker_resnet18:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "resnet18 result:"

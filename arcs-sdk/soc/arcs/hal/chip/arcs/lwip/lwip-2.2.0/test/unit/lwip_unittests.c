@@ -14,6 +14,7 @@
 #include "core/test_timers.h"
 #include "etharp/test_etharp.h"
 #include "dhcp/test_dhcp.h"
+#include "dhcp6/test_dhcp6.h"
 #include "mdns/test_mdns.h"
 #include "mqtt/test_mqtt.h"
 #include "api/test_sockets.h"
@@ -89,6 +90,7 @@ int main(void)
     timers_suite,
     etharp_suite,
     dhcp_suite,
+    dhcp6_suite,
     mdns_suite,
     mqtt_suite,
     sockets_suite

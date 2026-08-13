@@ -8,9 +8,20 @@
 #include <stdbool.h>
 #include <string.h>
 #include "ClockManager.h"
-#include "arcs_ap.h"
+#include "soc/chip.h"
 
 #include "usb_config.h"
+
+/* SoC headers may define USB_POWER_* with the same names as CherryUSB MUSB. */
+#ifdef USB_POWER_SOFTCONN
+#undef USB_POWER_SOFTCONN
+#endif
+#ifdef USB_POWER_RESET
+#undef USB_POWER_RESET
+#endif
+#ifdef USB_POWER_RESUME
+#undef USB_POWER_RESUME
+#endif
 #include "usb_musb_reg.h"
 
 // clang-format off

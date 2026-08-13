@@ -60,7 +60,6 @@ SECTIONS
   {
       _ipcshram = . ;
       *(SHAREDRAM_AMP_IPC_ENV)
-      *(SHAREDRAM_AMP_IPC)
       _eipcshram = . ;
       *(.ic_lock_shared_mem)
   } > IPCSHRAM

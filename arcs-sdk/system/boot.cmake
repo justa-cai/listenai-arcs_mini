@@ -2,15 +2,9 @@ include(ExternalProject)
 add_dependencies(${LISTENAI_EXECUTABLE_NAME} boot)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-# 允许外部指定生成 app.bin 的 target，默认为 mkhdr
-if(NOT DEFINED LISTENAI_BOOT_APP_BIN_TARGET)
-    set(LISTENAI_BOOT_APP_BIN_TARGET "mkhdr")
-endif()
-
 set(boot_bin_path ${CMAKE_BINARY_DIR}/boot/boot.bin)
 set(padded_boot_bin_path ${CMAKE_BINARY_DIR}/boot/boot.padded.bin)
-set(boot_source_dir ${CMAKE_CURRENT_LIST_DIR}/uboot)
-set(app_bin_path ${CMAKE_BINARY_DIR}/${LISTENAI_EXECUTABLE_NAME}.bin)
+set(boot_source_dir ${CMAKE_CURRENT_LIST_DIR}/boot)
 set(app_without_boot_path ${CMAKE_BINARY_DIR}/${LISTENAI_EXECUTABLE_NAME}.bin.without.boot)
 set(MERGED_BINARY_PATH ${CMAKE_BINARY_DIR}/${LISTENAI_EXECUTABLE_NAME}_with_boot.bin)
 set(FILL_DATA_PATH ${CMAKE_BINARY_DIR}/fill_data.bin)
@@ -20,8 +14,6 @@ math(EXPR FIRMWARE_SIZE "${CONFIG_BOOT_FLASH_SIZE}")
 
 if(DEFINED CONFIG_BOOT_PARTAB_SIZE)
     set(BOOT_RESERVED_TAIL_SIZE ${CONFIG_BOOT_PARTAB_SIZE})
-elseif(DEFINED CONFIG_BOOT_OTA_PACKAGE)
-    set(BOOT_RESERVED_TAIL_SIZE 0x1000)
 endif()
 
 if(DEFINED CONFIG_BOOT_CONTROL_STORE_BASE_ADDR AND DEFINED CONFIG_BOOT_CONTROL_STORE_SIZE)
@@ -86,64 +78,22 @@ else()
 endif()
 
 set(BOOT_REQUIRED_CONFIGS
-    "CONFIG_APPLICATION_ADDRESS=${CP_ENTRY_HEX}"
     "CONFIG_BOOT_CP_ENTRY=${CP_ENTRY_HEX}"
-    "CONFIG_ARCS_AP_CORE=y"
-    "# CONFIG_LINK_OPTION_LISTENAI_LIBRARY_WHOLE_ARCHIVE is not set"
-    "CONFIG_LINK_OPTION_LISTENAI_LIBRARY_GROUP=y"
-    "CONFIG_BOOT_EARLY_INIT=y"
-    "CONFIG_BOOT_EARLY_CLOCK_INIT=y"
-    "CONFIG_BOOT_EARLY_PSRAM_INIT=y"
 )
-
-if(DEFINED CONFIG_BOOT_ADB OR DEFINED CONFIG_BOOT_ADB_SYNC)
-    if(DEFINED CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
-        list(APPEND BOOT_REQUIRED_CONFIGS
-            "CONFIG_CHERRYUSB=y"
-            "CONFIG_CHERRYUSB_DEVICE=y"
-            "CONFIG_CHERRYUSB_DEVICE_MUSB_LISA=y"
-            "CONFIG_CHERRYUSB_APP_CLASS=y"
-            "CONFIG_ADB=y"
-        )
-    else()
-        list(APPEND BOOT_REQUIRED_CONFIGS
-            "CONFIG_TINY_USB=y"
-            "CONFIG_TINY_USB_USE_CUSTOM_CONFIG_FILE=y"
-            "CONFIG_TINY_USB_CONFIG_FILE=\"boot_tusb_config.h\""
-            "CONFIG_TUSB_APP_CLASS=y"
-            "CONFIG_ADB=y"
-        )
-    endif()
-endif()
-
-if(DEFINED CONFIG_BOOT_ADB_SYNC)
-    if(DEFINED CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
-        set(_BOOT_REQUIRED_HEAP_SIZE "CONFIG_HEAP_SIZE=0x40000")
-    else()
-        set(_BOOT_REQUIRED_HEAP_SIZE "CONFIG_HEAP_SIZE=0x30000")
-    endif()
-
-    list(APPEND BOOT_REQUIRED_CONFIGS
-        "${_BOOT_REQUIRED_HEAP_SIZE}"
-        "CONFIG_PSRAM_HEAP_SIZE=0x300000"
-        "CONFIG_ADB_MAX_PAYLOAD_SIZE=65536"
-        "CONFIG_FREERTOS_FAST_FUNC_SECTION=\".text\""
-    )
-endif()
-
-if(DEFINED CONFIG_BOOT_CONTROL_STORE_EASYFLASH)
-    list(APPEND BOOT_REQUIRED_CONFIGS
-        "CONFIG_LS_EF_START_ADDR=${CONFIG_BOOT_CONTROL_STORE_BASE_ADDR}"
-        "CONFIG_LS_EF_ENV_AREA_SIZE=${CONFIG_BOOT_CONTROL_STORE_SIZE}"
-    )
-endif()
 
 list(APPEND BOOT_CONFIGS ${BOOT_REQUIRED_CONFIGS})
 
 set(BOOT_APP_CONFIG_FILE ${CMAKE_BINARY_DIR}/boot/app.config)
+file(WRITE ${BOOT_APP_CONFIG_FILE} "")
 foreach(config IN LISTS BOOT_CONFIGS)
     file(APPEND ${BOOT_APP_CONFIG_FILE} "${config}\n")
 endforeach()
+
+set(BOOT_EXTRA_DEFINES "")
+if(DEFINED CONFIG_MEM_FLASH_BASE)
+    list(APPEND BOOT_EXTRA_DEFINES "CONFIG_MEM_FLASH_BASE=${CONFIG_MEM_FLASH_BASE}")
+endif()
+string(REPLACE ";" "|" BOOT_EXTRA_DEFINES_STR "${BOOT_EXTRA_DEFINES}")
 
 set(BOOT_DEBUG_CMAKE_ARG "")
 if(DEFINED CONFIG_COMPILE_OPTION_GENERATE_DEBUG_FILES AND CONFIG_COMPILE_OPTION_GENERATE_DEBUG_FILES)
@@ -158,23 +108,60 @@ ExternalProject_Add(
         -DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}
         -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
         -DCHIP=${CHIP}
+        -DARCH=${ARCH}
         -DBOARD=${BOARD}
         -DARCS_SDK_BASE=${ARCS_SDK_BASE}
         -DCONFIG_FILES=${BOOT_APP_CONFIG_FILE}
+        -DBOOT_EXTRA_DEFINES=${BOOT_EXTRA_DEFINES_STR}
         ${BOOT_DEBUG_CMAKE_ARG}
     BUILD_COMMAND ${CMAKE_COMMAND} --build .
     INSTALL_COMMAND ${CMAKE_COMMAND} --install .
 )
 
-# Freeze the app-only payload before merge_boot overwrites the final .bin.
-# Use a target instead of an OUTPUT rule so the copy always follows the
-# freshly generated headered app bin, even in incremental builds.
+set(_boot_app_objcopy_args -S)
+if(LISTENAI_EX_SECTIONS)
+    list(APPEND _boot_app_objcopy_args -R ${LISTENAI_EX_SECTIONS})
+endif()
+list(APPEND _boot_app_objcopy_args
+    -O binary
+    ${LISTENAI_EXECUTABLE_NAME}
+    ${app_without_boot_path}
+)
+
+set(_boot_app_mkhdr_flags_arg "")
+if(NOT DEFINED LISTENAI_TOOLS_MKHDR_COMMAND)
+    set(LISTENAI_TOOLS_MKHDR_COMMAND "${LISTENAI_TOOLS_MKHDR}")
+endif()
+if(LISTENAI_MKHDR_TARGET_CORE AND DEFINED CONFIG_HARTID)
+    execute_process(
+        COMMAND ${LISTENAI_TOOLS_MKHDR_COMMAND} -h
+        OUTPUT_VARIABLE _boot_app_mkhdr_help
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    if(_boot_app_mkhdr_help MATCHES "-f ")
+        set(_boot_app_mkhdr_flags_arg -f ${CONFIG_HARTID})
+    else()
+        message(WARNING "mkhdr does not support -f (target_core); update mkhdr to write boot core into image header")
+    endif()
+endif()
+
+# Regenerate the app-only payload from the ELF before every merge. The final
+# merged firmware also uses <name>.bin, so never use that path as app input.
 add_custom_target(
-    boot_app_bin
-    COMMAND ${CMAKE_COMMAND} -E copy ${app_bin_path} ${app_without_boot_path}
-    DEPENDS ${LISTENAI_BOOT_APP_BIN_TARGET}
+    boot_app_mkhdr
+    ALL
+    COMMAND ${CMAKE_COMMAND} -E echo "-- Generating app-only binary: ${LISTENAI_EXECUTABLE_NAME}.bin.without.boot"
+    COMMAND ${CMAKE_OBJCOPY} ${_boot_app_objcopy_args}
+    COMMAND ${CMAKE_COMMAND} -E echo "-- Generating ListenAI Boot Header for ${LISTENAI_EXECUTABLE_NAME}.bin.without.boot"
+    COMMAND ${LISTENAI_TOOLS_MKHDR_COMMAND} ${_boot_app_mkhdr_flags_arg} ${app_without_boot_path}
+    DEPENDS ${LISTENAI_EXECUTABLE_NAME}
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+set(_boot_merge_deps boot boot_app_mkhdr)
+if(TARGET mkhdr)
+    list(APPEND _boot_merge_deps mkhdr)
+endif()
 
 add_custom_target(
     merge_boot
@@ -194,6 +181,6 @@ add_custom_target(
     COMMAND ${CMAKE_COMMAND} -E cat ${padded_boot_bin_path} ${app_without_boot_path} > ${MERGED_BINARY_PATH}
     COMMAND ${CMAKE_COMMAND} -E rename ${MERGED_BINARY_PATH} ${LISTENAI_EXECUTABLE_NAME}.bin
 
-    DEPENDS boot boot_app_bin
+    DEPENDS ${_boot_merge_deps}
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
 )

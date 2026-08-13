@@ -203,7 +203,17 @@ enum NVDS_STATUS {
  ****************************************************************************************
  */
 uint8_t nvds_init(struct nvs_fs *fs);
-#if CFG_NVS
+
+#if defined(CFG_AMP_IPC_MRPC_CLIENT_NVS)&& (CFG_AMP_IPC_MRPC_CLIENT_NVS==1) // ap through IPC callback ipc_nvds_xxx function
+uint8_t ipc_nvds_get(uint16_t tag, uint8_t * buf, size_t * buf_len);
+uint8_t ipc_nvds_put(uint16_t tag, uint8_t * buf, size_t buf_len);
+uint8_t ipc_nvds_del(uint16_t tag);
+
+#define nvds_get(tag, buf_len, buf)  ipc_nvds_get(tag, buf, buf_len)
+#define nvds_put(tag, buf_len, buf)  ipc_nvds_put(tag, buf, buf_len)
+#define nvds_del(tag)  ipc_nvds_del(tag)
+
+#else
 /**
  ****************************************************************************************
  * @brief Look for a specific tag and return, if found and matching (in length), the
@@ -274,14 +284,7 @@ uint8_t nvds_del(uint16_t tag);
  ****************************************************************************************
  */
 uint8_t nvds_put(uint16_t tag, size_t length, uint8_t *buf);
-#elif defined(CFG_AMP_IPC_MRPC_CLIENT_NVS)
-uint8_t ipc_nvds_get(uint16_t tag, uint8_t * buf, size_t * buf_len);
-uint8_t ipc_nvds_put(uint16_t tag, uint8_t * buf, size_t buf_len);
-uint8_t ipc_nvds_del(uint16_t tag);
 
-#define nvds_get(tag, buf_len, buf)  ipc_nvds_get(tag, buf, buf_len)
-#define nvds_put(tag, buf_len, buf)  ipc_nvds_put(tag, buf, buf_len)
-#define nvds_del(tag)  ipc_nvds_del(tag)
 #endif
 #ifdef __cplusplus
 }

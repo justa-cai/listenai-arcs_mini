@@ -4,4 +4,4 @@ tests:
     runner: uart
     log_analyzer:
       type: "regex"
-      pattern: "wifi scan ap_num: [1-9]\\d*"
+      pattern: "DHCP Success on VIF-\\d+: IP=\\d+\\.\\d+\\.\\d+\\.\\d+"

@@ -93,6 +93,7 @@ void bt_stack_ble_disconnect(uint8_t conidx, uint8_t reason);
 void bt_stack_ble_connect(gap_bdaddr_t addr, uint8_t phy, uint16_t conn_intv_min, uint16_t conn_intv_max,
                     uint16_t latency, uint16_t super_to);
 void bt_stack_ble_adv_start(ble_adv_cfg_t *adv_cfg);
+uint8_t bt_stack_ble_adv_search_data(uint8_t length, uint8_t *p_data, uint8_t search_type, uint8_t *search_len, uint8_t **search_data);
 
 /// @} BT STACK
 #endif // BT_BLE_HAL_H_

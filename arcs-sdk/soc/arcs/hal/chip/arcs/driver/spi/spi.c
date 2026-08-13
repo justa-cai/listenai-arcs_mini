@@ -802,7 +802,7 @@ SPI_Send(void *spi_dev, const void *data, uint32_t num)
 
     // set transfer mode to write only and transfer count for write data
     //spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRONLY | WR_TRANCNT(num));
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRONLY | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN));
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRONLY | (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
     spi->reg->WR_LEN = WR_TRANCNT(num);
 
     uint32_t intren = 0, count = num;
@@ -924,7 +924,7 @@ SPI_Send(void *spi_dev, const void *data, uint32_t num)
         spi->reg->CMD = 0;
     } else {
         // enable TX FIFO underrun interrupt when slave mode
-        CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
+        //CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
         intren |= SPI_TXFIFOURINT;
 
         // enable interrupts
@@ -1141,11 +1141,11 @@ SPI_Send_NEnd(void *spi_dev, const void *data, uint32_t num)
         spi->reg->CTRL &= ~TXDMAEN;
 
     // set transfer mode to write only and transfer count for write data
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRONLY | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN));
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRONLY | (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
     spi->reg->WR_LEN = WR_TRANCNT(num);
 
     if (is_slave) {
-        CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
+        //CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
 
         // enable TX FIFO underrun interrupt when slave mode
         intren |= SPI_TXFIFOURINT;
@@ -1235,14 +1235,14 @@ SPI_Send_PIO_Lite(void *spi_dev, const void *data, uint32_t num, uint32_t no_end
     // enable TX FIFO underrun interrupt when slave mode
     // set the Ready bit in the SPI Slave Status Register
     if(is_slave) {
-        CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
+        //CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
         intren |= SPI_TXFIFOURINT;
         spi->reg->SLVST |= SLVST_READY;
     }
 
     // set transfer mode to write only and transfer count for write data
     // | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN)
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRONLY);
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRONLY | (spi->reg->TRANSCTRL & DQ_IO_MASK));
     spi->reg->WR_LEN = WR_TRANCNT(num);
 
     if (is_slave) {
@@ -1298,7 +1298,7 @@ SPI_Receive(void *spi_dev, void *data, uint32_t num)
 
     // set transfer mode to read only and transfer count for read data
     //spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | RD_TRANCNT(num));
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN));
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
     spi->reg->RD_LEN = RD_TRANCNT(num);
 
     uint32_t intren = 0, count = num;
@@ -1410,7 +1410,7 @@ SPI_Receive(void *spi_dev, void *data, uint32_t num)
     // enable RX FIFO overrun interrupt when slave mode
     // set slave cmd interrupt
 	if(is_slave) {
-        CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
+        //CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
         intren |= SPI_RXFIFOORINT | SPI_SLVCMD;
 
         // enable interrupts
@@ -1432,7 +1432,7 @@ SPI_Receive(void *spi_dev, void *data, uint32_t num)
 //NOTE: if SPI_FLAG_8BIT_MERGE is set,
 //      start address and size (NOT num!) of the buffer pointed by 'data' SHOULD be aligned with 4,
 //      and the parameter 'num' SHOULD be also aligned with 4 if (SPI slave + no CS connected)
-int32_t _FAST_FUNC_SRAM
+int32_t //_FAST_FUNC_RO
 SPI_Receive_NEnd(void *spi_dev, void *data, uint32_t num)
 {
     SPI_DEV *spi = safe_spi_dev(spi_dev);
@@ -1629,7 +1629,7 @@ SPI_Receive_NEnd(void *spi_dev, void *data, uint32_t num)
     // enable RX FIFO overrun interrupt when slave mode
     // set slave cmd interrupt
     if(is_slave) {
-        CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
+        //CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
         intren |= SPI_RXFIFOORINT | SPI_SLVCMD;
     }
 
@@ -1638,7 +1638,7 @@ SPI_Receive_NEnd(void *spi_dev, void *data, uint32_t num)
     spi->reg->INTREN = intren;
 
     // set transfer mode to read only and transfer count for read data
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN));
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
     spi->reg->RD_LEN = RD_TRANCNT(num);
 
     // trigger transfer when SPI master mode
@@ -1738,13 +1738,13 @@ SPI_Receive_DMA_Lite(void *spi_dev, void *data, uint32_t num, uint32_t no_endint
     // enable RX FIFO overrun interrupt when slave mode
     // set slave cmd interrupt
     if(is_slave) {
-        CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
+        //CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
         intren |= SPI_RXFIFOORINT | SPI_SLVCMD;
     }
 
     // set transfer mode to read only and transfer count for read data
     // | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN);
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY);
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | (spi->reg->TRANSCTRL & DQ_IO_MASK));
     spi->reg->RD_LEN = RD_TRANCNT(num);
 
     // trigger transfer when SPI master mode
@@ -1828,14 +1828,14 @@ SPI_Receive_PIO_Lite(void *spi_dev, void *data, uint32_t num, uint32_t no_endint
     // enable RX FIFO overrun interrupt when slave mode
     // set slave cmd interrupt
     if(is_slave) {
-        CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
+        //CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
         //spi->reg->INTREN |= SPI_RXFIFOORINT | SPI_SLVCMD;
         intren |= SPI_RXFIFOORINT | SPI_SLVCMD;
     }
 
     // set transfer mode to read only and transfer count for read data
     // | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN)
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | RD_TRANCNT(num));
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | RD_TRANCNT(num) | (spi->reg->TRANSCTRL & DQ_IO_MASK));
 
     // trigger transfer when SPI master mode
     if (is_slave) {
@@ -1853,6 +1853,151 @@ SPI_Receive_PIO_Lite(void *spi_dev, void *data, uint32_t num, uint32_t no_endint
 }
 */
 
+// Set SPI pin mode: Unidirectional/Bidirectional Single, Dual, or Quad.
+// Ported from vegah driver.
+int32_t
+SPI_Set_Pin_Mode(void *spi_dev, SPI_PIN_MODE pin_mode)
+{
+    SPI_DEV *spi = safe_spi_dev(spi_dev);
+    if (spi == NULL) {
+        LOGD("%s: invalid SPI device (0x%08x)!", __func__, spi_dev);
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    if (pin_mode >= SPI_PIN_MODE_COUNT)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    if (!(spi->info->flags & SPI_FLAG_CONFIGURED))
+        return CSK_DRIVER_ERROR;
+
+    if (spi->info->status.bit.busy)
+        return CSK_DRIVER_ERROR_BUSY;
+
+    switch (pin_mode) {
+    case SPI_PIN_UNIDIR_SINGLE:
+    case SPI_PIN_BIDIR_SINGLE:
+        spi->reg->TRANSCTRL &= ~DQ_IO_MASK;
+        spi->reg->TRANSCTRL |= DQ_IO_SINGLE;
+        if (pin_mode == SPI_PIN_UNIDIR_SINGLE)
+            spi->reg->TRANSFMT &= ~SPI_BIDIR;
+        else
+            spi->reg->TRANSFMT |= SPI_BIDIR;
+        break;
+
+    case SPI_PIN_DUAL:
+        spi->reg->TRANSCTRL &= ~DQ_IO_MASK;
+        spi->reg->TRANSCTRL |= DQ_IO_DUAL;
+        break;
+
+    case SPI_PIN_QUAD:
+        spi->reg->TRANSCTRL &= ~DQ_IO_MASK;
+        spi->reg->TRANSCTRL |= DQ_IO_QUAD;
+        break;
+
+    default:
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    return CSK_DRIVER_OK;
+}
+
+
+// export SPI API function: SPI_TxRx_Polling
+// Half-duplex polling: write data_out first, then read data_in, with optional dummy cycles in between.
+// Ported from vegah driver.
+int32_t
+SPI_TxRx_Polling(void *spi_dev, const void *data_out, uint32_t num_out,
+        void *data_in, uint32_t num_in, uint8_t interval_dummy_cnt)
+{
+    SPI_DEV *spi = safe_spi_dev(spi_dev);
+    if (spi == NULL || interval_dummy_cnt > 4) {
+        LOGD("%s: invalid SPI device (0x%08x) or DUMMY_CNT (%d)!", __func__, spi_dev, interval_dummy_cnt);
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    bool is_slave = ((spi->info->txrx_mode & CSK_SPI_MODE_Msk) == CSK_SPI_MODE_SLAVE);
+
+    if ((data_out == NULL) || (data_in == NULL))
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    if (!(spi->info->flags & SPI_FLAG_CONFIGURED))
+        return CSK_DRIVER_ERROR;
+
+    if (spi->info->status.bit.busy)
+        return CSK_DRIVER_ERROR_BUSY;
+
+    // set busy flag
+    spi->info->status.all = 0;
+    spi->info->status.bit.busy = 1;
+
+    spi->info->xfer.rx_buf = data_in;
+    spi->info->xfer.tx_buf = data_out;
+    spi->info->xfer.rx_cnt = 0U;
+    spi->info->xfer.tx_cnt = 0U;
+    spi->info->xfer.req_rx_cnt = num_in;
+    spi->info->xfer.req_tx_cnt = num_out;
+    spi->info->xfer.cur_op = SPI_SEQ_TX_RX;
+
+    // wait prior transfer finish
+    if (!is_slave)
+        spi_polling_spiactive(spi);
+
+    // disable interrupts and DMA — pure polling mode
+    spi->reg->INTREN = 0;
+    spi->reg->CTRL &= ~(TXDMAEN | RXDMAEN);
+
+    spi_fill_tx_fifo(spi, num_out);
+
+    // set transfer mode: write-then-read, with optional dummy cycles
+    if (interval_dummy_cnt > 0)
+        spi->reg->TRANSCTRL = (SPI_TRANSMODE_WR_DMY_RD | DUMMY_CNT(interval_dummy_cnt) |
+                              (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
+    else
+        spi->reg->TRANSCTRL = (SPI_TRANSMODE_WR_RD | (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
+
+    spi->reg->WR_LEN = WR_TRANCNT(num_out);
+    spi->reg->RD_LEN = RD_TRANCNT(num_in);
+
+    // trigger transfer
+    if (is_slave) {
+        //CLR_SLV_RDWRCNT(spi);
+        spi->reg->SLVST |= SLVST_READY;
+    } else {
+        spi->reg->CMD = 0;
+    }
+
+    // polling TX: send remaining data
+    int32_t delta = spi->info->xfer.req_tx_cnt - spi->info->xfer.tx_cnt;
+    while (delta > 0) {
+        spi_fill_tx_fifo(spi, delta);
+        delta = spi->info->xfer.req_tx_cnt - spi->info->xfer.tx_cnt;
+    }
+
+    // polling RX: receive all data
+    delta = spi->info->xfer.req_rx_cnt;
+    while (delta > 0) {
+        uint32_t i = SPI_RXFIFO_ENTRIES(spi);
+        while (i > 0 && delta > 0) {
+            uint32_t data = spi->reg->DATA;
+
+            if (spi->info->data_bits <= 8) {
+                uint8_t *rx_buf8 = (uint8_t *)spi->info->xfer.rx_buf;
+                rx_buf8[spi->info->xfer.rx_cnt++] = data & 0xff;
+            } else if (spi->info->data_bits <= 16) {
+                uint16_t *rx_buf16 = (uint16_t *)spi->info->xfer.rx_buf;
+                rx_buf16[spi->info->xfer.rx_cnt++] = data & 0xffff;
+            } else {
+                uint32_t *rx_buf32 = (uint32_t *)spi->info->xfer.rx_buf;
+                rx_buf32[spi->info->xfer.rx_cnt++] = data;
+            }
+
+            i--; delta--;
+        }
+    }
+
+    spi->info->status.bit.busy = 0;
+    return CSK_DRIVER_OK;
+}
 
 // export SPI API function: SPI_Transfer
 //NOTE: start address and size (NOT num!) of the buffer pointed by 'data_in' and
@@ -1893,7 +2038,7 @@ SPI_Transfer(void *spi_dev, const void *data_out, void *data_in, uint32_t num)
 
     // set transfer mode to write and read at the same time and transfer count for write/read data
     //spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRnRD | WR_TRANCNT(num) | RD_TRANCNT(num));
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRnRD | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN));
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRnRD | (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
     spi->reg->RD_LEN = RD_TRANCNT(num);
     spi->reg->WR_LEN = WR_TRANCNT(num);
 
@@ -1997,7 +2142,7 @@ SPI_Transfer(void *spi_dev, const void *data_out, void *data_in, uint32_t num)
 
     // enable TX FIFO underrun interrupt when slave mode
     if (is_slave) {
-        CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
+        //CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
         intren |= SPI_TXFIFOURINT;
     }
 
@@ -2103,7 +2248,7 @@ SPI_Transfer(void *spi_dev, const void *data_out, void *data_in, uint32_t num)
     // enable RX FIFO overrun interrupt when slave mode
     // set the Ready bit in the SPI Slave Status Register
     if(is_slave) {
-        CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
+        //CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
         intren |= SPI_RXFIFOORINT | SPI_SLVCMD;
 
         // enable interrupts
@@ -2427,14 +2572,14 @@ SPI_Transfer_NEnd(void *spi_dev, const void *data_out, void *data_in, uint32_t n
 
     // set transfer mode to write and read at the same time and transfer count for write/read data
     //spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRnRD | WR_TRANCNT(num) | RD_TRANCNT(num));
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRnRD | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN));
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRnRD | (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
     spi->reg->RD_LEN = RD_TRANCNT(num);
     spi->reg->WR_LEN = WR_TRANCNT(num);
 
     // enable RX FIFO overrun, TX FIFO underrun, and slave cmd interrupt when slave mode
     // set the Ready bit in the SPI Slave Status Register
     if(is_slave) {
-        CLR_SLV_RDWRCNT(spi); // clear RCnt & WCnt on updated IP
+        //CLR_SLV_RDWRCNT(spi); // clear RCnt & WCnt on updated IP
         intren |= SPI_TXFIFOURINT | SPI_RXFIFOORINT | SPI_SLVCMD;
 
         // enable interrupts
@@ -2527,14 +2672,14 @@ SPI_Transfer_PIO_Lite(void *spi_dev, const void *data_out, void *data_in, uint32
 
     // set transfer mode to write and read at the same time and transfer count for write/read data
     // | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN)
-    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRnRD);
+    spi->reg->TRANSCTRL = (SPI_TRANSMODE_WRnRD | (spi->reg->TRANSCTRL & DQ_IO_MASK));
     spi->reg->RD_LEN = RD_TRANCNT(num);
     spi->reg->WR_LEN = WR_TRANCNT(num);
 
     // enable RX FIFO overrun, TX FIFO underrun, and slave cmd interrupt when slave mode
     // set the Ready bit in the SPI Slave Status Register
     if(is_slave) {
-        CLR_SLV_RDWRCNT(spi); // clear RCnt & WCnt on updated IP
+        //CLR_SLV_RDWRCNT(spi); // clear RCnt & WCnt on updated IP
         intren |= SPI_TXFIFOURINT | SPI_RXFIFOORINT | SPI_SLVCMD;
         spi->reg->SLVST |= SLVST_READY;
         if (no_cs && spi->info->cb_set_cs != NULL)
@@ -2555,7 +2700,7 @@ SPI_Transfer_PIO_Lite(void *spi_dev, const void *data_out, void *data_in, uint32
 
 
 // export SPI API function: SPI_GetDataCount
-_FAST_FUNC_SRAM uint32_t
+_FAST_FUNC_RO uint32_t
 SPI_GetDataCount(void *spi_dev)
 {
     SPI_DEV *spi = safe_spi_dev(spi_dev);
@@ -3211,7 +3356,7 @@ spi_dma_rx_event(uint32_t event_info, uint32_t xfer_bytes, uint32_t usr_param)
 }
 
 
-_FAST_FUNC_SRAM static void
+_FAST_FUNC_RO static void
 spi_irq_handler(SPI_DEV *spi)
 {
     uint32_t i, status;
@@ -3391,15 +3536,16 @@ spi_irq_handler(SPI_DEV *spi)
                 LOGD("%s: Warning!! %d Data items remain in TX FIFO!\n",
                         __func__, i);
             }
-            //FIXME: [IP bug on V2_MP] when data_bits = 1,
-            // SLV_WRCNT() always return 0 even if TX DMA COUNT > 0 !!
+            // [IP bug on V2_MP] when data_bits = 1, SLV_WRCNT() always return 0 even if TX DMA COUNT > 0 !!
+            // NOTE: NO RCNT/WCNT clear support in current SPI IP, so ignore all SLV RCNT/WCNT operations!
+            /*
             if ((spi->info->txrx_mode & CSK_SPI_MODE_Msk) == CSK_SPI_MODE_SLAVE) { // && spi->info->data_bits > 1
-                //count = (spi->reg->SLVDATACNT >> 16) & 0x1FF;
                 count = SLV_WRCNT(spi);
                 CLR_SLV_WRCNT(spi); // clear WCnt on updated IP
                 LOGD("%s: SLVDATACNT.WCnt = %d Data\n", __func__, count);
                 spi->info->xfer.tx_cnt = count;
             }
+            */
 
             if (spi->info->xfer.tx_cnt < spi->info->xfer.req_tx_cnt) {
                 LOGD("%s: Warning!! %d Data items have not been sent!\n",
@@ -3448,15 +3594,17 @@ spi_irq_handler(SPI_DEV *spi)
                 }
                 read_RX_FIFO_entry(spi);
             } //end for
-            //FIXME: [IP bug on V2_MP] when data_bits = 1,
-            // SLV_RDCNT() always return 0 even if RX DMA COUNT > 0 !!
+
+            // [IP bug on V2_MP] when data_bits = 1, SLV_RDCNT() always return 0 even if RX DMA COUNT > 0 !!
+            // NOTE: NO RCNT/WCNT clear support in current SPI IP, so ignore all SLV RCNT/WCNT operations!
+            /*
             if ((spi->info->txrx_mode & CSK_SPI_MODE_Msk) == CSK_SPI_MODE_SLAVE) { // && spi->info->data_bits > 1
-                //count = spi->reg->SLVDATACNT & 0x1FF;
                 count = SLV_RDCNT(spi);
                 CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
-                // LOGD("%s: SLVDATACNT.RCnt = %d Data\n", __func__, count);
+                LOGD("%s: SLVDATACNT.RCnt = %d Data\n", __func__, count);
                 spi->info->xfer.rx_cnt = count;
             }
+            */
         }
 
         // clear TX/RX FIFOs
@@ -3753,7 +3901,7 @@ int32_t SPI_Receive_PiPo_Start(void *spi_dev, void *data0, void *data1, uint32_t
         // enable RX FIFO overrun interrupt when slave mode
         // set slave cmd interrupt
         if(is_slave) {
-            CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
+            //CLR_SLV_RDCNT(spi); // clear RCnt on updated IP
             intren |= SPI_RXFIFOORINT | SPI_SLVCMD;
         }
 
@@ -3762,7 +3910,7 @@ int32_t SPI_Receive_PiPo_Start(void *spi_dev, void *data0, void *data1, uint32_t
         spi->reg->INTREN = intren;
 
         // set transfer mode to read only and transfer count for read data
-        spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | (spi->reg->TRANSCTRL & SPI_TRANSMODE_CMD_EN));
+        spi->reg->TRANSCTRL = (SPI_TRANSMODE_RDONLY | (spi->reg->TRANSCTRL & (SPI_TRANSMODE_CMD_EN | DQ_IO_MASK)));
         //spi->reg->RD_LEN = RD_TRANCNT(num);
         spi->reg->RD_LEN = 0xFFFFFFFF;
 

@@ -17,6 +17,7 @@ $ErrorActionPreference = "Stop"
 $script:MaxDevices = if ($env:MAX_DEVICES) { [int]$env:MAX_DEVICES } else { 10 }
 $script:RecoveryTimeout = if ($env:RECOVERY_TIMEOUT) { [int]$env:RECOVERY_TIMEOUT } else { 120 }
 $script:PollInterval = if ($env:POLL_INTERVAL) { [int]$env:POLL_INTERVAL } else { 2 }
+$script:RecoveryHandshakeSettleMs = if ($env:RECOVERY_HANDSHAKE_SETTLE_MS) { [int]$env:RECOVERY_HANDSHAKE_SETTLE_MS } else { 3500 }
 $script:BuildDir = if ($env:BUILD_DIR) { $env:BUILD_DIR } else { "build" }
 $script:ResourceDir = if ($env:RES_DIR) { $env:RES_DIR } else { "res/arcs-mini" }
 
@@ -45,6 +46,7 @@ $script:TransportToUsb = @{}
 $script:SelectedBootTargets = @()
 $script:SelectedBootSet = @{}
 $script:TidToBootTarget = @{}
+$script:RecoveryHandshakeSet = @{}
 
 $script:ScannedDevices = @()
 
@@ -63,6 +65,24 @@ function Write-Warn {
 function Write-Fail {
     param([string]$Message)
     Write-Host $Message -ForegroundColor Red
+}
+
+function Invoke-AdbQuiet {
+    param([string[]]$Arguments)
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "SilentlyContinue"
+        & $script:AdbCmd @Arguments *> $null
+        return $LASTEXITCODE
+    } catch {
+        if ($null -ne $LASTEXITCODE) {
+            return $LASTEXITCODE
+        }
+        return 1
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
 }
 
 function Show-Usage {
@@ -478,28 +498,21 @@ function Send-RecoveryCommands {
     }
 
     Write-Host "Sending recovery commands..."
-    $failures = 0
 
     foreach ($tid in $script:NormalTransportIds) {
-        & $script:AdbCmd -t $tid reboot recovery >$null 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        $exitCode = Invoke-AdbQuiet -Arguments @("-t", $tid, "reboot", "recovery")
+        if ($exitCode -eq 0) {
             Write-Host "[transport_id:$tid] sent: reboot recovery"
             continue
         }
 
-        & $script:AdbCmd -t $tid shell recovery >$null 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        $exitCode = Invoke-AdbQuiet -Arguments @("-t", $tid, "shell", "recovery")
+        if ($exitCode -eq 0) {
             Write-Host "[transport_id:$tid] sent: shell recovery"
             continue
         }
 
-        Write-Fail "[transport_id:$tid] failed to enter recovery"
-        $failures++
-    }
-
-    if ($failures -gt 0) {
-        Write-Fail "Error: $failures device(s) failed to enter recovery"
-        exit 1
+        Write-Warn "[transport_id:$tid] recovery commands returned an error; waiting for BOOT enumeration"
     }
 }
 
@@ -512,9 +525,44 @@ function Add-SelectedBootTarget {
     }
 }
 
+function Invoke-RecoveryCompatibilityHandshake {
+    param($Target)
+
+    if ($Target.Serial -notlike "BOOT-*") {
+        return $false
+    }
+    if ($script:RecoveryHandshakeSet.ContainsKey($Target.Key)) {
+        return $true
+    }
+
+    $deviceId = $Target.Serial.Substring("BOOT-".Length)
+    if ([string]::IsNullOrWhiteSpace($deviceId)) {
+        return $false
+    }
+
+    $selectorArgs = @(Get-AdbTargetSelectorArgs $Target)
+    $exitCode = Invoke-AdbQuiet -Arguments ($selectorArgs + @("shell", $deviceId))
+    if ($exitCode -ne 0) {
+        return $false
+    }
+
+    # Old boot clears the retry marker from a three-second timer callback.
+    Start-Sleep -Milliseconds $script:RecoveryHandshakeSettleMs
+    $exitCode = Invoke-AdbQuiet -Arguments ($selectorArgs + @("get-state"))
+    if ($exitCode -ne 0) {
+        return $false
+    }
+
+    $script:RecoveryHandshakeSet[$Target.Key] = $true
+    Write-Host "[$($Target.Display)] recovery compatibility handshake complete"
+    return $true
+}
+
 function Wait-ForBootDevices {
     foreach ($bootTarget in $script:InitialBootDevices) {
-        Add-SelectedBootTarget $bootTarget
+        if (Invoke-RecoveryCompatibilityHandshake $bootTarget) {
+            Add-SelectedBootTarget $bootTarget
+        }
     }
 
     Write-Host "Waiting for devices to enter recovery and expose BOOT serials..."
@@ -528,6 +576,9 @@ function Wait-ForBootDevices {
         foreach ($device in $scanLines) {
             if ($device.Serial -like "BOOT-*") {
                 $bootTarget = ConvertTo-AdbTarget $device
+                if (-not (Invoke-RecoveryCompatibilityHandshake $bootTarget)) {
+                    continue
+                }
                 $scanBootTargets += $bootTarget
                 if (-not [string]::IsNullOrEmpty($device.Usb)) {
                     $scanBootByUsb[$device.Usb] = $bootTarget
@@ -613,14 +664,19 @@ function Flash-OneDevice {
         }
     }
 
-    & $script:AdbCmd @selectorArgs shell reboot hard >$null 2>&1
-    if ($LASTEXITCODE -eq 0) {
+    $exitCode = Invoke-AdbQuiet -Arguments ($selectorArgs + @("shell", "recovery", "exit"))
+    if ($exitCode -ne 0) {
+        Write-Warn "[$display] warning: unable to clear recovery request before reboot"
+    }
+
+    $exitCode = Invoke-AdbQuiet -Arguments ($selectorArgs + @("shell", "reboot", "hard"))
+    if ($exitCode -eq 0) {
         Write-Host "[$display] flashing complete, device is rebooting"
         return 0
     }
 
-    & $script:AdbCmd @selectorArgs reboot >$null 2>&1
-    if ($LASTEXITCODE -eq 0) {
+    $exitCode = Invoke-AdbQuiet -Arguments ($selectorArgs + @("reboot"))
+    if ($exitCode -eq 0) {
         Write-Host "[$display] flashing complete, adb reboot sent"
         return 0
     }

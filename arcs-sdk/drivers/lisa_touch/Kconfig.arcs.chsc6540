@@ -1,0 +1,42 @@
+# LISA Touch Driver Configuration - CHSC6540
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_TOUCH_ARCS_CHSC6540
+	bool "Enable LISA Touch ARCS CHSC6540 support"
+	help
+		Enable LISA Touch ARCS CHSC6540 touch chip support.
+
+		CHSC6540 Features:
+		- I2C Address: 0x2E (7-bit)
+		- Register: 0x00 (8-bit)
+		- Resolution: configurable, default 240x320
+		- Single touch point
+		- Interrupt trigger: Falling edge
+
+if LISA_TOUCH_ARCS_CHSC6540
+
+	config LISA_TOUCH_ARCS_CHSC6540_MAX_X
+		int "CHSC6540 max X coordinate"
+		default 240
+		help
+			Set CHSC6540 touch X coordinate range.
+
+	config LISA_TOUCH_ARCS_CHSC6540_MAX_Y
+		int "CHSC6540 max Y coordinate"
+		default 320
+		help
+			Set CHSC6540 touch Y coordinate range.
+
+	config LISA_TOUCH_ARCS_CHSC6540_READ_TASK_PRIORITY
+		int "CHSC6540 interrupt mode read task priority"
+		default 2
+		range 1 10
+		help
+			Set the priority of the CHSC6540 touch driver's internal read task.
+
+			This task is created when interrupt mode is enabled and is responsible
+			for reading I2C data from the touch chip after receiving a GPIO interrupt.
+
+endif # LISA_TOUCH_ARCS_CHSC6540

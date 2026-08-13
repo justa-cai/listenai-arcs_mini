@@ -431,7 +431,7 @@ int acomp_wakeup_set_threshold(acomp_wakeup_threshold_level_e level)
 {
     LISA_LOGI(TAG, "acomp wakeup set threshold enter, level=%d", level);
 
-    if (level < ACOMP_WAKEUP_THRESHOLD_LEVEL_1 || level > ACOMP_WAKEUP_THRESHOLD_LEVEL_5) {
+    if (level < ACOMP_WAKEUP_THRESHOLD_LEVEL_1 || level > ACOMP_WAKEUP_THRESHOLD_LEVEL_3) {
         LISA_LOGE(TAG, "invalid threshold level: %d", level);
         return ACOMP_ERR_INVALID_ARG;
     }
@@ -445,6 +445,55 @@ int acomp_wakeup_set_threshold(acomp_wakeup_threshold_level_e level)
     }
 
     LISA_LOGI(TAG, "acomp wakeup set threshold exit");
+    return ret;
+}
+
+int acomp_wakeup_set_fan_state(bool fan_on)
+{
+    LISA_LOGI(TAG, "acomp wakeup set fan state enter, fan_on=%d", fan_on);
+
+    if (wakeup_handle == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    wakeup_ipc_control_subcmd_fan_state_set_t fan_state_set;
+    fan_state_set.fan_on = fan_on ? 1U : 0U;
+
+    int ret = acomp_wakeup_control_subcmd(WAKEUP_IPC_CONTROL_SUBCMD_FAN_STATE_SET,
+                                          &fan_state_set,
+                                          sizeof(wakeup_ipc_control_subcmd_fan_state_set_t));
+    if (ret != ACOMP_ERR_OK) {
+        LISA_LOGE(TAG, "acomp wakeup set fan state failed!");
+    }
+
+    LISA_LOGI(TAG, "acomp wakeup set fan state exit");
+    return ret;
+}
+
+int acomp_wakeup_set_cmd_timeout(uint32_t timeout_sec)
+{
+    LISA_LOGI(TAG, "acomp wakeup set cmd timeout enter, timeout_sec=%u", (unsigned int)timeout_sec);
+
+    if (timeout_sec == 0U) {
+        LISA_LOGE(TAG, "invalid cmd timeout sec: %u", (unsigned int)timeout_sec);
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    if (wakeup_handle == NULL) {
+        return ACOMP_ERR_INVALID_STATE;
+    }
+
+    wakeup_ipc_control_subcmd_cmd_timeout_set_t timeout_set;
+    timeout_set.timeout_sec = timeout_sec;
+
+    int ret = acomp_wakeup_control_subcmd(WAKEUP_IPC_CONTROL_SUBCMD_CMD_TIMEOUT_SET,
+                                          &timeout_set,
+                                          sizeof(wakeup_ipc_control_subcmd_cmd_timeout_set_t));
+    if (ret != ACOMP_ERR_OK) {
+        LISA_LOGE(TAG, "acomp wakeup set cmd timeout failed!");
+    }
+
+    LISA_LOGI(TAG, "acomp wakeup set cmd timeout exit");
     return ret;
 }
 
@@ -512,7 +561,7 @@ void* acomp_wakeup_stream_rx_buffer_get(int chn, uint32_t* len, uint16_t* desc_i
 
     uint8_t *ptr;
 
-    if (wakeup_handle == NULL) {
+    if (wakeup_handle == NULL || wakeup_handle->stream == NULL) {
         return NULL;
     }
 
@@ -531,12 +580,16 @@ void* acomp_wakeup_stream_rx_buffer_get(int chn, uint32_t* len, uint16_t* desc_i
 int acomp_wakeup_stream_rx_buffer_release(int chn, uint16_t desc_idx, uint32_t len,void* buffer){
     int ret;
 
-    if (wakeup_handle == NULL) {
+    if (wakeup_handle == NULL || wakeup_handle->stream == NULL) {
         return ACOMP_ERR_INVALID_STATE;
     }
 
     if(chn >= ACOMP_STREAM_MAX_CHANNEL){
         return ACOMP_ERR_INVALID_ARG;
+    }
+
+    if(wakeup_handle->stream->ch[chn] == NULL){
+        return ACOMP_ERR_INVALID_STATE;
     }
 
     ret =  wakeup_handle->stream->ops.rx_buffer_release(wakeup_handle->stream->ch[chn],buffer, len, desc_idx);
@@ -548,7 +601,7 @@ void* acomp_wakeup_stream_tx_buffer_alloc(int chn, uint32_t* len, uint16_t* desc
 
     uint8_t* buffer;
 
-    if (wakeup_handle == NULL) {
+    if (wakeup_handle == NULL || wakeup_handle->stream == NULL) {
         return NULL;
     }
 
@@ -569,7 +622,7 @@ void* acomp_wakeup_stream_tx_buffer_alloc(int chn, uint32_t* len, uint16_t* desc
 int acomp_wakeup_stream_tx_buffer_submit(int chn, void* buffer, uint32_t len, uint16_t desc_idx){
     int ret;
 
-    if (wakeup_handle == NULL) {
+    if (wakeup_handle == NULL || wakeup_handle->stream == NULL) {
         return ACOMP_ERR_INVALID_STATE;
     }
 

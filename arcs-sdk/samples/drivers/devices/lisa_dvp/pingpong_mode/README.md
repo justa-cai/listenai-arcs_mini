@@ -1,4 +1,4 @@
-# LISA DVP Ping-Pong 模式捕获示例
+# DVP Ping-Pong 模式捕获示例
 
 ## 功能说明
 

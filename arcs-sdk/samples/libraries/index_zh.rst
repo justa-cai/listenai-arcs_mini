@@ -11,3 +11,4 @@
     cpp/index_zh
     flexlayout/README.md
     sqlite3/README.md
+    zig/index_zh

@@ -10,6 +10,7 @@
  ****************************************************************************************
  */
 #include <stdbool.h>
+#include <stdarg.h>
 
 #include "atcmd.h"
 #include "atcmd_bt_if.h"
@@ -18,6 +19,9 @@
 #include "ls_event.h"
 #include "ls_bt_type.h"
 #include "bt_config.h"
+#include "bt_stack_hal.h"
+#include "ble_plf_config.h"
+#include "nvs.h"
 
 #ifdef CFG_AMP_IPC
 #include "bt_ipc_api.h"
@@ -85,6 +89,239 @@ int atoi_ex(const char *str)
 
     return result;
 
+}
+
+int my_sscanf(const char *str, const char *fmt, ...)
+{
+    va_list ap;
+    const char *s = str;
+    const char *f = fmt;
+    int assigned = 0;
+
+    if (!str || !fmt)
+    {
+        return 0;
+    }
+
+    va_start(ap, fmt);
+
+    while (*f)
+    {
+        if (*f == '%')
+        {
+            int suppress = 0;
+            int width = 0;
+            int len = 4;
+
+            f++;
+
+            if (*f == '*')
+            {
+                suppress = 1;
+                f++;
+            }
+
+            while (*f >= '0' && *f <= '9')
+            {
+                width = width * 10 + (*f - '0');
+                f++;
+            }
+
+            if (*f == 'h')
+            {
+                len = 2;
+                f++;
+                if (*f == 'h')
+                {
+                    len = 1;
+                    f++;
+                }
+            }
+            else if (*f == 'l' || *f == 'L')
+            {
+                f++;
+            }
+
+            if (*f == '[')
+            {
+                int negate = 0;
+                const char *set_begin;
+                int matched = 0;
+
+                f++;
+                if (*f == '^')
+                {
+                    negate = 1;
+                    f++;
+                }
+                set_begin = f;
+
+                while (*f && *f != ']')
+                {
+                    f++;
+                }
+
+                while (*s && (width == 0 || matched < width))
+                {
+                    const char *q = set_begin;
+                    int in_set = 0;
+                    while (q < f)
+                    {
+                        if (*q == *s)
+                        { 
+                            in_set = 1;
+                            break;
+                        }
+                        q++;
+                    }
+                    if (in_set == negate)
+                    {
+                        break;
+                    }
+                    s++;
+                    matched++;
+                }
+
+                if (*f == ']')
+                {
+                    f++;
+                }
+                continue;
+            }
+            else if (*f == 'i' || *f == 'd' || *f == 'x' || *f == 'X' || *f == 'u')
+            {
+                int base = 10;
+                long val = 0;
+                int ndig = 0;
+                int neg = 0;
+                char conv = *f;
+                f++;
+
+                while (*s == ' ' || *s == '\t')
+                {
+                    s++;
+                }
+
+                if (conv == 'x' || conv == 'X')
+                {
+                    base = 16;
+                    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+                    {
+                        s += 2;
+                    }
+                }
+                else if (conv == 'i')
+                {
+                    if (*s == '-')
+                    {
+                        neg = 1;
+                        s++;
+                    }
+                    else if (*s == '+')
+                    {
+                        s++;
+                    }
+                    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))
+                    {
+                        base = 16;
+                        s += 2;
+                    }
+                }
+                else
+                {
+                    if (conv == 'd' && *s == '-')
+                    {
+                        neg = 1;
+                        s++;
+                    }
+                    else if (*s == '+')
+                    {
+                        s++;
+                    }
+                }
+
+                while (*s)
+                {
+                    int dig;
+                    char c = *s;
+                    if (c >= '0' && c <= '9')           dig = c - '0';
+                    else if (base == 16 && c >= 'a' && c <= 'f') dig = 10 + (c - 'a');
+                    else if (base == 16 && c >= 'A' && c <= 'F') dig = 10 + (c - 'A');
+                    else break;
+                    val = val * base + dig;
+                    s++;
+                    ndig++;
+                    if (width != 0 && ndig >= width)
+                    {
+                        break;
+                    }
+                }
+
+                if (ndig == 0)
+                {
+                    break;
+                }
+                if (neg)
+                {
+                    val = -val;
+                }
+
+                if (!suppress)
+                {
+                    void *dst = va_arg(ap, void *);
+                    if (len == 1)      *(uint8_t  *)dst = (uint8_t)val;
+                    else if (len == 2) *(uint16_t *)dst = (uint16_t)val;
+                    else               *(uint32_t *)dst = (uint32_t)val;
+                    assigned++;
+                }
+            }
+            else if (*f == 'c')
+            {
+                f++;
+                if (*s)
+                {
+                    if (!suppress)
+                    {
+                        *(char *)va_arg(ap, void *) = *s;
+                        assigned++;
+                    }
+                    s++;
+                }
+            }
+            else if (*f == '%')
+            {
+                f++;
+                if (*s == '%') s++;
+            }
+            else
+            {
+                break;
+            }
+        }
+        else if (*f == ' ' || *f == '\t')
+        {
+            while (*s == ' ' || *s == '\t')
+            {
+                s++;
+            }
+            f++;
+        }
+        else
+        {
+            if (*s == *f)
+            {
+                s++;
+                f++;
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+
+    va_end(ap);
+    return assigned;
 }
 
 /**
@@ -379,11 +616,10 @@ int atcmd_blescanparam(int type, char *params)
     }
     else if (type == ATCMD_EXEC)
     {
-        //const char *tokens[] = {"scan_type", "scan_intv", "scan_window", "own_addr_type", "scan_filt_policy"};
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i ", &config.scan_type, &config.scan_filt_policy, &config.scan_intv, &config.scan_window);
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hhi%*[ ,]%hi%*[ ,]%hi ", &config.scan_type, &config.scan_filt_policy, &config.scan_intv, &config.scan_window);
         }
         RETURN_IF_ERROR(cnt<4, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLESCANPARAM=0,0,320,160");
 
@@ -414,7 +650,7 @@ int atcmd_blescan(int type, char *params)
 {
     int res;
     ls_err_t ret;
-    ble_scan_t *config = NULL;
+    ble_scan_t config = {0};
 
     if (type == ATCMD_PARAM)
     {
@@ -424,47 +660,27 @@ int atcmd_blescan(int type, char *params)
     else if (type == ATCMD_EXEC)
     {
         int cnt = 0;
-
-        config = (ble_scan_t *)malloc(sizeof(ble_scan_t) + BD_ADDR_LEN);
-        if (!config)
-        {
-            return ATCMD_ERR_PARAM_INVALID;
-        }
-
-        config->enable = 0;
-        config->intv = 1;
-        config->filter_type = 0;
-
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i% ", &config->enable, &config->intv, &config->filter_type);
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hi%*[ ,]%hi ", &config.enable, &config.intv, &config.filter_type);
         }
-        if (cnt < 3)
+        RETURN_IF_ERROR(cnt<3, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLESCAN=0,10,0");
+
+        CLOGI("enable     :%d", config.enable);
+        CLOGI("intv       :%d", config.intv);
+        CLOGI("filter_type:%d", config.filter_type);
+
+
+        if (config.filter_type == 1)
         {
-            free(config);
-            RETURN_IF_ERROR(1, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLESCAN=0,10,0");
+            my_sscanf(params, "%*[^,],%*[^,],%*[^,], %hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx",
+                &config.filter_param[0],&config.filter_param[1],&config.filter_param[2],&config.filter_param[3],&config.filter_param[4], &config.filter_param[5]);
+            CLOGI("MAC %02x:%02x:%02x:%02x:%02x:%02x\n",config.filter_param[0], config.filter_param[1],config.filter_param[2],config.filter_param[3],config.filter_param[4],config.filter_param[5]);
+            memcpy(&ble_scan_filter_bd_addr.addr[0], config.filter_param, BD_ADDR_LEN);
         }
 
-        CLOGI("enable     :%d", config->enable);
-        CLOGI("intv       :%d", config->intv);
-        CLOGI("filter_type:%d", config->filter_type);
+        atcmd_ble_scan_send(&config);
 
-        #if BT_WIFI_COEX
-        if (config->filter_type == 1)
-        {
-            uint8_t *filter_param = (uint8_t *)config->filter_param;
-            sscanf(params, "%*[^,],%*[^,],%*[^,], %2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x",
-                &filter_param[0], &filter_param[1], &filter_param[2], &filter_param[3], &filter_param[4], &filter_param[5]);
-            CLOGI("MAC %02x:%02x:%02x:%02x:%02x:%02x\n", filter_param[0], filter_param[1], filter_param[2], filter_param[3], filter_param[4], filter_param[5]);
-            memcpy(&ble_scan_filter_bd_addr.addr[0], filter_param, BD_ADDR_LEN);
-        }
-
-        atcmd_ble_scan_send(config);
-        #else
-        atcmd_ble_not_support();
-        #endif
-
-        free(config);
         return ATCMD_OK;
     }
     else //ATCMD_QUERY
@@ -870,7 +1086,7 @@ int atcmd_bleconn(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*[ ,]%i ", &config.addr_type, &config.remote_addr.addr[0],&config.remote_addr.addr[1],
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*[ ,]%hi ", &config.addr_type, &config.remote_addr.addr[0],&config.remote_addr.addr[1],
                                      &config.remote_addr.addr[2],&config.remote_addr.addr[3],&config.remote_addr.addr[4],&config.remote_addr.addr[5],&config.timeout);
         }
 
@@ -914,7 +1130,7 @@ int atcmd_bleconnupdate(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i ", &config.conn_index, &config.min_interval, &config.max_interval, &config.con_latency, &config.timeout);
+            cnt = my_sscanf(params, "%hi%*[ ,]%hi%*[ ,]%hi%*[ ,]%hi%*[ ,]%hi ", &config.conn_index, &config.min_interval, &config.max_interval, &config.con_latency, &config.timeout);
         }
         RETURN_IF_ERROR(cnt<5, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLECONNUPDATE=0,0x50,0x50,99,0x100");
 
@@ -978,7 +1194,7 @@ int atcmd_bledisconn(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x ", &config.addr_type, &config.remote_addr.addr[0], &config.remote_addr.addr[1],
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx ", &config.addr_type, &config.remote_addr.addr[0], &config.remote_addr.addr[1],
                                                          &config.remote_addr.addr[2], &config.remote_addr.addr[3],&config.remote_addr.addr[4],&config.remote_addr.addr[5]);
         }
         RETURN_IF_ERROR(cnt<7, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLEDISCONN=0,11:22:33:44:78:9a:bc");
@@ -1019,7 +1235,7 @@ int atcmd_bledatalen(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i ", &config.conn_index, &config.pkt_data_len);
+            cnt = my_sscanf(params, "%hi%*[ ,]%hi ", &config.conn_index, &config.pkt_data_len);
         }
         RETURN_IF_ERROR(cnt<2, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLEDAATLEN=0,27");
 
@@ -1069,7 +1285,7 @@ int atcmd_blesecparam(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i ", &config.auth_req, &config.iocap, &config.key_size, &config.init_key, &config.rsp_key);
+            cnt = my_sscanf(params, "%hi%*[ ,]%hi%*[ ,]%hi%*[ ,]%hi%*[ ,]%hi ", &config.auth_req, &config.iocap, &config.key_size, &config.init_key, &config.rsp_key);
         }
         RETURN_IF_ERROR(cnt<5, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
 
@@ -1106,7 +1322,7 @@ int atcmd_bleenc(int type, char *params)
         int cnt = 0;
         if(params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i ", &config.conn_index, &config.sec_act);
+            cnt = my_sscanf(params, "%hi%*[ ,]%hi ", &config.conn_index, &config.sec_act);
         }
         RETURN_IF_ERROR(cnt<2, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
 
@@ -1257,10 +1473,10 @@ int atcmd_blebtencclear(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x ", &config.type, &config.bd_addr.addr[0], &config.bd_addr.addr[1],
+            cnt = my_sscanf(params, "0x%hhx%*[ ,]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx ", &config.type, &config.bd_addr.addr[0], &config.bd_addr.addr[1],
                                                                  &config.bd_addr.addr[2], &config.bd_addr.addr[3],&config.bd_addr.addr[4],&config.bd_addr.addr[5]);
         }
-        RETURN_IF_ERROR(cnt<7, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
+        RETURN_IF_ERROR(cnt!=7, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
 
         atcmd_ble_bt_enc_clear_send(&config);
 
@@ -1294,8 +1510,9 @@ int atcmd_blenonsignaltx(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i", &channel, &data_len, &payload, &phy, &fhss);
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi", &channel, &data_len, &payload, &phy, &fhss);
         }
+
         RETURN_IF_ERROR(cnt<5, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLENONSIGNALTX=5,27,0,1,0, phy[1 2 3 4]");
 
         CLOGI("channel :%d", channel);
@@ -1341,7 +1558,7 @@ int atcmd_blenonsignalrx(int type, char *params)
 
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i", &channel, &phy, &mod_idx, &infinite_rx_mode);
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi", &channel, &phy, &mod_idx, &infinite_rx_mode);
         }
 
         RETURN_IF_ERROR(cnt<4, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLENONSIGNALRX=5,1,0,0, phy[1 2 3 4]");
@@ -1399,6 +1616,79 @@ int atcmd_blenonsignalend(int type, char *params)
 }
 
 /// host
+
+int atcmd_hbtopen(int type, char *params)
+{
+    ls_err_t ret;
+    uint8_t mode = 0;
+
+    //CLOGI("%s %d %d %s\n", __func__, __LINE__, type, params);
+
+    if (type == ATCMD_PARAM)
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+    else if (type == ATCMD_EXEC)
+    {
+        params = atcmd_next_token(&params);
+        if (!params)
+        {
+            atcmd_rspdata("CWAUTOCONN:%d", -ATCMD_ERR_UNSPECIF);
+            return ATCMD_ERROR;
+        }
+        mode = atoi(params);
+
+        atcmd_hbt_open_send(mode);
+
+        return ATCMD_OK;
+    }
+    else //ATCMD_QUERY
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+
+    return ATCMD_UNKNOWN;
+
+}
+
+int atcmd_hbtclose(int type, char *params)
+{
+    ls_err_t ret;
+    uint8_t mode = 0;
+
+    //CLOGI("%s %d %d %s\n", __func__, __LINE__, type, params);
+
+    if (type == ATCMD_PARAM)
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+    else if (type == ATCMD_EXEC)
+    {
+        params = atcmd_next_token(&params);
+        if (!params)
+        {
+            atcmd_rspdata("CWAUTOCONN:%d", -ATCMD_ERR_UNSPECIF);
+            return ATCMD_ERROR;
+        }
+        mode = atoi(params);
+
+        atcmd_hbt_close_send(mode);
+
+        return ATCMD_OK;
+    }
+    else //ATCMD_QUERY
+    {
+        //CLOGI("%s %d\n",__func__, __LINE__);
+        return ATCMD_UNKNOWN;
+    }
+
+    return ATCMD_UNKNOWN;
+
+}
+
 int atcmd_hbleadvstart(int type, char *params)
 {
     ls_err_t ret;
@@ -1480,7 +1770,7 @@ int atcmd_btinquiry(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i ", &lap, &config.inq_len, &config.nb_rsp);
+            cnt = my_sscanf(params, "%i%*[ ,]%hhi%*[ ,]%hhi ", &lap, &config.inq_len, &config.nb_rsp);
         }
         RETURN_IF_ERROR(cnt<3, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BTINQUIRY=0x9e8b33,0x08,0x00");
 
@@ -1601,10 +1891,10 @@ int atcmd_btconn(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i ", &config.bd_addr.addr[0],&config.bd_addr.addr[1],&config.bd_addr.addr[2],
+            cnt = my_sscanf(params, "%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*[ ,]%hi%*[ ,]%hhi%*[ ,]%hi%*[ ,]%hhi ", &config.bd_addr.addr[0],&config.bd_addr.addr[1],&config.bd_addr.addr[2],
                               &config.bd_addr.addr[3],&config.bd_addr.addr[4],&config.bd_addr.addr[5],&config.pkt_type, &config.page_scan_rep_mode, &config.clk_off, &config.switch_en);
         }
-        RETURN_IF_ERROR(cnt<10, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLECONN=11:22:33:78:9a:bc,0x18CC,0,0,0");
+        RETURN_IF_ERROR(cnt<10, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BTCONN=11:22:33:78:9a:bc,0x18CC,0,0,0");
 
         CLOGI("atcmd_btconn MAC %02x:%02x:%02x:%02x:%02x:%02x", config.bd_addr.addr[0], config.bd_addr.addr[1], config.bd_addr.addr[2],config.bd_addr.addr[3],config.bd_addr.addr[4],config.bd_addr.addr[5]);
         CLOGI("pkt_type          :%d", config.pkt_type);
@@ -1645,7 +1935,7 @@ int atcmd_btdisconn(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x ", &config.addr_type, &config.remote_addr.addr[0], &config.remote_addr.addr[1],
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx ", &config.addr_type, &config.remote_addr.addr[0], &config.remote_addr.addr[1],
                                                                  &config.remote_addr.addr[2], &config.remote_addr.addr[3],&config.remote_addr.addr[4],&config.remote_addr.addr[5]);
         }
         RETURN_IF_ERROR(cnt<7, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BLEDISCONN=0x80,11:22:33:44:78:9a:bc");
@@ -1685,7 +1975,7 @@ int atcmd_btnonsignaltx(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i ", &config.pkt_type, &config.pkt_len, &config.pkt_per, &config.pattern, &config.tx_ch, &config.tx_power, &config.tx_value);
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi ", &config.pkt_type, &config.pkt_len, &config.pkt_per, &config.pattern, &config.tx_ch, &config.tx_power, &config.tx_value);
         }
         RETURN_IF_ERROR(cnt<7, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BTNONSIGNALTX=0x04,20,1,0,5,0,0");
 
@@ -1736,7 +2026,7 @@ int atcmd_btnonsignalrx(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*[ ,]%i ", &rx_ch, &pkt_type, &config.peer_bd_addr.addr[0],&config.peer_bd_addr.addr[1],
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hhi%*[ ,]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*[ ,]%hhi ", &rx_ch, &pkt_type, &config.peer_bd_addr.addr[0],&config.peer_bd_addr.addr[1],
                                                              &config.peer_bd_addr.addr[2],&config.peer_bd_addr.addr[3], &config.peer_bd_addr.addr[4],&config.peer_bd_addr.addr[5], &config.infinite_mode);
         }
 
@@ -1844,23 +2134,16 @@ int atcmd_bdaddr(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x%*1[:]%2x", &lc_bd_addr.addr[0],&lc_bd_addr.addr[1],
+            cnt = my_sscanf(params, "%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx%*1[:]%hhx", &lc_bd_addr.addr[0],&lc_bd_addr.addr[1],
                          &lc_bd_addr.addr[2],&lc_bd_addr.addr[3], &lc_bd_addr.addr[4],&lc_bd_addr.addr[5]);
         }
 
         RETURN_IF_ERROR(cnt<6, ATCMD_ERR_PARAM_INVALID, "Invalid param count\r\nexp: AT+BDADDR=11:22:33:78:9a:bc");
-        #if (BT_WIFI_COEX)
 
-#ifdef CFG_AMP_IPC
-        ble_gap_set_loc_pub_addr_api(&lc_bd_addr);
-#else
-        ble_gap_set_loc_pub_addr(lc_bd_addr.addr);
-#endif 
-
-        
-        #else
-        atcmd_bt_not_support();
-        #endif
+        if(bt_stack_nvs_set(NVS_ID_BD_ADDRESS, GAP_BD_ADDR_LEN, lc_bd_addr.addr) ==  NVDS_OK)
+        {
+            atcmd_bt_set_bd_addr(lc_bd_addr.addr);
+        }
 
         return ATCMD_OK;
     }
@@ -1909,7 +2192,7 @@ int atcmd_txpower(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i", &txpower);
+            cnt = my_sscanf(params, "%hhi", &txpower);
         }
 
         RETURN_IF_ERROR(cnt<1, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
@@ -1950,8 +2233,9 @@ int atcmd_testtonestart(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i ", &channel, &power);
+            cnt = my_sscanf(params, "%hi%*[ ,]%hi ", &channel, &power);
         }
+
         RETURN_IF_ERROR(cnt<2, ATCMD_ERR_PARAM_INVALID, "Invalid param count");
 
         CLOGI("channel:%d", channel);
@@ -2056,7 +2340,7 @@ int atcmd_bt_set_event_filter(int type, char *params)
         int cnt = 0;
         if (params)
         {
-            cnt = sscanf(params, "%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i%*[ ,]%i",
+            cnt = my_sscanf(params, "%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi%*[ ,]%hhi",
                         &filter_type, &filter_con_type, &con[0], &con[1], &con[2], &con[3], &con[4], &con[5], &con[6]);
         }
 
@@ -2309,7 +2593,11 @@ const atcmd_item_t atcmd_bt_table[] =
                          "<infinite_rx_mode>: 1: inifinate rx mode 0: normal rx mode\r\n"},
     {atcmd_blenonsignalend,"AT+BLENONSIGNALEND",    "ble non signal test end\r\n"
                          "rsp is: <nb_pkt_recv>"},
-        // bt host
+    // bt host
+    {atcmd_hbtopen,      "AT+BTOPEN",    "bt open \r\n"
+                         "AT+BTOPEN=<mode>\r\n"},
+    {atcmd_hbtclose,     "AT+BTCLOSE",     "bt close \r\n"
+                         "AT+BTCLOSE=<mode>\r\n"},
     {atcmd_hbleadvstart,   "AT+ADVSTART",    "host adv start \r\n"
                          "AT+ADVSTART=<mode>\r\n"},
     {atcmd_hbleadvstop,    "AT+ADVSTOP",     "host adv stop \r\n"

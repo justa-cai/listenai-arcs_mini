@@ -1,0 +1,140 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+#
+# av_render: render pipeline + sync + MJPEG decode + LCD output
+
+menu "av_render"
+
+comment "--- Audio ---"
+
+config AVI_PLAYER_AUDIO_MP3
+	bool "Enable MP3 audio decoder (mp3dec)"
+	select SDK_MODULE_MP3_DECODER
+	help
+	  Enable built-in MP3 audio decoding via modules/mp3dec.
+	  When disabled, AVI with MP3 audio can still work if the application
+	  registers a custom audio decoder at runtime.
+
+config AVI_PLAYER_MP3_DECODE_QUEUE_DEPTH
+	int "MP3 decode queue depth"
+	range 1 32
+	default 8
+	depends on AVI_PLAYER_AUDIO_MP3
+	help
+	  Number of compressed MP3 frames queued for decoding.
+
+config AVI_PLAYER_MP3_DECODE_THREAD_STACK_SIZE
+	int "MP3 decode thread stack size (bytes)"
+	range 4096 65536
+	default 12288
+	depends on AVI_PLAYER_AUDIO_MP3
+
+config AVI_PLAYER_MP3_DECODE_THREAD_PRIORITY
+	int "MP3 decode thread priority"
+	range 1 10
+	default 3
+	depends on AVI_PLAYER_AUDIO_MP3
+
+comment "--- Video ---"
+
+choice
+	prompt "Video rotation mode"
+	default AVI_PLAYER_ROTATE_NONE
+
+config AVI_PLAYER_ROTATE_NONE
+	bool "No rotation"
+
+config AVI_PLAYER_ROTATE_90_CW
+	bool "Rotate 90 degrees CW"
+
+config AVI_PLAYER_ROTATE_90_CCW
+	bool "Rotate 90 degrees CCW"
+
+endchoice
+
+config AVI_PLAYER_FIXED_FPS
+	bool "Enable fixed video FPS"
+	help
+	  Override the AVI file's native frame rate with a fixed value.
+
+config AVI_PLAYER_FIXED_FPS_VALUE
+	int "Fixed video FPS"
+	range 1 60
+	default 15
+	depends on AVI_PLAYER_FIXED_FPS
+
+config AVI_PLAYER_MAX_VIDEO_AHEAD_MS
+	int "Max video ahead (ms) in A/V sync"
+	range 0 5000
+	default 300
+	help
+	  Limit how far video PTS is allowed to run ahead of the audio clock
+	  when av_render is in AV_RENDER_SYNC_AUDIO mode.
+
+comment "--- MJPEG Decoder ---"
+
+choice
+	prompt "MJPEG decoder backend"
+	default AVI_PLAYER_VIDEO_DECODER_LISA_JPEG
+	help
+	  Select the JPEG decoding backend for MJPEG video frames.
+
+	  - Hardware (lisa_jpeg): Uses the on-chip JPEG hardware accelerator.
+	    Fast and low CPU usage, but limited by hardware constraints
+	    (e.g. max resolution, supported sub-sampling modes).
+
+	  - Software (libjpeg-turbo): Pure software decode on CPU.
+	    More compatible but higher CPU load and slower.
+
+config AVI_PLAYER_VIDEO_DECODER_LISA_JPEG
+	bool "Hardware decode (lisa_jpeg)"
+	select LISA_JPEG
+	help
+	  Use the on-chip JPEG hardware accelerator for MJPEG decoding.
+	  Recommended for best performance and lowest CPU usage.
+
+config AVI_PLAYER_VIDEO_DECODER_MJPEG
+	bool "Software decode (libjpeg-turbo)"
+	select SDK_MODULE_LIBJPEG_TURBO
+	help
+	  Use libjpeg-turbo for pure software MJPEG decoding.
+	  Higher CPU usage but supports all JPEG sub-sampling modes and
+	  resolutions without hardware limitations.
+
+endchoice
+
+config AVI_PLAYER_LISA_JPEG_SOFT_FALLBACK
+	bool "Software fallback on hardware decode failure"
+	depends on AVI_PLAYER_VIDEO_DECODER_LISA_JPEG
+	select SDK_MODULE_LIBJPEG_TURBO
+	help
+	  When hardware decode (lisa_jpeg) fails for a frame (e.g. unsupported
+	  sub-sampling or resolution), automatically retry with libjpeg-turbo
+	  software decode. Increases binary size but improves compatibility.
+
+config AVI_PLAYER_MJPEG_DECODE_QUEUE_DEPTH
+	int "MJPEG decode queue depth"
+	range 1 8
+	default 2
+	help
+	  Number of compressed MJPEG frames queued for decoding.
+
+config AVI_PLAYER_MJPEG_DECODE_THREAD_STACK_SIZE
+	int "MJPEG decode thread stack size (bytes)"
+	range 4096 65536
+	default 24576
+
+config AVI_PLAYER_MJPEG_DECODE_THREAD_PRIORITY
+	int "MJPEG decode thread priority"
+	range 1 10
+	default 2
+
+comment "--- Debug ---"
+
+config AVI_PLAYER_PROFILE_LOG
+	bool "Enable performance profiling logs"
+
+config AVI_PLAYER_STATS_LOG
+	bool "Enable AVI statistics logs"
+
+endmenu

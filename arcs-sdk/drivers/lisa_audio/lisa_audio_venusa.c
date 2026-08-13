@@ -1,0 +1,574 @@
+/*
+ * Copyright (c) 2025, LISTENAI
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#define LOG_TAG "lisa_audio_venusa"
+#include "lisa_log.h"
+
+#include <string.h>
+#include "lisa_audio.h"
+#include "port/venusa/lisa_audio_internal.h"
+
+#define lisa_audio_port_record_init       venusa_audio_record_init
+#define lisa_audio_port_record_deinit     venusa_audio_record_deinit
+#define lisa_audio_port_record_config     venusa_audio_record_config
+#define lisa_audio_port_record_control    venusa_audio_record_control
+#define lisa_audio_port_play_init         venusa_audio_play_init
+#define lisa_audio_port_play_deinit       venusa_audio_play_deinit
+#define lisa_audio_port_play_config       venusa_audio_play_config
+#define lisa_audio_port_play_write        venusa_audio_play_write
+#define lisa_audio_port_play_get_buffer   venusa_audio_play_get_buffer
+#define lisa_audio_port_play_control      venusa_audio_play_control
+
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
+
+#define MAX_AUDIO_OBSERVERS 4
+#define WAIT_DATA_TIMEOUT    (20)
+#define DISPATCH_QUEUE_SIZE (CONFIG_LISA_AUDIO_RECORD_BUFFER_COUNT - 1)
+
+
+// Observer for the unified callback
+typedef struct {
+    lisa_audio_callback_t callback;
+    void *user_data;
+} audio_observer_t;
+
+typedef struct {
+    /* Driver sub-modules */
+    lisa_audio_record_priv_t record;
+    lisa_audio_play_priv_t play;
+
+    /* Unified Dispatcher State */
+    lisa_mutex_t *mutex;
+    TaskHandle_t dispatch_task;
+
+    /* Queues for pairing record and echo events */
+    QueueHandle_t record_queue;
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    QueueHandle_t echo_queue;
+#endif
+
+    /* Phase compensation (samples to skip) */
+    lisa_audio_phase_compensation_t phase_comp;
+
+    /* Unified Callback Observers */
+    audio_observer_t observers[MAX_AUDIO_OBSERVERS];
+    uint8_t observer_count;
+
+    /* Track which streams are active */
+    bool record_running;
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    bool play_running;
+    uint32_t echo_drop_samples;
+#endif
+    uint32_t record_drop_samples;
+
+    volatile uint32_t pending_record_drops;  // Number of record frames to drop for sync
+    volatile uint32_t pending_echo_drops;    // Number of echo frames to drop for
+} lisa_audio_priv_t;
+
+static int audio_record_config(lisa_device_t *dev, const lisa_audio_record_config_t *config)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+
+    return lisa_audio_port_record_config(&priv->record, config);
+}
+
+static int audio_record_control(lisa_device_t *dev, uint32_t cmd, void *arg)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+
+    if (cmd == LISA_AUDIO_IOCTL_RECORD_START) {
+        lisa_mutex_lock(priv->mutex, -1);
+        xQueueReset(priv->record_queue);
+        priv->record_drop_samples = 0;
+        priv->pending_record_drops = 0;
+        lisa_mutex_unlock(priv->mutex);
+    }
+
+    int ret = lisa_audio_port_record_control(&priv->record, cmd, arg);
+
+    /* Track record running state */
+    if (ret == LISA_DEVICE_OK) {
+        lisa_mutex_lock(priv->mutex, -1);
+        if (cmd == LISA_AUDIO_IOCTL_RECORD_START) {
+            priv->record_running = true;
+        } else if (cmd == LISA_AUDIO_IOCTL_RECORD_STOP) {
+            priv->record_running = false;
+            xQueueReset(priv->record_queue);
+        }
+        lisa_mutex_unlock(priv->mutex);
+    }
+
+    return ret;
+}
+
+static int audio_play_config(lisa_device_t *dev, const lisa_audio_play_config_t *config)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+    return lisa_audio_port_play_config(&priv->play, config);
+}
+
+static int audio_play_write(lisa_device_t *dev, const void *buffer, uint32_t samples)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+    return lisa_audio_port_play_write(&priv->play, buffer, samples);
+}
+
+static int audio_play_get_buffer(lisa_device_t *dev, void **buffer, uint32_t timeout_ms)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+    return lisa_audio_port_play_get_buffer(&priv->play, buffer, timeout_ms);
+}
+
+static int audio_play_control(lisa_device_t *dev, uint32_t cmd, void *arg)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    if (cmd == LISA_AUDIO_IOCTL_PLAY_STOP) {
+        lisa_mutex_lock(priv->mutex, -1);
+        priv->play_running = false;
+        priv->echo_drop_samples = 0;
+        priv->pending_echo_drops = 0;
+        xQueueReset(priv->echo_queue);
+        lisa_mutex_unlock(priv->mutex);
+    }
+#endif
+
+    int ret = lisa_audio_port_play_control(&priv->play, cmd, arg);
+    
+    /* Track play running state */
+    if (ret == LISA_DEVICE_OK) {
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+        lisa_mutex_lock(priv->mutex, -1);
+        if (cmd == LISA_AUDIO_IOCTL_PLAY_START) {
+            xQueueReset(priv->echo_queue);
+            priv->play_running = true;
+            priv->echo_drop_samples = 0;
+            priv->pending_echo_drops = 0;
+        } else if (cmd == LISA_AUDIO_IOCTL_PLAY_STOP) {
+            priv->play_running = false;
+        }
+        lisa_mutex_unlock(priv->mutex);
+#endif
+    }
+    
+    return ret;
+}
+
+static int audio_ioctl(lisa_device_t *dev, uint8_t cmd, void *arg)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+
+    switch (cmd) {
+        case LISA_AUDIO_IOCTL_SET_PHASE_COMPENSATION:
+            if (!arg) {
+                return LISA_DEVICE_ERR_INVALID;
+            }
+            lisa_mutex_lock(priv->mutex, -1);
+            priv->phase_comp = *(lisa_audio_phase_compensation_t *)arg;
+            lisa_mutex_unlock(priv->mutex);
+            return LISA_DEVICE_OK;
+
+        case LISA_AUDIO_IOCTL_GET_PHASE_COMPENSATION:
+            if (!arg) {
+                return LISA_DEVICE_ERR_INVALID;
+            }
+            lisa_mutex_lock(priv->mutex, -1);
+            *(lisa_audio_phase_compensation_t *)arg = priv->phase_comp;
+            lisa_mutex_unlock(priv->mutex);
+            return LISA_DEVICE_OK;
+
+        case LISA_AUDIO_IOCTL_PLAY_GET_STATUS:
+            return lisa_audio_port_play_control(&priv->play, cmd, arg);
+
+        default:
+            return LISA_DEVICE_ERR_NOT_SUPPORT;
+    }
+}
+
+static void audio_dispatch_thread(void *arg);
+
+static int audio_register_callback(lisa_device_t *dev, lisa_audio_callback_t callback, void *user_data)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+    lisa_mutex_lock(priv->mutex, -1);
+
+    if (priv->observer_count >= MAX_AUDIO_OBSERVERS) {
+        lisa_mutex_unlock(priv->mutex);
+        return LISA_DEVICE_ERR_NO_MEM;
+    }
+
+    for (int i = 0; i < priv->observer_count; i++) {
+        if (priv->observers[i].callback == callback) {
+            lisa_mutex_unlock(priv->mutex);
+            return LISA_DEVICE_OK;
+        }
+    }
+
+    priv->observers[priv->observer_count].callback = callback;
+    priv->observers[priv->observer_count].user_data = user_data;
+    priv->observer_count++;
+
+    lisa_mutex_unlock(priv->mutex);
+    return LISA_DEVICE_OK;
+}
+
+static int audio_unregister_callback(lisa_device_t *dev, lisa_audio_callback_t callback)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)dev->priv_data;
+    lisa_mutex_lock(priv->mutex, -1);
+
+    int pos = -1;
+    for (int i = 0; i < priv->observer_count; i++) {
+        if (priv->observers[i].callback == callback) {
+            pos = i;
+            break;
+        }
+    }
+
+    if (pos != -1) {
+        for (int i = pos; i < priv->observer_count - 1; i++) {
+            priv->observers[i] = priv->observers[i + 1];
+        }
+        priv->observer_count--;
+    }
+
+    lisa_mutex_unlock(priv->mutex);
+    return LISA_DEVICE_OK;
+}
+
+
+static const lisa_audio_api_t audio_api = {
+    .register_callback = audio_register_callback,
+    .unregister_callback = audio_unregister_callback,
+    .record_config = audio_record_config,
+    .record_control = audio_record_control,
+    .play_config = audio_play_config,
+    .play_write = audio_play_write,
+    .play_get_buffer = audio_play_get_buffer,
+    .play_control = audio_play_control,
+    .ioctl = audio_ioctl,
+};
+
+static lisa_audio_priv_t audio_priv = { 0 };
+
+int audio_submit_event_from_isr(internal_audio_event_t *event)
+{
+    int ret = 0;
+    if (!event) return LISA_DEVICE_ERR_INVALID;
+
+    const bool in_isr = (xPortIsInsideInterrupt() == pdTRUE);
+    BaseType_t yield = pdFALSE;
+    /* Select target queue and skip counter based on event type */
+    if (event->type == AUDIO_EVENT_TYPE_RECORD) {
+        
+        if(audio_priv.pending_record_drops > 0){
+            audio_priv.pending_record_drops--;
+            return 0;
+        }
+
+        if(audio_priv.phase_comp.record_skip_samples > audio_priv.record_drop_samples){
+            audio_priv.record_drop_samples += event->samples;
+            return 0;
+        }
+            /* Send to target queue */
+        BaseType_t ok = in_isr
+                      ? xQueueSendFromISR(audio_priv.record_queue, event, &yield)
+                      : xQueueSend(audio_priv.record_queue, event, 0);
+        if (ok != pdPASS) {
+            /* Queue full - frame dropped (logged in dispatch thread) */
+            audio_priv.pending_echo_drops++;
+            LOGE("Record queue full, frame dropped");
+            ret = LISA_DEVICE_ERR_NO_MEM;
+        }
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    } else if (event->type == AUDIO_EVENT_TYPE_ECHO) {
+
+        if (!audio_priv.play_running) {
+            return 0;
+        }
+
+        if(audio_priv.pending_echo_drops > 0){
+            audio_priv.pending_echo_drops--;
+            return 0;
+        }
+
+        if(audio_priv.phase_comp.echo_skip_samples > audio_priv.echo_drop_samples){
+            audio_priv.echo_drop_samples += event->samples;
+            return 0;
+        }
+
+        /* Send to target queue */
+        BaseType_t ok = in_isr
+                      ? xQueueSendFromISR(audio_priv.echo_queue, event, &yield)
+                      : xQueueSend(audio_priv.echo_queue, event, 0);
+        if (ok != pdPASS) {
+            /* Queue full - frame dropped (logged in dispatch thread) */
+            audio_priv.pending_record_drops++;
+            LOGE("Echo queue full, frame dropped");
+            ret = LISA_DEVICE_ERR_NO_MEM;
+        }
+#endif
+    }
+
+    if (in_isr) {
+        portYIELD_FROM_ISR(yield);
+    }
+
+    return ret;
+}
+
+
+/**
+ * @brief 创建 audio 设备的 OS 资源与子模块 HAL 句柄（仅启动期调用一次）
+ *
+ * 这里集中分配跨 suspend/resume 必须保留的全部资源：
+ *   - 顶层 mutex / record_queue / echo_queue / dispatch_task
+ *   - 子模块 record / play 的 HAL 句柄与 sub-priv 初始化（其内部 memset
+ *     仅作用于 sub-priv，不会触碰顶层资源；submodule 的 OS 资源由后续
+ *     audio_record_config / audio_play_config 按需创建，跨 PM 保留）
+ *
+ * resume_restore 路径不会调用本函数，避免对已存在 OS 句柄的二次创建/泄漏。
+ */
+static int lisa_audio_init_resources(lisa_audio_priv_t *priv)
+{
+    priv->mutex = lisa_mutex_create();
+    if (!priv->mutex) {
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    /* Create queues for record and echo events */
+    priv->record_queue = xQueueCreate(DISPATCH_QUEUE_SIZE, sizeof(internal_audio_event_t));
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    priv->echo_queue = xQueueCreate(DISPATCH_QUEUE_SIZE, sizeof(internal_audio_event_t));
+#endif
+
+    if (!priv->record_queue
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+        || !priv->echo_queue
+#endif
+    ) {
+        if (priv->record_queue) vQueueDelete(priv->record_queue);
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+        if (priv->echo_queue) vQueueDelete(priv->echo_queue);
+#endif
+        lisa_mutex_delete(priv->mutex);
+        return LISA_DEVICE_ERR_NO_MEM;
+    }
+
+    if (xTaskCreate(audio_dispatch_thread, "audio_dispatch",
+                    CONFIG_LISA_AUDIO_DISPATCH_TASK_STACK_SIZE / sizeof(StackType_t),
+                    priv,
+                    configMAX_PRIORITIES - CONFIG_LISA_AUDIO_DISPATCH_TASK_PRIORITY - 1,
+                    &priv->dispatch_task) != pdPASS) {
+        vQueueDelete(priv->record_queue);
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+        if (priv->echo_queue) vQueueDelete(priv->echo_queue);
+#endif
+        lisa_mutex_delete(priv->mutex);
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    int ret = lisa_audio_port_record_init(&priv->record);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    ret = lisa_audio_port_play_init(&priv->play);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    return LISA_DEVICE_OK;
+}
+
+/**
+ * @brief 幂等的 HAL/codec 层重置；启动期与 resume_restore 共用
+ *
+ * audio 的子模块 (record / play) 没有提供原子的 HAL re-init 接口，且 sub-priv
+ * 内含 _config 阶段分配的 OS 资源（queue / buffer pool / event group），重新
+ * memset 会泄漏。因此本函数只负责把"运行标记"与本驱动层的同步业务字段拉回
+ * 出口形态：codec / DMA / I2C 等掉电硬件由应用层 after_wake 重新配置
+ * （详见 spec 注）。
+ *
+ * Red-line：不分配任何 OS 资源，不删除任何已有 OS 句柄，不释放堆内存。
+ */
+static int lisa_audio_init_hw(lisa_audio_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    priv->record_running = false;
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    priv->play_running = false;
+    priv->echo_drop_samples = 0;
+#endif
+    priv->record_drop_samples = 0;
+    priv->pending_record_drops = 0;
+    priv->pending_echo_drops = 0;
+
+    return LISA_DEVICE_OK;
+}
+
+static int audio_init(void)
+{
+    memset(&audio_priv, 0, sizeof(audio_priv));
+
+    int ret = lisa_audio_init_resources(&audio_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    return lisa_audio_init_hw(&audio_priv);
+}
+
+/**
+ * @brief 停止并释放 audio0 设备的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用。释放顺序与 lisa_audio_init_resources 申请顺序相反：
+ *   1) 先删除 dispatch 线程，避免其在队列被删除后继续访问已释放资源；
+ *   2) 反初始化 play / record 子模块（HAL 下电 + 运行期 OS/堆资源释放）；
+ *   3) 删除顶层 record_queue / echo_queue / mutex；
+ *   4) memset 整个顶层 priv，回到 audio_init 之前的零初值。
+ *
+ * 约定：调用方需保证此时录/放已停止、无并发业务在使用本设备（与初始化路径一致）。
+ */
+static int audio_deinit(void)
+{
+    lisa_audio_priv_t *priv = &audio_priv;
+
+    /* 1) 先删 dispatch 线程，停止对 record_queue / echo_queue 的访问 */
+    if (priv->dispatch_task) {
+        vTaskDelete(priv->dispatch_task);
+        priv->dispatch_task = NULL;
+    }
+
+    /* 2) 反初始化子模块（内部完成 HAL 下电与运行期资源释放） */
+    lisa_audio_port_play_deinit(&priv->play);
+    lisa_audio_port_record_deinit(&priv->record);
+
+    /* 3) 删除顶层 OS 资源 */
+    if (priv->record_queue) {
+        vQueueDelete(priv->record_queue);
+        priv->record_queue = NULL;
+    }
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    if (priv->echo_queue) {
+        vQueueDelete(priv->echo_queue);
+        priv->echo_queue = NULL;
+    }
+#endif
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+        priv->mutex = NULL;
+    }
+
+    /* 4) 清空顶层状态，回到上电初始态 */
+    memset(&audio_priv, 0, sizeof(audio_priv));
+
+    return LISA_DEVICE_OK;
+}
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在正常任务上下文中睡眠前调
+ * lisa_device_destroy(audio0) 释放全部软硬件资源，唤醒后在 PM after_wake 回调中调
+ * lisa_device_reinit(audio0) 重建到 audio_init 后的状态。因此 prepare_suspend /
+ * resume_restore 不再需要（原先它们只做字段清零 / lisa_audio_init_hw，已被
+ * destroy/reinit 覆盖，且二者运行于 HAL __disable_irq() 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：在 AUTO_LIGHT_SLEEP 策略下，录/放运行中（DMA 搬运 DAC/ADC）
+ * 阻止系统自动进入轻睡眠。只读 priv 运行标记，不取 mutex / 不读 HAL。
+ */
+static int32_t lisa_audio_pm_check_idle(void *ctx)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    if (priv->record_running) {
+        return 0;
+    }
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+    if (priv->play_running) {
+        return 0;
+    }
+#endif
+    return 1;
+}
+
+static const lisa_pm_system_ops_t lisa_audio_pm_ops = {
+    .check_idle      = lisa_audio_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif /* CONFIG_LISA_PM */
+
+static void audio_dispatch_thread(void *arg)
+{
+    lisa_audio_priv_t *priv = (lisa_audio_priv_t *)arg;
+
+    while (1) {
+        internal_audio_event_t rec_evt = {0}, echo_evt = {0};
+
+        if (priv->record_running
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+            || priv->play_running
+#endif
+        ) {
+
+            if (priv->record_running) {
+                if(pdPASS != xQueueReceive(priv->record_queue, &rec_evt,  pdMS_TO_TICKS(WAIT_DATA_TIMEOUT))){
+                    continue;
+                }  
+            }
+
+#if defined(CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE) || defined(CONFIG_LISA_AUDIO_PLAY_SOFT_ECHO)
+            if (priv->play_running) {
+                if(pdPASS != xQueueReceive(priv->echo_queue, &echo_evt,  pdMS_TO_TICKS(WAIT_DATA_TIMEOUT))){
+                    continue;
+                }
+            }
+#endif
+
+            lisa_audio_event_t out_event = {
+                .record_buffer = rec_evt.buffer,
+                .record_samples = rec_evt.samples,
+                .echo_buffer = echo_evt.buffer,
+                .echo_samples = echo_evt.samples,
+            };
+
+            /* Dispatch the event (paired or single) */
+            for (int i = 0; i < priv->observer_count; i++) {
+                priv->observers[i].callback(&out_event, priv->observers[i].user_data);
+            }
+            
+
+        }
+        /*waiting for running*/
+        else {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+}
+
+LISA_DEVICE_REGISTER_DEINIT(audio0,
+                            &audio_api,
+                            &audio_priv,
+                            NULL,
+                            audio_init,
+                            audio_deinit,
+                            LISA_DEVICE_LEVEL_NORMAL,
+                            CONFIG_LISA_AUDIO_INIT_PRIORITY);
+
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(audio0, &lisa_audio_pm_ops, NULL, &audio_priv);
+#endif

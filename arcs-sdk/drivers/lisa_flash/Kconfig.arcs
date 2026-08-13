@@ -3,6 +3,7 @@
 
 config LISA_FLASH_ARCS
 	bool "Enable LISA Flash ARCS support"
+	depends on SOC_ARCS || BOARD_ARCS_EVB || BOARD_ARCS_MINI
 	select ARCS_HAL_FLASH_IF
 	select RTOS_AL
 	help
@@ -12,6 +13,7 @@ if LISA_FLASH_ARCS
 
 config LISA_FLASH_ARCS_HALT_REMOTE_CORE
 	bool "Enable HAL IPC halt remote core support"
+	select ARCS_HAL_IPC
 	select ARCS_HAL_IPC_HALT_PEER_CORE
 	select ARCS_HAL_IPC_FLASH_AGENT
 	help

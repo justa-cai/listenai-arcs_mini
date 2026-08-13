@@ -1,4 +1,4 @@
-# Bluetooth Audio Sink Sample
+# 经典蓝牙 A2DP 音频接收示例
 
 ## 功能说明
 
@@ -7,6 +7,7 @@
 示例实现了以下功能：
 - 初始化 Lisa Shell、Lisa Bluetooth、BT Audio Framework 和 BT Sink
 - 通过 Shell 命令 `bt_scan <0|1|2|3>` 控制经典蓝牙扫描模式
+- 通过 Shell 命令 `bt_disconnect_addr <addr>` 按地址主动断开经典蓝牙连接
 - 手机连接后自动完成经典蓝牙链路、HFP、AVRCP、A2DP 建链
 - 收到 A2DP Start 后自动创建播放会话并开始 SBC 解码播放
 - 通过 `AT` 透传命令直接下发底层 AT 指令
@@ -150,6 +151,14 @@ bt_scan 3
 bt_scan 0
 ```
 
+### 6. 主动断开连接
+
+如果需要从开发板侧主动断开某个已连接设备，可根据连接日志中的设备地址执行：
+
+```bash
+bt_disconnect_addr E0:5D:3B:CC:EE:E8
+```
+
 ## 配置选项
 
 ### prj.conf 关键配置
@@ -188,11 +197,13 @@ lisa_audio 播放输出
 
 - `main()`：完成 Shell、蓝牙、BT Audio Framework 和 BT Sink 初始化。
 - `cmd_bt_scan()`：解析 `0..3` 参数并调用 `lisa_bt_scan()`。
+- `cmd_bt_disconnect_by_addr()`：解析蓝牙地址并调用 `lisa_bluetooth_disconnect_by_addr()`。
 - `SHELL_EXPORT_PASSTROUGH(AT, ...)`：提供 AT 透传入口，便于直接调试底层蓝牙 AT 指令。
 
 ## Shell 命令
 
 - `bt_scan <0|1|2|3>`：设置经典蓝牙扫描模式。
+- `bt_disconnect_addr <XX:XX:XX:XX:XX:XX>`：按蓝牙地址断开已连接设备。
 - `AT`：进入 AT 透传模式，或直接执行单行 AT 指令。
 
 ## 故障排除

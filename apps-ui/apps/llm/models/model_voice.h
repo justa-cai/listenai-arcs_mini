@@ -41,6 +41,7 @@ struct model_voice_cb {
     void (*on_iat_text_update)(const char *text, void *arg);
     void (*on_iat_text_end)(void *arg);
     void (*on_image_rec)(void *arg);
+    void (*on_image_rec_failed)(void *arg);
     void (*on_image_preview)(void *arg);
     void (*on_image_url)(void *arg, const char *url);
     void (*on_info_show)(void *arg);

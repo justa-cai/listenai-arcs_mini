@@ -7,14 +7,14 @@
 - AP 核启动并引导 CP 核
 - AP 核初始化 IPC slave，并周期性打印 `AP heartbeat`
 - CP 核初始化 IPC master，并在本地串口输出 AP 转发过来的日志
-- CP 侧会为转发日志补上来源前缀，默认显示为 `[AP]`
+- AP 侧 IPC writer backend 会为转发日志补上来源前缀，默认显示为 `[REMOTE]`
 
 ## 自定义来源标记
 
-如需修改转发日志前缀，可在 CP 侧 `prj.conf` 中覆盖：
+如需修改转发日志前缀，可在 AP 侧 `remote/prj.conf` 中覆盖：
 
 ```ini
-CONFIG_ARCS_HAL_IPC_PRINT_SOURCE_TAG="APP"
+CONFIG_LOG_BACKEND_IPC_PREFIX="[APP] "
 ```
 
 设置后，CP 串口上的 AP 转发日志将显示为 `[APP] ...`。
@@ -45,5 +45,5 @@ CONFIG_ARCS_HAL_IPC_PRINT_SOURCE_TAG="APP"
 
 ## 预期结果
 
-- `ttyACM0`（CP）能看到类似 `[AP] I/ap_main ... AP heartbeat` 的输出
-- `ttyACM1`（AP）不再输出 AP 运行期日志
+- `ttyACM0`（CP）能看到类似 `[REMOTE] I/ap_main ... AP heartbeat` 的输出
+- AP 侧仍保留 console backend；如接出 AP UART，也能看到本地日志输出

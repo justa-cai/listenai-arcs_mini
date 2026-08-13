@@ -10,7 +10,7 @@
  ****************************************************************************************
  */
 /*code template*/
-static void mrpc_{api_func_name}(void *msg, struct mrpc_resp_msg *resp_msg)
+static void mrpc_{api_func_name}(void *msg, struct mrpc_resp_msg *resp_msg, uint32_t resp_buf_len)
 {{
     mrpc_{api_func_name}_req_t *req;
     mrpc_{api_func_name}_resp_t *resp;

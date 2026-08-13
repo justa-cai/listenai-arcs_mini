@@ -353,12 +353,12 @@ static void bass_cb_event_sent(uint8_t conidx, uint8_t user_lid, uint16_t dummy,
             p_bass_env->op_ongoing = false;
 
             // Inform application that event has been sent
-            p_cb->cb_batt_level_upd_cmp(status);
+            p_cb->cb_batt_level_upd_cmp(conidx, status);
         }
 }
 
 
-void bass_cb_batt_level_upd_cmp(uint16_t status)
+void bass_cb_batt_level_upd_cmp(uint8_t conidx, uint16_t status)
 {
     //Todu: user define actions
 

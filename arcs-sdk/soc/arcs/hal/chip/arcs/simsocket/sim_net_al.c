@@ -28,28 +28,13 @@
 #include "utils_endian.h"
 #include "rtos_al.h"
 #include "sim_pbuf.h"
-#include "sim_socket.h"
 #include "wlif.h"
 #include "ipc.h"
+#include "ipc_slave_wifi.h"
 #include "ipc_utils.h"
 #include "log_print.h"
 
-#define NX_NB_L2_FILTER 2
-
-struct l2_filter_tag
-{
-    struct netif *net_if;
-    int sock;
-    struct netconn *conn;
-    uint16_t ethertype;
-    rtos_mutex l2_filter_mutex;
-};
-
-static struct l2_filter_tag l2_filter[NX_NB_L2_FILTER];
-static rtos_semaphore l2_semaphore;
-static volatile bool l2_send_ack;
-static rtos_mutex     l2_mutex;
-static net_if_call_fun net_if_fun;
+net_if_call_fun net_if_fun;
 static struct netif_handle net_if_handle;
 
 #ifdef TX_BUF_COPY
@@ -420,7 +405,7 @@ void net_buf_tx_free(net_buf_tx_t *buf)
 
 void net_buf_tx_cat(net_buf_tx_t *net_buf_tx_1, net_buf_tx_t *net_buf_tx_2)
 {
-    pbuf_cat(net_buf_tx_1, net_buf_tx_2);
+    sim_pbuf_cat(net_buf_tx_1, net_buf_tx_2);
 }
 
 void net_buf_rx_free(net_buf_rx_t *buf)
@@ -451,24 +436,9 @@ int net_init(net_if_call_fun *net_cb)
 {
     int i;
 
-    for (i = 0; i < NX_NB_L2_FILTER; i++)
-    {
-        l2_filter[i].net_if = NULL;
-    }
-
     for (i = 0; i < WLIF_IDX_MAX; i++)
     {
         net_if_handle.netif[i] = rtos_calloc(sizeof(net_if_t), sizeof(uint8_t));
-    }
-
-    if (rtos_semaphore_create(&l2_semaphore, 1, 0))
-    {
-        ASSERT_ERR(0);
-    }
-
-    if (rtos_mutex_create(&l2_mutex))
-    {
-        ASSERT_ERR(0);
     }
 
 #ifdef TX_BUF_COPY
@@ -479,269 +449,27 @@ int net_init(net_if_call_fun *net_cb)
         ASSERT_ERR(0);
     }
 #endif
-    sys_init();
 
     net_if_fun = *net_cb;
 
     return 0;
 }
 
-static void net_l2_send_cfm(uint32_t frame_id, bool acknowledged, void *arg)
-{
-    if (arg)
-        *((bool *)arg) = acknowledged;
-    l2_send_ack = acknowledged;
-    CLOGV("%s:%d\n", __func__, l2_send_ack);
-    rtos_semaphore_signal(l2_semaphore, false);
-}
-
-int net_l2_send(net_if_t *net_if, const uint8_t *data, int data_len, uint16_t ethertype,
-                const uint8_t *dst_addr, bool *ack)
-{
-    int res;
-    uint8_t fail_retry_thres = 3;
-    uint8_t fail_retry_times = 0;
-
-    if (net_if == NULL || data == NULL || data_len >= net_if->mtu)
-        return -1;
-
-    l2_send_ack = false;
-
-fail_retry:
-    if (net_if_fun.tx_start_fn) {
-#ifdef TX_BUF_COPY
-        uint8_t retry_times = 0;
-        void *tx_buf;
-        net_buf_tx_t net_buf;
-        uint8_t rsv_head_len = 0;
-
-        if (dst_addr)
-        {
-            rsv_head_len = SIZEOF_ETH_HDR;
-        }
-
-        net_buf.payload = data;
-        net_buf.tot_len = data_len;
-        net_buf.len = data_len;
-        net_buf.next = NULL;
-
-retry:
-        tx_buf = net_tx_alloc_mac_buf(&net_buf, rsv_head_len);
-        if (tx_buf == NULL)
-        {
-            if (retry_times++ < TX_BUF_COPY_RETRY_TIMES)
-            {
-                rtos_delay(TX_BUF_COPY_RETRY_DELAY_MS);
-                goto retry;
-            }
-
-            CLOG("net_l2_send fail\n");
-            return -1;
-        }
-        else
-        {
-            if (rsv_head_len)
-            {
-                struct eth_hdr* ethhdr;
-
-                ethhdr = (struct eth_hdr*)(((struct net_tx_buf_tag *)tx_buf)->buf);
-                ethhdr->type = htons(ethertype);
-                memcpy(&ethhdr->dest, dst_addr, sizeof(struct eth_addr));
-                memcpy(&ethhdr->src, net_if->hwaddr, sizeof(struct eth_addr));
-            }
-        }
-
-        rtos_mutex_lock(l2_mutex);
-
-        res = net_if_fun.tx_start_fn(net_if, tx_buf, net_l2_send_cfm, ack);
-#else
-        struct pbuf *pbuf;
-
-        pbuf = pbuf_alloc(PBUF_LINK, data_len, PBUF_RAM);
-
-        if (pbuf == NULL)
-        {
-            CLOG("l2 netbuf null\n");
-            return -1;
-        }
-
-        memcpy(pbuf->payload, data, data_len);
-
-        if (dst_addr)
-        {
-            // Need to add ethernet header as tx_start_fn is called directly
-            struct eth_hdr* ethhdr;
-            if (pbuf_header(pbuf, SIZEOF_ETH_HDR))
-            {
-                pbuf_free(pbuf);
-                return -1;
-            }
-            ethhdr = (struct eth_hdr*)pbuf->payload;
-            ethhdr->type = htons(ethertype);
-            memcpy(&ethhdr->dest, dst_addr, sizeof(struct eth_addr));
-            memcpy(&ethhdr->src, net_if->hwaddr, sizeof(struct eth_addr));
-        }
-
-        rtos_mutex_lock(l2_mutex);
-
-        res = net_if_fun.tx_start_fn(net_if, pbuf, net_l2_send_cfm, ack);
-#endif
-    } else {
-        return -1;
-    }
-
-    // Wait for the transmission completion
-    rtos_semaphore_wait(l2_semaphore, -1);
-
-    // Now new L2 transmissions are possible
-    rtos_mutex_unlock(l2_mutex);
-
-    if (!l2_send_ack)
-    {
-        if (fail_retry_times++ < fail_retry_thres)
-        {
-            CLOG("l2 send retry %d", fail_retry_times);
-            goto fail_retry;
-        }
-    }
-
-    return res;
-}
-
-int net_l2_socket_create(net_if_t *net_if, uint16_t ethertype)
-{
-    struct l2_filter_tag *filter = NULL;
-    int i;
-
-    /* First find free filter and check that socket for this ethertype/net_if couple
-       doesn't already exists */
-    for (i = 0; i < NX_NB_L2_FILTER; i++)
-    {
-        if (l2_filter[i].l2_filter_mutex == NULL)
-            rtos_mutex_create(&l2_filter[i].l2_filter_mutex);
-
-        if ((l2_filter[i].net_if == net_if) &&
-            (l2_filter[i].ethertype == ethertype))
-        {
-            return -1;
-        }
-        else if ((filter == NULL) && (l2_filter[i].net_if == NULL))
-        {
-            filter = &l2_filter[i];
-        }
-    }
-
-    if (!filter)
-        return -1;
-
-    /* Note: we create DGRAM socket here but in practice we don't care, net_eth_receive
-       will use the socket as a L2 raw socket */
-    filter->sock = lwip_socket(PF_INET, SOCK_DGRAM, 0);
-    if (filter->sock < 0)
-        return -1;
-
-    filter->net_if = net_if;
-    filter->ethertype = ethertype;
-
-    return filter->sock;
-}
-
-int net_l2_socket_delete(int sock)
-{
-    int i;
-    for (i = 0; i < NX_NB_L2_FILTER; i++)
-    {
-        rtos_mutex_lock(l2_filter[i].l2_filter_mutex);
-        if ((l2_filter[i].net_if != NULL) &&
-            (l2_filter[i].sock == sock))
-        {
-            l2_filter[i].net_if = NULL;
-            lwip_close(l2_filter[i].sock);
-            l2_filter[i].sock = -1;
-            rtos_mutex_unlock(l2_filter[i].l2_filter_mutex);
-            return 0;
-        }
-        rtos_mutex_unlock(l2_filter[i].l2_filter_mutex);
-    }
-
-    return -1;
-}
-
-#define MAX_IOVEC_NUM 6
-err_t net_eth_receive(struct pbuf *pbuf, struct netif *netif)
-{
-    struct l2_filter_tag *filter = NULL;
-    struct eth_hdr* ethhdr = pbuf->payload;
-    uint16_t ethertype = ntohs(ethhdr->type);
-    struct iovec iovecs[MAX_IOVEC_NUM];
-    struct msghdr msghdr;
-    struct pbuf *p;
-    int i, idx = 0, ret = ERR_OK;
-    rtos_mutex mutex = NULL;
-
-    for (i = 0; i < NX_NB_L2_FILTER; i++)
-    {
-        mutex = l2_filter[i].l2_filter_mutex;
-        rtos_mutex_lock(mutex);
-        if ((l2_filter[i].net_if == netif) &&
-            (l2_filter[i].ethertype == ethertype))
-        {
-            filter = &l2_filter[i];
-            break;
-        }
-        rtos_mutex_unlock(mutex);
-    }
-
-    if (!filter)
-        return ERR_VAL;
-
-    p = pbuf;
-    for (i = 0; i < MAX_IOVEC_NUM && p != NULL; i++)
-    {
-        iovecs[i].iov_base = p->payload;
-        iovecs[i].iov_len  = p->len;
-        p = p->next;
-    }
-
-    if (!p)
-    {
-        msghdr.msg_iov    = iovecs;
-        msghdr.msg_iovlen = i;
-        lwip_forwardmsg(filter->sock, &msghdr);
-    }
-    else
-    {
-        ret = ERR_MEM;
-    }
-    rtos_mutex_unlock(mutex);
-
-    return ret;
-}
-
 int net_if_input(net_buf_rx_t *buf, net_if_t *net_if, void *addr, uint16_t len, net_buf_free_fn free_fn)
 {
     struct ipc_rxbuf_hdr *hdr;
-    struct ipc_rxdesc entry;
+    struct ipc_wifi_rxdesc entry;
     int ret = 0;
 
-    buf->custom_free_function = (pbuf_free_custom_fn)free_fn;
-	pbuf_alloced_custom(PBUF_RAW, len, PBUF_REF, buf, addr, len);
-
-    /*maybe it's an eapol frame*/
-    /*Forward to the networking stack*/
-    if (!net_eth_receive(&buf->pbuf, net_if))
-    {
-        free_fn(buf);
-        return -1;
-    }
-
+    sim_pbuf_alloced_custom(PBUF_RAW, len, PBUF_REF, buf, addr, len);
     buf->custom_free_function = NULL;
+
     hdr = (struct ipc_rxbuf_hdr*)((uint8_t*)(((struct wlif_rx_buf_tag*)buf)->payload) - sizeof(struct ipc_rxbuf_hdr));
     hdr->len	  = len;
     hdr->fvif_idx = net_if_to_idx(net_if);
     ASSERT_ERR(hdr->fvif_idx >= 0);
     entry.data = (void*)buf;
-    if ((ret = ipc_slave_wifi_rxdesc_push((void*)(&entry), sizeof(struct ipc_rxdesc))))
+    if ((ret = ipc_slave_wifi_rxdesc_push((void*)(&entry), sizeof(struct ipc_wifi_rxdesc))))
         free_fn(buf);
 
     return ret;
@@ -782,7 +510,7 @@ int net_compat_check(size_t netif_size)
     return (netif_size != sizeof(net_if_t));
 }
 
-int32_t net_ipc_rx_cfm(void *ecb, void *param)
+int32_t net_ipc_rx_cfm(void *ccb, void *param)
 {
 #ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
     if (net_if_fun.rx_push_from_ipc)
@@ -791,12 +519,12 @@ int32_t net_ipc_rx_cfm(void *ecb, void *param)
     struct ipc_msg_desc *desc = param;
 
     if (net_if_fun.rx_push_from_ipc)
-        net_if_fun.rx_push_from_ipc(((struct ipc_rxcfm*)desc->data)->data);
+        net_if_fun.rx_push_from_ipc(((struct ipc_wifi_rxcfm*)desc->data)->data);
 #endif
     return IPC_MSG_RELEASE;
 }
 
-int32_t net_ipc_send(void *ecb, void *param)
+int32_t net_ipc_send(void *ccb, void *param)
 {
 #ifdef IPC_SLAVE_DATA_CHAN_IN_USER_MODE
     if (net_if_fun.tx_start_from_ipc)
@@ -805,18 +533,18 @@ int32_t net_ipc_send(void *ecb, void *param)
     struct ipc_msg_desc *desc = param;
 
     if (net_if_fun.tx_start_from_ipc)
-        net_if_fun.tx_start_from_ipc(((struct ipc_txdesc*)desc->data)->data);
+        net_if_fun.tx_start_from_ipc(((struct ipc_wifi_txdesc*)desc->data)->data);
 #endif
     return IPC_MSG_RELEASE;
 }
 
 void net_tx_cfm(uint32_t frame_id, bool acknowledged, void *arg)
 {
-    struct ipc_txcfm entry;
+    struct ipc_wifi_txcfm entry;
 
     entry.data   = (void*)frame_id;
     entry.status = (uint32_t)acknowledged;
-    ipc_slave_wifi_txcfm_push((void*)&entry, sizeof(struct ipc_txcfm));
+    ipc_slave_wifi_txcfm_push((void*)&entry, sizeof(struct ipc_wifi_txcfm));
 }
 
 net_if_t *netif_alloc(void)
@@ -866,7 +594,7 @@ void net_wifi_init_done(void)
         ASSERT_ERR(ret == 0);
     }
 #endif
-    ipc_send_notify(IPC_EVT_LINKUP);
+    ipc_send_signal(IPC_SIG_LINKUP);
 }
 
 char* net_get_monitor_name(void)

@@ -11,6 +11,26 @@
 
 #include "assert.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * @brief Output a formatted HAL/CLOG debug message.
+ *
+ * When early CLOG fallback is enabled, calls before lisa_log_init() are routed
+ * to the SoC early UART logger; after lisa_log_init(), output goes through the
+ * normal log frontend. This function does not append a line ending by itself.
+ *
+ * @param format printf-style format string.
+ * @param ... Arguments referenced by @p format.
+ */
+void logDbg(const char* format, ...);
+
+#ifdef __cplusplus
+}
+#endif
+
 typedef void (*lisa_log_output_t)(const uint8_t *log, uint32_t len, void *data);
 
 int lisa_log_backend_add(const char *name, lisa_log_output_t output, void *data);

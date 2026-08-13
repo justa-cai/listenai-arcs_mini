@@ -35,6 +35,7 @@ if (CONFIG_LISA_BLUETOOTH)
         listenai_library_sources(
             bt_app_user.c
             bt_ble_user.c
+            storage/bt_paired_storage.c
             bt_stack_cfg.c
             lisa_bluetooth.c
             lisa_ble_api_local.c

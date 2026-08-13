@@ -1,0 +1,38 @@
+BEGIN CLIENT_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_luna_api_msg.h"
+#include "mrpc_luna_api_server.h"
+END
+
+BEGIN SERVER_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_luna_api_client.h"
+#include "mrpc_luna_api_msg.h"
+#include "mrpc_luna_api_server.h"
+END
+
+BEGIN MSG_HDR_INCLUDE_FILE
+#include <stdint.h>
+#include "ls_err.h"
+#include "mrpc.h"
+END
+
+BEGIN MSG_MAX_SIZE
+IPC_MSG_BUFFER_SIZE
+END
+
+BEGIN API_DECLARE_TYPE_OTHER
+
+int32_t luna_demo_get_version(in uint32_t *version);
+
+int32_t luna_demo_add(int32_t a, int32_t b, in int32_t *result);
+
+END

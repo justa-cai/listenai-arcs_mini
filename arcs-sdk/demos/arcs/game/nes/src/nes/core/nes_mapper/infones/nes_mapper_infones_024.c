@@ -1,0 +1,253 @@
+/*
+ * InfoNES mapper 024 compatibility body.
+ * Source body adapted from pico-infonesPlus/infones/mapper.
+ */
+
+#include "nes_mapper_infones.h"
+
+#if INFONES_ENABLE_MAPPER_024
+
+/* ---- InfoNES_Mapper_024.cpp ---- */
+/*===================================================================*/
+/*                                                                   */
+/*                  Mapper 24 (Konami VRC6)                          */
+/*                                                                   */
+/*===================================================================*/
+
+BYTE (*vrc6_wave_buffers)[APU_MAX_SAMPLES_PER_SYNC];
+
+BYTE Map24_IRQ_Count;
+BYTE Map24_IRQ_State;
+BYTE Map24_IRQ_Latch;
+
+/*-------------------------------------------------------------------*/
+/*  Initialize Mapper 24                                             */
+/*-------------------------------------------------------------------*/
+void Map24_Init()
+{
+  /* Initialize Mapper */
+  MapperInit = Map24_Init;
+
+  /* Write to Mapper */
+  MapperWrite = Map24_Write;
+
+  /* Write to SRAM */
+  MapperSram = Map0_Sram;
+
+  /* Write to APU */
+  MapperApu = Map0_Apu;
+
+  /* Read from APU */
+  MapperReadApu = Map0_ReadApu;
+
+  /* Callback at VSync */
+  MapperVSync = Map0_VSync;
+
+  /* Callback at HSync */
+  MapperHSync = Map24_HSync;
+
+  /* Callback at PPU */
+  MapperPPU = Map0_PPU;
+
+  /* Callback at Rendering Screen ( 1:BG, 0:Sprite ) */
+  MapperRenderScreen = Map0_RenderScreen;
+
+  /* Set SRAM Banks */
+  SRAMBANK = SRAM;
+
+  /* Set ROM Banks */
+  ROMBANK0 = ROMPAGE( 0 );
+  ROMBANK1 = ROMPAGE( 1 );
+  ROMBANK2 = ROMLASTPAGE( 1 );
+  ROMBANK3 = ROMLASTPAGE( 0 );
+
+  /* Set up wiring of the interrupt pin */
+  K6502_Set_Int_Wiring( 1, 1 );
+
+  /* Enable VRC6 expansion audio */
+  ApuVrc6Enable = 1;
+
+  /* Allocate VRC6 wave buffers */
+  vrc6_wave_buffers = (BYTE (*)[APU_MAX_SAMPLES_PER_SYNC])nes_malloc(3 * APU_MAX_SAMPLES_PER_SYNC);
+  InfoNES_MemorySet((void *)vrc6_wave_buffers[0], 0, APU_MAX_SAMPLES_PER_SYNC);
+  InfoNES_MemorySet((void *)vrc6_wave_buffers[1], 0, APU_MAX_SAMPLES_PER_SYNC);
+  InfoNES_MemorySet((void *)vrc6_wave_buffers[2], 0, APU_MAX_SAMPLES_PER_SYNC);
+}
+
+/*-------------------------------------------------------------------*/
+/*  Mapper 24 Write Function                                         */
+/*-------------------------------------------------------------------*/
+void Map24_Write( WORD wAddr, BYTE byData )
+{
+  /* VRC6 only decodes address lines A0, A1, A12-A15 */
+  switch ( wAddr & 0xF003 )
+  {
+    case 0x8000:
+    case 0x8001:
+    case 0x8002:
+    case 0x8003:
+      /* Set ROM Banks - 16KB at $8000-$BFFF */
+      byData &= 0x0f;
+      ROMBANK0 = ROMPAGE( ( (byData << 1) + 0 ) % ( NesHeader.byRomSize << 1) );
+      ROMBANK1 = ROMPAGE( ( (byData << 1) + 1 ) % ( NesHeader.byRomSize << 1) );
+      break;
+
+    case 0x9000:
+      ApuWriteVrc6P1a( wAddr, byData );
+      break;
+
+    case 0x9001:
+      ApuWriteVrc6P1b( wAddr, byData );
+      break;
+
+    case 0x9002:
+      ApuWriteVrc6P1c( wAddr, byData );
+      break;
+
+    case 0x9003:
+      ApuWriteVrc6Freq( wAddr, byData );
+      break;
+
+    case 0xA000:
+      ApuWriteVrc6P2a( wAddr, byData );
+      break;
+
+    case 0xA001:
+      ApuWriteVrc6P2b( wAddr, byData );
+      break;
+
+    case 0xA002:
+      ApuWriteVrc6P2c( wAddr, byData );
+      break;
+
+    case 0xB000:
+      ApuWriteVrc6SawA( wAddr, byData );
+      break;
+
+    case 0xB001:
+      ApuWriteVrc6SawB( wAddr, byData );
+      break;
+
+    case 0xB002:
+      ApuWriteVrc6SawC( wAddr, byData );
+      break;
+
+    case 0xB003:
+      /* Name Table Mirroring */
+      switch ( byData & 0x0c )
+      {
+        case 0x00:
+          InfoNES_Mirroring( 1 );   /* Vertical */
+          break;
+        case 0x04:
+          InfoNES_Mirroring( 0 );   /* Horizontal */
+          break;
+        case 0x08:
+          InfoNES_Mirroring( 3 );   /* One Screen 0x2000 */
+          break;
+        case 0x0c:
+          InfoNES_Mirroring( 2 );   /* One Screen 0x2400 */
+          break;
+      }
+      break;
+
+    case 0xC000:
+    case 0xC001:
+    case 0xC002:
+    case 0xC003:
+      /* Set ROM Bank - 8KB at $C000-$DFFF */
+      ROMBANK2 = ROMPAGE( (byData & 0x1f) % ( NesHeader.byRomSize << 1) );
+      break;
+
+    case 0xD000:
+      PPUBANK[ 0 ] = VROMPAGE( byData % ( NesHeader.byVRomSize << 3 ) );
+      InfoNES_SetupChr();
+      break;
+
+    case 0xD001:
+      PPUBANK[ 1 ] = VROMPAGE( byData % ( NesHeader.byVRomSize << 3 ) );
+      InfoNES_SetupChr();
+      break;
+
+    case 0xD002:
+      PPUBANK[ 2 ] = VROMPAGE( byData % ( NesHeader.byVRomSize << 3 ) );
+      InfoNES_SetupChr();
+      break;
+
+    case 0xD003:
+      PPUBANK[ 3 ] = VROMPAGE( byData % ( NesHeader.byVRomSize << 3 ) );
+      InfoNES_SetupChr();
+      break;
+
+    case 0xE000:
+      PPUBANK[ 4 ] = VROMPAGE( byData % ( NesHeader.byVRomSize << 3 ) );
+      InfoNES_SetupChr();
+      break;
+
+    case 0xE001:
+      PPUBANK[ 5 ] = VROMPAGE( byData % ( NesHeader.byVRomSize << 3 ) );
+      InfoNES_SetupChr();
+      break;
+
+    case 0xE002:
+      PPUBANK[ 6 ] = VROMPAGE( byData % ( NesHeader.byVRomSize << 3 ) );
+      InfoNES_SetupChr();
+      break;
+
+    case 0xE003:
+      PPUBANK[ 7 ] = VROMPAGE( byData % ( NesHeader.byVRomSize << 3 ) );
+      InfoNES_SetupChr();
+      break;
+
+    case 0xF000:
+      Map24_IRQ_Latch = byData;
+      break;
+
+    case 0xF001:
+      Map24_IRQ_State = byData & 0x03;
+      IRQ_State = IRQ_Wiring; // Acknowledge pending IRQ
+      if(Map24_IRQ_State & 0x02)
+      {
+        Map24_IRQ_Count = Map24_IRQ_Latch;
+      }
+      break;
+
+    case 0xF002:
+      IRQ_State = IRQ_Wiring; // Acknowledge pending IRQ
+      if(Map24_IRQ_State & 0x01)
+      {
+        Map24_IRQ_State |= 0x02;
+      }
+      else
+      {
+        Map24_IRQ_State &= 0x01;
+      }
+      break;
+  }
+}
+
+/*-------------------------------------------------------------------*/
+/*  Mapper 24 H-Sync Function                                         */
+/*-------------------------------------------------------------------*/
+void Map24_HSync()
+{
+/*
+ *  Callback at HSync
+ *
+ */
+	if(Map24_IRQ_State & 0x02)
+	{
+	  if(Map24_IRQ_Count == 0xFF)
+		{
+			IRQ_REQ;
+			Map24_IRQ_Count = Map24_IRQ_Latch;
+		}
+		else
+		{
+			Map24_IRQ_Count++;
+		}
+	}
+}
+
+
+#endif /* INFONES_ENABLE_MAPPER_024 */

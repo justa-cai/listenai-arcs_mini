@@ -19,6 +19,7 @@
  ****************************************************************************************
  */
 #include "os_task_init.h"
+#include "ble_gap.h"
 /*
  * DEFINES
  ****************************************************************************************
@@ -27,7 +28,11 @@
 #define MIN(a, b)         (((a) < (b)) ? (a) : (b))
 #endif
 
+#ifdef CONFIG_LISA_BLUETOOTH_HFP_MSBC_SUPPORT
 #define BT_STACK_HFP_MSBC_SUPPORT        (1)
+#else
+#define BT_STACK_HFP_MSBC_SUPPORT        (0)
+#endif
 #define BT_USE_ASIC_CVSD                 (1)
 
 #ifdef CONFIG_LISA_BLUETOOTH_DEVICE_NAME
@@ -35,6 +40,8 @@
 #else
 #define DEVICE_NAME         "ARCS"
 #endif
+
+#define  BT_CLASSIC_CFG_FLAG  (0)
 
 ///bt stack classic role 0:sink.  1:source.
 #define BT_STACK_CLASSIC_SINK            (0)
@@ -44,11 +51,16 @@
 #define BT_STACK_CLASSIC_ROLE            (BT_STACK_CLASSIC_SOURCE)
 #endif
 
+///1:1 slot 0.625ms
+#define BT_STACK_LINK_TIMEOUT   (16000)///5s
+
 #define MAX_SCAN_BLE_DEVICE     (8)
 #define MAX_BOND_BLE_DEVICE     (8)
 
 #define MAX_DISCOVER_DEVICE     (8)
 #define MAX_BOND_CLASSIC_DEVICE (8)
+
+#define BT_STACK_CLASSIC_BIG_ACL_SEND_MAX  (5)
 
 #define CONNECT_LAST_PEER_DEV     (0)
 
@@ -89,6 +101,8 @@
 
 #define BLE_PEER_FEAT_CON_PARAM_DIS  (1)
 
+int bt_stack_cfg_set_local_addr(const gap_bdaddr_t *addr);
+
 #define BLE_CON_PHY                  (GAP_PHY_LE_1MBPS)
 
 /// white list & ral list
@@ -104,11 +118,28 @@
 
 #define BT_NOTIFY_PENDING_MAX                (3)
 
-#define BT_STACK_NVDS_SUPPORT                (CFG_NVS)
+#ifndef CONFIG_LISA_BLUETOOTH_STORAGE_NVS
+#define CONFIG_LISA_BLUETOOTH_STORAGE_NVS    0
+#endif
+
+#ifndef CONFIG_LISA_BLUETOOTH_STORAGE_KV
+#define CONFIG_LISA_BLUETOOTH_STORAGE_KV     0
+#endif
+
+#define BT_STACK_NVDS_SUPPORT                (CONFIG_LISA_BLUETOOTH_STORAGE_NVS || CONFIG_LISA_BLUETOOTH_STORAGE_KV)
 
 
 #define BT_STACK_BLE_HOGPD_HID_MAX_COUNT     (20)
 
+// bt sniff (in slots)
+//0x06--0x0540(3.75ms--840ms),must even number 
+#define BT_SNIFF_MAX_INTERVAL (800)    //500ms
+//min < max,must even number 
+#define BT_SNIFF_MIN_INTERVAL (320)
+//
+#define BT_SNIFF_ATTEMPT      (4)
+//
+#define BT_SNIFF_TIMEOUT      (2)
 
 /*
  * ENUMERATIONS

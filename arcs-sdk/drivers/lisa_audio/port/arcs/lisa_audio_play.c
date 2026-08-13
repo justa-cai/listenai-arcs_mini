@@ -570,7 +570,12 @@ static uint32_t process_mono_data(const void *input,
 
 int arcs_audio_play_write(lisa_audio_play_priv_t *priv, const void *buffer, uint32_t samples)
 {
-    if (!buffer || samples == 0) {
+    if (!priv || !buffer || samples == 0) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    if (!priv->free_queue || !priv->play_queue) {
+        LOGE("Play runtime is not configured");
         return LISA_DEVICE_ERR_INVALID;
     }
 
@@ -802,6 +807,41 @@ int arcs_audio_play_init(lisa_audio_play_priv_t *priv)
     priv->initialized = true;
 
     LOGI("LISA Audio Play initialized");
+
+    return LISA_DEVICE_OK;
+}
+
+int arcs_audio_play_deinit(lisa_audio_play_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    /* 停止播放：静音、关 PA、停 DMA，状态回 IDLE（与 PLAY_STOP 路径一致） */
+    if (priv->hdrv && priv->state != PLAY_STATE_IDLE) {
+        uint32_t dev_bitmap = channel_to_bitmap(LISA_AUDIO_CH_LEFT);
+        DAC_SetMute(priv->hdrv, dev_bitmap, dev_bitmap);
+#ifdef CONFIG_LISA_AUDIO_PLAY_PA_ENABLE
+        play_pa_control(false);
+#endif
+        DAC_Abort(priv->hdrv, dev_bitmap, dev_bitmap);
+        priv->state = PLAY_STATE_IDLE;
+    }
+
+    /* 释放运行期 OS / 堆资源（play_queue / free_queue / event / buffer_pool / echo_fifo） */
+    arcs_audio_play_release_runtime(priv);
+
+    /* 关闭 DAC：先 PowerControl(OFF) 再 Uninitialize，使硬件回到上电初始态 */
+    if (priv->hdrv) {
+        DAC_PowerControl(priv->hdrv, CSK_POWER_OFF);
+        DAC_Uninitialize(priv->hdrv);
+    }
+
+    priv->status = LISA_AUDIO_STATUS_IDLE;
+    priv->state = PLAY_STATE_IDLE;
+    priv->initialized = false;
+
+    LOGI("LISA Audio Play deinitialized");
 
     return LISA_DEVICE_OK;
 }

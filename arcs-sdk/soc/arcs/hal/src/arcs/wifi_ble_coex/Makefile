@@ -136,7 +136,7 @@ PROFILE_NETCFG=1
 export PROFILE_NETCFG
 CFLAGS += -DPROFILE_NETCFG=$(PROFILE_NETCFG)
 
-# Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BT
+# Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BLE,WCN_TYPE=both_dual:Both support for Wifi and BT-BLE
 WCN_TYPE=both
 export WCN_TYPE
 # RF_BOARD_VER=0 or undefine for ArcsD EVB,

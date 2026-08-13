@@ -25,7 +25,7 @@
  */
 void BootClock_Init(){
 
-#if defined(IC_BOARD) && (IC_BOARD == 1)
+#if defined(IC_BOARD) && (IC_BOARD == 1) && !defined(CONFIG_SKIP_BOOTCLOCK)
     __HAL_CRM_USB_CLK_DISABLE();
 
     HAL_CRM_SetRc32kCaliLength(5);
@@ -212,7 +212,7 @@ struct clock_cfg_reg
     volatile uint32_t ip_ap_cfg_clk_cfg0;
 };
 
-static struct clock_cfg_reg clock_cfg_reg_info;
+static _PM_STARTUP_BSS struct clock_cfg_reg clock_cfg_reg_info;
 
 void BootClock_save(void)
 {
@@ -228,7 +228,7 @@ void BootClock_save(void)
     clock_cfg_reg_info.ip_ap_cfg_clk_cfg0       =  IP_AP_CFG->REG_CLK_CFG0.all;
 }
 
-void BootClock_restore(void)
+_PM_RAM_TEXT void BootClock_restore(void)
 {
     volatile uint32_t value;
     volatile uint32_t flash_stash_fifo[6];

@@ -220,13 +220,17 @@ int32_t i2s_disable_echo_channels(I2S_DEV *i2s, uint8_t ch_bmp_echo);
 
 static inline void enable_i2s(I2S_DEV *i2s) {
     //assert(i2s != NULL);
-    if (i2s->reg->REG_I2S_CFG0.bit.ENABLE == 0)
+    //if (i2s->reg->REG_I2S_CFG0.bit.ENABLE == 0)
         i2s->reg->REG_I2S_CFG0.bit.ENABLE = 1;
+    if(!i2s->reg->REG_I2S_CFG0.bit.MASTER_MODE)
+        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 1;
 }
 
 static inline void disable_i2s(I2S_DEV *i2s) {
     //assert(i2s != NULL);
-    if (i2s->reg->REG_I2S_CFG0.bit.ENABLE == 1)
+    if(!i2s->reg->REG_I2S_CFG0.bit.MASTER_MODE)
+        i2s->reg->REG_I2S_CFG0.bit.EN_FORCE_ON = 0;
+    //if (i2s->reg->REG_I2S_CFG0.bit.ENABLE == 1)
         i2s->reg->REG_I2S_CFG0.bit.ENABLE = 0;
 }
 

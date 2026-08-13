@@ -29,8 +29,8 @@
 #define MQTT_BROKER_PATH   "/mqtt"                 // MQTT over WebSocket路径
 #define MQTT_CLIENT_ID     "arcs_mqtt_ws_client"
 
-#define TARGET_WIFI_SSID   "lschat" //"Xiaomi_listenai_2.4G"
-#define TARGET_WIFI_PWD    "12345678"
+#define TARGET_WIFI_SSID   "listenai"
+#define TARGET_WIFI_PWD    "listenai"
 
 #define MQTT_TOPIC_PUB     "arcs/test/pub"
 #define MQTT_TOPIC_SUB     "arcs/test/sub"

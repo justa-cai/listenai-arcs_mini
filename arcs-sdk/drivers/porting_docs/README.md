@@ -65,6 +65,7 @@ drivers/
 ├── DRIVER_DEVELOPMENT_GUIDE.md        # 完整开发指南 ⭐
 ├── DRIVER_TEMPLATE_QUICKREF.md        # 快速参考模板 ⭐
 ├── DRIVER_CHECKLIST.md                # 开发检查清单 ⭐
+├── DRIVER_PM_OPS_GUIDE.md             # system PM ops 接入指南 ⭐
 │
 ├── lisa_device/                       # 设备框架核心
 │   ├── README.md                      # 框架详细说明

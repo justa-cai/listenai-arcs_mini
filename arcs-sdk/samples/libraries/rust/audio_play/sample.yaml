@@ -1,0 +1,9 @@
+tests:
+  samples.libraries.rust.audio_play:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "audio_play:done"

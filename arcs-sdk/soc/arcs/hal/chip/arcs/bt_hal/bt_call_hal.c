@@ -43,7 +43,6 @@ static void hfp_enable_cmp(uint16_t status);
 static void hfp_disable_cmp(uint16_t status);
 static void hfp_receive_media_from_peer(uint8_t conidx, uint8_t pkt_sta, uint16_t len, uint8_t *data);
 static void hfp_send_media_cmp(uint8_t conidx, uint8_t status, uint8_t *data);
-uint8_t hfp_send_media_to_peer(uint8_t conidx, uint16_t len, uint8_t *data);
 
 uint8_t bt_stack_hfp_send_start(uint8_t conidx, uint8_t codec);
 void bt_stack_hfp_send_stop(uint8_t conidx, uint8_t status);

@@ -89,4 +89,9 @@ void PSRAM_EnterSleepMode(_psram_sleep_mode_t sleep_mode);
 
 void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay);
 
+#if CONFIG_PM
+void psram_cfg_save_and_sleep(void);
+void psram_cfg_restore_and_wakeup(void);
+#endif
+
 #endif /* INCLUDE_DRIVER_PSRAMMANAGER_H_ */

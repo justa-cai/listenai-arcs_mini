@@ -13,6 +13,7 @@
 
 #include "lisa_i2c.h"
 #include "Driver_I2C.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
 #include <lisa_mutex.h>
@@ -25,6 +26,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
 
 #define DEVICE_LOCK(priv)                                                                                              \
     do {                                                                                                               \
@@ -47,6 +52,7 @@ typedef struct {
     lisa_i2c_config_t config;            /* 当前配置 */
     volatile uint32_t event_flags;        /* 事件标志（用于同步） */
     SemaphoreHandle_t xfer_sem;          /* 传输完成信号量（独立于调用者的 task notification） */
+    volatile bool xfer_in_flight;         /* PM busy 标志：API 入口置 1、退出/错误路径清 0 */
 } lisa_i2c_priv_t;
 
 /* ===== I2C 设备静态实例 ===== */
@@ -292,6 +298,8 @@ static int arcs_i2c_transfer(lisa_device_t *dev, lisa_i2c_msg_t *msgs, uint32_t 
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
+    priv->xfer_in_flight = true;
+
     for (uint32_t i = 0; i < num_msgs; i++) {
         lisa_i2c_msg_t *msg = &msgs[i];
 
@@ -300,6 +308,7 @@ static int arcs_i2c_transfer(lisa_device_t *dev, lisa_i2c_msg_t *msgs, uint32_t 
          * 当 len > 0 时，buf 必须有效
          */
         if (msg->len > 0 && !msg->buf) {
+            priv->xfer_in_flight = false;
             DEVICE_UNLOCK(priv);
             return LISA_DEVICE_ERR_INVALID;
         }
@@ -350,6 +359,7 @@ static int arcs_i2c_transfer(lisa_device_t *dev, lisa_i2c_msg_t *msgs, uint32_t 
             /* HAL 启动失败，尝试等待短时间检查是否有事件标志（如 NACK） */
             bool is_probe = (msg->len == 0);  /* 0字节传输为设备探测 */
             int ret = wait_for_transfer(priv, 100, is_probe); /* 100ms 短超时 */
+            priv->xfer_in_flight = false;
             DEVICE_UNLOCK(priv);
             if (ret == LISA_DEVICE_ERR_NACK) {
                 return LISA_DEVICE_ERR_NACK; /* 明确返回 NACK */
@@ -367,11 +377,13 @@ static int arcs_i2c_transfer(lisa_device_t *dev, lisa_i2c_msg_t *msgs, uint32_t 
         uint32_t timeout_ms = is_probe ? 50 : 1000;
         int ret = wait_for_transfer(priv, timeout_ms, is_probe);
             if (ret != LISA_DEVICE_OK) {
+                priv->xfer_in_flight = false;
                 DEVICE_UNLOCK(priv);
                 return ret;
         }
     }
 
+    priv->xfer_in_flight = false;
     DEVICE_UNLOCK(priv);
     return LISA_DEVICE_OK;
 }
@@ -399,11 +411,14 @@ static int arcs_i2c_write(lisa_device_t *dev, uint16_t addr, const uint8_t *buf,
     /* 清除事件标志 */
     priv->event_flags = 0;
 
+    priv->xfer_in_flight = true;
+
     /* 执行写操作 */
     int32_t hal_ret = I2C_MasterTransmit(priv->hal_handler, addr, (uint8_t *)buf, len, false);
     if (hal_ret != 0) {
         /* HAL 启动失败，尝试等待短时间检查是否有事件标志（如 NACK） */
         int ret = wait_for_transfer(priv, 100, false); /* 100ms 短超时 */
+        priv->xfer_in_flight = false;
         DEVICE_UNLOCK(priv);
         if (ret == LISA_DEVICE_ERR_NACK) {
             return LISA_DEVICE_ERR_NACK; /* 明确返回 NACK */
@@ -415,6 +430,7 @@ static int arcs_i2c_write(lisa_device_t *dev, uint16_t addr, const uint8_t *buf,
     /* 等待传输完成（write 不是设备探测） */
     int ret = wait_for_transfer(priv, 1000, false); /* 1秒超时 */
 
+    priv->xfer_in_flight = false;
     DEVICE_UNLOCK(priv);
     return ret;
 }
@@ -442,11 +458,14 @@ static int arcs_i2c_read(lisa_device_t *dev, uint16_t addr, uint8_t *buf, uint32
     /* 清除事件标志 */
     priv->event_flags = 0;
 
+    priv->xfer_in_flight = true;
+
     /* 执行读操作 */
     int32_t hal_ret = I2C_MasterReceive(priv->hal_handler, addr, buf, len, false);
     if (hal_ret != 0) {
         /* HAL 启动失败，尝试等待短时间检查是否有事件标志（如 NACK） */
         int ret = wait_for_transfer(priv, 100, false); /* 100ms 短超时 */
+        priv->xfer_in_flight = false;
         DEVICE_UNLOCK(priv);
         if (ret == LISA_DEVICE_ERR_NACK) {
             return LISA_DEVICE_ERR_NACK; /* 明确返回 NACK */
@@ -458,6 +477,7 @@ static int arcs_i2c_read(lisa_device_t *dev, uint16_t addr, uint8_t *buf, uint32
     /* 等待传输完成（read 不是设备探测） */
     int ret = wait_for_transfer(priv, 1000, false); /* 1秒超时 */
 
+    priv->xfer_in_flight = false;
     DEVICE_UNLOCK(priv);
     return ret;
 }
@@ -473,62 +493,106 @@ static const lisa_i2c_api_t arcs_i2c_api = {
 
 /* ===== 设备初始化函数 ===== */
 
+/**
+ * @brief OS 资源初始化（mutex / 信号量），仅 _init 阶段调用一次，跨 suspend/resume 保留
+ */
+static int arcs_i2c_init_resources(lisa_i2c_priv_t *priv)
+{
+    priv->mutex = lisa_mutex_create();
+    if (!priv->mutex) {
+        LISA_LOGE(LOG_TAG, "Failed to create mutex");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    priv->xfer_sem = xSemaphoreCreateBinary();
+    if (!priv->xfer_sem) {
+        LISA_LOGE(LOG_TAG, "Failed to create I2C transfer semaphore");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    return LISA_DEVICE_OK;
+}
+
+/**
+ * @brief 幂等的 HAL 硬件初始化
+ *
+ * 由 _init 调用；只动 HAL / pinmux，不分配 mutex / sem / 堆内存。
+ *
+ * 唤醒后经 reinit 重新走 _init 路径时，destroy 阶段已先
+ * `I2C_PowerControl(OFF) + I2C_Uninitialize` 清掉 HAL 状态；启动期首次调用时
+ * HAL 内部状态为零，重复 Initialize 无副作用，故本函数保持幂等。
+ */
+static int arcs_i2c_init_hw(lisa_i2c_priv_t *priv, int instance)
+{
+    void (*event_cb)(uint32_t, void *) = NULL;
+    void (*pinmux_fn)(void) = NULL;
+
+    switch (instance) {
+#if CONFIG_LISA_I2C0
+    case 0:
+        priv->hal_handler = I2C0();
+        event_cb = i2c0_event_callback;
+        pinmux_fn = lisa_i2c0_pinmux;
+        break;
+#endif
+#if CONFIG_LISA_I2C1
+    case 1:
+        priv->hal_handler = I2C1();
+        event_cb = i2c1_event_callback;
+        pinmux_fn = lisa_i2c1_pinmux;
+        break;
+#endif
+    default:
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    if (!priv->hal_handler) {
+        LISA_LOGE(LOG_TAG, "Failed to get I2C%d handler", instance);
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    if (I2C_Initialize(priv->hal_handler, event_cb, priv) != 0) {
+        LISA_LOGE(LOG_TAG, "Failed to initialize I2C%d", instance);
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    if (I2C_PowerControl(priv->hal_handler, CSK_POWER_FULL) != 0) {
+        LISA_LOGE(LOG_TAG, "Failed to power on I2C%d", instance);
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    if (I2C_Control(priv->hal_handler, CSK_I2C_TRANSMIT_MODE, 0) != 0) {
+        LISA_LOGE(LOG_TAG, "Failed to set I2C%d transmit mode", instance);
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    if (I2C_Control(priv->hal_handler, CSK_I2C_BUS_SPEED, CSK_I2C_BUS_SPEED_STANDARD) != 0) {
+        LISA_LOGE(LOG_TAG, "Failed to set I2C%d bus speed", instance);
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    I2C_Control(priv->hal_handler, CSK_I2C_BUS_CLEAR, 0);
+
+    pinmux_fn();
+
+    return LISA_DEVICE_OK;
+}
+
 #if CONFIG_LISA_I2C0
 static int arcs_i2c0_init(void)
 {
     /* 清空私有数据 */
     memset(&i2c0_priv, 0, sizeof(lisa_i2c_priv_t));
 
-    /* 获取 HAL I2C0 句柄 */
-    i2c0_priv.hal_handler = I2C0();
-    if (!i2c0_priv.hal_handler) {
-        LISA_LOGE(LOG_TAG, "Failed to get I2C0 handler");
-        return LISA_DEVICE_ERR_INIT_FAIL;
+    int ret = arcs_i2c_init_resources(&i2c0_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
     }
 
-    /* 创建互斥锁 */
-    i2c0_priv.mutex = lisa_mutex_create();
-    if (!i2c0_priv.mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create mutex");
-        return LISA_DEVICE_ERR_INIT_FAIL;
+    ret = arcs_i2c_init_hw(&i2c0_priv, 0);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
     }
-
-    /* 创建传输完成信号量 */
-    i2c0_priv.xfer_sem = xSemaphoreCreateBinary();
-    if (!i2c0_priv.xfer_sem) {
-        LISA_LOGE(LOG_TAG, "Failed to create I2C0 transfer semaphore");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 初始化 HAL I2C */
-    if (I2C_Initialize(i2c0_priv.hal_handler, i2c0_event_callback, &i2c0_priv) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to initialize I2C0");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 使能电源 */
-    if (I2C_PowerControl(i2c0_priv.hal_handler, CSK_POWER_FULL) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to power on I2C0");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 设置传输模式为中断模式 */
-    if (I2C_Control(i2c0_priv.hal_handler, CSK_I2C_TRANSMIT_MODE, 0) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to set I2C0 transmit mode");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 设置默认总线速度为标准模式 */
-    if (I2C_Control(i2c0_priv.hal_handler, CSK_I2C_BUS_SPEED, CSK_I2C_BUS_SPEED_STANDARD) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to set I2C0 bus speed");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 清除总线 */
-    I2C_Control(i2c0_priv.hal_handler, CSK_I2C_BUS_CLEAR, 0);
-
-    /* 配置 I2C0 引脚复用 */
-    lisa_i2c0_pinmux();
 
     /* 设置默认配置 */
     i2c0_priv.config.speed = LISA_I2C_SPEED_STANDARD;
@@ -547,56 +611,15 @@ static int arcs_i2c1_init(void)
     /* 清空私有数据 */
     memset(&i2c1_priv, 0, sizeof(lisa_i2c_priv_t));
 
-    /* 获取 HAL I2C1 句柄 */
-    i2c1_priv.hal_handler = I2C1();
-    if (!i2c1_priv.hal_handler) {
-        LISA_LOGE(LOG_TAG, "Failed to get I2C1 handler");
-        return LISA_DEVICE_ERR_INIT_FAIL;
+    int ret = arcs_i2c_init_resources(&i2c1_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
     }
 
-    /* 创建互斥锁 */
-    i2c1_priv.mutex = lisa_mutex_create();
-    if (!i2c1_priv.mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create mutex");
-        return LISA_DEVICE_ERR_INIT_FAIL;
+    ret = arcs_i2c_init_hw(&i2c1_priv, 1);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
     }
-
-    /* 创建传输完成信号量 */
-    i2c1_priv.xfer_sem = xSemaphoreCreateBinary();
-    if (!i2c1_priv.xfer_sem) {
-        LISA_LOGE(LOG_TAG, "Failed to create I2C1 transfer semaphore");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 初始化 HAL I2C */
-    if (I2C_Initialize(i2c1_priv.hal_handler, i2c1_event_callback, &i2c1_priv) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to initialize I2C1");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 使能电源 */
-    if (I2C_PowerControl(i2c1_priv.hal_handler, CSK_POWER_FULL) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to power on I2C1");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 设置传输模式为中断模式 */
-    if (I2C_Control(i2c1_priv.hal_handler, CSK_I2C_TRANSMIT_MODE, 0) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to set I2C1 transmit mode");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 设置默认总线速度为标准模式 */
-    if (I2C_Control(i2c1_priv.hal_handler, CSK_I2C_BUS_SPEED, CSK_I2C_BUS_SPEED_STANDARD) != 0) {
-        LISA_LOGE(LOG_TAG, "Failed to set I2C1 bus speed");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    /* 清除总线 */
-    I2C_Control(i2c1_priv.hal_handler, CSK_I2C_BUS_CLEAR, 0);
-
-    /* 配置 I2C1 引脚复用 */
-    lisa_i2c1_pinmux();
 
     /* 设置默认配置 */
     i2c1_priv.config.speed = LISA_I2C_SPEED_STANDARD;
@@ -609,24 +632,108 @@ static int arcs_i2c1_init(void)
 }
 #endif
 
-/* ===== 设备注册 ===== */
+/* ===== 设备反初始化函数 ===== */
+
+/**
+ * @brief 停止并释放单个 I2C 实例的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 经各实例 deinit 包装调用。释放顺序与 _init 申请相反：
+ *   1) HAL 下电：先 I2C_PowerControl(OFF) 再 I2C_Uninitialize（PowerControl(OFF)
+ *      内部会读 INITIALIZED 状态，反向调用会失败，故顺序固定）；
+ *   2) 释放 OS 资源 xfer_sem / mutex；
+ *   3) memset 整个 priv，回到 _init 之前的零初值。
+ *
+ * 约定：调用方需保证此时无传输在途、无并发业务在使用本设备。
+ */
+static int arcs_i2c_deinit_instance(lisa_i2c_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    if (priv->hal_handler) {
+        I2C_PowerControl(priv->hal_handler, CSK_POWER_OFF);
+        I2C_Uninitialize(priv->hal_handler);
+    }
+
+    if (priv->xfer_sem) {
+        vSemaphoreDelete(priv->xfer_sem);
+    }
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+    }
+
+    memset(priv, 0, sizeof(*priv));
+    return LISA_DEVICE_OK;
+}
 
 #if CONFIG_LISA_I2C0
-LISA_DEVICE_REGISTER(i2c0,                        /* 设备名称 */
-                     &arcs_i2c_api,               /* API指针 */
-                     &i2c0_priv,                  /* 私有数据指针 */
-                     NULL,                        /* 用户数据 */
-                     arcs_i2c0_init,              /* 初始化函数 */
-                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
-                     LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
+static int arcs_i2c0_deinit(void)
+{
+    return arcs_i2c_deinit_instance(&i2c0_priv);
+}
 #endif
 
 #if CONFIG_LISA_I2C1
-LISA_DEVICE_REGISTER(i2c1,                        /* 设备名称 */
-                     &arcs_i2c_api,               /* API指针 */
-                     &i2c1_priv,                  /* 私有数据指针 */
-                     NULL,                        /* 用户数据 */
-                     arcs_i2c1_init,              /* 初始化函数 */
-                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
-                     LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
+static int arcs_i2c1_deinit(void)
+{
+    return arcs_i2c_deinit_instance(&i2c1_priv);
+}
+#endif
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在睡眠前
+ * 调 lisa_device_destroy(i2cN) 释放全部软硬件资源（HAL 下电 + mutex/sem），唤醒后在
+ * PM after_wake 回调中调 lisa_device_reinit(i2cN) 重建到 _init 后的状态，并由业务
+ * 重新 configure()。因此 prepare_suspend / resume_restore 不再需要（原先它们只做
+ * HAL 拆卸 / 字段清零，已被 destroy/reinit 覆盖，且二者运行于 PM 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：只读 priv->xfer_in_flight，为 true 时占用总线，禁止
+ * AUTO_LIGHT_SLEEP。不取 mutex / 不读 HAL，避免在 PM 临界区阻塞或递归。
+ */
+static int32_t arcs_i2c_pm_check_idle(void *ctx)
+{
+    lisa_i2c_priv_t *priv = (lisa_i2c_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    return priv->xfer_in_flight ? 0 : 1;
+}
+
+#if CONFIG_LISA_I2C0
+static const lisa_pm_system_ops_t arcs_i2c0_pm_ops = {
+    .check_idle      = arcs_i2c_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif
+
+#if CONFIG_LISA_I2C1
+static const lisa_pm_system_ops_t arcs_i2c1_pm_ops = {
+    .check_idle      = arcs_i2c_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif
+#endif /* CONFIG_LISA_PM */
+
+/* ===== 设备注册 ===== */
+
+
+#if CONFIG_LISA_I2C0
+LISA_DEVICE_REGISTER_DEINIT(i2c0, &arcs_i2c_api, &i2c0_priv, NULL, arcs_i2c0_init,
+                            arcs_i2c0_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(i2c0, &arcs_i2c0_pm_ops, NULL, &i2c0_priv);
+#endif
+#endif
+
+#if CONFIG_LISA_I2C1
+LISA_DEVICE_REGISTER_DEINIT(i2c1, &arcs_i2c_api, &i2c1_priv, NULL, arcs_i2c1_init,
+                            arcs_i2c1_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(i2c1, &arcs_i2c1_pm_ops, NULL, &i2c1_priv);
+#endif
 #endif

@@ -16,11 +16,16 @@
 #include "ClockManager.h"
 #include "dma.h"
 #include <lisa_mutex.h>
+#include <stdbool.h>
 #include <string.h>
 #include "board.h"
 
 #define LOG_TAG "lisa_spi_arcs"
 #include <lisa_log.h>
+
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
 
 /* 配置锁宏 - 用于保护配置和设备级控制操作 */
 #define CONFIG_LOCK(priv)                                                                                              \
@@ -61,6 +66,8 @@ typedef struct {
     uint32_t rx_size;                       /* 用于DMA接收的缓存大小 */
     lisa_spi_transfer_callback_t callback;  /* 传输完成回调函数 */
     void *user_data;                        /* 用户自定义数据指针 */
+    volatile bool tx_in_flight;             /* PM busy 标志：SPI_Send / SPI_Transfer 入口置 1 */
+    volatile bool rx_in_flight;             /* PM busy 标志：SPI_Receive / SPI_Transfer 入口置 1 */
 } lisa_spi_priv_t;
 
 /* ===== SPI 设备静态实例 ===== */
@@ -93,9 +100,17 @@ static void spi_hal_event_callback(uint32_t event, uint32_t usr_param)
     }
 #endif
 
+        /* 传输完成：清 busy 标志，允许 check_idle 返回 idle */
+        priv->tx_in_flight = false;
+        priv->rx_in_flight = false;
+
         if (priv->callback) {
             priv->callback(priv->user_data);
         }
+    } else if (event & CSK_SPI_EVENT_DATA_LOST) {
+        /* 异常路径下也清 busy，避免被永久卡住 */
+        priv->tx_in_flight = false;
+        priv->rx_in_flight = false;
     }
 }
 
@@ -278,9 +293,16 @@ static int arcs_spi_transfer(lisa_device_t *dev, const lisa_spi_transfer_t *xfer
     }
 #endif
 
+    /* 进入 HAL 之前置 busy；transfer 同时占用 TX/RX */
+    priv->tx_in_flight = true;
+    priv->rx_in_flight = true;
+
     ret = SPI_Transfer(priv->hal_handler, xfer->tx_buf, xfer->rx_buf, xfer->len);
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_Transfer failed: %d", ret);
+        /* 启动失败：回滚 busy 标志，否则 PM 永远视为忙 */
+        priv->tx_in_flight = false;
+        priv->rx_in_flight = false;
         ret = LISA_DEVICE_ERR_NOT_SUPPORT;
         goto exit;
     }
@@ -289,8 +311,9 @@ static int arcs_spi_transfer(lisa_device_t *dev, const lisa_spi_transfer_t *xfer
     priv->rx_size = xfer->len;
 
     ret = LISA_DEVICE_OK;
-    TRANSFER_UNLOCK(priv);
+
 exit:
+    TRANSFER_UNLOCK(priv);
     return ret;
 }
 
@@ -311,9 +334,14 @@ static int arcs_spi_write(lisa_device_t *dev, const uint8_t *buf, uint32_t len)
     }
 #endif
 
+    /* 进入 HAL 之前置 busy */
+    priv->tx_in_flight = true;
+
     ret = SPI_Send(priv->hal_handler, buf, len);
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_Send failed: %d", ret);
+        /* 启动失败：回滚 busy 标志 */
+        priv->tx_in_flight = false;
         ret = LISA_DEVICE_ERR_NOT_SUPPORT;
         goto exit;
     }
@@ -342,6 +370,9 @@ static int arcs_spi_read(lisa_device_t *dev, uint8_t *buf, uint32_t len)
     }
 #endif
 
+    /* 进入 HAL 之前置 busy */
+    priv->rx_in_flight = true;
+
     if (priv->current_config.flags == LISA_SPI_FLAG_SOFTWARE_CS && (!priv->current_config.master_mode)) {
         ret = SPI_Receive_NEnd(priv->hal_handler, buf, len);
     } else {
@@ -349,6 +380,8 @@ static int arcs_spi_read(lisa_device_t *dev, uint8_t *buf, uint32_t len)
     }
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_Receive failed: %d", ret);
+        /* 启动失败：回滚 busy 标志 */
+        priv->rx_in_flight = false;
         ret = LISA_DEVICE_ERR_NOT_SUPPORT;
         goto exit;
     }
@@ -364,26 +397,52 @@ exit:
 }
 
 /* ===== 设备初始化函数 ===== */
+
+/**
+ * @brief OS 资源初始化（mutex），仅 _init 阶段调用一次，跨 suspend/resume 保留
+ */
+static int arcs_spi_init_resources(lisa_spi_priv_t *priv)
+{
+    priv->config_mutex = lisa_mutex_create();
+    if (!priv->config_mutex) {
+        LISA_LOGE(LOG_TAG, "Failed to create config_mutex");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    priv->transfer_mutex = lisa_mutex_create();
+    if (!priv->transfer_mutex) {
+        LISA_LOGE(LOG_TAG, "Failed to create transfer_mutex");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+    return LISA_DEVICE_OK;
+}
+
 #ifdef CONFIG_LISA_SPI0
-static int arcs_spi0_init(void)
+/**
+ * @brief 幂等的 SPI0 HAL 硬件初始化
+ *
+ * 由 _init 调用；只动 HAL / pinmux，不分配 mutex / 堆内存。唤醒后经 reinit
+ * 重新走 _init 路径时，destroy 阶段已先 SPI_PowerControl(OFF) + SPI_Uninitialize
+ * 清零 HAL 状态；启动期首次调用时 HAL 状态本就为零，重复 Initialize 无副作用。
+ */
+static int arcs_spi0_init_hw(lisa_spi_priv_t *priv)
 {
     int ret;
-    
-    memset(&spi0_priv, 0, sizeof(spi0_priv));
 
-    spi0_priv.hal_handler = SPI0();
-    if (!spi0_priv.hal_handler) {
+    priv->hal_handler = SPI0();
+    if (!priv->hal_handler) {
         LISA_LOGE(LOG_TAG, "Failed to get SPI0 handler");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    ret = SPI_Initialize(spi0_priv.hal_handler, spi_hal_event_callback, (uint32_t)&spi0_priv);
+    ret = SPI_Initialize(priv->hal_handler, spi_hal_event_callback, (uint32_t)priv);
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_Initialize failed: %d", ret);
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
-    ret = SPI_PowerControl(spi0_priv.hal_handler, CSK_POWER_FULL);
+    ret = SPI_PowerControl(priv->hal_handler, CSK_POWER_FULL);
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_PowerControl failed: %d", ret);
         return LISA_DEVICE_ERR_NOT_SUPPORT;
@@ -391,109 +450,107 @@ static int arcs_spi0_init(void)
 
     HAL_CRM_SetSpi0ClkSrc(CRM_IpSrcPeriClk);
 
-    spi0_priv.config_mutex = lisa_mutex_create();
-    if (!spi0_priv.config_mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create config_mutex for SPI0");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    spi0_priv.transfer_mutex = lisa_mutex_create();
-    if (!spi0_priv.transfer_mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create transfer_mutex for SPI0");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
     lisa_spi0_pinmux();
 
     return LISA_DEVICE_OK;
 }
+
+static int arcs_spi0_init(void)
+{
+    memset(&spi0_priv, 0, sizeof(spi0_priv));
+
+    int ret = arcs_spi_init_resources(&spi0_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    return arcs_spi0_init_hw(&spi0_priv);
+}
 #endif
 
 #ifdef CONFIG_LISA_SPI1
-static int arcs_spi1_init(void)
+static int arcs_spi1_init_hw(lisa_spi_priv_t *priv)
 {
-    
     int ret;
-    memset(&spi1_priv, 0, sizeof(spi1_priv));
 
-    spi1_priv.hal_handler = SPI1();
-    if (!spi1_priv.hal_handler) {
+    priv->hal_handler = SPI1();
+    if (!priv->hal_handler) {
         LISA_LOGE(LOG_TAG, "Failed to get SPI1 handler");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    ret = SPI_Initialize(spi1_priv.hal_handler, spi_hal_event_callback, (uint32_t)&spi1_priv);
+    ret = SPI_Initialize(priv->hal_handler, spi_hal_event_callback, (uint32_t)priv);
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_Initialize failed: %d", ret);
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
-    ret = SPI_PowerControl(spi1_priv.hal_handler, CSK_POWER_FULL);
+    ret = SPI_PowerControl(priv->hal_handler, CSK_POWER_FULL);
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_PowerControl failed: %d", ret);
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
     HAL_CRM_SetSpi1ClkSrc(CRM_IpSrcPeriClk);
-    spi1_priv.config_mutex = lisa_mutex_create();
-    if (!spi1_priv.config_mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create config_mutex for SPI1");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    spi1_priv.transfer_mutex = lisa_mutex_create();
-    if (!spi1_priv.transfer_mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create transfer_mutex for SPI1");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
 
     lisa_spi1_pinmux();
 
     return LISA_DEVICE_OK;
 }
+
+static int arcs_spi1_init(void)
+{
+    memset(&spi1_priv, 0, sizeof(spi1_priv));
+
+    int ret = arcs_spi_init_resources(&spi1_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    return arcs_spi1_init_hw(&spi1_priv);
+}
 #endif
 
 #ifdef CONFIG_LISA_SPI2
-static int arcs_spi2_init(void)
+static int arcs_spi2_init_hw(lisa_spi_priv_t *priv)
 {
-    
     int ret;
-    memset(&spi2_priv, 0, sizeof(spi2_priv));
 
-    spi2_priv.hal_handler = SPI2();
-    if (!spi2_priv.hal_handler) {
+    priv->hal_handler = SPI2();
+    if (!priv->hal_handler) {
         LISA_LOGE(LOG_TAG, "Failed to get SPI2 handler");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    ret = SPI_Initialize(spi2_priv.hal_handler, spi_hal_event_callback, (uint32_t)&spi2_priv);
+    ret = SPI_Initialize(priv->hal_handler, spi_hal_event_callback, (uint32_t)priv);
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_Initialize failed: %d", ret);
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
-    ret = SPI_PowerControl(spi2_priv.hal_handler, CSK_POWER_FULL);
+    ret = SPI_PowerControl(priv->hal_handler, CSK_POWER_FULL);
     if (ret != CSK_DRIVER_OK) {
         LISA_LOGE(LOG_TAG, "SPI_PowerControl failed: %d", ret);
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
 
     HAL_CRM_SetSpi2ClkSrc(CRM_IpSrcPeriClk);
-    spi2_priv.config_mutex = lisa_mutex_create();
-    if (!spi2_priv.config_mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create config_mutex for SPI2");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    spi2_priv.transfer_mutex = lisa_mutex_create();
-    if (!spi2_priv.transfer_mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create transfer_mutex for SPI2");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
 
     lisa_spi2_pinmux();
 
     return LISA_DEVICE_OK;
+}
+
+static int arcs_spi2_init(void)
+{
+    memset(&spi2_priv, 0, sizeof(spi2_priv));
+
+    int ret = arcs_spi_init_resources(&spi2_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    return arcs_spi2_init_hw(&spi2_priv);
 }
 #endif
 
@@ -507,13 +564,137 @@ static int arcs_spi2_init(void)
     .register_callback = arcs_spi_register_callback,
  };
 
- /* ===== 设备注册 ===== */
+/* ===== 设备反初始化函数 ===== */
+
+/**
+ * @brief 停止并释放单个 SPI 实例的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 经各实例 deinit 包装调用。释放顺序与 _init 申请相反：
+ *   1) HAL 下电：先 SPI_PowerControl(OFF) 再 SPI_Uninitialize（PowerControl(OFF)
+ *      内部会读 INITIALIZED 状态，反向调用会失败，故顺序固定）；
+ *   2) 释放 OS 资源 transfer_mutex / config_mutex；
+ *   3) memset 整个 priv，回到 _init 之前的零初值（current_config / rx 缓冲指针 /
+ *      应用回调随之清零，强制唤醒后业务侧重新 configure() 与 register_callback()）。
+ *
+ * 约定：调用方需保证此时无传输在途、无并发业务在使用本设备。
+ */
+static int arcs_spi_deinit_instance(lisa_spi_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    if (priv->hal_handler) {
+        SPI_PowerControl(priv->hal_handler, CSK_POWER_OFF);
+        SPI_Uninitialize(priv->hal_handler);
+    }
+
+    if (priv->transfer_mutex) {
+        lisa_mutex_delete(priv->transfer_mutex);
+    }
+    if (priv->config_mutex) {
+        lisa_mutex_delete(priv->config_mutex);
+    }
+
+    memset(priv, 0, sizeof(*priv));
+    return LISA_DEVICE_OK;
+}
+
 #ifdef CONFIG_LISA_SPI0
-LISA_DEVICE_REGISTER(spi0, &arcs_spi_api, &spi0_priv, NULL, arcs_spi0_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+static int arcs_spi0_deinit(void)
+{
+    return arcs_spi_deinit_instance(&spi0_priv);
+}
+#endif
+
+#ifdef CONFIG_LISA_SPI1
+static int arcs_spi1_deinit(void)
+{
+    return arcs_spi_deinit_instance(&spi1_priv);
+}
+#endif
+
+#ifdef CONFIG_LISA_SPI2
+static int arcs_spi2_deinit(void)
+{
+    return arcs_spi_deinit_instance(&spi2_priv);
+}
+#endif
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在睡眠前
+ * 调 lisa_device_destroy(spiN) 释放全部软硬件资源（HAL 下电 + config_mutex /
+ * transfer_mutex），唤醒后在 PM after_wake 回调中调 lisa_device_reinit(spiN) 重建到
+ * _init 后的状态，并由业务重新 configure() 与 register_callback()。因此
+ * prepare_suspend / resume_restore 不再需要（原先它们只做 HAL 拆卸 / 业务字段清零，
+ * 已被 destroy/reinit 覆盖，且二者运行于 PM 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：只读 priv->tx_in_flight / rx_in_flight，任一为 true 即占用总线，
+ * 禁止 AUTO_LIGHT_SLEEP。不取 mutex / 不读 HAL。各实例共用本 check_idle。
+ */
+static int32_t arcs_spi_pm_check_idle(void *ctx)
+{
+    lisa_spi_priv_t *priv = (lisa_spi_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    if (priv->tx_in_flight) {
+        return 0;
+    }
+    if (priv->rx_in_flight) {
+        return 0;
+    }
+    return 1;
+}
+
+#ifdef CONFIG_LISA_SPI0
+static const lisa_pm_system_ops_t arcs_spi0_pm_ops = {
+    .check_idle      = arcs_spi_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif
+
+#ifdef CONFIG_LISA_SPI1
+static const lisa_pm_system_ops_t arcs_spi1_pm_ops = {
+    .check_idle      = arcs_spi_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif
+
+#ifdef CONFIG_LISA_SPI2
+static const lisa_pm_system_ops_t arcs_spi2_pm_ops = {
+    .check_idle      = arcs_spi_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif
+#endif /* CONFIG_LISA_PM */
+
+ /* ===== 设备注册 ===== */
+
+
+#ifdef CONFIG_LISA_SPI0
+LISA_DEVICE_REGISTER_DEINIT(spi0, &arcs_spi_api, &spi0_priv, NULL, arcs_spi0_init,
+                            arcs_spi0_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(spi0, &arcs_spi0_pm_ops, NULL, &spi0_priv);
+#endif
 #endif
 #ifdef CONFIG_LISA_SPI1
-LISA_DEVICE_REGISTER(spi1, &arcs_spi_api, &spi1_priv, NULL, arcs_spi1_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER_DEINIT(spi1, &arcs_spi_api, &spi1_priv, NULL, arcs_spi1_init,
+                            arcs_spi1_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(spi1, &arcs_spi1_pm_ops, NULL, &spi1_priv);
+#endif
 #endif
 #ifdef CONFIG_LISA_SPI2
-LISA_DEVICE_REGISTER(spi2, &arcs_spi_api, &spi2_priv, NULL, arcs_spi2_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER_DEINIT(spi2, &arcs_spi_api, &spi2_priv, NULL, arcs_spi2_init,
+                            arcs_spi2_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(spi2, &arcs_spi2_pm_ops, NULL, &spi2_priv);
+#endif
 #endif

@@ -31,8 +31,6 @@ CFLAGS += -I $(TOPDIR)/include/NMSIS \
          -I $(TOPDIR)/chip/${CHIP}/rtos/rtos_al \
          -I $(TOPDIR)/chip/${CHIP}/atcmd \
          -I $(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure \
-         -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_core \
-         -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_slave \
          -I $(TOPDIR)/chip/${CHIP}/include/ipc \
          -I $(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/src/include\
          -I $(TOPDIR)/chip/$(CHIP)/lwip/$(LWIP_VER)/src/include/compat/posix\
@@ -154,7 +152,7 @@ export CFG_FLASH_IPC CFG_AMP_IPC_WIFI_CHAN CFG_AMP_IPC_HALT_BY_PEER_CORE CFG_AMP
 CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M  := 1
 export  CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M
 
-CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S  := 1
+CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S  := 0
 export  CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S
 
 

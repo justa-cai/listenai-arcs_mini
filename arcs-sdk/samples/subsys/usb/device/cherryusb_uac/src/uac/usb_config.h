@@ -1,0 +1,44 @@
+/*
+ * Copyright (c) 2026, LISTENAI
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#ifndef CHERRYUSB_UAC_SAMPLE_USB_CONFIG_H
+#define CHERRYUSB_UAC_SAMPLE_USB_CONFIG_H
+
+#include <stdio.h>
+
+#define CONFIG_USB_PRINTF(...) printf(__VA_ARGS__)
+
+#ifndef CONFIG_USB_DBG_LEVEL
+#define CONFIG_USB_DBG_LEVEL USB_DBG_WARNING
+#endif
+
+#define CONFIG_USB_PRINTF_COLOR_ENABLE
+
+#ifndef CONFIG_USB_ALIGN_SIZE
+#define CONFIG_USB_ALIGN_SIZE 4
+#endif
+
+#define USB_NOCACHE_RAM_SECTION __attribute__((section(".fast.bss")))
+
+#ifndef CONFIG_USBDEV_REQUEST_BUFFER_LEN
+#define CONFIG_USBDEV_REQUEST_BUFFER_LEN 512
+#endif
+
+#ifndef CONFIG_USBDEV_EPX_BUFFER_MINLEN
+#define CONFIG_USBDEV_EPX_BUFFER_MINLEN 64
+#endif
+
+#define CONFIG_USBDEV_EP0_INDATA_NO_COPY
+#define CONFIG_USBDEV_ADVANCE_DESC
+
+#define CONFIG_USBDEV_MAX_BUS  1
+#define CONFIG_USBDEV_EP_NUM   8
+#define CONFIG_USB_MUSB_EP_NUM 8
+
+#if defined(CONFIG_CHERRYUSB_DEVICE_SPEED_HS)
+#define CONFIG_USB_HS
+#endif
+
+#endif /* CHERRYUSB_UAC_SAMPLE_USB_CONFIG_H */

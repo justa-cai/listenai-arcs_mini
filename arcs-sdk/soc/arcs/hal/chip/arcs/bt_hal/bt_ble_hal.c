@@ -139,7 +139,7 @@ void bt_stack_ble_disconnect(uint8_t conidx, uint8_t reason)
 void bt_stack_ble_scan_start(uint8_t scan_id, uint8_t type, uint8_t phy, uint16_t scan_intv, uint16_t scan_win)
 {
     ble_gap_scan_prepare(scan_id);
-    ble_gap_scan_start(scan_id, type, phy, scan_intv, scan_win);
+    ble_gap_scan_start(scan_id, type, phy, scan_intv, scan_win, 0);
 }
 
 void bt_stack_ble_scan_stop(uint8_t scan_id)
@@ -180,7 +180,6 @@ void bt_stack_ble_parameter_update_cb(TimerHandle_t time_id)
 
     bt_stack_ble_parameter_update();
     ble_gap_entry_latency(GAP_EXIT_LATENCY_CONNECT);
-    btos_timer_cancel(time_id);
 #if BLE_VOICE_SIMULATOR
     bt_stack_ble_start_voice_dummy(100);
 #endif
@@ -237,3 +236,37 @@ uint8_t *bt_stack_vbat_percent_get(void)
     static uint8_t vbat_percent = 80;
     return &vbat_percent;
 }
+
+uint8_t bt_stack_ble_adv_search_data(uint8_t length, uint8_t *p_data, uint8_t search_type, uint8_t *search_len, uint8_t **search_data)
+{
+    uint8_t status = 1;
+    uint8_t *p_cursor = p_data;
+    uint8_t *p_end_cursor = p_data + length;
+
+    ///begain search every adv data.
+    while ((p_cursor + 1) < p_end_cursor)
+    {
+        ///AD type
+        uint8_t ad_type = *(p_cursor + 1);
+
+        //CLOGD("dongle_adv_search_data,type:%d,%d,%d", ad_type, search_type, *p_cursor);
+        if (ad_type == search_type)
+        {
+            ///get adv data len
+            *search_len = *p_cursor;
+            *search_data = p_cursor + 1;
+            break;
+        }
+        /* Go to next advertising info */
+        p_cursor += (*p_cursor + 1);
+    }
+
+    /// not find adv type that we hope.
+    if (p_cursor == p_end_cursor)
+    {
+         status = 0;
+    }
+
+    return (status);
+}
+

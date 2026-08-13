@@ -1,11 +1,11 @@
 # ADC 驱动
 
-基于 lisa_device 框架的 ADC 设备驱动，为 ARCS 平台提供统一的模拟信号采样接口。
+基于 lisa_device 框架的 ADC 设备驱动，为 ARCS / Venusa 平台提供统一的模拟信号采样接口。
 
 ## 功能特性
 
 - **设备支持**: ADC0 控制器，支持多个模拟输入通道
-- **通道支持**: 支持通道 0-5 的模拟信号采样，以及 VBAT 和温度传感器特殊通道
+- **通道支持**: ARCS 支持通道 0-5，Venusa 支持通道 0-2；两者均支持 VBAT 和温度传感器特殊通道
 - **按通道配置**: 每个通道可独立配置参考电压和分辨率
 - **多种参考电压**: 支持 1.2V、3.6V、VDD_IO/2、VDD_IO/3、VDD_IO*3/2、VDD_IO、外部参考电压
 - **线程安全**: 内部使用互斥锁保护并发访问
@@ -32,7 +32,7 @@ int lisa_adc_channel_setup(lisa_device_t *dev, uint32_t channel,
 
 **参数**:
 - `dev`: ADC 设备指针
-- `channel`: ADC 通道号（0-5：普通通道，6：VBAT，7：TEMP）
+- `channel`: ADC 通道号（ARCS 0-5 / Venusa 0-2：普通通道，6：VBAT，7：TEMP）
 - `config`: 通道配置参数，包含：
   - `reference`: 参考电压类型（枚举）
   - `resolution`: ADC 分辨率（枚举）
@@ -63,7 +63,7 @@ int lisa_adc_read(lisa_device_t *dev, uint32_t channel, uint16_t *value);
 
 **参数**:
 - `dev`: ADC 设备指针
-- `channel`: ADC 通道号（0-5：普通通道，6：VBAT，7：TEMP）
+- `channel`: ADC 通道号（ARCS 0-5 / Venusa 0-2：普通通道，6：VBAT，7：TEMP）
 - `value`: 输出采样值指针
 
 **返回值**:
@@ -222,11 +222,20 @@ ADC 驱动在初始化时会自动调用板型目录中定义的 `lisa_adc_pinmu
 
 **示例** (参考 `boards/arcs_evb/pinmux.c`):
 ```c
+// arcs
 void lisa_adc_pinmux()
 {
     // 配置 PB06 为 ADC 功能（功能码 3）
     AON_IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, 6, 3);
 }
+
+// venusa
+void lisa_adc_pinmux()
+{
+    // 配置 PB01 为 ADC 功能（功能码 4）
+    AON_IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, 1, 4);
+}
+
 ```
 
 **注意**:
@@ -236,19 +245,19 @@ void lisa_adc_pinmux()
 
 ### 支持的通道
 
-| 通道号 | 对应引脚/功能 | 说明 |
-|--------|--------------|------|
-| 0 | PB02 | ADC 通道 0 |
-| 1 | PB03 | ADC 通道 1 |
-| 2 | PB04 | ADC 通道 2 |
-| 3 | PB05 | ADC 通道 3 |
-| 4 | PB06 | ADC 通道 4 |
-| 5 | PB07 | ADC 通道 5 |
-| 6 | 内部 VBAT | 电池电压监测通道（VBAT/3） |
-| 7 | 内部 TEMP | 芯片温度传感器通道 |
+| 通道号 | ARCS 引脚/功能 | Venusa 引脚/功能 | 说明 |
+|--------|----------------|------------------|------|
+| 0 | PB02 | PB01 | ADC 通道 0 |
+| 1 | PB03 | PB02 | ADC 通道 1 |
+| 2 | PB04 | PB03 | ADC 通道 2 |
+| 3 | PB05 | 不支持 | ADC 通道 3 |
+| 4 | PB06 | 不支持 | ADC 通道 4 |
+| 5 | PB07 | 不支持 | ADC 通道 5 |
+| 6 | 内部 VBAT | 内部 VBAT | 电池电压监测通道（VBAT/3） |
+| 7 | 内部 TEMP | 内部 TEMP | 芯片温度传感器通道 |
 
 **注意**:
-- 通道 0-5 使用前需先通过 GPIO 驱动将对应引脚配置为 `LISA_GPIO_MODE_ANALOG` 模式
+- 普通通道使用前需完成板级 ADC pinmux，并将对应 AON GPIOB 的 `ANA_SEL` 清为 0 以选择模拟输入路径
 - 通道 6 (VBAT) 和通道 7 (TEMP) 为内部通道，无需配置引脚
 
 ### 参考电压选择
@@ -298,13 +307,13 @@ uint32_t voltage = LISA_ADC_RAW_TO_MV(512, 1200, 10);
 ## 注意事项
 
 1. **通道配置**: 建议在读取通道之前先调用 `lisa_adc_channel_setup()` 配置通道参数
-2. **引脚配置**: 使用通道 0-5 前必须先将对应引脚配置为 ADC 模拟输入模式
+2. **引脚配置**: 使用普通通道前必须先将对应引脚配置为 ADC 模拟输入模式
 3. **特殊通道**: 通道 6 (VBAT) 和通道 7 (TEMP) 为内部通道，无需配置引脚
-4. **通道范围**: 支持通道 0-7（0-5：外部通道，6：VBAT，7：TEMP）
+4. **通道范围**: ARCS 支持 0-5 外部通道，Venusa 支持 0-2 外部通道；通道 6 为 VBAT，通道 7 为 TEMP
 5. **VBAT 分压**: VBAT 通道测量的是实际电池电压的 1/3，计算实际电压时需乘以 3
 6. **温度转换**: 温度传感器的原始值需根据芯片数据手册提供的公式进行温度转换
 7. **参考电压计算**: 对于依赖硬件的参考电压（VDD_IO 系列、外部参考），用户需要根据实际电路确定电压值用于转换计算
-8. **分辨率支持**: ARCS 平台目前仅支持 10-bit 分辨率
+8. **分辨率支持**: ARCS / Venusa 平台目前仅支持 10-bit 分辨率
 9. **线程安全**: 驱动内部已实现线程保护，可在多线程环境中使用
 10. **转换时间**: 每次读取会触发一次 ADC 转换，需等待转换完成（通常几微秒到几毫秒）
 11. **输入范围**: 外部通道输入电压应在 0V 到参考电压之间，超出范围可能损坏硬件或得到错误结果

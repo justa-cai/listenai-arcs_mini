@@ -25,6 +25,22 @@
 
 #define SPI_DEVICE    "spi0"
 
+#if defined(CONFIG_BOARD_VENUSA_RD_EVB)
+#define SPI_CLK_PAD        CSK_IOMUX_PAD_A
+#define SPI_CLK_PIN        16
+#define SPI_CLK_FUNC       CSK_IOMUX_FUNC_ALTER5
+
+#define SPI_MOSI_PAD      CSK_IOMUX_PAD_A
+#define SPI_MOSI_PIN      19
+#define SPI_MOSI_FUNC     CSK_IOMUX_FUNC_ALTER5
+
+#define SPI_MISO_PAD      CSK_IOMUX_PAD_A
+#define SPI_MISO_PIN      18
+#define SPI_MISO_FUNC     CSK_IOMUX_FUNC_ALTER5
+#define SPI_CS_PAD        CSK_IOMUX_PAD_A
+#define SPI_CS_PIN        17
+#define SPI_CS_FUNC       CSK_IOMUX_FUNC_ALTER5
+#else
 #define SPI_CLK_PAD        CSK_IOMUX_PAD_A
 #define SPI_CLK_PIN        15
 #define SPI_CLK_FUNC       CSK_IOMUX_FUNC_ALTER5
@@ -39,13 +55,14 @@
 #define SPI_CS_PAD        CSK_IOMUX_PAD_A
 #define SPI_CS_PIN        12
 #define SPI_CS_FUNC       CSK_IOMUX_FUNC_ALTER5
+#endif
 
 static lisa_semaphore_t *tx_complete_sem = NULL;
 
 /*
     为满足不同板型示例场景，重定向SPI设备的pinmux配置
 */
-#ifdef CONFIG_BOARD_ARCS_EVB
+#if defined(CONFIG_BOARD_ARCS_EVB) || defined(CONFIG_BOARD_VENUSA_RD_EVB)
 void lisa_spi0_pinmux()
 {
     IOMuxManager_PinConfigure(SPI_CLK_PAD, SPI_CLK_PIN, SPI_CLK_FUNC);
@@ -102,7 +119,7 @@ int main(int argc, char **argv)
         LISA_LOGE(LOG_TAG, "SPI transfer failed");
         return -1;
     }
-    ret = lisa_semaphore_take(tx_complete_sem, pdMS_TO_TICKS(100));
+    ret = lisa_semaphore_take(tx_complete_sem, 100);     //内部已经pdMS_TO_TICKS(x)
     if (ret != LISA_OK) {
         LISA_LOGE(LOG_TAG, "SPI transfer timeout");
         return -1;

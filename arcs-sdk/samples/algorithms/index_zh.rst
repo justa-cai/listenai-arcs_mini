@@ -9,10 +9,11 @@
     :maxdepth: 1
 
 
-    wake_up/wakeup_single/README.md
-    wake_up/wakeup_double/README.md
+    wake_up/index_zh
     face_detect/README.md
+    palm/README.md
     tuner/README.md
     translation/README.md
     xtts/README.md
     spv/README.md
+    cae/README.md

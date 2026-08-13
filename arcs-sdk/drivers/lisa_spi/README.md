@@ -1,10 +1,10 @@
 # SPI 驱动
 
-基于 lisa_device 框架的 SPI 设备驱动，为 ARCS 平台提供统一的SPI通信接口。
+基于 lisa_device 框架的 SPI 设备驱动，为 ARCS / Venusa 平台提供统一的SPI通信接口。
 
 ## 功能特性
 
-- **设备支持**: SPI0、SPI1、SPI2 三个SPI设备
+- **设备支持**: ARCS 支持 SPI0、SPI1、SPI2；Venusa 支持 SPI0、SPI1
 - **工作模式**: 支持主机模式和从机模式
 - **传输模式**: 支持中断模式和 DMA 模式
 - **SPI 模式**: 支持模式0-3（CPOL/CPHA组合）
@@ -22,11 +22,11 @@
 CONFIG_LISA_SPI_DEVICE=y
 CONFIG_LISA_SPI0=y          # 启用 SPI0 设备
 CONFIG_LISA_SPI1=y          # 启用 SPI1 设备
-CONFIG_LISA_SPI2=y          # 启用 SPI2 设备
+CONFIG_LISA_SPI2=y          # 启用 SPI2 设备（仅 ARCS）
 CONFIG_LISA_SPI_ASYNC_API=y # 启用异步 API（可选）
 ```
 
-根据需要选择启用 SPI0/1/2 设备。
+根据需要选择启用 SPI0/1/2 设备。(Venusa 仅支持SPI0/1)
 
 ## API 接口
 
@@ -64,7 +64,7 @@ int lisa_spi_register_callback(lisa_device_t *dev, lisa_spi_transfer_callback_t 
 
 ### 引脚复用配置
 
-SPI 驱动在初始化时会自动调用版型目录中定义的 `lisa_spiX_pinmux()` 函数（X 为 0/1/2），用于配置 SPI 设备的引脚复用。
+SPI 驱动在初始化时会自动调用版型目录中定义的 `lisa_spiX_pinmux()` 函数（X 为 0/1/2，Venusa 为 0/1），用于配置 SPI 设备的引脚复用。
 
 **配置位置**:
 - **定义**: `boards/<板型名>/pinmux.c` 中实现 `lisa_spi0_pinmux()`、`lisa_spi1_pinmux()`、`lisa_spi2_pinmux()` 函数
@@ -135,7 +135,7 @@ lisa_spi_transfer_t transfer = {
 int ret = lisa_spi_transfer(spi0, &transfer);
 if (ret == LISA_DEVICE_OK) {
     // 传输成功，检查接收数据
-    printf("Received: %02X %02X %02X %02X\n", 
+    printf("Received: %02X %02X %02X %02X\n",
            rx_buf[0], rx_buf[1], rx_buf[2], rx_buf[3]);
 }
 ```
@@ -284,7 +284,7 @@ lisa_spi_configure(spi0, &config);  // 驱动自动释放DMA通道
 ## 注意事项
 
 1. **DMA 对齐**: 使用 DMA 模式时，发送和接收缓冲区必须32字节对齐，建议使用 `lisa_mem_align_alloc` 分配内存
-2. **DMA 通道**: 使用 DMA 模式前需预留 DMA 通道，通道号在配置中指定
+2. **DMA 通道**: 使用 DMA 模式前需预留 DMA 通道，通道号在配置中指定。(DMA通道范围: ARCS 0-3, Venusa 0-5)
 3. **自动管理**: DMA 通道由驱动自动管理，模式切换时会自动释放，无需手动操作
 4. **主从同步**: 从机模式下需要先调用传输函数等待主机时钟，主机负责产生时钟信号
 5. **频率匹配**: 主从机通信时，从机的频率配置应与主机匹配或更高

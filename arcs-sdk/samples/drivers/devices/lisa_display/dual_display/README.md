@@ -1,4 +1,4 @@
-# LISA Display 双屏异显示例
+# Display 双屏异显示例
 
 ## 功能说明
 

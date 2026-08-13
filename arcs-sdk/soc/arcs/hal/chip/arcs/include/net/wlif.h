@@ -387,7 +387,7 @@ struct vif_info_tag *wlif_get_vif(uint8_t vif_idx);
 struct vif_info_tag *wlif_get_mac_vif(uint8_t vif_idx);
 
 
-int32_t wlif_init(void);
+int32_t wlif_start(void);
 void wlif_vif_init(int vif_idx, uint8_t *base_mac_addr);
 int wlif_name(int vif_idx, char *name, int len);
 int wlif_idx_from_name(const char *name);

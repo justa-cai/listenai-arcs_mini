@@ -9,12 +9,19 @@
 #include "nvs_priv.h"
 #include "spiflash.h"
 #include "ble_plf_config.h"
+#include "bt_storage_port.h"
 #include "log_print.h"
 //#include "src_configure.h"
 
+#ifndef CONFIG_LISA_BLUETOOTH_STORAGE_NVS
+#define CONFIG_LISA_BLUETOOTH_STORAGE_NVS 0
+#endif
 
-#define BT_NVDS_SUPPORT  (CFG_NVS)
+#ifndef CONFIG_LISA_BLUETOOTH_STORAGE_KV
+#define CONFIG_LISA_BLUETOOTH_STORAGE_KV 0
+#endif
 
+#define BT_NVDS_SUPPORT  (CONFIG_LISA_BLUETOOTH_STORAGE_NVS || CONFIG_LISA_BLUETOOTH_STORAGE_KV)
 
 extern uint8_t lsip_nvds_get(uint8_t param_id, uint8_t * lengthPtr, uint8_t *buf);
 extern uint8_t lsip_nvds_set(uint8_t param_id, uint8_t length, uint8_t *buf);
@@ -24,27 +31,31 @@ extern void lsip_nvds_init(struct lsip_nvds_api* lsip_nvs_param);
 uint8_t lsip_nvds_get(uint8_t param_id, uint8_t * lengthPtr, uint8_t *buf)
 {
     uint8_t status = NVDS_FAIL;
-#if (BT_NVDS_SUPPORT)
-    size_t len = *lengthPtr;
-    status = nvds_get(param_id, &len, buf);
+#if CONFIG_LISA_BLUETOOTH_STORAGE_KV
+    status = bt_storage_port_get(param_id, lengthPtr, buf);
+#elif CONFIG_LISA_BLUETOOTH_STORAGE_NVS
+    uint32_t len = *lengthPtr;
+    status = nvds_get(param_id, (size_t *)&len, buf);
     *lengthPtr = len;
-    //CLOGD("lsip_nvs_get,id:0x%x, status:%d", param_id, status);
 #endif
     return (status);
 }
 uint8_t lsip_nvds_set(uint8_t param_id, uint8_t length, uint8_t *buf)
 {
     uint8_t status = NVDS_FAIL;
-#if (BT_NVDS_SUPPORT)
+#if CONFIG_LISA_BLUETOOTH_STORAGE_KV
+    status = bt_storage_port_set(param_id, length, buf);
+#elif CONFIG_LISA_BLUETOOTH_STORAGE_NVS
     status =  nvds_put(param_id, length, buf);
-    //CLOGD("lsip_nvs_set,id:0x%x, ret:%d", param_id, status);
 #endif
     return status;
 }
 uint8_t lsip_nvds_del(uint8_t param_id)
 {
     uint8_t status = NVDS_FAIL;
-#if (BT_NVDS_SUPPORT)
+#if CONFIG_LISA_BLUETOOTH_STORAGE_KV
+    status = bt_storage_port_del(param_id);
+#elif CONFIG_LISA_BLUETOOTH_STORAGE_NVS
     status = nvds_del(param_id);
 #endif
     return  status;

@@ -16,7 +16,7 @@ endif
 exclude_dirs=
 
 #files want to build: eg. CSRCS=a.c  CPPSRCS=b.cpp  SSRCS=c.S
-ifeq ($(strip $(WCN_TYPE)), both)
+ifneq ($(filter both both_dual, $(strip $(WCN_TYPE))),)
 CSRCS	= cli_main.c cli_bt.c cli_net.c cli_wifi.c
 else ifeq ($(strip $(WCN_TYPE)), wf)
 CSRCS	= cli_main.c cli_net.c cli_wifi.c
@@ -43,8 +43,6 @@ CFLAGS  = -I $(TOPDIR)/include/NMSIS/Core/Include \
           -I $(TOPDIR)/chip/${CHIP}/include/wifi \
           -I $(TOPDIR)/chip/${CHIP}/include/net \
           -I $(TOPDIR)/chip/${CHIP}/include/utils \
-          -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_core \
-          -I$(TOPDIR)/chip/$(CHIP)/ipc/ipc_utils \
           -I $(TOPDIR)/chip/${CHIP}/include/ipc \
           -I $(TOPDIR)/chip/${CHIP}/rtos/rtos_al \
           -I $(TOPDIR)/chip/${CHIP}/wota \
@@ -64,6 +62,8 @@ CFLAGS += -DWIFI_OTA=$(WIFI_OTA)
 #macro ctrl
 ifeq ($(strip $(WCN_TYPE)), both)
 CFLAGS += -DCLI_TYPE_WF -DCLI_TYPE_BT
+else ifeq ($(strip $(WCN_TYPE)), both_dual)
+CFLAGS += -DCLI_TYPE_WF -DCLI_TYPE_BT -DCLI_TYPE_BT_DUAL
 else ifeq ($(strip $(WCN_TYPE)), wf)
 CFLAGS += -DCLI_TYPE_WF
 else ifeq ($(strip $(WCN_TYPE)), bt)

@@ -1,0 +1,11 @@
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_EARLY_LOG
+	bool "Enable SoC early UART log"
+	depends on (SOC_ARCS || SOC_VENUSA) && CONSOLE_UART_BACKEND
+	help
+		Enable a minimal polling UART logger in SoC startup. It reuses the
+		console UART instance, baudrate and board pinmux, and is intended for
+		messages that must be printed before PSRAM initialization and before
+		the normal console/log backends are ready.

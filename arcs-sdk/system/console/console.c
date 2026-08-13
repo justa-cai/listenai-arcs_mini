@@ -64,6 +64,13 @@ int console_write(const char *data, int len)
     return ret;
 }
 
+void console_flush(void)
+{
+    if (console_be && console_be->flush) {
+        console_be->flush();
+    }
+}
+
 int console_read(char *data, int len)
 {
     if (!console_be || !console_be->read) {

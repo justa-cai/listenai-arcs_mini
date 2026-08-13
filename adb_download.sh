@@ -44,6 +44,7 @@ NC='\033[0m'
 MAX_DEVICES="${MAX_DEVICES:-10}"
 RECOVERY_TIMEOUT="${RECOVERY_TIMEOUT:-120}"
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
+RECOVERY_HANDSHAKE_SETTLE_SECONDS="${RECOVERY_HANDSHAKE_SETTLE_SECONDS:-4}"
 BUILD_DIR="${BUILD_DIR:-build}"
 RESOURCE_DIR="${RES_DIR:-res/arcs-mini}"
 
@@ -77,6 +78,7 @@ declare -A transport_to_usb=()
 declare -a selected_boot_targets=()
 declare -A selected_boot_set=()
 declare -A tid_to_boot_target=()
+declare -A recovery_handshake_set=()
 
 # 扫描到的设备行缓存（由 main 中的 scan_connected_devices 填充）
 declare -a scanned_devices=()
@@ -610,6 +612,34 @@ add_selected_boot_target() {
     fi
 }
 
+recovery_compatibility_handshake() {
+    local target="$1"
+    local serial usb tid key device_id
+
+    IFS="$DEVICE_FIELD_SEP" read -r serial usb tid key <<< "$target"
+    [[ "$serial" == BOOT-* ]] || return 1
+
+    if [ -n "${recovery_handshake_set[$key]:-}" ]; then
+        return 0
+    fi
+
+    device_id="${serial#BOOT-}"
+    [ -n "$device_id" ] || return 1
+
+    if ! adb_for_target "$serial" "$tid" shell "$device_id" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    # Old boot clears the retry marker from a three-second timer callback.
+    sleep "$RECOVERY_HANDSHAKE_SETTLE_SECONDS"
+    if ! adb_for_target "$serial" "$tid" get-state >/dev/null 2>&1; then
+        return 1
+    fi
+
+    recovery_handshake_set["$key"]=1
+    echo "[$(boot_target_display "$target")] recovery compatibility handshake complete"
+}
+
 # ---------------------------------------------------------------------------
 # 轮询等待所有设备进入 recovery 并识别 BOOT 序列号
 # 匹配策略：
@@ -621,7 +651,9 @@ wait_for_boot_devices() {
     # 先计入初始就已处于 recovery 的设备
     local boot_target
     for boot_target in "${initial_boot_targets[@]}"; do
-        add_selected_boot_target "$boot_target"
+        if recovery_compatibility_handshake "$boot_target"; then
+            add_selected_boot_target "$boot_target"
+        fi
     done
 
     echo "等待设备进入recovery并识别BOOT序列号..."
@@ -641,6 +673,9 @@ wait_for_boot_devices() {
             if [[ "$serial" == BOOT-* ]]; then
                 local current_boot_target
                 current_boot_target=$(make_boot_target "$serial" "$usb" "$tid")
+                if ! recovery_compatibility_handshake "$current_boot_target"; then
+                    continue
+                fi
                 scan_boot_targets+=("$current_boot_target")
                 if [ -n "$usb" ]; then
                     scan_boot_by_usb["$usb"]="$current_boot_target"
@@ -769,6 +804,10 @@ flash_one_device() {
     done
 
     # 烧录完成，尝试重启设备
+    if ! adb_for_target "$serial" "$tid" shell recovery exit >/dev/null 2>&1; then
+        echo "[$display] warning: unable to clear recovery request before reboot" >&2
+    fi
+
     if adb_for_target "$serial" "$tid" shell reboot hard >/dev/null 2>&1; then
         echo "[$display] 烧录完成，设备正在重启"
         return 0

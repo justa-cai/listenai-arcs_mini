@@ -1,0 +1,5 @@
+tests:
+  test.framework.sys_reset_reason:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity

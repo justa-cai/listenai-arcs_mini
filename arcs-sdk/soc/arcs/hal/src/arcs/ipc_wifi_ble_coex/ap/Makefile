@@ -8,7 +8,7 @@ export APP_PATH=arcs/ipc_wifi_ble_coex/ap
 
 SHRINK ?= 0
 
-BT_MODE = ble_single_mode
+BT_MODE = ipc_ble
 # modules depend by this module
 include default.config
 include $(TOPDIR)/src/${CHIP}/general.mk
@@ -20,9 +20,13 @@ LIBS	+=  -lprf  -lbtos -lbt_hal #-lbsp -lpatch -lnvs -lwcnd  -lstd
 
 
 ifeq ($(INNER), 0)
-#EXTLIBS +=  -lble -lbt_base -lstack  #-lbt   -L.$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)
+ifeq ($(HARD_FLOAT),1)
+EXTLIBS +=  -lble -lbt_base_ap -L$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilpf32
 else
-LIBS    += -lstack #-lble -lbt_base  -lbt
+EXTLIBS +=  -lble -lbt_base_ap -L$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilp32
+endif
+else
+LIBS    += -lble -lbt_base
 MODULES += bt
 endif
 PERF ?= 0
@@ -47,9 +51,6 @@ CFLAGS += -I $(TOPDIR)/include/NMSIS \
          -I $(TOPDIR)/chip/${CHIP}/cli_cmd \
          -I $(TOPDIR)/chip/${CHIP}/rtos/rtos_al \
          -I $(TOPDIR)/chip/${CHIP}/atcmd \
-         -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_core \
-         -I $(TOPDIR)/chip/$(CHIP)/ipc/ipc_utils \
-         -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_slave \
          -I $(TOPDIR)/chip/${CHIP}/include/ipc \
          -I $(TOPDIR)/modules/rtos/include \
          -I $(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure \
@@ -102,7 +103,7 @@ endif
 BT_WIFI_COEX=1
 export BT_WIFI_COEX
 CFLAGS += -DBT_WIFI_COEX=$(BT_WIFI_COEX)
-# Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BT
+# Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only,WCN_TYPE=both:Both support for Wifi and BLE,WCN_TYPE=both_dual:Both support for Wifi and BT-BLE
 WCN_TYPE=both
 export WCN_TYPE
 
@@ -119,6 +120,7 @@ CONFIG_RTOS_AL = 1
 export CONFIG_RTOS_AL
 
 CFG_AMP_IPC_SLAVE := 1
+CFG_AMP_IPC_BT_CHAN := 1
 CFG_AMP_IPC_WIFI_CHAN := 1
 CFG_AMP_IPC_TCPIP := 1
 CFG_AMP_IPC_HALT_BY_PEER_CORE := 1
@@ -130,16 +132,17 @@ CFG_AMP_IPC_MRPC_SERVER_WIFI := 1
 CFG_AMP_IPC_MRPC_CLIENT_NVS  := 1
 CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF := 1
 CFG_AMP_IPC_MRPC_SERVER_BT := 1
+CFG_AMP_IPC_MRPC_CLIENT_BT_S2M := 1
 
-export CFG_AMP_IPC_SLAVE CFG_AMP_IPC_MRPC_SERVER CFG_AMP_IPC_MRPC_CLIENT CFG_AMP_IPC_MRPC_SERVER_BT
+export CFG_AMP_IPC_SLAVE CFG_AMP_IPC_MRPC_SERVER CFG_AMP_IPC_MRPC_CLIENT CFG_AMP_IPC_MRPC_SERVER_BT CFG_AMP_IPC_MRPC_CLIENT_BT_S2M
 export CFG_AMP_IPC_MRPC_CLIENT_LWIP CFG_AMP_IPC_MRPC_SERVER_WIFI CFG_AMP_IPC_MRPC_CLIENT_NVS
-export CFG_FLASH_IPC CFG_AMP_IPC_WIFI_CHAN CFG_AMP_IPC_HALT_BY_PEER_CORE CFG_AMP_IPC_TCPIP CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF CFG_AMP_IPC_HALT_PEER_CORE
+export CFG_FLASH_IPC CFG_AMP_IPC_BT_CHAN CFG_AMP_IPC_WIFI_CHAN CFG_AMP_IPC_HALT_BY_PEER_CORE CFG_AMP_IPC_TCPIP CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF CFG_AMP_IPC_HALT_PEER_CORE
 
 # mrpc client: GPADC get temp .. on wifi side
 CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M  := 1
 export  CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M
 
-CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S  := 1
+CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S  := 0
 export  CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S
 
 

@@ -10,6 +10,7 @@ description: 获取设备日志并智能分析。使用 /run-log 或当用户提
 - 默认在仓库根目录执行。
 - 同一时刻设备只能被一个进程占用（ADB shell / cskburn / picocom）。
 - **cskburn 烧录后等 3 秒再抓日志**，否则串口未释放会抓到空文件。
+- 串口烧录任务检查日志时，保持 `res/arcs-mini/boot-dev-autostart.bin` 在设备 `0x0`；日志无异常后再按 `flash` skill 恢复原 Boot，然后通知用户验证功能。
 
 ## 日志方式选择
 
@@ -154,6 +155,15 @@ $port.Close()
 | `wakeup` | 信息 | 唤醒事件 |
 
 > 串口输出含 ANSI 颜色码，分析时忽略。ADB shell 输出同样可能包含 ANSI 转义序列。
+
+### 4. 串口烧录任务的日志闭环
+
+如果本次日志检查是 cskburn 串口烧录开发流程的一环：
+
+1. 在开发专用 Boot 下运行本次目标功能并抓取日志。
+2. 日志或功能存在异常时，继续修复和复测，不得提前恢复原 Boot。
+3. 目标功能跑通且日志无异常后，加载 `flash` skill，使用默认 `1500000` 波特率和 `--verify-all` 将 `res/arcs-mini/boot.bin` 烧回 `0x0`。
+4. 恢复成功后，通知用户长按开机键，在常规 Boot 下验证本次目标功能并反馈结果。
 
 ## 常用 shell 命令
 

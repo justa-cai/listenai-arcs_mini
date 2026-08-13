@@ -1,0 +1,83 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+osource "$ARCS_BASE/Kconfig"
+
+config IMAGE_WIDTH
+	int "image width"
+	default 640
+
+config IMAGE_HEIGHT
+	int "image height"
+	default 480
+
+config IMAGE_FORMAT
+	int "image format, 2:yuyv422 0:rgb565"
+	default 2
+
+config FACE_DETECT_UVC_ENABLE
+	bool "Enable CherryUSB UVC video output"
+	select CHERRYUSB
+	select CHERRYUSB_DEVICE
+	select CHERRYUSB_DEVICE_VIDEO
+	help
+		Enable USB Video Class output for the live camera stream. The current
+		VenusA face_detect demo exports the existing YUV422 camera frame as
+		YUY2 over CherryUSB Device Video.
+
+config FACE_DETECT_UVC_FPS
+	int "CherryUSB UVC output FPS"
+	depends on FACE_DETECT_UVC_ENABLE
+	range 1 30
+	default 10
+	help
+		Frame rate advertised and throttled by the UVC output task.
+
+config FACE_DETECT_UVC_DRAW_FACE_BOX
+	bool "Draw face detect boxes on UVC output"
+	depends on FACE_DETECT_UVC_ENABLE
+	default y
+	help
+		Draw the latest face detection rectangles into the private UVC YUY2
+		frame buffer before the frame is sent to the USB host.
+
+config FACE_DETECT_UVC_BOX_THICKNESS
+	int "UVC face box line thickness"
+	depends on FACE_DETECT_UVC_DRAW_FACE_BOX
+	range 1 10
+	default 3
+	help
+		Line thickness in pixels for face rectangles drawn on the UVC output.
+
+config FACE_DETECT_UVC_BOX_TIMEOUT_MS
+	int "UVC face box timeout in milliseconds"
+	depends on FACE_DETECT_UVC_DRAW_FACE_BOX
+	range 0 10000
+	default 800
+	help
+		Clear stale face rectangles if no new face result arrives within this
+		period. Set to 0 to keep the last result until the next update.
+
+config USB_MUSB_EP_NUM
+	int
+	depends on FACE_DETECT_UVC_ENABLE
+	default 8
+
+config FACE_LIVE_DETECT_ENABLE
+	bool "face live detect enable"
+	help
+		VenusA face_detect currently provides detect, align and verify resources
+		but no live model, so live detection stays disabled by default.
+
+config FACE_LIVE_DETECT_THRESHOLD
+	int "face live detect threshold"
+	depends on FACE_LIVE_DETECT_ENABLE
+	range 0 100
+	default 50
+
+config FACE_COMPARE_SCORE_THRESHOLD
+	int "face compare score threshold"
+	range 0 100
+	default 90
+
+osource "src/button/Kconfig"

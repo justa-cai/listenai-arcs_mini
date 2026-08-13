@@ -23,6 +23,7 @@
 #include "PowerManager.h"
 #include "ClockManager.h"
 #if CONFIG_PM && CONFIG_PM_UART_WAKEUP
+#include "pm.h"
 #include "pm_impl.h"
 #endif
 
@@ -298,6 +299,7 @@ CSK_DRIVER_VERSION UART_GetVersion(void)
 
 int32_t UART_Initialize(void *res, CSK_UART_SignalEvent_t cb_event, void* workspace)
 {
+
 #if CONFIG_PM && CONFIG_PM_UART_WAKEUP
     pm_handler_ops_t uart_pm_dev = {
                 .check_idle = UART_check_idle,

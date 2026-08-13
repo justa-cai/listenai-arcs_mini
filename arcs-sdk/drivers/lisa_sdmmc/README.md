@@ -23,7 +23,7 @@ CONFIG_LISA_SDMMC_DEVICE=y        # 启用 SDMMC 驱动
 
 ```kconfig
 CONFIG_LISA_SDMMC_INIT_PRIORITY=60                  # 设备初始化优先级（默认 60）
-CONFIG_LISA_SDMMC_SCAN_TIMEOUT_MS=3000              # 卡扫描超时时间（默认 3000ms）
+CONFIG_LISA_SDMMC_SCAN_TIMEOUT_MS=3000              # 卡扫描超时时间（应用默认 3000ms，Boot ADB 默认 1000ms）
 CONFIG_LISA_SDMMC_ACCESS_BUFFER_ALIGN_SIZE=64       # DMA 缓冲区对齐大小（默认 64 字节）
 CONFIG_LISA_SDMMC_ACCESS_WRAP_BUFFER_SIZE=4096      # Wrap 缓冲区大小（默认 4KB）
 ```

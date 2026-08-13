@@ -1,4 +1,4 @@
-# LISA Camera 摄像头捕获示例
+# Camera 摄像头捕获示例
 
 ## 功能说明
 

@@ -972,7 +972,7 @@ done:
   if (err != NULL) {
     *err = res;
   }
-  CLOG("tcp_listen_alloc 0x%x\n", lpcb);
+  CLOG("tcp_listen_alloc 0x%x %d\n", lpcb, res);
   return (struct tcp_pcb *)lpcb;
 }
 

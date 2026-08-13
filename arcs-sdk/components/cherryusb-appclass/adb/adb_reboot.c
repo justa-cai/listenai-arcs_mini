@@ -7,8 +7,7 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "arcs_ap.h"
-#include "chip.h"
+extern void sys_platform_recovery(void) __attribute__((weak));
 
 static void do_reboot(void)
 {
@@ -16,43 +15,17 @@ static void do_reboot(void)
 	sys_platform_sw_full_reset();
 }
 
-static void do_recovery(void)
-{
-	struct boot_info {
-		uint32_t reboot_cnt: 8;
-		uint32_t recover_reason: 8;
-		uint32_t reserved: 15;
-		uint32_t req: 1;
-	};
-
-	uint32_t rstCause;
-	rstCause = IP_AON_CTRL->REG_SYSRST_STATUS.all;
-	IP_AON_CTRL->REG_SYSRST_STATUS.all = rstCause;
-
-	struct boot_info *info = (struct boot_info *)&IP_AON_CTRL->REG_AON_DIG_RSVD4.all;
-	info->req = 1;
-	info->reboot_cnt = 0;
-
-	IP_AON_IOMUX->REG_PAD_AON_GPIOB_03.all &= ~(0b1111 << 21);
-	IP_AON_IOMUX->REG_PAD_AON_GPIOB_03.all |= (0b1110 << 21);
-
-	IP_SYSCTRL->REG_SW_RESET_CP1.bit.CMNSW2CMN_RST_EN = 1;
-	IP_SYSCTRL->REG_SW_RESET_CP1.bit.CMNSW2CP_RST_EN = 1;
-	IP_SYSCTRL->REG_SW_RESET_CP1.bit.CMNSW2AP_RST_EN = 1;
-	__COMPILER_BARRIER();
-	IP_SYSCTRL->REG_SW_RESET_CP0.all = 0xCAFE000A;
-}
-
 static int adb_reboot_open(struct adb_service *s, const uint8_t *args)
 {
 	if (args == NULL || args[0] == '\0') {
 		ADB_LOGI("adb reboot\n");
 		do_reboot();
-	} else if (strcmp((const char *)args, "recovery") == 0) {
+	} else if ((strcmp((const char *)args, "recovery") == 0) &&
+		   (sys_platform_recovery != NULL)) {
 		ADB_LOGI("adb reboot recovery\n");
-		do_recovery();
+		sys_platform_recovery();
 	} else {
-		ADB_LOGE("adb reboot: unknown arg: %s\n", args);
+		ADB_LOGE("adb reboot: unsupported arg: %s\n", args);
 		return -1;
 	}
 

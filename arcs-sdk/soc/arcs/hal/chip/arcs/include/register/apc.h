@@ -671,4 +671,7 @@ void apc_reset_path(uint8_t rst_flag);
 // get current sample count in the specified APC L/R FIFO or both (if mixed)
 uint32_t apc_get_fifo_samp_cnt(APC_DCH dch, uint8_t chbmp);
 
+// reset APC L/R FIFO or both (if mixed)
+uint32_t apc_reset_fifo(APC_DCH dch, uint8_t chbmp);
+
 #endif /* __APC_ARCS_H */

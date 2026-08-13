@@ -1,0 +1,17 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_MEDIA_PLAYER
+	bool "LISA media player (AVI + render)"
+	help
+	  A lightweight media playback component that includes:
+	  - AVI demux (SD/LSFS, optional HTTP Range)
+	  - A/V render pipeline (audio as master clock)
+	  - MJPEG decode + RGB565 LCD output
+
+if LISA_MEDIA_PLAYER
+
+rsource "av_render/Kconfig"
+rsource "avi_player/Kconfig"
+
+endif # LISA_MEDIA_PLAYER

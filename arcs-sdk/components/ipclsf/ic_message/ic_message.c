@@ -162,7 +162,7 @@ int ic_message_init(void)
 	uint8_t i;
 
 	if (ic_message_inited) {
-		return IC_MESSAGE_ERR_INITED;
+		return IC_MESSAGE_ERR_NONE;
 	}
 
 	for (i = 0; i < IC_MESSAGE_ID_MAX; i++) {

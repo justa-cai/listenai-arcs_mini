@@ -22,6 +22,9 @@
         }                                                                                                              \
     } while (0)
 #define IPC_TIMOUT_MS (10000)
+/* remote 连接等待超时与轮询间隔，避免初始化阶段永久阻塞。 */
+#define ACOMP_IPC_REMOTE_CONNECT_TIMEOUT_MS (5000)
+#define ACOMP_IPC_REMOTE_CONNECT_POLL_MS    (1)
 
 typedef struct {
     uint32_t dev_index;
@@ -46,6 +49,24 @@ typedef struct {
 
 acomp_ipc_handle_t *ipc_handle = NULL;
 static int acomp_ipc_build_frame_send_async(int dev_index, int cmd, int acomp_cmd, uint8_t flags, void *data, uint16_t len);
+
+
+static int acomp_ipc_wait_remote_connected(void)
+{
+    uint32_t waited_ms = 0;
+
+    while (!ic_message_remote_is_connected(IC_MESSAGE_ID_ACOMP)) {
+        if (waited_ms >= ACOMP_IPC_REMOTE_CONNECT_TIMEOUT_MS) {
+            return IC_MESSAGE_ERR_REMOTE_NOT_CONN;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(ACOMP_IPC_REMOTE_CONNECT_POLL_MS));
+        waited_ms += ACOMP_IPC_REMOTE_CONNECT_POLL_MS;
+    }
+
+    return IC_MESSAGE_ERR_NONE;
+}
+
 
 static int32_t acomp_ipc_callback_wrap(ic_message_handle_info_t *handle_info, ic_message_msg_info_t *msg)
 {
@@ -124,6 +145,13 @@ int acomp_ipc_init(void)
     }
 
     ic_message_register_by_id(IC_MESSAGE_ID_ACOMP, acomp_ipc_callback_wrap, ipc_handle);
+
+    /* 查询 remote 设备信息前先等待连接完成，降低初始化时序竞争风险。 */
+    ret = acomp_ipc_wait_remote_connected();
+    if (ret != IC_MESSAGE_ERR_NONE) {
+        LISA_LOGE(TAG, "remote acomp not connected: %d", ret);
+        return ret;
+    }
 
     ret =
         acomp_ipc_build_frame_send_sync(0, ACOMP_CONTEXT_IPC_GLB_DEVINFO_QUERY | IPC_HEADER_REQ_REPALY, 0, 0, NULL, 0);

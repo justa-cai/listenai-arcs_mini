@@ -41,6 +41,8 @@ int voice_cloud_connect(struct voice_cloud_connect_config *config);
 int voice_cloud_disconnect(void);
 int voice_cloud_chat_start(struct voice_cloud_chat_config *config);
 int voice_cloud_chat_stop(void);
+int voice_cloud_chat_stop_local(void);
+int voice_cloud_cancel_current_response(void);
 int voice_cloud_chat_send_audio(uint8_t *data, int len);
 int voice_cloud_image_recognition(uint8_t *jpg_image, uint32_t len);
 void voice_cloud_image_recognition_drop_pending_result(void);

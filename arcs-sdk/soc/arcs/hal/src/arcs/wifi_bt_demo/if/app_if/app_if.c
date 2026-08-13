@@ -65,7 +65,7 @@ os_task_cb_t *app_if_get_cb(void)
 }
 int app_nvs_init(uint8_t *base, uint32_t len)
 {
-    nvds_init(base);
+    nvds_init((struct nvs_fs *)base);
 
     return 0;
 }

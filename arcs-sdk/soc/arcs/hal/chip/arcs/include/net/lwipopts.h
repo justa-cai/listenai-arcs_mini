@@ -82,7 +82,11 @@ extern uint16_t net_ip_chksum(const void *dataptr, int len);
 #define LWIP_FUNC_ALIGN
 
 #endif
-#define LWIP_TCPIP_CORE_LOCKING_INPUT 1
+
+#ifndef CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT
+#define CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT 1
+#endif
+#define LWIP_TCPIP_CORE_LOCKING_INPUT CONFIG_LWIP_TCPIP_CORE_LOCKING_INPUT
 
 #ifdef TX_BUF_COPY
 #if NX_WAPI
@@ -110,6 +114,8 @@ extern uint16_t net_ip_chksum(const void *dataptr, int len);
 #define TCP_MSS                       1460
 #ifdef CFG_SHORT_TCP_WND
 #define TCP_WND                       (12 * TCP_MSS)
+#elif defined(CONFIG_LWIP_TCP_WND_MSS_MULTIPLIER)
+#define TCP_WND                       (CONFIG_LWIP_TCP_WND_MSS_MULTIPLIER * TCP_MSS)
 #else
 #define TCP_WND                       (20 * TCP_MSS)
 #endif
@@ -119,10 +125,19 @@ extern uint16_t net_ip_chksum(const void *dataptr, int len);
 #define TCP_QUEUE_OOSEQ               1
 //#define TCP_OOSEQ_MAX_BYTES           (2 * MAC_TXQ_DEPTH * TCP_MSS)
 //#define LWIP_TCP_SACK_OUT             1
+#if defined(CONFIG_LWIP_TCP_OOSEQ_MAX_BYTES_MSS_MULTIPLIER) && (CONFIG_LWIP_TCP_OOSEQ_MAX_BYTES_MSS_MULTIPLIER > 0)
+#define TCP_OOSEQ_MAX_BYTES           (CONFIG_LWIP_TCP_OOSEQ_MAX_BYTES_MSS_MULTIPLIER * TCP_MSS)
+#endif
+#if defined(CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS) && (CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS > 0)
+#define TCP_OOSEQ_MAX_PBUFS           CONFIG_LWIP_TCP_OOSEQ_MAX_PBUFS
+#endif
 #define MEMP_NUM_TCP_SEG              ((4 * TCP_SND_BUF) / TCP_MSS)
 #define MEMP_NUM_PBUF_NET             (TCP_SND_BUF / TCP_MSS)
 #define MEMP_NUM_PBUF                 (MEMP_NUM_PBUF_NET + 20) //20 for internal msg
-#define PBUF_POOL_SIZE                0
+#ifndef CONFIG_LWIP_PBUF_POOL_SIZE
+#define CONFIG_LWIP_PBUF_POOL_SIZE 0
+#endif
+#define PBUF_POOL_SIZE                CONFIG_LWIP_PBUF_POOL_SIZE
 #define LWIP_WND_SCALE                1
 #define TCP_RCV_SCALE                 2
 #define TCP_SNDLOWAT                  LWIP_MIN(LWIP_MAX(((TCP_SND_BUF)/4),               \
@@ -179,6 +194,8 @@ extern uint16_t net_ip_chksum(const void *dataptr, int len);
 #endif
 #define MEMP_MEM_MALLOC   1
 #endif
+
+#define LWIP_FREERTOS_SYS_ARCH_PROTECT_USES_MUTEX    0
 
 #if 0
 /* Prevent having to link sys_arch.c (we don't test the API layers in unit tests) */
@@ -326,7 +343,11 @@ static inline uint32_t timeout_from_offered(uint32_t lease, uint32_t min)
  * For improving timely recovery on faster networks, this value could
  * be lowered down to 1 second (RFC 6298)
  */
+#ifdef CONFIG_LWIP_TCP_RTO_TIME
+#define LWIP_TCP_RTO_TIME               CONFIG_LWIP_TCP_RTO_TIME
+#else
 #define LWIP_TCP_RTO_TIME               1000
+#endif
 
 #if CONFIG_LWIP_HOOK_NETCONN_EXTERNAL_RESOLVE
 #define LWIP_HOOK_NETCONN_EXTERNAL_RESOLVE lwip_custom_dns_resolve

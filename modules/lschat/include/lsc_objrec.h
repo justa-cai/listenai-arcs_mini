@@ -39,6 +39,9 @@ struct session_objrec_result {
 typedef enum {
 	SESSION_OBJREC_EVT_TEXT_URL, /**< 收到识别结果文本的URL事件 */
 	SESSION_OBJREC_EVT_TTS_URL,  /**< 收到识别结果TTS的URL事件 */
+	SESSION_OBJREC_EVT_FINISH,
+	SESSION_OBJREC_EVT_ERROR,
+	SESSION_OBJREC_EVT_TIMEOUT,
 } session_objrec_event_t;
 
 /**
@@ -92,6 +95,8 @@ int session_objrec_run(session_objrec_t s, const void *jpg_img, uint32_t size, s
  */
 int session_objrec_run_async(session_objrec_t s, const void *jpg_img, uint32_t size, session_objrec_evt_cb_t cb,
 			     void *user);
+
+int session_objrec_cancel(session_objrec_t s);
 
 #ifdef __cplusplus
 }

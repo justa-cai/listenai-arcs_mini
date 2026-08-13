@@ -39,8 +39,8 @@ MEMORY
 								                                 /* CP_RAM0:0x20040000~ 0x20050000  64K*/    
   
   /* AP_RAM:384K:0x20050000~0x200AFFFF*/
-  IPCSHRAM (rwx) : ORIGIN = 0x20050000, LENGTH = 8K /*ipc*/       /*  AP_RAM:0x20050000~0x20052000*/  
-  apram (wxa!r) : ORIGIN = 0x20052000, LENGTH = 32K               /*  AP_RAM:0x20052000~0x2005A000*/
+  IPCSHRAM (rwx) : ORIGIN = 0x20050000, LENGTH = 16K /*ipc*/       /*  AP_RAM:0x20050000~0x20052000*/  
+  apram (wxa!r) : ORIGIN = 0x20054000, LENGTH = 32K               /*  AP_RAM:0x20052000~0x2005A000*/
   
                                                                   /*  AP_RAM:0x2005A000~0x200B0000  reserved for user*/
 
@@ -62,6 +62,7 @@ SECTIONS
   PROVIDE(__STACK_SIZE = 4K);
   /* heap size defined in FreeRtosConfig.h, if RTOS module was not used, define heap size in ld */
   /*PROVIDE(__HEAP_SIZE = 80K);*/
+  PROVIDE(__BT_HEAP_SIZE = 24K);/*32K size for BT heap*/
   PROVIDE(__SMP_CPU_CNT = 1);
   __TOT_STACK_SIZE = __STACK_SIZE * __SMP_CPU_CNT;
 
@@ -343,6 +344,12 @@ SECTIONS
     *(.gnu.linkonce.b.*)
     *(COMMON)
     . = ALIGN(4);
+    . = ALIGN(8);
+    *(.sharedmem.bss)
+    PROVIDE( __ext_ram_start = . );
+     . = . + __BT_HEAP_SIZE;
+     PROVIDE( __ext_ram_end = . );
+
   } >RAM AT>RAM
 
   PROVIDE( _end = . );

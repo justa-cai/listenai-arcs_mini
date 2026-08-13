@@ -115,11 +115,14 @@ int boot_flash_write(uint8_t *addr, uint8_t *data, uint32_t size)
     return 0;
 }
 
-int boot_watchdog_feed(void)
+static void test_runtime_yield(void)
 {
     g_watchdog_feed_calls++;
-    return 0;
 }
+
+static const struct adb_sync_ext_disk_runtime_ops test_runtime_ops = {
+    .yield = test_runtime_yield,
+};
 
 void HAL_InvalidateDCache_by_Addr(uint32_t *addr, uint32_t dsize)
 {
@@ -177,6 +180,7 @@ void setUp(void)
     g_boot_flash_session_begin_calls = 0u;
     g_boot_flash_session_end_calls = 0u;
     g_dcache_invalidate_calls = 0u;
+    adb_sync_ext_disk_set_runtime_ops(&test_runtime_ops);
 }
 
 void tearDown(void)

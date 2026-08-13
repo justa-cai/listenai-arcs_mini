@@ -1,5 +1,6 @@
 #include "lisa_log.h"
 #include "elog.h"
+#include "ClockManager.h"
 #include <stddef.h>
 
 struct lisa_log_frontend_easylog_data {
@@ -12,8 +13,7 @@ static struct lisa_log_frontend_easylog_data lisa_log_frontend_easylog_data = {
 
 uint32_t elog_time_ms_get(void)
 {
-    extern uint32_t SysTimeMsGet(void);
-    return SysTimeMsGet();
+    return (uint32_t)(__get_rv_time() / 1000);
 }
 
 void elog_port_output_log(const char *log, size_t size)

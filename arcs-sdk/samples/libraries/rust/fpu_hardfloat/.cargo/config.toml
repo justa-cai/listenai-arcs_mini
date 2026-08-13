@@ -1,0 +1,17 @@
+# Hard-float target (ilp32f) matching the CONFIG_FPU=y SDK build (rv32imafc).
+# rust_sample.cmake selects this same triple when CONFIG_FPU is set.
+[build]
+target     = "riscv32imafc-unknown-none-elf"
+target-dir = "cargo-out"
+
+[target.riscv32imafc-unknown-none-elf]
+rustflags = [
+    "-C", "target-feature=+zba,+zbb,+zbc,+zbs",
+    "-C", "link-arg=-nostartfiles",
+]
+
+# Rebuild core/alloc (hence compiler_builtins) from source so they carry the
+# ilp32f float-ABI ELF attribute and link with the hard-float SDK under GNU ld.
+# Requires the pinned nightly + rust-src (see rust-toolchain.toml).
+[unstable]
+build-std = ["core", "alloc"]

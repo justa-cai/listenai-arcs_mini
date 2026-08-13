@@ -14,11 +14,12 @@
 当前 sample 提供以下能力：
 
 - 初始化 WiFi、经典蓝牙与 BT Audio Framework
-- 通过 `wifi connect|disconnect|status` 手动控制联网
-- 通过 `iperf start|stop|status|mode` 手动控制吞吐测试
+- 通过 `wifi connect|disconnect|status` 手动控制联网，支持运行时指定 SSID/密码
+- 通过 `iperf start|stop|status|mode|server` 手动控制吞吐测试，支持运行时指定服务端地址
 - 通过 `bt_inquiry`、`bt_connect`、`bt_connect_index` 手动控制蓝牙扫描与连接
 - 通过 `bt_audio_start`、`bt_audio_stop`、`bt_audio_volume` 手动控制 A2DP Source 推流
 - 通过 `coex status` 统一查看 WiFi / iperf / BT / audio 当前状态
+- 通过 `threads` 查看 FreeRTOS 线程、栈和运行时间占比信息
 
 ## 硬件与测试环境
 
@@ -35,7 +36,7 @@
 
 ### 运行前配置
 
-运行前请根据实际环境修改 `samples/network/coex/wifi_a2dp_iperf_coex/prj.conf` 中的配置：
+`samples/network/coex/wifi_a2dp_iperf_coex/prj.conf` 中的 WiFi 和 iperf3 服务端配置仅作为默认值：
 
 ```ini
 CONFIG_IPERF_WIFI_SSID="your_wifi_ssid"
@@ -43,6 +44,13 @@ CONFIG_IPERF_WIFI_PWD="your_wifi_password"
 CONFIG_IPERF_SERVER_IP="192.168.1.100"
 CONFIG_IPERF_SERVER_PORT=5201
 CONFIG_IPERF_MODE_UPLINK=y
+```
+
+也可以不重新编译，直接在 shell 中按实际环境覆盖：
+
+```text
+wifi connect your_wifi_ssid your_wifi_password
+iperf server 192.168.1.100 5201
 ```
 
 主机侧启动 `iperf3` 服务端示例：
@@ -76,7 +84,8 @@ iperf3 -s
 
 ### WiFi
 
-- `wifi connect`：按 `CONFIG_IPERF_WIFI_SSID/PWD` 发起连接
+- `wifi connect`：按 `CONFIG_IPERF_WIFI_SSID/PWD` 默认值发起连接
+- `wifi connect <ssid> <pwd>`：按 shell 参数发起连接
 - `wifi disconnect`：主动断开 WiFi
 - `wifi status`：查看 WiFi 初始化、连接、DHCP 与 IP 状态
 
@@ -86,6 +95,7 @@ iperf3 -s
 - `iperf stop`：停止当前压测循环
 - `iperf status`：查看当前状态、模式和最近一轮测试结果
 - `iperf mode uplink|downlink|bidirectional`：设置下一轮测试模式
+- `iperf server <ip> [port]`：设置 iperf3 服务端；若压测循环正在运行，需先执行 `iperf stop`
 
 ### 蓝牙与音频
 
@@ -99,6 +109,7 @@ iperf3 -s
 ### 共存状态
 
 - `coex status`：统一输出 WiFi、iperf、BT、audio 当前状态
+- `threads`：输出 FreeRTOS 任务名、状态、优先级、栈大小、最小剩余栈、最大栈使用率、任务 ID、运行计数和占比
 
 ## 推荐共存实验
 

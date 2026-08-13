@@ -56,6 +56,13 @@ arcs-sdk/
 └── LICENSE                            ← 开源许可证
 ```
 
+## 快速开始
+
+环境搭建、编译和烧录说明见 [`docs/zh/get_started.rst`](docs/zh/get_started.rst)。
+
+- Linux 使用 `env.sh` 和 `build.sh`
+- Windows PowerShell 使用 `env.ps1` 和 `build.ps1`，工具默认放在 `%USERPROFILE%\.listenai`
+
 ---
 
 ## 📚 资源链接

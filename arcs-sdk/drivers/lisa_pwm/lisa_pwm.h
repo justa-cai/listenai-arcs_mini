@@ -24,6 +24,14 @@ extern "C" {
  * ======================================================================== */
 
 /**
+ * @brief PWM 输出对齐模式
+ */
+typedef enum {
+    LISA_PWM_MODE_EDGE_ALIGNED = 0,   /* 边沿对齐模式 */
+    LISA_PWM_MODE_CENTER_ALIGNED = 1, /* 中心对齐模式 */
+} lisa_pwm_mode_t;
+
+/**
  * @brief PWM 输出极性
  */
 typedef enum {
@@ -36,6 +44,7 @@ typedef enum {
  */
 typedef struct {
     lisa_pwm_polarity_t polarity; /**< 输出极性 */
+    lisa_pwm_mode_t mode;         /**< 输出对齐模式 */
 } lisa_pwm_config_t;
 
 /* ========================================================================
@@ -59,7 +68,12 @@ typedef struct {
 /**
  * @brief 配置PWM通道属性
  *
- * 当前仅支持配置极性。
+ * 可配置输出对齐模式和极性。
+ *
+ * @note 调用方应零初始化 lisa_pwm_config_t 或完整指定所有字段。
+ * @note 零初始化时，mode 默认为边沿对齐模式，polarity 默认为正常极性。
+ * @note 边沿对齐模式下，硬件不支持极性翻转，驱动会在反转极性时使用
+ *       (100% - duty) 的方式模拟翻转。
  *
  * @param dev PWM设备指针
  * @param channel PWM通道号

@@ -1,11 +1,13 @@
 menu "Application usb menu"
 
 config APP_USB_AUDIO_ENABLE
-    bool "Enable usb audio device"    
+    bool "Enable usb audio device"
+    depends on TINY_USB || (CHERRYUSB && CHERRYUSB_DEVICE_AUDIO)
     default n
 
 config APP_USB_CDC_ENABLE
     bool "Enable usb cdc device"
+    depends on TINY_USB
     default n
-    
+
 endmenu

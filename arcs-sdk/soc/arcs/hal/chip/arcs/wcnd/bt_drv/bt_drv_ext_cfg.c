@@ -397,6 +397,10 @@ void modem_edr_set_deltapower4gfsk()
                 modem_br_set_deltapower4gfsk();
             }
         }
+        else
+        {
+             modem_br_set_deltapower4gfsk();
+        }
     }
 }
 

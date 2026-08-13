@@ -8,7 +8,6 @@
 
 #define LOG_TAG "adb.dev"
 
-#include "adb_debug_stats.h"
 #include "adb_utils.h"
 #include "adb_device.h"
 
@@ -19,7 +18,7 @@
 #include "semphr.h"
 
 #if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
-#include "arcs_ap.h"
+#include "soc/chip.h"
 #endif
 
 #include <string.h>
@@ -44,7 +43,6 @@ static volatile bool s_reset_pending = false;
 static volatile bool s_soft_reconnect_pending = false;
 static struct message s_rx_header;
 static adb_packet_t *s_rx_packet = NULL;
-static struct adb_dev_debug_stats g_adb_dev_debug_stats;
 
 static uint8_t s_busid;
 static struct usbd_endpoint s_ep_out;
@@ -56,6 +54,12 @@ USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX static uint8_t
     s_rx_data_buf[USB_ALIGN_UP(ADB_MAX_DROP_XFER_BUFSIZE, CONFIG_USB_ALIGN_SIZE)];
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX static uint8_t
     s_tx_buf[USB_ALIGN_UP(ADB_EP_IN_BUFSIZE, CONFIG_USB_ALIGN_SIZE)];
+
+#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
+#define ADB_RX_DISPATCH_TASK_STACK_DEPTH 1024U
+static StackType_t *s_rx_dispatch_stack = NULL;
+static StaticTask_t *s_rx_dispatch_tcb = NULL;
+#endif
 
 static bool adb_dev_msg_validate(const struct message *msg)
 {
@@ -93,11 +97,6 @@ static void adb_dev_dispatch_packet(adb_packet_t *packet)
     adb_packet_free(packet);
 }
 
-static void adb_dev_debug_stats_reset(void)
-{
-    memset(&g_adb_dev_debug_stats, 0, sizeof(g_adb_dev_debug_stats));
-}
-
 static void adb_dev_notify_dispatch_task(void)
 {
     if (s_rx_dispatch_task == NULL) {
@@ -127,6 +126,16 @@ static void adb_dev_soft_reconnect(void)
 #endif
 }
 #endif
+
+static bool adb_dev_wait_tx_sem(void)
+{
+    if (xSemaphoreTake(s_tx_sem, pdMS_TO_TICKS(500)) == pdTRUE) {
+        return true;
+    }
+
+    ADB_LOGW("ADB TX timeout\n");
+    return false;
+}
 
 static void adb_dev_reset_rx_state(void)
 {
@@ -227,10 +236,7 @@ static void adb_dev_handle_msg_done(void)
     adb_packet_t *packet;
 
     if (s_rx_nbytes != ADB_MESSAGE_SIZE) {
-        if (s_rx_nbytes == 0U) {
-            g_adb_dev_debug_stats.unexpected_header_zero_count++;
-        } else {
-            g_adb_dev_debug_stats.unexpected_header_other_count++;
+        if (s_rx_nbytes != 0U) {
             ADB_LOGW("unexpected adb header size:%lu expected:%lu\n",
                      (unsigned long)s_rx_nbytes,
                      (unsigned long)ADB_MESSAGE_SIZE);
@@ -245,18 +251,11 @@ static void adb_dev_handle_msg_done(void)
         return;
     }
 
-    g_adb_dev_debug_stats.rx_msg_total++;
-    g_adb_dev_debug_stats.last_msg_payload_len = s_rx_header.data_length;
 
     packet = adb_packet_alloc(s_rx_header.data_length);
     if (packet == NULL) {
-        g_adb_dev_debug_stats.wait_packet_count++;
-        if (g_adb_dev_debug_stats.wait_packet_count == 1U ||
-            (g_adb_dev_debug_stats.wait_packet_count % 64U) == 0U) {
-            ADB_LOGW("adb packet alloc failed, wait packet free, payload:%lu total:%lu\n",
-                     (unsigned long)s_rx_header.data_length,
-                     (unsigned long)g_adb_dev_debug_stats.wait_packet_count);
-        }
+        ADB_LOGD("adb packet alloc failed, wait packet free, payload:%lu\n",
+                 (unsigned long)s_rx_header.data_length);
         adb_dev_arm_wait_packet();
         if (s_rx_dispatch_task != NULL) {
             xTaskNotifyGive(s_rx_dispatch_task);
@@ -287,8 +286,6 @@ static void adb_dev_handle_data_done(void)
         return;
     }
 
-    g_adb_dev_debug_stats.rx_data_total++;
-    g_adb_dev_debug_stats.last_data_read_len = s_rx_nbytes;
 
     remaining = s_rx_packet->msg.data_length - s_rx_payload_offset;
     if (s_rx_nbytes > remaining) {
@@ -358,7 +355,6 @@ static void adb_rx_dispatch(void *arg)
         if (s_reset_pending) {
             s_reset_pending = false;
             adb_reset();
-            adb_dev_debug_stats_reset();
             adb_dev_reset_rx_state();
         }
 
@@ -408,6 +404,7 @@ static void adb_ep_in_cb(uint8_t busid, uint8_t ep, uint32_t nbytes)
     if (nbytes == 0U) {
         ADB_LOGD("ZLP completed\n");
     }
+
 
     if (s_tx_sem != NULL) {
         BaseType_t woken = pdFALSE;
@@ -465,13 +462,28 @@ struct usbd_interface *adb_dev_init_intf(uint8_t busid,
     }
 
     if (s_rx_dispatch_task == NULL) {
+#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
+        if (s_rx_dispatch_stack == NULL) {
+            s_rx_dispatch_stack = inram_calloc(32, ADB_RX_DISPATCH_TASK_STACK_DEPTH, sizeof(StackType_t));
+        }
+        if (s_rx_dispatch_tcb == NULL) {
+            s_rx_dispatch_tcb = inram_calloc(sizeof(void *), 1, sizeof(StaticTask_t));
+        }
+        if (s_rx_dispatch_stack != NULL && s_rx_dispatch_tcb != NULL) {
+            s_rx_dispatch_task = xTaskCreateStatic(adb_rx_dispatch, "adb_rx_d",
+                                                   ADB_RX_DISPATCH_TASK_STACK_DEPTH, NULL,
+                                                   CONFIG_ADB_TASK_PRIORITY,
+                                                   s_rx_dispatch_stack, s_rx_dispatch_tcb);
+        }
+        if (s_rx_dispatch_task == NULL) {
+#else
         if (xTaskCreate(adb_rx_dispatch, "adb_rx_d", 1024, NULL,
                         CONFIG_ADB_TASK_PRIORITY, &s_rx_dispatch_task) != pdPASS) {
+#endif
             ADB_LOGE("Failed to create ADB RX dispatch task\n");
         }
     }
 
-    adb_dev_debug_stats_reset();
     adb_dev_reset_rx_state();
     s_configured = false;
     s_configure_pending = false;
@@ -507,6 +519,17 @@ bool adb_dev_deinit(void)
         vTaskDelete(s_rx_dispatch_task);
         s_rx_dispatch_task = NULL;
     }
+
+#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
+    if (s_rx_dispatch_tcb != NULL) {
+        inram_free(s_rx_dispatch_tcb);
+        s_rx_dispatch_tcb = NULL;
+    }
+    if (s_rx_dispatch_stack != NULL) {
+        inram_free(s_rx_dispatch_stack);
+        s_rx_dispatch_stack = NULL;
+    }
+#endif
 
     if (s_tx_sem != NULL) {
         vSemaphoreDelete(s_tx_sem);
@@ -550,21 +573,12 @@ void adb_dev_notify_packet_free(void)
     xTaskNotifyGive(s_rx_dispatch_task);
 }
 
-void adb_dev_debug_stats_get(struct adb_dev_debug_stats *stats)
-{
-    if (stats == NULL) {
-        return;
-    }
-
-    *stats = g_adb_dev_debug_stats;
-}
 
 bool adb_dev_send(uint8_t *buf, uint32_t len)
 {
     int ret;
 
-    if (xSemaphoreTake(s_tx_sem, pdMS_TO_TICKS(500)) != pdTRUE) {
-        ADB_LOGW("ADB TX timeout\n");
+    if (!adb_dev_wait_tx_sem()) {
         return false;
     }
 

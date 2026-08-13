@@ -26,7 +26,7 @@ CONFIG_LISA_I2S1=y                   # 启用 I2S1 设备
 # 可选配置
 CONFIG_LISA_I2S_BLOCK_COUNT=4        # DMA 循环缓冲区数量（默认 4）
 CONFIG_LISA_I2S_ECHO=n               # 启用 I2S 回声功能（默认禁用）
-CONFIG_LISA_I2S_PIPO=n               # 启用 I2S PIPO 模式（默认禁用）
+CONFIG_LISA_I2S_PIPO=y               # 启用 I2S PIPO 模式（默认启用）
 
 # DMA 通道配置
 CONFIG_LISA_I2S0_RX_DMA_CHANNEL=0    # I2S0 RX DMA 通道（默认 0）

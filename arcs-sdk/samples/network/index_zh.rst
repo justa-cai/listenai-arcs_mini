@@ -6,20 +6,15 @@
 .. toctree::
     :maxdepth: 1
 
-    coex/single_core/wifi_ble_netcfg/README.rst
-    wifi/single_core/README.md
-    wifi/dual_core/index_zh
-    coex/dual_core/wifi_ble_netcfg/index_zh
+    wifi/index_zh
+    coex/index_zh
     http/README.md
     http_download_perf/README.md
+    iperf_like/README.md
     websocket/README.md
-    mqtt/tcp/README.md
-    mqtt/ssl/README.md
-    mqtt/ws/README.md
-    mqtt/wss/README.md
-    mqtt/agent/README.md
-    micro-rtsp-c/basic_stream/README.md
-    micro-rtsp-c/av_stream/README.md
+    mqtt/index_zh
+    micro-rtsp-c/index_zh
     modem/README.md
+    modem_usb_speed/README.md
     net/README.md
     wifi_httpdns/README.md

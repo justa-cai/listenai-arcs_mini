@@ -1,0 +1,38 @@
+# LISA Hardware Timer Driver Configuration
+#
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_HWTIMER_VENUSA_AON_TIMER
+	bool "Enable LISA Hardware Timer Venusa AON Timer support"
+	depends on SOC_VENUSA
+	select LISA_HWTIMER_AON_TIMER
+	help
+		Compatibility option for Venusa AON Timer configurations.
+
+if LISA_HWTIMER_AON_TIMER && SOC_VENUSA
+
+choice
+	prompt "Venusa AON Timer Clock Source"
+	default LISA_HWTIMER_VENUSA_AON_TIMER_CLK_RC32K
+	help
+		Select the clock source for Venusa AON Timer.
+
+config LISA_HWTIMER_VENUSA_AON_TIMER_CLK_RC32K
+	bool "Venusa internal RC32K oscillator"
+	help
+		Use internal RC32K oscillator as the clock source for Venusa AON Timer.
+
+config LISA_HWTIMER_VENUSA_AON_TIMER_CLK_XO24M_DIV32K
+	bool "Venusa external XO24M divided to 32K"
+	help
+		Use external 24MHz crystal divided to 32K domain as the clock source for Venusa AON Timer.
+
+config LISA_HWTIMER_VENUSA_AON_TIMER_CLK_RC24M_DIV32K
+	bool "Venusa internal RC24M divided to 32K"
+	help
+		Use internal 24MHz RC oscillator divided to 32K domain as the clock source for Venusa AON Timer.
+
+endchoice
+
+endif # LISA_HWTIMER_AON_TIMER && SOC_VENUSA

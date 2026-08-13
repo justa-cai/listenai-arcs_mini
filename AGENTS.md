@@ -30,7 +30,7 @@ ARCS-MINI 语音助手固件，基于 LISTENAI ARCS SoC（RISC-V 双核 AP/CP �
 - `arcs-sdk/`: SDK 子模块，包含 HAL、驱动、组件和第三方库
 - `arcs-sdk/boards/arcs_mini`: ARCS-MINI 默认板型配置
 - `arcs-sdk/boards/arcs_mini_doll_v2`: ARCS-MINI doll_v2 板型配置
-- `res/arcs-mini`: ARCS-MINI 相关静态资源（如提示音、唤醒词等）
+- `res/arcs-mini`: ARCS-MINI 相关静态资源（如提示音、唤醒词等），以及串口开发烧录专用的 `boot-dev-autostart.bin`
 
 如无特别说明，默认构建 `apps/arcs-mini` 应用，使用 `arcs_mini` 板型。doll_v2 版型需明确指定 `-DBOARD=arcs_mini_doll_v2`。
 
@@ -152,12 +152,20 @@ bash adb_download.sh -S res/arcs-mini boot
 
 仅在设备无法进入 ADB（救砖、boot 损坏、首次上电）时使用 `cskburn`。优先使用系统全局的 `cskburn`，没有就用仓库内 `tools/cskburn/`。详细命令、波特率、多分区烧录等说明保持与原版一致。
 
+> **串口烧录强制闭环**：只要使用 `cskburn` 串口烧录，无论只烧 CP、单个资源分区还是整包，开发阶段都必须确保 `res/arcs-mini/boot-dev-autostart.bin` 最后被写入 `0x0`，使设备复位后直接进入业务。如果整包烧录会覆盖 `0x0`，须在整包烧录后再单独烧录开发 Boot。完成开发和功能检查后，先在开发 Boot 下抓取并分析日志；确认日志无异常后，必须将 `res/arcs-mini/boot.bin` 烧回 `0x0`，最后通知用户长按开机并验证目标功能。
+
 ```bash
-cskburn -C arcs -b 3000000 -s /dev/ttyACM0 --verify-all 0x600000 build/arcs-mini.bin
+# 串口更新 CP app 时，必须同时写入开发 Boot
+cskburn -C arcs -b 1500000 -s /dev/ttyACM0 --verify-all \
+  0x0 res/arcs-mini/boot-dev-autostart.bin \
+  0x600000 build/arcs-mini.bin
+
+# 完成开发并确认日志无异常后：必须恢复原 Boot
+cskburn -C arcs -b 1500000 -s /dev/ttyACM0 --verify-all 0x0 res/arcs-mini/boot.bin
 ```
 
 * `-s` 指定了串口设备，Linux 下通常是 `/dev/ttyACM0` 或 `/dev/ttyUSB0`，Windows 下可能是 `COM3` 等，Mac 下通常是一个 `/dev/cu.` 开头的路径
-* `-b` 指定了烧录波特率，某些串口适配器可以尝试 `6000000` 以达到更快的烧录速度，通常可尝试 `3000000` 或 `1500000`
+* `-b` 指定烧录波特率，本项目默认使用 `1500000`；只有在已验证串口适配器和连线稳定时，才尝试 `3000000` 或 `6000000` 提速
 * 支持多个地址同时烧录，如 `0x40000 ./res/arcs-mini/ap.bin 0x100000 ./res/arcs-mini/tone.bin`，各个分区的地址可参考 `res/arcs-mini/partition_table.json` 中的定义
 
 ## 日志

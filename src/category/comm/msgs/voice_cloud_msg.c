@@ -204,7 +204,7 @@ static bool voice_finish_session_for_background_music(const char *reason)
         return true;
     }
 
-    stop_ret = voice_cloud_chat_stop();
+    stop_ret = voice_cloud_chat_stop_local();
     if (stop_ret != 0) {
         LOGW("stop voice session for background MUSIC failed: %d", stop_ret);
     }
@@ -234,7 +234,7 @@ static bool voice_stop_current_session_during_tts(const char *reason, const char
 
     LOGI("stop current session during TTS for %s (%s)",
          policy ? policy : "policy", reason ? reason : "unknown");
-    stop_ret = voice_cloud_chat_stop();
+    stop_ret = voice_cloud_chat_stop_local();
     if (stop_ret != 0) {
         LOGW("stop current session during TTS failed: %d", stop_ret);
         return false;
@@ -410,7 +410,7 @@ static int camera_preview_result_bargein_session_start(void)
 
     if (voice_cloud_session_is_running("photo result barge-in")) {
         LOGI("voice photo result tts enter with existing session, restart silent barge-in session");
-        stop_ret = voice_cloud_chat_stop();
+        stop_ret = voice_cloud_chat_stop_local();
         if (stop_ret != 0) {
             LOGW("voice photo result barge-in stop old session failed: %d, force clear state", stop_ret);
         }
@@ -689,7 +689,32 @@ static void voice_cloud_mcp_chat_exit(void *unused, uint32_t msg_id, void *data,
     s_voice_cloud_tts_active = false;
     s_voice_photo_result_restart_pending = false;
     voice_idle_exit_timer_stop();
-    voice_cloud_chat_stop();
+    voice_cloud_chat_stop_local();
+    voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
+}
+
+static void voice_cloud_session_interrupt(void *unused, uint32_t msg_id, void *data,
+                                          uint32_t len, void *user_data)
+{
+    int stop_ret;
+
+    LOGI("voice_cloud_session_interrupt");
+
+    s_voice_cloud_session_running = false;
+    s_voice_cloud_session_restart_after_tts = false;
+    s_voice_cloud_tts_active = false;
+    s_voice_photo_result_restart_pending = false;
+    voice_idle_exit_timer_stop();
+    stop_ret = voice_cloud_chat_stop();
+    if (stop_ret != 0) {
+        LOGW("interrupt cloud voice session failed: %d", stop_ret);
+        stop_ret = voice_cloud_chat_stop_local();
+        if (stop_ret != 0) {
+            LOGW("stop local voice session after interrupt failure failed: %d", stop_ret);
+        }
+    } else {
+        LOGI("cloud voice session interrupted");
+    }
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
 }
 
@@ -785,7 +810,7 @@ int voice_cloud_evt_init(void)
     voice_msg_sub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, voice_camera_preview_exit, NULL);
 
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, voice_cloud_mcp_chat_exit, NULL);
-    voice_msg_sub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, voice_cloud_mcp_chat_exit, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, voice_cloud_session_interrupt, NULL);
 
     return 0;
 }

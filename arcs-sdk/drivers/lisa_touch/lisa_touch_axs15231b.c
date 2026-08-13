@@ -528,13 +528,39 @@ static int lisa_touch_axs15231b_init(void)
 }
 
 /* ===== 设备注册 ===== */
-LISA_DEVICE_REGISTER(touch_axs15231b,              /* 设备名称 */
-                     &axs15231b_touch_api,         /* API指针 */
-                     &touch_axs15231b_priv,        /* 私有数据指针 */
-                     NULL,                         /* 用户数据 */
-                     lisa_touch_axs15231b_init,    /* 初始化函数 */
-                     LISA_DEVICE_LEVEL_NORMAL,     /* 级别 */
-                     LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
+/**
+ * @brief 停止并释放 AXS15231B 触摸设备的全部软硬件资源，恢复上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用：关中断 → 删读取任务 → 删 mutex → memset 归零
+ * （i2c/gpio 为外部设备引用、非本驱动持有）。
+ * 约定：调用方需保证此时无并发业务在使用本设备。
+ */
+static int lisa_touch_axs15231b_deinit(void)
+{
+    lisa_touch_axs15231b_priv_t *priv = &touch_axs15231b_priv;
+
+    if (priv->interrupt_mode_active && priv->int_gpio) {
+        lisa_gpio_disable_irq(priv->int_gpio, priv->int_pin);
+    }
+    if (priv->read_task_handle) {
+        vTaskDelete(priv->read_task_handle);
+    }
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+    }
+
+    memset(&touch_axs15231b_priv, 0, sizeof(lisa_touch_axs15231b_priv_t));
+    return LISA_DEVICE_OK;
+}
+
+LISA_DEVICE_REGISTER_DEINIT(touch_axs15231b,              /* 设备名称 */
+                            &axs15231b_touch_api,         /* API指针 */
+                            &touch_axs15231b_priv,        /* 私有数据指针 */
+                            NULL,                         /* 用户数据 */
+                            lisa_touch_axs15231b_init,    /* 初始化函数 */
+                            lisa_touch_axs15231b_deinit,  /* 反初始化函数 */
+                            LISA_DEVICE_LEVEL_NORMAL,     /* 级别 */
+                            LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
 
 
 

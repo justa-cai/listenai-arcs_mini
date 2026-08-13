@@ -7,9 +7,5 @@ LVGL 示例
 .. toctree::
     :maxdepth: 1
 
-    lvgl7/benchmark/README.md
-    lvgl7/widgets/README.md
-    lvgl8/benchmark/README.md
-    lvgl8/widgets/README.md
-    lvgl8/widgets_dual/README.md
-    lvgl8/benchmark_dual/README.md
+    lvgl7/index_zh
+    lvgl8/index_zh

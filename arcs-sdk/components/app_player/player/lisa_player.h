@@ -122,6 +122,22 @@ void lisa_player_destory(PLAYER_HANDLE h);
 PlayerErr lisa_player_set_callback(PLAYER_HANDLE h, player_callback cb);
 
 /**
+ * @brief 设置播放器Prepared所需的解码帧数
+ * @param h 句柄
+ * @param count 解码帧数，0为非法参数
+ * @note 需要在prepare前设置，已创建的decode实例不会立即生效
+ */
+PlayerErr lisa_player_set_decode_prepared_count(PLAYER_HANDLE h, uint32_t count);
+
+/**
+ * @brief 设置当前播放器实例的 readstream 缓存大小
+ * @param h 句柄
+ * @param size 缓存大小，单位 byte；0 表示关闭缓存
+ * @note 需要在prepare前设置，已创建的readstream实例不会立即生效
+ */
+PlayerErr lisa_player_set_readstream_buf_size(PLAYER_HANDLE h, uint32_t size);
+
+/**
  * @brief 设置资源路径
  * @param h 句柄
  * @param url 资源路径

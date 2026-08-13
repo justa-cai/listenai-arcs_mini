@@ -1,6 +1,6 @@
 # RTC 驱动
 
-基于 lisa_device 框架的 RTC 设备驱动，为 ARCS 平台提供统一的实时时钟管理接口。
+基于 lisa_device 框架的 RTC 设备驱动，为 ARCS / Venusa 平台提供统一的实时时钟管理接口。
 
 ## 功能特性
 
@@ -20,6 +20,14 @@ CONFIG_LISA_RTC=y
 ```
 
 驱动依赖芯片内置的 CALENDAR 外设，无需额外硬件配置。
+
+## 平台支持
+
+| 平台 | SoC 配置 | 实现文件 | 说明 |
+|------|----------|----------|------|
+| ARCS | `CONFIG_SOC_ARCS` | `lisa_rtc_arcs.c` | 使用 ARCS CALENDAR HAL |
+| Venusa | `CONFIG_SOC_VENUSA` | `lisa_rtc_venusa.c` | 使用 Venusa CALENDAR HAL |
+
 
 ## API 接口
 
@@ -182,11 +190,12 @@ lisa_rtc_set_periodic_int(rtc, LISA_RTC_EVENT_SECOND, true);
 4. 回调函数在中断上下文中执行，应保持逻辑简短。
 5. 设置时间和闹钟前需确保设备已正确初始化并上电。
 6. 线程安全已在驱动内部实现，可直接在多线程环境中调用。
-7. ARCS CALENDAR 同一时刻仅支持一个周期中断源（秒/分/时三选一）；若切换周期源，请先禁用当前源。
+7. CALENDAR 同一时刻仅支持一个周期中断源（秒/分/时三选一）；若切换周期源，请先禁用当前源。
 
 ## 文件说明
 
 - `lisa_rtc.h` —— 驱动头文件，包含 API 与类型定义
 - `lisa_rtc_arcs.c` —— ARCS 平台适配实现
+- `lisa_rtc_venusa.c` —— Venusa 平台适配实现
 - `CMakeLists.txt` —— 构建配置
 - `Kconfig` —— 配置选项

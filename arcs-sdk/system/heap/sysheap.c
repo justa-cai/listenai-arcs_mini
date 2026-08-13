@@ -226,7 +226,7 @@ void sysheap_init(void)
 
 #endif
     heap_caps_enable_nonos_stack_heaps();
-    heap_caps_malloc_extmem_enable(1024);
+    heap_caps_malloc_extmem_enable(0);
 }
 
 #endif

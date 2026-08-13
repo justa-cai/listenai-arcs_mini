@@ -1,0 +1,3 @@
+tests:
+  test.driver.device_wakeup.remote:
+    build_only: true

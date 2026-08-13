@@ -24,4 +24,5 @@ if LISA_SPI_DEVICE
 
 	config LISA_SPI2
 		bool "Enable LISA SPI2"
+		depends on SOC_ARCS
 endif

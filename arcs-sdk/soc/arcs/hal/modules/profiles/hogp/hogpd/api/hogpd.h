@@ -28,10 +28,13 @@
  ****************************************************************************************
  */
 
+/// Maximal length for Characteristic values
+#define HOGPD_VAL_MAX_LEN                   (131)
+
 ///Maximum number of HID Over GATT Device task instances
 #define HOGPD_IDX_MAX                       (0x01)
 /// Maximal length of Report Char. Value
-#define HOGPD_REPORT_MAX_LEN                (128)
+#define HOGPD_REPORT_MAX_LEN                (HOGPD_VAL_MAX_LEN - 3)
 /// Maximal length of Report Map Char. Value
 #define HOGPD_REPORT_MAP_MAX_LEN            (512)
 /// Length of Boot Report Char. Value Maximal Length
@@ -204,9 +207,9 @@ struct hogpd_operation
 typedef struct hogpd_cb
 {
     /// gatt opreate complete.
-    void (*cb_read_cmp) (uint32_t token, uint8_t val_id);
-    void (*cb_notify_cmp) (uint32_t token, uint8_t val_id);
-    void (*cb_write_cmp) (uint32_t token, uint8_t val_id);
+    void (*cb_read_cmp) (uint8_t conidx, uint32_t token, uint8_t val_id);
+    void (*cb_notify_cmp) (uint8_t conidx, uint32_t token, uint8_t val_id);
+    void (*cb_write_cmp) (uint8_t conidx, uint32_t token, uint8_t val_id);
 
     /// gatt opreate indicate
     void (*cb_read_ind) (uint8_t conidx, uint16_t index, uint16_t length, uint8_t *data);
@@ -359,6 +362,14 @@ uint16_t hogpd_destroy(uint8_t reason);
  */
 void hogpd_cleanup(uint8_t conidx, uint16_t reason);
 
+/**
+ ****************************************************************************************
+ * @brief Handles hogpd report map enc on or off
+ *
+ * @param[in]        on
+ ****************************************************************************************
+ */
+void ble_hogpd_report_map_enc_set(uint8_t on);
 
 #endif /* #if (BLE_HID_DEVICE) */
 

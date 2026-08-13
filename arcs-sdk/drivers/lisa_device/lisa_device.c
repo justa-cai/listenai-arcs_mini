@@ -21,6 +21,10 @@
 /* ===== 链接器符号声明 ===== */
 extern lisa_device_registry_entry_t __lisa_device_registry_start[];
 extern lisa_device_registry_entry_t __lisa_device_registry_end[];
+#if CONFIG_LISA_PM
+extern lisa_device_pm_registry_entry_t __lisa_device_pm_registry_start[];
+extern lisa_device_pm_registry_entry_t __lisa_device_pm_registry_end[];
+#endif
 
 /* ===== 全局变量 ===== */
 static lisa_device_t *device_list_head = NULL;
@@ -71,6 +75,32 @@ static lisa_device_t *find_device_by_name(const char *name)
     return NULL;
 }
 
+#if CONFIG_LISA_PM
+static const lisa_device_pm_t *find_attached_pm(const lisa_device_t *device)
+{
+    lisa_device_pm_registry_entry_t *entry_start = __lisa_device_pm_registry_start;
+    lisa_device_pm_registry_entry_t *entry_end = __lisa_device_pm_registry_end;
+
+    for (lisa_device_pm_registry_entry_t *entry = entry_start; entry < entry_end; ++entry) {
+        if (entry->device == device &&
+            (entry->pm.system_ops != NULL || entry->pm.wakeup_ops != NULL)) {
+            return &entry->pm;
+        }
+    }
+
+    return NULL;
+}
+
+static void bind_attached_pm(lisa_device_t *device)
+{
+    const lisa_device_pm_t *attached_pm = find_attached_pm(device);
+
+    if (attached_pm != NULL) {
+        device->pm = attached_pm;
+    }
+}
+#endif
+
 /**
  * @brief 内部设备注册函数
  * @note 仅在 lisa_device_init 中使用
@@ -85,6 +115,11 @@ static int register_device_internal(lisa_device_t *device)
     if (find_device_by_name(device->name)) {
         return LISA_DEVICE_ERR_EXISTS;
     }
+
+#if CONFIG_LISA_PM
+    /* 让 LISA_DEVICE_PM_ATTACH 声明的 wakeup_ops 对设备快速路径可见。 */
+    bind_attached_pm(device);
+#endif
 
     /* 添加到链表头 */
     device->next = device_list_head;
@@ -145,6 +180,7 @@ static int init_device_entry(lisa_device_registry_entry_t *entry, bool use_timin
 }
 
 static bool early_initialized = false;
+static bool post_kernel_initialized = false;
 
 int lisa_device_early_init(void)
 {
@@ -201,12 +237,44 @@ int lisa_device_init(void)
     for (size_t i = 0; i < count; i++) {
         lisa_device_registry_entry_t *entry = &entry_start[i];
 
+        if (entry->init_level != LISA_DEVICE_LEVEL_NORMAL) {
+            continue;
+        }
+
         if (init_device_entry(entry, true) == 0) {
             registered++;
         }
     }
 
     manager_initialized = true;
+    return device_count;
+}
+
+int lisa_device_post_kernel_init(void)
+{
+    if (post_kernel_initialized) {
+        return device_count;
+    }
+
+    if (!manager_initialized) {
+        (void)lisa_device_init();
+    }
+
+    lisa_device_registry_entry_t *entry_start = __lisa_device_registry_start;
+    lisa_device_registry_entry_t *entry_end = __lisa_device_registry_end;
+    size_t count = entry_end - entry_start;
+
+    for (size_t i = 0; i < count; i++) {
+        lisa_device_registry_entry_t *entry = &entry_start[i];
+
+        if (entry->init_level != LISA_DEVICE_LEVEL_POST_KERNEL) {
+            continue;
+        }
+
+        (void)init_device_entry(entry, true);
+    }
+
+    post_kernel_initialized = true;
     return device_count;
 }
 
@@ -241,6 +309,91 @@ bool lisa_device_ready(const lisa_device_t *dev)
     }
 
     return true;
+}
+
+/**
+ * @brief 在注册段中查找设备对应的注册条目
+ * @note 注册段在编译期生成、运行期只读，无需加锁
+ */
+static lisa_device_registry_entry_t *find_registry_entry(const lisa_device_t *dev)
+{
+    lisa_device_registry_entry_t *entry_start = __lisa_device_registry_start;
+    lisa_device_registry_entry_t *entry_end = __lisa_device_registry_end;
+
+    for (lisa_device_registry_entry_t *entry = entry_start; entry < entry_end; ++entry) {
+        if (entry->device == dev) {
+            return entry;
+        }
+    }
+
+    return NULL;
+}
+
+void lisa_device_destroy(lisa_device_t *dev)
+{
+    if (!is_device_valid(dev)) {
+        return;
+    }
+
+    /* 已处于上电初始状态：幂等空操作，避免对驱动重复执行 deinit */
+    if (dev->state == LISA_DEVICE_STATE_UNINITIALIZED) {
+        return;
+    }
+
+#if CONFIG_LISA_PM
+    /* 若该设备当前作为活跃唤醒源，先撤销硬件唤醒配置与框架状态记录 */
+    if (lisa_device_wakeup_is_enabled(dev)) {
+        lisa_device_wakeup_enable(dev, false);
+    }
+#endif
+
+    /* 调用驱动自定义 deinit，释放软硬件资源、恢复芯片上电初始状态。
+     * 与 init_fn 一致，不持有 device_mutex，避免驱动 deinit 内部访问设备框架时死锁。 */
+    lisa_device_registry_entry_t *entry = find_registry_entry(dev);
+    if (entry && entry->deinit_fn) {
+        int deinit_ret = entry->deinit_fn();
+        if (deinit_ret != 0) {
+            LISA_LOGW(LOG_TAG, "device %s deinit returned %d", dev->name, deinit_ret);
+        }
+    }
+
+    /* 复位框架状态：保留注册条目，仅回到未初始化状态并清空统计信息 */
+    dev->state = LISA_DEVICE_STATE_UNINITIALIZED;
+    memset(&dev->stats, 0, sizeof(dev->stats));
+}
+
+int lisa_device_reinit(lisa_device_t *dev)
+{
+    if (!is_device_valid(dev)) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    /* 已初始化：幂等返回，避免对已建资源二次 init 导致泄漏 */
+    if (dev->state == LISA_DEVICE_STATE_INITIALIZED) {
+        return LISA_DEVICE_OK;
+    }
+
+    lisa_device_registry_entry_t *entry = find_registry_entry(dev);
+    if (entry == NULL || entry->init_fn == NULL) {
+        return LISA_DEVICE_ERR_NOT_SUPPORT;
+    }
+
+    /* 与 init_fn 一致：不持有 device_mutex，避免驱动 init 内部访问设备框架时死锁 */
+    uint64_t start_time = lisa_os_get_tick_ms();
+    int init_ret = entry->init_fn();
+    uint64_t end_time = lisa_os_get_tick_ms();
+
+    dev->stats.init_timestamp = (uint32_t)end_time;
+    dev->stats.init_time = (uint32_t)(end_time - start_time);
+    dev->stats.init_result = init_ret;
+
+    if (init_ret == 0) {
+        dev->state = LISA_DEVICE_STATE_INITIALIZED;
+        return LISA_DEVICE_OK;
+    }
+
+    dev->state = LISA_DEVICE_STATE_ERROR;
+    return LISA_DEVICE_ERR_INIT_FAIL;
 }
 
 /* ========================================================================
@@ -303,9 +456,161 @@ int lisa_device_foreach(lisa_device_iterator_cb callback, void *user_data)
     return count;
 }
 
+#if CONFIG_LISA_PM
+int lisa_device_pm_foreach(lisa_device_pm_iterator_cb callback, void *user_data)
+{
+    if (callback == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    lisa_device_pm_registry_entry_t *entry_start = __lisa_device_pm_registry_start;
+    lisa_device_pm_registry_entry_t *entry_end = __lisa_device_pm_registry_end;
+    int count = 0;
+
+    for (lisa_device_pm_registry_entry_t *entry = entry_start; entry < entry_end; ++entry) {
+        if (entry->device == NULL ||
+            (entry->pm.system_ops == NULL && entry->pm.wakeup_ops == NULL)) {
+            continue;
+        }
+
+        count++;
+        if (callback(entry->device, &entry->pm, user_data) != 0) {
+            break;
+        }
+    }
+
+    return count;
+}
+
+/* ========================================================================
+ * Device-side wakeup-source 实现
+ *
+ * 维护 per-device enabled 状态的静态节点池。容量小（典型 1-3 个 device），
+ * 用静态池避免 heap 依赖；wakeup 配置是启动期一次性行为，并发场景罕见，
+ * 沿用 lisa_device 模块在快速路径外的轻量惯例，不加额外锁。
+ * ======================================================================== */
+
+#ifndef CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE
+#define CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE 8
+#endif
+
+/* used_mask 是 uint32_t 位图，池容量上限受其位宽约束 */
+_Static_assert(CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE > 0 &&
+               CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE <= 32,
+               "CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE must be in [1, 32]");
+
+typedef struct lisa_device_wakeup_state_node {
+    lisa_device_t *dev;
+    struct lisa_device_wakeup_state_node *next;
+} lisa_device_wakeup_state_node_t;
+
+static lisa_device_wakeup_state_node_t s_wakeup_state_pool[CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE];
+static uint32_t s_wakeup_state_pool_used_mask = 0;
+static lisa_device_wakeup_state_node_t *s_wakeup_enabled_head = NULL;
+
+static lisa_device_wakeup_state_node_t *lisa_device_wakeup_state_alloc(void)
+{
+    for (uint32_t i = 0; i < CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE; ++i) {
+        if (!(s_wakeup_state_pool_used_mask & (1U << i))) {
+            s_wakeup_state_pool_used_mask |= (1U << i);
+            s_wakeup_state_pool[i].dev = NULL;
+            s_wakeup_state_pool[i].next = NULL;
+            return &s_wakeup_state_pool[i];
+        }
+    }
+    return NULL;
+}
+
+static void lisa_device_wakeup_state_free(lisa_device_wakeup_state_node_t *node)
+{
+    uint32_t idx = (uint32_t)(node - s_wakeup_state_pool);
+    if (idx < CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE) {
+        s_wakeup_state_pool_used_mask &= ~(1U << idx);
+    }
+}
+
+bool lisa_device_wakeup_is_capable(lisa_device_t *dev)
+{
+    if (dev == NULL) {
+        return false;
+    }
+    if (dev->pm == NULL) {
+        return false;
+    }
+    if (dev->pm->wakeup_ops == NULL) {
+        return false;
+    }
+    return true;
+}
+
+bool lisa_device_wakeup_is_enabled(lisa_device_t *dev)
+{
+    if (!lisa_device_wakeup_is_capable(dev)) {
+        return false;
+    }
+    for (lisa_device_wakeup_state_node_t *p = s_wakeup_enabled_head; p != NULL; p = p->next) {
+        if (p->dev == dev) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int32_t lisa_device_wakeup_enable(lisa_device_t *dev, bool enable)
+{
+    if (dev == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    if (!lisa_device_wakeup_is_capable(dev)) {
+        return LISA_DEVICE_ERR_NOT_SUPPORT;
+    }
+
+    const lisa_pm_wakeup_ops_t *ops = dev->pm->wakeup_ops;
+    bool currently_enabled = lisa_device_wakeup_is_enabled(dev);
+
+    if (enable && !currently_enabled) {
+        int32_t ret = (ops->set_enabled != NULL) ? ops->set_enabled(dev, true) : 0;
+        if (ret != 0) {
+            return ret;
+        }
+        lisa_device_wakeup_state_node_t *node = lisa_device_wakeup_state_alloc();
+        if (node == NULL) {
+            /* 池满：已下发硬件但记不下状态，撤回保持一致 */
+            if (ops->set_enabled != NULL) {
+                ops->set_enabled(dev, false);
+            }
+            return LISA_DEVICE_ERR_NO_MEM;
+        }
+        node->dev = dev;
+        node->next = s_wakeup_enabled_head;
+        s_wakeup_enabled_head = node;
+        return 0;
+    }
+    if (!enable && currently_enabled) {
+        int32_t ret = (ops->set_enabled != NULL) ? ops->set_enabled(dev, false) : 0;
+        if (ret != 0) {
+            return ret;
+        }
+        lisa_device_wakeup_state_node_t **pp = &s_wakeup_enabled_head;
+        while (*pp != NULL) {
+            if ((*pp)->dev == dev) {
+                lisa_device_wakeup_state_node_t *victim = *pp;
+                *pp = (*pp)->next;
+                lisa_device_wakeup_state_free(victim);
+                break;
+            }
+            pp = &(*pp)->next;
+        }
+        return 0;
+    }
+    return 0;  /* 目标状态已达成，幂等 */
+}
+#endif /* CONFIG_LISA_PM */
+
 /* ========================================================================
  * 通过 SYS_INIT 自动注册设备初始化到系统启动流程
  * ======================================================================== */
 
 SYS_INIT(lisa_device_early_init, SYS_INIT_LEVEL_PRE_SYSTEM_INIT, SYS_INIT_SUB_PRIORITY_EARLY);
 SYS_INIT(lisa_device_init, SYS_INIT_LEVEL_PRE_KERNEL, SYS_INIT_SUB_PRIORITY_FIRST);
+SYS_INIT(lisa_device_post_kernel_init, SYS_INIT_LEVEL_POST_KERNEL, SYS_INIT_SUB_PRIORITY_FIRST);

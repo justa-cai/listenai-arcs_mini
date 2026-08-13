@@ -18,6 +18,10 @@
 #include "bt_os_task.h"
 #include "ble_gap.h"
 
+#if CONFIG_LISA_BLUETOOTH_BUILD_NETCFG_BLE_SERVER || CONFIG_BLE_PROFILE_NETCFG_BLES
+#include "netcfg_bles.h"
+#endif
+
 /*
  * Internal data structures (match Makefile project bt_app_if.h)
  */
@@ -246,4 +250,22 @@ uint8_t lisa_ble_netcfg_send_notify(uint8_t conidx, uint8_t op, uint8_t state, u
     }
 
     return btos_send_event(OS_TASK_ID_BT, &ev, (uint32_t)BTOS_TASK_MAX_DELAY);
+}
+
+uint8_t lisa_ble_netcfg_send_custom_data(uint8_t conidx, uint16_t length, uint8_t *value)
+{
+    if (length == 0 || value == NULL) {
+        return 0xff;
+    }
+
+    if (length > LISA_BLE_NETCFG_CUSTOM_DATA_MAX_LEN) {
+        return 0xff;
+    }
+
+#if CONFIG_LISA_BLUETOOTH_BUILD_NETCFG_BLE_SERVER || CONFIG_BLE_PROFILE_NETCFG_BLES
+    return ble_netcfg_bles_send_notify_custom_data(conidx, length, value) == 0 ? 0 : 0xff;
+#else
+    (void)conidx;
+    return 0xff;
+#endif
 }

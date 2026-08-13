@@ -403,6 +403,17 @@ int btos_get_time(uint32_t *sec, uint32_t *usec)
     return 0;
 }
 
+int btos_get_time_ms(uint32_t *sec, uint32_t *msec)
+{
+    TickType_t tickCount;
+
+    tickCount = xTaskGetTickCount();
+    *sec  = tickCount / configTICK_RATE_HZ;
+    *msec = (tickCount % configTICK_RATE_HZ);
+
+    return 0;
+}
+
 TimerHandle_t btos_timer_creat(timer_type_t timer_type, uint32_t milli_seconds, TimerCallbackFunction_t call_back_func)
 {
     

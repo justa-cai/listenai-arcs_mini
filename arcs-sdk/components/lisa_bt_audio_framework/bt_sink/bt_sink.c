@@ -26,14 +26,16 @@
  * Copyright (C) ListenAI 2025
  */
 
-#include "interfaces/bt_audio_interface.h"
+#include "bt_sink.h"
 #include "bt_audio_adapter.h"
 #include "bt_audio_session.h"
+#include "bt_audio_stream_lifecycle.h"
 #include "aud_common.h"
 #include "lisa_log.h"
 #include <string.h>
 #include <stdlib.h>
 #include "FreeRTOS.h"
+#include "semphr.h"
 #include "task.h"
 
 #define TAG "BT_SINK"
@@ -45,10 +47,12 @@
 typedef struct {
     /* 音频接口（通过接口管理器获取） */
     const bt_audio_interface_ops_t *audio_interface;
+    bool audio_interface_explicit;
     
     /* session 管理 */
     bt_audio_session_handle_t playback_session;  /* 下行播放 session */
     bt_audio_session_handle_t capture_session;   /* 上行录音 session */
+    bt_audio_stream_lifecycle_t lifecycle;        /* 保护 stream/session 生命周期 */
     bool initialized;
     
 } bt_sink_context_t;
@@ -70,6 +74,9 @@ static void sink_on_bt_event_rcv_data(const uint8_t *data, size_t size);
 static void sink_on_bt_event_pause(void);
 static void sink_on_bt_event_resume(aud_codec_info_t codec_info);
 static void sink_on_bt_audio_send_complete(void);
+static bool sink_playback_begin(bt_audio_session_handle_t *session);
+static void sink_session_op_end(void);
+static void sink_reset_runtime(bool preserve_explicit_interface);
 
 /* ========================================================================
  * 辅助函数
@@ -90,6 +97,33 @@ static inline bt_audio_codec_type_t aud_type_to_codec_type(uint8_t aud_type)
             LISA_LOGE(TAG, "Unknown aud_type: %d", aud_type);
             return BT_CODEC_NONE;
     }
+}
+
+static bool sink_playback_begin(bt_audio_session_handle_t *session)
+{
+    return bt_audio_stream_lifecycle_begin(&g_sink_ctx.lifecycle,
+                                           BT_AUDIO_STREAM_SESSION_DOWNLINK,
+                                           session);
+}
+
+static void sink_session_op_end(void)
+{
+    bt_audio_stream_lifecycle_end(&g_sink_ctx.lifecycle);
+}
+
+static void sink_reset_runtime(bool preserve_explicit_interface)
+{
+    const bt_audio_interface_ops_t *explicit_interface = NULL;
+    bool explicit_set = false;
+
+    if (preserve_explicit_interface && g_sink_ctx.audio_interface_explicit) {
+        explicit_interface = g_sink_ctx.audio_interface;
+        explicit_set = true;
+    }
+
+    memset(&g_sink_ctx, 0, sizeof(g_sink_ctx));
+    g_sink_ctx.audio_interface = explicit_interface;
+    g_sink_ctx.audio_interface_explicit = explicit_set;
 }
 
 /* ========================================================================
@@ -135,12 +169,40 @@ static int sink_capture_data_callback(void *pcm_buffer, size_t buffer_size, void
 
 static void sink_on_bt_event_start(aud_codec_info_t codec_info)
 {
+    bt_audio_error_t ret;
+    bt_audio_format_t format;
+    bt_audio_session_handle_t playback_session = NULL;
+    bt_audio_codec_type_t codec;
+    bool session_started = false;
+    bool interface_opened = false;
+
     LISA_LOGI(TAG, "BT audio stream starting: type=%d, ch=%d, sample=%d",
               codec_info.aud_type, codec_info.aud_ch, codec_info.aud_sample);
+
+    if (!bt_audio_stream_lifecycle_lock(&g_sink_ctx.lifecycle)) {
+        return;
+    }
+
+    if (g_sink_ctx.lifecycle.state != BT_AUDIO_STREAM_IDLE || g_sink_ctx.playback_session) {
+        bt_audio_stream_lifecycle_unlock(&g_sink_ctx.lifecycle);
+        LISA_LOGW(TAG, "Playback session already exists");
+        return;
+    }
+    g_sink_ctx.lifecycle.state = BT_AUDIO_STREAM_OPENING;
+    g_sink_ctx.lifecycle.ready = false;
+    bt_audio_stream_lifecycle_unlock(&g_sink_ctx.lifecycle);
+
+    codec = aud_type_to_codec_type(codec_info.aud_type);
+    if (codec == BT_CODEC_NONE) {
+        bt_audio_stream_lifecycle_set_state(&g_sink_ctx.lifecycle,
+                                            BT_AUDIO_STREAM_IDLE,
+                                            false);
+        return;
+    }
     
     /* 创建下行播放 session */
     bt_audio_session_config_t session_config = {
-        .codec_type = aud_type_to_codec_type(codec_info.aud_type),
+        .codec_type = codec,
         .direction = BT_AUDIO_DIR_PLAYBACK,
         .passthrough_mode = false,
         .event_callback = NULL,
@@ -149,10 +211,10 @@ static void sink_on_bt_event_start(aud_codec_info_t codec_info)
         .user_data = NULL,
     };
     
-    bt_audio_error_t ret = bt_audio_session_create(&session_config, &g_sink_ctx.playback_session);
+    ret = bt_audio_session_create(&session_config, &playback_session);
     if (ret != BT_AUDIO_OK) {
         LISA_LOGE(TAG, "Failed to create playback session: %d", ret);
-        return;
+        goto exit;
     }
     
     bt_audio_codec_config_t codec_config = {
@@ -163,24 +225,20 @@ static void sink_on_bt_event_start(aud_codec_info_t codec_info)
         }
     };
     
-    ret = bt_audio_session_start(g_sink_ctx.playback_session, &codec_config);
+    ret = bt_audio_session_start(playback_session, &codec_config);
     if (ret != BT_AUDIO_OK) {
         LISA_LOGE(TAG, "Failed to start playback session: %d", ret);
-        bt_audio_session_destroy(g_sink_ctx.playback_session);
-        g_sink_ctx.playback_session = NULL;
-        return;
+        goto exit;
     }
+    session_started = true;
     
     /* 打开硬件播放接口 */
     if (!g_sink_ctx.audio_interface || !g_sink_ctx.audio_interface->playback_open) {
         LISA_LOGE(TAG, "Audio interface not available");
-        bt_audio_session_stop(g_sink_ctx.playback_session);
-        bt_audio_session_destroy(g_sink_ctx.playback_session);
-        g_sink_ctx.playback_session = NULL;
-        return;
+        goto exit;
     }
     
-    bt_audio_format_t format = {
+    format = (bt_audio_format_t) {
         .sample_rate = codec_info.aud_sample,
         .channels = codec_info.aud_ch,
         .bits_per_sample = 16,
@@ -188,50 +246,102 @@ static void sink_on_bt_event_start(aud_codec_info_t codec_info)
     ret = g_sink_ctx.audio_interface->playback_open(&format);
     if (ret != BT_AUDIO_OK) {
         LISA_LOGE(TAG, "Failed to open playback interface: %d", ret);
-        bt_audio_session_stop(g_sink_ctx.playback_session);
-        bt_audio_session_destroy(g_sink_ctx.playback_session);
-        g_sink_ctx.playback_session = NULL;
-        return;
+        goto exit;
     }
+    interface_opened = true;
+
+    if (!bt_audio_stream_lifecycle_lock(&g_sink_ctx.lifecycle)) {
+        goto exit;
+    }
+    g_sink_ctx.playback_session = playback_session;
+    g_sink_ctx.lifecycle.sessions[BT_AUDIO_STREAM_SESSION_DOWNLINK] = playback_session;
+    g_sink_ctx.lifecycle.state = BT_AUDIO_STREAM_OPENED;
+    g_sink_ctx.lifecycle.ready = true;
+    bt_audio_stream_lifecycle_unlock(&g_sink_ctx.lifecycle);
+    playback_session = NULL;
     
     LISA_LOGI(TAG, "Playback session and interface opened successfully");
+
+exit:
+    if (playback_session) {
+        if (interface_opened && g_sink_ctx.audio_interface &&
+            g_sink_ctx.audio_interface->playback_close) {
+            g_sink_ctx.audio_interface->playback_close();
+        }
+        if (session_started) {
+            bt_audio_session_stop(playback_session);
+        }
+        bt_audio_session_destroy(playback_session);
+        bt_audio_stream_lifecycle_set_state(&g_sink_ctx.lifecycle,
+                                            BT_AUDIO_STREAM_IDLE,
+                                            false);
+    }
 }
 
 static void sink_on_bt_event_stop(uint8_t conidx, uint8_t status)
 {
+    bt_audio_session_handle_t playback_session = NULL;
+    bt_audio_session_handle_t capture_session = NULL;
+
     LISA_LOGI(TAG, "BT audio stream stopping: conidx=%d, status=0x%x", conidx, status);
-    
-    if (g_sink_ctx.playback_session) {
-        bt_audio_session_stop(g_sink_ctx.playback_session);
-        bt_audio_session_destroy(g_sink_ctx.playback_session);
-        g_sink_ctx.playback_session = NULL;
-        
+
+    if (!bt_audio_stream_lifecycle_lock(&g_sink_ctx.lifecycle)) {
+        return;
+    }
+
+    playback_session = g_sink_ctx.playback_session;
+    capture_session = g_sink_ctx.capture_session;
+    g_sink_ctx.playback_session = NULL;
+    g_sink_ctx.capture_session = NULL;
+    g_sink_ctx.lifecycle.ready = false;
+    g_sink_ctx.lifecycle.state = BT_AUDIO_STREAM_CLOSING;
+    g_sink_ctx.lifecycle.sessions[BT_AUDIO_STREAM_SESSION_DOWNLINK] = NULL;
+    g_sink_ctx.lifecycle.sessions[BT_AUDIO_STREAM_SESSION_UPLINK] = NULL;
+    bt_audio_stream_lifecycle_unlock(&g_sink_ctx.lifecycle);
+
+    bt_audio_stream_lifecycle_wait_idle(&g_sink_ctx.lifecycle);
+
+    if (playback_session) {
+        bt_audio_session_stop(playback_session);
+        bt_audio_session_destroy(playback_session);
+
         /* 关闭硬件播放接口 */
         if (g_sink_ctx.audio_interface && g_sink_ctx.audio_interface->playback_close) {
             g_sink_ctx.audio_interface->playback_close();
         }
     }
     
-    if (g_sink_ctx.capture_session) {
-        bt_audio_session_stop(g_sink_ctx.capture_session);
-        bt_audio_session_destroy(g_sink_ctx.capture_session);
-        g_sink_ctx.capture_session = NULL;
+    if (capture_session) {
+        bt_audio_session_stop(capture_session);
+        bt_audio_session_destroy(capture_session);
         
         /* 关闭硬件录音接口 */
         if (g_sink_ctx.audio_interface && g_sink_ctx.audio_interface->capture_close) {
             g_sink_ctx.audio_interface->capture_close();
         }
     }
+
+    bt_audio_stream_lifecycle_set_state(&g_sink_ctx.lifecycle,
+                                        BT_AUDIO_STREAM_IDLE,
+                                        false);
 }
 
 static void sink_on_bt_event_rcv_data(const uint8_t *data, size_t size)
 {
-    if (!data || size == 0 || !g_sink_ctx.playback_session) {
+    bt_audio_error_t ret;
+    bt_audio_session_handle_t playback_session = NULL;
+
+    if (!data || size == 0) {
+        return;
+    }
+
+    if (!sink_playback_begin(&playback_session)) {
         return;
     }
     
     /* 将蓝牙编码数据写入 session，由 session 解码后调用 playback_write */
-    bt_audio_error_t ret = bt_audio_session_playback_write(g_sink_ctx.playback_session, data, size);
+    ret = bt_audio_session_playback_write(playback_session, data, size);
+    sink_session_op_end();
     if (ret != BT_AUDIO_OK) {
         LISA_LOGW(TAG, "Failed to write data to playback session: %d", ret);
     }
@@ -239,17 +349,25 @@ static void sink_on_bt_event_rcv_data(const uint8_t *data, size_t size)
 
 static void sink_on_bt_event_pause(void)
 {
+    bt_audio_session_handle_t playback_session = NULL;
+
     LISA_LOGI(TAG, "BT audio stream paused");
-    if (g_sink_ctx.playback_session) {
-        bt_audio_session_pause(g_sink_ctx.playback_session);
+    if (sink_playback_begin(&playback_session)) {
+        bt_audio_session_pause(playback_session);
+        sink_session_op_end();
     }
 }
 
 static void sink_on_bt_event_resume(aud_codec_info_t codec_info)
 {
+    bt_audio_session_handle_t playback_session = NULL;
+
+    (void)codec_info;
+
     LISA_LOGI(TAG, "BT audio stream resumed");
-    if (g_sink_ctx.playback_session) {
-        bt_audio_session_resume(g_sink_ctx.playback_session);
+    if (sink_playback_begin(&playback_session)) {
+        bt_audio_session_resume(playback_session);
+        sink_session_op_end();
     }
 }
 
@@ -273,34 +391,71 @@ static bt_audio_adapter_event_ops_t g_sink_adapter_event_ops = {
 
 bt_audio_error_t bt_sink_init(void)
 {
+    bt_audio_error_t ret = BT_AUDIO_OK;
+
     if (g_sink_ctx.initialized) {
         return BT_AUDIO_OK;
     }
-    bt_audio_error_t ret = BT_AUDIO_OK;
     
-    memset(&g_sink_ctx, 0, sizeof(g_sink_ctx));
+    sink_reset_runtime(true);
+
+    ret = bt_audio_stream_lifecycle_init(&g_sink_ctx.lifecycle);
+    if (ret != BT_AUDIO_OK) {
+        LISA_LOGE(TAG, "Failed to create lifecycle guard: %d", ret);
+        goto exit;
+    }
     
     /* 注册蓝牙适配器事件回调 */
     ret = bt_audio_adapter_registeer(&g_sink_adapter_event_ops);
     if (ret != 0) {
         LISA_LOGE(TAG, "Failed to register adapter event ops: %d", ret);
-        bt_audio_session_manager_deinit();
-        bt_audio_interface_manager_deinit();
-        return ret;
+        goto exit;
     }
     
     /* 获取默认音频接口（由应用层注册，如 lisa_audio_interface）*/
-    g_sink_ctx.audio_interface = bt_audio_interface_get_default();
+    if (!g_sink_ctx.audio_interface) {
+        g_sink_ctx.audio_interface = bt_audio_interface_get_default();
+    }
     if (!g_sink_ctx.audio_interface) {
         LISA_LOGE(TAG, "No audio interface registered, bt_sink cannot work without hardware interface");
-        bt_audio_session_manager_deinit();
-        bt_audio_interface_manager_deinit();
-        return BT_AUDIO_ERR_NOT_FOUND;
+        ret = BT_AUDIO_ERR_NOT_FOUND;
+        goto exit;
     }
     
     g_sink_ctx.initialized = true;
     LISA_LOGI(TAG, "bt_sink initialized successfully with interface: %s", 
               g_sink_ctx.audio_interface->name);
     
+    return BT_AUDIO_OK;
+
+exit:
+    bt_audio_stream_lifecycle_deinit(&g_sink_ctx.lifecycle);
+    sink_reset_runtime(true);
+    return ret;
+}
+
+bt_audio_error_t bt_sink_set_audio_interface(const bt_audio_interface_ops_t *ops)
+{
+    bool active = false;
+
+    if (!ops) {
+        return BT_AUDIO_ERR_INVALID_PARAM;
+    }
+
+    if (g_sink_ctx.initialized) {
+        if (!bt_audio_stream_lifecycle_lock(&g_sink_ctx.lifecycle)) {
+            return BT_AUDIO_ERR_INVALID_STATE;
+        }
+        active = g_sink_ctx.lifecycle.state != BT_AUDIO_STREAM_IDLE ||
+                 g_sink_ctx.lifecycle.sessions[BT_AUDIO_STREAM_SESSION_DOWNLINK] ||
+                 g_sink_ctx.lifecycle.sessions[BT_AUDIO_STREAM_SESSION_UPLINK];
+        bt_audio_stream_lifecycle_unlock(&g_sink_ctx.lifecycle);
+        if (active) {
+            return BT_AUDIO_ERR_INVALID_STATE;
+        }
+    }
+
+    g_sink_ctx.audio_interface = ops;
+    g_sink_ctx.audio_interface_explicit = true;
     return BT_AUDIO_OK;
 }

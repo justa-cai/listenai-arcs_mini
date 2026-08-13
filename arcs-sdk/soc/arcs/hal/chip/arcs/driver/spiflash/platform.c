@@ -1,4 +1,4 @@
-#include "platform.h"
+#include "../../include/platform.h"
 
 #include "arcs_ap.h"
 #include "spiflash.h"

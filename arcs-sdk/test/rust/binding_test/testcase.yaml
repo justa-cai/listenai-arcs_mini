@@ -1,0 +1,9 @@
+tests:
+  test.rust.binding_test:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "=== Rust Binding Test PASSED \\([0-9]+/[0-9]+\\) ==="

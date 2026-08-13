@@ -1195,6 +1195,43 @@ int voice_cloud_chat_stop(void)
     return ret;
 }
 
+int voice_cloud_chat_stop_local(void)
+{
+    int ret;
+
+    ret = voice_cloud_upload_audio_pause();
+    if (ret != 0) {
+        LOGE("voice chat local stop failed: %d", ret);
+        return ret;
+    }
+
+    g_voice_session_active = 0;
+    return 0;
+}
+
+int voice_cloud_cancel_current_response(void)
+{
+    int ret;
+
+    if (!cloud_init_done || !g_voice_session_active) {
+        LOGW("cancel current response ignored, session inactive");
+        return -1;
+    }
+    if (!full_duplex) {
+        LOGW("cancel current response ignored, not full duplex");
+        return -1;
+    }
+
+    ret = session_voice_cancel();
+    if (ret != 0) {
+        LOGE("cancel current response failed");
+        return ret;
+    }
+
+    LOGI("cancel current response on new full-duplex IAT");
+    return 0;
+}
+
 int voice_cloud_chat_send_audio(uint8_t *data, int len)
 {
     if (!g_record_stream_buffer) {
@@ -1234,6 +1271,13 @@ static void session_objrec_evt_cb(session_objrec_t s, int evt, void *data, uint3
         } else {
             LOGE("objec evt %d data is null", evt);
         }
+    } else if (evt == SESSION_OBJREC_EVT_FINISH ||
+               evt == SESSION_OBJREC_EVT_ERROR ||
+               evt == SESSION_OBJREC_EVT_TIMEOUT) {
+        LOGW("object recognition ended without result, evt=%d, request_seq=%u",
+             evt, (unsigned)request_seq);
+        g_objrec_accept_seq = 0;
+        voice_msg_pub(VOICE_MSG_CLOUD_IMAGE_RECOGNITION_FAILED, NULL, 0);
     } else {
         LOGE("unknown objrec evt: %d", evt);
     }
@@ -1250,8 +1294,10 @@ int voice_cloud_image_recognition(uint8_t *jpg_image, uint32_t len)
 
     if (objrec == NULL) {
         objrec = session_objrec_new();
-        LOGE("session_objrec_init failed");
-        assert(objrec);
+        if (objrec == NULL) {
+            LOGE("session_objrec_init failed");
+            return -1;
+        }
     }
 
     request_seq = ++g_objrec_request_seq;
@@ -1283,6 +1329,13 @@ void voice_cloud_image_recognition_drop_pending_result(void)
 
     LOGI("cancel pending object recognition, request_seq=%u", (unsigned)g_objrec_accept_seq);
     g_objrec_accept_seq = 0;
+
+    if (objrec != NULL) {
+        int ret = session_objrec_cancel(objrec);
+        if (ret != 0) {
+            LOGW("cancel object recognition session failed, ret=%d", ret);
+        }
+    }
 }
 
 int voice_cloud_audio_recognition_start(void)

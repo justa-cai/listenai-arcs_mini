@@ -546,7 +546,96 @@ fail:
     return -1;
 }
 
-__STATIC int8_t rf_cali_txiq(uint8_t fb_gain)
+#if defined(MFG_RF_TEST)
+__STATIC uint8_t rf_cali_txiq_get_range(int8_t pwr_level)
+{
+    if (pwr_level <= RF_TXIQ_LOW_PWR_MAX_DBM)
+        return RF_TXIQ_PWR_RANGE_LOW;
+    if (pwr_level <= RF_TXIQ_MID_PWR_MAX_DBM)
+        return RF_TXIQ_PWR_RANGE_MID;
+    return RF_TXIQ_PWR_RANGE_HIGH;
+}
+
+__STATIC int16_t TxIQEstFreqOffset(uint32_t* uPowerMeasure, uint8_t uIqFlag) //uIqFlag,0:c21,1:c22
+{
+    int64_t iCrossTemp[3] = { 0 };
+    uint8_t pwrLen =  17;
+    uint8_t offsetIdx = 8;
+    int16_t iInitIQAutoCross[3];
+    int16_t iEstPara = 0;
+    for (int8_t idx = 0;idx < pwrLen;idx++)
+    {
+        iCrossTemp[2] += *(uPowerMeasure + idx);
+        iCrossTemp[1] += (int64_t)(idx - offsetIdx) * (int64_t)(*(uPowerMeasure + idx));
+        iCrossTemp[0] += (int64_t)((int16_t)(idx - offsetIdx) * (int16_t)(idx - offsetIdx)) * (int64_t)(*(uPowerMeasure + idx));
+    }
+
+    iInitIQAutoCross[0] = 17314;
+    iInitIQAutoCross[1] = -6493;
+    iInitIQAutoCross[2] = 5140;
+    iCrossTemp[0] = iCrossTemp[0] >> 16;
+    iCrossTemp[1] = iCrossTemp[1] >> 13;
+    iCrossTemp[2] = iCrossTemp[2] >> 10;
+
+    int64_t a;
+    int64_t b;
+    a = iInitIQAutoCross[0] * iCrossTemp[0] + iInitIQAutoCross[1] * iCrossTemp[2];
+    b = iInitIQAutoCross[2] * iCrossTemp[1];
+    if (uIqFlag == 0)
+        iEstPara = (int16_t)(((-b << 11) / a) >> 4);
+    else
+        iEstPara = (int16_t)(((-b << 11) / a) >> 4) + 2048;
+    return iEstPara;
+}
+
+int8_t rf_cali_txiq(int8_t pwr_level)
+{
+    int16_t c21 = 0;
+    int16_t c22 = 2048;
+    P_RF_CALI_OPS cali = rf_cali.ops;
+    uint8_t range = rf_cali_txiq_get_range(pwr_level);
+    #define TXIQ_TS_DEBUG 0
+#if TXIQ_TS_DEBUG
+    uint32_t t_s = MEM_RD32(0x4B700120);
+    uint32_t t_e = 0;
+#endif
+    uint32_t irr[17] = {0};
+    uint8_t i = 0;
+    uint8_t t = 0;
+
+    cali->env_init();
+    cali->txiq_tx_init(pwr_level);
+    for (t = 0; t < 1; t++) {
+        i = 0;
+        for (c22 = 2048-256; c22 <= 2048+256; c22 += 32) {
+            cali->txiq_tx_result(c21, c22, range);
+            cali->txiq_tx_measure(&irr[i]);
+            CLOGD("TXIQ c22=%d, irr[%d]=%d", c22, i, irr[i]);
+            i++;
+        }
+        c22 = TxIQEstFreqOffset(&irr[0], 1);
+        i = 0;
+        for (c21 = -256; c21 <= 256; c21 += 32) {
+            cali->txiq_tx_result(c21, c22, range);
+            cali->txiq_tx_measure(&irr[i]);
+            CLOGD("TXIQ c21=%d, irr[%d]=%d", c21, i, irr[i]);
+            i++;
+        }
+        c21 = TxIQEstFreqOffset(&irr[0], 0);
+    }
+    cali->txiq_tx_deinit();
+    cali->txiq_tx_result(c21, c22, range);
+    cali->env_deinit();
+#if TXIQ_TS_DEBUG
+    t_e = MEM_RD32(0x4B700120);
+    CLOGW("rf_cali_txiq time cost=%d", t_e - t_s);
+#endif
+    CLOGI("[RF][TXIQ] @c21=%d\n", c21);
+    CLOGI("[RF][TXIQ] @c22=%d\n", c22);
+    return 0;
+}
+#else
+__STATIC int8_t rf_cali_txiq_fb(uint8_t fb_gain)
 {
     int32_t Isq;
     int32_t Qsq;
@@ -579,8 +668,8 @@ fail:
     cali->txiq_fb_deinit();
     return -1;
 }
+#endif
 
-#if RFCALI_WF_EN == 1
 int8_t rf_cali_calc_delta_db(uint32_t uPower)
 {
     int8_t delta_db = -1;
@@ -631,9 +720,7 @@ int8_t rf_cali_self_adj_gain(int8_t pwr_idx)
     CLOGI("final pwr_idx=%d, power=%d, meas_time=%d\n", pwr_idx, uPower, meas_time);
     return 0;
 }
-#endif /* RFCALI_WF_EN: rf_cali_calc_delta_db, rf_cali_self_adj_gain */
 
-#if RFCALI_WF_EN == 1
 __STATIC void rf_cali_txdpd_print_para(uint8_t tbl_idx, int8_t pwr_idx, complexint16 *cParaEst)
 {
         char msg[200], *p_msg=&msg[0];
@@ -819,6 +906,7 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
             CLOGI("[RF][TXDC] @dc_q=%d\n", cur_comp_dc.im);
             memcpy(&pre_comp_dc, &cur_comp_dc, sizeof(complexint16));
         }
+        #if !defined(MFG_RF_TEST)
         if (pwr_idx_iq == pwr_idx) {
         #if DPD_LUNA
             TxIqEstLuna(iFbSignalVecLunaRe, iFbSignalVecLunaIm, iIntDelay, &c21, &c22);
@@ -827,20 +915,21 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
         #endif
             c21 = (int16_t)(((int32_t)c21 * (int32_t)uDcLamda[0]) >> 11) + (leg_c21>>1);
             c22 = (int16_t)(((int32_t)c22 * (int32_t)leg_c22) >> 11);
-        #if defined(CALI_CHECK_RESULT)
+#if defined(CALI_CHECK_RESULT)
             if (t == iter_times - 1) {
                 rf_cali_check_iq_result(&c21, &c22, TX_IQ_C21_THD, TX_IQ_C22_THD);
             }
-        #endif
-            cali->txiq_tx_result(c21, c22);
-        #if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
+#endif
+            cali->txiq_tx_result(c21, c22, RF_TXIQ_PWR_RANGE_ALL);
+#if defined(RF_SELF_CALI_WRITE_TO_NV) || defined(RF_SELF_CALI_FROM_NV)
             nv_update_selfcali_wf_tx_params(NULL, NULL, &c21, &c22);
-        #endif
+#endif
             leg_c21 = c21;
             leg_c22 = c22;
             CLOGI("[RF][TXIQ] @c21=%d\n", c21);
             CLOGI("[RF][TXIQ] @c22=%d\n", c22);
         }
+        #endif
     #if DPD_LUNA
         CalculateDpdParaLuna(iTxSignalVecLunaRe, iTxSignalVecLunaIm, iFbSignalVecLunaRe + iIntDelay, iFbSignalVecLunaIm + iIntDelay, MAX_ORDER, MAX_MEMORY, cLegcyPara, cParaEst, 4080, dpd_itr, uGainOffsetDiv);
     #if DPD_LUNA_DEBUG
@@ -854,8 +943,12 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
     #if defined(CALI_CHECK_RESULT)
         dpd_res = rf_cali_check_dpd_result(cParaEst);
         if (dpd_res) {
-            CLOGW("TXDPD abort since cParaEst out of range\n");
-            memcpy(cParaEst, cLegcyPara, MAX_PARALEN*sizeof(int32_t));
+            CLOGW("TXDPD abort since cParaEst out of range, use default para!\n");
+            for (int i = 0; i < MAX_PARALEN; i++) {
+                cParaEst[i].re = 0;
+                cParaEst[i].im = 0;
+            }
+            cParaEst[0].re = 512;
         }
         else {
             dpd_itr++;
@@ -866,6 +959,7 @@ __STATIC int8_t rf_cali_txdpd_one(uint8_t tbl_idx, int8_t pwr_idx, uint8_t iter_
         rf_cali_txdpd_print_para(tbl_idx, pwr_idx, cParaEst);
         CLOGI("dpd_itr=%d\n", dpd_itr);
     }
+
     if (dpd_para_est)
         memcpy(dpd_para_est, cParaEst, 15*sizeof(int32_t));
     return 0;
@@ -1002,13 +1096,16 @@ __STATIC int8_t rf_cali_txdpd_process_upper_table(complexint16* dpd_para_est_upd
     #if defined(CALI_CHECK_RESULT)
         dpd_res = rf_cali_check_dpd_result(dpd_para_est_update);
         if (dpd_res) {
-            CLOGW("TXDPD upper table abort since params out of range\n");
-        } else
-    #endif
-        {
-            cali->txdpd_result(upper_pred_lut_idx, dpd_para_est_update);
-            rf_cali_txdpd_print_para(upper_pred_lut_idx, upper_pwr_tssi, dpd_para_est_update);
+            CLOGW("TXDPD upper table abort since params out of range, use default para!\n");
+            for (int i = 0; i < MAX_PARALEN; i++) {
+                dpd_para_est_update[i].re = 0;
+                dpd_para_est_update[i].im = 0;
+            }
+            dpd_para_est_update[0].re = 512;
         }
+    #endif
+        cali->txdpd_result(upper_pred_lut_idx, dpd_para_est_update);
+        rf_cali_txdpd_print_para(upper_pred_lut_idx, upper_pwr_tssi, dpd_para_est_update);
     }
     return 0;
 }
@@ -1055,7 +1152,9 @@ __STATIC int8_t rf_cali_txdpd(void)
 #endif
 cali_dpd_done:
     cali->txdpd_deinit();
+#if !defined(MFG_RF_TEST)
     cali->txiq_restore_rxiq_result();
+#endif
     CLOGI("TXDPD end============================================================================\n");
     return 0;
 }
@@ -1220,11 +1319,11 @@ __STATIC int32_t rf_cali_bootup_proc_wf(void)
     {
         rf_cali_rxiq_wf();
     }
+
     rf_cali.ops->env_deinit();
 
     return 0;
 }
-#endif /* RFCALI_WF_EN: WiFi calibration functions (txdpd, ppacap, bootup_proc_wf) */
 
 #if defined(RFCALI_BT_EN)
 void rf_cali_rxdcoc_bt()
@@ -1332,7 +1431,6 @@ __STATIC int32_t rf_cali_bootup_proc_bt(void)
 }
 #endif
 
-#if RFCALI_WF_EN == 1
 __STATIC int8_t rf_cali_ppacap_proc(void)
 {
     CLOGI("rf_cali_ppacap_proc\n");
@@ -1378,11 +1476,11 @@ __STATIC int32_t rf_cali_runtime_proc(uint32_t log_level)
 
     rf_cali.ops->env_init();
     if (!params->txdpd_disable) {
-        rf_cali_txiq(11);
+        #if !defined(MFG_RF_TEST)
+        rf_cali_txiq_fb(11);
         rf_cali.ops->env_deinit();
-    }
-    if (!params->txdpd_disable) {
         rf_cali.ops->env_init();
+        #endif
         rf_cali_txdpd();
     }
     rf_cali.ops->env_deinit();
@@ -1407,7 +1505,6 @@ __STATIC int32_t rf_cali_runtime_proc(uint32_t log_level)
         cloglvl = saved_cloglvl;
     return 0;
 }
-#endif /* RFCALI_WF_EN: ppacap_proc, ppacap_update_nv, runtime_proc */
 
 int32_t ls_rf_cali_probe(rf_cali_runtime *do_rfcali, void *params)
 {
@@ -1559,20 +1656,17 @@ int32_t ls_rf_cali_proc(void)
 #endif
 
 #if (RFCALI_WF_EN == 1) || (RFCALI_BT_EN == 1)
-    /* Shared RF bypass clock -- required by both WiFi and BT calibration */
     wf_macbyp_clken_set(1);
     wf_crm_rcclkforce_setf(1);
-#if RFCALI_WF_EN == 1
-    /* WiFi DFE (NEW_DFE) init -- only needed for WiFi calibration path */
     newriu_init();
-#endif
-#if RFCALI_WF_EN == 1
+    #if defined(MFG_RF_TEST)
+    if (!p->txiq_disable) {
+        rf_cali_txiq(TXIQ_LOW_PWR_CAL_DBM);
+        rf_cali_txiq(TXIQ_MID_PWR_CAL_DBM);
+        rf_cali_txiq(TXIQ_HIGH_PWR_CAL_DBM);
+    }
+    #endif
 #if !defined(RF_SELF_CALI_FROM_NV)
-  #if !defined(WIFI_RAM_ATE) && !defined(RF_SELF_CALI_WRITE_TO_NV)
-    ls_rf_set_channel(2442);
-    rf_udelay(100);
-    rf_cali_runtime_proc(-1);
-  #endif
 #else
 #if RF_BOARD_VER == 2
     goto selfcali_bail;
@@ -1583,7 +1677,6 @@ int32_t ls_rf_cali_proc(void)
     res = rf_selfcali_one_time_proc(1);
 selfcali_bail:
 #endif
-#endif /* RFCALI_WF_EN: runtime calibration */
 #endif
 
 #if RFCALI_BT_EN == 1

@@ -60,11 +60,27 @@ bt_audio_error_t vintf_profile_open(vintf_open_info_t *info);
  * @brief 统一profile close接口
  */
 bt_audio_error_t vintf_profile_close(void);
+bt_audio_error_t vintf_profile_close_with_timeout(uint32_t timeout_ms);
+
+/**
+ * @brief Abort a pending profile open and force the virtual interface back to IDLE.
+ */
+bt_audio_error_t vintf_profile_abort_open(uint32_t timeout_ms);
 
 /**
  * @brief 写入播放数据
  */
 int vintf_playback_write(const void *buffer, size_t size);
+
+/**
+ * @brief 阻塞等待已写入的播放数据排空
+ * @param timeout_ms 最大等待时间，0 表示只检查一次
+ * @return BT_AUDIO_OK: 已排空, BT_AUDIO_ERR_TIMEOUT: 超时, 其他: 错误码
+ *
+ * @note 此接口不会关闭 profile。应用层应在返回 BT_AUDIO_OK 后再调用
+ *       vintf_profile_close()，避免 close 时丢弃尚未发送的尾音。
+ */
+bt_audio_error_t vintf_playback_drain(uint32_t timeout_ms);
 
 /**
  * @brief 设置音频帧参数（为透传模式使用）

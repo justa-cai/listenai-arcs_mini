@@ -18,6 +18,10 @@
 #include "log_print.h"
 #include "systick.h"
 #include "arcs_ap.h"
+#include "rf_drv.h"
+#if defined(WCN_TYPE_WF)
+#include "wifi_ps_hw.h"
+#endif
 
 static void newriu_rx_overload_prot_en(int rssi)
 {
@@ -118,6 +122,26 @@ extern int coex_wifi2bt_event_handler(uint8_t op_idx, uint8_t level, int time_of
 extern int coex_bt_register(void *b2w_evt_hdl, unsigned int *wififlags);
 #endif
 
+#if defined(WCN_TYPE_WF)
+extern RF_OPS rf_ops;
+extern void wifi_rf_register_cb(RF_OPS *ops);
+#endif
+
+static void wf_init_and_register(void)
+{
+#if IC_BOARD == 1
+    #if defined(WCN_TYPE_WF)
+    wifi_rf_register_cb(&rf_ops);
+
+    #if defined(WCN_TYPE_WF) && defined(WCN_TYPE_BT) && defined(WCN_TYPE_BT_DUAL)
+    coex_wifi_ops_register(coex_wifi2bt_event_handler, coex_get_btflags_ptr(), coex_bt_register);
+    #endif
+    #if !defined(WIFI_RAM_ATE)
+    wifi_ps_hw_init();
+    #endif
+    #endif
+#endif
+}
 
 void wf_soc_init(void)
 {
@@ -191,9 +215,8 @@ void wf_soc_init(void)
     //IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.XO24M_CAP_FRC_REG = 5;
 #endif
 
-#if defined(WCN_TYPE_WF) && defined(WCN_TYPE_BT) && defined(WCN_TYPE_BT_DUAL)
-    coex_wifi_ops_register(coex_wifi2bt_event_handler, coex_get_btflags_ptr(), coex_bt_register);
+#if defined(WCN_TYPE_WF)
+    wf_init_and_register();
 #endif
-
 }
 

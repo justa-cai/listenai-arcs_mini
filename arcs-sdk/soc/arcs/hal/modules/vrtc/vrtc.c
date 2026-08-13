@@ -21,6 +21,7 @@
 #include "vrtc.h"
 #include "amp_shared.h"
 #ifdef CFG_AMP_IPC
+#include "ipc.h"
 #include "ipc_utils.h"
 #include "ic_spinlock.h"
 #endif
@@ -35,7 +36,7 @@
 #define VRTC_FREQ_SHIFT                10
 #define VRTC_CLOCK_DRIFT               0 /*drfit(us) per second*/
 
-
+#define VRTC_MIN_SLEEP_TICK           (2000/32)
 
 #ifndef CFG_AMP_IPC
 
@@ -67,7 +68,18 @@
                             IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_START = 0x1;\
                           } while(0)
 
-#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+/* Builds that never touch lisa_pm (no CFG_VRTC/CFG_VRTC_PROXY defined at
+ * all) previously fell back to owning the hardware directly; preserve
+ * that default now that CFG_VRTC is an explicit role macro. */
+#ifndef CFG_VRTC
+#if defined(CFG_VRTC_PROXY) && CFG_VRTC_PROXY
+#define CFG_VRTC 0
+#else
+#define CFG_VRTC 1
+#endif
+#endif
+
+#if CFG_VRTC
 
 struct vrtc_timer
 {
@@ -83,10 +95,10 @@ struct vrtc_reg_info reg_info;
 static void *time_handle = NULL;
 static struct vrtc_timer vrtc_timer_pool[VRTC_TIMER_IDX_MAX];
 static struct vrtc_timer *vrtc_current_timer = NULL;
-static uint32_t vrtc_last_rccal_result = 0;
-
+static _PM_STARTUP_BSS volatile uint32_t vrtc_flags;
 #endif
 volatile struct vrtc_reg_info *vrtc_reg;
+static bool s_vrtc_initialized;
 
 
 static void vrtc_update_time(uint32_t value, int32_t compensation)
@@ -165,7 +177,34 @@ uint32_t vrtc_get_freq(void)
 static volatile uint32_t start_time, raw_time, timer_begin;
 #endif
 
-#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+#if CFG_VRTC
+int32_t vrtc_is_allow_sleep(uint16_t auto_mode)
+{
+    if (!IRQ_enabled(IRQ_RCCAL_DONE_VECTOR))
+        return 1;
+    /*A short wake-up period may prevent RC calibration from completing.
+    * If the system is interrupted while transitioning to sleep, it can cause the hardware state machine
+    * to enter an inconsistent state.
+    */
+    if (vrtc_flags & VRTC_FLAGS_WAITING_RCCALI_DONE)
+        return 0;
+
+    if (auto_mode)
+    {
+        uint32_t val = IP_AON_TIMER->REG_OSTIMER_CURVAL.all;
+
+        if ((val < VRTC_MIN_SLEEP_TICK) || (IP_AON_TIMER->REG_OS_TIMER_IRQ_CAUSE.bit.OSTIMER_STATUS))
+            return 0;
+    }
+
+    return 1;
+}
+
+void vrtc_set_flag(uint32_t flag_bit)
+{
+    vrtc_flags |= flag_bit;
+}
+
 static void vrtc_rccali_irq_handle(void)
 {
     uint32_t freq;
@@ -176,6 +215,7 @@ static void vrtc_rccali_irq_handle(void)
     vrtc_reg->freq_fact = (1000000 << VRTC_FREQ_SHIFT) / vrtc_reg->freq;
     freq = (IC_BOARD_XTAL_FREQ / 1000000);
     IP_AON_CTRL->REG_AON_WF_CTRL2.bit.CFG_SW_RCCAL_VALUE_US = (IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_RESULT << (20 - IP_AON_CTRL->REG_BT_RC_CALI.bit.RCCAL_LENGTH)) / freq;
+    vrtc_flags &= ~VRTC_FLAGS_WAITING_RCCALI_DONE;
 }
 
 static void vrtc_isr(uint32_t event, void* workspace)
@@ -187,6 +227,7 @@ static void vrtc_isr(uint32_t event, void* workspace)
     volatile uint32_t time_now = rtos_get_sys_us();
     uint32_t n, t;
 #endif
+
     //VRTC_START_CALI();
     VRTC_SPIN_LOCK(IC_SPIN_LOCK_TYPE_VRTC);
     vrtc_update_time(vrtc_reg->period, (VRTC_CLOCK_DRIFT * vrtc_reg->period / vrtc_reg->freq));
@@ -208,6 +249,7 @@ static void vrtc_isr(uint32_t event, void* workspace)
     raw_time = vrtc_reg->sec*1000000 + vrtc_reg->usec - (VRTC_CLOCK_DRIFT * vrtc_reg->period / vrtc_reg->freq);
 #endif
 #endif
+
     if (vrtc_current_timer != NULL)
     {
         if (vrtc_current_timer->next != -1)
@@ -286,10 +328,10 @@ PERM_TIMER:
     vrtc_dbg("delta: %d %d\n\n", time_l, (time_now - raw_time));
 #endif
 }
-#if defined(CFG_AMP_IPC_SLAVE)
+#if defined(CFG_AMP_IPC)
 static void vrtc_isr_ipc_cb(void)
 {
-    ipc_send_notify(IPC_EVT_VRTC_ALERT);
+    ipc_send_signal(IPC_SIG_VRTC_ALERT);
     vrtc_dbg("ISR: ipc\n");
 }
 #endif
@@ -304,6 +346,7 @@ int32_t vrtc_set_timer(int32_t timer_idx, uint32_t duration_us, void (*handler) 
 #if VRTC_DEBUG
     timer_begin = rtos_get_sys_us() - start_time;
 #endif
+
     if ((duration_us > 100) && (timer_idx < VRTC_TIMER_IDX_MAX))
     {
         VRTC_SPIN_LOCK_IRQSAVE(IC_SPIN_LOCK_TYPE_VRTC);
@@ -400,7 +443,7 @@ int32_t vrtc_set_timer(int32_t timer_idx, uint32_t duration_us, void (*handler) 
 
     return 0;
 }
-#if defined(CFG_AMP_IPC_SLAVE)
+#if defined(CFG_AMP_IPC)
 int32_t vrtc_set_timer_from_ipc(void)
 {
     vrtc_set_timer(VRTC_TIMER_IDX_IPC, vrtc_reg->timeout_req, vrtc_isr_ipc_cb);
@@ -412,7 +455,7 @@ int32_t vrtc_set_timer_from_ipc(void)
 int32_t vrtc_set_timer(int32_t timer_idx, uint32_t duration_us, void (*handler) (void))
 {
     vrtc_reg->timeout_req = duration_us - 32;
-    ipc_send_notify(IPC_EVT_VRTC_SET);
+    ipc_send_signal(IPC_SIG_VRTC_SET);
 
     return 0;
 }
@@ -420,7 +463,10 @@ int32_t vrtc_set_timer(int32_t timer_idx, uint32_t duration_us, void (*handler) 
 
 int32_t vrtc_init(void)
 {
-#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+    if (s_vrtc_initialized)
+        return 0;
+
+#if CFG_VRTC
     int32_t i;
     volatile struct vrtc_timer *timer;
 #endif
@@ -428,10 +474,10 @@ int32_t vrtc_init(void)
     memset(&reg_info, 0, sizeof(struct vrtc_reg_info));
     vrtc_reg = &reg_info;
 #else
-    vrtc_reg = &(ipc_get_shared_info()->vrtc_reg);
+    vrtc_reg = &(amp_shared_get()->vrtc_reg);
 #endif
 
-#if !defined(CFG_AMP_IPC) || defined(CFG_AMP_IPC_SLAVE)
+#if CFG_VRTC
     for (i = 0; i < VRTC_TIMER_IDX_MAX; i++)
     {
         timer = &vrtc_timer_pool[i];
@@ -449,6 +495,7 @@ int32_t vrtc_init(void)
     vrtc_reg->sec    = 0;
     vrtc_reg->usec   = 0;
     vrtc_reg->period = VRTC_DEFAULT_VAL;
+    vrtc_flags = 0;
 
     vrtc_dbg("vrtc_init: freq %d fact %d\n", vrtc_reg->freq, vrtc_reg->freq_fact);
 
@@ -466,6 +513,7 @@ int32_t vrtc_init(void)
     IP_AON_CTRL->REG_BT_RC_CALI_IRQ.bit.RCCAL_DONE_MASK = 0x1;
 #endif
 
+    s_vrtc_initialized = true;
     return 0;
 }
 

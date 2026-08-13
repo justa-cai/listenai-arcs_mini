@@ -1,0 +1,42 @@
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if ACOMP_CAE
+
+choice ACOMP_CAE_ALGORITHM_TYPE
+	prompt "CAE Algorithm Type"
+	default ACOMP_CAE_ALGORITHM_TYPE_SINGLE_MIC
+
+config ACOMP_CAE_ALGORITHM_TYPE_SINGLE_MIC
+	bool "Single Microphone"
+
+config ACOMP_CAE_ALGORITHM_TYPE_DUAL_MIC
+	bool "Dual Microphones"
+
+endchoice
+
+config ACOMP_CAE_RES_CAE_AES_ADDRESS
+	hex "CAE AES Model Address"
+	default 0x30200000
+	help
+	  CAE AES 模型在存储介质中的起始地址。
+
+config ACOMP_CAE_RES_CAE_AES_LENGTH
+	int "CAE AES Model Length"
+	default 200000
+	help
+	  CAE AES 模型的字节大小。
+
+config ACOMP_CAE_RES_CAE_JSON_ADDRESS
+	hex "CAE Parameter JSON Address"
+	default 0x304D0000
+	help
+	  CAE 参数 JSON 配置在存储介质中的起始地址。
+
+config ACOMP_CAE_RES_CAE_JSON_LENGTH
+	int "CAE Parameter JSON Length"
+	default 141
+	help
+	  CAE 参数 JSON 配置的字节大小。
+
+endif # ACOMP_CAE

@@ -137,11 +137,9 @@ LIBS	+= -lwpa_supplicant_ap
 endif
 endif
 
-ifneq ($(MODULE_LWIP), 1)
-ifeq ($(CFG_AMP_IPC), 1)
+ifeq ($(MODULE_SIMSOCKET), 1)
 LIBS    += -lsimsocket
 MODULES += simsocket
-endif
 endif
 
 ifeq ($(MODULE_BT), 1)
@@ -149,6 +147,7 @@ ifeq ($(INNER), 1)
 LIBS += -lble -lbt_base #-lbt
 MODULES  += bt
 else
+ifneq ($(CFG_AMP_IPC), 1)
 #ifeq ($(filter ble_single_mode bt_dual_mode, $(BT_MODE)),)
 ifneq ($(filter ble bt_dual, $(BT_MODE)),)
 ifeq ($(HARD_FLOAT),1)
@@ -157,6 +156,7 @@ EXTLIBS += $(BT_EXTLIBS) -L$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilpf32
 else
 BT_EXTLIBS  := $(shell ls $(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilp32 | sed 's/^lib/-l/; s/\.[^.]*$$//')
 EXTLIBS += $(BT_EXTLIBS) -L$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilp32
+endif
 endif
 endif
 

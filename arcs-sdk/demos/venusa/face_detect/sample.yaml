@@ -1,0 +1,6 @@
+tests:
+  demos.venusa.face_detect:
+    platform:
+      venusa_rd_evb
+    build_only: true
+

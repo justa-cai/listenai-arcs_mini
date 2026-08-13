@@ -5,6 +5,7 @@
 #include "rtos_al.h"
 #include "ls_rtos.h"
 #include "ipc.h"
+#include "ipc_msg.h"
 #include "mrpc.h"
 
 
@@ -20,21 +21,21 @@
 #ifdef CFG_AMP_IPC_MASTER
 
 #ifdef IPC_MSG_SEGMENT
-#define MAX_MRCP_REQ_MSG_SIZE          (IPC_C2A_MSG_BUF_SIZE * IPC_MSG_SEGMENT_MAX)
-#define MAX_MRCP_RESP_MSG_SIZE         (IPC_A2C_MSG_BUF_SIZE * IPC_MSG_SEGMENT_MAX)
+#define MAX_MRCP_REQ_MSG_SIZE          (IPC_MASTER_MSG_BUF_SIZE * IPC_MSG_SEGMENT_MAX)
+#define MAX_MRCP_RESP_MSG_SIZE         (IPC_SLAVE_MSG_BUF_SIZE * IPC_MSG_SEGMENT_MAX)
 #else
-#define MAX_MRCP_REQ_MSG_SIZE          IPC_C2A_MSG_BUF_SIZE
-#define MAX_MRCP_RESP_MSG_SIZE         IPC_A2C_MSG_BUF_SIZE
+#define MAX_MRCP_REQ_MSG_SIZE          IPC_MASTER_MSG_BUF_SIZE
+#define MAX_MRCP_RESP_MSG_SIZE         IPC_SLAVE_MSG_BUF_SIZE
 #endif
 
 #else
 
 #ifdef IPC_MSG_SEGMENT
-#define MAX_MRCP_REQ_MSG_SIZE          (IPC_A2C_MSG_BUF_SIZE * IPC_MSG_SEGMENT_MAX)
-#define MAX_MRCP_RESP_MSG_SIZE         (IPC_C2A_MSG_BUF_SIZE * IPC_MSG_SEGMENT_MAX)
+#define MAX_MRCP_REQ_MSG_SIZE          (IPC_SLAVE_MSG_BUF_SIZE * IPC_MSG_SEGMENT_MAX)
+#define MAX_MRCP_RESP_MSG_SIZE         (IPC_MASTER_MSG_BUF_SIZE * IPC_MSG_SEGMENT_MAX)
 #else
-#define MAX_MRCP_REQ_MSG_SIZE          (IPC_A2C_MSG_BUF_SIZE)
-#define MAX_MRCP_RESP_MSG_SIZE         (IPC_C2A_MSG_BUF_SIZE)
+#define MAX_MRCP_REQ_MSG_SIZE          (IPC_SLAVE_MSG_BUF_SIZE)
+#define MAX_MRCP_RESP_MSG_SIZE         (IPC_MASTER_MSG_BUF_SIZE)
 #endif
 
 #endif
@@ -102,7 +103,7 @@ static RTOS_TASK_FCT(mrpc_server_task)
                         if (service->handler[hdl_id])
                         {
                             ipc_dbg("Hdl: %p\n", service->handler[hdl_id]);
-                            service->handler[hdl_id](msg, resp_msg);
+                            service->handler[hdl_id](msg, resp_msg, MAX_MRCP_RESP_MSG_SIZE);
                         }
                     }
                     break;
@@ -113,7 +114,11 @@ static RTOS_TASK_FCT(mrpc_server_task)
 
 END:
         ipc_msg_release(mrpc_env->ipc_chan_local, desc.data);
-        ipc_msg_reply((uint16_t)desc.hdr.src_id.val, desc.hdr.dst_id.val, resp_msg->len, (void*)resp_msg);
+        if (desc.hdr.seq != 0)
+        {
+            ipc_msg_reply((uint16_t)desc.hdr.src_id.val, desc.hdr.dst_id.val,
+                              desc.hdr.seq, resp_msg->len, (void*)resp_msg);
+        }
         ipc_dbg("End len %d status %d type %d id %d\n", resp_msg->len, resp_msg->status, service_type, hdl_id);
     }
 }
@@ -150,6 +155,9 @@ struct mrpc_server_env* mrpc_server_init(uint32_t ipc_chan_local, uint32_t serve
 int32_t mrpc_service_register(struct mrpc_server_env *env, int32_t service_type, mrpc_msg_handler_t *mrpc_services, int32_t total)
 {
     struct mrpc_service_entry *ser, *tmp;
+
+    if (env == NULL || mrpc_services == NULL || total <= 0)
+        return -1;
 
     if (!(ser = rtos_malloc(sizeof(struct mrpc_service_entry))))
         return -1;

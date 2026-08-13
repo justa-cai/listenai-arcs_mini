@@ -23,6 +23,7 @@ if CHERRYUSB
 
         choice CHERRYUSB_DEVICE_IP
             prompt "Select usb device ip, and some ip need config in usb_config.h, please check"
+            default CHERRYUSB_DEVICE_MUSB_LISA if BOOT_ADB_BACKEND_CHERRYUSB
             default CHERRYUSB_DEVICE_CUSTOM
             config CHERRYUSB_DEVICE_CUSTOM
                 bool "CUSTOM (Implement it yourself)"
@@ -447,6 +448,25 @@ if CHERRYUSB
 
         config USBHOST_PLATFORM_RTL8152
             bool
+
+        config CHERRYUSB_HOST_LWIP_RX_PSRAM
+            bool "Copy USB Ethernet RX into a PSRAM-backed custom pbuf"
+            default n
+            depends on CHERRYUSB_HOST_CDC_ECM_NETIF || CHERRYUSB_HOST_CDC_RNDIS || CHERRYUSB_HOST_CDC_NCM || CHERRYUSB_HOST_ASIX || CHERRYUSB_HOST_RTL8152
+            help
+                Copy USB Ethernet RX payloads into a custom pbuf allocated
+                from PSRAM via psram_malloc(). Use this when the lwIP
+                MEM_SIZE heap (typically placed in WiFi/SRAM) is too small
+                to absorb bursty receive traffic and reports
+                "No memory to alloc pbuf". The PSRAM-backed pbuf holds the
+                data until lwIP releases it; psram_free() is then invoked
+                from the custom_free_function so the WiFi/SRAM region is
+                untouched on the RX path. No artificial in-flight cap is
+                applied — TCP receive-window backpressure governs flow
+                naturally because each pbuf still carries its own byte
+                accounting through lwIP. Requires LWIP_SUPPORT_CUSTOM_PBUF.
+                Leave disabled to keep the default PBUF_REF/PBUF_POOL
+                behavior unchanged.
 
         config USBHOST_PSC_PRIO
             int

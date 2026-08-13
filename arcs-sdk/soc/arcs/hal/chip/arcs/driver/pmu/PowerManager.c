@@ -22,16 +22,33 @@
 
 /**********************************SRC************************************/
 
+/*
+ * REG_SYSRST_STATUS is W1C and AON-latched: bits stay set until software
+ * writes 1 to clear. Boot reads it for reboot-cnt / cold-boot decisions
+ * but does not clear, so the SDK takes ownership: SystemInit() calls
+ * HAL_PMU_SnapshotResetCause() right after SystemInit_Copy() to latch
+ * the value into RAM and clear the hardware register. Application code
+ * then calls HAL_PMU_GetSysResetCause() to read the snapshot.
+ */
+static uint32_t s_sysrst_snapshot;
+
+void HAL_PMU_SnapshotResetCause(void)
+{
+    s_sysrst_snapshot = IP_AON_CTRL->REG_SYSRST_STATUS.all;
+    IP_AON_CTRL->REG_SYSRST_STATUS.all = s_sysrst_snapshot;
+}
+
 /**
- * @brief Get the system reset cause.
+ * @brief Get the system reset cause captured at SystemInit.
  *
- * This function retrieves the system reset cause from the AON status register
- * and then clears the reset cause.
+ * Returns the reset source latched at boot time. The hardware register
+ * has been cleared by HAL_PMU_SnapshotResetCause(); this read returns
+ * the cached snapshot.
  *
  * @return The reset source as defined in pmu_rstsrc_t.
  */
 pmu_rstsrc_t HAL_PMU_GetSysResetCause(void){
-	uint32_t rstCause = IP_AON_CTRL->REG_SYSRST_STATUS.all;
+	uint32_t rstCause = s_sysrst_snapshot;
 
     if (rstCause & (1 << PMU_RST_POR)) return PMU_RST_POR;
     if (rstCause & (1 << PMU_RST_AON)) return PMU_RST_AON;
@@ -41,6 +58,11 @@ pmu_rstsrc_t HAL_PMU_GetSysResetCause(void){
     if (rstCause & (1 << PMU_RST_AP_SW_WDT)) return PMU_RST_AP_SW_WDT;
 
     return PMU_RST_NONE;
+}
+
+uint32_t HAL_PMU_GetSysResetCauseRaw(void)
+{
+    return s_sysrst_snapshot;
 }
 
 
@@ -69,13 +91,15 @@ pmu_wakeupsrc_t HAL_PMU_GetWakeUpCause(void){
 
 
 /**
- * @brief Clear the system reset cause.
+ * @brief Clear the cached system reset cause.
  *
- * This function clears the system reset cause in the REG_SYSRST_STATUS register.
+ * Drops the SDK snapshot so subsequent HAL_PMU_GetSysResetCause() returns
+ * PMU_RST_NONE. Also clears the hardware register defensively in case any
+ * bits got latched after the init-time snapshot.
  */
 void HAL_PMU_ClearSysResetCause(void){
-	uint32_t rstCause = IP_AON_CTRL->REG_SYSRST_STATUS.all;
-    IP_AON_CTRL->REG_SYSRST_STATUS.all = rstCause;
+    s_sysrst_snapshot = 0;
+    IP_AON_CTRL->REG_SYSRST_STATUS.all = 0xFFFFFFFFU;
 }
 
 /**

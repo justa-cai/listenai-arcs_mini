@@ -52,10 +52,6 @@
 #include "lwip/err.h"
 #include "lwip/inet.h"
 #include "lwip/errno.h"
-#ifdef CFG_SIM_SOCKET
-#include "sim_socket_api.h"
-#endif
-
 #include <string.h>
 
 #ifdef __cplusplus
@@ -684,10 +680,10 @@ int lwip_inet_pton(int af, const char *src, void *dst);
 #endif /* __cplusplus */
 /** @ingroup socket */
 #define ioctlsocket(s,cmd,argp)                   lwip_ioctl(s,cmd,argp)
-/** @ingroup socket */
-#define inet_ntop(af,src,dst,size)                lwip_inet_ntop(af,src,dst,size)
-/** @ingroup socket */
-#define inet_pton(af,src,dst)                     lwip_inet_pton(af,src,dst)
+// /** @ingroup socket */
+// #define inet_ntop(af,src,dst,size)                lwip_inet_ntop(af,src,dst,size)
+// /** @ingroup socket */
+// #define inet_pton(af,src,dst)                     lwip_inet_pton(af,src,dst)
 
 #if LWIP_POSIX_SOCKETS_IO_NAMES
 #ifndef __cplusplus /* Don't redefine these in C++ code to avoid conflicts with standard library */
@@ -710,6 +706,60 @@ int lwip_inet_pton(int af, const char *src, void *dst);
 #endif /* LWIP_COMPAT_SOCKETS != 2 */
 
 #endif /* LWIP_COMPAT_SOCKETS */
+
+/** @ingroup socket */
+#define inet_ntop(af,src,dst,size)                lwip_inet_ntop(af,src,dst,size)
+/** @ingroup socket */
+#define inet_pton(af,src,dst)                     lwip_inet_pton(af,src,dst)
+
+/* ============================================================
+ * SAL (Socket Abstraction Layer) POSIX API
+ * provided by the SAL layer instead of lwIP.
+ * Implementation: arcs-sdk/components/lisa_net/sal/src/sal_socket.c
+ * ============================================================ */
+#if CONFIG_SAL_USING_POSIX && !LWIP_COMPAT_SOCKETS
+
+struct hostent;
+struct addrinfo;
+
+#ifndef __cplusplus
+
+int socket(int domain, int type, int protocol);
+int closesocket(int s);
+int bind(int s, const struct sockaddr *name, socklen_t namelen);
+int listen(int s, int backlog);
+int connect(int s, const struct sockaddr *name, socklen_t namelen);
+int accept(int s, struct sockaddr *addr, socklen_t *addrlen);
+
+int send(int s, const void *data, size_t size, int flags);
+int recv(int s, void *mem, size_t len, int flags);
+int sendto(int s, const void *data, size_t size, int flags,
+           const struct sockaddr *to, socklen_t tolen);
+int recvfrom(int s, void *mem, size_t len, int flags,
+             struct sockaddr *from, socklen_t *fromlen);
+int sendmsg(int s, const void *data, int flags);
+int recvmsg(int s, void *mem, int flags);
+
+int setsockopt(int s, int level, int optname, const void *optval, socklen_t optlen);
+int getsockopt(int s, int level, int optname, void *optval, socklen_t *optlen);
+int shutdown(int s, int how);
+int getpeername(int s, struct sockaddr *name, socklen_t *namelen);
+int getsockname(int s, struct sockaddr *name, socklen_t *namelen);
+int ioctlsocket(int s, long cmd, void *arg);
+
+int select(int maxfdp1, fd_set *readset, fd_set *writeset,
+           fd_set *exceptset, struct timeval *timeout);
+
+struct hostent *gethostbyname(const char *name);
+int gethostbyname_r(const char *name, struct hostent *ret, char *buf,
+                    size_t buflen, struct hostent **result, int *h_errnop);
+int getaddrinfo(const char *nodename, const char *servname,
+                const struct addrinfo *hints, struct addrinfo **res);
+void freeaddrinfo(struct addrinfo *ai);
+
+#endif /* __cplusplus */
+
+#endif /* CONFIG_SAL_USING_POSIX && !LWIP_COMPAT_SOCKETS */
 
 #ifdef __cplusplus
 }

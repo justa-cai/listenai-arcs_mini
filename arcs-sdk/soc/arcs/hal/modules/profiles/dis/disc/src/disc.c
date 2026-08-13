@@ -718,7 +718,7 @@ uint16_t ble_disc_init(const disc_cb_t* p_cb)
  */
 uint16_t ble_disc_enable(uint8_t conidx, uint8_t con_type, const disc_dis_content_t* p_disc)
 {
-    disc_enable(conidx, con_type, p_disc);
+    return disc_enable(conidx, con_type, p_disc);
 }
 
 /**

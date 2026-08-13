@@ -575,6 +575,7 @@ void net_iperf_print_stats(const struct net_iperf_stream *stream,
 void net_iperf_wait_report_timer(struct net_iperf_stream *stream)
 {
     stream->done = true;
+#if 0
     if (rtos_semaphore_wait(stream->to_semaphore, 1000))
     {
         if (stream->report_timer)
@@ -585,6 +586,21 @@ void net_iperf_wait_report_timer(struct net_iperf_stream *stream)
             rtos_semaphore_signal(stream->iperf_task_semaphore, false);
         }
     }
+#else
+    CLOG("%s %d 0x%x %d\n", __func__, __LINE__, stream->report_timer, stream->active);
+
+    if (stream->report_timer)
+        rtos_timer_stop(stream->report_timer);
+
+    if (stream->active)
+    {
+        /*For client mode send the last report line*/
+        if ((stream->iperf_settings.flags.is_time_mode) && (!stream->iperf_settings.flags.is_server))
+            net_iperf_print_interv_stats(stream);
+        net_iperf_print_stats(stream, &stream->report.start_time, &stream->report.end_time, &stream->report.stats);
+        rtos_semaphore_signal(stream->iperf_task_semaphore, false);
+    }
+#endif
 }
 
 void net_iperf_report_timer_cb(rtos_timer timer)

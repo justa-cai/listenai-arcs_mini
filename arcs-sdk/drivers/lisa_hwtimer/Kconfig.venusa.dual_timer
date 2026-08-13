@@ -1,0 +1,15 @@
+# LISA Hardware Timer Driver Configuration
+#
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_HWTIMER_VENUSA_DUAL_TIMER
+	bool "Enable LISA Hardware Timer Venusa Dual Timer support"
+	depends on SOC_VENUSA
+	select LISA_HWTIMER_DUAL_TIMER
+	help
+		Compatibility option for Venusa Dual Timer configurations.
+
+if LISA_HWTIMER_DUAL_TIMER && SOC_VENUSA
+
+endif # LISA_HWTIMER_DUAL_TIMER && SOC_VENUSA

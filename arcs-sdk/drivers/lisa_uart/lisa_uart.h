@@ -146,6 +146,7 @@ typedef struct {
     int (*rx_disable)(lisa_device_t *dev);
     int (*poll_in)(lisa_device_t *dev, uint8_t *byte);
     void (*poll_out)(lisa_device_t *dev, uint8_t byte);
+    int (*flush)(lisa_device_t *dev);
 #ifdef CONFIG_LISA_UART_ASYNC_API
     int (*write_async)(lisa_device_t *dev, const uint8_t *buf, uint32_t len);
     int (*set_callback)(lisa_device_t *dev, lisa_uart_callback_t callback, void *user_data);
@@ -389,6 +390,26 @@ static inline void lisa_uart_poll_out(lisa_device_t *dev, uint8_t byte)
     if (api->poll_out) {
         api->poll_out(dev, byte);
     }
+}
+
+/**
+ * @brief 等待 TX FIFO 中所有数据发送完成
+ *
+ * 阻塞等待直到硬件 TX FIFO 清空且移位寄存器发送完毕
+ *
+ * @param dev UART设备指针
+ *
+ * @return 0 成功
+ * @return LISA_DEVICE_ERR_INVALID 参数无效
+ * @return LISA_DEVICE_ERR_NOT_SUPPORT 不支持该操作
+ */
+static inline int lisa_uart_flush(lisa_device_t *dev)
+{
+    if (!dev || !dev->api) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_uart_api_t *api = (lisa_uart_api_t *)dev->api;
+    return api->flush ? api->flush(dev) : LISA_DEVICE_ERR_NOT_SUPPORT;
 }
 
 /* ===== 异步接口 ===== */

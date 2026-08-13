@@ -35,6 +35,13 @@ config LINK_OPTION_GC_SECTIONS
     bool "gc sections"
     default y
 
+config LINK_OPTION_ORPHAN_SECTIONS_ERROR
+    bool "treat linker orphan sections as errors"
+    default y
+    help
+        Make the linker fail when an input section is not explicitly handled
+        by the active linker script.
+
 config COMPILE_OPTION_GENERATE_DEBUG_FILES
     bool "generate debug files"
     default y

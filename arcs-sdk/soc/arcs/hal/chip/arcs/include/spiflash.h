@@ -388,6 +388,7 @@ int flash_security_write(FLASH_DEV *dev, off_t offset, const void *data, size_t 
  * @return Returns 0 on success, negative error code on failure.
  */
 int flash_status_register_get(FLASH_DEV *dev, unsigned char reg_addr, uint32_t *data_out);
+int flash_status_register_get_by_idx(uint8_t idx, FLASH_DEV *dev, unsigned char reg_addr, uint32_t *data_out);
 
 /**
  * @brief Set the value of a status register in the flash memory.
@@ -401,6 +402,8 @@ int flash_status_register_get(FLASH_DEV *dev, unsigned char reg_addr, uint32_t *
  * @return Returns 0 on success, negative error code on failure.
  */
 int flash_status_register_set(FLASH_DEV *dev, unsigned char reg_addr, const uint32_t data_in, uint32_t *data_out);
+int flash_status_register_set_by_idx(uint8_t idx, FLASH_DEV *dev, unsigned char reg_addr,
+                                     const uint32_t data_in, uint32_t *data_out);
 
 /**
  * @brief Enter deep power-down mode for MXIC flash memory.
@@ -480,5 +483,8 @@ int flash_id(FLASH_DEV *dev, uint32_t *id_manufacturer, uint32_t *id_device);
  * @return 0 on success, negative error code on failure
  */
 int flash_read_jedec_id(FLASH_DEV *dev, uint32_t *jedec_id);
+#ifdef CONFIG_DUAL_FLASH
+int flash_read_jedec_id_by_idx(FLASH_DEV *dev, uint32_t *jedec_id, uint8_t idx);
+#endif
 
 #endif

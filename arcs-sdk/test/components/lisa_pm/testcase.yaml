@@ -1,0 +1,7 @@
+tests:
+  test.components.lisa_pm:
+    # 本测试目前作为 build-only 工程入 CI：
+    # 双镜像（AP + CP）烧录 / 串口取日志的运行期组合在当前 CI runner 上
+    # 仍需进一步硬件适配（run.log 长期为空，未跑出任何 Unity 输出）。
+    # 先保 build 验证，运行验证留作后续硬件验证项目。
+    build_only: true

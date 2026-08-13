@@ -225,10 +225,20 @@ typedef void (*EXC_HANDLER)(unsigned long cause, unsigned long sp);
  * \param [in]  mcause    code indicating the reason that caused the trap in machine mode
  * \param [in]  sp        stack pointer
  */
+/*
+ * Defined by the power-management module (CONFIG_PM_DEBUG). If a fault lands
+ * here during the wakeup-startup window, UART has not been re-inited yet, so
+ * this revives it and reports the PM stage. Weak so non-PM builds link without it.
+ */
+void pm_exc_dump(void) __attribute__((weak));
+
 static void system_default_exception_handler(unsigned long mcause, unsigned long sp)
 {
     unsigned long mstatus  = __RV_CSR_READ(CSR_MSTATUS);
     unsigned long mstratch = __RV_CSR_READ(CSR_MSCRATCH);
+
+    if (pm_exc_dump)
+        pm_exc_dump();
 
     /* TODO: Uncomment this if you have implement printf function */
     CLOGD("MCAUSE : 0x%08x", mcause);
@@ -388,46 +398,6 @@ void ECLIC_Init(void)
      * This function is called in _init function */
     ECLIC_SetMth(0);
     ECLIC_SetCfgNlbits(__ECLIC_INTCTLBITS);
-}
-
-/**
- * \brief  Initialize a specific IRQ and register the handler
- * \details
- * This function set vector mode, trigger mode and polarity, interrupt level and priority,
- * assign handler for specific IRQn.
- * \param [in]  IRQn        NMI interrupt handler address
- * \param [in]  shv         \ref ECLIC_NON_VECTOR_INTERRUPT means non-vector mode, and \ref ECLIC_VECTOR_INTERRUPT is vector mode
- * \param [in]  trig_mode   see \ref ECLIC_TRIGGER_Type
- * \param [in]  lvl         interupt level
- * \param [in]  priority    interrupt priority
- * \param [in]  handler     interrupt handler, if NULL, handler will not be installed
- * \return       -1 means invalid input parameter. 0 means successful.
- * \remarks
- * - This function use to configure specific eclic interrupt and register its interrupt handler and enable its interrupt.
- * - If the vector table is placed in read-only section(FLASHXIP mode), handler could not be installed
- */
-int32_t ECLIC_Register_IRQ(IRQn_Type IRQn, uint8_t shv, ECLIC_TRIGGER_Type trig_mode, uint8_t lvl, uint8_t priority, void* handler)
-{
-    if ((IRQn >= IRQ_MAX) || (shv > ECLIC_VECTOR_INTERRUPT) \
-        || (trig_mode > ECLIC_NEGTIVE_EDGE_TRIGGER)) {
-        return -1;
-    }
-
-    /* set interrupt vector mode */
-    ECLIC_SetShvIRQ(IRQn, shv);
-    /* set interrupt trigger mode and polarity */
-    ECLIC_SetTrigIRQ(IRQn, trig_mode);
-    /* set interrupt level */
-    ECLIC_SetLevelIRQ(IRQn, lvl);
-    /* set interrupt priority */
-    ECLIC_SetPriorityIRQ(IRQn, priority);
-    if (handler != NULL) {
-        /* set interrupt handler entry to vector table */
-        ECLIC_SetVector(IRQn, (rv_csr_t)handler);
-    }
-    /* enable interrupt */
-    ECLIC_EnableIRQ(IRQn);
-    return 0;
 }
 
 /** @} */ /* End of Doxygen Group NMSIS_Core_ExceptionAndNMI */
@@ -752,7 +722,7 @@ void irq_vectors_reinit(void)
 {
     for (int i = 1; i < IRQ_MAX; i++)
     {
-        if (OS_CPU_Vector_Table[i] != default_intexc_handler)
+        if ((OS_CPU_Vector_Table[i]) && (OS_CPU_Vector_Table[i] != default_intexc_handler))
             enable_IRQ(i);
     }
     __RV_CSR_WRITE(CSR_MTVT, OS_CPU_Vector_Table);

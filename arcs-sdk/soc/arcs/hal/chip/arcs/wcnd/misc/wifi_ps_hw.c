@@ -17,6 +17,11 @@
 #include "arcs_ap.h"
 #include "wifi_ps_hw.h"
 #include "rf_drv.h"
+#if defined(CONFIG_PM) && (CONFIG_PM)
+#include "pm.h"
+#endif
+
+extern void wifi_pm_dev_ops_register(void *pm_dev_register, void *pm_dev_get_startup_time);
 
 extern void wifi_ps_hw_register(struct wifi_ps_hw_ops *ops);
 
@@ -110,6 +115,12 @@ int32_t wifi_ps_hw_init(void)
 
     wifi_ps_hw_register(&ops);
 
+#if defined(CONFIG_PM) && (CONFIG_PM)
+    wifi_pm_dev_ops_register(pm_device_register, pm_get_startup_time);
+#else
+    wifi_pm_dev_ops_register(NULL, NULL);
+#endif
+
     /*wifi aon cfg*/
     IP_AON_CTRL->REG_AON_WF_CTRL1.bit.CFG_BEACONINT  = 100;
     IP_AON_CTRL->REG_AON_WF_CTRL1.bit.CFG_DTIMPERIOD = 1;
@@ -123,7 +134,8 @@ int32_t wifi_ps_hw_init(void)
     IP_AON_CTRL->REG_AON_WF_WAKEUP_TIME.bit.CFG_CORE_RADIOWAKEUPTIME = 130;
     IP_AON_CTRL->REG_AON_WF_WAKEUP_TIME.bit.CFG_WF_RADIOWAKEUPTIME   = 64;
 
-#if defined(CONFIG_PM) && defined(PSRAM_HEAP)
+#if defined(CONFIG_PM) && defined(CONFIG_PM_PSRAM)
+    #if 0 /*One power supply*/
     IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.EN_LDO_VMEM_FORCEDATA = 1;
     IP_AON_CTRL->REG_AON_FRC_CTRL0.bit.EN_LDO_VMEM_FORCE = 1;
 
@@ -132,8 +144,18 @@ int32_t wifi_ps_hw_init(void)
 
     IP_AON_CTRL->REG_AON_FRC_CTRL1.bit.EN_BG_FINE_FORCEDATA = 1;
     IP_AON_CTRL->REG_AON_FRC_CTRL1.bit.EN_BG_FINE_FORCE = 1;
+
+    #else
+#if defined(CONFIG_ARCS_HAL_WCND_WIFI_PS_LDOVMEM_TUNE)
+    IP_AON_CTRL->REG_AON_LDO_VMEM.bit.TUNE_LDOVMEM = 5; /*For vddio2 buck*/
 #endif
-    //IP_AON_CTRL->REG_AON_LDO_VMEM.bit.TUNE_LDOVMEM   = 5;
+#if defined(CONFIG_ARCS_HAL_WCND_WIFI_PS_LDOCORE_TUNE)
+    IP_AON_CTRL->REG_AON_TUNE1.bit.TUNE_LDOCORE = 53; /*For vddcore buck*/
+    IP_AON_CTRL->REG_EFU_LOAD_REG.bit.LDEFU_TUNE_LDOCORE = 1;
+#endif
+    #endif
+#endif
+
     //IP_NEW_DFE->REG_AGC_TOP_CFG0.bit.REG_CD_EN = 0;
 
     return 0;

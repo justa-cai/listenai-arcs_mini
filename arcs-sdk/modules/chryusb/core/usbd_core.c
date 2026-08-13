@@ -308,9 +308,8 @@ static bool usbd_get_descriptor(uint8_t busid, uint16_t type_index, uint8_t **da
     }
 
     if (found == false) {
-        /* Some hosts probe optional descriptors (e.g. DEBUG descriptor 0x0A).
-         * Treat them as quiet misses to avoid noisy false-positive errors. */
-        if (type == USB_DESCRIPTOR_TYPE_DEBUG) {
+        if (type == USB_DESCRIPTOR_TYPE_DEBUG ||
+            type == USB_DESCRIPTOR_TYPE_BINARY_OBJECT_STORE) {
             USB_LOG_DBG("optional descriptor <type:%x,index:%x> not provided\r\n", type, index);
         } else {
             USB_LOG_ERR("descriptor <type:%x,index:%x> not found!\r\n", type, index);
@@ -915,7 +914,8 @@ static bool usbd_setup_request_handler(uint8_t busid, struct usb_setup_packet *s
                 if (setup->bRequest == USB_REQUEST_GET_DESCRIPTOR) {
                     uint8_t desc_type = HI_BYTE(setup->wValue);
                     if ((desc_type == USB_DESCRIPTOR_TYPE_DEVICE_QUALIFIER) ||
-                        (desc_type == USB_DESCRIPTOR_TYPE_DEBUG)) {
+                        (desc_type == USB_DESCRIPTOR_TYPE_DEBUG) ||
+                        (desc_type == USB_DESCRIPTOR_TYPE_BINARY_OBJECT_STORE)) {
                         return false;
                     }
                 }

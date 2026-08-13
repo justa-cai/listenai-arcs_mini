@@ -23,6 +23,9 @@ if ACOMP
 	config ACOMP_FD
 		bool "algo component face detection"
 
+	config ACOMP_PALM
+		bool "algo component palm vein recognition"
+
 	config ACOMP_CV
 		bool "algo component cv"
 
@@ -35,13 +38,18 @@ if ACOMP
 	config ACOMP_TUNER
 		bool "algo component tuner (EQ/DRC/Limiter)"
 
+	config ACOMP_CAE
+		bool "algo component cae"
+
 rsource "resmgr/Kconfig"
 rsource "wakeup/Kconfig"
 rsource "fd/Kconfig"
+rsource "palm/Kconfig"
 rsource "cv/Kconfig"
 rsource "xtts/Kconfig"
 rsource "translation/Kconfig"
 rsource "tuner/Kconfig"
+rsource "cae/Kconfig"
 endif
 
 if ACOMP_LOGGER

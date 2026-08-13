@@ -224,78 +224,108 @@ endif
 ifeq ($(BT_WIFI_COEX), 1)
 CFLAGS += -DBT_WIFI_COEX
 endif
-ifeq ("$(CFG_AMP_IPC)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC))", "1")
 CFLAGS += -DCFG_AMP_IPC=1
-ifeq ("$(CFG_AMP_IPC_MASTER)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MASTER))", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_SLAVE))", "1")
+$(error CFG_AMP_IPC_MASTER and CFG_AMP_IPC_SLAVE cannot both be 1)
+endif
 CFLAGS += -DCFG_AMP_IPC_MASTER=1
 else
+ifeq ("$(strip $(CFG_AMP_IPC_SLAVE))", "1")
 CFLAGS += -DCFG_AMP_IPC_SLAVE=1
 endif
-ifeq ("$(CFG_IPC_PRINT)", "1")
+endif
+ifeq ("$(filter 1,$(strip $(CFG_AMP_IPC_MASTER)) $(strip $(CFG_AMP_IPC_SLAVE)))", "")
+$(error CFG_AMP_IPC is enabled; set exactly one of CFG_AMP_IPC_MASTER=1 or CFG_AMP_IPC_SLAVE=1)
+endif
+ifeq ("$(strip $(CFG_IPC_PRINT))", "1")
 CFLAGS += -DCFG_IPC_PRINT=1
 endif
-ifeq ("$(CFG_AMP_IPC_WIFI_CHAN)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_WIFI_CHAN))", "1")
 CFLAGS += -DCFG_AMP_IPC_WIFI_CHAN=1
 endif
-ifeq ("$(CFG_AMP_IPC_FLASH_AGENT)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_BT_CHAN))", "1")
+CFLAGS += -DCFG_AMP_IPC_BT_CHAN=1
+endif
+ifeq ("$(strip $(CFG_AMP_IPC_FLASH_AGENT))", "1")
 CFLAGS += -DCFG_AMP_IPC_FLASH_AGENT=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_SERVER)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_CLIENT)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_SERVER_LWIP)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_LWIP))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_LWIP=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_CLIENT_LWIP)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_LWIP))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_LWIP=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_CLIENT_BT)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_BT))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_BT=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_SERVER_WIFI)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_BT_S2M))", "1")
+CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_BT_S2M=1
+endif
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_WIFI))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_WIFI=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_SERVER_BT)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_BT))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_BT=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_CLIENT_WIFI)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_BT_S2M))", "1")
+CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_BT_S2M=1
+endif
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_WIFI))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_WIFI=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_CLIENT_NVS)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_NVS))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_NVS=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_SERVER_NVS)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_NVS))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_NVS=1
 endif
-ifeq ("$(CFG_AMP_IPC_HALT_PEER_CORE)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_HALT_PEER_CORE))", "1")
 CFLAGS += -DCFG_AMP_IPC_HALT_PEER_CORE=1
 endif
-ifeq ("$(CFG_AMP_IPC_HALT_BY_PEER_CORE)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_HALT_BY_PEER_CORE))", "1")
 CFLAGS += -DCFG_AMP_IPC_HALT_BY_PEER_CORE=1
 endif
-ifeq ("$(CFG_AMP_IPC_TCPIP)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_TCPIP))", "1")
 CFLAGS += -DCFG_AMP_IPC_TCPIP=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_SERVER_FLASH_IF)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_FLASH_IF))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_FLASH_IF=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_FLASH_IF=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_UTILS_S2M=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_SERVER_UTILS_S2M)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_UTILS_S2M))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_UTILS_S2M=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_CLIENT_UTILS_M2S)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_UTILS_M2S))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_UTILS_M2S=1
 endif
-ifeq ("$(CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S)", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_UTILS_M2S))", "1")
 CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_UTILS_M2S=1
+endif
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_CLIENT_LUNA))", "1")
+CFLAGS += -DCFG_AMP_IPC_MRPC_CLIENT_LUNA=1
+endif
+ifeq ("$(strip $(CFG_AMP_IPC_MRPC_SERVER_LUNA))", "1")
+CFLAGS += -DCFG_AMP_IPC_MRPC_SERVER_LUNA=1
+endif
+ifeq ("$(strip $(CFG_AMP_IPC_BUS))", "1")
+CFLAGS += -DCFG_AMP_IPC_BUS=1
+endif
+ifeq ("$(strip $(CFG_AMP_IPC_BUS_DEMO))", "1")
+CFLAGS += -DCFG_AMP_IPC_BUS=1
+CFLAGS += -DCFG_AMP_IPC_BUS_DEMO=1
 endif
 endif
 
@@ -326,6 +356,17 @@ endif
 
 ifeq ("$(strip $(CONFIG_PM))", "1")
 CFLAGS += -DCONFIG_PM=1
+#In dual-core applications, the last core to enter sleep is the primary core;
+#in single-core applications, only the primary core exists.
+ifeq ("$(strip $(CFG_AMP_IPC))", "1")
+ifeq ("$(strip $(CFG_AMP_IPC_SLAVE))", "1")
+CFLAGS += -DPM_CORE_PRIMARY=1
+else
+CFLAGS += -DPM_CORE_PRIMARY=0
+endif
+else
+CFLAGS += -DPM_CORE_PRIMARY=1
+endif
 else
 CFLAGS += -DCONFIG_PM=0
 endif
@@ -346,6 +387,18 @@ ifeq ("$(strip $(CONFIG_PM_DEBUG))", "1")
 CFLAGS += -DCONFIG_PM_DEBUG=1
 endif
 
+ifeq ("$(strip $(CONFIG_PM_PSRAM))", "1")
+CFLAGS += -DCONFIG_PM_PSRAM=1
+endif
+
+ifeq ("$(strip $(CONFIG_PM_HEAP_IN_PSRAM))", "1")
+CFLAGS += -DCONFIG_PM_HEAP_IN_PSRAM=1
+endif
+
+endif
+
+ifeq ("$(strip $(CFG_MQTT_TEST))", "1")
+CFLAGS += -DCFG_MQTT_TEST=1
 endif
 
 ifeq ("$(strip $(CONFIG_DEEP_SLEEP))", "1")
@@ -354,4 +407,12 @@ endif
 
 ifeq ("$(strip $(CONFIG_GPIO_ADC_TEST))", "1")
 CFLAGS += -DCONFIG_GPIO_ADC_TEST=1
+endif
+
+ifeq ("$(strip $(CFG_IPC_TEST_CASE))", "1")
+CFLAGS += -DCFG_IPC_TEST_CASE=1
+endif
+
+ifeq ("$(strip $(CONFIG_AON_LDO_TUNE))", "1")
+CFLAGS += -DCONFIG_AON_LDO_TUNE=1
 endif

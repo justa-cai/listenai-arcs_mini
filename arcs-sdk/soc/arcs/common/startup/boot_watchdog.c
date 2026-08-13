@@ -22,9 +22,10 @@ static void boot_watchdog_handler(void)
     printf("boot_watchdog_handler\n");
 
     volatile int i = 0;
-    while(i++ < 10000);
+    while (i++ < 10000) {
+    }
 
-    /* 为防止看门狗无法复位, 冗余软件复位 */
+    /* 为防止看门狗无法复位，冗余软件复位 */
     info->req = 1;
     IP_CMN_SYS->REG_SW_RESET_CP1.bit.CMNSW2CMN_RST_EN = 1;
     IP_CMN_SYS->REG_SW_RESET_CP1.bit.CMNSW2CP_RST_EN = 1;
@@ -64,7 +65,6 @@ int boot_watchdog_feed(void)
     wdt_hw->REG_RESTART.all = 0xCAFE;
     return 0;
 }
-
 
 int boot_watchdog_enable(int flag)
 {

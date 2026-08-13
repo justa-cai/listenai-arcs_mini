@@ -112,6 +112,8 @@ static const char *arcs_get_default_panel_name(void)
     return "gc9a01";
 #elif defined(CONFIG_LISA_DISPLAY_PANEL_NV3030B)
     return "nv3030b";
+#elif defined(CONFIG_LISA_DISPLAY_PANEL_GC9307)
+    return "gc9307";
 #else
     return NULL;
 #endif
@@ -686,6 +688,73 @@ static int lisa_display_init_1(void)
 }
 #endif
 
+/* ===== 设备反初始化函数 ===== */
+
+/**
+ * @brief 停止并释放单个 Display 实例的全部软硬件资源，恢复上电初始状态
+ *
+ * 由 lisa_device_destroy() 经各实例 deinit 包装调用。释放顺序与 _init / attach 相反：
+ *   1) 关闭 TE 中断并释放 attach 阶段按需创建的 te_sync_sem；
+ *   2) 释放 attach 阶段分配的 panel 运行期资源 init_params（lisa_mem_free）与
+ *      bus_mutex（仅 owner 侧删除，与 detach 一致，避免跨实例共享的二次释放）；
+ *   3) lisa_display_cleanup_instance 释放 _init 阶段分配的 panel 结构与设备级 mutex；
+ *   4) memset 整个 priv，回到 _init 之前的零初值。
+ *
+ * 注意：panel_rotate_init 使用按实例的全局 rotate 单例（g_rotate_ctx[]，含 rotate_mutex /
+ * cpdma_done_sem），其自身带 initialized 幂等保护、跨 destroy/reinit 保留，本 deinit 不销毁。
+ * 约定：调用方需保证此时无并发业务在使用本设备。
+ */
+static int lisa_display_deinit_instance(lisa_display_priv_t *priv)
+{
+    if (!priv) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    if (priv->te_gpio) {
+        lisa_gpio_disable_irq(priv->te_gpio, priv->te_pin);
+    }
+    if (priv->te_sync_sem) {
+        lisa_semaphore_delete(priv->te_sync_sem);
+        priv->te_sync_sem = NULL;
+    }
+
+    if (priv->panel) {
+        if (priv->panel->init_params) {
+            lisa_mem_free(priv->panel->init_params);
+            priv->panel->init_params = NULL;
+            priv->panel->init_params_len = 0;
+        }
+        if (priv->panel->bus_mutex && priv->panel->bus_mutex_owner) {
+            lisa_mutex_delete(priv->panel->bus_mutex);
+            priv->panel->bus_mutex = NULL;
+            priv->panel->bus_mutex_owner = false;
+        }
+    }
+
+    lisa_display_cleanup_instance(priv);
+
+    memset(priv, 0, sizeof(lisa_display_priv_t));
+    return LISA_DEVICE_OK;
+}
+
+/**
+ * @brief Display0 反初始化入口
+ */
+static int lisa_display_deinit_0(void)
+{
+    return lisa_display_deinit_instance(&arcs_display_priv0);
+}
+
+#ifdef CONFIG_LISA_DUAL_DISPLAY
+/**
+ * @brief Display1 反初始化入口
+ */
+static int lisa_display_deinit_1(void)
+{
+    return lisa_display_deinit_instance(&arcs_display_priv1);
+}
+#endif
+
 static const lisa_display_api_t arcs_display_api = {
     .write            = arcs_display_write,
     .attach_bus       = arcs_attach_bus,
@@ -697,8 +766,8 @@ static const lisa_display_api_t arcs_display_api = {
 };
 
 
-LISA_DEVICE_REGISTER(display, &arcs_display_api, &arcs_display_priv0, NULL, lisa_display_init_0, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER_DEINIT(display, &arcs_display_api, &arcs_display_priv0, NULL, lisa_display_init_0, lisa_display_deinit_0, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 
 #ifdef CONFIG_LISA_DUAL_DISPLAY
-LISA_DEVICE_REGISTER(display1, &arcs_display_api, &arcs_display_priv1, NULL, lisa_display_init_1, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER_DEINIT(display1, &arcs_display_api, &arcs_display_priv1, NULL, lisa_display_init_1, lisa_display_deinit_1, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
 #endif

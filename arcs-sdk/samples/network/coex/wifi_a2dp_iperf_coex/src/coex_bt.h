@@ -14,6 +14,7 @@
 
 typedef struct {
     bool initialized;
+    bool opened;
     bool discovery_registered;
     bool connected;
     bool a2dp_connected;
@@ -22,6 +23,8 @@ typedef struct {
 } coex_bt_status_t;
 
 int coex_bt_init(void);
+int coex_bt_open(void);
+int coex_bt_close(void);
 int coex_bt_inquiry(void);
 int coex_bt_connect_by_name(const char *name);
 int coex_bt_connect_by_index(uint8_t index);

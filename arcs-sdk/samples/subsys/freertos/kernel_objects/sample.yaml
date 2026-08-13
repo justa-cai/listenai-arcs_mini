@@ -1,0 +1,7 @@
+tests:
+  samples.subsys.freertos.kernel_objects:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "=== FreeRTOS kernel objects test PASS ==="

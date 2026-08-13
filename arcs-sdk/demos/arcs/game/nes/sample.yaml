@@ -1,0 +1,9 @@
+tests:
+  demos.arcs.game.nes:
+    platform:
+      arcs_evb
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Game NES sample start"

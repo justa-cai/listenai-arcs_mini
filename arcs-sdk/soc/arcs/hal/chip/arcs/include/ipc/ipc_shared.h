@@ -12,25 +12,39 @@
 #define _IPC_SHARED_H_
 
 #include <stdbool.h>
-#include "ipc_core.h"
+#include "ipc_types.h"
 #include "amp_shared.h"
 
-#define IPC_TXDESC_CNT                  16
-#define IPC_TXCFM_CNT                   16
-#define IPC_RXDESC_CNT                  16
-#define IPC_RXCFM_CNT                   16
-#define IPC_MSGC2A_BUF_CNT              16
-#define IPC_MSGA2C_BUF_CNT              16
+/*
+ * IPC log forwarding direction. CFG_IPC_PRINT_WRITER / CFG_IPC_PRINT_READER
+ * are normally provided by the build system and are independent of the IPC
+ * master/slave role. Legacy builds that only define CFG_IPC_PRINT fall back
+ * to the historical role-based direction: slave = writer, master = reader.
+ */
+#if defined(CFG_IPC_PRINT) && !defined(CFG_IPC_PRINT_WRITER) && !defined(CFG_IPC_PRINT_READER)
+#if defined(CFG_AMP_IPC_SLAVE)
+#define CFG_IPC_PRINT_WRITER 1
+#else
+#define CFG_IPC_PRINT_READER 1
+#endif
+#endif
 
+#define IPC_SLAVE_MSG_BUF_CNT              16
+#define IPC_MASTER_MSG_BUF_CNT             16
+
+#ifdef CFG_AMP_IPC_WIFI_CHAN
+#include "ipc_wifi_shared.h"
+#endif
+#ifdef CFG_AMP_IPC_BT_CHAN
+#include "ipc_bt_shared.h"
+#endif
 
 /// Size, in bytes, of IPC buffers for command
-#define IPC_A2C_MSG_BUF_SIZE            96
+#define IPC_SLAVE_MSG_BUF_SIZE            96
 
 /// Size, in bytes, of IPC buffers for response/print
-#define IPC_C2A_MSG_BUF_SIZE            64
+#define IPC_MASTER_MSG_BUF_SIZE            64
 
-
-#define CO_BIT(pos)                     (1UL << (pos))
 
 /*"Please do not modify it; its value is determined by the layout of IPC RAM in the .ld file.
  * Otherwise, you need to recompile the firmware."*/
@@ -40,128 +54,45 @@
 #define IPC_BUSY                        0x00000000    /*BUSY*/
 #define IPC_READY                       0x52454459    /*REDY*/
 #define IPC_CFG_SIZE                    128
-#define IPC_WIFI_SHARE_SIZE             72
 
-
-struct ipc_rxdesc
+struct ipc_slave_buf
 {
-    void *data;
+    uint32_t data[IPC_SLAVE_MSG_BUF_SIZE / 4]; ///< Message data
 };
 
-struct ipc_epmsg_rxdesc
+struct ipc_epmsg_slave_msg
 {
     struct ipc_epmsg ephdr;
-    struct ipc_rxdesc buf;
+    struct ipc_slave_buf buf;
 };
 
-struct ipc_rxcfm
+struct ipc_master_buf
 {
-    void *data;
+    uint32_t data[IPC_MASTER_MSG_BUF_SIZE / 4]; ///< Message data
 };
 
-struct ipc_epmsg_rxcfm
-{
-    struct ipc_epmsg ephdr;
-    struct ipc_rxcfm buf;
-};
-
-struct ipc_txdesc
-{
-    void *data;
-};
-
-struct ipc_epmsg_txdesc
+struct ipc_epmsg_master_msg
 {
     struct ipc_epmsg ephdr;
-    struct ipc_txdesc buf;
+    struct ipc_master_buf buf;
 };
 
-struct ipc_txcfm
-{
-    void *data;
-    uint32_t status;
-};
-
-struct ipc_epmsg_txcfm
-{
-    struct ipc_epmsg ephdr;
-    struct ipc_txcfm buf;
-};
-
-struct ipc_a2c_buf
-{
-    uint32_t data[IPC_A2C_MSG_BUF_SIZE / 4]; ///< Message data
-};
-
-struct ipc_epmsg_a2c_msg
-{
-    struct ipc_epmsg ephdr;
-    struct ipc_a2c_buf buf;
-};
-
-struct ipc_c2a_buf
-{
-    uint32_t data[IPC_C2A_MSG_BUF_SIZE / 4]; ///< Message data
-};
-
-struct ipc_epmsg_c2a_msg
-{
-    struct ipc_epmsg ephdr;
-    struct ipc_c2a_buf buf;
-};
-
-struct ipc_txdesc_tag
+struct ipc_slave_msg_tag
 {
     struct vring_hdr   ring;
-    struct vring_desc  desc[IPC_TXDESC_CNT];
-    struct vring_avail avail[IPC_TXDESC_CNT];
-    struct vring_ready ready[IPC_TXDESC_CNT];
-    struct ipc_epmsg_txdesc items[IPC_TXDESC_CNT];
+    struct vring_desc  desc[IPC_SLAVE_MSG_BUF_CNT];
+    struct vring_avail avail[IPC_SLAVE_MSG_BUF_CNT];
+    struct vring_ready ready[IPC_SLAVE_MSG_BUF_CNT];
+    struct ipc_epmsg_slave_msg items[IPC_SLAVE_MSG_BUF_CNT];
 };
 
-struct ipc_rxdesc_tag
+struct ipc_master_msg_tag
 {
     struct vring_hdr   ring;
-    struct vring_desc  desc[IPC_RXDESC_CNT];
-    struct vring_avail avail[IPC_RXDESC_CNT];
-    struct vring_ready ready[IPC_RXDESC_CNT];
-    struct ipc_epmsg_rxdesc items[IPC_RXDESC_CNT];
-};
-
-struct ipc_rxcfm_tag
-{
-    struct vring_hdr   ring;
-    struct vring_desc  desc[IPC_RXCFM_CNT];
-    struct vring_avail avail[IPC_RXCFM_CNT];
-    struct vring_ready ready[IPC_RXCFM_CNT];
-    struct ipc_epmsg_rxcfm  items[IPC_RXCFM_CNT];
-};
-
-struct ipc_txcfm_tag
-{
-    struct vring_hdr   ring;
-    struct vring_desc  desc[IPC_TXCFM_CNT];
-    struct vring_avail avail[IPC_TXCFM_CNT];
-    struct vring_ready ready[IPC_TXCFM_CNT];
-    struct ipc_epmsg_txcfm  items[IPC_TXCFM_CNT];
-};
-
-struct ipc_a2c_msg_tag
-{
-    struct vring_hdr   ring;
-    struct vring_desc  desc[IPC_MSGA2C_BUF_CNT];
-    struct vring_avail avail[IPC_MSGA2C_BUF_CNT];
-    struct vring_ready ready[IPC_MSGA2C_BUF_CNT];
-    struct ipc_epmsg_a2c_msg items[IPC_MSGA2C_BUF_CNT];
-};
-
-struct ipc_c2a_msg_tag
-{
-    struct vring_hdr   ring;
-    struct vring_desc  desc[IPC_MSGC2A_BUF_CNT];
-    struct vring_avail avail[IPC_MSGC2A_BUF_CNT];
-    struct vring_ready ready[IPC_MSGC2A_BUF_CNT];
-    struct ipc_epmsg_c2a_msg items[IPC_MSGC2A_BUF_CNT];
+    struct vring_desc  desc[IPC_MASTER_MSG_BUF_CNT];
+    struct vring_avail avail[IPC_MASTER_MSG_BUF_CNT];
+    struct vring_ready ready[IPC_MASTER_MSG_BUF_CNT];
+    struct ipc_epmsg_master_msg items[IPC_MASTER_MSG_BUF_CNT];
 };
 
 struct __attribute__((aligned(4))) ipc_shared_hdr
@@ -183,42 +114,29 @@ struct ipc_dbg_tag
     volatile uint32_t read_pos;
 };
 
-
-
 /// Structure describing the IPC data shared with the host CPU
 struct __attribute__((aligned(4))) ipc_shared_env_tag
 {
     volatile struct ipc_shared_hdr hdr;
     volatile uint32_t state;
-    volatile struct ipc_notify master_notify;
-    volatile struct ipc_notify slave_notify;
-    volatile struct ipc_a2c_msg_tag msg_a2c_buf;
-    volatile struct ipc_c2a_msg_tag msg_c2a_buf;
-    volatile struct ipc_txdesc_tag txdesc;
-    volatile struct ipc_txcfm_tag  txcfm;
-    volatile struct ipc_rxdesc_tag rxdesc;
-    volatile struct ipc_rxcfm_tag  rxcfm;
+    volatile struct ipc_signal master_signal;
+    volatile struct ipc_signal slave_signal;
+    volatile struct ipc_slave_msg_tag slave_msg_buf;
+    volatile struct ipc_master_msg_tag master_msg_buf;
+#ifdef CFG_AMP_IPC_WIFI_CHAN
+    volatile struct ipc_wifi_shared_env wifi;
+#endif
+#ifdef CFG_AMP_IPC_BT_CHAN
+    volatile struct ipc_bt_shared_env bt;
+#endif
     volatile uint32_t config[IPC_CFG_SIZE / 4];
     volatile struct ipc_dbg_tag dbg_buffer;
     volatile struct amp_shared_info amp_shared;
 };
 
-struct ipc_rxbuf_hdr
-{
-    /// Interface index
-    uint16_t fvif_idx;
-    uint16_t len;
-};
-
-struct ipc_txbuf_hdr
-{
-    /// Interface index
-    uint16_t fvif_idx;
-    uint16_t type;
-    void (*cfm_cb)(uint32_t frame_id, bool acknowledged, void *arg);
-    void *cfm_cb_arg;
-};
-
 #define __SHAREDRAM_AMP_IPC_ENV __attribute__ ((section("SHAREDRAM_AMP_IPC_ENV")));
-#define __IPC_WIFI_SHARE    __attribute__ ((section("IPC_WIFI_SHARE")));
+
+void ipc_mem_init(void);
+int32_t ipc_mem_validate(void);
+
 #endif

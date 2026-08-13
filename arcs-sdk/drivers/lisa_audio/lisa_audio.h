@@ -85,6 +85,17 @@ typedef struct {
 } lisa_audio_gain_t;
 
 /**
+ * @brief 录音物理通道增益配置
+ *
+ * 用于分别配置 ADC/PDM 左、右物理通道增益。该结构不改变录音输出
+ * buffer 的通道数；即使录音输出为单声道，右通道也可能用于 AEC/回采。
+ */
+typedef struct {
+    lisa_audio_gain_t left;           /* 左物理通道增益 */
+    lisa_audio_gain_t right;          /* 右物理通道增益 */
+} lisa_audio_record_channel_gain_t;
+
+/**
  * @brief 音频事件结构
  *
  * 用于统一回调函数中传递音频数据事件，包含录音数据和回声数据
@@ -157,6 +168,7 @@ typedef enum {
     LISA_AUDIO_IOCTL_RECORD_GET_STATUS = 0x06,  /* 获取录音状态 */
     LISA_AUDIO_IOCTL_RECORD_GET_CONFIG = 0x07,  /* 获取录音配置 */
     LISA_AUDIO_IOCTL_RECORD_SET_CONFIG = 0x08,  /* 设置录音配置 */
+    LISA_AUDIO_IOCTL_RECORD_SET_CHANNEL_GAIN = 0x09, /* 设置录音左右物理通道增益 */
 
     /* Play 命令 (0x20 ~ 0x3F) */
     LISA_AUDIO_IOCTL_PLAY_START = 0x20,         /* 启动播放 */
@@ -418,6 +430,33 @@ static inline int lisa_audio_record_set_gain(lisa_device_t *dev, const lisa_audi
         return LISA_DEVICE_ERR_NOT_SUPPORT;
     }
     return api->record_control(dev, LISA_AUDIO_IOCTL_RECORD_SET_GAIN, (void *)gain);
+}
+
+/**
+ * @brief 设置录音左右物理通道增益
+ *
+ * 分别调整 ADC/PDM 左、右物理通道的模拟和数字增益。该接口不改变
+ * 录音输出格式；单声道录音场景下，右物理通道仍可作为 AEC/回采参考。
+ *
+ * @param dev Audio设备指针
+ * @param gain 左右物理通道增益配置指针
+ *
+ * @return 0 成功
+ * @return LISA_DEVICE_ERR_INVALID 参数无效
+ * @return LISA_DEVICE_ERR_NOT_SUPPORT 不支持该操作
+ * @return <0 其他错误
+ */
+static inline int lisa_audio_record_set_channel_gain(lisa_device_t *dev,
+                                                     const lisa_audio_record_channel_gain_t *gain)
+{
+    if (!dev || !dev->api || !gain) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_audio_api_t *api = (lisa_audio_api_t *)dev->api;
+    if (!api->record_control) {
+        return LISA_DEVICE_ERR_NOT_SUPPORT;
+    }
+    return api->record_control(dev, LISA_AUDIO_IOCTL_RECORD_SET_CHANNEL_GAIN, (void *)gain);
 }
 
 /* ===== Play 配置接口 ===== */

@@ -93,6 +93,15 @@ void lisa_player_set_loglev(int level);
 const char * lisa_player_get_version();
 
 /**
+ * @brief 设置当前播放器实例的 readstream 缓存大小
+ * @param h 句柄
+ * @param size 缓存大小，单位 byte；0 表示关闭缓存
+ * @return PlayerErr
+ * @note 需要在 lisa_player_seturl/lisa_player_seturl_with_header 前调用。
+ */
+PlayerErr lisa_player_set_readstream_buf_size(PLAYER_HANDLE h, uint32_t size);
+
+/**
  * @brief 创建播放器
  * @param name 播放器名称
  * @param id 播放器id

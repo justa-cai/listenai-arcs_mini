@@ -27,19 +27,25 @@
 #define BT_STACK_CLASSIC_SINK            (0)
 #define BT_STACK_CLASSIC_SOURCE          (1)
 
-#define BT_STACK_CLASSIC_ROLE            (BT_STACK_CLASSIC_SINK)//(BT_STACK_CLASSIC_SOURCE)
+#define BT_STACK_CLASSIC_ROLE            (BT_STACK_CLASSIC_SOURCE)//(BT_STACK_CLASSIC_SOURCE)
 #define BT_USE_ASIC_CVSD                 (0)
 #if (BT_STACK_CLASSIC_ROLE == BT_STACK_CLASSIC_SOURCE)
 #define DEVICE_NAME         "BT_SOURCE"
+#define  BT_CLASSIC_CFG_FLAG  (0)
+
 #else
 #define DEVICE_NAME         "BT_SINK"
+#define  BT_CLASSIC_CFG_FLAG  (BT_GAP_CON_REQ_ROLE_REMIAN_SLAVE_MASK)
 #endif
+///1:1 slot 0.625ms
+#define BT_STACK_LINK_TIMEOUT   (16000)///10s
 
 #define MAX_SCAN_BLE_DEVICE     (8)
 #define MAX_BOND_BLE_DEVICE     (8)
 
-#define MAX_DISCOVER_DEVICE     (8)
 #define MAX_BOND_CLASSIC_DEVICE (8)
+
+#define BT_STACK_CLASSIC_BIG_ACL_SEND_MAX  (5)
 
 #define CONNECT_LAST_PEER_DEV     (0)
 #ifndef PLF_BUILD_FEAT_HCIT
@@ -109,6 +115,15 @@
 
 #define BT_STACK_BLE_HOGPD_HID_MAX_COUNT     (20)
 
+// bt sniff (in slots)
+//0x06--0x0540(3.75ms--840ms),must even number 
+#define BT_SNIFF_MAX_INTERVAL (800)    //500ms
+//min < max,must even number 
+#define BT_SNIFF_MIN_INTERVAL (320)
+//
+#define BT_SNIFF_ATTEMPT      (4)
+//
+#define BT_SNIFF_TIMEOUT      (2)
 
 /*
  * ENUMERATIONS

@@ -54,5 +54,5 @@ int rand()
 {
     //Based on Knuth "The Art of Computer Programming"
     g_currentRandValue = g_currentRandValue * 1103515245 + 12345;
-    return ( (unsigned int) (g_currentRandValue / 65536) % (RAND_MAX+1) );
+    return ( (unsigned int) (g_currentRandValue / 65536) % ((unsigned int)RAND_MAX+1) );
 }

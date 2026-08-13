@@ -32,6 +32,8 @@ typedef struct {
     uint8_t addr_type;
 } lisa_ble_addr_t;
 
+#define LISA_BLE_NETCFG_CUSTOM_DATA_MAX_LEN 4335U
+
 /**
  * @brief Start BLE advertising
  *
@@ -158,6 +160,23 @@ uint8_t lisa_ble_netcfg_send_notify(uint8_t conidx, uint8_t op, uint8_t state, u
 typedef int (*lisa_ble_netcfg_handler_t)(const char *ssid, const char *pwd);
 
 /**
+ * @brief Callback for app-defined BLE netcfg opcodes.
+ *
+ * The SDK owns BLE transport and WiFi credential delivery only. Any
+ * product-specific mini-program interaction, including NETCFG_BLE_AUTH_INFO
+ * and later custom opcodes, should be handled by the application.
+ *
+ * This callback is opcode-only on purpose. The current lower layer does not
+ * expose a stable payload-length contract for custom mini-program requests,
+ * so payload-bearing custom writes are not supported through this interface.
+ *
+ * @param conidx Connection index
+ * @param op     Received opcode
+ * @return NETCFG_BLE_SUCCESS on success, or an app-defined error code
+ */
+typedef uint16_t (*lisa_ble_netcfg_custom_op_handler_t)(uint8_t conidx, uint16_t op);
+
+/**
  * @brief Register handler for BLE network config WiFi connect events.
  *
  * When BLE netcfg profile receives WiFi credentials from a peer device,
@@ -167,5 +186,38 @@ typedef int (*lisa_ble_netcfg_handler_t)(const char *ssid, const char *pwd);
  * @param handler WiFi connect handler, or NULL to clear
  */
 void lisa_ble_netcfg_set_handler(lisa_ble_netcfg_handler_t handler);
+
+/**
+ * @brief Register handler for app-defined BLE netcfg opcodes.
+ *
+ * The SDK forwards product-specific mini-program opcodes to this handler
+ * and does not interpret or synthesize business payloads.
+ *
+ * This registration is effective only when BLE netcfg executes in the local
+ * stack image. IPC caller/receiver split builds do not currently transport
+ * custom opcodes across cores.
+ *
+ * @param handler Custom opcode handler, or NULL to clear
+ */
+void lisa_ble_netcfg_set_custom_op_handler(lisa_ble_netcfg_custom_op_handler_t handler);
+
+/**
+ * @brief Send raw custom payload on BLE netcfg data characteristic.
+ *
+ * This is intended for app-defined mini-program interactions such as
+ * NETCFG_BLE_AUTH_INFO responses.
+ *
+ * The buffer is copied during this call. Buffer must remain valid only until
+ * this function returns.
+ *
+ * Maximum supported length is LISA_BLE_NETCFG_CUSTOM_DATA_MAX_LEN bytes
+ * (255 packets x 17 payload bytes).
+ *
+ * @param conidx Connection index
+ * @param length Data length
+ * @param value  Data buffer
+ * @return NETCFG_BLE_SUCCESS on success, NETCFG_BLE_ERR on failure
+ */
+uint8_t lisa_ble_netcfg_send_custom_data(uint8_t conidx, uint16_t length, uint8_t *value);
 
 #endif /* __LISA_BLE_API_H__ */

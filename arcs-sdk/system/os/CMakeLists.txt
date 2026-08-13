@@ -2,7 +2,6 @@ if (DEFINED CONFIG_LISA_OS)
     listenai_library_sources(
         lisa_mem.c
         lisa_queue.c
-        reboot.c
         lisa_thread.c
         lisa_timer.c
         lisa_time.c

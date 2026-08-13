@@ -1,10 +1,12 @@
-# LISA SPI 主从传输示例
+# SPI 主从传输示例
 
 ## 功能说明
 
 演示如何使用 `lisa_spi_transfer()` API 传输数据。
 
 ## 硬件连接
+
+ARCS EVB 默认引脚：
 
 - **PA15**: SPI0 CLK（时钟）
 - **PA14**: SPI0 MOSI（主出从入）
@@ -16,12 +18,28 @@
 - **PA23**：SPI1 MISO (主入从出)
 - **PA22**: SPI1 CS （片选
 
+Venusa RD EVB 引脚：
+
+SPI0为ALTER5:
+- **PA16**: SPI0 CLK（时钟）
+- **PA19**: SPI0 MOSI（主出从入）
+- **PA18**：SPI0 MISO (主入从出)
+- **PA17**: SPI0 CS （片选）
+
+SPI1为ALTER6:
+- **PA22**: SPI1 CLK（时钟）
+- **PA23**: SPI0 MOSI（主出从入）
+- **PA24**：SPI0 MISO (主入从出)
+- **PA21**: SPI0 CS （片选）
+
+
+
 连接到 PC 串口工具，配置为 **921600, 8N1, 无流控**
 
 ## API 说明
 
 `lisa_spi_transfer` 是一个**非阻塞**的传输接口：
-- 
+-
 - 立即返回（不阻塞）
 - 可以注册回调函数来获取传输完成的状态
 
