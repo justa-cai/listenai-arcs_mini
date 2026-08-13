@@ -37,3 +37,89 @@ config LSF_IC_MESSAGE_EP_ID
 orsource "Kconfig.diskmem"
 
 endif
+
+menuconfig IPC_CIDU
+	bool "启用 VenusA CIDU 共享内存核间通信模块"
+	depends on SOC_VENUSA
+	depends on !IPC_LSF
+	help
+		启用基于 VenusA CIDU 中断和共享内存邮箱的 ic_message 后端。
+		CIDU 只作为门铃使用，消息载荷存放在共享邮箱中。
+
+if IPC_CIDU
+
+config IPC_CIDU_SHMEM_BASE
+	hex "CIDU IPC 共享内存起始地址"
+	default MEM_IPC_BASE if MEM_IPC_ISOLATED
+	default 0x20000000
+	help
+		AP/CP 两侧共同使用的共享邮箱起始地址。两侧镜像必须配置为
+		同一个值，并且该区域必须从普通 SRAM 和算法 APRAM 中预留出来。
+
+config IPC_CIDU_SHMEM_SIZE
+	hex "CIDU IPC 共享内存大小"
+	default MEM_IPC_SIZE if MEM_IPC_ISOLATED
+	default 0x00001000
+	help
+		CIDU 共享邮箱大小。实现会在构建阶段检查配置的 ring 是否能放入
+		该区域，AP/CP 两侧镜像必须保持一致。
+
+config IPC_CIDU_RING_ENTRY_COUNT
+	int "CIDU IPC ring entry count"
+	default 16
+	range 2 64
+	help
+		Number of entries in each one-way message ring. One entry is reserved
+		to distinguish full and empty ring states.
+
+config IPC_CIDU_PEER_CORE_AUTO
+	bool "Automatically select peer core"
+	default y
+	help
+		When enabled, the peer core is selected as local_core XOR 1. This is
+		suitable for the two-core VenusA AP/CP topology.
+
+config IPC_CIDU_PEER_CORE_ID
+	int "CIDU IPC peer core id"
+	default 0
+	range 0 1
+	depends on !IPC_CIDU_PEER_CORE_AUTO
+	help
+		Peer core id used when automatic peer selection is disabled.
+
+config IPC_CIDU_IRQ_VECTOR
+	int "CIDU IPC interrupt vector"
+	default 19
+	help
+		VenusA HAL demos use IRQ_IDU_VECTOR (19) for CIDU ICI delivery.
+		Override this only if the BSP routes CIDU ICI to a different vector.
+
+config IPC_CIDU_SEMAPHORE_ID
+	int "CIDU IPC hardware semaphore id"
+	default 0
+	range 0 31
+	help
+		CIDU semaphore used only to serialize shared mailbox initialization.
+
+config IPC_CIDU_WORKER_STACK_SIZE
+	int "CIDU IPC worker stack size"
+	default 2048
+
+config IPC_CIDU_WORKER_PRIORITY
+	int "CIDU IPC worker priority"
+	default 5
+	range 0 10
+	help
+		FreeRTOS task priority used by the CIDU receive worker. The SDK
+		FreeRTOS port uses configMAX_PRIORITIES=11, so valid values are
+		0..10.
+
+endif
+
+config IC_MESSAGE_AUTO_INIT
+	bool "Automatically initialize ic_message before device init"
+	depends on SYS_INIT
+	depends on IPC_LSF || IPC_CIDU
+	help
+		Initialize ic_message from SYS_INIT at PRE_DEVICES_INIT so device
+		drivers can register ic_message callbacks during LISA device init.

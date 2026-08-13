@@ -52,6 +52,8 @@ rsource "workq/Kconfig"
 rsource "log/Kconfig"
 rsource "os/Kconfig"
 
+# uboot/Kconfig.public is a superset of the application-visible boot options.
+# The standalone system/boot project sources boot/Kconfig.boot directly.
 orsource "uboot/Kconfig.public"
 
 endmenu

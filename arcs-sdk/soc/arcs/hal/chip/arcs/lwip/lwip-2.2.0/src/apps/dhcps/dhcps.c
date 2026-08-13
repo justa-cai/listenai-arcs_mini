@@ -113,7 +113,11 @@ static void mark_ip_in_table(uint8_t d)
 #ifdef CONFIG_DHCPS_KEPT_CLIENT_INFO
 static void save_client_addr(ip_addr_t *client_ip, uint8_t *hwaddr)
 {
+#if LWIP_IPV6
+    uint8_t d = (uint8_t)ip4_addr4(&client_ip->u_addr.ip4);
+#else
     uint8_t d = (uint8_t)ip4_addr4(client_ip);
+#endif
     uint32_t start_ip = 0;
 
     start_ip = DHCP_POOL_START;
@@ -122,6 +126,19 @@ static void save_client_addr(ip_addr_t *client_ip, uint8_t *hwaddr)
     if(((d-start_ip) < DHCPS_MAX_CLIENT_NUM) && ((d-start_ip) >= 0))
         memcpy(ip_table.client_mac[d-start_ip], hwaddr, 6);
     else
+#if LWIP_IPV6
+        lwip_printf("save ip over the range. start_ip:%u,ip:%u.%u.%u.%u\n",
+                    (unsigned int)start_ip, (unsigned int)ip4_addr1(&client_ip->u_addr.ip4), (unsigned int)ip4_addr2(&client_ip->u_addr.ip4),
+                    (unsigned int)ip4_addr3(&client_ip->u_addr.ip4), (unsigned int)ip4_addr4(&client_ip->u_addr.ip4));
+
+#if (debug_dhcps)
+        lwip_printf("start_ip:%d,ip %d.%d.%d.%d, hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
+                    start_ip,ip4_addr1(&client_ip->u_addr.ip4), ip4_addr2(&client_ip->u_addr.ip4), ip4_addr3(&client_ip->u_addr.ip4), ip4_addr4(&client_ip->u_addr.ip4),
+                    ip_table.client_mac[d-start_ip][0], ip_table.client_mac[d-start_ip][1],
+                    ip_table.client_mac[d-start_ip][2], ip_table.client_mac[d-start_ip][3],
+                    ip_table.client_mac[d-start_ip][4], ip_table.client_mac[d-start_ip][5]);
+#endif
+#else
         lwip_printf("save ip over the range. start_ip:%u,ip:%u.%u.%u.%u\n",
                     (unsigned int)start_ip, (unsigned int)ip4_addr1(client_ip), (unsigned int)ip4_addr2(client_ip),
                     (unsigned int)ip4_addr3(client_ip), (unsigned int)ip4_addr4(client_ip));
@@ -132,6 +149,7 @@ static void save_client_addr(ip_addr_t *client_ip, uint8_t *hwaddr)
                     ip_table.client_mac[d-start_ip][0], ip_table.client_mac[d-start_ip][1],
                     ip_table.client_mac[d-start_ip][2], ip_table.client_mac[d-start_ip][3],
                     ip_table.client_mac[d-start_ip][4], ip_table.client_mac[d-start_ip][5]);
+#endif
 #endif
     sys_sem_signal(&dhcps_ip_table_semaphore);
 }
@@ -146,9 +164,15 @@ static uint8_t check_client_request_ip(ip_addr_t *client_req_ip, uint8_t *hwaddr
     end_ip = DHCP_POOL_END;
 
 #if (debug_dhcps)
+#if LWIP_IPV6
+    lwip_printf("request ip %d.%d.%d.%d, hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
+                ip4_addr1(&client_req_ip->u_addr.ip4), ip4_addr2(&client_req_ip->u_addr.ip4), ip4_addr3(&client_req_ip->u_addr.ip4), ip4_addr4(&client_req_ip->u_addr.ip4),
+                hwaddr[0], hwaddr[1], hwaddr[2], hwaddr[3], hwaddr[4], hwaddr[5]);
+#else
     lwip_printf("request ip %d.%d.%d.%d, hwaddr %02x:%02x:%02x:%02x:%02x:%02x\n",
                 ip4_addr1(client_req_ip), ip4_addr2(client_req_ip), ip4_addr3(client_req_ip), ip4_addr4(client_req_ip),
                 hwaddr[0], hwaddr[1], hwaddr[2], hwaddr[3], hwaddr[4], hwaddr[5]);
+#endif
 #endif
 
     sys_arch_sem_wait(&dhcps_ip_table_semaphore, 0);
@@ -209,8 +233,13 @@ static uint8_t search_next_ip(void)
     uint8_t start, end;
     uint8_t max_count;
     if(dhcps_addr_pool_set){
+#if LWIP_IPV6
+        start = (uint8_t)ip4_addr4(&dhcps_addr_pool_start.u_addr.ip4);
+        end = (uint8_t)ip4_addr4(&dhcps_addr_pool_end.u_addr.ip4);
+#else
         start = (uint8_t)ip4_addr4(&dhcps_addr_pool_start);
         end = (uint8_t)ip4_addr4(&dhcps_addr_pool_end);
+#endif
     }else{
         start = 0;
         end = 255;
@@ -241,8 +270,13 @@ static uint8_t search_assigned_ip(uint8_t ip)
     uint8_t start, end;
     uint8_t max_count;
     if(dhcps_addr_pool_set){
+#if LWIP_IPV6
+        start = (uint8_t)ip4_addr4(&dhcps_addr_pool_start.u_addr.ip4);
+        end = (uint8_t)ip4_addr4(&dhcps_addr_pool_end.u_addr.ip4);
+#else
         start = (uint8_t)ip4_addr4(&dhcps_addr_pool_start);
         end = (uint8_t)ip4_addr4(&dhcps_addr_pool_end);
+#endif
     }else{
         start = 0;
         end = 255;
@@ -527,9 +561,16 @@ static void dhcps_send_offer(struct pbuf *packet_buffer, struct udp_pcb *udp_pcb
     if (temp_ip == 0) {
         lwip_printf("No useable ip\n");
     }
+#if LWIP_IPV6
+    lwip_printf("DHCP assign ip = %d.%d.%d.%d\n", ip4_addr1(&dhcps_network_id.u_addr.ip4),ip4_addr2(&dhcps_network_id.u_addr.ip4),ip4_addr3(&dhcps_network_id.u_addr.ip4),temp_ip);
+                IP4_ADDR(&dhcps_allocated_client_address.u_addr.ip4, (ip4_addr1(&dhcps_network_id.u_addr.ip4)),
+                ip4_addr2(&dhcps_network_id.u_addr.ip4), ip4_addr3(&dhcps_network_id.u_addr.ip4) , temp_ip);
+#else
     lwip_printf("DHCP assign ip = %d.%d.%d.%d\n", ip4_addr1(&dhcps_network_id),ip4_addr2(&dhcps_network_id),ip4_addr3(&dhcps_network_id),temp_ip);
                 IP4_ADDR(&dhcps_allocated_client_address, (ip4_addr1(&dhcps_network_id)),
                 ip4_addr2(&dhcps_network_id), ip4_addr3(&dhcps_network_id) , temp_ip);
+#endif
+
 #endif
     dhcps_initialize_message(dhcp_message_repository);
     if(add_offer_options(add_msg_type(&dhcp_message_repository->options[4], DHCP_MESSAGE_TYPE_OFFER)) == 0)
@@ -627,7 +668,11 @@ uint8_t dhcps_handle_state_machine_change(uint8_t option_message_type)
                     ip4_addr4(&client_request_ip));
 #endif
         if (dhcp_server_state_machine == DHCP_SERVER_STATE_OFFER) {
+#if LWIP_IPV6
+            if (ip4_addr4(&dhcps_allocated_client_address.u_addr.ip4) != 0) {
+#else
             if (ip4_addr4(&dhcps_allocated_client_address) != 0) {
+#endif
                 if (memcmp((void *)&dhcps_allocated_client_address, (void *)&client_request_ip, 4) == 0) {
                     dhcp_server_state_machine = DHCP_SERVER_STATE_ACK;
                   } else {
@@ -640,11 +685,26 @@ uint8_t dhcps_handle_state_machine_change(uint8_t option_message_type)
         } else if(dhcp_server_state_machine == DHCP_SERVER_STATE_IDLE){
             uint8_t ip_addr4 = check_client_request_ip(&client_request_ip, client_addr);
             if(ip_addr4 > 0){
+#if LWIP_IPV6
+                IP4_ADDR(&dhcps_allocated_client_address.u_addr.ip4, (ip4_addr1(&dhcps_network_id.u_addr.ip4)),
+                        ip4_addr2(&dhcps_network_id.u_addr.ip4), ip4_addr3(&dhcps_network_id.u_addr.ip4), ip_addr4);
+#else
                 IP4_ADDR(&dhcps_allocated_client_address, (ip4_addr1(&dhcps_network_id)),
                         ip4_addr2(&dhcps_network_id), ip4_addr3(&dhcps_network_id), ip_addr4);
+#endif
                 dhcp_server_state_machine = DHCP_SERVER_STATE_ACK;
             }
 #if (!IS_USE_FIXED_IP)
+#if LWIP_IPV6
+            else if(ip4_addr1(&dhcps_network_id.u_addr.ip4) == ip4_addr1(&client_request_ip.u_addr.ip4) &&
+                     ip4_addr2(&dhcps_network_id.u_addr.ip4) == ip4_addr2(&client_request_ip.u_addr.ip4) &&
+                     ip4_addr3(&dhcps_network_id.u_addr.ip4) == ip4_addr3(&client_request_ip.u_addr.ip4) &&
+                     search_assigned_ip(ip4_addr4(&client_request_ip.u_addr.ip4))){
+                IP4_ADDR(&dhcps_allocated_client_address.u_addr.ip4, (ip4_addr1(&dhcps_network_id.u_addr.ip4)),
+                        ip4_addr2(&dhcps_network_id.u_addr.ip4), ip4_addr3(&dhcps_network_id.u_addr.ip4), ip4_addr4(&client_request_ip.u_addr.ip4));
+                dhcp_server_state_machine = DHCP_SERVER_STATE_ACK;
+            }
+#else
             else if(ip4_addr1(&dhcps_network_id) == ip4_addr1(&client_request_ip) &&
                      ip4_addr2(&dhcps_network_id) == ip4_addr2(&client_request_ip) &&
                      ip4_addr3(&dhcps_network_id) == ip4_addr3(&client_request_ip) &&
@@ -653,6 +713,7 @@ uint8_t dhcps_handle_state_machine_change(uint8_t option_message_type)
                         ip4_addr2(&dhcps_network_id), ip4_addr3(&dhcps_network_id), ip4_addr4(&client_request_ip));
                 dhcp_server_state_machine = DHCP_SERVER_STATE_ACK;
             }
+#endif
 #endif
             else{
                 dhcp_server_state_machine = DHCP_SERVER_STATE_NAK;
@@ -751,8 +812,13 @@ static uint8_t dhcps_check_msg_and_handle_options(struct pbuf *packet_buffer)
   * @param  same as recv callback function definition
   * @retval None
   */
+#if LWIP_IPV6
+static void dhcps_receive_udp_packet_handler(void *arg, struct udp_pcb *udp_pcb,
+struct pbuf *udp_packet_buffer, const struct ip_addr *sender_addr, uint16_t sender_port)
+#else
 static void dhcps_receive_udp_packet_handler(void *arg, struct udp_pcb *udp_pcb,
 struct pbuf *udp_packet_buffer, const struct ip4_addr *sender_addr, uint16_t sender_port)
+#endif
 {
     int16_t total_length_of_packet_buffer;
     struct pbuf *merged_packet_buffer = NULL;
@@ -795,7 +861,11 @@ struct pbuf *udp_packet_buffer, const struct ip4_addr *sender_addr, uint16_t sen
             #endif
             dhcps_send_ack(udp_packet_buffer, udp_pcb);
 #if (!IS_USE_FIXED_IP)
+#if LWIP_IPV6
+            mark_ip_in_table((uint8_t)ip4_addr4(&dhcps_allocated_client_address.u_addr.ip4));
+#else
             mark_ip_in_table((uint8_t)ip4_addr4(&dhcps_allocated_client_address));
+#endif
     #ifdef CONFIG_DHCPS_KEPT_CLIENT_INFO
             save_client_addr(&dhcps_allocated_client_address, client_addr);
             memset(&client_request_ip, 0, sizeof(client_request_ip));
@@ -888,7 +958,11 @@ void dhcps_init(struct netif * pnetif)
         lwip_printf("upd_new error\n");
         return;
     }
+#if LWIP_IPV6
+    IP4_ADDR(&dhcps_send_broadcast_address.u_addr.ip4, 255, 255, 255, 255);
+#else
     IP4_ADDR(&dhcps_send_broadcast_address, 255, 255, 255, 255);
+#endif
     /* get net info from net interface */
 
     memcpy(&dhcps_local_address, &pnetif->ip_addr,
@@ -900,6 +974,18 @@ void dhcps_init(struct netif * pnetif)
                         sizeof(ip_addr_t));
 
     /* calculate the usable network ip range */
+#if LWIP_IPV6
+    dhcps_network_id.u_addr.ip4.addr = ((pnetif->ip_addr.u_addr.ip4.addr) &
+                    (pnetif->netmask.u_addr.ip4.addr));
+
+    dhcps_subnet_broadcast.u_addr.ip4.addr = ((dhcps_network_id.u_addr.ip4.addr |
+                    ~(pnetif->netmask.u_addr.ip4.addr)));
+
+    dhcps_owned_first_ip.u_addr.ip4.addr = htonl((ntohl(dhcps_network_id.u_addr.ip4.addr) + 1));
+    dhcps_owned_last_ip.u_addr.ip4.addr = htonl(ntohl(dhcps_subnet_broadcast.u_addr.ip4.addr) - 1);
+    dhcps_num_of_available_ips = ((ntohl(dhcps_owned_last_ip.u_addr.ip4.addr)
+                - ntohl(dhcps_owned_first_ip.u_addr.ip4.addr)) + 1);
+#else
     dhcps_network_id.addr = ((pnetif->ip_addr.addr) &
                     (pnetif->netmask.addr));
 
@@ -910,6 +996,7 @@ void dhcps_init(struct netif * pnetif)
     dhcps_owned_last_ip.addr = htonl(ntohl(dhcps_subnet_broadcast.addr) - 1);
     dhcps_num_of_available_ips = ((ntohl(dhcps_owned_last_ip.addr)
                 - ntohl(dhcps_owned_first_ip.addr)) + 1);
+#endif
 
 #if CONFIG_EXAMPLE_UART_ATCMD || CONFIG_EXAMPLE_SPI_ATCMD
 #if IP_SOF_BROADCAST
@@ -918,9 +1005,17 @@ void dhcps_init(struct netif * pnetif)
 #endif
 
 #if IS_USE_FIXED_IP
+
+#if LWIP_IPV6
+    IP4_ADDR(&dhcps_allocated_client_address.u_addr.ip4.addr, ip4_addr1(&dhcps_local_address.u_addr.ip4)
+        , ip4_addr2(&dhcps_local_address.u_addr.ip4.addr), ip4_addr3(&dhcps_local_address.u_addr.ip4),
+                    (ip4_addr4(&dhcps_local_address.u_addr.ip4.addrq)) + 1 );
+#else
     IP4_ADDR(&dhcps_allocated_client_address, ip4_addr1(&dhcps_local_address)
         , ip4_addr2(&dhcps_local_address), ip4_addr3(&dhcps_local_address),
                     (ip4_addr4(&dhcps_local_address)) + 1 );
+#endif
+
 #else
 
     if (dhcps_ip_table_semaphore!= NULL) {
@@ -931,8 +1026,15 @@ void dhcps_init(struct netif * pnetif)
 
     //dhcps_ip_table = (struct ip_table *)(pvPortMalloc(sizeof(struct ip_table)));
     memset(&ip_table, 0, sizeof(struct table));
+
+#if LWIP_IPV6
+    mark_ip_in_table((uint8_t)ip4_addr4(&dhcps_local_address.u_addr.ip4));
+    mark_ip_in_table((uint8_t)ip4_addr4(&dhcps_local_gateway.u_addr.ip4));
+#else
     mark_ip_in_table((uint8_t)ip4_addr4(&dhcps_local_address));
     mark_ip_in_table((uint8_t)ip4_addr4(&dhcps_local_gateway));
+#endif
+
 #if 0
     for (i = 1; i < ip4_addr4(&dhcps_local_address); i++) {
         mark_ip_in_table(i);
@@ -941,6 +1043,22 @@ void dhcps_init(struct netif * pnetif)
 #endif
     memset(&dhcps_addr_pool_start, 0, sizeof(dhcps_addr_pool_start));
     memset(&dhcps_addr_pool_end, 0, sizeof(dhcps_addr_pool_end));
+#if LWIP_IPV6
+    if(dhcps_addr_pool_start.u_addr.ip4.addr== 0 && dhcps_addr_pool_end.u_addr.ip4.addr == 0)
+    {
+        memcpy(&dhcps_pool_start,&dhcps_local_address,sizeof(ip_addr_t));
+        ip = (uint8_t *)&dhcps_pool_start.u_addr.ip4;
+
+        ip[3] = DHCP_POOL_START;
+
+        memcpy(&dhcps_pool_end,&dhcps_local_address,sizeof(ip_addr_t));
+        ip = (uint8_t *)&dhcps_pool_end.u_addr.ip4;
+
+        ip[3] = DHCP_POOL_END;
+
+        dhcps_set_addr_pool(1,&dhcps_pool_start,&dhcps_pool_end);
+    }
+#else
     if(dhcps_addr_pool_start.addr== 0 && dhcps_addr_pool_end.addr == 0)
     {
         memcpy(&dhcps_pool_start,&dhcps_local_address,sizeof(ip_addr_t));
@@ -955,6 +1073,7 @@ void dhcps_init(struct netif * pnetif)
 
         dhcps_set_addr_pool(1,&dhcps_pool_start,&dhcps_pool_end);
     }
+#endif
     udp_bind(dhcps_pcb, &dhcps_local_address, DHCP_SERVER_PORT);
 
     udp_recv(dhcps_pcb, dhcps_receive_udp_packet_handler, NULL);

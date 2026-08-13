@@ -281,6 +281,9 @@ extern volatile IRegion_Info_Type SystemIRegionInfo;
 
 #define _TMP_RAM_SEC                  ".ramcode"
 #define _TMP_PM_RAM_SEC               ".pm.ramcode"
+#define _TMP_PM_STARTUP_DATA_SEC      ".pm.startup_data"
+#define _TMP_PM_STARTUP_BSS_SEC       ".pm.startup_bss"
+#define _TMP_PM_STARTUP_CODE_SEC      ".pm.startup_code"
 
 #define _PM_TEXT_SEC                  ".text.pm"
 /**
@@ -344,6 +347,15 @@ extern volatile IRegion_Info_Type SystemIRegionInfo;
 #define __RAMCODE__                 __attribute__ ((section (_TMP_RAM_SEC)))
 #define _PM_TEXT_TEXT               __attribute__ ((section (_PM_TEXT_SEC)))
 #define _PM_RAM_TEXT                __attribute__ ((section (_TMP_PM_RAM_SEC)))
+#if defined(CONFIG_ARCS_HAL_PM) && CONFIG_ARCS_HAL_PM
+#define _PM_STARTUP_DATA            __attribute__ ((section (_TMP_PM_STARTUP_DATA_SEC)))
+#define _PM_STARTUP_BSS             __attribute__ ((section (_TMP_PM_STARTUP_BSS_SEC)))
+#define _PM_STARTUP_CODE            __attribute__ ((section (_TMP_PM_STARTUP_CODE_SEC)))
+#else
+#define _PM_STARTUP_DATA
+#define _PM_STARTUP_BSS
+#define _PM_STARTUP_CODE
+#endif
 
 //TODO: Adjust these sections
 //fast function

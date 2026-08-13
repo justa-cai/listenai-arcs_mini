@@ -59,14 +59,14 @@ extern void    ld_acl_tx_power_level_set(uint8_t link_id, uint8_t tx_pwr_index);
 #define TX_PPA_GAIN_BT_6_DBM  (4)
 #define TX_PPA_GAIN_BT_7_DBM  (7)
 #else
-#define TX_PPA_GAIN_BT_0_DBM  (-18)
-#define TX_PPA_GAIN_BT_1_DBM  (-10)
-#define TX_PPA_GAIN_BT_2_DBM  (-6)
-#define TX_PPA_GAIN_BT_3_DBM  (-2)
-#define TX_PPA_GAIN_BT_4_DBM  (1)
-#define TX_PPA_GAIN_BT_5_DBM  (4)
-#define TX_PPA_GAIN_BT_6_DBM  (7)
-#define TX_PPA_GAIN_BT_7_DBM  (10)
+#define TX_PPA_GAIN_BT_0_DBM  (-23)
+#define TX_PPA_GAIN_BT_1_DBM  (-16)
+#define TX_PPA_GAIN_BT_2_DBM  (-11)
+#define TX_PPA_GAIN_BT_3_DBM  (-7)
+#define TX_PPA_GAIN_BT_4_DBM  (-4)
+#define TX_PPA_GAIN_BT_5_DBM  (1)
+#define TX_PPA_GAIN_BT_6_DBM  (4)
+#define TX_PPA_GAIN_BT_7_DBM  (7)
 #endif
 
 #if 1

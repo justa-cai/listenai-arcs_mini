@@ -22,6 +22,7 @@
 #include "ic_baremetal.h"
 #endif
 
+#include "ic_platform.h"
 //#include "ic_sys.h"
 
 // module scope error-no
@@ -185,6 +186,12 @@ IC_atomic_int_conditional_set_bool(volatile int32_t *addr,
 
   // not free, can't update, return false
   return 0;
+}
+
+__attribute__((unused)) static inline uint32_t
+IC_get_proc_id()
+{
+    return IC_get_my_pid();
 }
 
 __attribute__((unused)) static inline void

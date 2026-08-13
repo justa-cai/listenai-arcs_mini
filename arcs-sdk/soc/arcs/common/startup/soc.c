@@ -16,6 +16,10 @@
 #include "cache.h"
 #include "ClockManager.h"
 
+#if CONFIG_SOC_EARLY_LOG
+#include <soc/early_log.h>
+#endif
+
 #if CONFIG_SYS_INIT
 #include "sys_init.h"
 #endif
@@ -105,6 +109,8 @@ void soc_pre_init(void)
 #else
     HAL_DisableICache();
 #endif
+    IP_GPIOA->REG_INTREN.all = 0;
+    IP_GPIOB->REG_INTREN.all = 0;
 }
 
 int soc_cpu_id_get(void)
@@ -129,6 +135,9 @@ void soc_init(void)
     /* --- Clock --- */
     ClockInit();
 
+#if CONFIG_SOC_EARLY_LOG
+    soc_early_log_init();
+#endif
 
     /* --- Cache (D-cache only; I-cache moved to soc_pre_init) --- */
 #if CONFIG_DCACHE_ENABLE
@@ -175,15 +184,20 @@ void soc_init(void)
 
     extern void scatload_psram(void);
     scatload_psram();
+}
 
-    /* --- Watchdog --- */
-#if CONFIG_WATCHDOG_ENABLE
-    extern void boot_watchdog_init(void);
-    boot_watchdog_init();
-#elif CONFIG_BOOT_WITH_WATCHDOG
-    extern void boot_watchdog_init(void);
-    extern void boot_watchdog_enable(int enable);
-    boot_watchdog_init();
-    boot_watchdog_enable(0);
-#endif
+int soc_boot_core(uint8_t target_core_id, uint32_t addr)
+{
+    if (soc_cpu_id_get() == target_core_id) {
+        return -1;
+    }
+
+    if (target_core_id != 1) {
+        return -1;
+    }
+
+    IP_CMN_SYS->REG_N300_CP_RST_ADDR.all = addr;
+    IP_SYSCTRL->REG_SW_RESET_CP0.all = 0xCAFE000A;
+
+    return 0;
 }

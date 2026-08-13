@@ -39,9 +39,8 @@ static int8_t IC_Mutex_interruptHandler(uint32_t event, uint32_t channel)
 
 void IC_Mutex_set_task_handle(uint32_t channel, TaskHandle_t task)
 {
-    if (channel < IC_MUTEX_CHANNEL_MAX){
+    if (channel < IC_MUTEX_CHANNEL_MAX)
         IC_Mutex_TaskToNotify[channel] = task;
-    }
 }
 
 /* Use mailbox channel MBX_MUTEX_CHANNEL(14) for inter-cores wakeup interrupt.

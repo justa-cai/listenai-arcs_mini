@@ -25,17 +25,17 @@
 
 
 
-int32_t pm_enable_gpio_wakeup(uint64_t mask, pm_gpio_wakeup_mode_t mode)
+int32_t pm_enable_gpio_wakeup(uint32_t mask, uint32_t level)
 {
-    pm_env.sleep_cfg->gpio_mask = mask;
-    pm_env.sleep_cfg->gpio_mode = mode;
+    pm_env.sleep_cfg->gpio_mask  = mask;
+    pm_env.sleep_cfg->gpio_level = level;
     if (pm_env.sleep_cfg->gpio_mask != 0)
         pm_env.sleep_cfg->wakeup_src_mask |= 1 << PM_WAKEUP_GPIO;
 
     return 0;
 }
 
-int32_t pm_disable_gpio_wakeup(uint64_t mask)
+int32_t pm_disable_gpio_wakeup(uint32_t mask)
 {
     pm_env.sleep_cfg->gpio_mask &= ~mask;
     if (pm_env.sleep_cfg->gpio_mask == 0)
@@ -81,6 +81,16 @@ int32_t pm_register_gpio_retention(uint32_t pad, uint32_t gpio)
 
     return ret;
 }
+
+int32_t pm_register_snapshot_region(uint32_t dst_addr, uint32_t size, uint32_t flags)
+{
+    #ifdef CONFIG_PM_PSRAM
+    return pm_snapshot_add_region(dst_addr, size, flags);
+    #else
+    return PM_SNAPSHOT_ERR_STATE;
+    #endif
+}
+
 #if CONFIG_PM_CLOSE_AP
 void pm_force_ap_off(void)
 {
@@ -95,9 +105,11 @@ void pm_force_ap_on(void)
     if (IP_AON_CTRL->REG_PMU_CORE_CTRL0.bit.AP_STATE_CURR)
     {
         vPortEnterCritical();
+        pm_save_boot_gpio();
         IP_AON_CTRL->REG_AON_DIG_RSVD0.all = WAKEUP_ACT_JUMP_NONE;
         IP_AON_CTRL->REG_PMU_CORE_CTRL0.bit.PU_AP_SUB = 1;
         while (IP_AON_CTRL->REG_AON_DIG_RSVD0.all);
+        pm_restore_boot_gpio();
         vPortExitCritical();
     }
 }
@@ -106,9 +118,9 @@ int32_t pm_get_sleep_config(pm_sleep_config_t *sleep_config)
 {
     if (sleep_config != NULL)
     {
-        sleep_config->time_us   = pm_env.sleep_cfg->time_us;
-        sleep_config->gpio_mask = pm_env.sleep_cfg->gpio_mask;
-        sleep_config->gpio_mode = pm_env.sleep_cfg->gpio_mode;
+        sleep_config->time_us    = pm_env.sleep_cfg->time_us;
+        sleep_config->gpio_mask  = pm_env.sleep_cfg->gpio_mask;
+        sleep_config->gpio_level = pm_env.sleep_cfg->gpio_level;
         sleep_config->wakeup_src_mask = pm_env.sleep_cfg->wakeup_src_mask;
     }
 
@@ -144,6 +156,11 @@ int32_t pm_lock_release(pm_lock_t lock)
     }
 
     return 0;
+}
+
+void pm_wakeup_other_core(void)
+{
+    ipc_send_signal(IPC_SIG_WAKEUP);
 }
 
 int32_t pm_set_config(pm_config_t *config)

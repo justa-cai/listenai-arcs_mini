@@ -3,6 +3,7 @@
 # 用法: source env.sh [command]
 #
 # 默认行为（无参数）: 检测环境 → 缺失则安装 → 设置环境变量 → 检测子模块并提示
+# 注意：Zig adapter (`labs/zig/adapter`) 已随主仓源码分发，不再作为 git 子模块同步。
 # 子命令:
 #   check              完整环境检测报告
 #   setup              安装工具链（即使已存在也重新安装）
@@ -26,6 +27,14 @@ _ENV_DEV_TOOLS_DIR_NAME="listenai-dev-tools"
 _ENV_TOOLCHAIN_DIR_NAME="gcc"
 _ENV_TOOLS_DIR_NAME="listenai-tools"
 
+_env_host_os() {
+    /usr/bin/uname -s 2>/dev/null || uname -s
+}
+
+_env_host_arch() {
+    /usr/bin/uname -m 2>/dev/null || uname -m
+}
+
 # ─── 颜色输出 ─────────────────────────────────────────────────────────────────
 
 _env_color_reset="\033[0m"
@@ -44,15 +53,60 @@ _env_header() { echo -e "\n${_env_color_bold}$1${_env_color_reset}"; }
 # ─── 工具链验证 ───────────────────────────────────────────────────────────────
 
 _env_toolchain_valid() {
-    # 检查 NUCLEI_TOOLCHAIN_PATH 是否已设置且 gcc 可实际运行
-    [ -n "${NUCLEI_TOOLCHAIN_PATH:-}" ] && \
-    "$NUCLEI_TOOLCHAIN_PATH/bin/riscv64-unknown-elf-gcc" --version &>/dev/null
+    # 检查工具链是否满足 SDK 构建所需的 RISC-V triplet、binutils 和 ARCS 编译参数。
+    [ -n "${NUCLEI_TOOLCHAIN_PATH:-}" ] || return 1
+
+    local toolchain_bin="$NUCLEI_TOOLCHAIN_PATH/bin"
+    local prefix="$toolchain_bin/riscv64-unknown-elf-"
+    local tool
+    for tool in gcc g++ ld objcopy objdump readelf size nm ar ranlib; do
+        [ -x "${prefix}${tool}" ] || return 1
+    done
+
+    "${prefix}gcc" --version &>/dev/null || return 1
+    [ "$("${prefix}gcc" -dumpmachine 2>/dev/null)" = "riscv64-unknown-elf" ] || return 1
+
+    printf 'int main(void){return 0;}\n' | \
+        "${prefix}gcc" -x c - -c -o /dev/null -march=rv32imac_zba_zbb_zbc_zbs -mabi=ilp32 &>/dev/null || return 1
+    printf 'int main(void){return 0;}\n' | \
+        "${prefix}gcc" -x c - -c -o /dev/null -march=rv32imafc_zba_zbb_zbc_zbs -mabi=ilp32f &>/dev/null || return 1
+}
+
+_env_use_toolchain_path() {
+    local toolchain_path="$1"
+    local old_set="${NUCLEI_TOOLCHAIN_PATH+x}"
+    local old_value="${NUCLEI_TOOLCHAIN_PATH:-}"
+
+    export NUCLEI_TOOLCHAIN_PATH="$toolchain_path"
+    if _env_toolchain_valid; then
+        return 0
+    fi
+
+    if [ -n "$old_set" ]; then
+        export NUCLEI_TOOLCHAIN_PATH="$old_value"
+    else
+        unset NUCLEI_TOOLCHAIN_PATH
+    fi
+    return 1
 }
 
 _env_tools_valid() {
     # 检查 LISTENAI_TOOLS_PATH 是否已设置且 cmake 可实际运行
     [ -n "${LISTENAI_TOOLS_PATH:-}" ] && \
     "$LISTENAI_TOOLS_PATH/cmake/bin/cmake" --version &>/dev/null
+}
+
+_env_set_toolchain_from_path() {
+    # 兼容用户自行安装的 macOS 工具链（例如源码编译安装到自定义目录）。
+    if _env_toolchain_valid; then
+        return 0
+    fi
+
+    local gcc_path
+    gcc_path=$(command -v riscv64-unknown-elf-gcc 2>/dev/null) || return 1
+    local toolchain_path
+    toolchain_path="$(cd "$(dirname "$gcc_path")/.." && pwd)"
+    _env_use_toolchain_path "$toolchain_path"
 }
 
 # ─── 在父目录中查找 dev-tools ─────────────────────────────────────────────────
@@ -81,9 +135,7 @@ _env_set_from_dev_tools() {
     local dev_tools_path="$1"
 
     local toolchain_path="$dev_tools_path/$_ENV_TOOLCHAIN_DIR_NAME"
-    if "$toolchain_path/bin/riscv64-unknown-elf-gcc" --version &>/dev/null; then
-        export NUCLEI_TOOLCHAIN_PATH="$toolchain_path"
-    fi
+    _env_use_toolchain_path "$toolchain_path" || true
 
     local tools_path="$dev_tools_path/$_ENV_TOOLS_DIR_NAME"
     if "$tools_path/cmake/bin/cmake" --version &>/dev/null; then
@@ -98,10 +150,20 @@ _env_setup_path() {
 
     local paths_to_add=()
 
-    # cskburn — macOS 优先使用 listenai-tools 下的原生二进制
-    if [[ "$(uname)" == "Darwin" ]] && [ -n "${LISTENAI_TOOLS_PATH:-}" ] && \
-       [ -x "$LISTENAI_TOOLS_PATH/cskburn/cskburn" ]; then
-        paths_to_add+=("$LISTENAI_TOOLS_PATH/cskburn")
+    # cskburn — macOS 不能把 Linux ELF 的 tools/burn/cskburn 放到 PATH 前面。
+    if [[ "$(_env_host_os)" == "Darwin" ]]; then
+        if [ -n "${LISTENAI_TOOLS_PATH:-}" ] && [ -x "$LISTENAI_TOOLS_PATH/cskburn/cskburn" ]; then
+            paths_to_add+=("$LISTENAI_TOOLS_PATH/cskburn")
+        elif [ -x "$_ENV_SDK_DIR/tools/burn/cskburn.darwin-x64" ]; then
+            local shim_dir="${HOME}/.listenai/bin"
+            mkdir -p "$shim_dir" 2>/dev/null
+            cat > "$shim_dir/cskburn" <<EOF
+#!/bin/sh
+exec "$_ENV_SDK_DIR/tools/burn/cskburn.darwin-x64" "\$@"
+EOF
+            chmod +x "$shim_dir/cskburn" 2>/dev/null
+            paths_to_add+=("$shim_dir")
+        fi
     else
         local burn_dir="$_ENV_SDK_DIR/tools/burn"
         [ -d "$burn_dir" ] && paths_to_add+=("$burn_dir")
@@ -132,11 +194,13 @@ _env_check_deps() {
     # 检查系统依赖，返回缺失的包列表
     local missing=()
     command -v wget &>/dev/null || command -v curl &>/dev/null || missing+=("wget")
-    command -v bzip2 &>/dev/null || missing+=("bzip2")
     command -v git &>/dev/null || missing+=("git")
+    if [[ "$(_env_host_os)" != "Darwin" ]]; then
+        command -v bzip2 &>/dev/null || missing+=("bzip2")
+    fi
     if [ ${#missing[@]} -gt 0 ]; then
         _env_miss "缺少系统依赖: ${missing[*]}"
-        if [[ "$(uname)" == "Darwin" ]]; then
+        if [[ "$(_env_host_os)" == "Darwin" ]]; then
             _env_info "请运行: brew install ${missing[*]}"
         else
             _env_info "请运行: sudo apt install -y ${missing[*]}"
@@ -158,13 +222,14 @@ _env_install_toolchain() {
 
     # GCC 交叉编译器
     local toolchain_path="$dev_tools_path/$_ENV_TOOLCHAIN_DIR_NAME"
-    if [ "$force" = false ] && "$toolchain_path/bin/riscv64-unknown-elf-gcc" --version &>/dev/null; then
+    if [ "$force" = false ] && _env_toolchain_valid; then
+        _env_ok "GCC 工具链已存在，跳过"
+    elif [ "$force" = false ] && _env_use_toolchain_path "$toolchain_path"; then
         _env_ok "GCC 工具链已存在，跳过"
     else
-        if [[ "$(uname)" == "Darwin" ]]; then
-            _env_miss "GCC 工具链未安装（macOS 需手动编译）"
-            _env_info "请运行: bash /tmp/build-riscv-toolchain.sh"
-            _env_info "或设置 NUCLEI_TOOLCHAIN_PATH 指向已编译的工具链"
+        if [[ "$(_env_host_os)" == "Darwin" && "$(_env_host_arch)" != "arm64" ]]; then
+            _env_miss "GCC 工具链未安装（当前仅配置 macOS arm64 下载包）"
+            _env_info "已有工具链时: export NUCLEI_TOOLCHAIN_PATH=/path/to/gcc"
             has_error=true
         else
             _env_info "正在下载 GCC 工具链..."
@@ -183,19 +248,13 @@ _env_install_toolchain() {
     if [ "$force" = false ] && "$tools_path/cmake/bin/cmake" --version &>/dev/null; then
         _env_ok "listenai-tools 已存在，跳过"
     else
-        if [[ "$(uname)" == "Darwin" ]]; then
-            _env_miss "listenai-tools 未安装（macOS 需手动配置）"
-            _env_info "请参考 macOS 适配文档配置 listenai-tools"
-            has_error=true
+        _env_info "正在安装 listenai-tools..."
+        if bash "$_ENV_SDK_DIR/tools/scripts/prepare_listenai_tools.sh" "$dev_tools_path"; then
+            _env_ok "listenai-tools 安装完成"
         else
-            _env_info "正在下载 listenai-tools..."
-            if bash "$_ENV_SDK_DIR/tools/scripts/prepare_listenai_tools.sh" "$dev_tools_path"; then
-                _env_ok "listenai-tools 安装完成"
-            else
-                _env_miss "listenai-tools 安装失败"
-                _env_info "可尝试手动安装: bash tools/scripts/prepare_listenai_tools.sh"
-                has_error=true
-            fi
+            _env_miss "listenai-tools 安装失败"
+            _env_info "可尝试手动安装: bash tools/scripts/prepare_listenai_tools.sh"
+            has_error=true
         fi
     fi
 
@@ -221,7 +280,7 @@ _env_submodule_check_quick() {
     local orphan_output
     orphan_output=$(python3 "$_ENV_SDK_DIR/tools/scripts/clean_git_repos.py" --root-path "$_ENV_SDK_DIR" --dry-run 2>&1)
     local orphan_count
-    orphan_count=$(echo "$orphan_output" | sed -n '/not in .gitmodules/,$ { /^  - /p }' | wc -l)
+    orphan_count=$(echo "$orphan_output" | awk '/not in \.gitmodules/ {found=1; next} found && /^  - / {count++} END {print count+0}')
 
     if [ $uninit -gt 0 ] || [ "$orphan_count" -gt 0 ]; then
         if [ $uninit -gt 0 ]; then
@@ -285,7 +344,7 @@ _env_submodule_status() {
     local orphan_output
     orphan_output=$(python3 "$_ENV_SDK_DIR/tools/scripts/clean_git_repos.py" --root-path "$_ENV_SDK_DIR" --dry-run 2>&1)
     local orphans
-    orphans=$(echo "$orphan_output" | sed -n '/not in .gitmodules/,$ { /^  - /s/^  - //p }')
+    orphans=$(echo "$orphan_output" | awk '/not in \.gitmodules/ {found=1; next} found && /^  - / {sub(/^  - /, ""); print}')
     if [ -n "$orphans" ]; then
         echo ""
         _env_warn "孤儿子模块（不在 .gitmodules 中）:"
@@ -338,7 +397,11 @@ _env_check() {
         ccache_ver=$(ccache --version 2>/dev/null | head -1 | awk '{print $NF}')
         _env_ok "ccache              $ccache_ver"
     else
-        _env_warn "ccache              未安装 (可选，建议 apt install ccache)"
+        if [[ "$(_env_host_os)" == "Darwin" ]]; then
+            _env_warn "ccache              未安装 (可选，建议 brew install ccache)"
+        else
+            _env_warn "ccache              未安装 (可选，建议 apt install ccache)"
+        fi
     fi
 
     # Python3
@@ -352,14 +415,18 @@ _env_check() {
     fi
 
     # cskburn
-    if [ -x "$_ENV_SDK_DIR/tools/burn/cskburn" ]; then
+    if [[ "$(_env_host_os)" == "Darwin" ]] && [ -x "$_ENV_SDK_DIR/tools/burn/cskburn.darwin-x64" ]; then
+        _env_ok "cskburn             tools/burn/cskburn.darwin-x64"
+    elif [ -x "$_ENV_SDK_DIR/tools/burn/cskburn" ]; then
         _env_ok "cskburn             tools/burn/cskburn"
     else
         _env_warn "cskburn             未找到"
     fi
 
     # 串口权限
-    if groups 2>/dev/null | grep -q dialout; then
+    if [[ "$(_env_host_os)" == "Darwin" ]]; then
+        _env_ok "串口权限            macOS 使用 /dev/cu.*，无需 dialout 组"
+    elif groups 2>/dev/null | grep -q dialout; then
         _env_ok "串口权限            用户在 dialout 组"
     else
         _env_warn "串口权限            用户不在 dialout 组 (sudo usermod -aG dialout \$USER)"
@@ -405,6 +472,8 @@ _env_default() {
     # ── 1. 工具链 ──
     # 优先级: 已有环境变量 → 查找 listenai-dev-tools/ → 下载安装
 
+    _env_set_toolchain_from_path
+
     if _env_toolchain_valid && _env_tools_valid; then
         # 环境变量已设且有效，直接用
         :
@@ -420,7 +489,11 @@ _env_default() {
     else
         # 都没有，下载安装
         _ENV_DEV_TOOLS_PATH="${HOME}/.listenai"
-        _env_info "工具链未找到，正在下载安装..."
+        if [[ "$(_env_host_os)" == "Darwin" ]]; then
+            _env_info "工具链未找到，正在准备 macOS 开发工具..."
+        else
+            _env_info "工具链未找到，正在下载安装..."
+        fi
         _env_install_toolchain "$_ENV_DEV_TOOLS_PATH"
         _env_set_from_dev_tools "$_ENV_DEV_TOOLS_PATH"
     fi
@@ -447,14 +520,24 @@ _env_default() {
     if [ "$has_problem" = true ]; then
         echo ""
         _env_info "解决方法:"
-        _env_info "  方法一: 安装依赖后自动下载"
-        _env_info "    sudo apt install -y wget bzip2"
-        _env_info "    source env.sh setup"
-        echo ""
-        _env_info "  方法二: 已有工具链时手动设置"
-        _env_info "    export NUCLEI_TOOLCHAIN_PATH=\$HOME/.listenai/gcc"
-        _env_info "    export LISTENAI_TOOLS_PATH=\$HOME/.listenai/listenai-tools"
-        _env_info "    source env.sh"
+        if [[ "$(_env_host_os)" == "Darwin" ]]; then
+            _env_info "  方法一: 自动下载 macOS arm64 工具链和开发工具"
+            _env_info "    brew install wget"
+            _env_info "    source env.sh setup"
+            echo ""
+            _env_info "  方法二: 已有 Nuclei GCC 时手动设置"
+            _env_info "    export NUCLEI_TOOLCHAIN_PATH=/path/to/gcc"
+            _env_info "    source env.sh"
+        else
+            _env_info "  方法一: 安装依赖后自动下载"
+            _env_info "    sudo apt install -y wget bzip2"
+            _env_info "    source env.sh setup"
+            echo ""
+            _env_info "  方法二: 已有工具链时手动设置"
+            _env_info "    export NUCLEI_TOOLCHAIN_PATH=\$HOME/.listenai/gcc"
+            _env_info "    export LISTENAI_TOOLS_PATH=\$HOME/.listenai/listenai-tools"
+            _env_info "    source env.sh"
+        fi
     fi
 
     # ── 2. 设置 PATH ──
@@ -483,6 +566,7 @@ _env_main() {
         check)
             # check 先尝试补全环境变量，确保检测结果准确
             if ! _env_toolchain_valid || ! _env_tools_valid; then
+                _env_set_toolchain_from_path
                 if _env_find_dev_tools; then
                     _env_set_from_dev_tools "$_ENV_DEV_TOOLS_PATH"
                 fi
@@ -548,7 +632,7 @@ _env_main "$@"
 # 清理内部函数，避免污染用户 shell
 unset -f _env_main _env_default _env_check _env_check_deps _env_install_toolchain
 unset -f _env_set_from_dev_tools _env_setup_path _env_find_dev_tools _env_info_cmd
-unset -f _env_toolchain_valid _env_tools_valid
+unset -f _env_toolchain_valid _env_tools_valid _env_use_toolchain_path _env_set_toolchain_from_path _env_host_os _env_host_arch
 unset -f _env_submodule_sync _env_submodule_status _env_submodule_clean _env_submodule_check_quick
 unset -f _env_ok _env_warn _env_miss _env_info _env_header
 unset _env_color_reset _env_color_green _env_color_yellow _env_color_red _env_color_cyan _env_color_bold

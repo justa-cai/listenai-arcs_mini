@@ -19,6 +19,11 @@
 #include <lsfs.h>
 #include "sqlite3_malloc.c"
 
+/* SQLite header compatibility: some versions use MASTER_JOURNAL instead of SUPER_JOURNAL. */
+#ifndef SQLITE_OPEN_SUPER_JOURNAL
+#define SQLITE_OPEN_SUPER_JOURNAL SQLITE_OPEN_MASTER_JOURNAL
+#endif
+
 #define UNUSED(x) (void)(x)
 
 #undef dbg_printf
@@ -321,6 +326,11 @@ int cskmem_Read(sqlite3_file *id, void *buffer, int amount, sqlite3_int64 offset
 	csk_file *file = (csk_file *)id;
 	ofst = (int32_t)(offset & 0x7FFFFFFF);
 
+	/* For in-memory files, unread ranges should behave like reading zeros. */
+	if (buffer && amount > 0) {
+		memset(buffer, 0, (size_t)amount);
+	}
+
 	filecache_pull(file->cache, ofst, amount, (uint8_t *)buffer);
 
 	dbg_printf("cskmem_Read: %s [%d] [%d] OK\n", file->name, ofst, amount);
@@ -365,8 +375,30 @@ int csk_Open(sqlite3_vfs *vfs, const char *path, sqlite3_file *file, int flags, 
 
 	lsfs_mode_t mode = LSFS_O_READ;
 
-	if (path == NULL)
-		return SQLITE_IOERR;
+	/* SQLite may pass zName==NULL for temporary files. Provide an in-memory file
+	 * implementation for temp/journal-like files to avoid filesystem requirements.
+	 */
+	if (path == NULL ||
+	    (flags & (SQLITE_OPEN_TEMP_DB | SQLITE_OPEN_TEMP_JOURNAL | SQLITE_OPEN_SUBJOURNAL |
+	              SQLITE_OPEN_SUPER_JOURNAL | SQLITE_OPEN_TRANSIENT_DB))) {
+		csk_file *pm = (csk_file *)file;
+		memset(pm, 0, sizeof(csk_file));
+		if (path) {
+			strncpy(pm->name, path, csk_DEFAULT_MAXNAMESIZE);
+			pm->name[csk_DEFAULT_MAXNAMESIZE - 1] = '\0';
+		} else {
+			strncpy(pm->name, ":memory:", csk_DEFAULT_MAXNAMESIZE);
+			pm->name[csk_DEFAULT_MAXNAMESIZE - 1] = '\0';
+		}
+		pm->fd = 0;
+		pm->cache = (filecache_t *)sqlite3_malloc(sizeof(filecache_t));
+		if (!pm->cache)
+			return SQLITE_NOMEM;
+		memset(pm->cache, 0, sizeof(filecache_t));
+		pm->base.pMethods = &cskMemMethods;
+		dbg_printf("csk_Open: MEM %s flags=0x%x\n", pm->name, flags);
+		return SQLITE_OK;
+	}
 	dbg_printf("csk_Open: 0o %s %0x\n", path, mode);
 	if (flags & SQLITE_OPEN_CREATE) {
 		mode |= LSFS_O_CREATE;
@@ -427,16 +459,52 @@ int csk_Close(sqlite3_file *id)
 int csk_Read(sqlite3_file *id, void *buffer, int amount, sqlite3_int64 offset)
 {
 	size_t nRead;
-	int32_t ofst, iofst;
+	int32_t seekResult;
 	csk_file *file = (csk_file *)id;
 
-	iofst = (int32_t)(offset & 0x7FFFFFFF);
+	/* SQLite uses 64-bit offsets; lsfs_seek() may be limited. */
+	if (offset < 0) {
+		printf("csk_Read: invalid offset %lld\n", (long long)offset);
+		return SQLITE_IOERR_SEEK;
+	}
 
-	dbg_printf("csk_Read: 1r %s %d %lld[%d] \n", file->name, amount, offset, iofst);
-	ofst = lsfs_seek(file->fd, iofst, SEEK_SET);
-	if (ofst != 0) {
-		dbg_printf("csk_Read: 2r %d != %d FAIL\n", ofst, iofst);
-		return SQLITE_IOERR_SHORT_READ /* SQLITE_IOERR_SEEK */;
+	/* SQLite lock-byte region is typically at/above 0x40000000. Many embedded
+	 * filesystems cannot seek there. Reads should behave like EOF (all zeros).
+	 */
+	if (offset >= 0x40000000LL) {
+		if (buffer && amount > 0) {
+			memset(buffer, 0, (size_t)amount);
+		}
+		return SQLITE_IOERR_SHORT_READ;
+	}
+
+	if (offset > (sqlite3_int64)INT32_MAX) {
+		/* Treat as read beyond EOF (or lock-byte region) and return short read with zeros. */
+		if (buffer && amount > 0) {
+			memset(buffer, 0, (size_t)amount);
+		}
+		return SQLITE_IOERR_SHORT_READ;
+	}
+
+	int32_t iofst = (int32_t)offset;
+
+	dbg_printf("csk_Read: 1r %s %d %lld[%d] \n", file->name, amount, (long long)offset, iofst);
+	seekResult = lsfs_seek(file->fd, iofst, SEEK_SET);
+	/* lsfs_seek() follows POSIX lseek semantics: returns new offset (>=0) on success. */
+	if (seekResult < 0) {
+		/* If seeking beyond EOF is not supported, behave like EOF (short read). */
+		struct lsfs_dirent st;
+		memset(&st, 0, sizeof(st));
+		if (lsfs_stat(file->name, &st) == 0 && (sqlite3_int64)iofst >= (sqlite3_int64)st.size) {
+			if (buffer && amount > 0) {
+				memset(buffer, 0, (size_t)amount);
+			}
+			return SQLITE_IOERR_SHORT_READ;
+		}
+
+		printf("csk_Read: seek FAIL name=%s off=%lld(%d) amount=%d rc=%d\n", file->name,
+		       (long long)offset, iofst, amount, seekResult);
+		return SQLITE_IOERR_SEEK;
 	}
 
 	nRead = lsfs_read(file->fd, buffer, amount);
@@ -455,15 +523,40 @@ int csk_Read(sqlite3_file *id, void *buffer, int amount, sqlite3_int64 offset)
 int csk_Write(sqlite3_file *id, const void *buffer, int amount, sqlite3_int64 offset)
 {
 	size_t nWrite;
-	int32_t ofst, iofst;
+	int32_t seekResult;
 	csk_file *file = (csk_file *)id;
 
-	iofst = (int32_t)(offset & 0x7FFFFFFF);
-
-	dbg_printf("csk_Write: 1w %s %d %lld[%d] \n", file->name, amount, offset, iofst);
-	ofst = lsfs_seek(file->fd, iofst, SEEK_SET);
-	if (ofst != 0) {
+	if (offset < 0) {
+		printf("csk_Write: invalid offset %lld\n", (long long)offset);
 		return SQLITE_IOERR_SEEK;
+	}
+
+	/* If SQLite tries to write into reserved lock-byte region (very large offsets),
+	 * ignore instead of failing on filesystems that cannot seek that far.
+	 */
+	if (offset >= 0x40000000LL) {
+		return SQLITE_OK;
+	}
+
+	if (offset > (sqlite3_int64)INT32_MAX) {
+		printf("csk_Write: offset too large %lld\n", (long long)offset);
+		return SQLITE_IOERR_SEEK;
+	}
+
+	int32_t iofst = (int32_t)offset;
+
+	dbg_printf("csk_Write: 1w %s %d %lld[%d] \n", file->name, amount, (long long)offset, iofst);
+	seekResult = lsfs_seek(file->fd, iofst, SEEK_SET);
+	/* lsfs_seek() follows POSIX lseek semantics: returns new offset (>=0) on success. */
+	if (seekResult < 0) {
+		/* Some FS cannot seek beyond EOF unless file is extended first. */
+		(void)lsfs_truncate(file->fd, (sqlite3_int64)iofst + (sqlite3_int64)amount);
+		seekResult = lsfs_seek(file->fd, iofst, SEEK_SET);
+		if (seekResult < 0) {
+			printf("csk_Write: seek FAIL name=%s off=%lld(%d) amount=%d rc=%d\n", file->name,
+			       (long long)offset, iofst, amount, seekResult);
+			return SQLITE_IOERR_SEEK;
+		}
 	}
 
 	dbg_printf("csk_Write: 1.1w %s %d %lld[%d] \n", file->name, amount, offset, iofst);

@@ -32,6 +32,7 @@
 
 #include "bt_stack_hal.h"
 #include "bt_ble_hal.h"
+#include "bt_app_hal.h"
 #include "hogpd_msg.h"
 #include "hogpd.h"
 #include "bass.h"
@@ -49,10 +50,12 @@ extern void gapc_con_param_clear_peer_feat(uint8_t conidx);
 extern uint8_t ble_gap_get_ltk_nocon(gap_addr_t * addr, uint8_t *p_ltk);
 extern uint8_t app_hid_rcv_data(uint8_t conidx, uint16_t index, uint16_t length, uint16_t offset, uint8_t *data);
 extern uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op, uint8_t *p_value);
-
+#if BLE_HID_SEND_DUMMY_MOUSE_DATA
+extern void bt_mouse_send_by_timer_stop(void);
+#endif
 void bt_stack_ble_hid_rcv(uint8_t conidx, uint16_t index, uint16_t length, uint16_t offset, uint8_t *data);
-static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id);
-static void  bt_stack_ble_hid_read_cmp(uint32_t token, uint8_t val_id);
+static void bt_stack_ble_hid_send_cmp(uint8_t conidx, uint32_t token, uint8_t val_id);
+static void  bt_stack_ble_hid_read_cmp(uint8_t conidx, uint32_t token, uint8_t val_id);
 uint8_t *bt_stack_vbat_percent_get(void);
 void bt_stack_ble_parameter_update_by_timer(uint32_t milli_seconds);
 
@@ -232,6 +235,8 @@ uint8_t debug_adv_date[] = {0x02,0x01,0x05,
 #endif
 void bt_stack_ble_enable_cmp(uint16_t status)
 {
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+
     uint16_t flags = 0;
     uint16_t uuid[2];
     uint8_t len = GAP_BD_ADDR_LEN;
@@ -257,11 +262,13 @@ void bt_stack_ble_enable_cmp(uint16_t status)
     ble_diss_init((diss_cb_t *)&bt_stack_ble_diss_msg_cb);
 #endif
 
-#if BLE_VOICE_SIMULATOR
+#if BLE_HID_CFG
     // enable hid service
     uint8_t svc_features = HOGPD_CFG_KEYBOARD | HOGPD_CFG_MOUSE | HOGPD_CFG_PROTO_MODE | HOGPD_CFG_REPORT_NTF_EN;
     uint8_t report_char_cfg = HOGPD_CFG_REPORT_IN;
     hogpd_report_map_t report_map = {sizeof(hid_report_map), 0, (uint8_t *)hid_report_map};
+    ///for iphone connect
+    ble_hogpd_report_map_enc_set(1);
     ble_hogpd_init(svc_features, report_char_cfg, (hogpd_cb_t*)&bt_stack_ble_hogpd_msg_cb, &report_map);
     ble_hogpd_enable(0);
 #endif
@@ -274,10 +281,28 @@ void bt_stack_ble_enable_cmp(uint16_t status)
     ble_gap_set_con_param_dis(1);
 #endif
 
+    stack_env->bt_open = BT_STATE_OPENED;
+
     ///start adv
     //app_ble_adv_start(0, BLE_ADV_GEN);
 }
-
+///actv         0:stop, 1:start
+///resquester   0:auto, 1:user
+void bt_stack_ble_actv_ind(uint8_t actv, uint8_t type, uint8_t actv_id, uint8_t resquester, int16_t status)
+{
+    switch(type)
+    {
+        case GAPM_ACTV_TYPE_ADV :
+        case GAPM_ACTV_TYPE_SCAN :
+        case GAPM_ACTV_TYPE_INIT :
+        case GAPM_ACTV_TYPE_PER_SYNC :
+        {
+            CLOGD("ble actv :act-type-id:%d-%d-%d,req:%d,sta:0x%x", actv, type, actv_id, resquester, status);
+        }
+        break;
+        default : break;
+    }
+}
 void bt_stack_ble_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *peer_addr)
 {
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
@@ -292,10 +317,6 @@ void bt_stack_ble_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *peer_a
 
     /// get remote feature
     ble_gap_get_con_info(conidx, GAP_INFO_FETURES);
-
-#if BLE_VOICE_SIMULATOR
-    bt_stack_ble_parameter_update_by_timer(6000);
-#endif
 }
 
 void bt_stack_ble_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
@@ -313,12 +334,21 @@ void bt_stack_ble_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
             peer.addr[3], peer.addr[4], peer.addr[5]);
     CLOGI("dis reason: %d", reason);
     /// profile reinit
+#if BLE_HID_CFG
     hogpd_report_map_t report_map = {sizeof(hid_report_map), 0, (uint8_t *)hid_report_map};
     hogpd_init_report_map(1, &report_map);
+#endif
     /// clear all exit latency
     ble_gap_entry_latency(GAP_EXIT_LATENCY_ALL);
     ///clear hid count
     stack_env->bt_hid_send_cnt = 0;
+#if BLE_HID_SEND_DUMMY_MOUSE_DATA
+    bt_mouse_send_by_timer_stop();
+#endif
+    if(stack_env->bt_open != BT_STATE_OPENED)
+    {
+        bt_stack_if_close_discon(0);
+    }
 }
 
 void bt_stack_ble_key_req(uint8_t conidx, uint8_t key_type, uint32_t key)
@@ -468,7 +498,7 @@ uint8_t bt_stack_ble_hid_send(uint8_t conidx, uint8_t report_idx, uint8_t length
     return status;
 }
 
-static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id)
+static void bt_stack_ble_hid_send_cmp(uint8_t conidx, uint32_t token, uint8_t val_id)
 {
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
 
@@ -483,7 +513,7 @@ static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id)
     //}
 }
 
-static void  bt_stack_ble_hid_read_cmp(uint32_t token, uint8_t val_id)
+static void  bt_stack_ble_hid_read_cmp(uint8_t conidx, uint32_t token, uint8_t val_id)
 {
     ///to do;
 }

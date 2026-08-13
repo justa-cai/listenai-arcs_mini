@@ -1,0 +1,40 @@
+[package]
+name    = "arcs"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# Embedded no_std design: arcs is rlib only.
+# Samples are their own staticlib crates that depend on arcs via path; the
+# sample's staticlib bundles the arcs rlib code + the sample's entry! macro
+# (which provides #[panic_handler] and #[global_allocator]). A standalone
+# staticlib build of arcs would require its own panic_handler, conflicting
+# with the macro-injected one in samples.
+crate-type = ["rlib"]
+
+[dependencies]
+log.workspace          = true
+heapless.workspace     = true
+arcs-macros.workspace  = true
+embedded-hal           = { workspace = true, optional = true }
+embedded-io            = { workspace = true, optional = true }
+embedded-storage       = { workspace = true, optional = true }
+embedded-graphics-core = { workspace = true, optional = true }
+
+[features]
+default = ["embedded-hal"]
+# "embedded-hal" is the umbrella "community traits" feature: it pulls in
+# embedded-hal (digital/i2c/spi/pwm/delay), embedded-io (uart),
+# embedded-storage (nor_flash) and embedded-graphics-core (DrawTarget) impls.
+embedded-hal = [
+    "dep:embedded-hal",
+    "dep:embedded-io",
+    "dep:embedded-storage",
+    "dep:embedded-graphics-core",
+]
+# Opt-in: a Rust panic logs its message then triggers a full software reset
+# (recover) instead of hanging on `ebreak`. Default off — the default keeps the
+# debuggable hang so a halted core can be inspected.
+panic-reboot = []

@@ -134,10 +134,6 @@ void printf_log_redirect_enable(void)
 }
 #endif
 
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_SLAVE) && defined(CONFIG_ARCS_HAL_IPC_PRINT)
-extern int32_t ipc_slave_print(char *string, int32_t len);
-#endif
-
 _ssize_t _write_r(struct _reent *r, int file, const void *ptr, size_t len)
 {
     if (!ptr || len == 0) {
@@ -147,11 +143,6 @@ _ssize_t _write_r(struct _reent *r, int file, const void *ptr, size_t len)
     switch (file) {
     case STDOUT_FILENO:
     case STDERR_FILENO:
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_SLAVE) && defined(CONFIG_ARCS_HAL_IPC_PRINT)
-        if (ipc_slave_print((char *)ptr, (int32_t)len) == 0) {
-            return len;
-        }
-#endif
 #if CONFIG_PRINTF_LOG_REDIRECT
         if (_printf_to_log) {
             LISA_LOG_RAW("%.*s", (int)len, (const char *)ptr);

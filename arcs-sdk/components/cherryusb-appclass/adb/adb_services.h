@@ -11,6 +11,7 @@ struct adb_service_handle;
 
 struct adb_service {
 	uint8_t used;
+	uint8_t close_sent;
 	uint32_t local_id;
 	uint32_t remote_id;
 	const struct adb_service_handle *hd;
@@ -22,12 +23,15 @@ struct adb_service_handle {
 	int (*open)(struct adb_service *, const uint8_t *);
 	int (*close)(struct adb_service *);
 	int (*write)(struct adb_service *, adb_packet_t *);
+	void (*ready)(struct adb_service *);
 };
 
 uint32_t adb_service_open(const uint8_t *name, const uint8_t *args, uint32_t remote_id);
 int adb_service_write(uint32_t local_id, uint32_t remote_id, adb_packet_t *);
+void adb_service_ready(uint32_t local_id, uint32_t remote_id);
 void adb_service_close(uint32_t local_id, uint32_t remote_id);
 void adb_service_close_all(void);
 void adb_service_write_remote(struct adb_service *s, uint8_t *data, int len);
 int adb_service_hd_register(const struct adb_service_handle const *handle);
+void adb_service_note_close_sent(uint32_t local_id, uint32_t remote_id);
 #endif

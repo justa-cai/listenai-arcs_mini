@@ -33,6 +33,10 @@
  * GLOBAL VARIABLE DECLARATIONS
  ****************************************************************************************
  */
+ 
+void bt_platform_init(uint32_t flag);
+void bt_platform_open(uint32_t flag);
+void bt_platform_close(uint32_t flag);
 
 
 /// @} BT STACK

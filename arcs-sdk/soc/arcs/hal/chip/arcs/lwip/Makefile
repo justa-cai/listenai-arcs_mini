@@ -67,6 +67,11 @@ CSRCS_API := $(LWIPDIR)/src/api/api_lib.c\
 CSRCS_PORT := port/netif/dhcp_state.c
 
 CSRCS_APP := $(LWIPDIR)/src/apps/dhcps/dhcps.c
+
+ifneq ($(CFG_MQTT_TEST), "")
+CSRCS_APP += $(LWIPDIR)/src/apps/mqtt/mqtt.c
+endif
+
 CSRCS_NET_AL := net_al/net_al.c\
                 net_al/net_ip.c\
                 net_al/net_tg_al.c
@@ -82,7 +87,7 @@ endif
 
 CPPSRCS	=
 SSRCS	=
-CSRCS  := $(CSRCS_PORT) $(CSRCS_CORE) $(CSRCS_IPV4) $(CSRCS_NETIF) $(CSRCS_ARCH) $(CSRCS_APP) $(CSRCS_API) $(CSRCS_NET_AL) $(LWIPERFFILES)
+CSRCS  := $(CSRCS_PORT) $(CSRCS_CORE) $(CSRCS_IPV4) $(CSRCS_IPV6) $(CSRCS_NETIF) $(CSRCS_ARCH) $(CSRCS_APP) $(CSRCS_API) $(CSRCS_NET_AL) $(LWIPERFFILES)
  
 #includings and flags
 CFLAGS := -I$(LWIPDIR)/src/include\

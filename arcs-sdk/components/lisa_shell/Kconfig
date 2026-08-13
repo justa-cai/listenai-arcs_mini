@@ -42,6 +42,36 @@ config LISA_SHELL_RX_BUF_SIZE
 	help
 			Size of the UART receive buffer for shell input in bytes.
 
+choice LISA_SHELL_RX_MODE
+	prompt "Shell UART receive mode"
+	default LISA_SHELL_RX_MODE_POLL_IN if LISA_PM
+	default LISA_SHELL_RX_MODE_RECV_ASYNC
+	help
+			Select the UART receive mode used by LISA Shell.
+
+config LISA_SHELL_RX_MODE_RECV_ASYNC
+	bool "Receive with async UART buffer"
+	help
+			Use the original receive path: enable the UART circular receive
+			buffer and read shell input through lisa_uart_read_sync().
+
+config LISA_SHELL_RX_MODE_POLL_IN
+	bool "Receive with poll_in"
+	help
+			Use lisa_uart_poll_in() to poll shell input. When no data is
+			available, the shell task sleeps for the configured poll interval
+			to reduce CPU usage.
+
+endchoice
+
+config LISA_SHELL_POLL_IN_INTERVAL_MS
+	int "Shell poll_in interval in milliseconds"
+	default 100
+	depends on LISA_SHELL_RX_MODE_POLL_IN
+	help
+			Sleep interval used by the shell task when poll_in mode has no
+			input data available.
+
 config LISA_SHELL_SUPPORT_END_LINE
 	bool "Support shell end line mode"
 	default y

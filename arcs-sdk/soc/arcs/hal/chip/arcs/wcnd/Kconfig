@@ -49,6 +49,18 @@ if ARCS_HAL_WCND
         help
             Enable RF flash otp
 
+    config ARCS_HAL_WCND_WIFI_PS_LDOCORE_TUNE
+        bool "Enable WiFi PS LDOCORE tune"
+        default y
+        help
+            Enable LDOCORE tune register override during WiFi power save init.
+
+    config ARCS_HAL_WCND_WIFI_PS_LDOVMEM_TUNE
+        bool "Enable WiFi PS LDOVMEM tune"
+        default n
+        help
+            Enable LDOVMEM tune register override during WiFi power save init.
+
     config ARCS_HAL_WCND_RF_BOARD_VER
         int "RF Board Version"
         default 0

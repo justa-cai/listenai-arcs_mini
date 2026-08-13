@@ -27,6 +27,7 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 /* Enable long int support */
 #define PRINTF_LONG_SUPPORT
+#define PRINTF_SHORT_SUPPORT
 
 /* Enable long long int support (implies long int support) */
 #define PRINTF_LONG_LONG_SUPPORT
@@ -377,6 +378,13 @@ void tfp_format(void *putp, putcf putf, const char *fmt, va_list va)
 #endif
             }
 #endif
+
+#ifdef PRINTF_SHORT_SUPPORT
+            if (ch == 'h') {
+                ch = *(fmt++);
+            }
+#endif
+
             switch (ch) {
             case 0:
                 goto abort;
@@ -487,7 +495,7 @@ __attribute__((weak)) void tfp_vprintf(const char *fmt, va_list ap)
 }
 
 __attribute__((weak)) void tfp_printf(const char *fmt, ...)
-{    
+{
     if(stdout_putf == NULL)
         return;
 

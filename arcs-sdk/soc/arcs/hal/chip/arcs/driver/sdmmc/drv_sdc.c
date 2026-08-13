@@ -532,7 +532,7 @@ gm_api_sdc_platform_init(u32 sdc0_option, u32 sdc1_option, sdc_platform_setting_
         sdc_dbg_print("%s : skip hardware setting\n", __func__);
     }
     else{
-        hw_setting();
+    hw_setting();
     }
     sdc_dbg_print("%s sdc0 op=%d sdc1 op=%d\n", __func__, sdc0_option, sdc1_option);
 

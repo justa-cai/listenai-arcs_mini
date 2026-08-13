@@ -8,3 +8,9 @@
 
     wakeup/README.md
     fd/README.rst
+    palm/README.rst
+    cv/README.md
+    xtts/README.md
+    translation/README.md
+    tuner/README.md
+    wsp/README.md

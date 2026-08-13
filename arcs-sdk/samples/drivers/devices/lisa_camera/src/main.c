@@ -129,13 +129,20 @@ static void serial_send(const uint8_t *data, uint32_t len)
  * ======================================================================== */
 
 #ifdef CONFIG_BOARD_ARCS_EVB
-
-#define CAM_PWDN_PIN    7
+/*------------ AERCS_EVB ------------------*/
+#define CAM_PWDN_ENABLED       1    /* 使能PWDN引脚 */
+#define CAM_PWDN_DEV           lisa_device_get("gpiob")
+#define CAM_PWDN_PIN           7
+#define CAM_RESET_ENABLED      0     /* 禁用REST引脚 */
+#define CAM_RESET_DEV          NULL  /* 忽略复位流程 */
+#define CAM_RESET_PIN          0
+#define CAM_RESET_ACTIVE_LEVEL 0
 
 #define CAM_HSYNC_PIN   10
 #define CAM_VSYNC_PIN   11
 #define CAM_PCLK_PIN    12
 #define CAM_MCLK_PIN    26
+#define CAM_MCLK_PORT   CSK_IOMUX_PAD_A
 #define CAM_D0_PIN      13
 #define CAM_D1_PIN      14
 #define CAM_D2_PIN      15
@@ -147,7 +154,12 @@ static void serial_send(const uint8_t *data, uint32_t len)
 
 void lisa_gpiob_pinmux(void)
 {
+#if CAM_PWDN_ENABLED
     IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, CAM_PWDN_PIN, CSK_IOMUX_FUNC_DEFAULT);
+#endif
+#if CAM_RESET_ENABLED
+    IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, CAM_RESET_PIN, CSK_IOMUX_FUNC_DEFAULT);
+#endif
 }
 
 void lisa_uart1_pinmux()
@@ -208,15 +220,27 @@ int main(int argc, char **argv)
         LOGE("Error: %s device not ready", "i2c0");
         return -1;
     }
-
+#elif (defined CONFIG_BOARD_VENUSA_RD_EVB)
+    lisa_device_t *i2c_dev = lisa_device_get("i2c1");
+    if (!lisa_device_ready(i2c_dev)) {
+        LOGE("Error: %s device not ready", "i2c1");
+        return -1;
+    }
+#else
+    #error "Unsupported board !"
+#endif
     /* 配置摄像头参数 */
     lisa_camera_config_t config = {
         .hw_config = {
-            .mclk_pad = CSK_IOMUX_PAD_A,
+            .mclk_pad = CAM_MCLK_PORT,
             .mclk_pin = CAM_MCLK_PIN,
 #ifdef CONFIG_BOARD_ARCS_EVB
             .pwdn_gpio_dev = lisa_device_get("gpiob"),
             .pwdn_pin = CAM_PWDN_PIN,
+            .reset_gpio_dev = CAM_RESET_DEV,
+            .reset_pin = CAM_RESET_PIN,
+            .reset_active_level = CAM_RESET_ACTIVE_LEVEL,
+            .reset_delay_us = 0,
             .pwdn_delay_us = 0,
 #endif
             .xclk_delay_us = 0,
@@ -256,7 +280,7 @@ int main(int argc, char **argv)
             .line_offset    = 0,
             .pixel_offset   = 0,
             .pclk_polarity  = 0,
-            .vsync_polarity = 1,
+            .vsync_polarity = 0,
             .hsync_polarity = 1,
         }
     };

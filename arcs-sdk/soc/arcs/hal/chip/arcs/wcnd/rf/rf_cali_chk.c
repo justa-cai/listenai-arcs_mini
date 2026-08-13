@@ -62,17 +62,17 @@
     complexint16 cSumTmp = {0};
     for (int idx = 0; idx < MAX_PARALEN; idx++)
     {
-        if (abs((cParaEst + idx)->re) > 8190)
+        if (abs((cParaEst + idx)->re) > 8100)
             return -1; // invalid DPD parameters
-        if (abs((cParaEst + idx)->im) > 8190)
+        if (abs((cParaEst + idx)->im) > 8100)
             return -1; // invalid DPD parameters
     }
-    if ((CalculateAmp16(*cParaEst, 3) < 384) || (CalculateAmp16(*cParaEst, 3) > 665))
+    if ((CalculateAmp16(*cParaEst, 3) < 410) || (CalculateAmp16(*cParaEst, 3) > 650))
         return -1; // invalid DPD parameters
     cSumTmp = ComplexAddInt16(&cSumTmp, cParaEst);
     cSumTmp = ComplexAddInt16(&cSumTmp, cParaEst+5);
     cSumTmp = ComplexAddInt16(&cSumTmp, cParaEst+10);
-    if ((CalculateAmp16(cSumTmp, 3) < 384) || (CalculateAmp16(cSumTmp, 3) > 665))
+    if ((CalculateAmp16(cSumTmp, 3) < 430) || (CalculateAmp16(cSumTmp, 3) > 610))
         return -1; // invalid DPD parameters
     return 0; // valid DPD parameters
 }

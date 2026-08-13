@@ -17,6 +17,7 @@
 #define SPI_CPOL                      (1UL << 1)
 #define SPI_SLAVE                     (1UL << 2)
 #define SPI_LSB                       (1UL << 3)
+#define SPI_BIDIR                     (1UL << 4)    // Bidirectional SPI (0: Normal, 1: Bidirectional on MOSI/SDIO)
 #define SPI_MERGE                     (1UL << 7)
 #define DATA_BITS_MASK                (0x1F << 8)
 #define DATA_BITS(data_bits)          (((data_bits) - 1) << 8)
@@ -31,6 +32,8 @@
 #define RD_TRANCNT(num)                 ((num) - 1)     // bit[31:0] @ 0x1C RD_LEN [NEW]
 #define WR_TRANCNT(num)                 ((num) - 1)     // bit[31:0] @ 0x18 WR_LEN [NEW]
 
+#define DUMMY_CNT(num)                  ((((num) - 1) & 0x3UL) << 9) // bits[10:9] @ TRANSCTRL
+
 #define DQ_IO_MASK                      (0x3 << 22)     // bit[23:22] @ 0x20 TRANSCTRL
 #define DQ_IO_SINGLE                    (0x0 << 22)     //0x0: Regular (Single) mode
 #define DQ_IO_DUAL                      (0x1 << 22)     //0x1: Dual I/O mode
@@ -40,11 +43,11 @@
 // RD/WR transferred count, 10 bits in new version (originally 9 bits)
 //#define SLV_RDCNT(spi)               ((spi)->reg->SLVDATACNT & 0x1FF)
 //#define SLV_WRCNT(spi)               (((spi)->reg->SLVDATACNT >> 16) & 0x1FF)
-#define SLV_RDCNT(spi)               ((spi)->reg->SLVDATACNT & 0x3FF)
-#define SLV_WRCNT(spi)               (((spi)->reg->SLVDATACNT >> 16) & 0x3FF)
-#define CLR_SLV_RDCNT(spi)           (spi)->reg->SLVDATACNT |= (1 << 15) // bit[15] = 1 to clear RCnt
-#define CLR_SLV_WRCNT(spi)           (spi)->reg->SLVDATACNT |= (1 << 31) // bit[31] = 1 to clear WCnt
-#define CLR_SLV_RDWRCNT(spi)         (spi)->reg->SLVDATACNT |= ((1 << 15) | (1 << 31)) // bit[15/31] = 1 to clear RCnt
+#define SLV_RDCNT(spi)               ((spi)->reg->SLVRCNT)
+#define SLV_WRCNT(spi)               ((spi)->reg->SLVWCNT)
+//#define CLR_SLV_RDCNT(spi)           (spi)->reg->SLVDATACNT |= (1 << 15) // bit[15] = 1 to clear RCnt
+//#define CLR_SLV_WRCNT(spi)           (spi)->reg->SLVDATACNT |= (1 << 31) // bit[31] = 1 to clear WCnt
+//#define CLR_SLV_RDWRCNT(spi)         (spi)->reg->SLVDATACNT |= ((1 << 15) | (1 << 31)) // bit[15/31] = 1 to clear RCnt
 
 // SPI transfer mode
 #define SPI_TRANSMODE_WRnRD           (0x0 << 24)
@@ -125,8 +128,11 @@ typedef struct {
     __IO unsigned int MEMCTRL;              /* 0x50 SPI memory access control register */
          unsigned int RESERVED3[3];         /* 0x54 ~ 0x5c Reserved */
     __IO unsigned int SLVST;                /* 0x60 SPI slave status register */
-    __IO unsigned int SLVDATACNT;           /* 0x64 SPI slave data count register */
-         unsigned int RESERVED4[5];         /* 0x68 ~ 0x78 Reserved */
+    //__IO unsigned int SLVDATACNT;           /* 0x64 SPI slave data count register */
+         //unsigned int RESERVED4[5];         /* 0x68 ~ 0x78 Reserved */
+    __IO unsigned int SLVRCNT;              /* 0x64 SPI slave mode read data count register */
+    __IO unsigned int SLVWCNT;              /* 0x68 SPI slave mode write data count register */
+         unsigned int RESERVED4[4];         /* 0x6C ~ 0x78 Reserved */
     __I  unsigned int CONFIG;               /* 0x7c Configuration register */
 } CSK_SPI_RegDef;
 
@@ -195,6 +201,7 @@ typedef union {
 #define SPI_SEND                      0x1
 #define SPI_RECEIVE                   0x2
 #define SPI_TRANSFER                  0x3
+#define SPI_SEQ_TX_RX                 0x4
 
 // SPI transfer information (Run-time)
 typedef struct _SPI_TRANSFER_INFO

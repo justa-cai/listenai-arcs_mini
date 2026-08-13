@@ -71,6 +71,8 @@ enum rtos_task_id
     IPC_MSG_TASK,
     IPC_WIFI_TX_TASK,
     IPC_WIFI_RX_TASK,
+    IPC_BT_HOST_TASK,
+    IPC_BT_CTRL_TASK,
     AGING_TEST_TASK,
     WPA_CONNECTED_TASK,
     EVENT_TASK,
@@ -80,6 +82,7 @@ enum rtos_task_id
     APP_INIT_TASK,
     IPC_DBG_TASK,
     HALT_CORE_TASK,
+    FREQ_OFFSET_TASK,
     MAX_TASK,
     UNDEF_TASK = 255,
 };

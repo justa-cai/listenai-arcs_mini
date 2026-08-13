@@ -559,10 +559,40 @@ static int lisa_touch_cst816d_init(void)
 }
 
 /* ===== 设备注册 ===== */
-LISA_DEVICE_REGISTER(touch_cst816d,                  /* 设备名称 */
-                     &cst816d_touch_api,             /* API指针 */
-                     &touch_cst816d_priv,            /* 私有数据指针 */
-                     NULL,                           /* 用户数据 */
-                     lisa_touch_cst816d_init,        /* 初始化函数 */
-                     LISA_DEVICE_LEVEL_NORMAL,       /* 级别 */
-                     LISA_DEVICE_PRIORITY_NORMAL);   /* 优先级 */
+/**
+ * @brief 停止并释放 CST816D 触摸设备的全部软硬件资源，恢复上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用。释放顺序与 _init / 运行期申请相反：
+ *   1) 若中断模式激活，先 lisa_gpio_disable_irq 关中断，避免回调再触发；
+ *   2) 删除运行期按需创建的读取任务 read_task_handle（中断模式下 set_int_mode 创建）；
+ *   3) 释放 OS 资源 mutex；
+ *   4) memset 整个 priv 归零（i2c/gpio 为外部设备引用、非本驱动持有，随之清空）。
+ *
+ * 约定：调用方需保证此时无并发业务在使用本设备。
+ */
+static int lisa_touch_cst816d_deinit(void)
+{
+    lisa_touch_cst816d_priv_t *priv = &touch_cst816d_priv;
+
+    if (priv->interrupt_mode_active && priv->int_gpio) {
+        lisa_gpio_disable_irq(priv->int_gpio, priv->int_pin);
+    }
+    if (priv->read_task_handle) {
+        vTaskDelete(priv->read_task_handle);
+    }
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+    }
+
+    memset(&touch_cst816d_priv, 0, sizeof(lisa_touch_cst816d_priv_t));
+    return LISA_DEVICE_OK;
+}
+
+LISA_DEVICE_REGISTER_DEINIT(touch_cst816d,                  /* 设备名称 */
+                            &cst816d_touch_api,             /* API指针 */
+                            &touch_cst816d_priv,            /* 私有数据指针 */
+                            NULL,                           /* 用户数据 */
+                            lisa_touch_cst816d_init,        /* 初始化函数 */
+                            lisa_touch_cst816d_deinit,      /* 反初始化函数 */
+                            LISA_DEVICE_LEVEL_NORMAL,       /* 级别 */
+                            LISA_DEVICE_PRIORITY_NORMAL);   /* 优先级 */

@@ -1925,12 +1925,12 @@ apc_dch_read_pipo (APC_DCH dch, uint8_t lr_bmp,
     APC_DCH_INFO *pdci = &g_apc_dev.dch_array[dch];
     // 0 = left, 1 = right (use left or right channel for dual_channel)
     uint8_t lr_idx = (lr_bmp & APC_DCH_BMP_LEFT)? 0 : 1;
-    uint8_t full_chk = (pdci->busy_lr[lr_idx] == 0);
+    uint8_t init_chk = (pdci->busy_lr[lr_idx] == 0);
 
     uint8_t *dma_ch_p = &pdci->dma_ch_lr[lr_idx];
     int32_t stat;
 
-    if (full_chk) {
+    if (init_chk) {
         // Check if APC and specified dual_channel are both initialized
         if (!IS_APC_INITIALIZED() || !IS_APC_DCH_INITIALIZED(dch))
             return CSK_DRIVER_ERROR;
@@ -1961,7 +1961,15 @@ apc_dch_read_pipo (APC_DCH dch, uint8_t lr_bmp,
         }
         GPDMA_Config_Scatt_Gath(*dma_ch_p, &gpdma_para);
 
-    } // full_chk
+    } else { // PingPong is in process
+        // make sure overflow/full interrupts are enabled
+        if ((lr_bmp & APC_DCH_BMP_STEREO) == APC_DCH_BMP_STEREO)
+            apc_dch_intr_enable(dch, APC_INTR_FIFO_OVERRUN | APC_INTR_FIFO_FULL);
+        else if (lr_idx == 0)
+            apc_ch_intr_enable((dch << 1), APC_INTR_FIFO_OVERRUN | APC_INTR_FIFO_FULL);
+        else
+            apc_ch_intr_enable((dch << 1) + 1, APC_INTR_FIFO_OVERRUN | APC_INTR_FIFO_FULL);
+    }
 
     // sample_cnt should be even when 16-bit sample
     if (pdci->ch_mode == APC_CHMODE_16BITS) {
@@ -1981,8 +1989,6 @@ apc_dch_read_pipo (APC_DCH dch, uint8_t lr_bmp,
     uint32_t dst_addr = (uint32_t) aud_blks[0].sample_data + buf_offset;
     uint32_t samp_len = aud_blks[0].sample_cnt;
     if (pdci->samp_bits == 16)  samp_len >>= 1;
-
-    //FIXME: the scatter/gather configuration is moved above when first called?
 
     #if (ARCS_VER >= ARCS_D0_SOC) // ARCS_D0 and later
     if (pipo_both) { // first call of read_pipo
@@ -2209,12 +2215,12 @@ apc_dch_write_pipo (APC_DCH dch, uint8_t lr_bmp, // uint8_t pipo_lr_bmp,
     APC_DCH_INFO *pdci = &g_apc_dev.dch_array[dch];
     // 0 = left, 1 = right (use left or right channel for dual_channel)
     uint8_t lr_idx = (lr_bmp & APC_DCH_BMP_LEFT)? 0 : 1;
-    uint8_t full_chk = (pdci->busy_lr[lr_idx] == 0);
+    uint8_t init_chk = (pdci->busy_lr[lr_idx] == 0);
 
     uint8_t *dma_ch_p = &pdci->dma_ch_lr[lr_idx];
     int32_t stat;
 
-    if (full_chk) {
+    if (init_chk) {
         // Check if APC and specified dual_channel are both initialized
         if (!IS_APC_INITIALIZED() || !IS_APC_DCH_INITIALIZED(dch))
             return CSK_DRIVER_ERROR;
@@ -2244,7 +2250,15 @@ apc_dch_write_pipo (APC_DCH dch, uint8_t lr_bmp, // uint8_t pipo_lr_bmp,
         }
         GPDMA_Config_Scatt_Gath(*dma_ch_p, &gpdma_para);
 
-    } // full_chk
+    } else { // PingPong is in process
+        // make sure underflow/empty interrupts are enabled
+        if ((lr_bmp & APC_DCH_BMP_STEREO) == APC_DCH_BMP_STEREO)
+            apc_dch_intr_enable(dch, APC_INTR_FIFO_UNDERRUN | APC_INTR_FIFO_EMPTY);
+        else if (lr_idx == 0)
+            apc_ch_intr_enable((dch << 1), APC_INTR_FIFO_UNDERRUN | APC_INTR_FIFO_EMPTY);
+        else
+            apc_ch_intr_enable((dch << 1) + 1, APC_INTR_FIFO_UNDERRUN | APC_INTR_FIFO_EMPTY);
+    }
 
     // sample_cnt should be even when 16-bit sample
     if (pdci->ch_mode == APC_CHMODE_16BITS) {
@@ -2264,16 +2278,6 @@ apc_dch_write_pipo (APC_DCH dch, uint8_t lr_bmp, // uint8_t pipo_lr_bmp,
     uint32_t src_addr = (uint32_t) aud_blks[0].sample_data + buf_offset;
     uint32_t samp_len = aud_blks[0].sample_cnt;
     if (pdci->samp_bits == 16)  samp_len >>= 1;
-
-    //FIXME: the scatter/gather configuration is moved above when first called?
-//    csk_gpdma_scatt_gath_t gpdma_para = { 0 };
-//    if (src_gath) {
-//        gpdma_para.gather_en = 1;
-//        gpdma_para.gather_counter = SG_COUNT(src_gath);
-//        gpdma_para.gather_interval = SG_INTERVAL(src_gath);
-//        GPDMA_Config_Scatt_Gath(*dma_ch_p, &gpdma_para);
-//    }
-//    //GPDMA_Config_Scatt_Gath(*dma_ch_p, &gpdma_para);
 
     #if (ARCS_VER >= ARCS_D0_SOC) // ARCS_D0 and later
     if (pipo_both) { // first call of write_pipo
@@ -2851,15 +2855,19 @@ int32_t apc_channel_enable (APC_CH ch) // enable APC channel only
     cfg_val = *pdci->cfg_reg_p;
     en_val = (lr_idx == 0 ? APC_DCH_L_EN(dch) : APC_DCH_R_EN(dch));
     if ((cfg_val & en_val) == en_val) {
+        // re-enable interrupts even if already enabled
+        apc_ch_intr_enable(ch, intr_bits);
         //LOGD("%s: %s channel already enabled!\n", __func__, (lr_idx == 0 ? "L" : "R"));
         return CSK_DRIVER_OK;
     }
-    *pdci->cfg_reg_p = cfg_val | en_val;
 
     // clear all interrupts' status
     apc_ch_intr_clear(ch, APC_FIFO_INTR_MASK);
+
     // enable all interrupts of APC channel
     apc_ch_intr_enable(ch, intr_bits);
+
+    *pdci->cfg_reg_p = cfg_val | en_val;
 
     return CSK_DRIVER_OK;
 }
@@ -2923,22 +2931,20 @@ int32_t apc_channel_abort (APC_CH ch) // abort APC channel data transfer only
     } // end use_pio == 0
 
         pdci->busy_lr[lr_idx] = 0;
-
-        // disable & clear all interrupts of APC channel
-        apc_ch_intr_disable(ch, APC_FIFO_INTR_MASK);
-        apc_ch_intr_clear(ch, APC_FIFO_INTR_MASK);
-
-        uint32_t cfg_val = *pdci->cfg_reg_p;
-        if (lr_idx == 0) { // Left channel
-            cfg_val &= ~APC_DCH_L_EN(dch); // disable channel
-            cfg_val |= APC_DCH_L_FLU(dch); // flush FIFO
-        } else { // Right channel
-            cfg_val &= ~APC_DCH_R_EN(dch); // disable channel
-            cfg_val |= APC_DCH_R_FLU(dch); // flush FIFO
-        }
-        *pdci->cfg_reg_p = cfg_val;
-
     } // channel busy
+
+    // disable all interrupts of APC channel
+    apc_ch_intr_disable(ch, APC_FIFO_INTR_MASK);
+    uint32_t cfg_val = *pdci->cfg_reg_p;
+    if (lr_idx == 0) { // Left channel
+        cfg_val &= ~APC_DCH_L_EN(dch); // disable channel
+        cfg_val |= APC_DCH_L_FLU(dch); // flush FIFO
+    } else { // Right channel
+        cfg_val &= ~APC_DCH_R_EN(dch); // disable channel
+        cfg_val |= APC_DCH_R_FLU(dch); // flush FIFO
+    }
+    *pdci->cfg_reg_p = cfg_val;
+    apc_ch_intr_clear(ch, APC_FIFO_INTR_MASK);
 
     return ret;
 }
@@ -3000,54 +3006,49 @@ int32_t apc_dual_channel_enable (APC_DCH dch) // enable APC dual_channel only
 
     cfg_val = *pdci->cfg_reg_p;
     if (ch_sel == APC_DCH_BMP_STEREO) { // both channels
-        reg_val = APC_DCH_R_EN(dch) | APC_DCH_L_EN(dch);
+        reg_val = APC_DCH_R_EN(dch) | APC_DCH_L_EN(dch); // | APC_DCH_R_FLU | APC_DCH_L_FLU
         if ((cfg_val & reg_val) == reg_val) {
+            // re-enable interrupts even if already enabled
+            apc_dch_intr_enable(dch, intr_bits);
             //LOGD("%s: L/R channel already enabled!\n", __func__);
             return CSK_DRIVER_OK;
         }
 
-        //TODO: wait until there's at least one data in the TX FIFO ?...
-        apc_dch_intr_clear(dch, APC_FIFO_INTR_MASK); // Clear all interrupts' status
+        // Clear all interrupts' status
+        apc_dch_intr_clear(dch, APC_FIFO_INTR_MASK);
 
         // stereo, mixed (data via LEFT channel by default)
-        apc_ch_intr_enable(APC_DCH_TO_CH(dch, 0), intr_bits); // enable interrupts of LEFT channel
+        apc_dch_intr_enable(dch, intr_bits);
 
-        *pdci->cfg_reg_p = cfg_val | reg_val; // | APC_DCH_R_FLU | APC_DCH_L_FLU
-
-//        if (pdci->mix_mode == 0) // mono, separated
-//            apc_dch_intr_enable(dch, intr_bits); // enable interrupts of dual_channel
-//        else if (pdci->mix_target == 0) // stereo, mixed (data via LEFT channel by default)
-//            apc_ch_intr_enable(APC_DCH_TO_CH(dch, 0), intr_bits); // enable interrupts of LEFT channel
-//        else
-//            apc_ch_intr_enable(APC_DCH_TO_CH(dch, 1), intr_bits); // enable interrupts of RIGHT channel
+        *pdci->cfg_reg_p = cfg_val | reg_val;
 
     } else if (ch_sel == APC_DCH_BMP_LEFT) { // Left channel
-        reg_val = APC_DCH_L_EN(dch);
+        ch = APC_DCH_TO_CH(dch, 0);
+        reg_val = APC_DCH_L_EN(dch); // | APC_DCH_L_FLU
         if ((cfg_val & reg_val) == reg_val) {
+            // re-enable interrupts even if already enabled
+            apc_ch_intr_enable(ch, intr_bits);
             //LOGD("%s: Left channel already enabled!\n", __func__);
             return CSK_DRIVER_OK;
         }
-        //*pdci->cfg_reg_p = cfg_val | reg_val; // | APC_DCH_L_FLU
 
-        //TODO: wait until there's at least one data in the TX FIFO ?...
-        ch = APC_DCH_TO_CH(dch, 0);
         apc_ch_intr_clear(ch, APC_FIFO_INTR_MASK); // Clear all interrupts' status
         apc_ch_intr_enable(ch, intr_bits); // enable interrupts
-        *pdci->cfg_reg_p = cfg_val | reg_val; // | APC_DCH_L_FLU
+        *pdci->cfg_reg_p = cfg_val | reg_val;
 
     } else if (ch_sel == APC_DCH_BMP_RIGHT) { // Right channel
-        reg_val = APC_DCH_R_EN(dch);
+        ch = APC_DCH_TO_CH(dch, 1);
+        reg_val = APC_DCH_R_EN(dch); // | APC_DCH_R_FLU
         if ((cfg_val & reg_val) == reg_val) {
+            // re-enable interrupts even if already enabled
+            apc_ch_intr_enable(ch, intr_bits);
             //LOGD("%s: Right channel already enabled!\n", __func__);
             return CSK_DRIVER_OK;
         }
-        //*pdci->cfg_reg_p = cfg_val | reg_val; // | APC_DCH_R_FLU
 
-        //TODO: wait until there's at least one data in the TX FIFO ?...
-        ch = APC_DCH_TO_CH(dch, 1);
         apc_ch_intr_clear(ch, APC_FIFO_INTR_MASK); // Clear all interrupts' status
         apc_ch_intr_enable(ch, intr_bits); // enable interrupts
-        *pdci->cfg_reg_p = cfg_val | reg_val; // | APC_DCH_R_FLU
+        *pdci->cfg_reg_p = cfg_val | reg_val;
     }
 
     return CSK_DRIVER_OK;
@@ -3134,13 +3135,13 @@ int32_t apc_dual_channel_abort (APC_DCH dch)
                 ret = ret0;
         }
 
-        // disable both APC channels and their all interrupts
-        apc_dch_intr_disable(dch, APC_FIFO_INTR_MASK);
-        *pdci->cfg_reg_p &= ~(APC_DCH_R_EN(dch) | APC_DCH_L_EN(dch));
-        *pdci->cfg_reg_p |= (APC_DCH_R_FLU(dch) | APC_DCH_L_FLU(dch));// flush channels' FIFOs
-        apc_dch_intr_clear(dch, APC_FIFO_INTR_MASK);
-
     } // Left or Right busy
+
+    // disable both APC channels and their all interrupts
+    apc_dch_intr_disable(dch, APC_FIFO_INTR_MASK);
+    *pdci->cfg_reg_p &= ~(APC_DCH_R_EN(dch) | APC_DCH_L_EN(dch));
+    *pdci->cfg_reg_p |= (APC_DCH_R_FLU(dch) | APC_DCH_L_FLU(dch));// flush channels' FIFOs
+    apc_dch_intr_clear(dch, APC_FIFO_INTR_MASK);
 
     return ret;
 }
@@ -3615,41 +3616,70 @@ uint32_t apc_get_fifo_samp_cnt(APC_DCH dch, uint8_t chbmp)
     return samp_cnt;
 }
 
+// reset APC L/R FIFO or both (if mixed)
+uint32_t apc_reset_fifo(APC_DCH dch, uint8_t chbmp)
+{
+    // Check if parameters are valid, i.e. APC dual_channel is valid
+    if (dch >= APC_DCH_COUNT)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    volatile uint32_t *cfg_reg_p= (uint32_t *)g_dch_cfg_regs[dch];
+
+    chbmp &= APC_DCH_BMP_STEREO;
+    switch(chbmp) {
+    case APC_DCH_BMP_LEFT:
+        *cfg_reg_p |= APC_DCH_L_FLU(dch);
+        break;
+    case APC_DCH_BMP_RIGHT:
+        *cfg_reg_p |= APC_DCH_R_FLU(dch);
+        break;
+    case APC_DCH_BMP_STEREO:
+        *cfg_reg_p |= APC_DCH_R_FLU(dch) | APC_DCH_L_FLU(dch);
+        break;
+    default:
+        break;
+    }
+
+    return CSK_DRIVER_OK;
+}
+
+
 /**
   \fn          void apc_irq_handler (void)
   \brief       APC interrupt handler
 */
 _FAST_FUNC_RO static void apc_irq_handler (void)
 {
-    //TODO: Read interrupt status register, and check if
+    //Read interrupt status register, and check if
     // there are following interrupt conditions:
     // 1) FIFO is ready to transfer (TX below threshold or RX above threshold)
     // 2) TX FIFO Empty
     // 3) RX FIFO Full
-    // 4) TX FIFO Underflow (no data in FIFO, and send is ongoing)
-    // 5) RX FIFO Overflow (FIFO is full, and recv is ongoing)
+    // 4) TX FIFO Underflow (no data in FIFO, and TX is ongoing)
+    // 5) RX FIFO Overflow (FIFO is full, and RX is ongoing)
 
     uint32_t i, status, event_info;
     uint32_t rx_status, tx_status, rx_status_raw, tx_status_raw;
     APC_DCH_INFO *pdci;
-    uint8_t dch, lr_idx, mixed;
+    uint8_t dch, lr_idx; //, mixed
 
     rx_status_raw = APC_RX_INT_RAW_STATUS();
     tx_status_raw = APC_TX_INT_RAW_STATUS();
     rx_status = APC_RX_INT_STATUS();
     tx_status = APC_TX_INT_STATUS();
+
+    // Clear all interrupts firstly
+    CSK_APC->REG_APC_INTR_RX_CLR.all = rx_status_raw;
+    CSK_APC->REG_APC_INTR_TX_CLR.all = tx_status_raw;
+
     for (i = 0; i < APC_CH_COUNT; i++) {
         status = APC_CH_INT_STATUS(rx_status, tx_status, i);
         if (status == 0)    continue;
 
         dch = APC_CH_TO_DCH(i);
         pdci = &g_apc_dev.dch_array[dch];
-        mixed = pdci->mix_mode;
+        //mixed = pdci->mix_mode;
         lr_idx = APC_CH_LR_IDX(i);
-        //TODO: do the following only if PIO read/write APC channel...
-        //if ( IS_SET_READY_TO_XFER (status, i) ) {
-        //    //TODO:
-        //}
 
         //BSD: reset event_info for each APC channel, and change report way, that is,
         // report one channel's all interrupt status in one event_callback call
@@ -3669,7 +3699,6 @@ _FAST_FUNC_RO static void apc_irq_handler (void)
                 if (pdci->samps_lr[lr_idx] >= pdci->samcnt_lr[lr_idx]) {
                     pdci->samcnt_lr[lr_idx] = 0; // clear requested samples count
                     apc_ch_intr_disable(i, APC_INTR_READY_TO_XFER);
-                    //apc_ch_intr_clear(i, APC_INTR_READY_TO_XFER);
                     pdci->busy_lr[lr_idx] = 0;
                     event_info |= (i << 8) | APC_EVENT_TRANSFER_COMPLETE;
                 }
@@ -3680,12 +3709,12 @@ _FAST_FUNC_RO static void apc_irq_handler (void)
         // RX FIFO full
         if ( i < APC_CH_IN_COUNT && IS_SET_RX_FULL (status) ) {
             // re-check current FIFO count, do nothing if NOT FULL now
-            apc_ch_intr_clear(i, APC_INTR_FIFO_FULL);
             if ( APC_CH_FIFO_CNT(i) == APC_IN_FIFO_DEPTH_DEF ) {
                 apc_ch_intr_disable(i, APC_INTR_FIFO_FULL);
                 //CLOGW("APC CH %d FULL! mask INT\n", i);
                 event_info |= (i << 8) | APC_EVENT_RX_FIFO_FULL;
             }
+            apc_ch_intr_clear(i, APC_INTR_FIFO_FULL);
 
 /*
             //FOR TEST ONLY
@@ -3711,29 +3740,27 @@ _FAST_FUNC_RO static void apc_irq_handler (void)
                 *pdci->cfg_reg_p &= ~APC_DCH_R_EN(dch);
             }
             */
-            apc_ch_intr_disable(i, APC_INTR_FIFO_OVERRUN);
+            // disable overflow interrupt only if still in full state
+            if ( APC_CH_FIFO_CNT(i) == APC_IN_FIFO_DEPTH_DEF )
+                apc_ch_intr_disable(i, APC_INTR_FIFO_OVERRUN);
             apc_ch_intr_clear(i, APC_INTR_FIFO_OVERRUN | APC_INTR_FIFO_DMA_REQ);
-//            CLOGW("APC CH %d OVERRUN! disable CH(mixed=%d)\n", i, mixed);
-
+            //CLOGW("APC CH %d OVERRUN! (mixed=%d)\n", i, mixed);
             event_info |= (i << 8) | APC_EVENT_RX_FIFO_OVERRUN;
         }
 
         // TX FIFO empty
         if ( i >= APC_CH_IN_COUNT && IS_SET_TX_EMPTY (status) ) { // OUT
             // re-check current FIFO count, do nothing if NOT EMPTY now
-            apc_ch_intr_clear(i, APC_INTR_FIFO_EMPTY);
             if ( APC_CH_FIFO_CNT(i) == 0 ) {
                 apc_ch_intr_disable(i, APC_INTR_FIFO_EMPTY);
-                //CLOGW("APC CH %d EMPTY! mask INT\n", i);
+                //CLOGW("APC CH %d EMPTY!\n", i);
                 event_info |= (i << 8) | APC_EVENT_TX_FIFO_EMPTY;
             }
+            apc_ch_intr_clear(i, APC_INTR_FIFO_EMPTY);
         }
 
         // TX FIFO underflow
         if ( IS_SET_TX_UNDERRUN (status) ) {
-            // According to ZhaoRui, for mixed mode, all interrupts occur on the specified channel,
-            // that is, no interrupts NEVER occur on the other channel
-            //
             //BSD: DON'T disable channels on initiative, and let upper layer
             // decide whether to disable channel via abort API...
             /*
@@ -3746,10 +3773,11 @@ _FAST_FUNC_RO static void apc_irq_handler (void)
             }
             */
 
-            apc_ch_intr_disable(i, APC_INTR_FIFO_UNDERRUN);
+            // disable underflow interrupt only if still in empty state
+            if ( APC_CH_FIFO_CNT(i) == 0 )
+                apc_ch_intr_disable(i, APC_INTR_FIFO_UNDERRUN);
             apc_ch_intr_clear(i, APC_INTR_FIFO_UNDERRUN | APC_INTR_FIFO_DMA_REQ);
-//            CLOGW("APC CH %d UNDERRUN! disable CH(mixed=%d)\n", i, mixed);
-
+            //CLOGW("APC CH %d UNDERRUN! (mixed=%d)\n", i, mixed);
             event_info |= (i << 8) | APC_EVENT_TX_FIFO_UNDERRUN;
         }
 
@@ -3760,6 +3788,6 @@ _FAST_FUNC_RO static void apc_irq_handler (void)
     } // end for i (each APC channel)
 
     // Clear specified interrupts
-    CSK_APC->REG_APC_INTR_RX_CLR.all = rx_status_raw;
-    CSK_APC->REG_APC_INTR_TX_CLR.all = tx_status_raw;
+    //CSK_APC->REG_APC_INTR_RX_CLR.all = rx_status_raw;
+    //CSK_APC->REG_APC_INTR_TX_CLR.all = tx_status_raw;
 }

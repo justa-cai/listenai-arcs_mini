@@ -1,0 +1,460 @@
+/*
+ * usb_reg.h
+ *
+ */
+
+#ifndef __USB_CSK_H
+#define __USB_CSK_H
+
+// global USB Hardware configuration
+#define USB_EP_NO_MAX_AVAIL                 6 // max. available EP No.
+//#define USB_EP_NO_DBG                       8 // EP No. for debug only
+#define USB_DMA_CH_COUNT_AVAIL              6 // excluding 2 DMA channel for debug
+#define USB_DMA_CH_COUNT_TOTAL              6 // including 2 DMA channel for debug
+
+#define USB_IN_EP_NUM                 (USB_EP_NO_MAX_AVAIL + 1) // available IN EP count
+#define USB_OUT_EP_NUM                (USB_EP_NO_MAX_AVAIL + 1) // available OUT EP count
+
+/*****************************************************************************
+ * USB Registers Map
+ ****************************************************************************/
+typedef struct{
+	unsigned int CNTL;
+	unsigned int ADDR;
+	unsigned int COUNT;
+	unsigned int RESERVED0;
+}CSK_USB_DMA_RegDef;
+
+//[HOST MODE ONLY] Multi-point setup via hub(s)
+typedef struct __attribute__((packed)) {
+    volatile  unsigned char TXFUNCADDR;         /* 0x00: TX EP 7-bit Function Address */
+    volatile  unsigned char RESERVED0;          /* 0x01: Unused */
+    volatile  unsigned char TXHUBADDR;          /* 0x02: TX EP 8-bit Hub Address */
+    volatile  unsigned char TXHUBPORT;          /* 0x03: TX EP 7-bit Hub Port */
+    volatile  unsigned char RXFUNCADDR;         /* 0x04: RX EP 7-bit Function Address */
+    volatile  unsigned char RESERVED1;          /* 0x05: Unused */
+    volatile  unsigned char RXHUBADDR;          /* 0x06: RX EP 8-bit Hub Address */
+    volatile  unsigned char RXHUBPORT;          /* 0x07: RX EP 7-bit Hub Port */
+} CSK_USB_EP_MULPT_RegDef;
+
+typedef struct __attribute__((packed)) {
+    volatile  unsigned char FADDR;              /* 0x00 7-bit address of the peripheral part of the transaction register */
+    volatile  unsigned char POWER;              /* 0x01 control Suspend and Resume signaling */
+    volatile const   unsigned short INTRTX;            /* 0x02 transmit interrupt status for Endpoint0-15 register, read clear */
+    volatile const   unsigned short INTRRX;            /* 0x04 receive interrupt status for Endpoint1-15 register, read clear */
+    volatile  unsigned short INTRTXE;			/* 0x06 transmit interrupt enable for Endpoint0-15 register */
+    volatile  unsigned short INTRRXE;			/* 0x08 receive interrupt enable for Endpoint1-15 register */
+    volatile const   unsigned char INTRUSB;			/* 0x0A active USB interrupt status register */
+    volatile  unsigned char INTRUSBE;			/* 0x0B active USB interrupt enable register */
+    volatile const   unsigned short FRAME;				/* 0x0C the last received frame number register */
+    volatile  unsigned char INDEX;				/* 0x0E TX endpoint and RX endpoint index register */
+    volatile  unsigned char TESTMODE;			/* 0x0F test mode setting register */
+
+    //indexed register start
+    volatile  unsigned short TXMAXP;			/* 0x10 Maximum packet size for peripheral TX endpoint 1-15 */
+    union{
+          volatile struct {                     /* 0x12 According to INDEX register, Control status register for endpoint 0 */
+              unsigned char CSR0L;
+              unsigned char CSR0H;
+          };
+          volatile struct {                     /* 0x12 According to INDEX register, Control status register for Tx status endpoint 1-15 */
+              unsigned char TXCSRL;
+              unsigned char TXCSRH;
+          };
+    };
+    volatile  unsigned short RXMAXP;			/* 0x14 Maximum packet size for peripheral RX endpoint 1-15 */
+    volatile  unsigned char RXCSRL;				/* 0x16 According to INDEX register, Control status register for Rx status endpoint X */
+    volatile  unsigned char RXCSRH;				/* 0x17 According to INDEX register, Control status register for Rx status endpoint X */
+    union{
+          volatile const unsigned short   COUNT0; /* 0x18 According to INDEX register, number of received bytes for endpoint 0 */
+          volatile const unsigned short   RXCOUNT;/* 0x18 According to INDEX register, number of received bytes for Rx count of endpoint 1-15 */
+    };
+    union{
+      volatile  unsigned char TYPE0;            /* 0x1A for EP0, host mode only */
+      volatile  unsigned char TXTYPE;           /* 0x1A host mode only */
+    };
+    union{
+      volatile  unsigned char NAKLIMIT0;        /* 0x1B for EP0, host mode only, 5bits */
+      volatile  unsigned char TXINTERVAL;       /* 0x1B host mode only */
+    };
+    volatile  unsigned char RXTYPE;				/* 0x1C host mode only */
+    volatile  unsigned char RXINTERVAL;			/* 0x1D host mode only */
+    volatile  unsigned char RESERVED0;			/* 0x1E */
+    union{
+      volatile const unsigned char    CONFIGDATA; /* 0x1F return details for core configuration */
+      volatile const unsigned char    FIFOSIZE;   /* 0x1F return the configured size of the selected Rx FIFOs and Tx FIFOs, endpoint 1-15 */
+    };
+	//indexed register end
+
+	volatile  unsigned int FIFOX[16];		/* FIFOs for Endpoints 0-15 */
+
+    volatile  unsigned char DEVCTL;			/* 0x60  */
+    volatile const   unsigned char MISC;			/* 0x61  */
+    volatile  unsigned char TXFIFOSZ;		/* 0x62  */
+    volatile  unsigned char RXFIFOSZ;		/* 0x63  */
+    volatile  unsigned short TXFIFOADD;		/* 0x64  */
+    volatile  unsigned short RXFIFOADD;		/* 0x66  */
+    volatile  unsigned int VCONTROL;		/* 0x68  */
+    volatile const   unsigned short HWVERS;		/* 0x6C  */
+    volatile const   unsigned short RESERVED1;		/* 0x70  */
+    volatile const   unsigned char RESERVED2[7];	/* 0x78  */
+    volatile  unsigned char SOFT_RST;		/* 0x7F  */
+
+    // TxFuncAddr must be defined for EP0. The RxFuncAddr register does not exist on EP0.
+    // TxHubAddr (NO RxHubAddr) must be defined for EP0 if EP0 is connected to a hub.
+    // TxHubPort (NO RxHubPort) must be defined for EP0 if EP0 is connected to a hub.
+    // At maximum 16 TX/RX EPs (including EP0), and actual number is decided by HW configuration.
+    volatile CSK_USB_EP_MULPT_RegDef EP_MULPT[16]; /* 0x80+8*n ~ 0x87+8*n */
+    //volatile  unsigned int RESERVED3[98];
+    volatile  unsigned int RESERVED3[66];
+
+    volatile  unsigned int DMA_INTR;		/* 0x200 */
+    volatile  CSK_USB_DMA_RegDef USB_DMA[6];/* 0x204+n*0x10, total 6 dma channel*/
+
+} CSK_USB_RegDef;
+
+
+
+//#define CSK_USBC             ((CSK_USB_RegDef *)  USBC_BASE)
+
+#define USB_POWER_EN_SUSPENDM_POS     (0)
+#define USB_POWER_EN_SUSPENDM_MASK    (0x1 << USB_POWER_EN_SUSPENDM_POS)
+#define USB_POWER_EN_SUSPENDM         (USB_POWER_EN_SUSPENDM_MASK) //[RW]:
+#define USB_POWER_SUSPEND_MODE_POS    (1)
+#define USB_POWER_SUSPEND_MODE_MASK   (0x1 << USB_POWER_SUSPEND_MODE_POS)
+#define USB_POWER_SUSPEND_MODE        (USB_POWER_SUSPEND_MODE_MASK) //[RO]:
+#define USB_POWER_RESUME_POS          (2)
+#define USB_POWER_RESUME_MASK         (0x1 << USB_POWER_RESUME_POS)
+#define USB_POWER_RESUME              (USB_POWER_RESUME_MASK) //[RW]:
+#define USB_POWER_RESET_POS          (3)
+#define USB_POWER_RESET_MASK         (0x1 << USB_POWER_RESET_POS)
+#define USB_POWER_RESET              (USB_POWER_RESET_MASK) //[W if Host]
+
+#define USB_POWER_HSENABLE_POS		(5)
+#define USB_POWER_HSENABLE_MASK		(0x1 << USB_POWER_HSENABLE_POS)
+#define USB_POWER_HSENABLE			(USB_POWER_HSENABLE_MASK)
+#define USB_POWER_SOFTCONN_POS		(6)
+#define USB_POWER_SOFTCONN_MASK		(0x1 << USB_POWER_SOFTCONN_POS)
+#define USB_POWER_SOFTCONN			(USB_POWER_SOFTCONN_MASK)
+
+#define USB_INTRUSBE_SUSPEND_POS		(0)
+#define USB_INTRUSBE_SUSPEND_MASK		(0x1 << USB_INTRUSBE_SUSPEND_POS)
+#define USB_INTRUSBE_SUSPEND			(USB_INTRUSBE_SUSPEND_MASK)
+#define USB_INTRUSBE_RESUME_POS		(1)
+#define USB_INTRUSBE_RESUME_MASK		(0x1 << USB_INTRUSBE_RESUME_POS)
+#define USB_INTRUSBE_RESUME			(USB_INTRUSBE_RESUME_MASK)
+#define USB_INTRUSBE_RESET_POS		(2)
+#define USB_INTRUSBE_RESET_MASK		(0x1 << USB_INTRUSBE_RESET_POS)
+#define USB_INTRUSBE_RESET			(USB_INTRUSBE_RESET_MASK)
+#define USB_INTRUSBE_SOF_POS			(3)
+#define USB_INTRUSBE_SOF_MASK			(0x1 << USB_INTRUSBE_SOF_POS)
+#define USB_INTRUSBE_SOF				(USB_INTRUSBE_SOF_MASK)
+#define USB_INTRUSBE_CONN_POS			(4)
+#define USB_INTRUSBE_CONN_MASK		(0x1 << USB_INTRUSBE_CONN_POS)
+#define USB_INTRUSBE_CONN				(USB_INTRUSBE_CONN_MASK)
+#define USB_INTRUSBE_DISCON_POS		(5)
+#define USB_INTRUSBE_DISCON_MASK		(0x1 << USB_INTRUSBE_DISCON_POS)
+#define USB_INTRUSBE_DISCON			(USB_INTRUSBE_DISCON_MASK)
+#define USB_INTRUSBE_SESSREQ_POS		(6)
+#define USB_INTRUSBE_SESSREQ_MASK		(0x1 << USB_INTRUSBE_SESSREQ_POS)
+#define USB_INTRUSBE_SESSREQ			(USB_INTRUSBE_SESSREQ_MASK)
+#define USB_INTRUSBE_VBUSERROR_POS	(7)
+#define USB_INTRUSBE_VBUSERROR_MASK	(0x1 << USB_INTRUSBE_VBUSERROR_POS)
+#define USB_INTRUSBE_VBUSERROR		(USB_INTRUSBE_VBUSERROR_MASK)
+
+#define USB_INTRUSB_SUSPEND_POS		(0)
+#define USB_INTRUSB_SUSPEND_MASK		(0x1 << USB_INTRUSB_SUSPEND_POS)
+#define USB_INTRUSB_SUSPEND			(USB_INTRUSB_SUSPEND_MASK)
+#define USB_INTRUSB_RESUME_POS		(1)
+#define USB_INTRUSB_RESUME_MASK		(0x1 << USB_INTRUSB_RESUME_POS)
+#define USB_INTRUSB_RESUME			(USB_INTRUSB_RESUME_MASK)
+#define USB_INTRUSB_RESET_POS			(2)
+#define USB_INTRUSB_RESET_MASK		(0x1 << USB_INTRUSB_RESET_POS)
+#define USB_INTRUSB_RESET				(USB_INTRUSB_RESET_MASK)
+#define USB_INTRUSB_SOF_POS			(3)
+#define USB_INTRUSB_SOF_MASK			(0x1 << USB_INTRUSB_SOF_POS)
+#define USB_INTRUSB_SOF				(USB_INTRUSB_SOF_MASK)
+#define USB_INTRUSB_CONN_POS          (4) // Only valid in Host mode
+#define USB_INTRUSB_CONN_MASK        (0x1 << USB_INTRUSB_CONN_POS)
+#define USB_INTRUSB_CONN              (USB_INTRUSB_CONN_MASK)
+#define USB_INTRUSB_DISCON_POS        (5)
+#define USB_INTRUSB_DISCON_MASK       (0x1 << USB_INTRUSB_DISCON_POS)
+#define USB_INTRUSB_DISCON            (USB_INTRUSB_DISCON_MASK)
+
+#define USB_CSR0L_RXPKTRDY_POS		(0)
+#define USB_CSR0L_RXPKTRDY_MASK		(0x1 << USB_CSR0L_RXPKTRDY_POS)
+#define USB_CSR0L_RXPKTRDY			(USB_CSR0L_RXPKTRDY_MASK)
+#define USB_CSR0L_TXPKTRDY_POS		(1)
+#define USB_CSR0L_TXPKTRDY_MASK		(0x1 << USB_CSR0L_TXPKTRDY_POS)
+#define USB_CSR0L_TXPKTRDY			(USB_CSR0L_TXPKTRDY_MASK)
+#define USB_CSR0L_SENTSTALL_POS		(2)
+#define USB_CSR0L_SENTSTALL_MASK		(0x1 << USB_CSR0L_SENTSTALL_POS)
+#define USB_CSR0L_SENTSTALL			(USB_CSR0L_SENTSTALL_MASK)
+#define USB_CSR0L_DATAEND_POS			(3)
+#define USB_CSR0L_DATAEND_MASK		(0x1 << USB_CSR0L_DATAEND_POS)
+#define USB_CSR0L_DATAEND				(USB_CSR0L_DATAEND_MASK)
+#define USB_CSR0L_SETUPEND_POS		(4)
+#define USB_CSR0L_SETUPEND_MASK		(0x1 << USB_CSR0L_SETUPEND_POS)
+#define USB_CSR0L_SETUPEND			(USB_CSR0L_SETUPEND_MASK)
+#define USB_CSR0L_SENDSTALL_POS		(5)
+#define USB_CSR0L_SENDSTALL_MASK		(0x1 << USB_CSR0L_SENDSTALL_POS)
+#define USB_CSR0L_SENDSTALL			(USB_CSR0L_SENDSTALL_MASK)
+#define USB_CSR0L_SERVICEDRXPKTRDY_POS		(6)
+#define USB_CSR0L_SERVICEDRXPKTRDY_MASK		(0x1 << USB_CSR0L_SERVICEDRXPKTRDY_POS)
+#define USB_CSR0L_SERVICEDRXPKTRDY			(USB_CSR0L_SERVICEDRXPKTRDY_MASK)
+#define USB_CSR0L_SERVICEDSETUPEND_POS		(7)
+#define USB_CSR0L_SERVICEDSETUPEND_MASK		(0x1 << USB_CSR0L_SERVICEDSETUPEND_POS)
+#define USB_CSR0L_SERVICEDSETUPEND			(USB_CSR0L_SERVICEDSETUPEND_MASK)
+
+#define USB_CSR0H_FLUSHFIFO_POS		(0)
+#define USB_CSR0H_FLUSHFIFO_MASK		(0x1 << USB_CSR0H_FLUSHFIFO_POS)
+#define USB_CSR0H_FLUSHFIFO			(USB_CSR0H_FLUSHFIFO_MASK)
+
+#define USB_TXCSRL_TXPKTRDY_POS		(0)
+#define USB_TXCSRL_TXPKTRDY_MASK		(0x1 << USB_TXCSRL_TXPKTRDY_POS)
+#define USB_TXCSRL_TXPKTRDY			(USB_TXCSRL_TXPKTRDY_MASK)
+#define USB_TXCSRL_FIFONOTEMPTY_POS	(1)
+#define USB_TXCSRL_FIFONOTEMPTY_MASK	(0x1 << USB_TXCSRL_FIFONOTEMPTY_POS)
+#define USB_TXCSRL_FIFONOTEMPTY		(USB_TXCSRL_FIFONOTEMPTY_MASK)
+#define USB_TXCSRL_UNDERRUN_POS       (2)
+#define USB_TXCSRL_UNDERRUN_MASK      (0x1 << USB_TXCSRL_UNDERRUN_POS)
+#define USB_TXCSRL_UNDERRUN           (USB_TXCSRL_UNDERRUN_MASK)
+#define USB_TXCSRL_FLUSHFIFO_POS		(3)
+#define USB_TXCSRL_FLUSHFIFO_MASK		(0x1 << USB_TXCSRL_FLUSHFIFO_POS)
+#define USB_TXCSRL_FLUSHFIFO			(USB_TXCSRL_FLUSHFIFO_MASK)
+#define USB_TXCSRL_SENDSTALL_POS		(4)
+#define USB_TXCSRL_SENDSTALL_MASK		(0x1 << USB_TXCSRL_SENDSTALL_POS)
+#define USB_TXCSRL_SENDSTALL			(USB_TXCSRL_SENDSTALL_MASK)
+#define USB_TXCSRL_SENTSTALL_POS		(5)
+#define USB_TXCSRL_SENTSTALL_MASK		(0x1 << USB_TXCSRL_SENTSTALL_POS)
+#define USB_TXCSRL_SENTSTALL			(USB_TXCSRL_SENTSTALL_MASK)
+#define USB_TXCSRL_CLRDATATOG_POS     (6)
+#define USB_TXCSRL_CLRDATATOG_MASK    (0x1 << USB_TXCSRL_CLRDATATOG_POS)
+#define USB_TXCSRL_CLRDATATOG         (USB_TXCSRL_CLRDATATOG_MASK)
+
+// TXCSRL (HOST SPECIFIC)
+#define USBH_TXCSRL_TXPKTRDY_POS        (0)
+#define USBH_TXCSRL_TXPKTRDY_MASK       (0x1 << USBH_TXCSRL_TXPKTRDY_POS)
+#define USBH_TXCSRL_TXPKTRDY            (USBH_TXCSRL_TXPKTRDY_MASK)
+#define USBH_TXCSRL_FIFONOTEMPTY_POS    (1)
+#define USBH_TXCSRL_FIFONOTEMPTY_MASK   (0x1 << USBH_TXCSRL_FIFONOTEMPTY_POS)
+#define USBH_TXCSRL_FIFONOTEMPTY        (USBH_TXCSRL_FIFONOTEMPTY_MASK)
+#define USBH_TXCSRL_ERROR_POS           (2)
+#define USBH_TXCSRL_ERROR_MASK          (0x1 << USBH_TXCSRL_ERROR_POS)
+#define USBH_TXCSRL_ERROR               (USBH_TXCSRL_ERROR_MASK)
+#define USBH_TXCSRL_FLUSHFIFO_POS       (3)
+#define USBH_TXCSRL_FLUSHFIFO_MASK      (0x1 << USBH_TXCSRL_FLUSHFIFO_POS)
+#define USBH_TXCSRL_FLUSHFIFO           (USBH_TXCSRL_FLUSHFIFO_MASK)
+#define USBH_TXCSRL_SETUPPKT_POS        (4)
+#define USBH_TXCSRL_SETUPPKT_MASK       (0x1 << USBH_TXCSRL_SETUPPKT_POS)
+#define USBH_TXCSRL_SETUPPKT            (USBH_TXCSRL_SETUPPKT_MASK)
+#define USBH_TXCSRL_RXSTALL_POS         (5)
+#define USBH_TXCSRL_RXSTALL_MASK        (0x1 << USBH_TXCSRL_RXSTALL_POS)
+#define USBH_TXCSRL_RXSTALL             (USBH_TXCSRL_RXSTALL_MASK)
+#define USBH_TXCSRL_CLRDATATOG_POS      (6)
+#define USBH_TXCSRL_CLRDATATOG_MASK     (0x1 << USBH_TXCSRL_CLRDATATOG_POS)
+#define USBH_TXCSRL_CLRDATATOG          (USBH_TXCSRL_CLRDATATOG_MASK)
+#define USBH_TXCSRL_NAKTO_POS           (7) // for BULK EP ONLY
+#define USBH_TXCSRL_NAKTO_MASK          (0x1 << USBH_TXCSRL_NAKTO_POS)
+#define USBH_TXCSRL_NAKTO               (USBH_TXCSRL_NAKTO_MASK)
+#define USBH_TXCSRL_INCOMPTX_POS        (7) // for High-bandwidth INT EP ONLY
+#define USBH_TXCSRL_INCOMPTX_MASK       (0x1 << USBH_TXCSRL_INCOMPTX_POS)
+#define USBH_TXCSRL_INCOMPTX            (USBH_TXCSRL_INCOMPTX_MASK)
+
+#define USB_RXCSRL_RXPKTRDY_POS		(0)
+#define USB_RXCSRL_RXPKTRDY_MASK		(0x1 << USB_RXCSRL_RXPKTRDY_POS)
+#define USB_RXCSRL_RXPKTRDY			(USB_RXCSRL_RXPKTRDY_MASK)
+#define USB_RXCSRL_OVERRUN_POS        (2)
+#define USB_RXCSRL_OVERRUN_MASK      (0x1 << USB_RXCSRL_OVERRUN_POS)
+#define USB_RXCSRL_OVERRUN            (USB_RXCSRL_OVERRUN_MASK)
+#define USB_RXCSRL_FLUSHFIFO_POS		(4)
+#define USB_RXCSRL_FLUSHFIFO_MASK		(0x1 << USB_RXCSRL_FLUSHFIFO_POS)
+#define USB_RXCSRL_FLUSHFIFO			(USB_RXCSRL_FLUSHFIFO_MASK)
+#define USB_RXCSRL_SENDSTALL_POS		(5)
+#define USB_RXCSRL_SENDSTALL_MASK		(0x1 << USB_RXCSRL_SENDSTALL_POS)
+#define USB_RXCSRL_SENDSTALL			(USB_RXCSRL_SENDSTALL_MASK)
+#define USB_RXCSRL_SENTSTALL_POS		(6)
+#define USB_RXCSRL_SENTSTALL_MASK		(0x1 << USB_RXCSRL_SENTSTALL_POS)
+#define USB_RXCSRL_SENTSTALL			(USB_RXCSRL_SENTSTALL_MASK)
+#define USB_RXCSRL_CLRDATATOG_POS		(7)
+#define USB_RXCSRL_CLRDATATOG_MASK	(0x1 << USB_RXCSRL_CLRDATATOG_POS)
+#define USB_RXCSRL_CLRDATATOG			(USB_RXCSRL_CLRDATATOG_MASK)
+
+#define USB_FADDR_ADDR_MASK 			(0x7F)
+
+#define USB_COUNT0_RXCOUNT_POS          (0)
+#define USB_COUNT0_RXCOUNT_MASK         (0x7F)
+#define USB_COUNT0_MASK                 (0x7F)  // 7bits
+#define USB_RXCOUNT_MASK                (0x3FF) // 14bits
+
+// TYPE0/TXTYPE/RXTYPE (HOST MODE ONLY)
+#define USBH_TXRXTYPE_SPD_POS          (6) // TYPE0/TXTYPE/RXTYPE.Speed
+#define USBH_TXRXTYPE_SPD_MASK         (0x3 << USBH_TXRXTYPE_SPD_POS)
+#define USBH_TXRXTYPE_SPD_DEF          (0x0 << USBH_TXRXTYPE_SPD_POS)
+#define USBH_TXRXTYPE_SPD_HIGH         (0x1 << USBH_TXRXTYPE_SPD_POS)
+#define USBH_TXRXTYPE_SPD_FULL         (0x2 << USBH_TXRXTYPE_SPD_POS)
+#define USBH_TXRXTYPE_SPD_LOW          (0x3 << USBH_TXRXTYPE_SPD_POS)
+
+#define USBH_TXRXTYPE_PRT_POS          (4) // TYPE0/TXTYPE/RXTYPE.Protocol
+#define USBH_TXRXTYPE_PRT_MASK         (0x3 << USBH_TXRXTYPE_PRT_POS)
+#define USBH_TXRXTYPE_PRT_CTRL         (0x0 << USBH_TXRXTYPE_PRT_POS)
+#define USBH_TXRXTYPE_PRT_ISO          (0x1 << USBH_TXRXTYPE_PRT_POS)
+#define USBH_TXRXTYPE_PRT_BULK         (0x2 << USBH_TXRXTYPE_PRT_POS)
+#define USBH_TXRXTYPE_PRT_INT          (0x3 << USBH_TXRXTYPE_PRT_POS)
+
+#define USBH_TXRXTYPE_TGT_EP_POS       (0) // TYPE0/TXTYPE/RXTYPE.TargetEndpointNumber
+#define USBH_TXRXTYPE_TGT_EP_MASK      (0xF << USBH_TXRXTYPE_TGT_EP_POS)
+#define USBH_TXRXTYPE_TGT_EP(n)        (((n) & 0xF) << USBH_TXRXTYPE_TGT_EP_POS)
+
+#define USB_TXCSRH_DMAREQMODE_POS  	(2)
+#define USB_TXCSRH_DMAREQMODE_MASK 	(1<<USB_TXCSRH_DMAREQMODE_POS)
+#define USB_TXCSRH_DMAREQMODE			USB_TXCSRH_DMAREQMODE_MASK
+#define USB_TXCSRH_DMAREQMODE_0		0
+#define USB_TXCSRH_DMAREQMODE_1		USB_TXCSRH_DMAREQMODE_MASK
+#define USB_TXCSRH_FRCDATATOG_POS  	(3)
+#define USB_TXCSRH_FRCDATATOG_MASK 	(1<<USB_TXCSRH_FRCDATATOG_POS)
+#define USB_TXCSRH_FRCDATATOG			USB_TXCSRH_FRCDATATOG_MASK
+#define USB_TXCSRH_DMAREQENAB_POS  	(4)
+#define USB_TXCSRH_DMAREQENAB_MASK 	(1<<USB_TXCSRH_DMAREQENAB_POS)
+#define USB_TXCSRH_DMAREQENAB			USB_TXCSRH_DMAREQENAB_MASK
+#define USB_TXCSRH_MODE_POS  			(5)
+#define USB_TXCSRH_MODE_MASK 			(1<<USB_TXCSRH_MODE_POS)
+#define USB_TXCSRH_MODE				USB_TXCSRH_MODE_MASK
+#define USB_TXCSRH_ISO_POS  			(6)
+#define USB_TXCSRH_ISO_MASK 			(1<<USB_TXCSRH_ISO_POS)
+#define USB_TXCSRH_ISO				(USB_TXCSRH_ISO_MASK)
+#define USB_TXCSRH_AUTOSET_POS  		(7)
+#define USB_TXCSRH_AUTOSET_MASK 		(1<<USB_TXCSRH_AUTOSET_POS)
+#define USB_TXCSRH_AUTOSET			(USB_TXCSRH_AUTOSET_MASK)
+
+#define USB_RXCSRH_DMAREQMODE_POS  	(3)
+#define USB_RXCSRH_DMAREQMODE_MASK 	(1<<USB_RXCSRH_DMAREQMODE_POS)
+#define USB_RXCSRH_DMAREQMODE_0		0
+#define USB_RXCSRH_DMAREQMODE_1		USB_RXCSRH_DMAREQMODE_MASK
+#define USB_RXCSRH_DISNYET_POS        (4)
+#define USB_RXCSRH_DISNYET_MASK       (1<<USB_RXCSRH_DISNYET_POS)
+#define USB_RXCSRH_DISNYET            USB_RXCSRH_DISNYET_MASK
+#define USB_RXCSRH_PIDERR_POS         (4)
+#define USB_RXCSRH_PIDERR_MASK        (1<<USB_RXCSRH_PIDERR_POS)
+#define USB_RXCSRH_PIDERR             USB_RXCSRH_PIDERR_MASK
+#define USB_RXCSRH_DMAREQENAB_POS  	(5)
+#define USB_RXCSRH_DMAREQENAB_MASK 	(1<<USB_RXCSRH_DMAREQENAB_POS)
+#define USB_RXCSRH_DMAREQENAB			USB_RXCSRH_DMAREQENAB_MASK
+#define USB_RXCSRH_ISO_POS  			(6)
+#define USB_RXCSRH_ISO_MASK 			(1<<USB_RXCSRH_ISO_POS)
+#define USB_RXCSRH_ISO				USB_RXCSRH_ISO_MASK
+#define USB_RXCSRH_AUTOCLEAR_POS  	(7)
+#define USB_RXCSRH_AUTOCLEAR_MASK 	(1<<USB_RXCSRH_AUTOCLEAR_POS)
+#define USB_RXCSRH_AUTOCLEAR			USB_RXCSRH_AUTOCLEAR_MASK
+
+#define USB_DMA_CNTL_DMA_ENAB_POS  	(0)
+#define USB_DMA_CNTL_DMA_ENAB_MASK 	(1<<USB_DMA_CNTL_DMA_ENAB_POS)
+#define USB_DMA_CNTL_DMA_ENAB			USB_DMA_CNTL_DMA_ENAB_MASK
+#define USB_DMA_CNTL_DMA_DIR_POS  	(1)
+#define USB_DMA_CNTL_DMA_DIR_MASK 	(1<<USB_DMA_CNTL_DMA_DIR_POS)
+#define USB_DMA_CNTL_DMA_DIR(n)		(((n) & 0x1) << USB_DMA_CNTL_DMA_DIR_POS)
+#define USB_DMA_CNTL_DMA_DIR_RXEP		(0<<USB_DMA_CNTL_DMA_DIR_POS)
+#define USB_DMA_CNTL_DMA_DIR_TXEP		(1<<USB_DMA_CNTL_DMA_DIR_POS)
+#define USB_DMA_CNTL_DMAMODE_POS  	(2)
+#define USB_DMA_CNTL_DMAMODE_MASK 	(1<<USB_DMA_CNTL_DMAMODE_POS)
+#define USB_DMA_CNTL_DMAMODE			USB_DMA_CNTL_DMAMODE_MASK
+#define USB_DMA_CNTL_DMAMODE_0		(0<<USB_DMA_CNTL_DMAMODE_POS)
+#define USB_DMA_CNTL_DMAMODE_1		(1<<USB_DMA_CNTL_DMAMODE_POS)
+#define USB_DMA_CNTL_DMAIE_POS  		(3)
+#define USB_DMA_CNTL_DMAIE_MASK 		(1<<USB_DMA_CNTL_DMAIE_POS)
+#define USB_DMA_CNTL_DMAIE			USB_DMA_CNTL_DMAIE_MASK
+#define USB_DMA_CNTL_DMAEP_POS  		(4)
+#define USB_DMA_CNTL_DMAEP_MASK 		(0xF<<USB_DMA_CNTL_DMAEP_POS)
+#define USB_DMA_CNTL_DMAEP(n)			(((n) & 0xF) << USB_DMA_CNTL_DMAEP_POS)
+#define USB_DMA_CNTL_DMAERR_POS  		(8)
+#define USB_DMA_CNTL_DMAERR_MASK 		(1<<USB_DMA_CNTL_DMAERR_POS)
+#define USB_DMA_CNTL_DMAERR			USB_DMA_CNTL_DMAERR_MASK
+#define USB_DMA_CNTL_DMA_BRSTM_POS  	(9)
+#define USB_DMA_CNTL_DMA_BRSTM_MASK 	(0x3<<USB_DMA_CNTL_DMA_BRSTM_POS)
+#define USB_DMA_CNTL_DMA_BRSTM		USB_DMA_CNTL_DMA_BRSTM_MASK
+#define USB_DMA_CNTL_DMA_BRSTM_0		(0<<USB_DMA_CNTL_DMA_BRSTM_POS)
+#define USB_DMA_CNTL_DMA_BRSTM_1		(1<<USB_DMA_CNTL_DMA_BRSTM_POS)
+#define USB_DMA_CNTL_DMA_BRSTM_2		(2<<USB_DMA_CNTL_DMA_BRSTM_POS)
+#define USB_DMA_CNTL_DMA_BRSTM_3		(3<<USB_DMA_CNTL_DMA_BRSTM_POS)
+
+#define USB_FIFOSZ_DPB_MASK             (0x10)
+#define USB_FIFOSZ_DPB                  (USB_FIFOSZ_DPB_MASK)
+#define USB_FIFOSZ_SZ_MASK              (0x0F)
+#define USB_FIFOSZ_SZ_8                 (0x00)
+#define USB_FIFOSZ_SZ_16                (0x01)
+#define USB_FIFOSZ_SZ_32                (0x02)
+#define USB_FIFOSZ_SZ_64                (0x03)
+#define USB_FIFOSZ_SZ_128               (0x04)
+#define USB_FIFOSZ_SZ_256               (0x05)
+#define USB_FIFOSZ_SZ_512               (0x06)
+#define USB_FIFOSZ_SZ_1024              (0x07)
+#define USB_FIFOSZ_SZ_2048              (0x08)
+#define USB_FIFOSZ_SZ_4096              (0x09)
+
+#define USB_MAXP_MASK 				(0x7FF)
+
+#define USB_INTRTX_EP0_POS			(0x0)
+#define USB_INTRTX_EP0_MASK			(0x01<<USB_INTRTX_EP0_POS)
+#define USB_INTRTX_EP0				(USB_INTRTX_EP0_MASK)
+#define USB_INTRTX_EP_POS			    (0x1) // excluding EP0
+#define USB_INTRTX_EP_MASK			(0x1F<<USB_INTRTX_EP_POS)
+#define USB_INTRTX_EP				    (USB_INTRTX_EP_MASK)
+
+#define USB_INTRRX_BIT0_POS			(0x0)
+#define USB_INTRRX_BIT0_MASK			(0x01<<USB_INTRRX_BIT0_POS)
+#define USB_INTRRX_BIT0				(USB_INTRRX_BIT0_MASK)
+#define USB_INTRRX_EP_POS			    (0x1) // excluding EP0
+#define USB_INTRRX_EP_MASK			(0x1F<<USB_INTRRX_EP_POS)
+#define USB_INTRRX_EP				    (USB_INTRRX_EP_MASK)
+
+#define USB_DMA_INTR_INTR0_POS		(0)
+#define USB_DMA_INTR_INTR0_MASK		(0x1 << USB_DMA_INTR_INTR0_POS)
+#define USB_DMA_INTR_INTR0			(USB_DMA_INTR_INTR0_MASK)
+#define USB_DMA_INTR_EP_POS(n)        (n)
+#define USB_DMA_INTR_EP_MASK(n)       (0x1 << USB_DMA_INTR_EP_POS(n))
+#define USB_DMA_INTR_EP(n)            (USB_DMA_INTR_EP_MASK(n))
+#define USB_DMA_INTR_EP0_n_MASK(n)    ((0x1 << ((n)+1)) - 1)
+#define USB_DMA_INTR_EP_ALL_MASK      USB_DMA_INTR_EP0_n_MASK(USB_EP_NO_MAX_AVAIL) // including EP0
+
+#define USB_SOFT_RST_NRST_POS			(0)
+#define USB_SOFT_RST_NRST_MASK		(0x1 << USB_SOFT_RST_NRST_POS)
+#define USB_SOFT_RST_NRST				(USB_SOFT_RST_NRST_MASK)
+#define USB_SOFT_RST_NRSTX_POS		(1)
+#define USB_SOFT_RST_NRSTX_MASK		(0x1 << USB_SOFT_RST_NRSTX_POS)
+#define USB_SOFT_RST_NRSTX			(USB_SOFT_RST_NRSTX_MASK)
+
+//From the viewpoint of host, OUT: host->device, IN: device->host
+#define DIR_IDX_OUT                 0
+#define DIR_IDX_IN                  1
+
+
+#define EDPxReg_SEL(num)				(CSK_USBC->INDEX = (num&0x7F))
+#define USB_DAINT_IN_EP_INT(ep) 	(1 << (ep))
+#define USB_DAINT_OUT_EP_INT(ep) 	(1 << (ep))
+
+#define USB_STS_SETUP				(1)
+#define USB_STS_IN				(2)
+#define USB_STS_OUT				(3)
+#define USB_STS_STATUS			(4)
+
+#define USB_DMA_DIR_RX_ENDPOINT	(0)
+#define USB_DMA_DIR_TX_ENDPOINT	(1)
+
+//#define USB_DMA_NUMBER_OF_CHANNELS (6)
+
+#define USB_DMA_CHANNEL_NOT_ASSIGNED (0xFF)
+
+#define DMA_MULTIPLE (1)
+
+#define GET_FIFOSZ_CFG(fifosize)    ((fifosize <= 8) ? (USB_FIFOSZ_SZ_8) :\
+                                    ((fifosize <= 16) ? (USB_FIFOSZ_SZ_16) :\
+                                    ((fifosize <= 32) ? (USB_FIFOSZ_SZ_32) :\
+                                    ((fifosize <= 64) ? (USB_FIFOSZ_SZ_64) :\
+                                    ((fifosize <= 128) ? (USB_FIFOSZ_SZ_128) :\
+                                    ((fifosize <= 256) ? (USB_FIFOSZ_SZ_256) :\
+                                    ((fifosize <= 512) ? (USB_FIFOSZ_SZ_512) :\
+                                    ((fifosize <= 1024) ? (USB_FIFOSZ_SZ_1024) :(USB_FIFOSZ_SZ_256)))))))))
+
+#define FIFOSZ_CFG_TO_BYTES(sz_cfg)     (1 << (((sz_cfg) & 0xF) + 3))
+
+#endif /* __USB_CSK_H */

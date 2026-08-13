@@ -24,6 +24,7 @@ if(CONFIG_ARCS_HAL_BT_HAL)
 
     listenai_include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${ARCS_HAL_LIB_PATH}/modules/audio/api
     )
 
 endif()

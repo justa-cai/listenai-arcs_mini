@@ -52,6 +52,7 @@ typedef int ls_err_t;
 #define LS_ERR_NOT_SUPPORT         (LS_ERR_COMMON_BASE - 10)
 #define LS_ERR_BUSY                (LS_ERR_COMMON_BASE - 11)
 #define LS_ERR_PATH                (LS_ERR_COMMON_BASE - 12)
+#define LS_ERR_VERSION             (LS_ERR_COMMON_BASE - 13)
 
 
 

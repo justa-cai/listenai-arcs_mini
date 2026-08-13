@@ -267,6 +267,12 @@ int acomp_xtts_do_cleanup(void)
 {
     if (!g_xtts_prepared && !g_xtts_inited) return 0;
     acomp_xtts_stop();
+    /* Disable the IPC stream channel created in do_prepare; otherwise
+     * its ~525KB PSRAM buffer leaks across prepare/cleanup cycles.
+     * Must run after stop (so the AP-side producer halts) and before
+     * acomp_xtts_cleanup (which clears xtts_handle and would make the
+     * disable a no-op). */
+    acomp_xtts_stream_ch_disable(0);
     acomp_xtts_cleanup();
     g_xtts_prepared = 0;
     g_xtts_inited = 0;

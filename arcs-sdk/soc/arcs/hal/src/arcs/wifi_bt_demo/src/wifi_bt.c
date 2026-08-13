@@ -79,6 +79,10 @@
 extern uint8_t _sshram[], _eshram[];
 extern int bt_demo_init(void);
 extern int bt_event_cb(void *arg, event_module_t event_module,int event_id, void *event_data);
+
+extern void ls_wifi_init(void);
+extern void ls_crypto_init(void);
+
 extern int wifi_cli_exec_sta_auto_conn(void);
 int wifi_event_cb(void *arg, event_module_t event_module,
                   int event_id, void *event_data)
@@ -91,6 +95,18 @@ int wifi_event_cb(void *arg, event_module_t event_module,
     switch (event_id)
     {
         case EVENT_WIFI_INIT_DONE:
+        #if defined(MFG_RF_TEST)
+        #if CFG_NVS
+        uint8_t sta_auto_conn_en = 0;
+        uint32_t len;
+        int ret;
+        len = NVDS_LEN_WIFI_STA_AUTOCONN;
+        ret = nvds_get(NVDS_TAG_WIFI_STA_AUTOCONN, (size_t *)&len, &sta_auto_conn_en);
+        if (ret == NVDS_OK && sta_auto_conn_en == 1){
+            CLOGI("*** AUTO connect is enable ,if in non-signal test, please disable auto connect (wifi_autoconn 0) and then reboot ***\n");
+        }
+        #endif
+        #endif
         CLOGI("event <%d %d>  wifi init done\n", event_module, event_id);
         //if sta_autoconn flag and ssid/pwd setted in flash, try to auto connect ap
         if (wifi_cli_exec_sta_auto_conn() == 0)
@@ -98,7 +114,6 @@ int wifi_event_cb(void *arg, event_module_t event_module,
             CLOGI("sta mode auto connect\n");
             break;
         }
-
         break;
         case EVENT_WIFI_CONNECTED:
         net_if_t *net_if;

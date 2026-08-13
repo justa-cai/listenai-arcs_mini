@@ -16,6 +16,7 @@
 #include "ls_wifi_type.h"
 #include "rf_cali.h"
 
+#define NV_FIXZONE_VER    2
 #define NV_SELF_CALI_VER  1
 #define NV_MAGIC_PATTERN    0x55aa0bf4
 #define NV_MAGIC_PATTERN2   0x22ff0ce5
@@ -23,7 +24,12 @@
 #ifndef FLASH_NOR_OTP_NV_BASE_ADDR
 #define FLASH_NOR_OTP_NV_BASE_ADDR (CMN_FLASH_REGION + 0x200000)
 #endif
+#ifndef FLASH_WF_MFG_CONF_BASE_ADDR
+#define FLASH_WF_MFG_CONF_BASE_ADDR 0
+#endif
 #define FLASH_OTP_NV_LENGTH   512
+#define NV_FIXZONE_MAC_ADDR_LEN 6
+#define NV_FIXZONE_WF_PPA_GAIN_DIM 19
 
 #define WF_PPA_CAP_BITS_MASK       0x1f
 #define WF_PPA_CAP_BITS_WIDTH         5
@@ -53,9 +59,6 @@
 #define EFUSE_NV_SLOT0_ADDR    64
 #define EFUSE_NV_SLOT1_ADDR    68
 
-#ifndef FLASH_WF_MFG_CONF_BASE_ADDR
-#define FLASH_WF_MFG_CONF_BASE_ADDR     0
-#endif
 #ifndef WIFI_RF_SET_GOLDEN
 #define WIFI_RF_SET_GOLDEN              0
 #endif
@@ -135,23 +138,83 @@ typedef struct {
     uint32_t crc32;
 } ls_nv_fixzone_header_t;
 
+#define NV_FIXZONE_MAX_DATA_LEN (FLASH_OTP_NV_LENGTH - sizeof(ls_nv_fixzone_header_t))
+
 typedef struct {
+    uint16_t tag;
+    uint16_t len;
+} ls_nv_fixzone_tlv_hdr_t;
+
+#define NV_FIXZONE_REG_OVERRIDE_MAX_CNT \
+    (NV_FIXZONE_MAX_DATA_LEN / (sizeof(ls_nv_fixzone_tlv_hdr_t) + sizeof(uint32_t) * 2))
+
+enum {
+    NV_FIXZONE_TAG_CHIP_ID = 1,
+    NV_FIXZONE_TAG_WF_MAC,
+    NV_FIXZONE_TAG_XO_CAP,
+    NV_FIXZONE_TAG_WF_PPA_CAP,
+    NV_FIXZONE_TAG_WF_PPA_GAIN,
+    NV_FIXZONE_TAG_WF_POWER_OFFSET,
+    NV_FIXZONE_TAG_WF_RSSI_OFFSET,
+    NV_FIXZONE_TAG_WF_TARGET_POWER,
+    NV_FIXZONE_TAG_BT_MAC,
+    NV_FIXZONE_TAG_BT_POWER_OFFSET,
+    NV_FIXZONE_TAG_BT_TARGET_POWER,
+    NV_FIXZONE_TAG_REG_OVERRIDE = 0xFFFE,
+};
+
+typedef struct {
+    int16_t dsss;
+    int16_t ofdm;
+} ls_nv_fixzone_wf_rssi_offset_t;
+
+typedef struct {
+    uint8_t channel_ind;
+    pwr_table_t value[3];
+} ls_nv_fixzone_wf_target_power_t;
+
+/* Runtime cache populated from the on-flash TLV stream. */
+typedef struct {
+    uint8_t has_chip_id;
+    uint8_t has_wf_mac;
+    uint8_t has_xo_cap;
+    uint8_t has_wf_ppa_cap;
+    uint8_t has_wf_ppa_gain;
+    uint8_t has_wf_power_offset;
+    uint8_t has_wf_rssi_offset;
+    uint8_t has_wf_target_power;
+    uint8_t has_bt_mac;
+    uint8_t has_bt_power_offset;
+    uint8_t has_bt_target_power;
     uint32_t chip_id;
-    uint8_t wf_mac[6];
-    uint8_t bt_mac[6];
+    uint8_t wf_mac[NV_FIXZONE_MAC_ADDR_LEN];
     int8_t xo_cap;
-    uint8_t wf_ppa_cap[3];
-    uint32_t wf_power_table[19];
-    int8_t wf_power_offset[3];
-    int8_t bt_power_offset[3];
-    int16_t wf_rssi_offset_dsss;
-    int16_t wf_rssi_offset_ofdm;
-    uint16_t reserve0;
+    uint8_t wf_ppa_cap[WF_PPA_CAP_DIM];
+    uint8_t wf_ppa_gain[NV_FIXZONE_WF_PPA_GAIN_DIM];
+    int8_t wf_power_offset[WF_POWER_OFFSET_DIM];
+    ls_nv_fixzone_wf_rssi_offset_t wf_rssi_offset;
+    ls_nv_fixzone_wf_target_power_t wf_target_power;
+    uint8_t bt_mac[NV_FIXZONE_MAC_ADDR_LEN];
+    int8_t bt_power_offset[BT_POWER_OFFSET_DIM];
     int32_t bt_target_power;
-    uint8_t wf_target_power_channel_ind;
-    uint8_t reserve1;
-    pwr_table_t wf_target_power[3];
 } ls_nv_fixzone_body_t;
+
+typedef struct {
+    uint32_t addr;
+    uint32_t value;
+} ls_nv_fixzone_reg_override_item_t;
+
+typedef struct {
+    uint16_t count;
+    uint16_t reserve;
+    ls_nv_fixzone_reg_override_item_t items[NV_FIXZONE_REG_OVERRIDE_MAX_CNT];
+} ls_nv_fixzone_reg_override_cache_t;
+
+_Static_assert(sizeof(ls_nv_fixzone_header_t) == 12, "ls_nv_fixzone_header_t size mismatch");
+_Static_assert(sizeof(ls_nv_fixzone_tlv_hdr_t) == 4, "ls_nv_fixzone_tlv_hdr_t size mismatch");
+_Static_assert(sizeof(ls_nv_fixzone_wf_rssi_offset_t) == 4, "ls_nv_fixzone_wf_rssi_offset_t size mismatch");
+_Static_assert(sizeof(ls_nv_fixzone_wf_target_power_t) == (sizeof(pwr_table_t) * 3 + 1),
+    "ls_nv_fixzone_wf_target_power_t size mismatch");
 
 typedef struct {
     uint32_t tx_pred_table_chan_low[DPD_COMP_TABLE_CNT][9];
@@ -196,6 +259,8 @@ extern int8_t nv_reset_rf_config(void);
 extern int8_t nv_selfcali_erase_otp(void);
 extern int8_t nv_selfcali_get_otp_flag(uint32_t *flag);
 
-uint32_t nv_fixzone_get_wf_conf_base_addr(void);
+uint32_t nv_get_wf_mfg_conf_base_addr(void);
+/* To set wifi factory partition address for wifi rf parameter configuration */
+void nv_set_wf_mfg_conf_base_addr(uint32_t addr);
 
 #endif//_NV_CONFIG_H_

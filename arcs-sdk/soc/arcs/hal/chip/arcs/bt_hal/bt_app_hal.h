@@ -36,6 +36,12 @@ typedef struct ble_hogpd_info
     uint8_t              value[__ARRAY_EMPTY];
 }ble_hogpd_info_t;
 
+typedef struct bt_open_info
+{
+    ///  app type.
+    uint8_t              type;
+}bt_open_info_t;
+
 typedef struct ble_adv_info
 {
     ///  app adv id.
@@ -355,6 +361,8 @@ typedef struct app_handler_by_user_cb
     uint8_t (*cb_app_ble_netcfg_bles_send_notify_handler)(ble_net_cfg_info_t *netcfg_info);
 } app_handler_by_user_cb_t;
 
+typedef void (*app_bt_close_cmp_cb_t)(uint8_t type, uint8_t status);
+
 /*
  * ENUMERATIONS
  ****************************************************************************************
@@ -391,6 +399,9 @@ uint8_t app_bt_conn(gap_bdaddr_t addr, uint8_t type, uint16_t clk_off, uint8_t p
 uint8_t app_bt_conn_cancel(void);
 uint8_t app_bt_disconnect(uint8_t conidx, uint8_t reason);
 #endif
+
+void app_bt_register_close_cmp_cb(app_bt_close_cmp_cb_t cb);
+void app_bt_close_cmp_ind(uint8_t type, uint8_t status);
 
 
 

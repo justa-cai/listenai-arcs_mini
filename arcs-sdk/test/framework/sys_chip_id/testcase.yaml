@@ -1,0 +1,5 @@
+tests:
+  test.framework.sys_chip_id:
+    programmer: arcs
+    runner: uart
+    log_analyzer: Unity

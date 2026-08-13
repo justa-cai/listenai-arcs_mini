@@ -141,13 +141,8 @@ int panel_set_backlight_brightness(lisa_display_backlight_t *backlight, uint8_t 
     case LISA_DISPLAY_BACKLIGHT_TYPE_PWM: {
         lisa_display_backlight_pwm_config_t *pwm = &backlight->config.pwm;
         if (pwm->dev) {
-            if (brightness == 0) {
-                lisa_pwm_disable(pwm->dev, pwm->channel);
-                return LISA_DEVICE_OK;
-            }
-
-            if (brightness >= 100) {
-                brightness = 99;
+            if (brightness > 100) {
+                brightness = 100;
             }
             lisa_pwm_config_t config = { .polarity = LISA_PWM_POLARITY_INVERTED };
             if (backlight->blacklight_polarity == LISA_DISPLAY_BLACKLIGHT_POLARITY_HIGH) {
@@ -430,8 +425,18 @@ static void panel_dma_rotate(panel_rotate_ctx_t *ctx, const uint16_t *src_buf, u
 
     uint32_t dst_scat = ((link_size - 1) << SG_INTERVAL_POS) | (1 << SG_COUNT_POS);
 
-    dma_channel_configure_LLP_with_size(ctx->dma_channel, ctx->dma_llp_lists, config_low, config_high, 0, dst_scat, link_size * area_w);
+    int32_t ret = dma_channel_setup(ctx->dma_channel, DMA_CH_EN_XFER_INT, control,
+                                    config_low, config_high, 0, dst_scat);
+    if (ret != 0) {
+        LISA_LOGE(LOG_TAG, "CPDMA rotate setup failed: %d", ret);
+        return;
+    }
 
+    ret = dma_channel_start_LLP(ctx->dma_channel, ctx->dma_llp_lists);
+    if (ret != 0) {
+        LISA_LOGE(LOG_TAG, "CPDMA rotate start failed: %d", ret);
+        return;
+    }
     if (lisa_semaphore_take(ctx->cpdma_done_sem, 100) != 0) {
         LISA_LOGE(LOG_TAG, "CPDMA rotate timeout");
     }
@@ -598,12 +603,14 @@ static int panel_send_data_with_sram_rotate(lisa_display_panel_t *panel, uint16_
             return ret;
         }
 
-        if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_90) {
-            data_offset += ROTATE_BUF_WIDTH;
-            panel_buf_rotate_90(ctx, src_buf + data_offset, w, next_buf, ROTATE_BUF_WIDTH, h);
-        } else if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_270) {
-            data_offset -= ROTATE_BUF_WIDTH;
-            panel_buf_rotate_270(ctx, src_buf + data_offset, w, next_buf, ROTATE_BUF_WIDTH, h);
+        if ((i + ROTATE_BUF_WIDTH) < w) {
+            if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_90) {
+                data_offset += ROTATE_BUF_WIDTH;
+                panel_buf_rotate_90(ctx, src_buf + data_offset, w, next_buf, ROTATE_BUF_WIDTH, h);
+            } else if (panel->caps.orientation == LISA_DISPLAY_ORIENTATION_270) {
+                data_offset -= ROTATE_BUF_WIDTH;
+                panel_buf_rotate_270(ctx, src_buf + data_offset, w, next_buf, ROTATE_BUF_WIDTH, h);
+            }
         }
 
         ret = bus_api->wait_for_completion(panel->bus_dev, 1000);

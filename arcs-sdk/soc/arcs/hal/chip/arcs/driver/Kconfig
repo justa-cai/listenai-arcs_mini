@@ -38,6 +38,15 @@ if ARCS_HAL_LSF
         bool "Enable ARCS HAL IC Mutex"
         default y
 
+    config ARCS_HAL_URPC_STACK_SIZE
+        int "URPC task stack size"
+        default 512
+        help
+          Stack depth for the URPC task in the selected LSF role. For
+          HAL_LSF_CLIENT this config is used by the rpc_client task; for
+          HAL_LSF_SERVER it is used by the rpc_sync_serv/rpc_async_serv tasks.
+          Set to 0 to use the HAL default value.
+
     config ARCS_HAL_SUPPORT_ATOMIC_INSTRUCTIONS
         bool "Enable ARCS HAL Support Atomic Instructions"
         depends on ARCS_HAL_IC_MUTEX

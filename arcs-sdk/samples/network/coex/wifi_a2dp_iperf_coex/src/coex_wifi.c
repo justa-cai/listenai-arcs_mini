@@ -180,11 +180,21 @@ int coex_wifi_init(void)
     return 0;
 }
 
-int coex_wifi_connect(void)
+int coex_wifi_connect_to(const char *ssid, const char *pwd)
 {
     wifi_mgr_sta_config_t cfg = {0};
     int count;
     int ret;
+
+    if (ssid == NULL || pwd == NULL || ssid[0] == '\0') {
+        return -EINVAL;
+    }
+
+    if (strlen(ssid) >= sizeof(cfg.ssid) || strlen(pwd) >= sizeof(cfg.pwd)) {
+        LOGI("wifi connect config too long: ssid_len=%u pwd_len=%u",
+             (unsigned int)strlen(ssid), (unsigned int)strlen(pwd));
+        return -ENAMETOOLONG;
+    }
 
     if (!g_wifi_stack_ready) {
         LOGI("wifi stack is not ready yet");
@@ -195,8 +205,8 @@ int coex_wifi_connect(void)
         return 0;
     }
 
-    strncpy(cfg.ssid, CONFIG_IPERF_WIFI_SSID, sizeof(cfg.ssid) - 1);
-    strncpy(cfg.pwd, CONFIG_IPERF_WIFI_PWD, sizeof(cfg.pwd) - 1);
+    strncpy(cfg.ssid, ssid, sizeof(cfg.ssid) - 1);
+    strncpy(cfg.pwd, pwd, sizeof(cfg.pwd) - 1);
 
     count = wifi_mgr_storage_search_ap(g_saved_ap_list,
                                        COEX_WIFI_SEARCH_AP_BUFFER_SIZE,
@@ -218,6 +228,11 @@ int coex_wifi_connect(void)
 
     LOGI("wifi connect request ret=%d ssid=%s", ret, cfg.ssid);
     return ret;
+}
+
+int coex_wifi_connect(void)
+{
+    return coex_wifi_connect_to(CONFIG_IPERF_WIFI_SSID, CONFIG_IPERF_WIFI_PWD);
 }
 
 int coex_wifi_disconnect(void)

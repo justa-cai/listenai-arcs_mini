@@ -22,17 +22,21 @@ zh: Makefile
 	@$(SPHINXBUILD) -M html "zh" "output/zh" $(SPHINXOPTS) $(O)
 
 html: zh
+GENERATED_ZH_PATHS := \
+	zh/_static \
+	zh/boards \
+	zh/components \
+	zh/demos \
+	zh/drivers \
+	zh/modules \
+	zh/samples \
+	zh/system \
+	zh/tools \
+	zh/CHANGELOG.md
+
 .PHONY: all zh html clean
 
 clean:
-	@rm -rf output
-	@rm -rf zh/samples
-	@rm -rf zh/components
-	@rm -rf zh/_static
-	@rm -rf zh/drivers
-	@rm -rf zh/modules
-	@rm -rf zh/boards
-	@rm -rf zh/CHANGELOG.md
-	@rm -rf zh/tools
-	@rm -rf zh/demos
-	@rm -rf zh/system
+	@rm -rf output build $(GENERATED_ZH_PATHS)
+	@if [ -d zh/labs ]; then find zh/labs -mindepth 1 -maxdepth 1 ! -name index.rst -exec rm -rf {} +; fi
+	@find . -type d -name __pycache__ -prune -exec rm -rf {} +

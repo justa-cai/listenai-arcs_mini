@@ -34,7 +34,7 @@
 #include <stdio.h>
 #include "FreeRTOS.h"
 #include "task.h"
-#include "chip.h"
+#include <soc/chip.h>
 
 //#define ENABLE_KERNEL_DEBUG
 
@@ -52,10 +52,6 @@
 #define configKERNEL_INTERRUPT_PRIORITY         0
 #endif
 
-#ifndef configMAX_SYSCALL_INTERRUPT_PRIORITY
-// See function prvCheckMaxSysCallPrio and prvCalcMaxSysCallMTH
-#define configMAX_SYSCALL_INTERRUPT_PRIORITY    255
-#endif
 
 /* Constants required to check the validity of an interrupt priority. */
 #define portFIRST_USER_INTERRUPT_NUMBER ( 18 )
@@ -745,7 +741,17 @@ portFORCE_INLINE void vPortSetBASEPRI(uint8_t ulNewMaskValue)
  */
 portFORCE_INLINE BaseType_t xPortIsInsideInterrupt( void )
 {
-    return (CSR_MSUBM_Type){.d=__RV_CSR_READ(CSR_MSUBM)}.b.typ;
+    /* MSUBM.typ (2-bit) 反映当前 Machine Sub-Mode:
+     *   0: Non-Trap (任务上下文)
+     *   1: Interrupt
+     *   2: Exception
+     *   3: NMI
+     * 任何非 0 值都视为 ISR 上下文。必须规范化成 pdTRUE/pdFALSE，否则
+     * 调用方做 `== pdTRUE` 严格比较时 typ=2/3 会被误判为 false。
+     * VenusA 上 startup.S 早期已 csrwi CSR_MSUBM, 0 防御性清零，避免
+     * 上电默认值非 0 在任务上下文里被误判为 ISR。*/
+    CSR_MSUBM_Type msubm_val = (CSR_MSUBM_Type)__RV_CSR_READ(CSR_MSUBM);
+    return (msubm_val.b.typ != 0 ? pdTRUE : pdFALSE);
 }
 
 /*-----------------------------------------------------------*/

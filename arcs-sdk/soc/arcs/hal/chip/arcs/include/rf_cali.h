@@ -26,6 +26,20 @@ enum {
     RFCALI_MODE_BT = 1,
 };
 
+enum {
+    RF_TXIQ_PWR_RANGE_ALL = 0,
+    RF_TXIQ_PWR_RANGE_LOW,
+    RF_TXIQ_PWR_RANGE_MID,
+    RF_TXIQ_PWR_RANGE_HIGH,
+};
+
+#define RF_TXIQ_LOW_PWR_MAX_DBM    6
+#define RF_TXIQ_MID_PWR_MAX_DBM    10
+#define RF_TXIQ_HIGH_PWR_MIN_DBM   11
+#define TXIQ_LOW_PWR_CAL_DBM  6
+#define TXIQ_MID_PWR_CAL_DBM  8
+#define TXIQ_HIGH_PWR_CAL_DBM 14
+
 typedef struct rf_cali_params {
     uint8_t mode;
     uint8_t rxdcoc_disable;
@@ -61,10 +75,11 @@ typedef const struct rf_cali_ops {
     int8_t (*txiq_fb_init)(uint8_t dbg, uint8_t abb_gain);
     int8_t (*txiq_fb_measure)(int32_t *Isq, int32_t *Qsq, int32_t *IxQ);
     int8_t (*txiq_fb_result)(int16_t c21, int16_t c22);
-    int8_t (*txiq_tx_init)(void);
-    int8_t (*txiq_tx_measure)(void);
-    int8_t (*txiq_tx_result)(int16_t c21, int16_t c22);
+    int8_t (*txiq_tx_init)(int8_t pwr_level);
+    int8_t (*txiq_tx_measure)(uint32_t *irr);
+    int8_t (*txiq_tx_result)(int16_t c21, int16_t c22, uint8_t range);
     int8_t (*txiq_fb_deinit)(void);
+    int8_t (*txiq_tx_deinit)(void);
     int8_t (*txiq_dump_data)(int32_t *Isq, int32_t *Qsq, int32_t *IxQ);
     int8_t (*txiq_restore_rxiq_result)(void);
     int8_t (*txdpd_remap_pred)(void);
@@ -134,6 +149,9 @@ int ls_rf_cali_redo(int8_t ppa_cap);
 
 extern int32_t ls_rf_cali_probe(rf_cali_runtime *do_rfcali, void *params);
 extern int32_t ls_rf_cali_proc(void);
+#if defined(MFG_RF_TEST)
+extern int8_t rf_cali_txiq(int8_t pwr_level);
+#endif
 extern void set_sc_i(uint8_t mode, uint8_t sc_i);
 extern void set_sc_q(uint8_t mode, uint8_t sc_q);
 extern void bt_rf_set_channel(uint16_t freq);

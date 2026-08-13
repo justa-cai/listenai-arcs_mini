@@ -18,12 +18,45 @@
 #include <string.h>
 #include "lisa_device.h"
 #include "lisa_spi.h"
+#include "lisa_mem.h"
 #include "IOMuxManager.h"
 #include <lisa_semaphore.h>
 #include "FreeRTOS.h"
 #include "task.h"
 
 #define SPI0_DEVICE         "spi0"
+#if defined(CONFIG_BOARD_VENUSA_RD_EVB)
+#define SPI0_CLK_PAD        CSK_IOMUX_PAD_A
+#define SPI0_CLK_PIN        16
+#define SPI0_CLK_FUNC       CSK_IOMUX_FUNC_ALTER5
+
+#define SPI0_MOSI_PAD       CSK_IOMUX_PAD_A
+#define SPI0_MOSI_PIN       19
+#define SPI0_MOSI_FUNC      CSK_IOMUX_FUNC_ALTER5
+
+#define SPI0_MISO_PAD       CSK_IOMUX_PAD_A
+#define SPI0_MISO_PIN       18
+#define SPI0_MISO_FUNC      CSK_IOMUX_FUNC_ALTER5
+#define SPI0_CS_PAD         CSK_IOMUX_PAD_A
+#define SPI0_CS_PIN         17
+#define SPI0_CS_FUNC        CSK_IOMUX_FUNC_ALTER5
+
+#define SPI1_DEVICE         "spi1"
+#define SPI1_CLK_PAD        CSK_IOMUX_PAD_A
+#define SPI1_CLK_PIN        22
+#define SPI1_CLK_FUNC       CSK_IOMUX_FUNC_ALTER6
+
+#define SPI1_MOSI_PAD       CSK_IOMUX_PAD_A
+#define SPI1_MOSI_PIN       23
+#define SPI1_MOSI_FUNC      CSK_IOMUX_FUNC_ALTER6
+
+#define SPI1_MISO_PAD       CSK_IOMUX_PAD_A
+#define SPI1_MISO_PIN       24
+#define SPI1_MISO_FUNC      CSK_IOMUX_FUNC_ALTER6
+#define SPI1_CS_PAD         CSK_IOMUX_PAD_A
+#define SPI1_CS_PIN         21
+#define SPI1_CS_FUNC        CSK_IOMUX_FUNC_ALTER6
+#else
 #define SPI0_CLK_PAD        CSK_IOMUX_PAD_A
 #define SPI0_CLK_PIN        15
 #define SPI0_CLK_FUNC       CSK_IOMUX_FUNC_ALTER5
@@ -54,6 +87,7 @@
 #define SPI1_CS_PAD         CSK_IOMUX_PAD_A
 #define SPI1_CS_PIN         22
 #define SPI1_CS_FUNC        CSK_IOMUX_FUNC_ALTER6
+#endif
 
 static lisa_semaphore_t *tx_complete_sem = NULL;
 static lisa_semaphore_t *slave_transfer_complete_sem = NULL;
@@ -63,7 +97,7 @@ static lisa_device_t *spi1_dev = NULL;
 /*
     为满足不同板型示例场景，重定向SPI设备的pinmux配置
 */
-#ifdef CONFIG_BOARD_ARCS_EVB
+#if defined(CONFIG_BOARD_ARCS_EVB) || defined(CONFIG_BOARD_VENUSA_RD_EVB)
 void lisa_spi0_pinmux()
 {
     IOMuxManager_PinConfigure(SPI0_CLK_PAD, SPI0_CLK_PIN, SPI0_CLK_FUNC);
@@ -96,7 +130,7 @@ static void spi1_transfer_callback(void *user_data)
 static int spi0_init(void)
 {
     int ret;
-    
+
     /* 获取 SPI0 设备 */
     spi0_dev = lisa_device_get(SPI0_DEVICE);
     if (!lisa_device_ready(spi0_dev)) {
@@ -174,8 +208,9 @@ static int spi1_init(void)
 
 static void spi0_master_thread(void *arg)
 {
-    uint8_t *tx_data = lisa_mem_align_alloc(32, 10);
-    uint8_t *rx_data = lisa_mem_align_alloc(32, 10);
+    /* DMA cache 维护按 32B DCache line 生效，buffer 分配整行避免覆盖相邻 heap 对象。 */
+    uint8_t *tx_data = lisa_mem_align_alloc(32, 32);
+    uint8_t *rx_data = lisa_mem_align_alloc(32, 32);
 
     memcpy(tx_data, (uint8_t[]){1,2,3,4,5,6,7,8}, 8);
     lisa_spi_transfer_t transfer = {
@@ -192,13 +227,13 @@ static void spi0_master_thread(void *arg)
             LISA_LOGE(LOG_TAG, "SPI0 transfer failed");
         }
 
-        ret = lisa_semaphore_take(tx_complete_sem, pdMS_TO_TICKS(100));
+        ret = lisa_semaphore_take(tx_complete_sem, 100);    //内部已经pdMS_TO_TICKS(x)
         if (ret != LISA_OK) {
             LISA_LOGE(LOG_TAG, "SPI transfer timeout");
         }
 
-        LISA_LOGI(LOG_TAG, "SPI0 Received: %d %d %d %d %d %d %d %d", 
-            rx_data[0], rx_data[1], rx_data[2], rx_data[3], rx_data[4], 
+        LISA_LOGI(LOG_TAG, "SPI0 Received: %d %d %d %d %d %d %d %d",
+            rx_data[0], rx_data[1], rx_data[2], rx_data[3], rx_data[4],
             rx_data[5], rx_data[6], rx_data[7]);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
@@ -206,8 +241,9 @@ static void spi0_master_thread(void *arg)
 
 static void spi1_slave_thread(void *arg)
 {
-    uint8_t *tx_data = lisa_mem_align_alloc(32, 10);
-    uint8_t *rx_data = lisa_mem_align_alloc(32, 10);
+    /* DMA cache 维护按 32B DCache line 生效，buffer 分配整行避免覆盖相邻 heap 对象。 */
+    uint8_t *tx_data = lisa_mem_align_alloc(32, 32);
+    uint8_t *rx_data = lisa_mem_align_alloc(32, 32);
 
     memcpy(tx_data, (uint8_t[]){8,7,6,5,4,3,2,1}, 8);
     lisa_spi_transfer_t transfer = {
@@ -223,13 +259,13 @@ static void spi1_slave_thread(void *arg)
             LISA_LOGE(LOG_TAG, "SPI1 transfer failed");
         }
 
-        ret = lisa_semaphore_take(slave_transfer_complete_sem, pdMS_TO_TICKS(1000));
+        ret = lisa_semaphore_take(slave_transfer_complete_sem, 1000);    //内部已经pdMS_TO_TICKS(x)
         if (ret != LISA_OK) {
             LISA_LOGE(LOG_TAG, "SPI transfer timeout");
         }
 
-        LISA_LOGI(LOG_TAG, "SPI1 Received: %d %d %d %d %d %d %d %d", 
-            rx_data[0], rx_data[1], rx_data[2], rx_data[3], rx_data[4], 
+        LISA_LOGI(LOG_TAG, "SPI1 Received: %d %d %d %d %d %d %d %d",
+            rx_data[0], rx_data[1], rx_data[2], rx_data[3], rx_data[4],
             rx_data[5], rx_data[6], rx_data[7]);
     }
 }

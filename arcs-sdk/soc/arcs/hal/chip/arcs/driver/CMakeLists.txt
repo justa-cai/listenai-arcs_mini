@@ -68,7 +68,9 @@ if(CONFIG_ARCS_HAL_LSF)
 endif()
 
 list(FILTER ARCS_HAL_SRCS EXCLUDE REGEX ".*usb_subsys/.*")
+list(FILTER ARCS_HAL_SRCS EXCLUDE REGEX ".*usb_subsys_cherry/.*")
 list(FILTER ARCS_HAL_SRCS EXCLUDE REGEX ".*ota/.*")
+list(FILTER ARCS_HAL_SRCS EXCLUDE REGEX ".*psram_unified/.*")
 if(NOT CONFIG_ARCS_HAL_CRYPTO)
     list(FILTER ARCS_HAL_SRCS EXCLUDE REGEX ".*crypto/.*")
 endif()
@@ -77,4 +79,3 @@ listenai_library_sources(${ARCS_HAL_SRCS})
 listenai_include_directories(
     ${ARCS_HAL_LIB_PATH}/chip/arcs/driver/debug
 )
-

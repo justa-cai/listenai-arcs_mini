@@ -4,12 +4,19 @@
 #include <stdbool.h>
 
 #include "lisa_log.h"
+#if CONFIG_CONSOLE
+#include "console.h"
+#endif
 #include "sysheap.h"
 
 #include "string.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "semphr.h"
+
+#if CONFIG_LOG_CLOG_EARLY_UART_FALLBACK
+#include <soc/early_log.h>
+#endif
 
 struct lisa_log_backend {
     struct lisa_log_backend *next;
@@ -28,8 +35,15 @@ static struct lisa_log_backend *lisa_log_backend_list = NULL;
 static SemaphoreHandle_t lisa_log_backend_list_mutex = NULL;
 
 static volatile bool g_panic_mode = false;
+#if CONFIG_LOG_CLOG_EARLY_UART_FALLBACK
+static volatile bool g_lisa_log_ready = false;
+#endif
 
-#define LISA_LOG_CAN_LOCK()   (!(xPortIsInsideInterrupt() || xPortIsInsideCritical()))
+/* Skip mutex use while logger is uninitialized or scheduler is not running, such as shutdown paths. */
+#define LISA_LOG_CAN_LOCK()                                                                                           \
+    (lisa_log_backend_list_mutex != NULL &&                                                                            \
+     !(xPortIsInsideInterrupt() || xPortIsInsideCritical()) &&                                                         \
+     xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)
 #define LISA_LOG_PANIC_MODE() (g_panic_mode)
 
 static void lisa_log_output(const uint8_t *log, uint32_t len)
@@ -85,8 +99,15 @@ int lisa_log_init(void)
     lisa_log_backend_list_mutex = xSemaphoreCreateRecursiveMutex();
     assert(lisa_log_backend_list_mutex != NULL);
 
+#if CONFIG_LOG_BACKEND_CONSOLE
     extern int lisa_log_backend_sys_init(void);
     lisa_log_backend_sys_init();
+#endif
+
+#if CONFIG_LOG_BACKEND_IPC_WRITER
+    extern int lisa_log_backend_ipc_init(void);
+    lisa_log_backend_ipc_init();
+#endif
 
 #if CONFIG_SDK_MODULE_EASYLOGGER
     extern const struct lisa_log_frontend lisa_log_frontend_easylog;
@@ -99,6 +120,9 @@ int lisa_log_init(void)
         }
         assert(lisa_log_frontend->output_hook_set != NULL);
         lisa_log_frontend->output_hook_set(lisa_log_output);
+#if CONFIG_LOG_CLOG_EARLY_UART_FALLBACK
+        g_lisa_log_ready = true;
+#endif
     }
 
     return 0;
@@ -106,9 +130,14 @@ int lisa_log_init(void)
 
 void log_flush(void)
 {
+    /* 先将前端缓冲区的日志刷到后端（console_write） */
     if (lisa_log_frontend && lisa_log_frontend->flush) {
         lisa_log_frontend->flush(lisa_log_frontend);
     }
+#if CONFIG_CONSOLE
+    /* 再等待硬件 TX FIFO 中的数据全部发出 */
+    console_flush();
+#endif
 }
 
 void logDump(uint8_t *data, int len)
@@ -407,6 +436,13 @@ void logDbg(const char* format, ...)
 {
     va_list ap;
     va_start(ap, format);
+#if CONFIG_LOG_CLOG_EARLY_UART_FALLBACK
+    if (!g_lisa_log_ready) {
+        soc_early_log_vprintf(format, ap);
+        va_end(ap);
+        return;
+    }
+#endif
     elog_raw_output_v(format, ap);
     va_end(ap);
 }

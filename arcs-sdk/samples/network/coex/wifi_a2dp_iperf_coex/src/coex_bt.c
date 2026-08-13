@@ -107,6 +107,38 @@ int coex_bt_init(void)
     return 0;
 }
 
+int coex_bt_open(void)
+{
+    int ret;
+
+    if (!g_coex_bt_status.initialized) {
+        ret = coex_bt_init();
+        if (ret != 0) {
+            return ret;
+        }
+    }
+
+    ret = lisa_bluetooth_open();
+    g_coex_bt_status.opened = lisa_bluetooth_is_opened();
+    LOGI("bt open ret=%d opened=%d", ret, g_coex_bt_status.opened);
+    return ret;
+}
+
+int coex_bt_close(void)
+{
+    int ret;
+
+    g_coex_bt_status.discovered_count = 0;
+    g_coex_bt_status.connected = false;
+    g_coex_bt_status.a2dp_connected = false;
+    g_coex_bt_status.peer_addr[0] = '\0';
+
+    ret = lisa_bluetooth_close();
+    g_coex_bt_status.opened = lisa_bluetooth_is_opened();
+    LOGI("bt close ret=%d opened=%d", ret, g_coex_bt_status.opened);
+    return ret;
+}
+
 int coex_bt_inquiry(void)
 {
     lisa_bluetooth_clear_discovered_devices();
@@ -150,6 +182,8 @@ void coex_bt_get_status(coex_bt_status_t *status)
         (void)list;
         g_coex_bt_status.discovered_count = count;
     }
+
+    g_coex_bt_status.opened = lisa_bluetooth_is_opened();
 
     *status = g_coex_bt_status;
 }

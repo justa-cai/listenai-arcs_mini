@@ -8,3 +8,4 @@
 
     app_player/README.rst
     lisa_bt_audio_framework/README.md
+    lisa_media_player/docs/index

@@ -24,6 +24,12 @@
 #include "IOMuxManager.h"
 #include "pinmux.h"
 
+#ifdef CONFIG_BOARD_ARCS_EVB
+#include "arcs_ap.h"
+#elif defined(CONFIG_BOARD_VENUSA_RD_EVB)
+#include "venusa_ap.h"
+#endif
+
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -42,6 +48,13 @@
 void lisa_adc_pinmux()
 {
     AON_IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, ADC_PIN, CSK_AON_IOMUX_FUNC_ALTER3);
+    IP_AON_IOMUX->REG_PAD_AON_GPIOB_04.bit.PAD_AON_GPIOB_04_ANA_SEL = 0;
+}
+#elif defined(CONFIG_BOARD_VENUSA_RD_EVB)
+void lisa_adc_pinmux()
+{
+    AON_IOMuxManager_PinConfigure(CSK_IOMUX_PAD_B, ADC_PIN, CSK_AON_IOMUX_FUNC_ALTER4);
+    IP_AON_IOMUX->REG_PAD_AON_GPIOB_03.bit.PAD_AON_GPIOB_03_ANA_SEL = 0;
 }
 #endif
 

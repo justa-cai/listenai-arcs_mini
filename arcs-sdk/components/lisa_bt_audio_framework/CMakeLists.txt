@@ -14,6 +14,7 @@ if(CONFIG_LISA_BT_AUDIO_FRAMEWORK)
         core/bt_audio_framework.c
         core/bt_audio_codec_mgr.c
         core/bt_audio_session_mgr.c
+        core/bt_audio_stream_lifecycle.c
     )
 
     # Codec适配器源文件

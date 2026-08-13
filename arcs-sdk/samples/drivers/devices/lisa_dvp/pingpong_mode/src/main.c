@@ -21,6 +21,7 @@
 #include "lisa_device.h"
 #include "lisa_dvp.h"
 #include "lisa_thread.h"
+#include "cache.h"
 
 #define TAG "sample_dvp_pingpong"
 #include "lisa_log.h"
@@ -55,12 +56,12 @@ static const lisa_dvp_config_t dvp_config = {
     .gpdma_ch = DMA_CHANNEL,
 };
 
-/* Ping-Pong 双缓冲区（放在 PSRAM，需要 4 字节对齐） */
+/* Ping-Pong 双缓冲区（放在 PSRAM，需要 cache line 对齐） */
 static uint8_t ping_buffer[FRAME_WIDTH * FRAME_HEIGHT * 2]
-    __attribute__((aligned(4))) __attribute__((section(".psram.data")));
+    __attribute__((aligned(HAL_DCACHE_CFG_LINE_SIZE))) __attribute__((section(".psram.data")));
 
 static uint8_t pong_buffer[FRAME_WIDTH * FRAME_HEIGHT * 2]
-    __attribute__((aligned(4))) __attribute__((section(".psram.data")));
+    __attribute__((aligned(HAL_DCACHE_CFG_LINE_SIZE))) __attribute__((section(".psram.data")));
 
 /* 全局变量 */
 static lisa_device_t *g_dvp_dev = NULL;

@@ -5,13 +5,15 @@
 
 config LISA_HWTIMER_ARCS_AON_TIMER
 	bool "Enable LISA Hardware Timer ARCS AON Timer support"
+	depends on SOC_ARCS
+	select LISA_HWTIMER_AON_TIMER
 	help
 		Enable LISA Hardware Timer ARCS AON Timer support.
 
-if LISA_HWTIMER_ARCS_AON_TIMER
+if LISA_HWTIMER_AON_TIMER && SOC_ARCS
 
 choice
-	prompt "AON Timer Clock Source"
+	prompt "ARCS AON Timer Clock Source"
 	default LISA_HWTIMER_ARCS_AON_TIMER_CLK_RC32K
 	help
 		Select the clock source for AON Timer.
@@ -30,4 +32,4 @@ config LISA_HWTIMER_ARCS_AON_TIMER_CLK_XO32K
 
 endchoice
 
-endif # LISA_HWTIMER_ARCS_AON_TIMER
+endif # LISA_HWTIMER_AON_TIMER && SOC_ARCS

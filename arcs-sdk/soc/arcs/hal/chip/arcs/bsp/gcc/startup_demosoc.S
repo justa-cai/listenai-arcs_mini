@@ -189,9 +189,6 @@ _start:
     /* ===== Startup Stage 1 ===== */
     /* Disable Global Interrupt */
     csrc CSR_MSTATUS, MSTATUS_MIE
-#if (BOOT_HARTID == 0) && (CONFIG_PM) && !defined(CFG_AMP_IPC)
-    call ap_startup_check
-#endif
     /* If SMP_CPU_CNT is not defined,
      * assume that only 1 core is allowed to run,
      * the core hartid is defined via BOOT_HARTID.
@@ -233,6 +230,9 @@ _start:
     la sp, _sp
 #endif
 
+#if (BOOT_HARTID == 0) && (CONFIG_PM)
+    call startup_check
+#endif
     /*
      * Set the the NMI base mnvec to share
      * with mtvec by setting CSR_MMISC_CTL

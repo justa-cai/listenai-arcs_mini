@@ -20,6 +20,10 @@
 #define LOG_TAG "lisa_rgb"
 #include "lisa_log.h"
 
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
+
 /* ========================================================================
  * 私有数据结构
  * ======================================================================== */
@@ -572,43 +576,158 @@ static const lisa_rgb_api_t arcs_rgb_api = {
 static lisa_rgb_priv_t rgb_priv;
 
 /**
+ * @brief 创建 RGB 设备 OS 资源（仅启动期调用一次）
+ *
+ * 仅创建跨 suspend/resume 必须保留的 mutex / semaphore；fb_buf /
+ * bounce_buffer 等堆缓冲依赖 `lisa_display_bus_rgb_config_t`（分辨率、
+ * bpp、bounce buffer size），由 arcs_rgb_setup 在业务侧分配，不在此处
+ * 处理。resume_restore 不会调用本函数，避免对已存在 OS 句柄的二次创建。
+ */
+static int lisa_rgb_init_resources(lisa_rgb_priv_t *priv)
+{
+    priv->lock = lisa_mutex_create();
+    if (!priv->lock) {
+        LISA_LOGE(LOG_TAG, "Failed to create mutex");
+        return LISA_DEVICE_ERR_NO_MEM;
+    }
+
+    priv->done_sem = lisa_semaphore_create(1);
+    if (!priv->done_sem) {
+        LISA_LOGE(LOG_TAG, "Failed to create semaphore");
+        return LISA_DEVICE_ERR_NO_MEM;
+    }
+
+    priv->write_sem = lisa_semaphore_create(1);
+    if (!priv->write_sem) {
+        LISA_LOGE(LOG_TAG, "Failed to create write semaphore");
+        return LISA_DEVICE_ERR_NO_MEM;
+    }
+
+    lisa_semaphore_give(priv->write_sem);  // 初始化为可用状态
+    return LISA_DEVICE_OK;
+}
+
+/**
+ * @brief 幂等的 RGB HAL 硬件初始化
+ *
+ * 由 _init 调用。pinmux 与 hal handle / GPDMA 通道号在此设置；RGB_Initialize /
+ * GPDMA_Config 依赖业务侧 setup() 提供的时序与帧格式，不在此处调用，由唤醒后
+ * 业务侧 setup() 重新发起。本函数不分配 mutex / 堆内存，并将运行态字段
+ * （is_running / swap_pending / display_idx / write_idx / bounce_pos）复位为初始状态。
+ */
+static int lisa_rgb_init_hw(lisa_rgb_priv_t *priv)
+{
+    lisa_rgb_pinmux();
+
+    priv->hal_rgb      = RGB0();
+    priv->gpdma_ch     = CONFIG_LISA_RGB_GPDMA_CH;
+    priv->is_running   = false;
+    priv->swap_pending = 0;
+    priv->display_idx  = 0;
+    priv->write_idx    = 0;
+    priv->bounce_pos   = 0;
+    return LISA_DEVICE_OK;
+}
+
+/**
  * @brief RGB 设备初始化入口函数
  */
 int lisa_rgb0_init(void)
 {
     memset(&rgb_priv, 0, sizeof(rgb_priv));
 
-    lisa_rgb_pinmux();
+    int ret = lisa_rgb_init_resources(&rgb_priv);
+    if (ret) {
+        return ret;
+    }
+    return lisa_rgb_init_hw(&rgb_priv);
+}
 
-    rgb_priv.hal_rgb = RGB0();
-    rgb_priv.gpdma_ch = CONFIG_LISA_RGB_GPDMA_CH;
+/**
+ * @brief 停止并释放 RGB0 设备的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用。释放顺序与 setup + _init 申请相反：
+ *   1) 若仍在运行先 RGB_Stop + GPDMA_Stop；再 GPDMA_Uninitialize +
+ *      RGB_DisableClockout + RGB_Uninitialize（GPDMA 在 dvp / qspilcd 等驱动间
+ *      共享，未做 refcount，依赖 HAL 幂等性，refcount 留作 follow-up）；
+ *   2) 释放业务侧 setup() 分配的堆缓冲 fb_buf[]（lisa_mem_free）/
+ *      bounce_buffer[]（inram_free）——这是与旧 prepare_suspend 的关键区别：
+ *      destroy 语义要求彻底回收，而非跨睡眠保留；
+ *   3) 释放 OS 资源 write_sem / done_sem / lock；
+ *   4) memset 整个 priv，回到 _init 之前的零初值。
+ *
+ * 约定：调用方需保证此时无并发业务在使用本设备。
+ */
+static int lisa_rgb0_deinit(void)
+{
+    lisa_rgb_priv_t *priv = &rgb_priv;
 
-    // 创建互斥锁
-    rgb_priv.lock = lisa_mutex_create();
-    if (!rgb_priv.lock) {
-        LISA_LOGE(LOG_TAG, "Failed to create mutex");
-        return LISA_DEVICE_ERR_NO_MEM;
+    if (priv->is_running && priv->hal_rgb) {
+        RGB_Stop(priv->hal_rgb);
+        GPDMA_Stop(priv->gpdma_ch);
     }
 
-    // 创建信号量
-    rgb_priv.done_sem = lisa_semaphore_create(1);
-    if (!rgb_priv.done_sem) {
-        LISA_LOGE(LOG_TAG, "Failed to create semaphore");
-        lisa_mutex_delete(rgb_priv.lock);
-        return LISA_DEVICE_ERR_NO_MEM;
+    GPDMA_Uninitialize();
+    if (priv->hal_rgb) {
+        RGB_DisableClockout();
+        RGB_Uninitialize(priv->hal_rgb);
     }
 
-    // 创建写入信号量（用于 Bounce Buffer 模式）
-    rgb_priv.write_sem = lisa_semaphore_create(1);
-    if (!rgb_priv.write_sem) {
-        LISA_LOGE(LOG_TAG, "Failed to create write semaphore");
-        lisa_semaphore_delete(rgb_priv.done_sem);
-        lisa_mutex_delete(rgb_priv.lock);
-        return LISA_DEVICE_ERR_NO_MEM;
+    for (int i = 0; i < 2; i++) {
+        if (priv->fb_buf[i]) {
+            lisa_mem_free(priv->fb_buf[i]);
+        }
+        if (priv->bounce_buffer[i]) {
+            inram_free(priv->bounce_buffer[i]);
+        }
     }
 
-    lisa_semaphore_give(rgb_priv.write_sem);  // 初始化为可用状态
+    if (priv->write_sem) {
+        lisa_semaphore_delete(priv->write_sem);
+    }
+    if (priv->done_sem) {
+        lisa_semaphore_delete(priv->done_sem);
+    }
+    if (priv->lock) {
+        lisa_mutex_delete(priv->lock);
+    }
+
+    memset(&rgb_priv, 0, sizeof(rgb_priv));
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(rgb0, &arcs_rgb_api, &rgb_priv, NULL, &lisa_rgb0_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在睡眠前
+ * 调 lisa_device_destroy(rgb0) 释放全部软硬件资源（HAL 下电 + fb_buf / bounce_buffer
+ * 堆缓冲 + lock / sem），唤醒后在 PM after_wake 回调中调 lisa_device_reinit(rgb0)
+ * 重建到 _init 后的状态，并由业务重新 setup()。因此 prepare_suspend / resume_restore
+ * 不再需要（原先它们只做 HAL 拆卸 / 业务字段清零并刻意保留堆缓冲，已被 destroy/reinit
+ * 覆盖，且二者运行于 PM 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：只读 priv->is_running（arcs_rgb_start 成功后置 1、arcs_rgb_stop
+ * 清 0，覆盖整个 DMA 运行区间），不取 mutex / 不访问 HAL。
+ */
+static int32_t lisa_rgb_pm_check_idle(void *ctx)
+{
+    lisa_rgb_priv_t *priv = (lisa_rgb_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    return priv->is_running ? 0 : 1;
+}
+
+static const lisa_pm_system_ops_t arcs_rgb_pm_ops = {
+    .check_idle      = lisa_rgb_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif /* CONFIG_LISA_PM */
+
+
+LISA_DEVICE_REGISTER_DEINIT(rgb0, &arcs_rgb_api, &rgb_priv, NULL, lisa_rgb0_init,
+                            lisa_rgb0_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(rgb0, &arcs_rgb_pm_ops, NULL, &rgb_priv);
+#endif

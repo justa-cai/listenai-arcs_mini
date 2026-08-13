@@ -1,10 +1,12 @@
 # WDT 驱动
 
-基于 lisa_device 框架的看门狗定时器（Watchdog Timer）设备驱动，为 ARCS 平台提供统一的看门狗管理接口。
+基于 lisa_device 框架的看门狗定时器（Watchdog Timer）设备驱动，为 ARCS 与 Venusa 平台提供统一的看门狗管理接口。
 
 ## 功能特性
 
-- **设备支持**: WDT0 看门狗定时器控制器
+- **设备支持**: `wdt0` 看门狗定时器控制器
+  - ARCS: 使用 `WDT()` HAL 资源
+  - Venusa: 使用 `WDT()` HAL 资源，实际 core WDT 由 `BOOT_HARTID` 决定
 - **两阶段超时机制**: 支持中断阶段和复位阶段两阶段超时保护
 - **灵活配置**: 支持毫秒级超时时间配置，自动转换为硬件可配置值
 - **状态查询**: 支持查询看门狗运行状态和剩余时间
@@ -153,11 +155,11 @@ if (ret != LISA_DEVICE_OK) {
 while (1) {
     // 执行主要任务
     do_main_task();
-    
+
     // 喂狗（每 200ms 喂一次，确保在 300ms 中断超时之前）
     // 注意：实际超时时间可能略大于配置值，已预留余量
     lisa_wdt_feed(wdt);
-    
+
     lisa_os_sleep_ms(200);
 }
 ```
@@ -176,12 +178,12 @@ static lisa_device_t *g_wdt = NULL;
 void wdt_timeout_callback(void *user_data)
 {
     printf("WDT timeout! System will reset soon...\n");
-    
+
     // 执行最后的恢复操作：保存关键数据、记录日志等
     // 注意：操作必须非常快速，因为系统很快会复位
     save_critical_data();
     log_error();
-    
+
     // 警告：不能在回调中喂狗，此时系统已进入复位流程
 }
 
@@ -218,7 +220,7 @@ int main(void)
     // 5. 在主循环中定期喂狗（必须在中断发生之前喂狗）
     while (1) {
         do_main_task();
-        
+
         // 每 800ms 喂一次狗，小于 1000ms 中断超时时间
         // 必须在中断发生之前喂狗，不能在中断回调中喂狗
         lisa_wdt_feed(g_wdt);
@@ -249,7 +251,7 @@ if (ret == LISA_DEVICE_OK) {
     }
 }
 
-// 获取剩余时间（注意：ARCS 硬件不支持直接读取，返回配置值）
+// 获取剩余时间（注意：当前 ARCS/Venusa HAL 不支持直接读取，返回配置值）
 uint32_t remaining_ms;
 ret = lisa_wdt_get_remaining_time(wdt, &remaining_ms);
 if (ret == LISA_DEVICE_OK) {
@@ -265,9 +267,9 @@ WDT 为芯片内部外设，无需外部引脚配置，也无需配置引脚复�
 
 ## 硬件特性
 
-### ARCS 看门狗定时器
+### ARCS / Venusa 看门狗定时器
 
-ARCS 平台的看门狗定时器具有以下特性：
+当前 LISA WDT 驱动在 ARCS 与 Venusa 上都使用普通 WDT HAL，并保持一致的 LISA API 语义：
 
 1. **两阶段超时机制**:
    - **中断阶段**：连续 `int_timeout_ms` 未喂狗，触发中断并调用回调函数
@@ -276,7 +278,8 @@ ARCS 平台的看门狗定时器具有以下特性：
    - 时间线：启动 → [中断阶段] → 中断触发（系统进入复位流程）→ 系统复位
 
 2. **时钟源**:
-   - 默认使用 32K 外部时钟源
+   - ARCS 驱动默认使用 32K 外部时钟源
+   - Venusa WDT HAL 当前只提供 32K 时钟源
    - 时钟周期精度固定，超时时间使用 2^N 倍周期配置
 
 3. **写保护机制**:
@@ -286,6 +289,12 @@ ARCS 平台的看门狗定时器具有以下特性：
 4. **硬件限制**:
    - 硬件不支持直接读取剩余时间
    - 看门狗一旦启动，无法通过软件完全禁用（直到系统复位）
+
+5. **Venusa 复位通路**:
+   - Venusa `WDT()` 根据 `BOOT_HARTID` 选择 core0/core1 WDT 资源
+   - 驱动在 `lisa_wdt_start()` 时打开对应 WDT 到 CMN 的复位通路
+   - `BOOT_HARTID == 0` 时启用 `__HAL_PMU_WDT0_RESET_CMN_ENABLE()`
+   - `BOOT_HARTID != 0` 时启用 `__HAL_PMU_WDT1_RESET_CMN_ENABLE()`
 
 ## 注意事项
 
@@ -299,18 +308,19 @@ ARCS 平台的看门狗定时器具有以下特性：
 
 5. **中断回调限制**: 回调函数在中断上下文中执行，应尽量简短快速，避免执行耗时操作、阻塞操作或互斥锁操作。回调主要用于最后的紧急操作（如保存关键数据、记录日志），因为系统很快会复位
 
-7. **剩余时间查询**: ARCS 硬件不支持直接读取剩余时间，`lisa_wdt_get_remaining_time()` 返回配置的中断超时时间，而非实际剩余时间
+6. **剩余时间查询**: 当前 ARCS/Venusa HAL 不支持直接读取剩余时间，`lisa_wdt_get_remaining_time()` 返回配置的中断超时时间，而非实际剩余时间
 
-8. **状态管理**: 看门狗状态由驱动内部维护，超时后状态会更新为 `LISA_WDT_STATE_EXPIRED`
+7. **状态管理**: 看门狗状态由驱动内部维护，超时后状态会更新为 `LISA_WDT_STATE_EXPIRED`
 
-9. **停止限制**: 在超时之前，可以通过 `lisa_wdt_stop()` 停止看门狗。但一旦中断触发，系统已进入复位流程
+8. **停止限制**: 在超时之前，可以通过 `lisa_wdt_stop()` 停止看门狗。但一旦中断触发，系统已进入复位流程
 
-10. **配置重新设置**: 如果看门狗正在运行，重新调用 `lisa_wdt_setup()` 会先停止看门狗，然后应用新配置
+9. **配置重新设置**: 如果看门狗正在运行，重新调用 `lisa_wdt_setup()` 会先停止看门狗，然后应用新配置
 
 ## 文件说明
 
 - `lisa_wdt.h` - 驱动头文件，包含所有 API 和类型定义
 - `lisa_wdt_arcs.c` - ARCS 平台适配实现
-- `CMakeLists.txt` - 构建配置
+- `lisa_wdt_venusa.c` - Venusa 平台适配实现
+- `CMakeLists.txt` - 构建配置，根据 `CONFIG_SOC_ARCS` / `CONFIG_SOC_VENUSA` 选择平台实现
 - `Kconfig` - 配置选项
 - `README.md` - 驱动使用说明

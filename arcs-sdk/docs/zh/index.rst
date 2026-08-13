@@ -19,12 +19,8 @@ ARCS SDK 文档
    components/index_zh
    samples/index_zh
    demos/index_zh
+   labs/index
    tools/index_zh
    thirds
    api_doc
    CHANGELOG
-
-.. toctree::
-   :hidden:
-
-   boards/index_zh

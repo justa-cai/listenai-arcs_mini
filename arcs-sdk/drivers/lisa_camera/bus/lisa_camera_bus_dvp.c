@@ -58,6 +58,15 @@ static camera_bus_dvp_priv_t camera_bus_dvp_priv = {
 #endif
 };
 
+static void camera_bus_dvp_release_fb(camera_bus_dvp_priv_t *priv, lisa_camera_fb_t *fb)
+{
+    if ((priv == NULL) || (fb == NULL) || (priv->user_data == NULL)) {
+        return;
+    }
+
+    lisa_camera_release_fb((lisa_device_t *)priv->user_data, fb);
+}
+
 static void dvp_event_callback(lisa_dvp_event_t event, void *user_data)
 {
     camera_bus_dvp_priv_t *priv = (camera_bus_dvp_priv_t *)user_data;
@@ -201,7 +210,7 @@ static int lisa_camera_bus_dvp_start_capture(lisa_device_t *dev, lisa_camera_fra
     priv->pong_fb = get_free_fb ? get_free_fb(data) : NULL;
     if (!priv->pong_fb) {
         LOGE("No free frame buffer for pong");
-        lisa_camera_release_fb(dev, priv->ping_fb);
+        camera_bus_dvp_release_fb(priv, priv->ping_fb);
         priv->ping_fb = NULL;
         return -1;
     }
@@ -256,13 +265,13 @@ static int lisa_camera_bus_dvp_stop_capture(lisa_device_t *dev)
 #ifdef DVP_USE_PINGPONG_DMA
     /* 释放 Ping 缓冲区 */
     if (priv->ping_fb != NULL) {
-        lisa_camera_release_fb(dev, priv->ping_fb);
+        camera_bus_dvp_release_fb(priv, priv->ping_fb);
         priv->ping_fb = NULL;
     }
 
     /* 释放 Pong 缓冲区 */
     if (priv->pong_fb != NULL) {
-        lisa_camera_release_fb(dev, priv->pong_fb);
+        camera_bus_dvp_release_fb(priv, priv->pong_fb);
         priv->pong_fb = NULL;
     }
 
@@ -270,7 +279,7 @@ static int lisa_camera_bus_dvp_stop_capture(lisa_device_t *dev)
 #else
     /* 释放当前帧缓冲区 */
     if (priv->current_fb != NULL) {
-        lisa_camera_release_fb(dev, priv->current_fb);
+        camera_bus_dvp_release_fb(priv, priv->current_fb);
         priv->current_fb = NULL;
     }
 

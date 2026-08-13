@@ -52,7 +52,9 @@ typedef enum {
     WAKEUP_IPC_CONTROL_SUDCMD_DEBUG_MODE_SET = 2,
     WAKEUP_IPC_CONTROL_SUBCMD_ALGO_MODE_SET = 3,
     WAKEUP_IPC_CONTROL_SUBCMD_THRESHOLD_SET = 4,
-    WAKEUP_IPC_CONTROL_SUBCMD_TIMEOUT_SET = 5,
+    WAKEUP_IPC_CONTROL_SUBCMD_FAN_STATE_SET = 5,
+    WAKEUP_IPC_CONTROL_SUBCMD_CMD_TIMEOUT_SET = 6,
+    WAKEUP_IPC_CONTROL_SUBCMD_TIMEOUT_SET = 7,
 }wakeup_ipc_control_subcmd_e;
 
 typedef struct {
@@ -74,17 +76,22 @@ typedef struct {
 }__attribute__((packed)) wakeup_ipc_control_subcmd_algo_mode_set_t;
 
 typedef enum {
-    WAKEUP_THRESHOLD_LEVEL_1 = 1,  // 门限等级1（最低）
-    WAKEUP_THRESHOLD_LEVEL_2 = 2,  // 门限等级2
-    WAKEUP_THRESHOLD_LEVEL_3 = 3,  // 门限等级3
-    WAKEUP_THRESHOLD_LEVEL_4 = 4,  // 门限等级4
-    WAKEUP_THRESHOLD_LEVEL_5 = 5,  // 门限等级5
-    WAKEUP_THRESHOLD_LEVEL_6 = 6,  // 门限等级6（最高）
+    WAKEUP_THRESHOLD_LEVEL_1 = 0,  // 易唤醒
+    WAKEUP_THRESHOLD_LEVEL_2 = 1,  // 默认档位
+    WAKEUP_THRESHOLD_LEVEL_3 = 2,  // 难唤醒
 }wakeup_threshold_level_e;
 
 typedef struct {
-    uint8_t level;  // wakeup_threshold_level_e (1-6)
+    uint8_t level;  // wakeup_threshold_level_e (0-2)
 }__attribute__((packed)) wakeup_ipc_control_subcmd_threshold_set_t;
+
+typedef struct {
+    uint8_t fan_on;  // 0: fan off, 1: fan on
+}__attribute__((packed)) wakeup_ipc_control_subcmd_fan_state_set_t;
+
+typedef struct {
+    uint32_t timeout_sec;
+}__attribute__((packed)) wakeup_ipc_control_subcmd_cmd_timeout_set_t;
 
 typedef struct {
     uint32_t timeout_ms;  // 超时时间(ms)

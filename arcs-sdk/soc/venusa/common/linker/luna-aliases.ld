@@ -1,0 +1,4 @@
+/* 仅在启用 LUNA 共享区时提供 LUNA 段别名。 */
+#if defined(CONFIG_MEM_LUNA_SHARED_SIZE) && CONFIG_MEM_LUNA_SHARED_SIZE > 0
+REGION_ALIAS("LUNA", LUNA_RAM)
+#endif

@@ -475,6 +475,7 @@ static int _ota_manager_check_all(void)
     int skip_prompt_tone_update = 0;
     int skip_emoji_update = 0;
     bool need_reboot = false;
+    bool resource_check_failed = false;
 
     bool wake_word_need_update = false;
     bool prompt_tone_need_update = false;
@@ -605,7 +606,8 @@ static int _ota_manager_check_all(void)
         ret = ota_api_get_dev_conf(&dev_conf);
         if (ret < 0) {
             LISA_LOGW(TAG, "Get resource info failed (%d)", ret);
-            goto up_to_date;
+            resource_check_failed = true;
+            goto check_complete;
         }
 
         // Phase 1: 检查哪些资源需要更新
@@ -726,8 +728,12 @@ static int _ota_manager_check_all(void)
         goto reboot;
     }
 
-up_to_date:
-    LISA_LOGI(TAG, "All resources up-to-date");
+check_complete:
+    if (resource_check_failed) {
+        LISA_LOGW(TAG, "Resource update check skipped: configuration unavailable");
+    } else {
+        LISA_LOGI(TAG, "All resources up-to-date");
+    }
 
     ota_manager_play_app_success_tone_if_needed();
 

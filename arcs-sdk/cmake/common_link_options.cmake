@@ -2,6 +2,10 @@ if (CONFIG_LINK_OPTION_GC_SECTIONS)
     add_link_options(-Wl,--gc-sections)
 endif()
 
+if (CONFIG_LINK_OPTION_ORPHAN_SECTIONS_ERROR)
+    add_link_options(-Wl,--orphan-handling=error)
+endif()
+
 if (CONFIG_PRINT_MEMORY_USAGE)
     add_link_options(-Wl,--print-memory-usage)
 endif()

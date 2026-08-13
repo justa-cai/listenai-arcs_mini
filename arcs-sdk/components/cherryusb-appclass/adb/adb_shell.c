@@ -12,6 +12,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #define LOG_TAG "adb.sh"
 
@@ -25,6 +26,16 @@
 #endif
 
 #define ETX 0x03 /* ctrl+c */
+#define ADB_SHELL_TX_ACK_TIMEOUT_MS 1000U
+
+/* Recovery handshake hooks (boot only). App builds get the weak defaults
+ * below, so the handshake gate in adb_shell_open() is a no-op outside
+ * uboot recovery. boot_recovery_shell_cmds.c provides the strong symbols
+ * that drive the actual handshake state machine. */
+__attribute__((weak)) bool boot_handshake_is_need(void) { return false; }
+__attribute__((weak)) bool boot_handshake_is_ok(void) { return false; }
+__attribute__((weak)) void boot_handshake(bool ok) { (void)ok; }
+__attribute__((weak)) const char *device_id_str_get(void) { return NULL; }
 
 static struct adb_service *curr_service = NULL;
 
@@ -81,8 +92,31 @@ struct adb_shell_context {
     struct adb_service *s;
     TaskHandle_t task;
     SemaphoreHandle_t exit_sem;
+    SemaphoreHandle_t tx_ready_sem;
     volatile bool closing;
 };
+
+static bool adb_shell_wait_tx_ready(struct adb_shell_context *ctx)
+{
+    if (xSemaphoreTake(ctx->tx_ready_sem,
+                       pdMS_TO_TICKS(ADB_SHELL_TX_ACK_TIMEOUT_MS)) != pdTRUE) {
+        ADB_LOGW("shell TX ACK timeout\n");
+        return false;
+    }
+
+    return !ctx->closing;
+}
+
+static bool adb_shell_send_remote(struct adb_shell_context *ctx,
+                                  uint8_t *data, size_t len)
+{
+    if (len == 0U || !adb_shell_wait_tx_ready(ctx)) {
+        return false;
+    }
+
+    adb_service_write_remote(ctx->s, data, (int)len);
+    return true;
+}
 
 static void adb_shell_log_output(const uint8_t *log, uint32_t len, void *data)
 {
@@ -113,7 +147,7 @@ static void early_log_drain_tx(struct adb_shell_context *ctx)
         }
         size_t received = xStreamBufferReceive(ctx->tx_stream, data, len, 0);
         if (received > 0) {
-            adb_service_write_remote(ctx->s, data, received);
+            adb_shell_send_remote(ctx, data, received);
         }
         ADB_FREE(data);
         len = xStreamBufferBytesAvailable(ctx->tx_stream);
@@ -190,7 +224,7 @@ static void shell_task_flush_tx(struct adb_shell_context *ctx)
         if (data != NULL) {
             size_t received = xStreamBufferReceive(ctx->tx_stream, data, len, 0);
             if (received > 0 && !ctx->closing) {
-                adb_service_write_remote(ctx->s, data, received);
+                adb_shell_send_remote(ctx, data, received);
             }
             ADB_FREE(data);
         }
@@ -222,7 +256,9 @@ static void shell_task(void *arg)
             if (ch == ETX) {
                 /* flush remaining output before closing */
                 shell_task_flush_tx(ctx);
-                adb_close(ctx->s->local_id, ctx->s->remote_id);
+                if (adb_shell_wait_tx_ready(ctx)) {
+                    adb_close(ctx->s->local_id, ctx->s->remote_id);
+                }
                 break;
             } else {
                 shellHandler(&ctx->sh, ch);
@@ -248,6 +284,7 @@ static int adb_shell_close(struct adb_service *s)
 
         /* signal shell_task to exit and wait for it */
         ctx->closing = true;
+        xSemaphoreGive(ctx->tx_ready_sem);
         if (xSemaphoreTake(ctx->exit_sem, pdMS_TO_TICKS(2000)) != pdTRUE) {
             ADB_LOGE("shell task exit timeout, force delete\n");
             vTaskDelete(ctx->task);
@@ -256,6 +293,7 @@ static int adb_shell_close(struct adb_service *s)
         }
 
         vSemaphoreDelete(ctx->exit_sem);
+        vSemaphoreDelete(ctx->tx_ready_sem);
         vStreamBufferDelete(ctx->rx_stream);
         vStreamBufferDelete(ctx->tx_stream);
         ADB_FREE(ctx);
@@ -270,6 +308,39 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
 {
     if (s == NULL) {
         return -1;
+    }
+
+    /* Recovery handshake gate. Active only when boot is in wdt-loop state
+     * (boot_handshake_is_need() == true). The first shell open must carry
+     * the device id (printed at boot as "serial num: ...") as args; on
+     * match we mark handshake ok so conn_timer_callback skips the reboot
+     * path. App builds use the weak default that returns false and bypass
+     * this entirely.
+     *
+     * The adb_service_handle interface passes args as a bare pointer with
+     * no length, but the gate only treats inputs as valid when args is
+     * exactly code_len bytes followed by NUL. To stay safe even if a
+     * malformed OPEN payload arrives without a terminator, we cap the
+     * length probe at code_len + 1 via strnlen — anything longer than
+     * the device id (or missing NUL within the window) trips the length
+     * compare and is rejected before any further read.
+     *
+     * Comparison is case-insensitive: device_id_str_get() returns a
+     * hex serial number and the human user typing it should not have
+     * to mind the casing. */
+    if (boot_handshake_is_need() && !boot_handshake_is_ok()) {
+        const char *code = device_id_str_get();
+        size_t code_len = (code != NULL) ? strlen(code) : 0;
+        size_t args_len = (args != NULL) ? strnlen((const char *)args, code_len + 1) : 0;
+        if (code_len == 0 ||
+            args_len != code_len ||
+            strncasecmp((const char *)args, code, code_len) != 0) {
+            boot_handshake(false);
+            ADB_LOGE("adb shell handshake rejected\n");
+            return -1;
+        }
+        boot_handshake(true);
+        args = (const uint8_t *)"";
     }
 
     if (curr_service != NULL) {
@@ -299,8 +370,20 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
         return -1;
     }
 
+    ctx->tx_ready_sem = xSemaphoreCreateBinary();
+    if (ctx->tx_ready_sem == NULL) {
+        vSemaphoreDelete(ctx->exit_sem);
+        ADB_FREE(ctx);
+        ADB_LOGE("shell TX ready semaphore create failed\n");
+        curr_service = NULL;
+        s->data = NULL;
+        return -1;
+    }
+    xSemaphoreGive(ctx->tx_ready_sem);
+
     ctx->rx_stream = xStreamBufferCreate(CONFIG_ADB_SHELL_BUFFER_SIZE, 1);
     if (ctx->rx_stream == NULL) {
+        vSemaphoreDelete(ctx->tx_ready_sem);
         vSemaphoreDelete(ctx->exit_sem);
         ADB_FREE(ctx);
         ADB_LOGE("shell rx stream create failed\n");
@@ -311,6 +394,7 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
     ctx->tx_stream = xStreamBufferCreate(CONFIG_ADB_SHELL_BUFFER_SIZE, 1);
     if (ctx->tx_stream == NULL) {
         vStreamBufferDelete(ctx->rx_stream);
+        vSemaphoreDelete(ctx->tx_ready_sem);
         vSemaphoreDelete(ctx->exit_sem);
         ADB_FREE(ctx);
         ADB_LOGE("shell tx stream create failed\n");
@@ -318,10 +402,13 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
         return -1;
     }
 
-    BaseType_t xReturn = xTaskCreate(shell_task, "shell_task", 1024 * 1, ctx, CONFIG_ADB_TASK_PRIORITY - 1, &ctx->task);
+    /* 2048-word stack: `recovery exit` -> boot_control_store_set_recovery()
+     * places a 4 KB sector buffer on the stack. */
+    BaseType_t xReturn = xTaskCreate(shell_task, "shell_task", 1024 * 2, ctx, CONFIG_ADB_TASK_PRIORITY - 1, &ctx->task);
     if (xReturn != pdPASS) {
         vStreamBufferDelete(ctx->rx_stream);
         vStreamBufferDelete(ctx->tx_stream);
+        vSemaphoreDelete(ctx->tx_ready_sem);
         vSemaphoreDelete(ctx->exit_sem);
         ADB_FREE(ctx);
         ADB_LOGE("shell task create failed\n");
@@ -340,6 +427,7 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
                 vTaskDelete(ctx->task);
                 vStreamBufferDelete(ctx->rx_stream);
                 vStreamBufferDelete(ctx->tx_stream);
+                vSemaphoreDelete(ctx->tx_ready_sem);
                 vSemaphoreDelete(ctx->exit_sem);
                 ADB_FREE(ctx);
                 curr_service = NULL;
@@ -366,6 +454,14 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
     }
 
     return 0;
+}
+
+static void adb_shell_ready(struct adb_service *s)
+{
+    if (s != NULL && s->data != NULL) {
+        struct adb_shell_context *ctx = s->data;
+        xSemaphoreGive(ctx->tx_ready_sem);
+    }
 }
 
 static void adb_shell_write_remote(struct adb_service *s, uint8_t *data, int len)
@@ -417,6 +513,7 @@ static const struct adb_service_handle adb_shell_handle = {
     .open = adb_shell_open,
     .close = adb_shell_close,
     .write = adb_shell_write,
+    .ready = adb_shell_ready,
 };
 
 void adb_shell_init(void)

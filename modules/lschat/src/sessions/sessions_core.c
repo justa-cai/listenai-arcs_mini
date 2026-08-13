@@ -14,6 +14,9 @@
 #include "lisa_time.h"
 #include "lsc_session_voice.h"
 
+/* Set to 1 temporarily when the complete start JSON is needed for debugging. */
+#define LSC_LOG_FULL_START_FRAME 0
+
 typedef struct {
 	SList *slist;
 	int session_cnt;
@@ -586,7 +589,17 @@ static char *session_build_start_frame(uint32_t rid, session_params_t *cfg, uint
 	}
 
 	char *out = cJSON_PrintUnformatted(root);
+
+#if LSC_LOG_FULL_START_FRAME
 	LISA_NLOGI("start frame:%s", out);
+#else
+	if (img != NULL) {
+		LISA_NLOGI("start frame: rid=%u, image_b64_len=%u", rid,
+			   (unsigned)strlen((char *)img));
+	} else {
+		LISA_NLOGI("start frame: rid=%u, image=none", rid);
+	}
+#endif
 
 	cJSON_Delete(root);
 

@@ -252,6 +252,19 @@ bt_audio_error_t bt_audio_session_capture_read_frame(bt_audio_session_handle_t s
                                                       size_t buffer_size,
                                                       size_t *frame_size);
 
+/**
+ * @brief 查询上行录音/发送路径是否已经排空
+ * @param session 会话句柄
+ * @param drained 输出 true 表示应用写入的待处理播放数据已经排空
+ * @return BT_AUDIO_OK: 成功, 其他: 错误码
+ *
+ * @note 仅用于 BT_AUDIO_DIR_CAPTURE 会话。编码模式只检查 PCM ringbuf，
+ *       因为编码线程会在无 PCM 时持续生成静音帧保链；透传模式没有
+ *       PCM ringbuf，因此检查 encoded frame queue。
+ */
+bt_audio_error_t bt_audio_session_capture_is_drained(bt_audio_session_handle_t session,
+                                                      bool *drained);
+
 /* ========================================================================
  * 辅助查询接口
  * ======================================================================== */

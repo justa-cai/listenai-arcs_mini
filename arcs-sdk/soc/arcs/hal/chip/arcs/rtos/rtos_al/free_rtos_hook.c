@@ -23,7 +23,17 @@
 #include "rtos_def.h"
 #include "rtos_al.h"
 
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_MASTER) && (defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT))
+/*
+ * IPC log reader direction flag. Normally provided by the build system;
+ * legacy builds that only define CFG_IPC_PRINT fall back to the historical
+ * role-based direction (master = reader).
+ */
+#if !defined(CFG_IPC_PRINT_WRITER) && !defined(CFG_IPC_PRINT_READER) && \
+    defined(CFG_AMP_IPC_MASTER) && (CFG_IPC_PRINT)
+#define CFG_IPC_PRINT_READER 1
+#endif
+
+#if defined(CFG_AMP_IPC) && defined(CFG_IPC_PRINT_READER)
 extern void rtos_ipc_dbg_task_resume(int32_t isr);
 #endif
 void vApplicationTickHook(void)
@@ -92,7 +102,7 @@ void vApplicationIdleHook(void)
     if there is a lot of heap remaining unallocated then
     the value of configTOTAL_HEAP_SIZE in FreeRTOSConfig.h can be
     reduced accordingly. */
-#if defined(CFG_AMP_IPC) && defined(CFG_AMP_IPC_MASTER) && (defined(CFG_IPC_PRINT) || defined(CONFIG_ARCS_HAL_IPC_PRINT))
+#if defined(CFG_AMP_IPC) && defined(CFG_IPC_PRINT_READER)
     rtos_ipc_dbg_task_resume(0);
 #endif
 }

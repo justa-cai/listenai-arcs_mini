@@ -114,8 +114,6 @@ typedef struct {
     _DIR_ dir;
     _MODE_ mode;
     _INT_MODE_ int_mode;
-    CSK_GPIO_SignalEvent_t cb; 
-    void* usr;
 } _GPIO_;
 
 CSK_DRIVER_VERSION GPIO_GetVersion(void);
@@ -135,8 +133,6 @@ int32_t GPIO_PinRead(void* res, uint32_t pin_mask);
 int32_t GPIO_SetDir(void* res, uint32_t pin_mask, uint32_t dir);
 
 int32_t GPIO_Status(void* res, _GPIO_** status, uint32_t* size);
-
-int32_t GPIO_SetCallback(void* res, uint32_t pin_mask, CSK_GPIO_SignalEvent_t cb_event, void* usr);
 
 void* GPIOA(void);
 

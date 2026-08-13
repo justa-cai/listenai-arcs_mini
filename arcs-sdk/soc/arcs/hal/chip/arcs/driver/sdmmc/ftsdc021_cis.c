@@ -57,7 +57,11 @@ cistpl_vers_1(u8 ip_idx, SDIO_FUNC* func,
 
     size = i;
 
+#ifdef CFG_RTOS
     buffer = pvPortMalloc(sizeof(s8*) * nr_strings + size);
+#else
+    buffer = malloc(sizeof(s8*) * nr_strings + size);
+#endif
     if (!buffer)
         return 1;
 
@@ -282,7 +286,11 @@ ftsdc021_sdio_read_cis(u8 ip_idx, SDIO_FUNC* func)
         if (tpl_link == 0xff)
             break;
 
+#ifdef CFG_RTOS
         this = pvPortMalloc(sizeof(*this) + tpl_link);
+#else
+        this = malloc(sizeof(*this) + tpl_link);
+#endif
         if (!this)
             return 1;
 
@@ -293,7 +301,11 @@ ftsdc021_sdio_read_cis(u8 ip_idx, SDIO_FUNC* func)
                 break;
         }
         if (ret) {
+#ifdef CFG_RTOS
             vPortFree(this);
+#else
+            free(this);
+#endif
             break;
         }
 
@@ -329,7 +341,11 @@ ftsdc021_sdio_read_cis(u8 ip_idx, SDIO_FUNC* func)
              * successfully parsed by the SDIO core or if it is
              * not going to be queued for a driver.
              */
+#ifdef CFG_RTOS
             vPortFree(this);
+#else
+            free(this);
+#endif
         }
 
         ptr += tpl_link;
@@ -363,7 +379,11 @@ ftsdc021_sdio_free_common_cis(u8 ip_idx)
     while (tuple) {
         victim = tuple;
         tuple = tuple->next;
+#ifdef CFG_RTOS
         vPortFree(victim);
+#else
+        free(victim);
+#endif
     }
 
     SDHost[ip_idx].Card->tuples = NULL;
@@ -399,7 +419,11 @@ ftsdc021_sdio_free_func_cis(u8 ip_idx, SDIO_FUNC* func)
     while (tuple && tuple != SDHost[ip_idx].Card->tuples) {
         victim = tuple;
         tuple = tuple->next;
+#ifdef CFG_RTOS
         vPortFree(victim);
+#else
+        free(victim);
+#endif
     }
 
     func->tuples = NULL;

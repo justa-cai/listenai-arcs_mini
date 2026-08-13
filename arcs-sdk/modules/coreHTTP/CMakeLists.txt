@@ -22,6 +22,7 @@ add_definitions(-Dhttp_errno_name=ls_http_errno_name)
 add_definitions(-Dhttp_status_str=ls_http_status_str)
 add_definitions(-Dhttp_parser_settings_init=ls_http_parser_settings_init)
 add_definitions(-Dhttp_parser_version=ls_http_parser_version)
+add_definitions(-DHTTP_PARSER_STRICT=0)
 
 listenai_library_sources(
     source/core_http_client.c

@@ -36,6 +36,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <errno.h>
 
 #include <sys/time.h>
 #include <sys/types.h>
@@ -104,7 +105,7 @@ int mbedtls_net_connect( mbedtls_net_context *ctx, const char *host, const char 
             break;
         }
 
-        close( fd );
+        closesocket( fd );
         ret = MBEDTLS_ERR_NET_CONNECT_FAILED;
     }
 
@@ -120,7 +121,6 @@ int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char 
 {
     int ret;
     struct addrinfo hints, *addr_list, *cur;
-    struct sockaddr_in *serv_addr = NULL;
 #if SO_REUSE
     int n = 1;
 #endif
@@ -134,6 +134,9 @@ int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char 
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = proto == MBEDTLS_NET_PROTO_UDP ? SOCK_DGRAM : SOCK_STREAM;
     hints.ai_protocol = proto == MBEDTLS_NET_PROTO_UDP ? IPPROTO_UDP : IPPROTO_TCP;
+    if ( bind_ip == NULL ) {
+        hints.ai_flags = AI_PASSIVE;
+    }
 
     if ( getaddrinfo( bind_ip, port, &hints, &addr_list ) != 0 ) {
         return ( MBEDTLS_ERR_NET_UNKNOWN_HOST );
@@ -152,16 +155,14 @@ int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char 
 #if SO_REUSE
         if ( setsockopt( fd, SOL_SOCKET, SO_REUSEADDR,
                          (const char *) &n, sizeof( n ) ) != 0 ) {
-            close( fd );
+            closesocket( fd );
             ret = MBEDTLS_ERR_NET_SOCKET_FAILED;
             continue;
         }
 #endif
-        /*bind interface dafault don't process the addr is 0xffffffff for TCP Protocol*/
-        serv_addr = (struct sockaddr_in *)cur->ai_addr;
-        serv_addr->sin_addr.s_addr = htonl(INADDR_ANY); /* Any incoming interface */
-        if ( bind( fd, (struct sockaddr *)serv_addr, cur->ai_addrlen ) != 0 ) {
-            close( fd );
+
+        if ( bind( fd, cur->ai_addr, cur->ai_addrlen ) != 0 ) {
+            closesocket( fd );
             ret = MBEDTLS_ERR_NET_BIND_FAILED;
             continue;
         }
@@ -169,7 +170,7 @@ int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char 
         /* Listen only makes sense for TCP */
         if ( proto == MBEDTLS_NET_PROTO_TCP ) {
             if ( listen( fd, MBEDTLS_NET_LISTEN_BACKLOG ) != 0 ) {
-                close( fd );
+                closesocket( fd );
                 ret = MBEDTLS_ERR_NET_LISTEN_FAILED;
                 continue;
             }
@@ -190,12 +191,12 @@ int mbedtls_net_bind( mbedtls_net_context *ctx, const char *bind_ip, const char 
 /*
  * Check if the requested operation would be blocking on a non-blocking socket
  * and thus 'failed' with a negative return value.
- *
- * Note: on a blocking socket this function always returns 0!
  */
 static int net_would_block( const mbedtls_net_context *ctx )
 {
     int error = errno;
+
+    (void) ctx;
 
     switch ( errno = error ) {
 #if defined EAGAIN
@@ -381,7 +382,7 @@ int mbedtls_net_recv_timeout( void *ctx, unsigned char *buf, size_t len,
             return ret;
         }
 
-        if ( timeout == 0 || rtos_time_past( start_ms, timeout ) ) {
+        if ( timeout != 0 && rtos_time_past( start_ms, timeout ) ) {
             return ( MBEDTLS_ERR_SSL_TIMEOUT );
         }
 
@@ -423,6 +424,20 @@ int mbedtls_net_send( void *ctx, const unsigned char *buf, size_t len )
 }
 
 /*
+ * Close the connection
+ */
+void mbedtls_net_close( mbedtls_net_context *ctx )
+{
+    if ( ctx->fd == -1 ) {
+        return;
+    }
+
+    closesocket( ctx->fd );
+
+    ctx->fd = -1;
+}
+
+/*
  * Gracefully close the connection
  */
 void mbedtls_net_free( mbedtls_net_context *ctx )
@@ -432,7 +447,7 @@ void mbedtls_net_free( mbedtls_net_context *ctx )
     }
 
     shutdown( ctx->fd, 2 );
-    close( ctx->fd );
+    closesocket( ctx->fd );
 
     ctx->fd = -1;
 }

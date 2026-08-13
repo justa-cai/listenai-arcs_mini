@@ -48,6 +48,7 @@ void bt_stack_ble_scan_stop(uint8_t scan_id);
 void bt_stack_ble_pre_sync_start(uint8_t type, gap_per_adv_bdaddr_t *adv_addr, uint8_t report_en, uint8_t past_conidx,uint16_t time_out);
 void bt_stack_ble_pre_sync_stop(void);
 void bt_stack_ble_conn_update(uint8_t conidx, uint16_t conn_intv_min, uint16_t conn_intv_max, uint16_t latency, uint16_t super_to);
+void bt_stack_ble_actv_ind(uint8_t actv, uint8_t type, uint8_t actv_id, uint8_t resquester, int16_t status);
 
 /// @} BT STACK
 #endif // BT_BLE_IF_H_

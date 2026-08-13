@@ -1,0 +1,9 @@
+tests:
+  test.zig.display_test:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "=== Zig Display Test PASSED ==="

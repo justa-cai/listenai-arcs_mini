@@ -174,20 +174,21 @@ mk_libs :
 	if [ -f "${TOPDIR}/chip/${CHIP}/$$dir/Makefile" ]; then $(MAKE) -C ${TOPDIR}/chip/${CHIP}/$$dir $(MKDEFS) libs ||exit 1; fi;\
 	done
 
-$(TGTOUT)/$(TARGET): mk_dirs mk_libs $(DEP_LIBS) $(OBJS) $(LDSCRIPT) 
-	if [ "$(TARGET)" != "" ]; then \
-	$(CPP) $(LDSCRIPT) $(CFLAGS) -o $(LIBOUT)/$(CHIP).ld; \
-	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBSGROUP); \
-	$(NM) -n -l -C $@ > $@.symbol; \
-	$(READELF) -a  $@ > $@.readelf; \
-	$(OBJCOPY) -S -O binary $@ $@.bin; \
-	$(CROSS_COMPILE)objdump -S $@ > $@.dis; \
-	$(CROSS_COMPILE)size $@; \
-	$(if $(filter-out 0,$(CONFIG_TRACE)),\
-		echo ====== Copy this address into Tracealyzer '>' PSF Streaming Settings '>' RTT Control Block Address ===== \
-		&& grep _SEGGER_RTT $@.symbol \
-		&& echo ====================================================================================================;) \
-	fi
+$(TGTOUT)/$(TARGET): mk_dirs mk_libs $(DEP_LIBS) $(OBJS) $(LDSCRIPT)
+ifneq ($(TARGET),)
+	$(CPP) $(LDSCRIPT) $(CFLAGS) -o $(LIBOUT)/$(CHIP).ld
+	$(CC) $(LDFLAGS) -o $@ $(OBJS) $(LIBSGROUP)
+	$(NM) -n -l -C $@ > $@.symbol
+	$(READELF) -a  $@ > $@.readelf || true  # igore the readelf error
+	$(OBJCOPY) -S -O binary $@ $@.bin
+	$(CROSS_COMPILE)objdump -S $@ > $@.dis
+	$(CROSS_COMPILE)size $@
+ifneq ($(filter-out 0,$(CONFIG_TRACE)),)
+	@echo ====== Copy this address into Tracealyzer '>' PSF Streaming Settings '>' RTT Control Block Address =====
+	@grep _SEGGER_RTT $@.symbol
+	@echo ====================================================================================================
+endif
+endif
 
 
 mk_dirs :

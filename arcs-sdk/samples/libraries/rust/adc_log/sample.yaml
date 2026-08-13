@@ -1,0 +1,9 @@
+tests:
+  samples.libraries.rust.adc_log:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "adc_log:done"

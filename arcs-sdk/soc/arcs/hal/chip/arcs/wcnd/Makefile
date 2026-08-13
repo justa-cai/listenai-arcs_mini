@@ -21,7 +21,7 @@ CSRCS	= $(wildcard *.c) $(wildcard sleep/*.c)  $(wildcard wf_drv/*.c) $(wildcard
 else ifeq ($(strip $(WCN_TYPE)), wf)
 CSRCS	= $(wildcard *.c)  $(wildcard wf_drv/*.c) $(wildcard nv/*.c) $(wildcard misc/*.c)
 else ifeq ($(strip $(WCN_TYPE)), bt)
-CSRCS	= $(wildcard *.c) $(wildcard sleep/*.c)  $(wildcard ext_rf/*.c) $(wildcard bt_drv/*.c) $(wildcard timer/*.c) $(wildcard dma/*.c) $(wildcard nv/*.c) $(wildcard wf_drv/*.c) misc/ls_efuse.c
+CSRCS	= $(wildcard *.c) $(wildcard sleep/*.c)  $(wildcard ext_rf/*.c) $(wildcard bt_drv/*.c) $(wildcard timer/*.c) $(wildcard dma/*.c) $(wildcard nv/*.c) $(wildcard wf_drv/*.c) $(wildcard misc/*.c)
 endif
 CSRCS += rf/DpdEst.c $(wildcard rf/rf*.c)
 ifeq ($(CFG_DPD_LUNA), 1)
@@ -66,6 +66,10 @@ endif
 ifeq ($(CFG_RF_SELFCALI_WRITE_TO_NV), 1)
 CFLAGS += -DRF_SELF_CALI_WRITE_TO_NV
 endif
+CFG_MFG_RF_TEST ?= 0
+ifeq ($(CFG_MFG_RF_TEST), 1)
+CFLAGS += -DMFG_RF_TEST
+endif
 ifeq ($(CFG_USE_FLASH_OTP), 1)
 CFLAGS += -DUSE_FLASH_OTP=1
 endif
@@ -103,9 +107,9 @@ CFLAGS += -DRSSI_OFFSET_DSSS_GOLDEN_VAL=$(CFG_RSSI_OFFSET_DSSS_GOLDEN_VAL)
 CFG_RSSI_OFFSET_OFDM_GOLDEN_VAL ?= 0
 CFLAGS += -DRSSI_OFFSET_OFDM_GOLDEN_VAL=$(CFG_RSSI_OFFSET_OFDM_GOLDEN_VAL)
 
-# WIFI RF parameter configure address, could burn wf_conf.bin to the addr
-# the conf would include: mac address, xo_cap, power offset, rssi offset, power table, ppa gain...
-# the partition size should not less then 512 bytes
+# Factory RF parameter partition base address in flash.
+# The data may include: mac address, xo_cap, power offset, rssi offset, power table, ppa gain...
+# The reserved partition size should not be less than 512 bytes.
 CFG_FLASH_WF_MFG_CONF_BASE_ADDR ?= 0
 CFLAGS += -DFLASH_WF_MFG_CONF_BASE_ADDR=$(CFG_FLASH_WF_MFG_CONF_BASE_ADDR)
 
@@ -121,6 +125,8 @@ CFLAGS +=  -I $(TOPDIR)/include/CMSIS \
           -I $(TOPDIR)/chip/${CHIP}/include/ \
           -I $(TOPDIR)/chip/${CHIP}/include/wifi \
           -I $(TOPDIR)/chip/${CHIP}/include/bt \
+          -I $(TOPDIR)/chip/${CHIP}/include/ipc \
+          -I $(TOPDIR)/chip/${CHIP}/include/utils \
           -I $(TOPDIR)/chip/${CHIP}/wcnd/include/ \
           -I $(TOPDIR)/chip/${CHIP}/wcnd/include/bt_inc/ \
           -I $(TOPDIR)/chip/${CHIP}/wcnd/ext_rf/ \

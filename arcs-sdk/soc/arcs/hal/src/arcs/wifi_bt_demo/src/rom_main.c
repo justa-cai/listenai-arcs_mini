@@ -38,13 +38,11 @@
 #include "rf_drv.h"
 #include "rf_cali.h"
 
-#include "aud_if.h"
-#include "aud_pro_if.h"
-
 //#include "app_os_task.h"
 #include "bt_os_task.h"
 #include "aud_os_task.h"
 #include "aud_pro_os_task.h"
+#include "bt_stack_hal.h"
 //#include "bt_stack_if.h"
 #include "aud_if.h"
 #include "aud_pro_if.h"
@@ -67,6 +65,7 @@
  */
 
 extern int main(void);
+extern os_task_cb_t *aud_pro_if_get_cb(void);
 
 // Creation of uart external interface api
 const struct ble_eif_api uart_api =
@@ -189,11 +188,6 @@ do {                                                                            
 
 extern void user_main();
 
-#if (BT_WIFI_COEX == 0)
-int main(void)
-{
-}
-#else  //(BT_WIFI_COEX == 1)
 
 int bt_demo_init(void)
 {
@@ -225,6 +219,5 @@ int bt_demo_init(void)
     return 0;
 }
 
-#endif
 
 /// @} DRIVERS

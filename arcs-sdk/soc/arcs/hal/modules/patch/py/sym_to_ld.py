@@ -18,6 +18,56 @@ code_end = '''
 
 '''
 
+EXCLUDED_SYMBOLS = {
+    "BOOT_HARTID",
+    "__HEAP_SIZE",
+    "__STACK_SIZE",
+    "__TOT_STACK_SIZE",
+    "__SMP_CPU_CNT",
+    "vector_base",
+    "_start",
+    "_start_premain",
+    "__skip_init",
+    "__init_common",
+    "__amp_wait",
+    "early_exc_entry",
+    "irq_entry",
+    "exc_entry",
+    "g_irqvector",
+    "main",
+    "_text",
+    "_text_lma",
+    "_etext",
+    "_data",
+    "_data_lma",
+    "_edata",
+    "__bss_start",
+    "_end",
+    "__global_pointer$",
+    "__tls_base",
+    "_sp",
+}
+
+EXCLUDED_PREFIXES = (
+    "__copy_table",
+    "__zero_table",
+    "__ram",
+    "__init_array",
+    "__fini_array",
+    "__preinit_array",
+)
+
+
+def should_export_symbol(symb):
+    if symb in EXCLUDED_SYMBOLS:
+        return False
+
+    for prefix in EXCLUDED_PREFIXES:
+        if symb.startswith(prefix):
+            return False
+
+    return True
+
 
 def get_symb_addr(line):
     idx0 = 0
@@ -64,7 +114,7 @@ def convert_ld(fname, outname):
                 if line == '':
                     break
                 symb, addr = get_symb_addr(line)
-                if symb != "":
+                if symb != "" and should_export_symbol(symb):
                     fout.write("    " + symb + " = " + addr + ";\n")
             fout.write(code_end)
 

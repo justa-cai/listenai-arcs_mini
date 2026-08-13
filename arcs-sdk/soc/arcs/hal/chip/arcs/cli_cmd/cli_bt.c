@@ -14,7 +14,7 @@
 /**
  ****************************************************************************************
  * @addtogroup CLI CMD BT
- 
+
  * @{
  ****************************************************************************************
  */
@@ -190,7 +190,7 @@ int bt_reset(char *params)
     lsip_reset_api();
 #else
     lsip_reset();
-#endif 
+#endif
 
     return res;
 }
@@ -656,6 +656,42 @@ int ble_non_signal_end(char *params)
 }
 
 /* Host Commands */
+int bt_h_open(char *params)
+{
+    uint8_t mode = 1;
+    const char *keys[] = {"-m"};
+    const char *fmts[] = {"%i"};
+    const uint8_t types[] = {TYPE_UINT8};
+    void *values[] = {&mode};
+    uint8_t result = parse_params(params, keys, types, fmts, values, 1);
+    if (result != CLI_SUCCESS)
+    {
+        return result;
+    }
+    CLOGI("BTOPEN: mode=%d", mode);
+
+    atcmd_hbt_open_send(mode);
+    return CLI_SUCCESS;
+}
+
+int ble_h_close(char *params)
+{
+    uint8_t mode = 1;
+    const char *keys[] = {"-m"};
+    const char *fmts[] = {"%i"};
+    const uint8_t types[] = {TYPE_UINT8};
+    void *values[] = {&mode};
+    uint8_t result = parse_params(params, keys, types, fmts, values, 1);
+    if (result != CLI_SUCCESS)
+    {
+        return result;
+    }
+    CLOGI("BTCLOSE: mode=%d", mode);
+
+    atcmd_hbt_close_send(mode);
+    return CLI_SUCCESS;
+}
+
 int ble_h_adv_start(char *params)
 {
     uint8_t mode = 1;
@@ -857,6 +893,39 @@ int bt_non_signal_rx_get_data(char *params)
 }
 #endif
 
+#if 0//(BT_WIFI_COEX)
+#if BT_EMB_PRESENT
+extern void btcoex_statiscs_op(bool show_cfg, bool clear);
+#endif
+
+static int btcoex_cli_cmd(char *params)
+{
+    bool clear_flag = false;
+    bool show_cfg = false;
+    char *token, *next = params;
+
+    do {
+        token = utils_next_token(&next);
+        if (token != NULL) {
+            if (!strcmp(token, "cfg")) {
+                show_cfg = true;
+            }
+            if (!strcmp(token, "clear")) {
+                clear_flag = true;
+            }
+        } else {
+            break;
+        }
+    } while(1);
+
+#if BT_EMB_PRESENT
+    btcoex_statiscs_op(show_cfg, clear_flag);
+#endif
+
+    return CLI_SUCCESS;
+}
+#endif
+
 static int bt_cli_help(char *params)
 {
     uint8_t i = 0;
@@ -962,6 +1031,8 @@ static const struct cli_cmd cli_bt_commands[] =
                          "                       <infinite_rx_mode>: 1: inifinate rx mode 0: normal rx mode"},
     {ble_non_signal_end, "blenonsignalend",     "blenonsignalend\r\n : End BLE nonsignal test, response: <nb_pkt_recv>\r\n"},
     // bt host
+    {bt_h_open,          "btopen",               "bt open [-m <mode>]\r\n : Bt open, <mode>: mode, default 0\r\n"},
+    {ble_h_close,        "btclose",              "bt close [-m <mode>]\r\n : Bt close, <mode>: mode, default 0\r\n"},
     {ble_h_adv_start,    "blehadvstart",         "blehostadvstart [-m <mode>]\r\n : Host adv start, <mode>: mode, default 0\r\n"},
     {ble_h_adv_stop,     "blehadvstop",          "blehostadvstart\r\n : Host adv stop, response: <status>\r\n"},
     #endif
@@ -1012,6 +1083,9 @@ static const struct cli_cmd cli_bt_commands[] =
                            "                <infinite_rx_mode>: 1: inifinate rx mode 0: normal rx mode"},
     {bt_non_signal_disable, "btnonsignaldisable",     "btnonsignaldisable\r\n : Disable BT nonsignal test\r\n"},
     {bt_non_signal_rx_get_data, "btnonsignalrxgetdata", "btnonsignalrxgetdata\r\n : Get BT nonsignal rx data, response: <total_packets>,<error_packets>,<total_bits>,<error_bits>\r\n"},
+    #endif
+    #if 0//(BT_WIFI_COEX)
+    {btcoex_cli_cmd, "btcoex", "btcoex cfg/clear"},
     #endif
     {NULL, "", ""}
 };

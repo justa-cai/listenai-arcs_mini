@@ -403,6 +403,22 @@ static void voice_cloud_tts_url_received(void *unused, uint32_t msg_id, void *da
     });
 }
 
+static void voice_cloud_image_recognition_failed(void *unused, uint32_t msg_id, void *data,
+                                                 uint32_t len, void *user_data)
+{
+    (void)unused;
+    (void)msg_id;
+    (void)data;
+    (void)len;
+    (void)user_data;
+
+    LISA_UI_INVOKE_UI_ARG_NONE({
+        if (model_voice_ctx.cbs && model_voice_ctx.cbs->on_image_rec_failed) {
+            model_voice_ctx.cbs->on_image_rec_failed(model_voice_ctx.arg);
+        }
+    });
+}
+
 static void voice_cloud_pushup_tts_url_received(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     LISA_UI_INVOKE_UI_ARG_NONE({
@@ -1038,6 +1054,8 @@ int model_voice_init(void)
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_STARTING, voice_cloud_session_starting, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_FINISHED, voice_cloud_session_finished, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_URL, voice_cloud_tts_url_received, NULL);
+    voice_msg_sub(VOICE_MSG_CLOUD_IMAGE_RECOGNITION_FAILED,
+                  voice_cloud_image_recognition_failed, NULL);
     voice_msg_sub(VOICE_MSG_CLOUD_PUSHUP_TTS_URL, voice_cloud_pushup_tts_url_received, NULL);
 
     voice_msg_sub(VOICE_MSG_CLOUD_TTS_TEXT_START, voice_cloud_tts_txt, NULL);

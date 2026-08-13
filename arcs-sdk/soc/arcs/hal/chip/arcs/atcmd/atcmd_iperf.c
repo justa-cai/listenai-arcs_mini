@@ -71,7 +71,11 @@ void lwiperf_start_tcp_server_default_task(void *arg)
 	/* get ip addr */
         ls_get_ip(WIFI_VIF_DEFAULT_IDX, &cfg);
 	ip_addr_t ip_addr = {
+#if LWIP_IPV6
+	            .u_addr.ip4.addr = cfg.ipv4.addr,
+#else
 	            .addr = cfg.ipv4.addr,
+#endif
 	};
 
 	lwiperf_start_tcp_server((ip_addr_t *)&ip_addr, remote_port, NULL, NULL);

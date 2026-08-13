@@ -1,5 +1,264 @@
 # Change Log
 
+## [0.1.8] - 2026-07-08:
+
+- All changes since 0.1.7
+
+### Changed:
+  - lisa_pm / lisa_device:
+    - 设备生命周期改为 destroy/reinit 模型，支持驱动挂载 deinit 并在睡前销毁、唤醒后重建
+    - system PM 接入改为独立 `LISA_DEVICE_PM_ATTACH` registry，降低普通设备注册与 PM 能力耦合
+    - 默认 system PM 设备上限提升到 16，并支持默认 SRAM snapshot 与 AP 远端电源锁
+    - 唤醒流程支持透传唤醒原因、异步分发应用回调，并补充双核 PM 流程文档
+  - drivers:
+    - audio、uart、gpio、i2c、spi、i2s、pwm、rtc、hwtimer、wdt、sdmmc、dvp、camera、rgb、qspilcd、display、touch 等驱动接入设备销毁重建或 PM attach 模型
+    - VenusA 平台补齐 audio、gpio、flash、adc、rtc、pwm、wdt、hwtimer、spi、uart、camera、dvp 等驱动适配
+    - lisa_dvp 新增 CPDMA 支持，camera 增加 SC030IOT 与硬件 reset 适配
+  - VenusA / SoC:
+    - 引入 VenusA / CSK7002G6U / CSK7004J8U SoC 与 `venusa_rd_evb` 板级支持
+    - SoC 公共抽象层统一 `<soc/chip.h>` 入口，并将 SYS_INIT linker fragment 收敛到 system/init
+    - VenusA 应用支持 CP/AP 固件合一构建、AP 无 boot 运行、recovery ADB 与 flash/TF OTA 流程
+    - 完善 VenusA 内存布局、FreeRTOS SWI 路由和 venusa 仓库地址配置
+  - boot / build:
+    - uboot 从 arcs-sdk 移出，boot 构建流程改为仓内 boot 子工程与公共 boot 合一编译路径
+    - 链接阶段默认将 orphan sections 视为错误，并同步处理 boot linker script 的 metadata 段
+    - 新增仓库内 `mkhdr`，更新 Linux cskburn，并新增 Windows 与 macOS arm64 构建环境支持
+    - LUNA 共享段统一放入普通 SRAM，补齐 `.sharedmem.*` 子段匹配并调整 AP SRAM 默认范围
+  - hal / rpc / ipc:
+    - HAL 多轮更新到 20260630 系列，适配 PM、IPC、DMA、flash status register、BLE timer 等变化
+    - LSF / uRPC 同步到 20260630 SDK，IPC 自动初始化收敛，支持 direction-independent IPC log forwarding
+    - WiFi / dual-core 模式适配新版 HAL IPC API，AP IPC log backend 与 IPC print 策略测试同步更新
+  - bluetooth:
+    - 适配 20260630 BT HAL 与 stack API，新增 S2M netcfg IPC bridge、通话事件上报和 mSBC 配置
+    - 配对数据迁移到 lisa kv，discovery list 移到 PSRAM，并清理旧 kv migration 选项
+  - audio / player:
+    - 新增 record channel gain API，恢复运行期录音增益配置
+    - lisa_player 增加播放器缓冲与超时时间配置能力
+    - 修复 I2S / IIS 发送、接收缓冲回收和 TX PiPo restart recovery 问题
+  - Zig:
+    - Zig target 构建跟随 `CONFIG_FPU` 选择 RISC-V ABI，并新增 FPU build-only 覆盖
+    - Zig target 支持 DEPENDS / MODULES 转发与 Kconfig 配置模块生成
+    - 自定义 Zig module 继承 SDK include、`arcs` 依赖和 target C headers，避免 `@import("arcs")` / `@cImport` 构建失败
+    - 扩展 SDK adapter bindings 与 binding contract 覆盖，新增 LVGL binding 与测试
+  - Rust:
+    - Rust samples 构建改为更独立的 SDK 集成方式，CI 接入 guardian test stage、lint、build、bindgen-drift
+    - cargo sample 构建清理继承环境，修复 rustc stdin 污染、soft-float / hard-float ABI 和 BLE scan-response 问题
+    - Rust 文件系统 API 收紧 mount / seek / read / write 语义，避免并发挂载、悬垂挂载点和误格式化风险
+  - docs / CI:
+    - 文档站补齐示例 README 链接、系统启动流程、lisa_pm 驱动接入与双核 PM 文档
+    - CI 新增外部 master 镜像同步、独立 Zig test job、AI wiki ingest / QA 维护流水线与子仓库合并检查
+    - 构建缓存、AI review、UTF-8 commit 信息、submodule lock 与 cache 更新流程进一步加固
+
+### Fixed:
+  - lisa_pm:
+    - 修复附加 PM 未绑定到设备快速路径的问题
+    - 修复 wakeup 回调语义、Kconfig 冗余默认值和新版 HAL PM 依赖 IPC role 的构建问题
+  - boot / OTA:
+    - 修复 uboot OTA 完成后重启可能无法启动的问题
+    - 修复 CONFIG_BOOT 应用增量构建时 firmware header 重复叠加的问题
+    - 修复 boot linker script orphan section 导致 boot ExternalProject 链接失败的问题
+  - display / camera:
+    - 修复 lisa_display 分块旋转越界问题
+    - 修复 SC030IOT 冷启动不出图、camera 格式切换帧元数据和 DVP ping-pong reload / DMA ISR 竞争问题
+    - 修复 lisa_dvp CPDMA BurstThreshold 导致画面异常的问题，并补充单元测试
+  - log / RTT / time:
+    - CLOG 增加 early UART fallback
+    - 修复 SEGGER RTT 后端误用 `SEGGER_RTT_printf` 导致日志乱码的问题
+    - 修复关闭调度时调用日志接口 crash 与 CP boot log time 问题
+  - ACOMP / algorithms:
+    - 修复 CAE master deinit 时 remote device 未释放导致 repeated RTSP talk 泄漏的问题
+    - ARCS 平台改为等待 remote 连接后再查询设备信息
+    - lnn_resnet18 修复 AP GPIO IRQ 与 Kconfig style 问题
+  - modem / bluetooth:
+    - 修复 modem 串口交互重试异常并优化串口交互
+    - 修复蓝牙状态同步、连接返回值和 classic 配置空实现问题
+  - filesystem / kv / heap:
+    - 修复 LSFS get / dump 防护问题
+    - 禁用 malloc PSRAM fallback，避免 heap 分配行为不确定
+    - 调整 ic_mutex / crypto heap size，降低内存冲突风险
+  - build / tools:
+    - 修复 macOS 固件头生成在 UTF-8 locale 与 BSD stat 下失败的问题
+    - 修复 VenusA sample / hwtimer sample 构建差异和 uboot watchdog API 测试配置缺失问题
+    - 修复 HAL vrtc.c 在非 IPC role 宏配置下编译失败的问题
+
+### Added:
+  - 语言绑定:
+    - rust: 新增 Rust no_std 语言支持与 `arcs` crate
+      - 覆盖 log、thread、sync、gpio、uart、i2c、spi、pwm、rtc、adc、flash、display、audio、wifi、bt、filesystem 等模块
+      - 提供 `arcs::entry!`、`#[arcs::main]`、全局 allocator、panic handler、easylogger / RTT 日志接入
+      - 支持 embedded-hal / embedded-io / embedded-storage / embedded-graphics trait 适配
+      - 新增 PSRAM/SRAM 双区分配器、`RawBox<T>`、`FrameBuffer` 与 display embedded-graphics 绘制能力
+      - 新增 reboot、panic-reboot、hardware-FPU、WiFi station、BLE advertising、async/embassy、audio playback 等示例能力
+      - 新增 helloworld、blinky、eh_blink、i2c_scan、spi_loopback、adc_log、panic_reboot、rtt_log、display_gfx、audio_play、wifi_scan、ble_adv、fpu_demo、async_tasks 等示例
+    - zig: 增强实验性 Zig 语言支持
+      - 扩展 SDK adapter bindings、target helper、配置模块和 LVGL binding
+      - 增加 FPU ABI、custom module、SDK include、binding contract 与 display 上板测试覆盖
+  - lisa_pm / device_wakeup:
+    - 新增双核 basic、双核 GPIO 唤醒、WiFi 保活、audio device wakeup、USB UVC wakeup 与 remote device wakeup 测试/示例
+    - USB UVC 唤醒支持睡前 software disconnect、GPIOB9 唤醒后重新枚举
+  - samples / demos:
+    - 新增 VenusA face_detect、palm 掌静脉算法、lnn resnet18、CP 摄像头显示与 AP 推理示例
+    - 新增 FreeRTOS、lisa kv、CherryUSB UAC device、TinyUSB UAC device、LISA flash halt-by-remote 配置示例
+    - demo 目录按 arcs / venusa 平台重组
+  - ACOMP:
+    - 新增 palm 算法组件，提供 CP 侧接口、IPC 协议和图像流通道封装
+    - 新增 wakeup fan state IPC API，并适配 VenusA 平台 FD 组件
+  - system / shell / wakeup:
+    - lisa_shell 支持 UART poll_in 接收模式
+    - ic-message 支持 cidu 通知方式
+    - wakeup 支持命令词超时时间配置，并更新唤醒门限等级有效范围
+  - network / storage / boot:
+    - lisa_modem 新增 status 与 identity API，UART sync 默认优先 921600 baud
+    - VenusA uboot 子仓支持多 SoC、image header BOOT_HARTID 与 watchdog 实现更新
+    - coreHTTP / coreMQTT、CherryUSB、FreeRTOS、cAT 等子模块同步更新
+
+### Deprecated:
+
+## [Unreleased]
+
+### Added:
+  - 语言绑定:
+    - rust: 新增 Rust no_std 语言支持（MVP）
+      - 目标三元组 `riscv32imac-unknown-none-elf`，验证板型 `arcs_evb`
+      - 提供 `arcs` crate，覆盖模块 log、thread、sync（Mutex/Semaphore/Channel）、gpio、uart
+      - `arcs::entry!` 宏统一注入 panic handler、global allocator 与 log 初始化
+      - 新增示例 `samples/libraries/rust/helloworld` 与 `samples/libraries/rust/blinky`
+      - 新增 `test/rust/binding_test`（已在 arcs_evb 上验证 8/8 通过）
+      - CI 新增 `rust:lint` / `rust:build` / `rust:bindgen-drift` / `rust:onboard-binding-test` 四个 job（最后一个为 manual / scheduled）
+    - rust: R1 新增 embedded-hal 1.0 + embedded-io 0.6 trait 适配层
+      - 新增 host 编译的 `arcs-macros` crate，提供 `#[arcs::main]` 属性宏（固定导出符号 `rust_main`）；`arcs::entry!` 保留（两者二选一）
+      - `GpioPin`（由 `Gpio::pin(n)` 取得）实现 `OutputPin` / `InputPin` / `StatefulOutputPin`；`Uart` 实现 `embedded_io::{Read, Write}`；`Delay` 实现 `DelayNs`
+      - `embedded-hal` 为默认开启的 feature（可用 `--no-default-features` 关闭以编译掉 trait 实现）
+      - 破坏性变更（pre-1.0）：`Uart::read` 改名为 `read_bytes`，避免与 `embedded_io::Read::read` 冲突
+      - 新增示例 `samples/libraries/rust/eh_blink`；`binding_test` 升级为 10/10（已在 arcs_evb 实板验证）
+    - rust: R2 新增 I2C 与 SPI 外设绑定
+      - `sys::i2c` + `hal::i2c::I2c`（主机模式 configure/write/read/write_read/probe），实现 `embedded_hal::i2c::I2c`
+      - `sys::spi` + `hal::spi::Spi`（configure/transfer/write/read；lisa SPI 为异步完成，封装内部注册完成回调并以信号量阻塞，对外呈现同步 API），实现 `embedded_hal::spi::SpiBus<u8>`
+      - `arcs::Error` 增加 `embedded_hal::i2c::Error` 与 `embedded_hal::spi::Error` 实现
+      - 新增示例 `samples/libraries/rust/i2c_scan`（I2C 总线扫描）与 `samples/libraries/rust/spi_loopback`（SPI 全双工/回环），均已在 arcs_evb 实板验证
+      - 修复 `sys::spi::SpiConfig` 枚举字段宽度的 ABI 错误（C enum 为 4 字节，应为 u32 而非 u8；曾导致 master_mode 错位、传输完成中断不触发而超时）
+      - `rust:bindgen-drift` CI 规则纳入 `drivers/lisa_i2c` / `drivers/lisa_spi` 头文件变更
+    - rust: R3 新增 PWM / RTC / ADC / Flash 外设绑定
+      - `sys::pwm` + `hal::pwm::Pwm`（configure/set_duty_percent/enable/disable），实现 `embedded_hal::pwm::SetDutyCycle`
+      - `sys::rtc` + `hal::rtc::Rtc` + `DateTime`（set/now；year 为 2000 起偏移；embedded-hal 1.0 无 RTC trait，仅原生 API）
+      - `sys::adc` + `hal::adc::Adc`（configure_channel/read + `raw_to_mv`；通道 6/7 为内部 VBAT/TEMP；embedded-hal 1.0 无阻塞 ADC trait，仅原生 API）
+      - `sys::flash` + `hal::flash::Flash`（read/write/erase/capacity），实现 `embedded_storage::nor_flash::{ReadNorFlash, NorFlash}`；新增 `embedded-storage = 0.3` 依赖（并入 embedded-hal feature）
+      - `arcs::Error` 增加 `embedded_hal::pwm::Error` 与 `embedded_storage::nor_flash::NorFlashError` 实现
+      - `binding_test` 扩展至 14/14（新增 pwm_configure / rtc_set_get / adc_read / flash_scratch 子测试），新增示例 `samples/libraries/rust/adc_log`；均已在 arcs_evb 实板验证
+      - `rust:bindgen-drift` 纳入 `drivers/lisa_{adc,flash,pwm,rtc}` 头文件变更
+    - rust: R4 新增系统复位与 panic 恢复（调试基础设施）
+      - 新增 `arcs::reboot()`（绑定 `sys_platform_sw_full_reset`，整片软复位，不保留 SRAM）
+      - 新增 opt-in cargo feature `panic-reboot`：Rust panic 先记录日志再触发软复位（恢复），替代默认的 ebreak→SDK 故障处理器挂死（默认关闭，保留可调试的挂起行为）
+      - 新增示例 `samples/libraries/rust/panic_reboot`，已在 arcs_evb 实板验证（panic 记录 `panicked at <file:line>` → 软复位 → 重启循环）
+      - RTT 日志已接通：新增示例 `samples/libraries/rust/rtt_log`（`CONFIG_LOG_BACKEND_SEGGER_RTT=y`），Rust `log` 经 easylogger 输出钩子改道 `SEGGER_RTT_printf`，无需 Rust 侧改动。固件侧已在 arcs_evb 验证（开启 RTT 后端后 UART 日志在 easylogger 初始化后停止＝输出已改道 RTT，固件继续在 CP 核运行）
+      - 主机侧 RTT 读取已验证（J-Link PLUS V11 + J-Link 软件 V9.46，cJTAG 接 CP 核 core1）：经 J-Link 读出 `rtt_log` 的 Rust 日志（`rtt_log: tick 0/1/2...`）。注意旧版 J-Link V7.52a 无法解析 ARCS RISC-V cJTAG（回退 ARM7），需 V9.46+；RTT 控制块在 J-Link 默认搜索范围之下，需按 `_SEGGER_RTT` 符号地址读取
+      - 修复 SDK RTT 后端 bug：`system/log/lisa_log_backend_segger_rtt.c` 误用 `SEGGER_RTT_printf` 把非 NUL 结尾的日志缓冲当格式串，导致首行之后全是乱码；改为 `SEGGER_RTT_Write(0, log, len)`
+      - 暂缓：真正的 defmt 框架接入；「跨复位持久化 panic 记录」需保留式 RAM/复位策略（arcs 故障为挂起、软复位为整片复位不保留 SRAM）
+    - rust: R5 新增 PSRAM/SRAM 双区分配器与 Display 支持
+      - `sys::mem` + `heap::{Zone, alloc_in, dealloc_in, zone_of}` + `RawBox<T>`（区分物理池的 Box，稳定版无需 allocator_api）。PSRAM 走 `lisa_mem_align_alloc`，内部 SRAM 走 `inram_malloc`（注意 `lisa_mem_sram_alloc` 实为 PSRAM 别名，非真 SRAM）。实板验证：SRAM=0x2001_xxxx、PSRAM=0x2880_xxxx
+      - `sys::display` + `hal::display::Display`（get_capabilities/write/blanking/set_brightness）+ `FrameBuffer`（PSRAM 整屏 RGB565 帧缓冲，实现 `embedded_graphics_core::DrawTarget`）；新增 `embedded-graphics-core = 0.4` 依赖（并入 embedded-hal feature）
+      - `binding_test` 扩展至 15/15（新增 dual_alloc 子测试）；新增示例 `samples/libraries/rust/display_gfx`（embedded-graphics 在 ST7789P3 上绘制，已实板验证面板初始化+绘制+刷新）
+
+## [0.1.7] - 2026-05-22:
+
+- All changes since 0.1.6
+
+### Changed:
+  - boot/uboot:
+    - 多轮子模块升级，引入 store-based recovery、SHA-256 HSU OTA 校验和 CRC32 hardening
+    - 支持 mixed nor+sdraw OTA target、SDMMC RAW-only 与 BOOT_OTA_SKIP_UNCHANGED 开关
+    - libuboot_api.a 拆库、arcs_evb 接入 display OTA UI
+    - 优化 boot 占用 SRAM，引入 boot_info_store 抽象层与 flash 默认后端
+  - runtime_ops 解耦:
+    - lisa_sdmmc 和 components/adb 改用 runtime_ops，消除对 boot_watchdog/uboot 的反向依赖
+    - 删除过时 boot_watchdog 并下沉 uboot 资源
+    - lisa_flash 移除对 ARCS_HAL_IPC 的强制依赖
+  - hal:
+    - wifi_bt 库多版本滚动更新到 20260430
+    - 修复 IPC print bounds 与 sdmmc erase 问题
+  - modem/4G:
+    - 优化 ml307 4G 传输速率与默认传输编码模式
+    - 规整 modem 速率测试示例命名与文档
+  - drivers:
+    - lisa_pwm 支持模式极性配置
+    - cherryusb/adb 接入 boot recovery handshake 校验
+  - soc/dual_core: 双核 WiFi 内存布局抽到 Kconfig，跨核地址访问加固
+  - soc/arcs/hal: urpc 线程 stack 支持 Kconfig 配置
+  - ci:
+    - AI review 从 Anthropic Messages API 迁移到 OpenAI Responses API
+    - 大 MR 自动切换概要审查模式并跳过 modules/ 第三方库
+    - submodule 缓存清理 stale lock，AI review 切换至 docker_codex_cli runner
+  - modules/mbedtls: 优化 socket 适配
+  - docs:
+    - 前端文档站接入 AI 助手
+    - 补充 CV/XTTS/Translation/Tuner/WSP 算法组件文档
+    - cAT 示例提取为独立索引页，规整示例目录与标题
+
+### Fixed:
+  - adb:
+    - 修复 task 自删导致的静态 TCB use-after-free
+    - NAND/SDMMC raw 慢 IO 路径补 yield 喂狗
+    - 忽略 USB 零长度包避免虚假 malloc error
+    - shell_task stack 提升至 8 KB
+    - ADB sync ext disk policy 改为显式 ops 注册
+    - 改用公共 boot_flash.h 头文件
+  - sdmmc: 修复 arcs_evb 无 TF 卡时误触发 boot recovery
+  - soc: soc_pre_init 阶段清除 ROM code 遗留的 GPIO 中断使能
+  - lwip: 适配 hal 2.2.1 socket 接口
+  - 4G/ml307: 修复文本模式下数据解析异常
+  - bt_audio: 改进 lifecycle 处理
+  - acomp/xtts: do_cleanup 释放 IPC stream channel
+  - tinyusb: 修复导出错误的包含目录导致 letter_shell 误用 uboot 配置头
+  - drivers/lisa_camera: 修正 tc6036 VGA 窗口配置与 UVC 格式设置时序
+  - samples:
+    - mqtt sample 与 wifi_pm demo 移除硬编码 WiFi 凭据
+    - recovery_basic 默认 app 地址对齐到 0x40000
+    - flash OTA 包大小默认更新为 0xFE1C
+  - ci/ai-review: 流式请求 UTF-8、429 重试、错误日志增强，移除推理痕迹泄漏
+
+### Added:
+  - 语言绑定:
+    - lua: 新增 Lua 解释器接入
+      - 提供 shell 交互式 REPL
+      - 支持 USB MSC 导入并运行 Lua 脚本
+      - 自动生成 LISA driver FFI bindings，启用 GPIOA/GPIOB/I2C
+      - 新增 LVGL display/touch binding 工程
+      - 提供 blink.lua 示例与 lisa.msleep helper
+    - zig: 新增实验性 Zig 语言支持
+      - 完整 Zig 工具链与 sample adapter 接入
+      - adapter 作为 modules/zig 子模块独立维护
+      - CI 切换到 Zig-enabled Ubuntu runner，兼容 Zig 0.13
+      - 配套实验性 Zig 文档与 sample 验证规范
+  - lisa_pm: 新增低功耗管理框架
+    - 应用级 sleep callback 与 API 收敛
+    - ILM/DLM snapshot 与 PSRAM NOLOAD 段管理
+    - 设备侧 wakeup-source API
+    - 各 lisa 驱动接入 system PM 三回调
+    - console flush 链路与 vrtc_init 初始化内化
+    - 新增 wifi_ps 示例（basic/mqtt/gpio_wakeup 三子工程）与设计文档
+  - samples:
+    - demo: 新增 NES 游戏 demo，支持 LVGL 显示、LISA_AUDIO、SD 卡 ROM 加载和 USB Host 键盘输入
+    - network: 新增 4G 速率测试示例
+    - drivers: 新增 lisa_pwm 对齐模式示例
+    - bluetooth: 新增 AVRCP key 日志，a2dp_source NVS 初始化，wifi+a2dp coex threads 命令
+    - subsys/cae: 新增 CAE UAC 验证示例
+  - drivers:
+    - 新增 GC9307 显示驱动和 CHSC6540 触摸驱动
+    - lisa_camera 支持 dvp+i2c 双摄切换
+    - lite_adc 新增 MIC1 增益配置
+  - acomp: 新增 CAE 组件
+  - system:
+    - 新增 sys_chip_id_get 跨芯片 API
+    - 新增 sys_reset_reason 跨芯片 API
+    - PMU 接管 SYSRST_STATUS snapshot，应用层可读复位原因
+  - bluetooth:
+    - 新增 BLE netcfg 自定义操作处理与数据发送
+    - 新增 classic shell connect 命令
+    - 新增 playback drain API
+  - coex: 支持运行时 wifi 与 iperf 参数配置
+
+### Deprecated:
+
 ## [0.1.6] - 2026-04-22:
 
 - All changes since 0.1.5
@@ -463,3 +722,4 @@
 
 ### Deprecated:
   - samples/drivers: hal驱动示例不做维护，建议使用新的设备驱动
+

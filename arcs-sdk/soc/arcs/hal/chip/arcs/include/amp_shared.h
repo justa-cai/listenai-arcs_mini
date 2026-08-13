@@ -12,6 +12,8 @@
 #ifndef _AMP_SHARED_H_
 #define _AMP_SHARED_H_
 
+#include <stdint.h>
+
 #if defined(CONFIG_PM) && (CONFIG_PM == 1)
 #include "pm.h"
 #endif
@@ -19,11 +21,12 @@
 /*
  * Halt the other core
  */
-#define IPC_APP_STATUS_HALT_PEER_BITS_ACK        0x00000001
-#define IPC_APP_STATUS_HALT_PEER_BITS_RESUME     0x00000002
-#define IPC_APP_STATUS_HALT_PEER_BITS_ALL        0x00000003
+#define AMP_APP_STATUS_HALT_PEER_ACK             0x00000001
+#define AMP_APP_STATUS_HALT_PEER_RESUME          0x00000002
+#define AMP_APP_STATUS_HALT_PEER_RESUME_ACK      0x00000004
+#define AMP_APP_STATUS_HALT_PEER_ALL             0x00000007
 
-#define IPC_APP_STATUS_VRTC_ALERT                0x00000004
+#define AMP_APP_STATUS_VRTC_ALERT                0x00000008
 
 #if defined(CFG_AMP_IPC)
 #define CONFIG_CORE_NUM      2
@@ -61,6 +64,12 @@ struct amp_shared_info {
 #endif
 };
 
-
+void amp_shared_bind(volatile struct amp_shared_info *shared);
+volatile struct amp_shared_info *amp_shared_get(void);
+void amp_app_status_set(uint32_t bit_mask);
+uint32_t amp_app_status_get(uint32_t bit_mask);
+void amp_app_status_clear(uint32_t bit_mask);
+uint32_t amp_app_status_read(void);
+void amp_app_status_write(uint32_t status);
 
 #endif

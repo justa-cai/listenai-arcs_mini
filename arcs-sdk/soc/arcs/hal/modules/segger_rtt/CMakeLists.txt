@@ -1,6 +1,8 @@
 
 if (CONFIG_SUPPORT_SEGGER_RTT)
 
+listenai_add_linker_section(FILE ${CMAKE_CURRENT_SOURCE_DIR}/segger-rtt.ld SLOT POST_DATA SORT_KEY "20-hal")
+
 listenai_library_sources(
     SEGGER_RTT.c
     SEGGER_RTT_printf.c

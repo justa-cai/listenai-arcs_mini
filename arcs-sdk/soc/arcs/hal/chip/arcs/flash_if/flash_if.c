@@ -81,7 +81,7 @@ int32_t flash_if_sr_write(uint32_t idx, uint32_t id, uint32_t value)
     ipc_halt_peer_core();
 #endif
     uint32_t out = 0;
-    ret = flash_status_register_set_by_idx(idx, &flash_dev, id, &out);
+    ret = flash_status_register_set_by_idx(idx, &flash_dev, id, value, &out);
 
 #if defined(CFG_AMP_IPC_FLASH_AGENT) && (CFG_AMP_IPC_FLASH_AGENT == 1)
     ipc_resume_peer_core();

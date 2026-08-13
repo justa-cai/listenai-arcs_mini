@@ -1,0 +1,8 @@
+tests:
+  samples.algorithms.cae:
+    programmer: arcs
+    runner: uart
+    build_only: true
+    log_analyzer:
+      type: "regex"
+      pattern: "CAE 音频输入已启动"

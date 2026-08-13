@@ -49,7 +49,7 @@ if(CONFIG_WIFI_MANAGER_WIFI_TYPE_STATION)
 endif()
 
 
-target_link_libraries(wifi_manager PUBLIC arcs-hal)
+target_link_libraries(wifi_manager PUBLIC hal)
 
 if(DEFINED LISTENAI_CMAKE_PATH)
 listenai_link_libraries(wifi_manager)

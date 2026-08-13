@@ -12,6 +12,10 @@
 #include <errno.h>
 #include <limits.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
+#include "lisa_mem.h"
 #include "shell.h"
 
 #include "ls_wf_coex.h"
@@ -50,10 +54,13 @@ static void coex_shell_print_wifi_status(Shell *shell)
 static void coex_shell_print_iperf_status(Shell *shell)
 {
     coex_iperf_status_t status;
+    char server_ip[16];
+    int server_port;
     uint64_t tx_bps;
     uint64_t rx_bps;
 
     coex_iperf_get_status(&status);
+    coex_iperf_get_server(server_ip, sizeof(server_ip), &server_port);
     tx_bps = coex_result_tx_throughput_bps(&status.last_result);
     rx_bps = coex_result_rx_throughput_bps(&status.last_result);
 
@@ -62,7 +69,7 @@ static void coex_shell_print_iperf_status(Shell *shell)
     shellPrint(shell, "state: %s\n", coex_iperf_state_str(status.state));
     shellPrint(shell, "current_test_mode: %s\n", coex_mode_str(status.current_mode));
     shellPrint(shell, "pending_test_mode: %s\n", coex_mode_str(status.pending_mode));
-    shellPrint(shell, "server: %s:%d\n", COEX_SERVER_IP, COEX_SERVER_PORT);
+    shellPrint(shell, "server: %s:%d\n", server_ip, server_port);
     shellPrint(shell, "round_seconds: %d\n", COEX_ROUND_SECONDS);
     shellPrint(shell, "send_block_size: %d\n", COEX_SEND_BLOCK_SIZE);
     shellPrint(shell, "round_id: %u\n", status.round_id);
@@ -84,6 +91,7 @@ static void coex_shell_print_bt_status(Shell *shell)
     coex_bt_audio_get_status(&audio_status);
 
     shellPrint(shell, "initialized: %s\n", bt_status.initialized ? "yes" : "no");
+    shellPrint(shell, "opened: %s\n", bt_status.opened ? "yes" : "no");
     shellPrint(shell, "discovery_registered: %s\n", bt_status.discovery_registered ? "yes" : "no");
     shellPrint(shell, "discovered_devices: %u\n", bt_status.discovered_count);
     shellPrint(shell, "acl_connected: %s\n", bt_status.connected ? "yes" : "no");
@@ -119,12 +127,22 @@ static int cmd_wifi(int argc, char **argv)
     Shell *shell = shellGetCurrent();
 
     if (argc < 2) {
-        shellPrint(shell, "Usage: wifi <connect|disconnect|status|help>\n");
+        shellPrint(shell, "Usage: wifi <connect [ssid pwd]|disconnect|status|help>\n");
         return -1;
     }
 
     if (strcmp(argv[1], "connect") == 0) {
-        int ret = coex_wifi_connect();
+        int ret;
+
+        if (argc == 2) {
+            ret = coex_wifi_connect();
+        } else if (argc == 4) {
+            ret = coex_wifi_connect_to(argv[2], argv[3]);
+        } else {
+            shellPrint(shell, "Usage: wifi connect [ssid pwd]\n");
+            return -1;
+        }
+
         shellPrint(shell, "wifi connect ret=%d\n", ret);
         return ret;
     }
@@ -140,7 +158,7 @@ static int cmd_wifi(int argc, char **argv)
         return 0;
     }
 
-    shellPrint(shell, "Usage: wifi <connect|disconnect|status|help>\n");
+    shellPrint(shell, "Usage: wifi <connect [ssid pwd]|disconnect|status|help>\n");
     return -1;
 }
 
@@ -151,14 +169,14 @@ static int cmd_iperf(int argc, char **argv)
     int arg_base = 0;
 
     if (argc < 1) {
-        shellPrint(shell, "Usage: iperf <start|stop|status|mode|help>\n");
+        shellPrint(shell, "Usage: iperf <start|stop|status|mode|server|help>\n");
         return -1;
     }
 
     subcmd = argv[0];
     if (strcmp(subcmd, "iperf") == 0) {
         if (argc < 2) {
-            shellPrint(shell, "Usage: iperf <start|stop|status|mode|help>\n");
+            shellPrint(shell, "Usage: iperf <start|stop|status|mode|server|help>\n");
             return -1;
         }
         subcmd = argv[1];
@@ -185,6 +203,42 @@ static int cmd_iperf(int argc, char **argv)
         return 0;
     }
 
+    if (strcmp(subcmd, "server") == 0) {
+        char server_ip[16];
+        int server_port;
+        int server_index = arg_base + 1;
+
+        coex_iperf_get_server(server_ip, sizeof(server_ip), &server_port);
+        if (argc <= server_index) {
+            shellPrint(shell, "current server: %s:%d\n", server_ip, server_port);
+            shellPrint(shell, "set server: iperf server <ip> [port]\n");
+            return 0;
+        }
+
+        if (argc > server_index + 2) {
+            shellPrint(shell, "Usage: iperf server <ip> [port]\n");
+            return -1;
+        }
+
+        if (argc > server_index + 1) {
+            unsigned int parsed_port;
+
+            if (coex_shell_parse_uint(argv[server_index + 1], &parsed_port) != 0 ||
+                parsed_port == 0 || parsed_port > 65535U) {
+                shellPrint(shell, "Invalid port: %s\n", argv[server_index + 1]);
+                return -1;
+            }
+            server_port = (int)parsed_port;
+        }
+
+        int ret = coex_iperf_set_server(argv[server_index], server_port);
+        if (ret == -EBUSY) {
+            shellPrint(shell, "iperf is running, run 'iperf stop' before changing server\n");
+        }
+        shellPrint(shell, "iperf server set ret=%d ip=%s port=%d\n", ret, argv[server_index], server_port);
+        return ret;
+    }
+
     if (strcmp(subcmd, "mode") == 0) {
         coex_mode_t mode;
         int mode_index = arg_base + 1;
@@ -206,7 +260,7 @@ static int cmd_iperf(int argc, char **argv)
         return 0;
     }
 
-    shellPrint(shell, "Usage: iperf <start|stop|status|mode|help>\n");
+    shellPrint(shell, "Usage: iperf <start|stop|status|mode|server|help>\n");
     return -1;
 }
 
@@ -215,6 +269,21 @@ static int cmd_bt_inquiry_shell(int argc, char **argv)
     (void)argc;
     (void)argv;
     return coex_bt_inquiry();
+}
+
+static int cmd_bt_open_shell(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    return coex_bt_open();
+}
+
+static int cmd_bt_close_shell(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    (void)coex_bt_audio_stop();
+    return coex_bt_close();
 }
 
 static int cmd_bt_connect_shell(int argc, char **argv)
@@ -298,6 +367,60 @@ static int cmd_coex(int argc, char **argv)
     return 0;
 }
 
+static int threads_cmd(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+
+    Shell *shell = shellGetCurrent();
+    uint32_t tasks = uxTaskGetNumberOfTasks();
+    TaskStatus_t *item = lisa_mem_alloc(tasks * sizeof(TaskStatus_t));
+
+    if (item) {
+        uint32_t total = 0;
+
+        tasks = uxTaskGetSystemState(item, tasks, &total);
+        if (total > 0) {
+            shellPrint(shell, "\n---------------------------------------------------------------------------------------------\n");
+            shellPrint(shell, "Name                      State  Prio  Stack  MinFree    MaxUsed    Tid    Call100US      PCT\n");
+            shellPrint(shell, "---------------------------------------------------------------------------------------------\n");
+            for (uint32_t i = 0, pct = 0; i < tasks; i++) {
+                uint32_t stack_size = (item[i].pxEndOfStack - item[i].pxStackBase + 2) * sizeof(StackType_t);
+                uint32_t min_free = item[i].usStackHighWaterMark * sizeof(StackType_t);
+                float max_used_pct = 100.0f - (float)min_free / (float)stack_size * 100.0f;
+
+                if ((pct = (uint32_t)(100.0f * item[i].ulRunTimeCounter / total))) {
+                    shellPrint(shell, "%-25s %-6c %-6u %-6u %-10u %-10.1f %-6u %-12u %5u%%\n",
+                               item[i].pcTaskName,
+                               "XRBSD"[item[i].eCurrentState],
+                               item[i].uxCurrentPriority,
+                               stack_size,
+                               min_free,
+                               max_used_pct,
+                               item[i].xTaskNumber,
+                               item[i].ulRunTimeCounter,
+                               pct);
+                } else {
+                    shellPrint(shell, "%-25s %-6c %-6u %-6u %-10u %-10.1f %-6u %-12u %5s%%\n",
+                               item[i].pcTaskName,
+                               "XRBSD"[item[i].eCurrentState],
+                               item[i].uxCurrentPriority,
+                               stack_size,
+                               min_free,
+                               max_used_pct,
+                               item[i].xTaskNumber,
+                               item[i].ulRunTimeCounter,
+                               "<1");
+                }
+            }
+            shellPrint(shell, "---------------------------------------------------------------------------------------------\n\n");
+        }
+        lisa_mem_free(item);
+    }
+
+    return 0;
+}
+
 int coex_shell_register(void)
 {
     return 0;
@@ -305,6 +428,8 @@ int coex_shell_register(void)
 
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), wifi, cmd_wifi, wifi controls);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), iperf, cmd_iperf, iperf controls);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), bt_open, cmd_bt_open_shell, open bt stack);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), bt_close, cmd_bt_close_shell, close bt stack);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), bt_inquiry, cmd_bt_inquiry_shell, bt inquiry);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), bt_connect, cmd_bt_connect_shell, bt connect by name);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), bt_connect_index, cmd_bt_connect_index_shell, bt connect by index);
@@ -313,3 +438,5 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), bt_audio_volume, cmd_bt_audio_volume_shell, set bt audio volume);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), coex_slot_time, cmd_coex_slot_time_shell, set coex slot time);
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), coex, cmd_coex, coexistence controls);
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN) | SHELL_CMD_DISABLE_RETURN, threads,
+                 threads_cmd, show threads info);

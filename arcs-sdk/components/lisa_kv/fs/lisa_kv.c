@@ -13,6 +13,7 @@
 
 #include "stdint.h"
 #include "stdio.h"
+#include "stdbool.h"
 #include "string.h"
 #include "stdlib.h"
 
@@ -115,10 +116,16 @@ static int lisa_kv_load(struct lisa_kv_obj *obj)
 
 int lisa_kv_init(void)
 {
-    int r;
+    static bool inited = false;
+
+    if (inited) {
+        return 0;
+    }
+
     lisa_kv_obj.mutex = lisa_mutex_create();
     assert(lisa_kv_obj.mutex != NULL);
     lisa_kv_load(&lisa_kv_obj);
+    inited = true;
 
     return 0;
 }
@@ -140,19 +147,39 @@ int lisa_kv_set(const char *key, const char *value)
 
 int lisa_kv_get(const char *key, char **value)
 {
-    *value = NULL;
-    cJSON *item = cJSON_GetObjectItem(lisa_kv_obj.root, key);
-    if (!item) {
+    int ret = -1;
+
+    if (!value) {
         return -1;
     }
-    *value = LISA_KV_MALLOC(strlen(item->valuestring) + 1);
+
+    *value = NULL;
+    if (!key || !lisa_kv_obj.mutex) {
+        return -1;
+    }
+
+    lisa_mutex_lock(lisa_kv_obj.mutex, LISA_OS_WAIT_FOREVER);
+    if (!lisa_kv_obj.root) {
+        goto out;
+    }
+
+    cJSON *item = cJSON_GetObjectItem(lisa_kv_obj.root, key);
+    if (!item || !cJSON_IsString(item) || !item->valuestring) {
+        goto out;
+    }
+
+    size_t len = strlen(item->valuestring) + 1;
+    *value = LISA_KV_MALLOC(len);
     if (!*value) {
         LOGE("lisa_kv_get fail, LISA_KV_MALLOC fail");
-        return -1;
+        goto out;
     }
-    memcpy(*value, item->valuestring, strlen(item->valuestring) + 1);
+    memcpy(*value, item->valuestring, len);
+    ret = 0;
 
-    return 0;
+out:
+    lisa_mutex_unlock(lisa_kv_obj.mutex);
+    return ret;
 }
 
 int lisa_kv_del(const char *key)
@@ -181,13 +208,27 @@ int lisa_kv_deinit(void)
 
 void lisa_kv_dump(void)
 {
+    if (!lisa_kv_obj.mutex) {
+        LOGE("lisa_kv_dump fail, KV not initialized");
+        return;
+    }
+
+    lisa_mutex_lock(lisa_kv_obj.mutex, LISA_OS_WAIT_FOREVER);
+    if (!lisa_kv_obj.root) {
+        LOGE("lisa_kv_dump fail, KV not initialized");
+        goto out;
+    }
+
     char *all = cJSON_PrintUnformatted(lisa_kv_obj.root);
     if (!all) {
         LOGE("lisa_kv_save fail, cJSON_Print fail");
-        return;
+        goto out;
     }
     LOGI("lisa_kv_save, all: %s", all);
     LISA_KV_FREE(all);
+
+out:
+    lisa_mutex_unlock(lisa_kv_obj.mutex);
 }
 
 int lisa_kv_get_int(const char *key, int *value)
@@ -314,5 +355,3 @@ int lisa_kv_poweroff_save(void)
     return r;
 }
 #endif
-
-

@@ -25,14 +25,17 @@ config LISA_SDMMC_INIT_PRIORITY
 
 config LISA_SDMMC_SCAN_TIMEOUT_MS
 	int "Card scan timeout (ms)"
+	default 1000 if BOOT_ADB
 	default 3000
 	help
 			Timeout in milliseconds for SD card scan operation.
+			Boot ADB recovery uses a shorter default so no-card boards
+			fail SDMMC/FS preparation quickly and keep ADB available.
 			Increase this value if card detection is unreliable.
 
 config LISA_SDMMC_ACCESS_BUFFER_ALIGN_SIZE
 	int "DMA buffer alignment size"
-	default 64
+	default 32
 	help
 			Buffer alignment requirement for DMA operations.
 			Buffers must be aligned to this boundary for direct DMA access.
@@ -45,5 +48,39 @@ config LISA_SDMMC_ACCESS_WRAP_BUFFER_SIZE
 			Size of internal wrap buffer used for non-aligned DMA operations.
 			Larger buffer improves performance for large transfers but uses
 			more memory. Must be multiple of sector size (512 bytes).
+
+config LISA_SDMMC_VENUSA_FORCE_3_3V
+	bool "Force Venusa SDMMC 3.3V signaling"
+	depends on SOC_VENUSA
+	help
+			Force legacy 3.3V signaling on Venusa. Disable this option to allow
+			UHS-I 1.8V negotiation and SDR50 on capable cards and boards.
+
+config LISA_SDMMC_VENUSA_BUS_WIDTH
+	int "Venusa SDMMC bus width"
+	depends on SOC_VENUSA
+	default 4
+	range 1 4
+	help
+			SD card bus width requested after card detection. Use 4 for normal
+			4-bit SDIO operation.
+
+config LISA_SDMMC_VENUSA_TARGET_SPEED
+	int "Venusa SDMMC target speed mode"
+	depends on SOC_VENUSA
+	default 2
+	range 0 4
+	help
+			Target speed mode: 0=SDR12, 1=SDR25, 2=SDR50, 3=SDR104, 4=DDR50.
+			The Venusa SDIO host supports up to SDR50/100MHz for SD cards.
+
+config LISA_SDMMC_VENUSA_SDMA_BOUNDARY_ORDER
+	int "Venusa SDMMC SDMA boundary order"
+	depends on SOC_VENUSA
+	default 7
+	range 0 7
+	help
+			SDMA boundary order used by the FTSDC021 HAL. Boundary bytes are
+			1 << (order + 12); 7 selects 512 KiB.
 
 endif

@@ -1,0 +1,15 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_CSK7002G6U
+
+config HARTID
+	default 0    # VenusA sample 默认不合并 boot, app 跑 AP
+
+config MEM_PSRAM_SIZE
+	default 0x00400000    # 4MB
+
+config MEM_FLASH_SIZE
+	default 0x00400000    # 4MB
+
+endif # SOC_CSK7002G6U

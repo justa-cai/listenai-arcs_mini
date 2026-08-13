@@ -411,6 +411,41 @@ static void __callback_thread_func(void *arg)
  * - PAUSED/STOPPED/COMPLETE/ERROR事件：关PA（引用计数-1）
  * - 配合PA管理器的引用计数，避免多实例互相干扰
  */
+int __app_player_pa_acquire(app_player_t *player)
+{
+    if (!player || player->pa_is_on) {
+        return 0;
+    }
+
+    int ret = pa_manager_control(1, 0);
+    if (ret != 0) {
+        LISA_LOGE(TAG, "Player[%d] %s: PA ON failed: %d",
+                  player->id, player->name, ret);
+        return ret;
+    }
+
+    player->pa_is_on = true;
+    LISA_LOGI(TAG, "Player[%d] %s: PA acquired before audio output",
+              player->id, player->name);
+    return 0;
+}
+
+void __app_player_pa_release(app_player_t *player, uint32_t delay_ms)
+{
+    if (!player || !player->pa_is_on) {
+        return;
+    }
+
+    int ret = pa_manager_control(0, delay_ms);
+    /* The manager consumes the reference before applying the hardware state. */
+    player->pa_is_on = false;
+    if (ret != 0) {
+        LISA_LOGE(TAG, "Player[%d] %s: PA OFF failed: %d",
+                  player->id, player->name, ret);
+        return;
+    }
+}
+
 static void __app_player_upper_callback_handler(app_player_t *player, PlayerEvt evt, bool should_notify_user)
 {
     if (!player) {
@@ -426,8 +461,7 @@ static void __app_player_upper_callback_handler(app_player_t *player, PlayerEvt 
             // 真正开始播放时才开启PA
             if (!player->pa_is_on) {
                 LISA_LOGI(TAG, "Player[%d] %s: PLAYING -> PA ON", player->id, player->name);
-                pa_manager_control(1, 0);
-                player->pa_is_on = true;
+                __app_player_pa_acquire(player);
             } else {
                 LISA_LOGI(TAG, "Player[%d] %s: PLAYING but PA already on, skip", player->id, player->name);
             }
@@ -447,8 +481,7 @@ static void __app_player_upper_callback_handler(app_player_t *player, PlayerEvt 
                 } else {
                     LISA_LOGI(TAG, "Player[%d] %s: evt=%d -> PA OFF (delayed %dms)",
                               player->id, player->name, evt, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
-                    pa_manager_control(0, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
-                    player->pa_is_on = false;
+                    __app_player_pa_release(player, CONFIG_APP_PLAYER_PA_OFF_DELAY_MS);
                 }
             } else {
                 LISA_LOGI(TAG, "Player[%d] %s: evt=%d but PA not on, skip PA off",
@@ -1212,6 +1245,43 @@ int app_player_reset(app_player_t *player)
     app_player_focus_release(player, true);
 #endif
 
+    return APP_PLAYER_OK;
+}
+
+int app_player_set_decode_prepared_count(app_player_t *player, uint32_t count)
+{
+    if (!player || count == 0) {
+        LISA_LOGE(TAG, "Set prepared count failed: invalid param");
+        return APP_PLAYER_ERR_INVALID_PARAM;
+    }
+
+    PlayerErr ret = lisa_player_set_decode_prepared_count(player->hld, count);
+    if (ret != PLAYER_OK) {
+        LISA_LOGE(TAG, "Set prepared count failed: %d", ret);
+        return APP_PLAYER_ERR_INVALID_PARAM;
+    }
+
+    LISA_LOGI(TAG, "Set prepared count: %s, count=%u", player->name, count);
+    return APP_PLAYER_OK;
+}
+
+int app_player_set_readstream_buf_size(app_player_t *player, uint32_t size)
+{
+    if (!player) {
+        LISA_LOGE(TAG, "Set readstream buf size failed: invalid param");
+        return APP_PLAYER_ERR_INVALID_PARAM;
+    }
+
+    PlayerErr ret = lisa_player_set_readstream_buf_size(player->hld, size);
+    if (ret != PLAYER_OK) {
+        LISA_LOGE(TAG, "Set readstream buf size failed: %d", ret);
+        if (ret == PLAYER_INVALID_STATE) {
+            return APP_PLAYER_ERR_INVALID_STATE;
+        }
+        return APP_PLAYER_ERR_INVALID_PARAM;
+    }
+
+    LISA_LOGI(TAG, "Set readstream buf size: %s, size=%u", player->name, size);
     return APP_PLAYER_OK;
 }
 

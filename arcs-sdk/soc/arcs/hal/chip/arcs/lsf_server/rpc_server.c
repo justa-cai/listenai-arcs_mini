@@ -11,6 +11,8 @@
 urpc_server_stub* RPC_Server_stub = NULL;
 
 // 预留空槽, 在register-service和建立register-remoteObj时填充
+// 数量14: 受 urpc 框架约束, urpc.c 中校验 ep_cnt < 15, 即最多 14 个 endpoint
+//         (EP0 保留给 ctrl 控制端点, EP1~13 留给各 service/remoteObj)
 urpc_endpoint RPC_Server_eps[14] = {
         //end point 0, reserve for RPC
         {NULL, 0, URPC_DESC("ctrl_s")},

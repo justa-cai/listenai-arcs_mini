@@ -250,7 +250,7 @@ void app_avrcp_unregister(void);
 /**
  * avrcp press req
  *
- * @param conidx:connect id. key_type:enum@avrcp_key_type_t.key_id:enum@avrcp_key_id_t.key_value:key value.
+ * @param conidx:connect id. key_type:enum@bt_avrcp_key_type_t.key_id:enum@bt_avrcp_key_id_t.key_value:key value.
  *
  * @return None.
  */
@@ -259,7 +259,7 @@ void app_avrcp_press_req(uint8_t conidx, uint8_t key_type, uint8_t key_id, uint8
 /**
  * avrcp notify req
  *
- * @param conidx:connect id. event_id:enum@avrcp_notify_id_t.
+ * @param conidx:connect id. event_id:enum@bt_avrcp_notify_id_t.
  *
  * @return None.
  */
@@ -268,7 +268,7 @@ void app_avrcp_notify_req(uint8_t conidx, uint8_t event_id);
 /**
  * avrcp notify req
  *
- * @param conidx:connect id. info_id:enum@avrcp_get_meta_info_id_t.
+ * @param conidx:connect id. info_id:enum@bt_avrcp_get_meta_info_id_t.
  *
  * @return None.
  */
@@ -278,11 +278,20 @@ void app_avrcp_meta_req(uint8_t conidx, uint8_t info_id);
 /**
  * avrcp play status set
  *
- * @param conidx:connect id. play_status:enum@avrcp_playback_status_t.
+ * @param conidx:connect id. play_status:enum@bt_avrcp_playback_status_t.
  *
  * @return None.
  */
 void app_avrcp_play_status_set(uint8_t conidx, uint8_t play_status);
+
+/**
+ * avrcp get peer version
+ *
+ * @param conidx:connect id. version:avrcp version
+ *
+ * @return Status.
+ */
+uint16_t app_avrcp_get_peer_version(uint8_t conidx, uint16_t *version);
 
 #endif
 

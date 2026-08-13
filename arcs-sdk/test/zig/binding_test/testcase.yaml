@@ -1,0 +1,15 @@
+tests:
+  test.zig.binding_test:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "=== ALL [0-9]+ BINDING TESTS PASSED ==="
+
+  test.zig.binding_test.fpu:
+    build_only: true
+    build_extra_args: "-DCONFIG_FILES=prj_fpu.conf"
+    platform_allow:
+      - arcs_evb

@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config ALGO_DMA_COPY_USE_DMA
+	bool "Use DMA for algorithm copy"
+	default y
+	help
+	  Enable the ARCS DMA copy backend for algorithm data movement.
+	  Disable this option to use the memcpy fallback without DMA.
+
+config ALGO_DMA_CHANNEL_PERSISTENT
+	bool "Use persistent DMA channel for algorithm"
+	depends on ALGO_DMA_COPY_USE_DMA
+	default y
+	help
+	  Select DMA channel allocation strategy for algorithm:
+	  - Enabled: Allocate and hold DMA channel persistently (dma_cpy_arcs_ch_persistent.c)
+	  - Disabled: Allocate and release DMA channel dynamically (dma_cpy_arcs.c)
+
+	  Persistent mode offers better performance but occupies resources continuously.
+	  Dynamic mode is more flexible but has allocation overhead.

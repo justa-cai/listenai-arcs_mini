@@ -1,5 +1,5 @@
 #include <string.h>
-#include "platform.h"
+#include "../../include/platform.h"
 #include "spiflash.h"
 #include "arcs_ap.h"
 #include "cache.h"
@@ -32,7 +32,7 @@ _EXT_RAM void flash_dualflash_config(uint32_t flash0_low, uint32_t flash0_high)
 {
     // Range of Flash0: [flash0_low - flash0_high - 1], aligned to 4K
     // Beyond this range, Flash1 is used
-    outw(0x47600054, (((flash0_high & 0x00FFFFFF) >> 12) << 16) | ((flash0_low & 0x00FFFFFF) >> 12));
+    outw(0x47600054, (((flash0_high & 0x0FFFFFFF) >> 12) << 16) | ((flash0_low & 0x0FFFFFFF) >> 12));
 }
 
 __STATIC_FORCEINLINE void flash_dualflash_enable_excl(uint32_t flash_id)
@@ -134,7 +134,22 @@ _EXT_RAM int flash_read(FLASH_DEV *dev, off_t offset, void *data, size_t len)
         if(RUN_WITHOUT_INT == dev->run_mod) {
             FLASH_DRIVER_PROTECT();
         }
+
+#ifdef CONFIG_DUAL_FLASH
+        flash_dualflash_enable_excl(flash_dualflash_id_get(offset));
+#endif
+
+
+#ifdef CONFIG_DUAL_FLASH
+        flash_dualflash_enable_excl(flash_dualflash_id_get(offset));
+#endif
+
         ret = mxic_read(dev, (unsigned int)offset, (unsigned char *)data, (unsigned int)len);
+
+#ifdef CONFIG_DUAL_FLASH
+        flash_dualflash_enable_both();
+#endif        
+        
         if(RUN_WITHOUT_INT == dev->run_mod) {
             FLASH_DRIVER_UNPROTECT();
         }

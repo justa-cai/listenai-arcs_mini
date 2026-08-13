@@ -171,6 +171,7 @@ LISA_DEVICE_REGISTER(xxx0,                       // 设备名称（生成"xxx0"�
                      &xxx0_priv,                 // 私有数据指针
                      NULL,                       // 用户数据（可选）
                      arcs_xxx0_init,             // 初始化函数
+                     LISA_DEVICE_LEVEL_NORMAL,   // 初始化级别
                      LISA_DEVICE_PRIORITY_NORMAL); // 优先级
 ```
 
@@ -179,6 +180,19 @@ LISA_DEVICE_REGISTER(xxx0,                       // 设备名称（生成"xxx0"�
 - 使用 `lisa_device_is_initialized()` 检查设备状态
 - 所有HAL错误转换为统一错误码
 - 设备名称通过宏自动生成字符串
+
+如果设备需要参与 `lisa_pm` 的 system PM，保持普通设备注册不变，并在同一 C 文件中追加：
+
+```c
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(xxx0, &xxx_pm_ops, NULL, &xxx0_priv);
+#endif
+```
+
+其中 `xxx_pm_ops` 为 `const lisa_pm_system_ops_t`。三回调的 `ctx` 由 attach 宏显式传入，通常填设备私有数据指针（即 `&xxx0_priv`）。
+
+> 写 PM 三回调有专门的红线（不能在 IRQ 禁用临界区里调 mutex / sem / 堆），统一实现模式
+> 与按外设类型的接入场景见 [`DRIVER_PM_OPS_GUIDE.md`](./DRIVER_PM_OPS_GUIDE.md)。
 
 ---
 

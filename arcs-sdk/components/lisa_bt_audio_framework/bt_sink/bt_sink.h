@@ -9,6 +9,7 @@
 #define BT_SINK_H_
 
 #include "bt_audio_types.h"
+#include "interfaces/bt_audio_interface.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +26,17 @@ extern "C" {
  * @return BT_AUDIO_OK: 成功, 其他: 错误码
  */
 bt_audio_error_t bt_sink_init(void);
+
+/**
+ * @brief 设置 bt_sink 使用的音频硬件接口
+ *
+ * 若应用不调用该接口，bt_sink_init() 仍会使用 bt_audio_interface_get_default()
+ * 获取默认接口；若调用该接口，需要在播放流空闲时设置。
+ *
+ * @param ops 音频接口操作表
+ * @return BT_AUDIO_OK: 成功, 其他: 错误码
+ */
+bt_audio_error_t bt_sink_set_audio_interface(const bt_audio_interface_ops_t *ops);
 
 #ifdef __cplusplus
 }

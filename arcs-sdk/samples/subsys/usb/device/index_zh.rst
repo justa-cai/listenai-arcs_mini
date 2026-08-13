@@ -8,8 +8,9 @@ USB Device 示例
     :maxdepth: 1
 
     uvc/README.md
+    uac/README.md
     msc/README.md
     adb/README.md
     cherryusb_adb/README.md
-
+    cherryusb_uac/README.md
 

@@ -39,6 +39,29 @@
 #include "bt_hfp.h"
 #include "bt_call_hal.h"
 
+extern void bt_paired_record_update(const gap_bdaddr_t *addr, uint8_t transport);
+
+__attribute__((weak)) void bt_audio_adapter_a2dp_media_rsp(uint8_t conidx, uint8_t *data, uint16_t status)
+{
+    (void)conidx;
+    (void)data;
+    (void)status;
+}
+
+typedef void (*bt_stack_bt_inquiry_stop_cb_t)(int16_t status);
+typedef void (*bt_stack_bt_connect_fail_cb_t)(uint8_t actv_id, int16_t status);
+typedef void (*bt_stack_bt_connect_actv_cb_t)(uint8_t actv, int16_t status);
+typedef void (*bt_stack_bt_link_auth_fail_cb_t)(uint8_t conidx, uint8_t reason);
+
+static gap_bdaddr_t s_classic_peer_addr;
+static bool s_classic_peer_valid;
+static bt_stack_bt_inquiry_stop_cb_t s_bt_inquiry_stop_cb;
+static bt_stack_bt_connect_fail_cb_t s_bt_connect_fail_cb;
+static bt_stack_bt_connect_actv_cb_t s_bt_connect_actv_cb;
+static bt_stack_bt_link_auth_fail_cb_t s_bt_link_auth_fail_cb;
+static bool s_profile_connect_pending;
+static uint8_t s_profile_connect_conidx;
+
 /*
  * DEFINES
  ****************************************************************************************
@@ -58,6 +81,7 @@
     #define BT_STACK_A2DP_ROLE          BT_A2DP_SINK
     #define BT_STACK_HFP_ROLE           BT_HFP_ROLE_HF
     #define BT_STACK_HFP_FEATS          ((BT_HFP_AGSF_WBS * BT_STACK_HFP_MSBC_SUPPORT)|BT_HFP_HFSF_VOL_CTL|BT_HFP_HFSF_NREC)
+    #define BT_STACK_HFP_PEER_ROLE      BT_HFP_ROLE_HF_AG
     #define BT_MUSIC_SOURCE_SEND_DUMMY  (0)
     #define BT_HFP_SOURCE_SEND_DUMMY    (0)
 #endif
@@ -322,8 +346,11 @@ static void bt_hfp_source_dummy_call_cb(TimerHandle_t time_id)
         app_hfp_call_start(s_hfp_peer_conidx, 0);
 
         app_bt_set_asic_cvsd_en(BT_USE_ASIC_CVSD);
+        #if 0
         ///open sco
-        app_hfp_call_add_audio(s_hfp_peer_conidx, stack_env->bt_call_codec_type);
+        CLOGI("bt_call_codec_type:%d", stack_env->bt_call_codec_type);
+        app_hfp_call_add_audio(hfp_peer_conidx, stack_env->bt_call_codec_type);
+        #endif
     }
     
     btos_timer_stop(time_id);
@@ -340,26 +367,107 @@ static void bt_hfp_source_dummy_call_start(uint8_t conidx, uint32_t milli_second
  * GLOBAL FUNCTIONS - 蓝牙经典模式事件处理
  * ======================================================================== */
 
+void bt_stack_connect_profile_cb(TimerHandle_t time_id)
+{
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+    uint8_t expected_conidx = s_profile_connect_conidx;
+    bool pending = s_profile_connect_pending;
+
+    s_profile_connect_pending = false;
+    CLOGD("bt_stack_connect_profile_cb,conidx:0x%x,exp:0x%x,pending:%d",
+          stack_env->bt_classic_conidx, expected_conidx, pending);
+    if(pending && stack_env->bt_classic_connected &&
+       stack_env->bt_open == BT_STATE_OPENED &&
+       stack_env->bt_classic_conidx == expected_conidx)
+    {
+        app_hfp_connect(expected_conidx, BT_STACK_HFP_PEER_ROLE);
+    }
+}
+
+void bt_stack_connect_profile_by_timer(uint8_t conidx, uint32_t milli_seconds)
+{
+       s_profile_connect_conidx = conidx;
+       s_profile_connect_pending = true;
+       TimerHandle_t update_id = btos_timer_creat(TIMER_TYPE_SINGLE, milli_seconds, bt_stack_connect_profile_cb);
+}
+
 /**
  * @brief 蓝牙经典模式使能完成
  */
 void bt_stack_classic_enable_cmp(uint16_t status)
 {
-    CLOGD("bt classic enable cmp, status:%d", status);
-    
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+
+
+    stack_env->bt_role = BT_STACK_CLASSIC_ROLE;
+
 #if WHITE_LIST_ADD
     bt_stack_ble_add_paired_to_wlist();
 #endif
 #if RESOVLE_LIST_ADD
     ble_gap_add_paired_rpa_to_rlist();
 #endif
-
 #if BT_MUSIC_PRESENT
+    // bt_stack_a2dp_caps_set(a2dp_cfg.a2dp_role, &a2dp_caps);
     bt_stack_a2dp_enable(&a2dp_cfg);
 #endif
 #if BT_CALL_PRESENT
     bt_stack_hfp_enable(&hfp_cfg);
 #endif
+    if (status == 0) {
+        stack_env->bt_open = BT_STATE_OPENED;
+    }
+    lisa_bluetooth_notify_classic_enabled(status);
+    CLOGD("bt classic enable cmp, status:%d", status);
+}
+
+///actv         0:stop, 1:start
+///resquester   0:auto, 1:user
+void bt_stack_bt_register_inquiry_stop_cb(bt_stack_bt_inquiry_stop_cb_t cb)
+{
+    s_bt_inquiry_stop_cb = cb;
+}
+
+void bt_stack_bt_register_connect_fail_cb(bt_stack_bt_connect_fail_cb_t cb)
+{
+    s_bt_connect_fail_cb = cb;
+}
+
+void bt_stack_bt_register_connect_actv_cb(bt_stack_bt_connect_actv_cb_t cb)
+{
+    s_bt_connect_actv_cb = cb;
+}
+
+void bt_stack_bt_register_link_auth_fail_cb(bt_stack_bt_link_auth_fail_cb_t cb)
+{
+    s_bt_link_auth_fail_cb = cb;
+}
+
+void bt_stack_bt_actv_ind(uint8_t actv, uint8_t type, uint8_t actv_id, uint8_t resquester, int16_t status)
+{
+    switch(type)
+    {
+        case GAPM_ACTV_TYPE_DISCOVERY :
+        {
+            CLOGD("bt actv stop:act-type-id:%d-%d-%d,req:%d,sta:0x%x", actv, type, actv_id, resquester, status);
+            if (actv == 0 && s_bt_inquiry_stop_cb) {
+                s_bt_inquiry_stop_cb(status);
+            }
+        }
+        break;
+        case GAPM_ACTV_TYPE_CONNECT:
+        {
+            CLOGD("bt actv:act-type-id:%d-%d-%d,req:%d,sta:0x%x", actv, type, actv_id, resquester, status);
+            if (s_bt_connect_actv_cb) {
+                s_bt_connect_actv_cb(actv, status);
+            }
+            if (status == 0x4c && s_bt_connect_fail_cb) {
+                s_bt_connect_fail_cb(actv_id, status);
+            }
+        }
+        break;
+        default : break;
+    }
 }
 
 /**
@@ -370,9 +478,11 @@ void bt_stack_classic_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *pe
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
     
     stack_env->bt_classic_connected = 1;
+    stack_env->bt_classic_conidx = conidx;
     
 #if BT_MUSIC_PRESENT
     stack_env->bt_music_send_cnt = 0;
+    stack_env->bt_music_full = 0;
 #endif
 
 #if BT_CALL_PRESENT
@@ -381,13 +491,44 @@ void bt_stack_classic_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *pe
 #endif
     
     CLOGD("BT classic connected");
-    
-#ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
-    bt_gap_auth_req(conidx, 2);
-#else
-    bt_classic_scan_enable(BT_GAP_SCAN_DIS);
-#endif
-    bt_stack_nvs_set(NVS_ID_BT_PEER_ADDRESS, GAP_BD_ADDR_LEN, peer_addr->addr);
+    if (peer_addr) {
+        s_classic_peer_addr = *peer_addr;
+        s_classic_peer_valid = true;
+    }
+
+    CLOGD("BT classic connected,role:%d",bt_gap_get_role(conidx));
+
+    bt_gap_set_sup_timeout(conidx, BT_STACK_LINK_TIMEOUT);
+
+    ///some earphone not give tx credit.
+    app_bt_rfcomm_dis_tx_credit_check(1);
+    if(bt_gap_get_role(conidx) == BT_ROLE_MASTER)
+    {
+        ///need connect hfp & a2dp.
+        stack_env->bt_init_connect = 1;
+        
+        bt_gap_auth_req(conidx, GAP_SEC_UNAUTH);
+        if(stack_env->bt_role == BT_STACK_CLASSIC_SINK)
+        {
+            ///switch role to slave.
+            bt_gap_set_role(conidx, BT_ROLE_SLAVE);
+            //app_hfp_connect(conidx, BT_STACK_HFP_PEER_ROLE);
+        }
+
+    }
+    else
+    {
+        ///not connect hfp & a2dp.
+        stack_env->bt_init_connect = 0;
+        if(stack_env->bt_role == BT_STACK_CLASSIC_SOURCE)
+        {
+            //bt_gap_auth_req(conidx, GAP_SEC_UNAUTH);
+            ///switch role to master.
+            //bt_gap_set_role(conidx, BT_ROLE_MASTER);
+        }
+        bt_classic_scan_enable(BT_GAP_SCAN_DIS);
+    }
+
     lisa_bt_classic_notify_connected(conidx, conhdl, peer_addr);
 }
 
@@ -398,7 +539,6 @@ void bt_stack_classic_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
 {
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
 
-    stack_env->bt_classic_connected = 0;
     lisa_bt_classic_notify_disconnected(conidx, conhdl, reason);
     uint16_t flags = 0;
     uint8_t disc = 0;
@@ -407,12 +547,29 @@ void bt_stack_classic_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
     // start adv
     gap_bdaddr_t peer = {0};
 
-    bt_stack_nvs_get(NVS_ID_BT_PEER_ADDRESS, &len, peer.addr);
+    stack_env->bt_classic_connected = 0;
+    stack_env->bt_classic_a2dp_connected = 0;
+    stack_env->bt_classic_hfp_connected = 0;
+
+    bt_stack_nvs_get(NVS_ID_BT_PEER_ADDRESS, &len, (uint8_t*)&peer);
 
     CLOGD("DISCONNECT BDADDR: 0x%02x%02x%02x%02x%02x%02x, reason:0x%x", peer.addr[5], peer.addr[4], peer.addr[3], \
             peer.addr[2], peer.addr[1], peer.addr[0], reason);
 
-    bt_gap_save_lk_mem_to_nvs(conidx);
+    if(reason == BT_ERROR_AUTH_FAILURE)
+    {
+        bt_paired_remove(s_classic_peer_valid ? &s_classic_peer_addr : &peer);
+    }
+    else
+    {
+        CLOGD("skip lk save while bt state:%d,conidx:%d,current:%d",
+              stack_env->bt_open, conidx, stack_env->bt_classic_conidx);
+    }
+
+    if(stack_env->bt_open != BT_STATE_OPENED)
+    {
+        bt_stack_if_close_discon(0);
+    }
 
 #if (BT_STACK_CLASSIC_ROLE == BT_STACK_CLASSIC_SINK)
     bt_classic_scan_enable(3);
@@ -433,27 +590,87 @@ static void bt_stack_classic_key_req(uint8_t conidx, uint8_t key_type, uint32_t 
  */
 void bt_stack_classic_bond_ind(uint8_t conidx, uint16_t status)
 {
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+    
     CLOG("bt_stack_classic_bond_ind:idx:%d,sta:0x%x", conidx, status);
     uint8_t info = status >> 8;
     uint8_t value = status & 0xff;
+
+    if (info == GAP_BT_LINK_AUTH_REQ && value == 0) {
+        bt_gap_save_lk_mem_to_nvs(conidx);
+        if (s_classic_peer_valid) {
+            bt_paired_record_update(&s_classic_peer_addr, BT_PAIRED_TRANSPORT_CLASSIC);
+        }
+    }
     
-#ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
     switch(info)
     {
-        case GAP_BT_LINK_AUTH_REQ : 
+        case GAP_BT_LINK_AUTH_REQ :
         {
             if(value == 0)
             {
-                app_hfp_connect(conidx, BT_STACK_HFP_PEER_ROLE);
+                //app_a2dp_connect(conidx, a2dp_cfg.a2dp_role);
+                if(stack_env->bt_init_connect == 1)
+                {
+                    #if 0
+                    if(stack_env->bt_classic_bond == 1)
+                    {
+                        /// avoid some earphone l2cap conflict.
+                        bt_stack_connect_profile_by_timer(conidx, 700);
+                    }
+                    else
+                    #endif
+                    {
+                        app_hfp_connect(conidx, BT_STACK_HFP_PEER_ROLE);
+                    }
+                }
+            } else {
+                ble_gap_disconnect(conidx, BT_ERROR_AUTH_FAILURE);
+
+                if(value == GAP_PIN_MISSING)
+                {                
+                    uint8_t len = sizeof(gap_bdaddr_t);
+                    gap_bdaddr_t peer = {0};
+                    if(bt_stack_nvs_get(NVS_ID_BT_PEER_ADDRESS, &len, (uint8_t*)&peer) == NVDS_OK)
+                    {
+                        bt_gap_delete_bond(&peer);  //clear only
+                        bt_stack_nvs_del(NVS_ID_BT_PEER_ADDRESS);
+                    }
+                }
+                CLOGD("bt link auth failed, reason:0x%x", value);
+                if (s_bt_link_auth_fail_cb) {
+                    s_bt_link_auth_fail_cb(conidx, value);
+                }
             }
         }break;
-        case GAP_PAIRING_FAILED : 
+        case GAP_PAIRING_FAILED :
         {
+            ///disconnect
+            ble_gap_disconnect(conidx, BT_ERROR_AUTH_FAILURE);
 
+            if(value == GAP_PIN_MISSING)
+            {
+                uint8_t len = sizeof(gap_bdaddr_t);
+                gap_bdaddr_t peer = {0};
+                if(bt_stack_nvs_get(NVS_ID_BT_PEER_ADDRESS, &len, (uint8_t*)&peer) == NVDS_OK)
+                {
+                    bt_gap_delete_bond(&peer);  //clear only
+                    bt_stack_nvs_del(NVS_ID_BT_PEER_ADDRESS);
+                }
+            }
+            
+            CLOGD("bt pairing failed, reason:0x%x", value);
+        }break;
+        case GAP_LK_EXCH :
+        {
+            if(value == 0)
+            {
+                stack_env->bt_classic_bond = 1;
+                CLOGI("lk save suc");
+            }
         }break;
         default : break;
     }
-#endif
 }
 
 /**
@@ -462,6 +679,19 @@ void bt_stack_classic_bond_ind(uint8_t conidx, uint16_t status)
 void bt_stack_classic_info_ind(uint8_t conidx, uint8_t type, ble_info_data_t *data)
 {
 
+}
+
+void bt_stack_sniff_change_ind(uint8_t conidx, uint8_t status, uint8_t mode, uint16_t interval)
+{
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+    CLOGD("bt_stack_sniff_change_ind,idx:%d,sta:0x%x,mode:%d,int:%d", conidx, status, mode, interval);
+    if(stack_env->bt_classic_connected && stack_env->bt_open == BT_STATE_OPENED)
+    {
+        if(status == 0)
+        {
+            stack_env->bt_classic_sniff_mode = mode;
+        }
+    }
 }
 
 /* ========================================================================
@@ -482,18 +712,38 @@ static void a2dp_revoke_cmp(uint16_t status)
 static void a2dp_connect_cmp(uint8_t conidx, uint16_t status)
 {
     CLOGI("a2dp connect cmp! conidx=%d, status=0x%x", conidx, status);
-
-#ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
-#if BT_MUSIC_SOURCE_SEND_DUMMY
-    app_a2dp_start(conidx);
-#else
-    bt_stack_a2dp_connection_update(conidx, true);
-#endif
-#endif
-
-    if (status == 0) {
-        lisa_bt_classic_notify_profile(conidx, LISA_BT_PROFILE_A2DP, true);
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+    static uint8_t error_cnt = 0;
+    if(stack_env->bt_classic_connected && stack_env->bt_open == BT_STATE_OPENED)
+    {
+        if(status == 0)
+        {
+            stack_env->bt_classic_a2dp_connected = 1;
+        }
+        else
+        {
+            error_cnt++;
+            if(error_cnt <= 2)
+            {
+                app_a2dp_connect(conidx, a2dp_cfg.a2dp_role);
+            }
+            else
+            {
+                ble_gap_disconnect(conidx, BT_ERROR_REMOTE_USER_TERM_CON);
+            }
+        }
     }
+
+    if (stack_env->bt_role == BT_STACK_CLASSIC_SOURCE && stack_env->bt_classic_a2dp_connected == 1)
+    {
+#if BT_MUSIC_SOURCE_SEND_DUMMY
+        app_a2dp_start(conidx);
+#else
+        bt_stack_a2dp_connection_update(conidx, true);
+#endif
+    }
+
+    lisa_bt_classic_notify_profile(conidx, LISA_BT_PROFILE_A2DP, true);
 }
 
 static void a2dp_disconnect_cmp(uint8_t conidx, uint16_t status)
@@ -510,15 +760,27 @@ static void a2dp_disconnect_cmp(uint8_t conidx, uint16_t status)
 static void a2dp_start_ind(uint8_t conidx, uint8_t codec, uint8_t ch, uint16_t sample_rate)
 {
     CLOGI("a2dp start! codec:%d, ch:%d, sample_rate:%d", codec, ch, sample_rate);
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+
+    if(stack_env->bt_role == BT_STACK_CLASSIC_SOURCE)
+    {
+        if(stack_env->bt_classic_sniff_mode == BT_SNIFF_MODE)
+        {
+            bt_gap_exit_sniff(conidx);
+        }
+    }
+
 #if BT_MUSIC_SOURCE_SEND_DUMMY
     bt_a2dp_source_send_dummy_start(conidx, 20);
 #else
     bt_stack_a2dp_send_start(conidx, codec, ch, sample_rate);
 #endif
 
-#if (BT_STACK_CLASSIC_ROLE == BT_STACK_CLASSIC_SOURCE)
-    app_avrcp_play_status_set(conidx, BT_AVRCP_PLAYBACK_STATUS_PLAYING);
-#endif
+    if(stack_env->bt_role == BT_STACK_CLASSIC_SOURCE)
+    {
+        app_avrcp_play_status_set(conidx, BT_AVRCP_PLAYBACK_STATUS_PLAYING);
+    }
+
 
 }
 
@@ -555,17 +817,24 @@ static void a2dp_media_rsp(uint8_t conidx, uint8_t *data, uint16_t status)
     uint8_t stage = status >> 15;
     uint16_t send_status = status & 0x7f;
 
-    if (stage == 1)
+    ///stage 0: push data to l2cap, 1:push data to controller.
+    if(stage == 1)
     {
+        bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
         if(stack_env->bt_music_send_cnt > 0)
         {
             stack_env->bt_music_send_cnt--;
         }
-        bt_stack_a2dp_send_media_rsp(conidx);
-    }
-    else
-    {
-
+        /// to do send message to app task release buf
+        bt_audio_adapter_a2dp_media_rsp(conidx, data, status);
+        if(send_status == 0)
+        {
+            ///not wait timer, send data rigt now.
+            if(stack_env->bt_music_full == 1)
+            {
+                stack_env->bt_music_full = 0;
+            }
+        }
     }
 
     if(send_status != 0)
@@ -581,10 +850,34 @@ static void a2dp_media_rsp(uint8_t conidx, uint8_t *data, uint16_t status)
 static void avrcp_connect_cmp(uint8_t conidx, uint16_t status)
 {
     CLOGI("avrcp connect cmp!,conidx:0x%x, status:0x%x", conidx, status);
-    app_avrcp_press_req(conidx, 0, BT_AVRCP_PRESS_ID_SET_ABSOLUTE_VOLUME, 0x40);
-#ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
-    // app_hfp_connect(conidx, BT_STACK_HFP_PEER_ROLE);
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+
+    if(stack_env->bt_classic_connected && stack_env->bt_open == BT_STATE_OPENED)
+    {
+        if(stack_env->bt_role == BT_STACK_CLASSIC_SOURCE)
+        {
+            uint16_t version;
+#if(BT_HFP_SOURCE_SEND_DUMMY)
+            bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+
+            //app_hfp_connect(conidx, BT_STACK_HFP_PEER_ROLE);
+#if 0
+            app_hfp_set_status(conidx, BT_HF_SERVICE_IND, 1);
+            app_hfp_set_status(conidx, BT_HF_BATTCHG_IND, 5);
+            app_hfp_set_status(conidx, BT_HF_SIGNAL_IND, 5);
+            app_hfp_set_status(conidx, BT_HF_ROAM_IND, 0);
+            app_hfp_set_status(conidx, BT_HF_RING_INBAND, 0);
+            app_hfp_set_status(conidx, BT_HF_CME_ERROR, 0);
 #endif
+#endif
+            app_avrcp_get_peer_version(conidx, &version);
+
+            if(version >= 0x106)
+            {
+                app_avrcp_notify_req(conidx, BT_AVRCP_NOTIFI_VOLUME_CHANGED);
+            }
+        }
+    }
 }
 
 static void avrcp_disconnect_cmp(uint8_t conidx, uint16_t status)
@@ -662,6 +955,7 @@ static void avrcp_avrcp_press_ind(uint8_t conidx, uint8_t key_type, uint8_t key_
 static void avrcp_notify_ind(uint8_t conidx, uint8_t c_r, uint8_t event_id, uint8_t event_value)
 {
     CLOGI("avrcp notify ind,c_r:%d,event_id:0x%x-0x%x", c_r, event_id, event_value);
+    lisa_bt_classic_notify_avrcp_event(conidx, c_r, event_id, event_value);
     if(c_r == 1)//response
     {
         switch(event_id)
@@ -698,25 +992,74 @@ static void hfp_disable_cmp(uint16_t status)
 
 static void hfp_connect_cmp(uint8_t conidx, uint8_t type, uint16_t status)
 {
-    CLOGD("hfp connect cmp,conidx:%d, type:%d, status:0x%x", conidx, type, status);
+    static uint8_t error_cnt = 0;
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
 
-#ifdef CONFIG_BT_CLASSIC_ROLE_SOURCE
-    app_a2dp_connect(conidx, a2dp_cfg.a2dp_role);
-#if BT_HFP_SOURCE_SEND_DUMMY
-    if(status == 0)
+    CLOGD("hfp connect cmp,conidx:%d,init:%d,type:%d,status:0x%x,err:%d", conidx, stack_env->bt_init_connect, type, status, error_cnt);
+
+    if(stack_env->bt_open != BT_STATE_OPENED ||
+       !stack_env->bt_classic_connected ||
+       stack_env->bt_classic_conidx != conidx)
     {
-        ///incomming call
-        app_hfp_call_req(conidx, 0, BT_HF_CALL_INCOMMING);
-        bt_hfp_source_dummy_call_start(conidx, 6000);
+        CLOGD("drop hfp connect cmp,state:%d,connected:%d,current:%d",
+              stack_env->bt_open, stack_env->bt_classic_connected, stack_env->bt_classic_conidx);
+        return;
     }
+
+    if(stack_env->bt_init_connect == 1)
+    {
+        if(status == 0)
+        {
+            app_a2dp_connect(conidx, a2dp_cfg.a2dp_role);
+            error_cnt = 0;
+            stack_env->bt_classic_hfp_connected = 1;
+        }
+        else
+        {
+            if(error_cnt++ >= 2)
+            {
+                /// hfp connect failed,try to connect a2dp;
+                app_a2dp_connect(conidx, a2dp_cfg.a2dp_role);
+                error_cnt = 0;
+            }
+            else
+            {
+                /// hfp connect failed,try to connect hfp again;
+                app_hfp_connect(conidx, BT_STACK_HFP_PEER_ROLE);
+            }
+        }
+    }
+    else
+    {
+        if(status != 0)
+        {
+            ///retry 2
+            if(error_cnt++ <= 2)
+            {
+                /// hfp connect failed,try to connect hfp again;
+                app_hfp_connect(conidx, BT_STACK_HFP_PEER_ROLE);
+            }
+            else
+            {
+                ble_gap_disconnect(conidx, BT_ERROR_REMOTE_USER_TERM_CON);
+                error_cnt = 0;
+            }
+        }
+        else
+        {
+            error_cnt = 0;
+        }
+    }
+
+#if BT_HFP_SOURCE_SEND_DUMMY
+    ///incomming call
+    app_hfp_call_req(conidx, 0, BT_HF_CALL_INCOMMING);
+    bt_hfp_source_dummy_call_start(conidx, 6000);
 #else
     bt_stack_hfp_connection_update(conidx, true);
 #endif
-#endif
 
-    if (status == 0) {
-        lisa_bt_classic_notify_profile(conidx, LISA_BT_PROFILE_HFP, true);
-    }
+    lisa_bt_classic_notify_profile(conidx, LISA_BT_PROFILE_HFP, true);
 }
 
 static void hfp_disconnect_cmp(uint8_t conidx, uint16_t status)
@@ -732,11 +1075,15 @@ static void hfp_disconnect_cmp(uint8_t conidx, uint16_t status)
 
 void hfp_aud_start_ind(uint8_t conidx, uint16_t codec, uint16_t status)
 {
-    CLOGD("hfp start! conidx:0x%x,codec:%d,status:0x%x",conidx, codec, status);
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+
+    CLOGD("hfp aud start! conidx:0x%x,codec:%d-%d,status:0x%x",conidx, codec,stack_env->bt_call_codec_type, status);
     if(status == 0)
     {
-        bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
-
+        if(stack_env->bt_classic_sniff_mode == BT_SNIFF_MODE)
+        {
+            bt_gap_exit_sniff(conidx);
+        }
         bt_stack_hfp_send_start(conidx, stack_env->bt_call_codec_type);
     }
 }
@@ -788,14 +1135,27 @@ static void hfp_send_media_cmp(uint8_t conidx, uint8_t status, uint8_t *data)
 
 static void hfp_status_ind(uint8_t conidx, uint8_t req_type, uint8_t status_type, uint16_t val)
 {
-    CLOGI("hfp_status_ind,idx:0x%x,type:0x%x-0x%x,val:%d", conidx, req_type, status_type, val);
+    CLOGI("hfp_status_ind,idx:0x%x,type:0x%x-0x%x,val:0x%x", conidx, req_type, status_type, val);
     if(req_type == BT_HFP_STATUS_IND)
     {
         switch(status_type)
         {
             case BT_HF_CODEC_TYPE :
                 bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
-                stack_env->bt_call_codec_type = val;
+                stack_env->bt_call_codec_type = val & 0xff;
+                uint8_t cmd_type = (val >> 8) & 0xff;
+                ///codec feature exchange
+                if(cmd_type == BT_BAC_HF_CODEC_TYPE)
+                {
+                    ///sco codec feature exchange.
+                    CLOGI("hfp codec feature:%d", stack_env->bt_call_codec_type);
+                }
+                else ///codec type select
+                {
+#if 1
+                    app_hfp_call_add_audio(conidx, stack_env->bt_call_codec_type);
+#endif
+                }
                 break;
             case BT_HF_NREC_CFG :
                 break;
@@ -852,4 +1212,3 @@ static void hfp_call_ind(uint8_t conidx, uint8_t req_type, uint8_t call_type, ui
 #endif  // BT_CALL_PRESENT
 
 #endif  // BT_STACK_PRESENT
-

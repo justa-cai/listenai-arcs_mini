@@ -130,20 +130,12 @@ ls_err_t btos_send_app_evt_api(btos_task_id task_id, uint16_t msg_id, void *msg_
 }
 
 
-
-
-extern void ble_gap_set_loc_pub_addr(uint8_t *addr);
-ls_err_t ble_gap_set_loc_pub_addr_api(struct out_bd_addr *bd_addr)
-{
-    ble_gap_set_loc_pub_addr(bd_addr->addr);
-
-    return LS_OK;
-}
-
 extern void llm_get_local_pub_addr(uint8_t *addr);
-ls_err_t llm_get_local_pub_addr_api(struct out_bd_addr *bd_addr)
+ls_err_t llm_get_local_pub_addr_api(uint8_t           *bd_addr)
 {
-    llm_get_local_pub_addr(bd_addr->addr);
+    #if(BT_EMB_PRESENT)
+    llm_get_local_pub_addr(bd_addr);
+    #endif
 
     return LS_OK;
 }

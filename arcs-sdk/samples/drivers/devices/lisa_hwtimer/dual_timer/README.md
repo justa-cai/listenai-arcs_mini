@@ -1,8 +1,8 @@
-# LISA HWTIMER Dual Timer 周期定时示例
+# HWTIMER Dual Timer 周期定时示例
 
 ## 功能说明
 
-本示例演示 Dual Timer 周期定时功能，配置 16kHz 基准时钟，每 500ms 触发一次回调。
+本示例演示 Dual Timer 周期定时功能，配置 16kHz 基准时钟，每 500ms 触发一次回调，适用于 ARCS 和 Venusa 平台。
 
 ## 硬件连接
 
@@ -22,6 +22,9 @@
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
+
+
+ARCS 默认构建使用 `prj.conf`；Venusa 构建时由 `CMakeLists.txt` 自动切换到 `prj_venusa.conf`，无需额外传配置参数。
 
 ## 烧录
 
@@ -66,6 +69,24 @@ lisa_hwtimer_set_callback(hwtimer_dev, 0, timer_callback, NULL);
 
 /* 启动周期定时器（500ms = 8000 / 16000） */
 lisa_hwtimer_start(hwtimer_dev, 0, 8000, LISA_HWTIMER_MODE_PERIODIC);
+```
+
+## 配置说明
+
+ARCS 默认 `prj.conf`：
+
+```kconfig
+CONFIG_LISA_DEVICE=y
+CONFIG_LISA_HWTIMER_DEVICE=y
+CONFIG_LISA_HWTIMER_ARCS_DUAL_TIMER=y
+```
+
+Venusa `prj_venusa.conf`：
+
+```kconfig
+CONFIG_LISA_DEVICE=y
+CONFIG_LISA_HWTIMER_DEVICE=y
+CONFIG_LISA_HWTIMER_VENUSA_DUAL_TIMER=y
 ```
 
 ## 注意事项

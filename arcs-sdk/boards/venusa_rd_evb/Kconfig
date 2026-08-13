@@ -1,0 +1,18 @@
+# Board Configuration
+#
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_NAME
+	string
+	default "venusa_rd_evb"
+	prompt "Board Name"
+	help
+		Board Name
+
+config BOARD_VENUSA_RD_EVB
+	bool
+	default y
+	select SOC_CSK7004J8U
+	help
+		Board is venusa_rd_evb

@@ -111,10 +111,11 @@ static int service_brightness_build_display_config(lisa_display_config_t *cfg,
     cfg->te_pin  = LCD_TE_PIN;
 #endif
 
-    cfg->backlight.type             = LISA_DISPLAY_BACKLIGHT_TYPE_PWM;
-    cfg->backlight.config.pwm.dev   = lisa_device_get("pwm0");
-    cfg->backlight.config.pwm.channel = 1;
-    cfg->backlight.config.pwm.freq  = 2000;
+    cfg->backlight.type                     = LISA_DISPLAY_BACKLIGHT_TYPE_PWM;
+    cfg->backlight.blacklight_polarity      = LISA_DISPLAY_BLACKLIGHT_POLARITY_HIGH;
+    cfg->backlight.config.pwm.dev           = lisa_device_get("pwm0");
+    cfg->backlight.config.pwm.channel       = 1;
+    cfg->backlight.config.pwm.freq          = 2000;
 
     cfg->rst_gpio = gpiob_dev;
     cfg->rst_pin  = LCD_RST_PIN;

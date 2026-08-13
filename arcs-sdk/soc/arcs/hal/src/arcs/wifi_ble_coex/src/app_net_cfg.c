@@ -26,6 +26,7 @@
 
 #include "ble_gatt.h"
 #include "ble_prf.h"
+#include "nvs.h"
 
 #include "ls_wifi_type.h"
 #include "nvds_tag_def.h"

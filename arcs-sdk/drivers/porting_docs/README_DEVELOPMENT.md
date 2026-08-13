@@ -10,6 +10,7 @@
 |-----|------|---------|
 | [**DRIVER_DEVELOPMENT_GUIDE.md**](./DRIVER_DEVELOPMENT_GUIDE.md) | 完整开发指南 | 人工开发者、学习框架 |
 | [**DRIVER_TEMPLATE_QUICKREF.md**](./DRIVER_TEMPLATE_QUICKREF.md) | 快速参考模板 | AI生成代码、快速查阅 |
+| [**DRIVER_PM_OPS_GUIDE.md**](./DRIVER_PM_OPS_GUIDE.md) | system PM ops 接入指南 | 把驱动接入 `lisa_pm` AUTO_LIGHT_SLEEP |
 
 ### 📖 框架说明
 

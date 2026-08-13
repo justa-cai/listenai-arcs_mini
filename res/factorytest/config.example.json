@@ -1,0 +1,11 @@
+{
+    "wifi": {
+        "ssid": "YOUR_WIFI_SSID",
+        "password": "YOUR_WIFI_PASSWORD"
+    },
+    "report": {
+        "url": "https://example.invalid/factory/report",
+        "project_id": "YOUR_PROJECT_ID",
+        "bearer_token": "YOUR_BEARER_TOKEN"
+    }
+}

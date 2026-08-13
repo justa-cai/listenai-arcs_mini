@@ -557,6 +557,7 @@ void modem_init( void )
     RFIF_P->REG_SX_REG0.bit.RF_SX_DOUBLER_EN                    = 0;
     BT_MODEM_P->REG_DOUBLER_EN.bit.DOUBLER_EN = 0;
 #endif
+    BT_MODEM_P->REG_BT_RX_DEMOD_GFSK_1.bit.RX_GFSK_U_DC = 0x20;    //fixed ble 1M dirty on 3dbm issue
 }
 
 // modem reset fsm
@@ -616,7 +617,7 @@ void rfif_tx_power_config(void)
     //RFIF_P->REG_TX_REG5.bit.RF_TX_ABB_TIA_RFB = 1; //set power level, wifi is set to 3, default is 2
 
     //improve 3DH5 7dbm acp  0.5-1 dbm
-    RFIF_P->REG_TX_REG3.bit.RF_TX_ABB_TIA_RFB_BT = 5;
+    RFIF_P->REG_TX_REG3.bit.RF_TX_ABB_TIA_RFB_BT = 3;
 
     //RFIF_P->REG_TX_LOGIC1.bit.RF_TX_PPA_GAIN_BT_FORCE = 1;
 
@@ -642,14 +643,14 @@ void rfif_tx_power_config(void)
     RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 16; // 9.1 */
 
     // ble 1M, 2M
-    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -18.4
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 2;  // -10
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 3;  // -7
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 4;  // -4
-    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // 0
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 11; // 4
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 15; // 7
-    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 20; // 10
+    RFIF_P->REG_TX_LOGIC1.bit.REG_RF_TX_PPA_GAIN_BT_0 = 0;  // -23
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_1 = 1;  // -16
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_2 = 3;  // -11
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_3 = 4;  // -7
+    RFIF_P->REG_TX_LOGIC2.bit.REG_RF_TX_PPA_GAIN_BT_4 = 7;  // -4
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_5 = 11; // 1
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_6 = 15; // 4
+    RFIF_P->REG_TX_LOGIC3.bit.REG_RF_TX_PPA_GAIN_BT_7 = 20; // 7
 }
 
 void rfif_init(void)
@@ -865,5 +866,6 @@ void bt_drv_rx_en_bypass(uint8_t bypass)
     //CLOGD("RX BPS %d", bypass);
     BT_CNTL_P->REG_BT_CTRL_TEST_CFG.bit.RX_EN_BYPASS = bypass;
 }
+
 
 

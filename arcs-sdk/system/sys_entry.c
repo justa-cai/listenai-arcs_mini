@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "sdk_version.h"
+#include "sys/reset_reason.h"
 
 #if CONFIG_SYS_INIT
 #include "sys_init.h"
@@ -18,6 +19,8 @@
 
 #endif
 
+int soc_cpu_id_get(void);
+
 __attribute__((weak)) void soc_pre_init(void)
 {
 
@@ -27,9 +30,10 @@ __attribute__((weak)) void soc_init(void)
 {
 }
 
+/* Return the current CPU/hart id, or a negative value when unsupported. */
 __attribute__((weak)) int soc_cpu_id_get(void)
 {
-    return 0;
+    return -1;
 }
 
 #if CONFIG_MODULE_FREERTOS
@@ -54,9 +58,14 @@ void main_task(void *pvParameters)
 #if CONFIG_BANNER
 __attribute__((weak)) void boot_banner(void)
 {
-    extern int soc_cpu_id_get(void);
+    int cpu_id = soc_cpu_id_get();
+
     printf("\n********SDK %s @ %s********\n", SDK_VERSION_STRING, BUILD_VERSION);
-    printf("Running on cpu-id: %d\n", soc_cpu_id_get());
+    if (cpu_id >= 0) {
+        printf("Running on cpu-id: %d\n", cpu_id);
+    } else {
+        printf("Running on cpu-id: unsupported\n");
+    }
 }
 #endif
 
@@ -81,14 +90,20 @@ __attribute__((weak, noreturn)) void system_entry(void)
     /* 芯片底层必须要的初始化 */
     soc_init();
 
+    /* 在任何 SYS_INIT hook 之前快照复位原因并清硬件寄存器，
+     * 让应用层 sys_reset_reason_get() 能拿到本次复位原因。
+     * boot 阶段只读不清，清除责任在这里接管。 */
+    sys_reset_reason_snapshot();
+
 #if CONFIG_SYS_INIT
     /* 串口设备必须在此期间初始化, 否则在日志系统初始化之前, 无法使用标准输出 */
     sys_init_run_level(SYS_INIT_LEVEL_PRE_SYSTEM_INIT);
 #endif
 
-    /* 打印横幅 */
+    /* 打印横幅 + 复位原因 */
 #if CONFIG_BANNER
     boot_banner();
+    sys_reset_reason_banner();
 #endif
 
 #if CONFIG_PSRAM_INIT

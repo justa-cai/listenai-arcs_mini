@@ -8,6 +8,8 @@
 #include "log_print.h"
 #include "shell_def.h"
 #include "ipc.h"
+#include "ipc_master_wifi.h"
+#include "ipc_master_bt.h"
 #include "ls_wifi_type.h"
 #include "wifi_api.h"
 #include "ls_event.h"
@@ -19,11 +21,133 @@
 #include "flash_if.h"
 #include "ic_lock.h"
 #include "bt_ipc_api.h"
+#include "atcmd.h"
+#include "arcs_ap.h"
+
+#include "bt_stack_hal.h"
+#include "aud_os_task.h"
+#include "bt_os_task.h"
+//#include "aud_if.h"
+#include "os_task_init.h"
+
+#define TIMER_23BITS_MASK  ((1<<24)-1)
+#define TIMER_GET_23BITS_TIME_STAMP(_time) ((_time) & TIMER_23BITS_MASK)
+
+#ifndef NULL
+#define NULL                        (void *)0
+#endif
 
 
 #define AMP_CP_START_ADDRESS            0x30180000
 
 extern int bt_event_cb(void *arg, event_module_t event_module,int event_id, void *event_data);
+extern void bt_ipc_host_c2h_handler(const uint8_t *data, uint16_t len);
+extern uint8_t os_task_init(uint8_t *args);
+
+extern os_task_cb_t *aud_if_get_cb(void);
+extern os_task_cb_t *aud_pro_if_get_cb(void);
+extern void aud_pro_os_init(os_task_cb_t *cb);
+typedef int32_t (*hci_ipc_send_t)(const uint8_t *buf, uint16_t len);
+extern void hci_ipc_register(hci_ipc_send_t c2h, hci_ipc_send_t h2c);
+extern int32_t ipc_master_bt_h2c_send(const uint8_t *data, uint16_t len);
+extern uint8_t bt_send_schedule_notify(void);
+
+void bt_disable_GINT()
+{
+    disable_GINT();;
+}
+
+void bt_enable_GINT()
+{
+    enable_GINT();
+}
+
+typedef void (*timer_cb) (void);
+typedef void (*os_timer_cb) (void *time_id);
+
+/// timer environment structure
+typedef struct timer_env_
+{
+    /// timer id
+    void *timer_id;
+
+    /// callback to call when timer expires
+    timer_cb timeout_cb;
+    /// Callback to call periodically
+    timer_cb periodic_cb;
+} timer_env_t;
+
+/// timer environment structure
+timer_env_t timer_env;
+
+void time_cb(void *time_id)
+{
+    if(timer_env.timeout_cb != NULL)
+        timer_env.timeout_cb();
+    bt_send_schedule_notify();
+}
+
+void timer_init(void)
+{
+    timer_env.timer_id = NULL;
+
+    timer_env.periodic_cb = NULL;
+    timer_env.timeout_cb  = NULL;
+}
+
+void timer_set_timeout(uint32_t to, timer_cb cb)
+{
+    if(timer_env.timer_id != NULL)
+        btos_timer_cancel(timer_env.timer_id);
+    timer_env.timer_id = NULL;
+    if(to != 0 && cb != NULL)
+    {
+        timer_env.timeout_cb = cb;
+        timer_env.timer_id = btos_timer_creat(0, to, (TimerCallbackFunction_t)time_cb);
+    }
+}
+
+uint32_t timer_get_time(void)
+{
+    uint32_t time_us;
+    uint32_t sec = 0, usec = 0;
+    btos_get_time(&sec, &usec);
+
+    time_us = sec*1000000 + usec;
+    return time_us;
+}
+
+uint32_t timer_get_time_ms(void)
+{
+    uint32_t time_ms;
+    uint32_t sec = 0, msec = 0;
+    btos_get_time_ms(&sec, &msec);
+
+    time_ms = sec*1000 + msec;
+    return time_ms;
+}
+
+extern void *btos_malloc(uint32_t size);
+ls_err_t cp_btos_malloc_api(void **buffer_ptr, uint32_t size)
+{
+	if(buffer_ptr == NULL)
+	{
+		return LS_FAIL;
+	}
+    *buffer_ptr = btos_malloc(size);
+
+    CLOGI("cp_btos_malloc_api 0x%x", *buffer_ptr);
+
+    return LS_OK;
+}
+
+extern void btos_free(void *ptr);
+ls_err_t cp_btos_free_api(void **ptr)
+{
+    btos_free(*ptr);
+
+    return LS_OK;
+}
 
 
 void start_cp(int32_t addr)
@@ -143,6 +267,31 @@ int arcs_nvs_init(void)
 }
 #endif
 
+int bt_demo_init(void)
+{
+    //patch_func_ptr = patch_func_ptr_default;
+
+    /*
+     ************************************************************************************
+     * Platform initialization
+     ************************************************************************************
+     */
+
+    //logInit(1, 1000000);
+    CLOGD("Enter %s \r\n", __func__);
+
+    // Initialize UART component
+
+    /// os task init
+    //app_os_init(app_if_get_cb());
+    bt_os_init((os_task_cb_t *)bt_stack_if_get_cb());
+    //aud_os_init((os_task_cb_t *)aud_if_get_cb());
+    //aud_pro_os_init((os_task_cb_t *)aud_pro_if_get_cb());
+    os_task_init(NULL);
+
+    return 0;
+}
+
 static void app_init_task(void *pvParameters)
 {
 
@@ -152,7 +301,7 @@ static void app_init_task(void *pvParameters)
 #endif
     CLOGD("Done");
 #ifdef CFG_AMP_IPC_WIFI_CHAN
-    ipc_master_wifi_init();
+    wlif_start();
 #endif
 
     // register event
@@ -167,6 +316,8 @@ static void app_init_task(void *pvParameters)
     atcmd_init();
 #endif
 
+    bt_demo_init();
+
     shell_init(cli_shell_process);
 
     rtos_task_delete(NULL);
@@ -179,15 +330,17 @@ static void app_init_task(void *pvParameters)
  */
 int main(void)
 {
-    struct ipc_master_cb_tag ipc_cb = {
-            .wifi_tx_data_cfm   = wlif_tx_cfm,
-            .wifi_rx_data       = wlif_rx_buf_forward,
-            .indication_handler = ipc_master_indication_handler
+    struct ipc_master_wifi_ops ipc_wifi_ops = {
+            .tx_data_cfm = wlif_tx_cfm,
+            .rx_data = wlif_rx_buf_forward,
     };
 
     logInit(SHELL_UART0, SHELL_UART0_BAUDRATE);
     ic_lock_init();
-    ipc_master_init(&ipc_cb);
+    ipc_master_init();
+    ipc_master_wifi_init(&ipc_wifi_ops);
+    ipc_master_bt_init();
+    hci_ipc_register(NULL, ipc_master_bt_h2c_send);
 
     rtos_task_create(app_init_task, "app_init_task",
             APP_INIT_TASK, 256, NULL, configMAX_PRIORITIES-1, NULL);

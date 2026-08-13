@@ -33,11 +33,18 @@ config LISA_DISPLAY_PANEL_NV3030B
 	help
 		Enable driver for NV3030B display panel (170x320, SPI 4-wire).
 
+config LISA_DISPLAY_PANEL_GC9307
+	bool "GC9307 Panel Driver"
+	help
+		Enable driver for GC9307 display panel (240x320, SPI 4-wire).
+		This panel is compatible with GC9A01 command/interface flow.
+
 rsource "Kconfig.axs15231b"
 rsource "Kconfig.st7789p3"
 rsource "Kconfig.st7701s"
 rsource "Kconfig.gc9a01"
 rsource "Kconfig.gc9d01n"
 rsource "Kconfig.nv3030b"
+rsource "Kconfig.gc9307"
 
 endif

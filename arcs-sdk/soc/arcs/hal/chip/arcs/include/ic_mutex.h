@@ -1,11 +1,11 @@
 #ifndef __IC_MUTEX_H__
 #define __IC_MUTEX_H__
 
+#include "ic_platform.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-#include "ic_platform.h"
 
 typedef enum {
     IC_MUTEX_TYPE_CRYPTO,

@@ -10,6 +10,14 @@
 
 #define A_VERSION   0x01000000
 
+#ifdef CONFIG_BOOT_ADB
+#define ADB_PACKET_ALIGN 64U
+#define ADB_PACKET_HEADER_SIZE ADB_PACKET_ALIGN
+#else
+#define ADB_PACKET_ALIGN 4U
+#define ADB_PACKET_HEADER_SIZE ((uint32_t)sizeof(struct message))
+#endif
+
 #ifdef CONFIG_ADB_MAX_PAYLOAD_SIZE
 #define MAX_PAYLOAD CONFIG_ADB_MAX_PAYLOAD_SIZE
 #else
@@ -29,6 +37,9 @@ struct message {
 
 typedef struct {
     struct message msg;
+#if defined(CONFIG_BOOT_ADB)
+    uint8_t reserved[ADB_PACKET_HEADER_SIZE - sizeof(struct message)];
+#endif
     uint8_t data[0];
 } adb_packet_t;
 

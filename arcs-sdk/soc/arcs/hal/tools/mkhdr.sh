@@ -4,11 +4,11 @@
 input_file=$1
 
 # Define product strings and corresponding offsets
-product_strings="VENUS VEGA VEGAH ARCS MARS APUS VENUSA"
-offsets="213 212 229 340 180 180 294"
-img_hdr_pos_s="192 192 208 320 160 160 272"
-img_size_pos_s="196 196 212 324 164 164 276"
-hdr_sum_pos_s="252 252 252 380 220 220 332"
+product_strings="VENUS VEGA VEGAH ARCS MARS APUS VENUSA SPICA NEBULAA"
+offsets="213 212 229 340 180 196 294 229 295"
+img_hdr_pos_s="192 192 208 320 160 176 272 208 272"
+img_size_pos_s="196 196 212 324 164 180 276 212 276"
+hdr_sum_pos_s="252 252 252 380 220 236 332 252 332"
 
 # Initialize a counter
 i=0
@@ -22,7 +22,7 @@ for product in $product_strings; do
     hdr_sum_pos=$(echo $hdr_sum_pos_s | cut -d' ' -f$((i + 1)))
 
     # Extract the product string from the input file starting at the given offset
-    product_value=$(head -c $offset "$input_file" | tail -c ${#product})
+    product_value=$(head -c $offset "$input_file" | tail -c ${#product} | tr -d '\0')
 
     # Debug: Output the extracted value to verify
     #echo "Extracted value: '$product_value', hdr_pos $img_hdr_pos, img_size $img_size_pos img_sum is $hdr_sum_pos"

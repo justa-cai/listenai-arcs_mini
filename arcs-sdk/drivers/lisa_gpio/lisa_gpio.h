@@ -326,6 +326,87 @@ static inline int lisa_gpio_disable_irq(lisa_device_t *dev, uint32_t pin)
 #define LISA_GPIO_CONFIG_OUTPUT_LOW       (LISA_GPIO_OUTPUT | LISA_GPIO_OUTPUT_INIT_LOW)
 #define LISA_GPIO_CONFIG_OUTPUT_HIGH      (LISA_GPIO_OUTPUT | LISA_GPIO_OUTPUT_INIT_HIGH)
 
+/* ========================================================================
+ * Wakeup-source 配置接口（PMU 唤醒路径，独立于 IRQ）
+ *
+ * 注意：lisa_gpio_*_irq 与 lisa_gpio_*_wakeup 是两条独立硬件路径：
+ *   - IRQ 走 GPIO controller + CPU NVIC（运行态，sleep 时下电）
+ *   - wakeup 走 AON PMU 监测（sleep 期间常通电）
+ * 同一 pin 通常 IRQ 用 EDGE_FALLING、wakeup 用 LEVEL_LOW —— 二者不能复用配置。
+ * ======================================================================== */
+
+#if CONFIG_LISA_PM
+
+/**
+ * @brief GPIO wakeup 触发条件
+ */
+typedef enum {
+    LISA_GPIO_WAKEUP_LEVEL_LOW  = 0, /* 低电平触发唤醒（pull-up 按钮按下时唤醒）*/
+    LISA_GPIO_WAKEUP_LEVEL_HIGH,     /* 高电平触发唤醒（pull-down 按钮按下时唤醒）*/
+} lisa_gpio_wakeup_trigger_t;
+
+/**
+ * @brief 配置某 pin 的 wakeup 触发条件
+ *
+ * 仅更新 driver 内部缓存；硬件下发由 lisa_device_wakeup_enable(dev, true)
+ * 触发。在线变更触发条件必须 set_enabled(false) → configure → set_enabled(true)。
+ *
+ * @param dev GPIO设备指针
+ * @param pin 引脚号(0-31，具体上限由 driver 决定)
+ * @param trigger wakeup 触发条件
+ *
+ * @return 0 成功
+ * @return LISA_DEVICE_ERR_INVALID 参数无效（dev 为 NULL）
+ * @return LISA_DEVICE_ERR_RANGE pin 越界
+ * @return LISA_DEVICE_ERR_NOT_SUPPORT dev 不支持 wakeup 或当前 trigger 不支持
+ * @return <0 其他错误
+ *
+ * @note 同 pin 重复调用：相同 trigger 直接返回 0；不同 trigger 覆盖之前的缓存值
+ * @note 多个 pin 可配置不同触发电平；若具体平台不支持混合电平，将在 enable 时返回
+ *       LISA_DEVICE_ERR_NOT_SUPPORT
+ * @note 进 sleep 前 pin 必须处于与目标 trigger 电平相反的电平，否则 PMU 进 sleep
+ *       瞬间即满足触发条件，立即"唤醒"——表现为系统看似无法睡眠
+ */
+static inline int32_t lisa_gpio_configure_wakeup(lisa_device_t *dev, uint32_t pin,
+                                                 lisa_gpio_wakeup_trigger_t trigger)
+{
+    if (!dev) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    if (!dev->pm || !dev->pm->wakeup_ops || !dev->pm->wakeup_ops->configure) {
+        return LISA_DEVICE_ERR_NOT_SUPPORT;
+    }
+    return dev->pm->wakeup_ops->configure(dev, pin, (uint32_t)trigger);
+}
+
+/**
+ * @brief 清除某 pin 的 wakeup 配置
+ *
+ * 从 driver 内部缓存移除该 pin；不下发硬件。若希望从硬件 mask 中抠掉，
+ * 必须 set_enabled(false) 再 set_enabled(true)。
+ *
+ * @param dev GPIO设备指针
+ * @param pin 引脚号(0-31，具体上限由 driver 决定)
+ *
+ * @return 0 成功（含幂等清除未配置的 pin）
+ * @return LISA_DEVICE_ERR_INVALID 参数无效（dev 为 NULL）
+ * @return LISA_DEVICE_ERR_RANGE pin 越界
+ * @return LISA_DEVICE_ERR_NOT_SUPPORT dev 不支持 wakeup
+ * @return <0 其他错误
+ */
+static inline int32_t lisa_gpio_clear_wakeup(lisa_device_t *dev, uint32_t pin)
+{
+    if (!dev) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    if (!dev->pm || !dev->pm->wakeup_ops || !dev->pm->wakeup_ops->clear) {
+        return LISA_DEVICE_ERR_NOT_SUPPORT;
+    }
+    return dev->pm->wakeup_ops->clear(dev, pin);
+}
+
+#endif /* CONFIG_LISA_PM */
+
 #ifdef __cplusplus
 }
 #endif

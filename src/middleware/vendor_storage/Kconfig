@@ -30,7 +30,7 @@ if VENDOR_STORAGE_ENABLE
           Set the size of the vendor storage in bytes.
 
     config VENDOR_STORAGE_OFFSET
-        int "Vendor storage offset"
+        hex "Vendor storage offset"
         default 0x3E000
         help
           Set the offset for the vendor storage in bytes.

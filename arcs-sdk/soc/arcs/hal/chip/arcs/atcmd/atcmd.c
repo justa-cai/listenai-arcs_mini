@@ -32,7 +32,7 @@ extern void set_shell_echo(uint8_t enable);
 char at_string[AT_STRING_LEN] = {0};
 
 unsigned char  gATLogLevel = AT_LOG_LEVEL_DEBUG;
-unsigned int   gATLogFlag = AT_LOG_FLAG_LWIP;
+unsigned int   gATLogFlag = AT_LOG_FLAG_LWIP | AT_LOG_FLAG_WIFI | AT_LOG_FLAG_BLE | AT_LOG_FLAG_COMMON | AT_LOG_FLAG_SYS;
 
 const char *atcmd_res_str[ATCMD_RES_MAX] =
 {

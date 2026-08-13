@@ -249,6 +249,24 @@ int app_player_resume(app_player_t *player);
 int app_player_reset(app_player_t *player);
 
 /**
+ * @brief   设置播放器Prepared所需的解码帧数
+ * @param   player 播放器实例
+ * @param   count 解码帧数，0为非法参数
+ * @return  APP_PLAYER_OK 成功，其他表示错误
+ * @note    需要在app_player_play/prepare前设置，当前正在播放的decode实例不会立即生效
+ */
+int app_player_set_decode_prepared_count(app_player_t *player, uint32_t count);
+
+/**
+ * @brief   设置播放器 readstream 缓存大小
+ * @param   player 播放器实例
+ * @param   size 缓存大小，单位 byte；0 表示关闭缓存
+ * @return  APP_PLAYER_OK 成功，其他表示错误
+ * @note    需要在app_player_play/prepare前设置，当前已创建的readstream实例不会立即生效
+ */
+int app_player_set_readstream_buf_size(app_player_t *player, uint32_t size);
+
+/**
  * @brief   跳转到指定位置
  * @param   player 播放器实例
  * @param   seek_ms 跳转位置（毫秒）

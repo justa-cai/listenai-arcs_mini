@@ -3,11 +3,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "chip.h"
+#include "IOMuxManager.h"
 #include "rtos_al.h"
 #include "wlif.h"
 #include "log_print.h"
 #include "shell_def.h"
 #include "ipc.h"
+#include "ipc_master_wifi.h"
 #include "ls_wifi_type.h"
 #include "wifi_api.h"
 #include "ls_event.h"
@@ -19,6 +21,7 @@
 #include "net_ip.h"
 #include "flash_if.h"
 #include "ic_lock.h"
+#include "vrtc.h"
 
 #define AMP_CP_START_ADDRESS            0x30100000
 
@@ -73,7 +76,7 @@ int wifi_event_cb(void *arg, event_module_t event_module,
         }
         if (!wifi_get_link_status(&link_status)) {
             chan = link_status.channel;
-            nvds_put(NVDS_TAG_WIFI_CHANNEL, NVDS_LEN_WIFI_CHANNEL, &chan);
+            nvds_put(NVDS_TAG_WIFI_CHANNEL, NVDS_LEN_WIFI_CHANNEL, (uint8_t *)&chan);
             nvds_put(NVDS_TAG_WIFI_BSSID, NVDS_LEN_WIFI_BSSID, link_status.bssid);
         }
         #endif
@@ -155,7 +158,9 @@ int arcs_nvs_init(void)
     return 0;
 }
 #endif
-
+#if CONFIG_PM_PSRAM
+extern int32_t _sstack;
+#endif
 static void app_init_task(void *pvParameters)
 {
     CLOGD("Init NVS");
@@ -163,12 +168,18 @@ static void app_init_task(void *pvParameters)
     arcs_nvs_init();
 #endif
     CLOGD("Done");
-    ipc_master_wifi_init();
+    wlif_start();
     // register event
     ls_event_init();
     ls_event_register_cb(EVENT_WIFI, EVENT_ID_ALL, wifi_event_cb, NULL);
 #if CONFIG_PM
     vrtc_init();
+    pm_init();
+    pm_register_gpio_retention(UART0_IO_TX_PAD, UART0_IO_TX_PIN);
+    pm_register_gpio_retention(UART0_IO_RX_PAD, UART0_IO_RX_PIN);
+#if CONFIG_PM_PSRAM
+    pm_register_snapshot_region(0x00300000, (int32_t)&_sstack - 0x00300000, 0);
+#endif
 #endif
     shell_init(cli_shell_process);
 
@@ -182,15 +193,15 @@ static void app_init_task(void *pvParameters)
  */
 int main(void)
 {
-    struct ipc_master_cb_tag ipc_cb = {
-            .wifi_tx_data_cfm   = wlif_tx_cfm,
-            .wifi_rx_data       = wlif_rx_buf_forward,
-            .indication_handler = ipc_master_indication_handler
+    struct ipc_master_wifi_ops ipc_wifi_ops = {
+            .tx_data_cfm = wlif_tx_cfm,
+            .rx_data = wlif_rx_buf_forward,
     };
 
     logInit(SHELL_UART0, SHELL_UART0_BAUDRATE);
     ic_lock_init();
-    ipc_master_init(&ipc_cb);
+    ipc_master_init();
+    ipc_master_wifi_init(&ipc_wifi_ops);
 
     rtos_task_create(app_init_task, "app_init_task",
             APP_INIT_TASK, 256, NULL, configMAX_PRIORITIES-1, NULL);

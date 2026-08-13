@@ -1,12 +1,12 @@
-# LISA HWTIMER AON Timer 周期定时示例
+# HWTIMER AON Timer 周期定时示例
 
 ## 功能说明
 
-本示例演示 AON Timer 低功耗周期定时功能，每 1 秒触发一次回调，支持 RC32K 和 XO32K 两种时钟源。
+本示例演示 AON Timer 低功耗周期定时功能，每 1 秒触发一次回调。ARCS 支持 RC32K/XO32K，Venusa 支持 RC32K/XO24M_DIV32K/RC24M_DIV32K。
 
 ## 硬件连接
 
-无需外部连接。AON Timer 为芯片内部外设，默认使用内部 RC32K 时钟源；如需使用 XO32K 时钟源，需要外接 32K 晶振。
+无需外部连接。AON Timer 为芯片内部外设，默认使用内部 RC32K 时钟源；ARCS 如需使用 XO32K 时钟源，需要外接 32K 晶振。
 
 ## 示例步骤
 
@@ -22,6 +22,9 @@
 ```{eval-rst}
 .. include:: /sample_build.rst
 ```
+
+
+ARCS 默认构建使用 `prj.conf`；Venusa 构建时由 `CMakeLists.txt` 自动切换到 `prj_venusa.conf`，无需额外传配置参数。
 
 ## 烧录
 
@@ -75,12 +78,25 @@ lisa_hwtimer_start(hwtimer_dev, 0, caps.max_freq_hz, LISA_HWTIMER_MODE_PERIODIC)
 
 ## 配置说明
 
+ARCS 默认 `prj.conf`：
+
 ```kconfig
 CONFIG_LISA_DEVICE=y
 CONFIG_LISA_HWTIMER_DEVICE=y
 CONFIG_LISA_HWTIMER_ARCS_AON_TIMER=y
-# 可选：使用外部 XO32K 时钟源（需要外接32K晶振）
+# ARCS 可选：使用外部 XO32K 时钟源（需要外接32K晶振）
 # CONFIG_LISA_HWTIMER_ARCS_AON_TIMER_CLK_XO32K=y
+```
+
+Venusa `prj_venusa.conf`：
+
+```kconfig
+CONFIG_LISA_DEVICE=y
+CONFIG_LISA_HWTIMER_DEVICE=y
+CONFIG_LISA_HWTIMER_VENUSA_AON_TIMER=y
+# Venusa 可选：使用 24M 分频到 32K 域
+# CONFIG_LISA_HWTIMER_VENUSA_AON_TIMER_CLK_XO24M_DIV32K=y
+# CONFIG_LISA_HWTIMER_VENUSA_AON_TIMER_CLK_RC24M_DIV32K=y
 ```
 
 ## 注意事项

@@ -1,0 +1,3 @@
+tests:
+  samples.modem.usb_speed:
+    build_only: true

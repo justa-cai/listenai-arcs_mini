@@ -1,5 +1,5 @@
 #include "log_print.h"
-#include "arcs_ap.h"
+#include "soc/chip.h"
 
 #include "FreeRTOS.h"
 #include "task.h"

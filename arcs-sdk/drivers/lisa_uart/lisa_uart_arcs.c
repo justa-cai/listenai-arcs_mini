@@ -18,11 +18,15 @@
 #include <lisa_semaphore.h>
 #include <lisa_mem.h>
 #include <lisa_time.h>
-#include "arcs_ap.h"
+#include <soc/chip.h>
 #include "dma.h"
 #include "uart.h"
 #include "cache.h"
 #include "board.h"
+
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
 
 #define LOG_TAG "lisa_uart_arcs"
 #include <lisa_log.h>
@@ -508,6 +512,134 @@ static lisa_uart_event_t hal_event_to_lisa_event(uint32_t hal_event)
 
     return event;
 }
+
+/**
+ * @brief 等待 TX FIFO 清空且移位寄存器发送完毕
+ */
+static void arcs_uart_wait_tx_complete(lisa_uart_priv_t *priv)
+{
+    UART_RESOURCES *uart_res = (UART_RESOURCES *)priv->hal_handler;
+    UART_RegDef *uart_reg = uart_res->reg;
+    while (uart_reg->REG_STATUS.bit.TX_ACTIVE);
+}
+
+/* ===== 设备反初始化 ===== */
+
+/* HAL 层 PowerControl(OFF) + Uninitialize：清外设时钟门、IRQ、ISR 注册、HAL flags / cb_event / xfer。
+ * 注意顺序：必须先 PowerControl(OFF)，再 Uninitialize；
+ * PowerControl(OFF) 内部在清 POWERED 后会检查 INITIALIZED，先 Uninitialize 会让 PowerControl(OFF) 报错。 */
+static void arcs_uart_teardown_hal(lisa_uart_priv_t *priv)
+{
+    UART_PowerControl(priv->hal_handler, CSK_POWER_OFF);
+    UART_Uninitialize(priv->hal_handler);
+}
+
+/* 释放 configure() 阶段额外分配的 OS / 动态内存资源 */
+static void arcs_uart_release_resources(lisa_uart_priv_t *priv)
+{
+    if (priv->rx_circ_buf) {
+        uart_rx_circular_buf_free(priv->rx_circ_buf);
+        priv->rx_circ_buf = NULL;
+    }
+    if (priv->tx_sem) {
+        lisa_semaphore_delete(priv->tx_sem);
+        priv->tx_sem = NULL;
+    }
+    if (priv->rx_sem) {
+        lisa_semaphore_delete(priv->rx_sem);
+        priv->rx_sem = NULL;
+    }
+    if (priv->tx_aligned_buf) {
+        lisa_mem_free(priv->tx_aligned_buf);
+        priv->tx_aligned_buf = NULL;
+    }
+}
+
+/**
+ * @brief 停止并释放单个 UART 实例的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 经各实例 deinit 包装调用。释放顺序与 _init / configure
+ * 申请相反：
+ *   1) HAL 下电：先 UART_PowerControl(OFF) 再 UART_Uninitialize；
+ *   2) 释放 configure() 阶段分配的 rx_circ_buf / tx_sem / rx_sem / tx_aligned_buf；
+ *   3) memset 整个 priv，回到 _init 之前的零初值。
+ *
+ * 约定：调用方需保证此时无收发在途、无并发业务在使用本设备（含 console / shell）。
+ */
+static int arcs_uart_deinit_instance(lisa_uart_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    if (priv->hal_handler) {
+        arcs_uart_teardown_hal(priv);
+    }
+    arcs_uart_release_resources(priv);
+    memset(priv, 0, sizeof(*priv));
+    return LISA_DEVICE_OK;
+}
+
+#ifdef CONFIG_LISA_UART0
+static int arcs_uart0_deinit(void)
+{
+    return arcs_uart_deinit_instance(&uart0_priv);
+}
+#endif
+
+#ifdef CONFIG_LISA_UART1
+static int arcs_uart1_deinit(void)
+{
+    return arcs_uart_deinit_instance(&uart1_priv);
+}
+#endif
+
+#ifdef CONFIG_LISA_UART2
+static int arcs_uart2_deinit(void)
+{
+    return arcs_uart_deinit_instance(&uart2_priv);
+}
+#endif
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：UART 控制器在
+ * 睡眠时会掉电，由设备的持有方在睡眠前调 lisa_device_destroy(uartN) 释放全部软硬件
+ * 资源（HAL 下电 + configure 资源），唤醒后调 lisa_device_reinit(uartN) 重建到 _init
+ * 后的状态、再重新 configure()。因此驱动自身不再实现 prepare_suspend / resume_restore
+ * （原先它们做 HAL 拆卸 / 重建，已被 destroy/reinit 覆盖）。
+ *
+ * 对作为 console / shell 后端的 UART，这一 destroy/reinit 编排由 system/console/
+ * console_uart.c 的合成 PM 设备负责：睡前 flush + destroy，唤醒后 reinit + configure。
+ *
+ * check_idle：TX 在途阻止睡眠；常驻循环 RX 不算 busy（由上层 lisa_pm_lock 表达），
+ * 仅当 rx_busy 且非循环 RX 时阻止睡眠。只读 priv，不取锁 / 不访问 HAL。
+ */
+static int32_t lisa_uart_pm_check_idle(void *ctx)
+{
+    lisa_uart_priv_t *priv = (lisa_uart_priv_t *)ctx;
+    lisa_uart_rx_circular_buf_t *rx_circ_buf;
+
+    if (priv == NULL) {
+        return 1;
+    }
+    if (priv->tx_busy) {
+        return 0;
+    }
+    /* 循环 RX 是常驻能力，不算 busy；由上层 lisa_pm_lock_acquire/release 表达"不希望睡眠" */
+    rx_circ_buf = priv->rx_circ_buf;
+    if (priv->rx_busy && (rx_circ_buf == NULL || !rx_circ_buf->enabled)) {
+        return 0;
+    }
+    return 1;
+}
+
+static const lisa_pm_system_ops_t arcs_uart_pm_ops = {
+    .check_idle = lisa_uart_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore = NULL,
+};
+#endif /* CONFIG_LISA_PM */
 
 /**
  * @brief HAL UART 事件回调函数
@@ -1231,6 +1363,23 @@ static void arcs_uart_poll_out(lisa_device_t *dev, uint8_t byte)
     while (!uart_reg->REG_STATUS.bit.TX_FIFO_SPACE);
 }
 
+static int arcs_uart_flush(lisa_device_t *dev)
+{
+    if (!lisa_device_is_initialized(dev)) {
+        return LISA_DEVICE_ERR_NOT_READY;
+    }
+
+    lisa_uart_priv_t *priv = (lisa_uart_priv_t *)dev->priv_data;
+
+    if (!priv->configured) {
+        return LISA_DEVICE_ERR_NOT_READY;
+    }
+
+    arcs_uart_wait_tx_complete(priv);
+
+    return LISA_DEVICE_OK;
+}
+
 static int arcs_uart_write_abort(lisa_device_t *dev)
 {
     if (!lisa_device_is_initialized(dev)) {
@@ -1783,6 +1932,7 @@ static const lisa_uart_api_t arcs_uart_api = {
     .read_sync = arcs_uart_read_sync,
     .poll_in = arcs_uart_poll_in,
     .poll_out = arcs_uart_poll_out,
+    .flush = arcs_uart_flush,
     .rx_enable = arcs_uart_rx_enable,
     .rx_disable = arcs_uart_rx_disable,
 #ifdef CONFIG_LISA_UART_ASYNC_API
@@ -1805,11 +1955,23 @@ static const lisa_uart_api_t arcs_uart_api = {
 #endif
 
 #ifdef CONFIG_LISA_UART0
-LISA_DEVICE_REGISTER(uart0, &arcs_uart_api, &uart0_priv, NULL, arcs_uart0_init, UART_INIT_LEVEL, UART_INIT_PRIO);
+LISA_DEVICE_REGISTER_DEINIT(uart0, &arcs_uart_api, &uart0_priv, NULL, arcs_uart0_init,
+                            arcs_uart0_deinit, UART_INIT_LEVEL, UART_INIT_PRIO);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(uart0, &arcs_uart_pm_ops, NULL, &uart0_priv);
+#endif
 #endif
 #ifdef CONFIG_LISA_UART1
-LISA_DEVICE_REGISTER(uart1, &arcs_uart_api, &uart1_priv, NULL, arcs_uart1_init, UART_INIT_LEVEL, UART_INIT_PRIO);
+LISA_DEVICE_REGISTER_DEINIT(uart1, &arcs_uart_api, &uart1_priv, NULL, arcs_uart1_init,
+                            arcs_uart1_deinit, UART_INIT_LEVEL, UART_INIT_PRIO);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(uart1, &arcs_uart_pm_ops, NULL, &uart1_priv);
+#endif
 #endif
 #ifdef CONFIG_LISA_UART2
-LISA_DEVICE_REGISTER(uart2, &arcs_uart_api, &uart2_priv, NULL, arcs_uart2_init, UART_INIT_LEVEL, UART_INIT_PRIO);
+LISA_DEVICE_REGISTER_DEINIT(uart2, &arcs_uart_api, &uart2_priv, NULL, arcs_uart2_init,
+                            arcs_uart2_deinit, UART_INIT_LEVEL, UART_INIT_PRIO);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(uart2, &arcs_uart_pm_ops, NULL, &uart2_priv);
+#endif
 #endif

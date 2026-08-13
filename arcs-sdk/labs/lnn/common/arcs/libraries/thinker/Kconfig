@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config THINKER_LIB
+	bool "Enable thinker lib"
+	help
+	  Enable thinker lib

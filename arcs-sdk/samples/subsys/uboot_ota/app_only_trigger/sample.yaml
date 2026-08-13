@@ -1,7 +1,0 @@
-tests:
-  # 仅执行构建，不提供直接板级测试入口
-  samples.subsys.uboot_ota.app_only_trigger:
-    build_only: true
-  samples.subsys.uboot_ota.app_only_trigger.tf:
-    build_only: true
-    build_extra_args: "-DCONFIG_SAMPLE_BOOT_OTA_TRIGGER_FLASH=n -DCONFIG_SAMPLE_BOOT_OTA_TRIGGER_TF=y"

@@ -1,0 +1,26 @@
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+osource "$ARCS_BASE/Kconfig"
+
+orsource "$ARCS_BASE/labs/lnn/common/arcs/libraries/Kconfig"
+
+config THINKER_RESNET18_REAL_MODEL_ADDR
+	hex "Thinker ResNet18 real model flash address"
+	default 0x30500000
+
+config THINKER_RESNET18_REAL_MODEL_SIZE
+	hex "Thinker ResNet18 real model size"
+	default 0x1FD1E0
+
+config THINKER_RESNET18_REAL_PSRAM_POOL_SIZE
+	hex "Thinker ResNet18 real PSRAM pool size"
+	default 0x10000
+
+config THINKER_RESNET18_REAL_SHARE_POOL_SIZE
+	hex "Thinker ResNet18 real share pool size"
+	default 0x58000
+
+config THINKER_RESNET18_REAL_CP_FLASH_BASE
+	hex "Thinker ResNet18 real CP image flash base"
+	default 0x30200000

@@ -195,11 +195,47 @@ static pixformat_t get_pixformat(sensor_t *sensor)
     }
 }
 
+static int set_stream(sensor_t *sensor, bool enable)
+{
+    int ret = 0;
+    uint8_t value = enable ? 0xffU : 0x00U;
+
+    ret |= write_reg(sensor->slv_addr, REG_PAGE_SELECT, 0x03);
+    ret |= write_reg(sensor->slv_addr, P3_STREAM_D8, value);
+    ret |= write_reg(sensor->slv_addr, P3_STREAM_D9, value);
+    ret |= write_reg(sensor->slv_addr, REG_PAGE_SELECT, 0x02);
+    CAMERA_DELAY_MS(10);
+
+    return ret;
+}
+
+static int start(sensor_t *sensor)
+{
+    return set_stream(sensor, true);
+}
+
+static int stop(sensor_t *sensor)
+{
+    return set_stream(sensor, false);
+}
+
 static int set_window(sensor_t *sensor, int16_t x, int16_t y, uint16_t w, uint16_t h)
 {
     int ret = 0;
     uint16_t h_st, h_end, v_st, v_end;
     uint8_t reg_82, reg_85;
+
+    if (x <= 2) {
+        x = 4;
+    } else if ((x & 0x01) != 0) {
+        x++;
+    }
+
+    if (y <= 2) {
+        y = 4;
+    } else if ((y & 0x01) != 0) {
+        y++;
+    }
 
     /* Calculate start and end positions */
     h_st = x;
@@ -406,6 +442,8 @@ int tc6036_init(sensor_t *sensor)
 {
     sensor->init_status = init_status;
     sensor->reset = reset;
+    sensor->start = start;
+    sensor->stop = stop;
     sensor->set_pixformat = set_pixformat;
     sensor->set_contrast = set_dummy;
     sensor->set_brightness = set_dummy;

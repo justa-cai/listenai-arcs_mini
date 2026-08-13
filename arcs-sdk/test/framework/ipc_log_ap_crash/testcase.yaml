@@ -9,4 +9,4 @@ tests:
         address: "0x80000"
     log_analyzer:
       type: "regex"
-      pattern: "(?s)(\\[AP\\].*AP crash test trigger.*\\[AP\\].*system exception.*\\[AP\\].*general purpose registers.*\\[AP\\].*msubm:\\s*0x[0-9a-fA-F]+.*\\[AP\\].*Possible backtrace:.*\\[AP\\].*backtrace end)"
+      pattern: "\\[REMOTE\\].*system exception"

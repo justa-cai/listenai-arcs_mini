@@ -255,10 +255,11 @@ static void app_button_handle_click(void)
         return;
     }
 
-    /* 主页单击：会话进行中则退出会话，否则模拟唤醒词发起会话。 */
+    /* 主页单击：会话进行中则强制结束本地和云端会话，
+     * 否则模拟唤醒词发起会话。 */
     LISA_LOGI(TAG, "Single click: wakeup trigger");
     if (model_voice_cloud_is_running()) {
-        voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
+        voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, NULL, 0);
     } else {
         const char wakeup_keyword[] = "xiao ling xiao ling";
 

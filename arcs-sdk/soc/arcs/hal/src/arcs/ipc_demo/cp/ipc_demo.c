@@ -35,18 +35,22 @@
 #include "ls_event.h"
 #include "cli_main.h"
 #include "ipc_slave.h"
+#include "ipc_slave_wifi.h"
 #include "net_al.h"
 
 extern uint8_t _sshram[], _eshram[];
+extern void ls_wifi_init(void);
+extern void ls_crypto_init(void);
 
 int main(void)
 {
-    struct ipc_slave_cb_tag ipc_cb = {
-            .ipc_wifi_tx = net_ipc_send,
-            .ipc_wifi_rx_cfm = net_ipc_rx_cfm,
+    struct ipc_slave_wifi_ops ipc_wifi_ops = {
+            .tx = net_ipc_send,
+            .rx_cfm = net_ipc_rx_cfm,
     };
     memset(_sshram, 0, (_eshram - _sshram));
-    ipc_slave_init(&ipc_cb);
+    ipc_slave_init();
+    ipc_slave_wifi_init(&ipc_wifi_ops);
 
     logInit(SHELL_UART1, SHELL_UART1_BAUDRATE);
 #if IC_BOARD == 1
@@ -65,4 +69,3 @@ int main(void)
 
     return 0;
 }
-

@@ -42,7 +42,7 @@
 #endif
 /* *INDENT-ON */
 
-#include "transport_interface.h"
+#include "../interface/transport_interface.h"
 
 /* MQTT packet types. */
 

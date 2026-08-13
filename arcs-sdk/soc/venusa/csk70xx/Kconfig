@@ -1,0 +1,25 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config SOC_SERIES_CSK70XX
+	bool
+	select SOC_VENUSA
+
+config SOC_CSK7002G6U
+	bool "CSK7002G6U"
+	select SOC_SERIES_CSK70XX
+	help
+		Dual Core RISC-V 300MHz, 4M PSRAM, no NPU
+
+config SOC_CSK7004J8U
+	bool "CSK7004J8U"
+	select SOC_SERIES_CSK70XX
+	help
+		Dual Core RISC-V 400MHz, 16M PSRAM, with NPU
+
+if SOC_SERIES_CSK70XX
+
+rsource "csk7002g6u/Kconfig.defconfig"
+rsource "csk7004j8u/Kconfig.defconfig"
+
+endif # SOC_SERIES_CSK70XX

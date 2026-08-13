@@ -1,4 +1,4 @@
-# Bluetooth HFP Source Sample
+# 经典蓝牙 HFP 音频源示例
 
 ## 功能说明
 
@@ -6,7 +6,7 @@
 
 示例实现了以下功能：
 - 初始化 Lisa Shell、Lisa Bluetooth 和 BT Audio Framework
-- 注册经典蓝牙发现回调，支持扫描并按名称连接远端设备
+- 注册经典蓝牙发现回调，支持扫描并按名称、索引或地址连接远端设备
 - 通过 `bt_audio_start` 打开 HFP SCO 全双工音频链路
 - 将本地预置 PCM 数据编码后发送到远端设备
 - 将远端回传的语音数据写入本地 `lisa_audio` 播放设备
@@ -32,7 +32,7 @@
 2. 初始化蓝牙协议栈并注册发现回调
 3. 获取本地音频播放设备 `audio0`
 4. 通过 `bt_inquiry` 扫描目标设备
-5. 通过 `bt_connect <device_name>` 发起经典蓝牙连接
+5. 通过 `bt_connect`、`bt_connect_index` 或 `bt_connect_addr` 发起经典蓝牙连接
 6. 通过 `bt_audio_start` 建立 HFP 音频链路并启动音频任务
 
 ## 编译
@@ -171,6 +171,18 @@ bt_connect My_Phone
 bt_connect "soundcore Liberty 4"
 ```
 
+也可以按扫描列表索引连接：
+
+```bash
+bt_connect_index 0
+```
+
+如果已知远端蓝牙地址，也可以不依赖扫描列表直接连接：
+
+```bash
+bt_connect_addr E0:5D:3B:CC:EE:E8
+```
+
 ### 4. 启动 HFP 音频
 
 连接成功后，执行：
@@ -193,10 +205,25 @@ bt_audio_start
 bt_audio_stop
 ```
 
+### 6. 断开蓝牙连接
+
+可以按名称、扫描列表索引或地址断开连接：
+
+```bash
+bt_disconnect "soundcore Liberty 4"
+bt_disconnect_index 0
+bt_disconnect_addr E0:5D:3B:CC:EE:E8
+```
+
 ## Shell 命令
 
 - `bt_inquiry`：扫描周围经典蓝牙设备。
 - `bt_connect <device_name>`：按设备名连接远端设备。
+- `bt_connect_index <device_index>`：按扫描结果索引连接远端设备。
+- `bt_connect_addr <XX:XX:XX:XX:XX:XX>`：按蓝牙地址直接连接远端设备。
+- `bt_disconnect <device_name>`：按设备名断开远端设备。
+- `bt_disconnect_index <device_index>`：按扫描结果索引断开远端设备。
+- `bt_disconnect_addr <XX:XX:XX:XX:XX:XX>`：按蓝牙地址断开远端设备。
 - `bt_audio_start`：打开 HFP 音频链路并启动本地音频任务。
 - `bt_audio_stop`：停止本地音频任务并关闭虚拟接口。
 - `AT`：进入 AT 透传模式，或直接执行单行 AT 命令。
@@ -246,7 +273,8 @@ audio_source_task 持续写入本地 PCM 数据到虚拟接口
 ### 关键点
 
 - `cmd_bt_inquiry()`：调用 `lisa_bluetooth_inquiry_start()` 扫描目标设备。
-- `cmd_bt_connect()`：按设备名连接远端设备。
+- `cmd_bt_connect()` / `cmd_bt_connect_by_index()` / `cmd_bt_connect_by_addr()`：按名称、索引或地址连接远端设备。
+- `cmd_bt_disconnect()` / `cmd_bt_disconnect_by_index()` / `cmd_bt_disconnect_by_addr()`：按名称、索引或地址断开连接。
 - `cmd_bt_audio_start()`：打开 HFP 音频链路。
 - `open_complete_handler()`：按协商结果配置本地播放设备并启动发送任务。
 - `capture_callback_handler()`：播放接收到的远端语音数据。

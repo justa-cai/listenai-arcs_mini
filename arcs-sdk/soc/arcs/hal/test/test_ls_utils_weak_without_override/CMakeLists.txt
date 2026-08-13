@@ -19,6 +19,9 @@ endif()
 
 set(HAL_ROOT ../..)
 
+# Mock libraries
+add_subdirectory(${HAL_ROOT}/test/common/mock/rtos ${CMAKE_CURRENT_BINARY_DIR}/mock_rtos)
+
 # 创建测试可执行文件
 add_executable(tests)
 
@@ -26,6 +29,7 @@ add_executable(tests)
 target_include_directories(tests PRIVATE
     ${HAL_ROOT}/test/utils/unity_config
     ${HAL_ROOT}/test/utils/fff
+    ${HAL_ROOT}/test/common/mock
 )
 
 # 添加被测源文件 (包含 weak 符号)
@@ -51,8 +55,8 @@ target_compile_definitions(tests PRIVATE
     CONFIG_PM=0
 )
 
-# 链接 Unity 测试框架
-target_link_libraries(tests ${UNITY_LIB})
+# 链接 Unity 测试框架与 mock
+target_link_libraries(tests ${UNITY_LIB} mock_rtos)
 
 # 允许使用CTest运行测试
 enable_testing()

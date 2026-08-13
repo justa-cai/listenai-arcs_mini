@@ -19,7 +19,6 @@
  ****************************************************************************************
  */
 #include "os_task_init.h"
-#include "bt_stack_hal_cfg.h"
 /*
  * DEFINES
  ****************************************************************************************
@@ -30,16 +29,61 @@
 
 #define DEVICE_NAME         "PG"
 
-#define CONNECT_LAST_PEER_DEV     (0)
+#define MAX_SCAN_BLE_DEVICE     (8)
+#define MAX_BOND_BLE_DEVICE     (8)
 
+#define MAX_BOND_CLASSIC_DEVICE (8)
+
+#define CONNECT_LAST_PEER_DEV     (0)
+#ifndef PLF_BUILD_FEAT_HCIT
+#define PLF_BUILD_FEAT_HCIT   (HCIT_UART_PRESENT | (HCIT_USB_PRESENT * PLF_HCIT_USB) | (HCIT_AUD_PRESENT * PLF_HCIT_AUD))
+#endif
+#ifndef PLF_BUILD_FEAT_CORE
+#define PLF_BUILD_FEAT_CORE   (BLE_EMB_PRESENT | (BT_EMB_PRESENT * PLF_CORE_BT) | (BLE_ISO_PRESENT * PLF_CORE_ISO))
+#endif
+#ifndef PLF_BUILD_FEAT_STACK
+#define PLF_BUILD_FEAT_STACK  (BLE_HOST_PRESENT | (BT_STACK_PRESENT *PLF_STACK_BT) | (MESH_PRESENT * PLF_STACK_MESH) | (LEA_PRESENT * PLF_STACK_LEA))
+#endif
+
+/// scan parm
+#define BLE_SCAN_TYPE (GAPM_SCAN_TYPE_GEN_DISC)
+/// (GAPM_SCAN_PROP_PHY_1M_BIT | GAPM_SCAN_PROP_ACTIVE_1M_BIT)
+#define BLE_SCAN_PHY  ((1 << 0) | (1 << 2))
+#define BLE_SCAN_INTV (320)
+#define BLE_SCAN_WIN  (160)
+
+/// adv parm
+#define BLE_ADV_TYPE (GAPM_ADV_TYPE_LEGACY)
+#define BLE_ADV_MODE (GAPM_ADV_MODE_GEN_DISC)
+#define BLE_ADV_MIN  (160)
+#define BLE_ADV_MAX  (320)
+
+/// connect parm
+//The Supervision_Timeout parameter shall define the link supervision timeout
+//for the LE link. The Supervision_Timeout in milliseconds shall be larger than (1
+//+ Connection_Latency) * Connection_Interval_Max * 2, where
+//Connection_Interval_Max is given in milliseconds.
+#define BLE_CON_LATENCY              99
+#define BLE_CON_INTERVAL_MIN         8
+#define BLE_CON_INTERVAL_MAX         8
+#define BLE_CON_SUPERVISION_TIMEOUT  500
+#define BLE_MAX_WLIST_NUM            (5)
 #define REMOTE_PRODUCT_TEST          (0)
 
 #define BLE_PEER_FEAT_CON_PARAM_DIS  (1)
+
+#define BLE_CON_PHY                  (GAP_PHY_LE_1MBPS)
+
+#define BLE_CON_UPDATE_PARAM_CFG     1
 
 /// white list & ral list
 #define WHITE_LIST_ADV_ENABLE        0
 #define WHITE_LIST_ADD               1
 #define RESOVLE_LIST_ADD             1
+
+ /// profile config
+#define BLE_HID_CFG                        1
+#define BLE_HID_SEND_DUMMY_MOUSE_DATA      0
 
  /**
  * Default Scan response data
@@ -55,8 +99,17 @@
 #define ADV_USER_DATA                   (1)
 #define LEGA_ADV_DATA_LEN   0x1F
 
-// uuid
+// uuid 
 #define BLOOD_PRESSURE_UUID             (0x1810)
+#define HID_UUID                        (0x1812)
+
+
+#define BT_NOTIFY_PENDING_MAX                (3)
+
+#define BT_STACK_NVDS_SUPPORT                (CFG_NVS)
+
+
+#define BT_STACK_BLE_HOGPD_HID_MAX_COUNT     (20)
 
 
 /*

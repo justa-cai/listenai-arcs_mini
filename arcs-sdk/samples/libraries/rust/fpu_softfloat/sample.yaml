@@ -1,0 +1,9 @@
+tests:
+  samples.libraries.rust.fpu_softfloat:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "fpu_softfloat:done"

@@ -82,6 +82,18 @@ include(${LISTENAI_CMAKE_PATH}/version.cmake)
 
 message(STATUS "Listenai module dir list: ${LISTENAI_MODULES_DIR_LIST}")
 
+function(listenai_format_available_boards output_var)
+    set(_board_list_str "")
+    file(GLOB _board_dirs LIST_DIRECTORIES true "${ARCS_SDK_BASE}/boards/*")
+    foreach(_board_dir ${_board_dirs})
+        if(IS_DIRECTORY "${_board_dir}" AND EXISTS "${_board_dir}/CMakeLists.txt")
+            get_filename_component(_board_name "${_board_dir}" NAME)
+            string(APPEND _board_list_str "  - ${_board_name}\n")
+        endif()
+    endforeach()
+    set(${output_var} "${_board_list_str}" PARENT_SCOPE)
+endfunction()
+
 # 从指定的目录中查询模块,并将模块的路径存放到属性LISTENAI_MODULES中
 function(listenai_find_modules dir)
     set(cmake_lists_path "${dir}/CMakeLists.txt")
@@ -168,15 +180,29 @@ if(NOT _chip_from_cli)
     endforeach()
 
     if(NOT DEFINED CHIP)
+        if(NOT DEFINED BOARD)
+            listenai_format_available_boards(_board_list_str)
+            message(FATAL_ERROR
+                "CHIP could not be determined because no board was selected.\n"
+                "If your project does not set BOARD in CMakeLists.txt, please pass:\n"
+                "  -DBOARD=<board_name>\n"
+                "Available SDK boards:\n"
+                "${_board_list_str}\n"
+                "Custom boards:\n"
+                "  -DBOARD=<board_name> -DBOARD_SEARCH_PATH=/path/to/boards\n"
+                "If your project sets BOARD itself, ensure the selected board Kconfig uses "
+                "'select SOC_<name>', or pass -DCHIP=<soc> on the command line.")
+        endif()
+
         message(FATAL_ERROR
-            "CHIP could not be determined. "
+            "CHIP could not be determined for board '${BOARD}'. "
             "Ensure board Kconfig uses 'select SOC_<name>' "
             "or pass -DCHIP=<soc> on the command line.")
     endif()
 endif()
 
 include(${LISTENAI_CMAKE_PATH}/${CHIP}-chip.cmake)
-include(${LISTENAI_CMAKE_PATH}/${CHIP}-toolchain.cmake)
+include(${LISTENAI_CMAKE_PATH}/${ARCH}-toolchain.cmake)
 include(${LISTENAI_CMAKE_PATH}/common_compile_options.cmake)
 include(${LISTENAI_CMAKE_PATH}/common_link_options.cmake)
 

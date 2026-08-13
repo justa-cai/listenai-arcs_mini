@@ -52,8 +52,8 @@ extern uint8_t ble_gap_get_ltk_nocon(gap_addr_t * addr, uint8_t *p_ltk);
 extern uint8_t app_hid_rcv_data(uint8_t conidx, uint16_t index, uint16_t length, uint16_t offset, uint8_t *data);
 
 void bt_stack_ble_hid_rcv(uint8_t conidx, uint16_t index, uint16_t length, uint16_t offset, uint8_t *data);
-static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id);
-static void  bt_stack_ble_hid_read_cmp(uint32_t token, uint8_t val_id);
+static void bt_stack_ble_hid_send_cmp(uint8_t conidx, uint32_t token, uint8_t val_id);
+static void  bt_stack_ble_hid_read_cmp(uint8_t conidx, uint32_t token, uint8_t val_id);
 uint8_t *bt_stack_vbat_percent_get(void);
 void bt_stack_ble_parameter_update_by_timer(uint32_t milli_seconds);
 
@@ -266,6 +266,24 @@ void bt_stack_ble_enable_cmp(uint16_t status)
     //app_ble_adv_start(0, BLE_ADV_GEN);
 }
 
+///actv         0:stop, 1:start
+///resquester   0:auto, 1:user
+void bt_stack_ble_actv_ind(uint8_t actv, uint8_t type, uint8_t actv_id, uint8_t resquester, int16_t status)
+{
+    switch(type)
+    {
+        case GAPM_ACTV_TYPE_ADV :
+        case GAPM_ACTV_TYPE_SCAN :
+        case GAPM_ACTV_TYPE_INIT :
+        case GAPM_ACTV_TYPE_PER_SYNC :
+        {
+            CLOGD("ble actv :act-type-id:%d-%d-%d,req:%d,sta:0x%x", actv, type, actv_id, resquester, status);
+        }
+        break;
+        default : break;
+    }
+}
+
 void bt_stack_ble_conn_ind(uint8_t conidx, uint16_t conhdl, gap_bdaddr_t *peer_addr)
 {
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
@@ -303,6 +321,11 @@ void bt_stack_ble_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
     ble_gap_entry_latency(GAP_EXIT_LATENCY_ALL);
     ///clear hid count
     stack_env->bt_hid_send_cnt = 0;
+
+    if(stack_env->bt_open != BT_STATE_OPENED)
+    {
+        bt_stack_if_close_discon(0);
+    }
 }
 
 void bt_stack_ble_key_req(uint8_t conidx, uint8_t key_type, uint32_t key)
@@ -452,7 +475,7 @@ uint8_t bt_stack_ble_hid_send(uint8_t conidx, uint8_t report_idx, uint8_t length
     return status;
 }
 
-static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id)
+static void bt_stack_ble_hid_send_cmp(uint8_t conidx, uint32_t token, uint8_t val_id)
 {
     bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
 
@@ -467,7 +490,7 @@ static void bt_stack_ble_hid_send_cmp(uint32_t token, uint8_t val_id)
     //}
 }
 
-static void  bt_stack_ble_hid_read_cmp(uint32_t token, uint8_t val_id)
+static void  bt_stack_ble_hid_read_cmp(uint8_t conidx, uint32_t token, uint8_t val_id)
 {
     ///to do;
 }

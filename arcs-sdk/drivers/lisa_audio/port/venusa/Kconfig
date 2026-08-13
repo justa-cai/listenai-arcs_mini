@@ -1,0 +1,124 @@
+# LISA Audio Venusa Port Configuration
+#
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if PORT_VENUSA
+
+menu "Venusa Audio Port Configuration"
+
+config LISA_AUDIO_RECORD_DMA_CHN_LEFT
+	int "ADC left channel DMA channel number"
+	default 2
+	range 0 5
+	help
+		GPDMA channel number used for ADC left channel data transfer.
+		Default: 2.
+
+config LISA_AUDIO_RECORD_DMA_CHN_RIGHT
+	int "ADC right channel DMA channel number"
+	default 3
+	range 0 5
+	help
+		GPDMA channel number used for ADC right channel data transfer.
+		Default: 3.
+
+choice
+	prompt "Venusa LDOVA TUNE_LDOVA voltage"
+	default LISA_AUDIO_VENUSA_LDOVA_TUNE_1V800
+	help
+		Select TUNE_LDOVA field in AON_TUNE0 bit[12:9].
+
+		The voltages below are defined by the Venusa analog register
+		specification when SEL_VOUT_LDOVA is 0.
+
+config LISA_AUDIO_VENUSA_LDOVA_TUNE_1V800
+	bool "1.800 V - default"
+
+config LISA_AUDIO_VENUSA_LDOVA_TUNE_1V830
+	bool "1.830 V"
+
+config LISA_AUDIO_VENUSA_LDOVA_TUNE_2V008
+	bool "2.008 V"
+
+config LISA_AUDIO_VENUSA_LDOVA_TUNE_1V561
+	bool "1.561 V"
+
+config LISA_AUDIO_VENUSA_LDOVA_TUNE_1V770
+	bool "1.770 V"
+
+endchoice
+
+config LISA_AUDIO_VENUSA_LDOVA_TUNE
+	int
+	default 0 if LISA_AUDIO_VENUSA_LDOVA_TUNE_1V800
+	default 1 if LISA_AUDIO_VENUSA_LDOVA_TUNE_1V830
+	default 7 if LISA_AUDIO_VENUSA_LDOVA_TUNE_2V008
+	default 8 if LISA_AUDIO_VENUSA_LDOVA_TUNE_1V561
+	default 15 if LISA_AUDIO_VENUSA_LDOVA_TUNE_1V770
+
+config LISA_AUDIO_PLAY_DMA_CHN
+	int "DAC output DMA channel number"
+	default 3
+	range 0 5
+	help
+		GPDMA channel number used for DAC audio output data transfer.
+		Default: 3.
+
+config LISA_AUDIO_PLAY_PA_ENABLE
+	bool "Enable power amplifier (PA) control"
+	select LISA_GPIO_DEVICE
+	select LISA_GPIOA if LISA_AUDIO_PLAY_PA_PAD = 0
+	select LISA_GPIOB if LISA_AUDIO_PLAY_PA_PAD = 1
+	help
+		Enable GPIO control for external power amplifier.
+		PA will be enabled after playback output stabilizes to prevent pop noise.
+
+if LISA_AUDIO_PLAY_PA_ENABLE
+
+config LISA_AUDIO_PLAY_PA_PAD
+	int "PA GPIO pad (0=PAD_A, 1=PAD_B)"
+	default 0
+	range 0 1
+	help
+		GPIO pad selection for PA control pin.
+		0 = GPIOA, 1 = GPIOB.
+
+config LISA_AUDIO_PLAY_PA_PIN
+	int "PA GPIO pin number"
+	default 0
+	range 0 31
+	help
+		GPIO pin number for PA control (0-31).
+		Example: Pin 0 on PAD_A = GPIOA0.
+
+config LISA_AUDIO_PLAY_PA_PULSE_COUNT
+	int "PA enable pulse count"
+	default 3
+	range 0 10
+	help
+		Number of high-low pulses to send when enabling PA.
+		Some PA chips require pulse sequence for proper startup.
+		Set to 0 to simply set pin high without pulses.
+
+config LISA_AUDIO_PLAY_PA_PULSE_US
+	int "PA pulse duration (microseconds)"
+	default 50
+	range 10 1000
+	help
+		Duration of each high/low level in PA enable pulse sequence.
+
+endif # LISA_AUDIO_PLAY_PA_ENABLE
+
+config LISA_AUDIO_PLAY_ECHO_DMA_CHN
+	int "Echo capture DMA channel number"
+	depends on LISA_AUDIO_PLAY_ECHO_ENABLE
+	default 0
+	range 0 5
+	help
+		GPDMA channel number used for Echo capture data transfer.
+		Default: 0.
+
+endmenu
+
+endif # PORT_VENUSA

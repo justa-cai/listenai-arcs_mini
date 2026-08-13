@@ -36,6 +36,7 @@ typedef struct {
     void (*bt_event_pause)(void);
     void (*bt_event_resume)(aud_codec_info_t codec_info);
     void (*bt_audio_send_complete)(void);
+    void (*bt_audio_send_buffer_release)(uint8_t conidx, uint8_t *data, uint16_t status);
 } bt_audio_adapter_event_ops_t;
 
 /**
@@ -58,6 +59,14 @@ os_task_cb_t *bt_audio_adapter_get_os_task_cb(void);
  */
 int bt_audio_adapter_send_frames(uint8_t conidx, const uint8_t *data, 
                                     size_t frame_count, size_t total_bytes);
+
+/**
+ * @brief A2DP 媒体数据发送响应
+ * @param conidx 连接索引
+ * @param data 发送时传入的buffer指针
+ * @param status 底层返回状态
+ */
+void bt_audio_adapter_a2dp_media_rsp(uint8_t conidx, uint8_t *data, uint16_t status);
 
 /**
  * @brief 获取当前蓝牙音频Profile类型

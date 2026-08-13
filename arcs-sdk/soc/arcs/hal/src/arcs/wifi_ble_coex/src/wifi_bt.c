@@ -36,6 +36,7 @@
 #include "cli_main.h"
 #include "net_al.h"
 #include "net_ip.h"
+#include "flash_if.h"
 
 /**
  ****************************************************************************************
@@ -78,6 +79,8 @@ extern int bt_demo_init(void);
 extern int wifi_cli_exec_sta_auto_conn(void);
 extern uint8_t app_ble_netcfg_bles_send_notify(uint8_t conidx, uint8_t op, uint8_t state, uint8_t length, uint8_t* value);
 extern int bt_event_cb(void *arg, event_module_t event_module,int event_id, void *event_data);
+extern void ls_wifi_init(void);
+extern void ls_crypto_init(void);
 
 int wifi_event_cb(void *arg, event_module_t event_module,
                   int event_id, void *event_data)

@@ -17,7 +17,6 @@
 #include <common/tusb_common.h>
 #include <device/dcd.h>
 #include <assert.h>
-#include "arcs_ap.h"
 
 #if CFG_TUD_ENABLED && CFG_TUSB_MCU == OPT_MCU_LS566X
 

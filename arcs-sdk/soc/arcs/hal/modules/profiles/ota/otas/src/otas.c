@@ -23,7 +23,11 @@
 #include "otas.h"
 
 #include "ble_gatt.h"
+#include "ble_gap.h"
+#include "ble_plf_config.h"
 #include "ble_prf.h"
+#include "PowerManager.h"
+#include "log_print.h"
 
 /*
  * DEFINES
@@ -194,9 +198,9 @@ static void otas_cb_att_val_set(uint8_t conidx, uint8_t user_lid, uint16_t token
                 break;
             case OTA_WRITE_DATA:
                 if(otas_env.buff == NULL){
-                    otas_env.buff = plf_malloc((OTA_DATA_MAX_LEN + 4));
+                    otas_env.buff = (uint32_t*)plf_malloc((OTA_DATA_MAX_LEN + 4));
                 }
-                cmd.data.data = otas_env.buff;
+                cmd.data.data = (uint8_t*)otas_env.buff;
                 memcpy(cmd.data.data, buff + ((uint8_t*)(&cmd.data.length) - (uint8_t*)(&cmd)) + sizeof(uint16_t), cmd.data.length);
                 /// no break
             default:
@@ -319,10 +323,12 @@ void otas_con_cleanup(uint8_t conidx, uint16_t reason)
 
     if(otas_env.state == OTAS_WAIT_REBOOT)
     {
+        CLOGD("OTA success, reset!");
         // Restart FW
         //pReset = *((uint32_t * )(0x4));
         //pReset();
-        HAL_PMU_Chip_Software_Reset_Enable();
+        //HAL_PMU_Chip_Software_Reset_Enable();
+        __HAL_SYSTEM_AON_RESET();
     }
     else
         otas_env.state = OTAS_IDEL;

@@ -13,7 +13,7 @@ BT_DUAL_MODE       = (BT_EMB_PRESENT and BLE_EMB_PRESENT)
 SINGLE_RUN_ON_DUAL = 1
 
 # host
-BLE_HOST_PRESENT   = 1
+BLE_HOST_PRESENT   = 0
 BT_STACK_PRESENT   = 0
 # classic profile
 BT_MUSIC_PRESENT   = 0
@@ -24,10 +24,12 @@ SMP_PRESENT        = 1
 LEA_PRESENT        = 0
 MESH_PRESENT       = 0
 # transport
-HCIT_UART_PRESENT  = 1
+HCIT_UART_PRESENT  = 0
 HCIT_USB_PRESENT   = 0
 #hci audio access
 HCIT_AUD_PRESENT   = 0
+
+HCI_IPC            = 1
 
 HCI_PRESENT        = 1
 AHI_PRESENT        = 0
@@ -64,7 +66,7 @@ TRACER_PRESENT         = 0
 TRACE_CFG_MASK         = 0xffffffff
 
 #/// Support HL Message API
-BLE_HL_MSG_API         = 1
+BLE_HL_MSG_API         = 0
 #/// Support GATT Client
 BLE_GATT_CLI           = 1
 
@@ -99,9 +101,9 @@ BLE_ACTIVITY_INIT_MAX   = (1)
 
 # ISO configure
 #// Connected Isochronous Stream
-BLE_CIS                 = 1
+BLE_CIS                 = 0
 #// Broadcast Isochronous Stream
-BLE_BIS                 = 1
+BLE_BIS                 = 0
 #/// Maximum number of ISO channel / streams
 BLE_ISO_CON             = 4
 #/// Proprietary ISO over HCI

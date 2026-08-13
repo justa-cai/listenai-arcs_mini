@@ -1,0 +1,7 @@
+tests:
+  samples.subsys.lua.lua_binding_driver:
+    programmer: arcs
+    runner: uart
+    log_analyzer:
+      type: "regex"
+      pattern: "Lua Scripting Shell \\+ USB MSC"

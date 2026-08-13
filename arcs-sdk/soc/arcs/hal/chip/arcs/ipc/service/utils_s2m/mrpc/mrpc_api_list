@@ -1,0 +1,43 @@
+BEGIN CLIENT_INCLUDE_FILE
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_utils.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_utils_s2m_api_msg.h"
+#include "mrpc_utils_s2m_api_server.h"
+END
+
+BEGIN SERVER_INCLUDE_FILE
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+#include "ls_err.h"
+#include "ls_utils.h"
+#include "ipc.h"
+#include "mrpc.h"
+#include "mrpc_utils_s2m_api_msg.h"
+#include "mrpc_utils_s2m_api_server.h"
+END
+
+BEGIN MSG_HDR_INCLUDE_FILE
+#include <stdint.h>
+#include "ls_err.h"
+#include "mrpc.h"
+END
+
+BEGIN MSG_MAX_SIZE
+IPC_MSG_BUFFER_SIZE
+END
+
+
+BEGIN API_DECLARE_TYPE_OTHER
+
+int ls_read_temp_voltage(in float *vout);
+
+int8_t ls_get_mac_from_nvs(in uint8_t mac_addr[6]);
+
+int8_t ls_get_mac_customized(in uint8_t mac_addr[6]);
+
+END

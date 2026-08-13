@@ -1,4 +1,4 @@
-# LISA QSPILCD DMA 传输示例
+# QSPILCD DMA 传输示例
 
 ## 功能说明
 

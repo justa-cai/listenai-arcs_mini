@@ -1,0 +1,3 @@
+tests:
+  test.driver.device_wakeup.usb:
+    build_only: true

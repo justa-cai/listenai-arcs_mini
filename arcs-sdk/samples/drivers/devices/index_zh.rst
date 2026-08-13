@@ -11,50 +11,22 @@
     :maxdepth: 1
 
 
-    lisa_gpio/output_basic/README.md
-    lisa_gpio/input_basic/README.md
-    lisa_gpio/interrupt/README.md
-    lisa_adc/read_basic/README.md
-    lisa_adc/read_temperature_channel/README.md
-    lisa_hwtimer/gpt_timer/README.md
-    lisa_hwtimer/dual_timer/README.md
-    lisa_hwtimer/aon_timer/README.md
+    lisa_gpio/index_zh
+    lisa_adc/index_zh
+    lisa_hwtimer/index_zh
     lisa_sdmmc/simple_use/README.md
-    lisa_spi/master/README.md
-    lisa_spi/master_slave/README.md
-    lisa_qspilcd/basic/README.md
-    lisa_qspilcd/dma/README.md
-    lisa_display/display_flush/README.md
-    lisa_audio/record_playback/README.md
-    lisa_audio/record_echo_alignment/README.md
-    lisa_flash/single_core/README.md
-    lisa_flash/halt_remote_core/README.md
-    lisa_pwm/output_basic/README.md
-    lisa_rtc/alarm/README.md
-    lisa_rtc/time_basic/README.md
-    lisa_uart/poll_in/README.md
-    lisa_uart/poll_out/README.md
-    lisa_uart/recv_sync_dma/README.md
-    lisa_uart/recv_sync_int/README.md
-    lisa_uart/send_async_dma/README.md
-    lisa_uart/send_async_int/README.md
-    lisa_uart/send_sync_dma/README.md
-    lisa_uart/send_sync_int/README.md
-    lisa_wdt/basic/README.md
-    lisa_wdt/interrupt/README.md
-    lisa_i2c/basic_write_read/README.md
-    lisa_i2c/slave_scan/README.md
-    lisa_touch/interrupt_mode/README.md
-    lisa_touch/polling_mode/README.md
-    lisa_dvp/normal_mode/README.md
-    lisa_dvp/pingpong_mode/README.md
+    lisa_spi/index_zh
+    lisa_qspilcd/index_zh
+    lisa_display/index_zh
+    lisa_audio/index_zh
+    lisa_flash/index_zh
+    lisa_pwm/index_zh
+    lisa_rtc/index_zh
+    lisa_uart/index_zh
+    lisa_wdt/index_zh
+    lisa_i2c/index_zh
+    lisa_touch/index_zh
+    lisa_dvp/index_zh
     lisa_camera/README.md
     lisa_rgb/rgb_bounce_buffer/README.md
-    lisa_i2s/master_tx/README.md
-    lisa_i2s/master_rx/README.md
-    lisa_i2s/master_rx_tx/README.md
-    lisa_i2s/slave_tx/README.md
-    lisa_i2s/slave_rx/README.md
-    lisa_i2s/slave_rx_tx/README.md
-    lisa_display/dual_display/README.md
-
+    lisa_i2s/index_zh

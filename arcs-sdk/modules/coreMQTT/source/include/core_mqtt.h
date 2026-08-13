@@ -39,7 +39,7 @@
 #include "core_mqtt_serializer.h"
 
 /* Include transport interface. */
-#include "transport_interface.h"
+#include "../interface/transport_interface.h"
 
 /**
  * @cond DOXYGEN_IGNORE

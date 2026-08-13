@@ -59,6 +59,7 @@ static void model_voice_on_disconnected(void *arg);
 static void model_voice_on_tts_player_playing(void *arg);
 static void model_voice_on_tts_player_stoped(void *arg);
 static void model_voice_on_image_rec(void *arg);
+static void model_voice_on_image_rec_failed(void *arg);
 static void model_voice_on_info_show(void *arg);
 static void model_voice_on_image_preview(void *arg);
 static void model_voice_on_image_url(void *arg, const char *url);
@@ -230,6 +231,7 @@ const struct model_voice_cb model_voice_cbs = {
     .on_iat_text_update = model_voice_on_iat_text_update,
     .on_iat_text_end = model_voice_on_iat_text_end,
     .on_image_rec = model_voice_on_image_rec,
+    .on_image_rec_failed = model_voice_on_image_rec_failed,
     .on_info_show = model_voice_on_info_show,
     .on_image_preview = model_voice_on_image_preview,
     .on_image_url = model_voice_on_image_url,
@@ -1049,8 +1051,7 @@ static void model_voice_on_ota_state_change(const ota_state_t *state, void *arg)
         return;
     }
 
-    if (state->state == OTA_STATE_CHECKING ||
-        state->state == OTA_STATE_PACKAGE_INFO ||
+    if (state->state == OTA_STATE_PACKAGE_INFO ||
         state->state == OTA_STATE_UPDATING) {
         if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_OTA) {
             lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_OTA);
@@ -1164,6 +1165,22 @@ static void network_status_timer_callback(lv_timer_t *timer)
 
     home_update_network_icon(d);
     home_update_alarm_icon(d);
+}
+
+static void model_voice_on_image_rec_failed(void *arg)
+{
+    struct home_nav_scr_data *scr_data = arg;
+
+    if (!scr_data || !scr_data->view || !scr_data->img_rec_in_progress) {
+        return;
+    }
+
+    LISA_UI_LOGW("voice photo: cloud recognition finished without result");
+    scr_data->camera_preview_result_pending = 0;
+    home_camera_preview_uploading_clear(scr_data);
+    voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);
+    camera_preview_hide(scr_data);
+    lisa_ui_toast_show(_("recognition error"));
 }
 
 static void model_voice_on_image_rec(void *arg)

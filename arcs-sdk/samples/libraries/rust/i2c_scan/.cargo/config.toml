@@ -1,0 +1,9 @@
+[build]
+target     = "riscv32imac-unknown-none-elf"
+target-dir = "cargo-out"
+
+[target.riscv32imac-unknown-none-elf]
+rustflags = [
+    "-C", "target-feature=+zba,+zbb,+zbc,+zbs",
+    "-C", "link-arg=-nostartfiles",
+]

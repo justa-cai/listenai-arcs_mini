@@ -9,7 +9,7 @@ config ADB
 config ADB_MAX_PAYLOAD_SIZE
 	int "adb max payload size"
 	default 51200
-	range 1024 65536
+	range 1024 262144
 
 config ADB_PERF_MODE
 	bool "ADB performance mode (uses more SRAM)"

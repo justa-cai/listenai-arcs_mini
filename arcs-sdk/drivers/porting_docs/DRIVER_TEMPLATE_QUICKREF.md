@@ -78,7 +78,16 @@ static int arcs_xxx0_init(void)
     return LISA_DEVICE_OK;
 }
 
-LISA_DEVICE_REGISTER(xxx0, &arcs_xxx_api, &xxx0_priv, NULL, arcs_xxx0_init, LISA_DEVICE_PRIORITY_NORMAL);
+LISA_DEVICE_REGISTER(xxx0, &arcs_xxx_api, &xxx0_priv, NULL,
+                     arcs_xxx0_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+```
+
+如需接入 `lisa_pm` system PM：
+
+```c
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(xxx0, &xxx_pm_ops, NULL, &xxx0_priv);
+#endif
 ```
 
 ### `CMakeLists.txt`
@@ -122,7 +131,7 @@ endif
 | 第一参数 | 必须是 `lisa_device_t *dev` |
 | 状态检查 | `lisa_device_is_initialized(dev)` |
 | 错误转换 | HAL错误 → `LISA_DEVICE_ERR_IO` |
-| 注册宏 | `LISA_DEVICE_REGISTER(名称, API, 私有数据, NULL, 初始化函数, 优先级)` |
+| 注册宏 | `LISA_DEVICE_REGISTER(名称, API, 私有数据, NULL, 初始化函数, 初始化级别, 优先级)` |
 | 优先级 | CRITICAL(0)/HIGH(10)/NORMAL(50)/LOW(90) |
 
 ---

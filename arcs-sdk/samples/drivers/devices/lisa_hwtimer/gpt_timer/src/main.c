@@ -23,8 +23,12 @@
 
 #define HWTIMER_DEVICE "gpt_timer"
 #define TIMER_CHANNEL  0
-#define TIMER_FREQ_HZ  100000000  /* 100MHz */
-#define TIMER_COUNT    TIMER_FREQ_HZ/2
+#if defined(CONFIG_SOC_VENUSA)
+#define TIMER_FREQ_HZ  10000  /* Venusa GPT 16-bit timer 使用 10kHz，0.5s 对应 5000 count */
+#else
+#define TIMER_FREQ_HZ  100000000  /* ARCS GPT 使用 100MHz */
+#endif
+#define TIMER_COUNT    (TIMER_FREQ_HZ / 2)
 
 static volatile uint32_t timer_trigger_count = 0;
 

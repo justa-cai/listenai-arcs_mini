@@ -375,12 +375,22 @@ uint8_t btos_wait_event(btos_task_id task_id, btos_event_t *event, TickType_t ti
 
 /**
  ****************************************************************************************
- * @brief Return btos time
+ * @brief Return btos time us
  *
  * @return current task handle
  ****************************************************************************************
  */
 int btos_get_time(uint32_t *sec, uint32_t *usec);
+
+/**
+ ****************************************************************************************
+ * @brief Return btos time ms
+ *
+ * @return current task handle
+ ****************************************************************************************
+ */
+
+int btos_get_time_ms(uint32_t *sec, uint32_t *msec);
 
 /**
  ****************************************************************************************
@@ -421,6 +431,9 @@ int btos_timer_cancel(TimerHandle_t timer);
  ****************************************************************************************
  */
 void btos_heap_status(void);
+
+int btos_timer_stop(TimerHandle_t timer);
+
 
 #endif // btos_H_
 

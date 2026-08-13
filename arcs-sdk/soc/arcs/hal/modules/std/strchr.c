@@ -35,6 +35,10 @@
 
 #include "string.h"
 
+#ifndef __UNCONST
+#define __UNCONST(a) ((void *)(unsigned long)(const void *)(a))
+#endif
+
 char *
 strchr(p, ch)
 	const char *p;

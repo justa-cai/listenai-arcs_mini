@@ -16,8 +16,11 @@ endif
 exclude_dirs=
 
 #files want to build: eg. CSRCS=a.c  CPPSRCS=b.cpp  SSRCS=c.S
-
+ifeq ("$(CFG_AMP_IPC_SLAVE)", "1")
+CSRCS	= bt_stack_hal.c bt_ip_hal.c bt_app_hal.c
+else
 CSRCS	= $(shell find . -name "*.c")
+endif
 CPPSRCS	=
 SSRCS	=
 
@@ -31,6 +34,8 @@ CFLAGS  = -I $(TOPDIR)/include/NMSIS/Core/Include \
 		-I $(TOPDIR)/chip/${CHIP}/include \
 		-I $(TOPDIR)/chip/${CHIP}/include/wifi \
 		-I $(TOPDIR)/chip/${CHIP}/include/bt \
+		-I $(TOPDIR)/chip/${CHIP}/include/ipc \
+		-I $(TOPDIR)/chip/${CHIP}/include/utils \
 		-I $(TOPDIR)/chip/${CHIP}/driver/private_include \
 		-I $(TOPDIR)/chip/${CHIP}/rtos/rtos_al \
 		-I $(TOPDIR)/chip/${CHIP}/btos \

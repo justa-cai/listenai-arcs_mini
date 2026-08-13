@@ -23,8 +23,6 @@
 #include <stdio.h>
 #include "lisa_device.h"
 #include "lisa_adc.h"
-#include "IOMuxManager.h"
-#include "arcs_ap.h"
 
 #include "FreeRTOS.h"
 #include "task.h"

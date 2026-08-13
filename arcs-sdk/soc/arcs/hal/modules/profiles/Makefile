@@ -54,6 +54,7 @@ CFLAGS = -I$(TOPDIR)/include/rtos \
 		 -I$(TOPDIR)/src/bt/${TGT}/ \
 		 -I$(TOPDIR)/src/bt/audio_simu/ \
 		 -I$(TOPDIR)/src/bt/simulator/ \
+		 -I$(TOPDIR)/src/${APP_PATH} \
 		 -I$(TOPDIR)/chip/${CHIP}/driver/private_include \
 		 -I./
 

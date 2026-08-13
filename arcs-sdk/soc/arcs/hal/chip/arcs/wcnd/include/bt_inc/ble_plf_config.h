@@ -53,9 +53,9 @@ enum NVS_ID
     NVS_ID_LOC_IRK                    = 0x03,
     
     /// bt class link key.
-    NVS_ID_LK_INDEX                   = 0x60,
-    NVS_COUNT_LK                      = 8,
-    NVS_ID_LK_FIRST                   = 0x61,
+    NVS_ID_LK_INDEX                   = 0x50,
+    NVS_COUNT_LK                      = 20,
+    NVS_ID_LK_FIRST                   = 0x51,
     NVS_ID_LK_LAST                    = NVS_ID_LK_FIRST + NVS_COUNT_LK - 1,
     NVS_LEN_LK                        = 24,
     
@@ -66,6 +66,9 @@ enum NVS_ID
     NVS_LEN_LTK                       = 36,
     NVS_FREQ_OFFSET_COMPENSATION      = 38,
 
+
+    /// SC Private Key (Low Energy)
+    NVS__ID_LE_PRIVATE_KEY_P256        = 0x80,
 
     /// Last ble connect peer ba addr
     NVS_ID_PEER_ADDRESS               = 0x90,

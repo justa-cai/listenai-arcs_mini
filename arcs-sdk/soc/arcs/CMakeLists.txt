@@ -18,26 +18,29 @@ if(EXISTS ${_SOC_LD_DIR})
     listenai_add_linker_section(FILE ${_SOC_LD_DIR}/ipc-aliases.ld   SLOT ALIASES  SORT_KEY "10-soc")
     listenai_add_linker_section(FILE ${_SOC_LD_DIR}/ipc-shared.ld    SLOT POST_DATA SORT_KEY "10-soc")
 
-    # LUNA shared memory (only when LUNA shared region is enabled)
-    listenai_add_linker_memory(FILE ${_SOC_LD_DIR}/luna-memory.ld SORT_KEY "10-soc")
-    listenai_add_linker_section(FILE ${_SOC_LD_DIR}/luna-aliases.ld    SLOT ALIASES  SORT_KEY "10-soc")
+    # LUNA shared sections are placed in normal SRAM; no dedicated MEMORY region is needed.
     listenai_add_linker_section(FILE ${_SOC_LD_DIR}/luna-sections.ld   SLOT COMPONENTS SORT_KEY "10-soc")
-    if(CONFIG_MEM_LUNA_SHARED_SIZE GREATER 0)
-        listenai_add_linker_scatter(SCATLOAD .luna.text)
-        listenai_add_linker_scatter(SCATLOAD .luna.data)
-        listenai_add_linker_scatter(SCATZERO .luna.bss)
-    endif()
+    listenai_add_linker_scatter(SCATLOAD .luna.text)
+    listenai_add_linker_scatter(SCATLOAD .luna.data)
+    listenai_add_linker_scatter(SCATZERO .luna.bss)
 
     # Algorithm RAM region
     listenai_add_linker_memory(FILE ${_SOC_LD_DIR}/apram-memory.ld SORT_KEY "10-soc")
 
-    # Code relocation
+    # 内存布局静态校验：SRAM/WFRAM/IPC 不重叠且在合法范围内
+    listenai_add_linker_section(FILE ${_SOC_LD_DIR}/mem-layout-check.ld SLOT COMPONENTS SORT_KEY "10-soc")
+
+    # PM (light sleep) 段体系：链接片段 + 段重定位规则
+    include(${_SOC_LD_DIR}/pm.cmake)
+
+    # Code relocation (非 PM)
     listenai_code_relocate(FILES spiflash.c LOCATION SRAM_RODATA)
     listenai_code_relocate(SECTIONS .text.irq .text.xPortTaskSwitch .text.eclic_mtip_handler LOCATION SRAM_TEXT)
-    listenai_code_relocate(SECTIONS .pm.ramcode LOCATION SRAM_TEXT)
-    listenai_code_relocate(SECTIONS ._wf_critical LOCATION ITCM)
-    listenai_code_relocate(SECTIONS .text.pm LOCATION ITCM)
+
 endif()
 
+listenai_compile_definitions(CONFIG_PM_PSRAM=1)
+
 add_subdirectory(hal)
+
 add_subdirectory(common)

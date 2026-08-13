@@ -965,4 +965,20 @@ ls_err_t wifi_dpd_track_connect_switch(uint8_t en);
  */
 ls_err_t wifi_ps_dbg_level_set(uint8_t level);
 
+/**
+ * @brief     This API is set the task priority.
+ *
+ * @attention
+ *
+ * @params
+ *    - type : wifi_task_type
+ *    - priority : task new priority(0 is set defaut priority)
+ *
+ * @return
+ *    - LS_OK: succeed
+ *    - others: other errors
+ */
+
+ls_err_t wifi_set_task_priority(uint32_t type, int priority);
+
 #endif

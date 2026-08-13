@@ -1760,8 +1760,7 @@ __STATIC_FORCEINLINE int32_t __AMOOR_W(volatile int32_t *addr, int32_t value)
 
     __ASM volatile ("amoor.w %0, %2, %1" : \
             "=r"(result), "+A"(*addr) : "r"(value) : "memory");
-//    return *addr;
-	return result;
+    return *addr;
 }
 
 /**

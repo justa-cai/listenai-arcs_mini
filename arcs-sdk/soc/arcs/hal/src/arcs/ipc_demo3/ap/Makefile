@@ -31,10 +31,8 @@ CFLAGS += -I $(TOPDIR)/include/NMSIS \
          -I $(TOPDIR)/chip/${CHIP}/rtos/rtos_al \
          -I $(TOPDIR)/chip/${CHIP}/atcmd \
          -I $(TOPDIR)/modules/rtos/portable/${BUILDTOOL}/non_secure \
-         -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_core \
-         -I $(TOPDIR)/chip/$(CHIP)/ipc/ipc_utils \
-         -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_slave \
          -I $(TOPDIR)/chip/${CHIP}/include/ipc \
+         -I $(TOPDIR)/chip/${CHIP}/include/ipc/mrpc \
          -I $(TOPDIR)/chip/${CHIP}/ic_lock
 
 # copy cflags from RW IP
@@ -99,13 +97,14 @@ ifeq ($(strip $(CFG_MEMDUMP)), 1)
 export CFG_MEMDUMP
 endif
 
-CFG_AMP_IPC_SLAVE := 1
+CFG_AMP_IPC_MASTER := 1
 CFG_AMP_IPC_HALT_BY_PEER_CORE := 1
 CFG_AMP_IPC_HALT_PEER_CORE := 1
 CFG_AMP_IPC_MRPC_SERVER := 1
-CFG_AMP_IPC_MRPC_CLIENT := 1
+CFG_AMP_IPC_MRPC_CLIENT := 0
+CFG_AMP_IPC_MRPC_SERVER_LUNA := 1
 
-export CFG_AMP_IPC_SLAVE CFG_AMP_IPC_MRPC_SERVER CFG_AMP_IPC_MRPC_CLIENT
+export CFG_AMP_IPC_MASTER CFG_AMP_IPC_MRPC_SERVER CFG_AMP_IPC_MRPC_CLIENT CFG_AMP_IPC_MRPC_SERVER_LUNA
 export CFG_AMP_IPC_HALT_BY_PEER_CORE CFG_AMP_IPC_HALT_PEER_CORE
 
 ifeq ($(PSRAM_HEAP), 1)
@@ -131,11 +130,6 @@ ifeq ("$(strip $(CFG_CRYPTO_IC_MUTEX))","1")
 CFLAGS  += -DCFG_CRYPTO_IC_MUTEX
 endif
 
-ifeq ("$(strip $(CONFIG_PM))","1")
-CFG_AMP_IPC_MRPC_CLIENT_NVS = 0
-CFG_TOTAL_HEAP_SIZE = 64512
-CFG_AMP_IPC_MRPC_CLIENT_FLASH_IF := 0
-endif
 
 ext1 : # don't do this except TapeOut
 	$(TOPDIR)/tools/mkhdr.sh $(TGTOUT)/$(TARGET).bin

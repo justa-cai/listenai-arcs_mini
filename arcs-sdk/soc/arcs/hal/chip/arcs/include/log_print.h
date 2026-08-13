@@ -56,6 +56,7 @@ void logDbg_enable_set(uint8_t logD_on_off);
 //#ifndef TASKMSK
 //#define TASKMSK   TASKMSK_NONE
 //#endif
+#define CLOGN(fmt, ...)     do {if (cloglvl >= CLOG_LEVEL_NONE)  {  CLOG(fmt,##__VA_ARGS__); CLOG("\n");}} while(0)
 
 #define CLOGE(fmt, ...)     do {if (cloglvl >= CLOG_LEVEL_ERROR)  { CLOG("ERR:"fmt,##__VA_ARGS__);}} while(0)
 #define CLOGW(fmt, ...)     do {if (cloglvl >= CLOG_LEVEL_WARN)   { CLOG("WRN:"fmt,##__VA_ARGS__);}} while(0)

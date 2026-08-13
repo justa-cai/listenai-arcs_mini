@@ -100,10 +100,10 @@ _FAST_FUNC_RO void DVP_IRQ_Handler()
         dvp_dev->Instance->REG_INTR_CLR.bit.EOF_CNT_ABNOR_CLR = 1;
 
         /* Update error code */
-        dvp_dev->ErrorCode |= DVP_ERROR_EOF_CNT_ABNOR;
+        //dvp_dev->ErrorCode |= DVP_ERROR_EOF_CNT_ABNOR;
 
         /* Change the state */
-        dvp_dev->State = DVP_STATE_ERROR;
+        //dvp_dev->State = DVP_STATE_ERROR;
 
         if(dvp_dev->cb_event)
             dvp_dev->cb_event(DVP_IRQ_EVENT_EOF_CNT_ABNOR, 0);
@@ -127,10 +127,10 @@ _FAST_FUNC_RO void DVP_IRQ_Handler()
     {
         dvp_dev->Instance->REG_INTR_CLR.bit.FIFO_UNFLOW_CLR = 1;
         /* Update error code */
-        dvp_dev->ErrorCode |= DVP_ERROR_FIFO_UNFLOW;
+        //dvp_dev->ErrorCode |= DVP_ERROR_FIFO_UNFLOW;
 
         /* Change the state */
-        dvp_dev->State = DVP_STATE_ERROR;
+        //dvp_dev->State = DVP_STATE_ERROR;
 
         if(dvp_dev->cb_event)
             dvp_dev->cb_event(DVP_IRQ_EVENT_FIFO_UNFLOW, 0);
@@ -140,10 +140,10 @@ _FAST_FUNC_RO void DVP_IRQ_Handler()
     {
         dvp_dev->Instance->REG_INTR_CLR.bit.FIFO_OVFLOW_CLR = 1;
         /* Update error code */
-        dvp_dev->ErrorCode |= DVP_ERROR_FIFO_OVFLOW;
+        //dvp_dev->ErrorCode |= DVP_ERROR_FIFO_OVFLOW;
 
         /* Change the state */
-        dvp_dev->State = DVP_STATE_ERROR;
+        //dvp_dev->State = DVP_STATE_ERROR;
 
         if(dvp_dev->cb_event)
             dvp_dev->cb_event(DVP_IRQ_EVENT_FIFO_OVFLOW, 0);
@@ -166,10 +166,10 @@ _FAST_FUNC_RO void DVP_IRQ_Handler()
     {
         dvp_dev->Instance->REG_INTR_CLR.bit.FIFO_RD_FULL_CLR = 1;
         /* Update error code */
-        dvp_dev->ErrorCode |= DVP_ERROR_FIFO_RD_FULL;
+        //dvp_dev->ErrorCode |= DVP_ERROR_FIFO_RD_FULL;
 
         /* Change the state */
-        dvp_dev->State = DVP_STATE_ERROR;
+        //dvp_dev->State = DVP_STATE_ERROR;
 
         if(dvp_dev->cb_event)
             dvp_dev->cb_event(DVP_IRQ_EVENT_FIFO_RD_FULL, 0);
@@ -529,6 +529,12 @@ int32_t DVP_Start(void *pDvpDev)
     /* Enable Capture */
     dvp_dev->Instance->REG_VI_EN.bit.VI_EN = 1;
 
+    /* IRQ mask, but enable sof and eof */
+    dvp_dev->Instance->REG_INTR_MSK.all   = 0x13F;  // enable:sof/eof
+
+    /* IRQ Clear */
+    dvp_dev->Instance->REG_INTR_CLR.all   = 0x7FF;
+
     /* Return function status */
     return CSK_DRIVER_OK;
 }
@@ -556,6 +562,12 @@ int32_t DVP_Stop(void *pDvpDev)
 
     /* Disable VIC */
     dvp_dev->Instance->REG_VI_EN.bit.VI_EN = 0;
+
+    /* IRQ mask, but enable sof and eof */
+    dvp_dev->Instance->REG_INTR_MSK.all   = 0x1FF;
+
+    /* IRQ Clear */
+    dvp_dev->Instance->REG_INTR_CLR.all   = 0x7FF;
 
     /* Update error code */
     dvp_dev->ErrorCode = DVP_ERROR_NONE;

@@ -21,7 +21,6 @@ config BOOT_DISPLAY
     select LISA_DEVICE
     select LISA_DISPLAY_DEVICE
     select LISA_DISPLAY_BUS_SPI_4WIRE
-    select LISA_DISPLAY_BACKLIGHT_PWM
     select LISA_DISPLAY_PANEL_ST7789P3
     select LISA_SPI0
     select LISA_GPIOA
@@ -98,7 +97,6 @@ choice
         bool "CherryUSB"
         select CHERRYUSB
         select CHERRYUSB_DEVICE
-        select CHERRYUSB_DEVICE_MUSB_LISA
         select CHERRYUSB_APP_CLASS
         select ADB_PERF_MODE
         help
@@ -250,22 +248,19 @@ config BOOT_EARLY_LOG
 
 config BOOT_UART_PORT
     int "boot log port"
-    default SYSLOG_UART_PORT if BOOT
     default 0
 
 config BOOT_UART_TX_PIN
     int "boot uart tx pin"
-    default SYSLOG_UART_TX_PIN if BOOT
     default 3
 
 config BOOT_UART_BAUDRATE
     int "boot log baud rate"
-    default SYSLOG_UART_BAUDRATE if BOOT
+    default CONSOLE_UART_BAUDRATE if CONSOLE_UART_BACKEND
     default 921600
 
 config BOOT_UART_PIN_FUNC_SEL
     int "boot log pin func sel"
-    default SYSLOG_UART_TX_PIN_FUNC_SEL if BOOT
     default 2
 
 menuconfig BOOT_CHECK_GPIO

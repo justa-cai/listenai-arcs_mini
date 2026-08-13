@@ -1,0 +1,11 @@
+tests:
+  samples.libraries.rust.fpu_hardfloat:
+    # 暂时跳过此 sample，因为切换 nightly 工具链有概率会引起其它 sample 选错工具链
+    skip: true
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "fpu_hardfloat:done"

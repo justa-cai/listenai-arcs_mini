@@ -202,14 +202,39 @@ typedef enum _pmu_sleep_trigger {
 
 
 /**
- * @brief Get the system reset cause.
+ * @brief Snapshot REG_SYSRST_STATUS into RAM and clear the hardware bits.
  *
- * This function retrieves the system reset cause from the AON status register
- * and then clears the reset cause.
+ * Must be called once during SystemInit (after SystemInit_Copy so globals
+ * are valid). Subsequent HAL_PMU_GetSysResetCause() calls read the cached
+ * snapshot; the hardware register is cleared so the next reset cycle
+ * starts from a clean state.
+ */
+void HAL_PMU_SnapshotResetCause(void);
+
+
+/**
+ * @brief Get the system reset cause captured at SystemInit.
+ *
+ * Returns the reset source latched into the SDK snapshot by
+ * HAL_PMU_SnapshotResetCause(). The underlying hardware register has
+ * already been cleared by then.
  *
  * @return The reset source as defined in pmu_rstsrc_t.
  */
 pmu_rstsrc_t HAL_PMU_GetSysResetCause(void);
+
+
+/**
+ * @brief Get the raw SYSRST_STATUS bitmap captured at SystemInit.
+ *
+ * Returns the latched bitmap (bit positions per pmu_rstsrc_t enum value),
+ * preserving all causes when multiple bits are set simultaneously. Prefer
+ * this over HAL_PMU_GetSysResetCause() when callers need to observe
+ * coexisting reset sources without priority-decoded loss.
+ *
+ * @return Raw SYSRST_STATUS bitmap (zero if no cause was latched).
+ */
+uint32_t HAL_PMU_GetSysResetCauseRaw(void);
 
 
 /**
@@ -878,6 +903,10 @@ do { \
 /**
   * @}
   */
+#define __HAL_SYSTEM_AON_RESET() \
+ do { \
+  IP_AON_CTRL->REG_AON_SW_RESET.all = 0xcafe000a; \
+ } while(0)
 
 
 /**

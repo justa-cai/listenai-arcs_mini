@@ -17,7 +17,7 @@
  * 3. Flash 操作完成后，AP 核自动恢复运行
  * 4. 通过串口输出可以观察到 AP 核的停止和恢复过程
  *
- * @note 配置 CONFIG_ARCS_HAL_IPC_HALT_PEER_CORE=y 允许被远端核心停止
+ * @note 配置 CONFIG_LISA_FLASH_ARCS_HALT_BY_REMOTE_CORE=y 允许被远端核心停止
  */
 
 #include <stdio.h>
@@ -25,7 +25,8 @@
 #include <stdbool.h>
 
 #include "sys_init.h"
-#include "arcs_ap.h"
+#include "soc/chip.h"
+#include "sys/boot_core.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -65,12 +66,14 @@ int main(int argc, char **argv)
 
 static int boot_cp(void)
 {
+    int ret = sys_boot_core(1, 0x30080000);
+    if (ret != 0) {
+        LISA_LOGE(TAG, "CP core boot failed: %d", ret);
+        return ret;
+    }
 
-    /*CP boot flash address(CONFIG_MEM_FLASH_BASE)*/
-    IP_CMN_SYS->REG_N300_CP_RST_ADDR.all = 0x30080000;
-    /* reset c-core */
-    IP_SYSCTRL->REG_SW_RESET_CP0.all = 0xCAFE000A;
     LISA_LOGI(TAG, "CP core booted.\n");
+    return 0;
 }
 
 SYS_INIT(boot_cp, SYS_INIT_LEVEL_PRE_DEVICES_INIT, 1);      /* 优先级 */

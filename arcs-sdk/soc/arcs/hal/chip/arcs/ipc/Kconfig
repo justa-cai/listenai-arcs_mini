@@ -16,6 +16,8 @@ if ARCS_HAL_IPC
 
     choice
         prompt "arcs hal wifi/lwip ipc type"
+        default ARCS_HAL_IPC_MASTER if LOG_BACKEND_IPC_READER
+        default ARCS_HAL_IPC_SLAVE if LOG_BACKEND_IPC_WRITER
         default ARCS_HAL_IPC_MASTER if LWIP
         default ARCS_HAL_IPC_SLAVE if WIFI
         config ARCS_HAL_IPC_SLAVE
@@ -97,6 +99,22 @@ if ARCS_HAL_IPC
         help
             Enable MRPC client for BT API (runs on CP core to call BLE remotely)
 
+    config ARCS_HAL_IPC_MRPC_SERVER_BT_S2M
+        bool "Enable BT slave-to-master MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for BT callbacks from the slave/AP image to the
+            master/CP image.
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_BT_S2M
+        bool "Enable BT slave-to-master MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for BT callbacks from the slave/AP image to the
+            master/CP image.
+
     config ARCS_HAL_IPC_MRPC_CLIENT_FLASH_IF
         bool "Enable flash if MRPC client"
         default n
@@ -138,6 +156,20 @@ if ARCS_HAL_IPC
         select ARCS_HAL_IPC_MRPC_SERVER
         help
             Enable MRPC server for utils API
+
+    config ARCS_HAL_IPC_MRPC_SERVER_AP_PM_LOCK
+        bool "Enable AP PM lock MRPC server"
+        default n
+        select ARCS_HAL_IPC_MRPC_SERVER
+        help
+            Enable MRPC server for AP-side remote PM lock control.
+
+    config ARCS_HAL_IPC_MRPC_CLIENT_AP_PM_LOCK
+        bool "Enable AP PM lock MRPC client"
+        default n
+        select ARCS_HAL_IPC_MRPC_CLIENT
+        help
+            Enable MRPC client for CP-side AP remote PM lock control.
  
     config ARCS_HAL_IPC_HALT_BY_PEER_CORE
         bool "Halt by peer core"
@@ -162,10 +194,31 @@ if ARCS_HAL_IPC
         bool "Enable IPC log forwarding"
         default n
         help
-            Enable AP-to-CP IPC log forwarding. When enabled on IPC slave
-            builds, AP-side logs are forwarded to the peer core for printing.
-            When enabled on IPC master builds, the peer-side print receive
-            path is enabled.
+            Enable IPC log forwarding through the shared debug ring buffer.
+            The forwarding direction is set by ARCS_HAL_IPC_PRINT_WRITER /
+            ARCS_HAL_IPC_PRINT_READER and is independent of the IPC
+            master/slave role. When neither direction option is set, the
+            legacy behavior applies: slave builds forward local logs to the
+            peer (writer) and master builds print peer logs (reader).
+
+    config ARCS_HAL_IPC_PRINT_WRITER
+        bool "IPC log writer (forward local logs to peer)"
+        default n
+        select ARCS_HAL_IPC_PRINT
+        help
+            Forward local logs into the shared IPC debug ring buffer so the
+            peer core can print them. Works on either IPC role. The peer
+            image must enable ARCS_HAL_IPC_PRINT_READER.
+
+    config ARCS_HAL_IPC_PRINT_READER
+        bool "IPC log reader (print peer logs locally)"
+        default n
+        select ARCS_HAL_IPC_PRINT
+        help
+            Initialize the shared IPC debug ring buffer and print logs
+            forwarded by the peer core. Works on either IPC role. The peer
+            image must enable ARCS_HAL_IPC_PRINT_WRITER. Only one image may
+            enable the reader.
 
     if ARCS_HAL_IPC_PRINT
 

@@ -1,22 +1,8 @@
 # Project Agents
 
-本仓库包含项目级 skill：`sdk-assistant-agent`、`gitlab-issue-pr-agent`、`gitlab-mr-review-followup-agent`。
+当任务与 ARCS SDK / LISTENAI SDK 开发相关时，应优先加载并遵循 `.agents/skills/` 下对应 skill 的 SKILL.md。
 
-当任务与 ARCS SDK / LISTENAI SDK 开发相关时，应优先加载并遵循：
-- `.project/skills/sdk-assistant-agent/SKILL.md`
-- `.project/skills/gitlab-issue-pr-agent/SKILL.md`（当任务来自本仓库 GitLab issue，且需要按 issue 建独立 branch / MR 时）
-- `.project/skills/gitlab-mr-review-followup-agent/SKILL.md`（当任务进入 MR review 跟进、整改、thread 回复阶段时）
-
-典型触发场景：
-- 驱动开发与设备注册
-- 编译、烧录、串口日志与构建排障
-- 示例代码或 sample 生成
-- SDK 代码审查
-- SDK 文档编写与知识维护
-- 处理 `cloud.listenai.com/CSKG836746/arcs-sdk/arcs-sdk` 的 issue 链接或 issue 编号
-- 处理已创建 MR 的 review comment / discussion 跟进、整改与回复
-
-加载后按该 skill 的路由规则选择对应 worker 与 references，避免在仓库中无目的地全量遍历。
+如任务涉及 Zig 语言绑定、`.zig` 文件、`build.zig`、`zig/` 目录、`@import("arcs")`、Zig 示例生成或 Zig 构建调试，应额外关注本次引入的 Zig 开发支持与相关参考资料。
 
 ## 测试类任务附加要求
 

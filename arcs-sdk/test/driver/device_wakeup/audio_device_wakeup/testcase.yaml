@@ -1,0 +1,3 @@
+tests:
+  test.driver.device_wakeup.audio:
+    build_only: true

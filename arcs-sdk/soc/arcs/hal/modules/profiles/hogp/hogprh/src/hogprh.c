@@ -94,7 +94,10 @@ __STATIC void hogprh_enable_cmp(hogprh_env_t* p_hogprh_env, uint8_t conidx, uint
                                         p_con_env->hids[cursor].svc.ehdl);
             }
         }
-        p_cb->cb_enable_cmp(conidx, status, p_con_env->nb_svc, p_con_env->hids);
+        if(p_cb->cb_enable_cmp != NULL)
+        {
+            p_cb->cb_enable_cmp(conidx, status, p_con_env->nb_svc, p_con_env->hids);
+        }
     }
 }
 
@@ -544,7 +547,7 @@ __STATIC void hogprh_write_cmp_cb(uint8_t conidx, uint8_t user_lid, uint16_t dum
 __STATIC void hogprh_att_val_evt_cb(uint8_t conidx, uint8_t user_lid, uint16_t token, uint8_t evt_type, bool complete,
                                   uint16_t hdl, void* p_data)
 {
-    //CLOGD("hogprh_att_val_evt_cb ,evt_type:%d,hdl:%d", evt_type, hdl);
+    CLOGD("hogprh_att_val_evt_cb ,evt_type:%d,hdl:%d", evt_type, hdl);
 
     if(p_hogprh_env != NULL)
     {
@@ -602,7 +605,7 @@ __STATIC void hogprh_svc_changed_cb(uint8_t conidx, uint8_t user_lid, bool out_o
 }
 
 /// Client callback hander
-__STATIC const ble_gatt_cli_cb_t hogprh_cb =
+__STATIC const ble_gatt_cli_cb_t hogprh_cli_cb =
 {
     .cb_discover_cmp    = hogprh_discover_cmp_cb,
     .cb_read_cmp        = hogprh_read_cmp_cb,
@@ -771,7 +774,7 @@ static uint8_t hogprh_init(uint16_t* p_start_hdl, uint8_t sec_lvl, uint8_t user_
             }
     
             // register HOGPRH user
-            status = gatt_user_cli_register(HOGPRH_REPORT_MAP_MAX_LEN, user_prio, &hogprh_cb, &user_lid);
+            status = gatt_user_cli_register(HOGPRH_REPORT_MAP_MAX_LEN, user_prio, &hogprh_cli_cb, &user_lid);
             if(status != BLE_GAP_ERR_NO_ERROR) break;
     
             if(p_hogprh_env != NULL)
@@ -875,7 +878,7 @@ uint16_t ble_hogprh_init(const hogprh_cb_t* p_cb)
  */
 uint16_t ble_hogprh_enable(uint8_t conidx, uint8_t con_type, const hogprh_content_t* p_hogprh)
 {
-    hogprh_enable(conidx, con_type, 1, p_hogprh);
+    return hogprh_enable(conidx, con_type, 1, p_hogprh);
 }
 
 /**

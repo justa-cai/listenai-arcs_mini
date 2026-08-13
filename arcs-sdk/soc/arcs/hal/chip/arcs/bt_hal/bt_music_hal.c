@@ -35,7 +35,6 @@
 #if (BT_STACK_PRESENT && BT_MUSIC_PRESENT)
 #include "bt_a2dp.h"
 #include "bt_avrcp.h"
-
 /*
  * LOCAL FUNCTIONS DECLARATION
  ****************************************************************************************
@@ -102,6 +101,12 @@ uint8_t a2dp_aud_type_switch(uint8_t bt_codec)
             break;
     }
     return aud_type;
+}
+
+void bt_stack_a2dp_caps_set(uint8_t role, bt_a2dp_meida_caps_cfg_t *caps_cfg)
+{
+    CLOGD("a2dp caps set, role:%d", role);
+    app_a2dp_set_media_caps(role, caps_cfg);
 }
 
 void bt_stack_a2dp_enable(bt_a2dp_cfg_t *a2dp_cfg)

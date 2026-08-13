@@ -1,0 +1,3 @@
+tests:
+  samples.subsys.lisa_pm.dual_core.gpio_wakeup:
+    build_only: true

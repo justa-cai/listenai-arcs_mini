@@ -90,7 +90,7 @@
 // 0x3 1/8  (200Ω)
 #define PSRAM_MR0_DRIVE_STR_OFFSET          (0x0)
 #define PSRAM_MR0_DRIVE_STR_MASK            (0x3)
-#define PSRAM_MR0_DRIVE_STR                 (0x0)
+#define PSRAM_MR0_DRIVE_STR                 (0x1)
 
 // bit 2-4 MR0[5:2]
 // Read Latency Codes
@@ -173,6 +173,7 @@
 // Refresh Frequency setting
 #define PSRAM_MR4_RFRATE_OFFSET             (0x3)
 #define PSRAM_MR4_RFRATE_MASK               (0x3)
+#define PSRAM_MR4_RFRATE_SLOW_REFRESH       (0x1)
 #define PSRAM_MR4_RFRATE_ALWAY_REFRESH      (0x0)
 
 // bit 5-7 MR4[7:5]
@@ -376,11 +377,11 @@
 
 #if PSRAM_LOG_CHECK == 1
 #define PSRAM_LOG(str, ...)  CLOGD(str, ##__VA_ARGS__)
-#define PSRAM_LOGE(str, ...) CLOGE(str, ##__VA_ARGS__)
 #else
 #define PSRAM_LOG(str, ...)
-#define PSRAM_LOGE(str, ...)
 #endif
+#define PSRAM_LOGE(str, ...) CLOGE(str, ##__VA_ARGS__)
+#define PSRAM_REINIT_LOG(str, ...)
 
 typedef struct {
     uint32_t delay_max;
@@ -389,13 +390,25 @@ typedef struct {
 }DqsDelay_FmtDef;
 
 static uint32_t* psram_dst_array = NULL;
+static uint32_t psram_rand_seed = 0x12345678;
+
+static uint32_t psram_rand(void){
+    uint32_t x = psram_rand_seed;
+
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+
+    psram_rand_seed = x;
+    return x;
+}
 
 static void psram_data_init(uint32_t *psram_src_data){
     unsigned int i=0;
     //init src with random data
     for (i = 0; i < PSRAM_SEARCH_DQS_NUM; i++)
     {
-        psram_src_data[i] = (uint32_t)rand();
+        psram_src_data[i] = psram_rand();
     }
 }
 
@@ -706,7 +719,6 @@ int32_t PSRAM_Initialize(uint32_t* read_delay, uint32_t* write_delay, uint8_t se
     uint32_t psram_src_data[PSRAM_SEARCH_DQS_NUM];
     
     IP_SYSCTRL->REG_SW_RESET_CP2.bit.PSRAM_CTRL_RESET = 0x1;
-
     // Enable PSRAM controller clock
     __HAL_CRM_PSRAM_CLK_ENABLE();
     // Get PSRAM controller clock
@@ -1420,7 +1432,147 @@ void PSRAM_EnterSleepMode(_psram_sleep_mode_t sleep_mode){
     }
 }
 
-// Note: This function is only used for XCCELA protocol PSRAM, and it's only be used for re-initialize
+#if CONFIG_PM
+struct psram_cfg_reg
+{
+#if PSRAM_DRV_STR_EN
+    volatile uint32_t REG_PSRAMIO_CFG0;
+    volatile uint32_t REG_PSRAMIO_CFG1;
+#endif
+    volatile uint32_t REG_PSRAMIO_CFG3;
+    volatile uint32_t REG_PSRAMIO_CFG4;
+
+    volatile uint32_t REG_SEQSEL;
+    volatile uint32_t REG_TIMCFG;
+    volatile uint32_t REG_RDWRCTRL;
+    volatile uint32_t REG_DEVDEF;
+    volatile uint32_t REG_DLLEN;
+    volatile uint32_t REG_RXBUFMSTID;
+    volatile uint32_t REG_RXBUFPFEN;
+
+    volatile uint32_t REG_S0LUT0;
+    volatile uint32_t REG_S0LUT1;
+    volatile uint32_t REG_S1LUT0;
+    volatile uint32_t REG_S1LUT1;
+    volatile uint32_t REG_S2LUT0;
+    volatile uint32_t REG_S2LUT1;
+    volatile uint32_t REG_S3LUT0;
+    volatile uint32_t REG_S3LUT1;
+    volatile uint32_t REG_S5LUT0;
+    volatile uint32_t REG_S5LUT1;
+    volatile uint32_t REG_S6LUT0;
+    volatile uint32_t REG_S6LUT1;
+
+    volatile uint32_t REG_DLLDELAY;
+};
+
+static _PM_STARTUP_BSS struct psram_cfg_reg psram_cfg_reg_info;
+
+static void psram_cfg_restore_reg_stage1(void)
+{
+#if PSRAM_DRV_STR_EN
+    IP_CMN_SYS->REG_PSRAMIO_CFG0.all = psram_cfg_reg_info.REG_PSRAMIO_CFG0;
+    IP_CMN_SYS->REG_PSRAMIO_CFG1.all = psram_cfg_reg_info.REG_PSRAMIO_CFG1;
+#endif
+    IP_CMN_SYS->REG_PSRAMIO_CFG3.all = psram_cfg_reg_info.REG_PSRAMIO_CFG3;
+    IP_CMN_SYS->REG_PSRAMIO_CFG4.all = psram_cfg_reg_info.REG_PSRAMIO_CFG4;
+
+    IP_PSRAM_CTRL->REG_SEQSEL.all = psram_cfg_reg_info.REG_SEQSEL;
+    IP_PSRAM_CTRL->REG_TIMCFG.all = psram_cfg_reg_info.REG_TIMCFG;
+    IP_PSRAM_CTRL->REG_S2LUT0.all = psram_cfg_reg_info.REG_S2LUT0;
+    IP_PSRAM_CTRL->REG_S2LUT1.all = psram_cfg_reg_info.REG_S2LUT1;
+    IP_PSRAM_CTRL->REG_S3LUT0.all = psram_cfg_reg_info.REG_S3LUT0;
+    IP_PSRAM_CTRL->REG_S3LUT1.all = psram_cfg_reg_info.REG_S3LUT1;
+    IP_PSRAM_CTRL->REG_S5LUT0.all = psram_cfg_reg_info.REG_S5LUT0;
+    IP_PSRAM_CTRL->REG_S5LUT1.all = psram_cfg_reg_info.REG_S5LUT1;
+    IP_PSRAM_CTRL->REG_S6LUT0.all = psram_cfg_reg_info.REG_S6LUT0;
+    IP_PSRAM_CTRL->REG_S6LUT1.all = psram_cfg_reg_info.REG_S6LUT1;
+    IP_PSRAM_CTRL->REG_DLLEN.all = psram_cfg_reg_info.REG_DLLEN;
+}
+
+static void psram_cfg_restore_reg_stage2(void)
+{
+    IP_PSRAM_CTRL->REG_RDWRCTRL.all = psram_cfg_reg_info.REG_RDWRCTRL;
+    IP_PSRAM_CTRL->REG_DEVDEF.all   = psram_cfg_reg_info.REG_DEVDEF;
+    IP_PSRAM_CTRL->REG_RXBUFMSTID.all = psram_cfg_reg_info.REG_RXBUFMSTID;
+    IP_PSRAM_CTRL->REG_RXBUFPFEN.all  = psram_cfg_reg_info.REG_RXBUFPFEN;
+
+    IP_PSRAM_CTRL->REG_S0LUT0.all = psram_cfg_reg_info.REG_S0LUT0;
+    IP_PSRAM_CTRL->REG_S0LUT1.all = psram_cfg_reg_info.REG_S0LUT1;
+    IP_PSRAM_CTRL->REG_S1LUT0.all = psram_cfg_reg_info.REG_S1LUT0;
+    IP_PSRAM_CTRL->REG_S1LUT1.all = psram_cfg_reg_info.REG_S1LUT1;
+
+    IP_PSRAM_CTRL->REG_DLLDELAY.all = psram_cfg_reg_info.REG_DLLDELAY;
+
+    IP_PSRAM_CTRL->REG_DLLRESYNC.bit.DLL_RESYNC = 0x1;
+}
+
+void psram_cfg_save_and_sleep(void)
+{
+    volatile uint32_t mr_r_value = IP_PSRAM_CTRL->REG_MR4.all;
+
+#if PSRAM_DRV_STR_EN
+    psram_cfg_reg_info.REG_PSRAMIO_CFG0 = IP_CMN_SYS->REG_PSRAMIO_CFG0.all;
+    psram_cfg_reg_info.REG_PSRAMIO_CFG1 = IP_CMN_SYS->REG_PSRAMIO_CFG1.all;
+#endif
+    psram_cfg_reg_info.REG_PSRAMIO_CFG3 = IP_CMN_SYS->REG_PSRAMIO_CFG3.all;
+    psram_cfg_reg_info.REG_PSRAMIO_CFG4 = IP_CMN_SYS->REG_PSRAMIO_CFG4.all;
+
+    psram_cfg_reg_info.REG_SEQSEL = IP_PSRAM_CTRL->REG_SEQSEL.all;
+    psram_cfg_reg_info.REG_TIMCFG = IP_PSRAM_CTRL->REG_TIMCFG.all;
+    psram_cfg_reg_info.REG_DEVDEF = IP_PSRAM_CTRL->REG_DEVDEF.all;
+    psram_cfg_reg_info.REG_DLLEN  = IP_PSRAM_CTRL->REG_DLLEN.all;
+    psram_cfg_reg_info.REG_RDWRCTRL = IP_PSRAM_CTRL->REG_RDWRCTRL.all;
+    psram_cfg_reg_info.REG_RXBUFMSTID = IP_PSRAM_CTRL->REG_RXBUFMSTID.all;
+    psram_cfg_reg_info.REG_RXBUFPFEN  = IP_PSRAM_CTRL->REG_RXBUFPFEN.all;
+
+    psram_cfg_reg_info.REG_S0LUT0 = IP_PSRAM_CTRL->REG_S0LUT0.all;
+    psram_cfg_reg_info.REG_S0LUT1 = IP_PSRAM_CTRL->REG_S0LUT1.all;
+    psram_cfg_reg_info.REG_S1LUT0 = IP_PSRAM_CTRL->REG_S1LUT0.all;
+    psram_cfg_reg_info.REG_S1LUT1 = IP_PSRAM_CTRL->REG_S1LUT1.all;
+    psram_cfg_reg_info.REG_S2LUT0 = IP_PSRAM_CTRL->REG_S2LUT0.all;
+    psram_cfg_reg_info.REG_S2LUT1 = IP_PSRAM_CTRL->REG_S2LUT1.all;
+    psram_cfg_reg_info.REG_S3LUT0 = IP_PSRAM_CTRL->REG_S3LUT0.all;
+    psram_cfg_reg_info.REG_S3LUT1 = IP_PSRAM_CTRL->REG_S3LUT1.all;
+    psram_cfg_reg_info.REG_S5LUT0 = IP_PSRAM_CTRL->REG_S5LUT0.all;
+    psram_cfg_reg_info.REG_S5LUT1 = IP_PSRAM_CTRL->REG_S5LUT1.all;
+    psram_cfg_reg_info.REG_S6LUT0 = IP_PSRAM_CTRL->REG_S6LUT0.all;
+    psram_cfg_reg_info.REG_S6LUT1 = IP_PSRAM_CTRL->REG_S6LUT1.all;
+
+    psram_cfg_reg_info.REG_DLLDELAY = IP_PSRAM_CTRL->REG_DLLDELAY.all;
+
+    mr_r_value &= (~(PSRAM_MR4_RFRATE_MASK << PSRAM_MR4_RFRATE_OFFSET));
+    IP_PSRAM_CTRL->REG_MR4.all = mr_r_value | (PSRAM_MR4_RFRATE_SLOW_REFRESH << PSRAM_MR4_RFRATE_OFFSET);
+    PSRAM_EnterSleepMode(PSRAM_SLEEP_MODE_HALF_SLEEP);
+}
+
+_PM_RAM_TEXT void psram_cfg_restore_and_wakeup(void)
+{
+    uint32_t mr_r_value, start;
+
+    IP_SYSCTRL->REG_SW_RESET_CP2.bit.PSRAM_CTRL_RESET = 0x1;
+    __HAL_CRM_PSRAM_CLK_ENABLE();
+
+    psram_cfg_restore_reg_stage1();
+    IP_PSRAM_CTRL->REG_DLLRST.all = 1;
+    while (IP_PSRAM_CTRL->REG_LOCKDONE.bit.LOCK_DONE != 1);
+    IP_PSRAM_CTRL->REG_DLLRESYNC.bit.DLL_RESYNC = 0x1;
+    IP_PSRAM_CTRL->REG_CUSTEXE.all = PSRAM_EXE_SLEEP_MODE_SEQ_ID;
+
+    start = (uint32_t)SysTimer_GetLoadValue();
+    while ((uint32_t)((uint32_t)SysTimer_GetLoadValue() - start) < 150)
+    {
+        __NOP();
+    };
+
+    psram_cfg_restore_reg_stage2();
+    mr_r_value = IP_PSRAM_CTRL->REG_MR4.all & (~(PSRAM_MR4_RFRATE_MASK << PSRAM_MR4_RFRATE_OFFSET));
+    IP_PSRAM_CTRL->REG_MR4.all = mr_r_value | (PSRAM_MR4_RFRATE_ALWAY_REFRESH << PSRAM_MR4_RFRATE_OFFSET);
+}
+#endif
+
+// Restore PSRAM quickly from the saved controller snapshot during wakeup.
+// If no snapshot is available, fall back to the legacy reinit flow.
 void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
     IP_SYSCTRL->REG_SW_RESET_CP2.bit.PSRAM_CTRL_RESET = 0x1;
 
@@ -1428,7 +1580,7 @@ void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
     __HAL_CRM_PSRAM_CLK_ENABLE();
     // Get PSRAM controller clock
     uint32_t psram_clock = CRM_GetPsramFreq();
-    PSRAM_LOG("PSRAM REINIT at %d", psram_clock);
+    PSRAM_REINIT_LOG("PSRAM REINIT at %d", psram_clock);
 
     // MR RD SEQ ID
     IP_PSRAM_CTRL->REG_SEQSEL.bit.MR_RD_SEQ_ID = PSRAM_MR_RD_SEQ_ID;
@@ -1453,7 +1605,7 @@ void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
         uint32_t tcem_para = 0;
         tcem_para = (uint32_t)(((psram_clock / __INNER_MICROSEC_LOW) * PSRAM_TCEM_REFRESH_TIME) / __INNER_MICROSEC_HIGH);
         IP_PSRAM_CTRL->REG_TIMCFG.bit.TCEM_CFG = tcem_para;
-        PSRAM_LOG("PSRAM TCEM parameter: %d", tcem_para);
+        PSRAM_REINIT_LOG("PSRAM TCEM parameter: %d", tcem_para);
     }
     // TCPH configure
     {
@@ -1464,7 +1616,7 @@ void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
             tcph_para = 8;
         }
         IP_PSRAM_CTRL->REG_TIMCFG.bit.TCPH_CFG = 8;
-        PSRAM_LOG("PSRAM TCPH parameter: %d", tcph_para);
+        PSRAM_REINIT_LOG("PSRAM TCPH parameter: %d", tcph_para);
     }
 
     // DLL lock program start ####################################################
@@ -1475,11 +1627,11 @@ void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
         IP_PSRAM_CTRL->REG_DLLEN.bit.PHASE_DETECT_SEL = 0x1;
         IP_PSRAM_CTRL->REG_DLLEN.bit.DLL_EN =1;
         IP_PSRAM_CTRL->REG_DLLRST.all = 1;
-        PSRAM_LOG("Wait PSRAM DLL done\n\n\n");
+        PSRAM_REINIT_LOG("Wait PSRAM DLL done\n\n\n");
         do{
           rdata = IP_PSRAM_CTRL->REG_LOCKDONE.all;
         }while(rdata != 1);
-        PSRAM_LOG("DLL lock!!!");
+        PSRAM_REINIT_LOG("DLL lock!!!");
         // The PSRAM DLL measures how many internal fixed delay cells are required for one clock cycle of a PSRAM.
         // If a whole clock cycle is measured, 1/4 can be obtained by dividing the delay cell by 4.
         // If the clock cycle is too large, only half a cycle can be measured, therefore the HALF_CLOCK_MODE is set, adopting a 1/2 bit coefficient.
@@ -1489,7 +1641,7 @@ void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
         } else{
             div = 4;
         }
-        PSRAM_LOG("DLL lock value: %d, lock div: %d", IP_PSRAM_CTRL->REG_DLLOBSVR0.bit.DLL_LOCK_VALUE, div);
+        PSRAM_REINIT_LOG("DLL lock value: %d, lock div: %d", IP_PSRAM_CTRL->REG_DLLOBSVR0.bit.DLL_LOCK_VALUE, div);
 
         // resync DLL (0x28)
         IP_PSRAM_CTRL->REG_DLLRESYNC.bit.DLL_RESYNC = 0x1;
@@ -1499,12 +1651,11 @@ void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
     {
         uint32_t hclk = CRM_GetHclkFreq();
         IP_PSRAM_CTRL->REG_CUSTEXE.all = PSRAM_EXE_SLEEP_MODE_SEQ_ID;
-        uint32_t timeout = 30 * (hclk / 24000000);
+        volatile uint32_t timeout = 300 * ( hclk / 24000000);
         while(timeout--);
     }
 
-    PSRAM_LOG("PSRAM EXIT SLEEP MODE");
-    CLOG_FLUSH();
+    PSRAM_REINIT_LOG("PSRAM EXIT SLEEP MODE");
 
     IP_PSRAM_CTRL->REG_RDWRCTRL.bit.RD_LOOKUP_TX_BUF = 0;
     IP_PSRAM_CTRL->REG_DEVDEF.bit.DEV_TYPE = PSRAM_DEV_TYPE_XCELLA; // Set type to xcella
@@ -1578,7 +1729,7 @@ void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
 
     // resync DLL (0x28)
     IP_PSRAM_CTRL->REG_DLLRESYNC.bit.DLL_RESYNC = 0x1;
-
+    #if 0
     uint8_t mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR0.all & 0xff);
     PSRAM_LOG("MR0: 0x%x", mr_r_value);
     mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR1.all & 0xff);
@@ -1593,4 +1744,6 @@ void PSRAM_Reinit(uint32_t write_delay, uint32_t read_delay){
     PSRAM_LOG("MR6: 0x%x", mr_r_value);
     mr_r_value = (uint8_t)((uint32_t)IP_PSRAM_CTRL->REG_MR8.all & 0xff);
     PSRAM_LOG("MR8: 0x%x", mr_r_value);
+    #endif
 }
+

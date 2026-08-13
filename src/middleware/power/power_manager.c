@@ -16,12 +16,23 @@
 #include "uboot_features_api.h"
 #include "uboot_power_api.h"
 #include "sys/reboot.h"
+#if defined(CONFIG_CHERRYUSB) && CONFIG_CHERRYUSB
+#include "app_usb_cherry.h"
+#endif
 
 #define TAG "power_mgr"
 
 #define POWER_KEY_PAD CONFIG_POWER_MANAGER_POWER_KEY_GPIO_PAD
 #define POWER_EN_PAD  CONFIG_POWER_MANAGER_POWER_EN_GPIO_PAD
 #define USB_DET_PAD   CONFIG_POWER_MANAGER_USB_DETECT_GPIO_PAD
+
+#define BOOT_INFO_REBOOT_CNT_MASK     0x000000FFu
+#define BOOT_INFO_RECOVER_REASON_MASK 0x0000FF00u
+#define BOOT_INFO_RECOVER_REASON_SOFT 0x00000100u
+#define BOOT_INFO_HANDSHAKE_TIMEOUT   (1u << 29)
+#define BOOT_INFO_WDT_FLAG            (1u << 30)
+#define BOOT_INFO_RECOVERY_REQ        (1u << 31)
+#define SYSTEM_SW_RESET_KEY           0xCAFE000Au
 
 static lisa_device_t *power_key_dev = NULL;
 static lisa_device_t *power_en_dev = NULL;
@@ -136,4 +147,53 @@ void power_reboot_soft(void)
     while (1) {
         __asm__ volatile("wfi");
     }
+}
+
+void power_reboot_recovery(void)
+{
+    uint32_t reset_cause = IP_AON_CTRL->REG_SYSRST_STATUS.all;
+    IP_AON_CTRL->REG_SYSRST_STATUS.all = reset_cause;
+    (void)IP_AON_CTRL->REG_SYSRST_STATUS.all;
+
+    uint32_t boot_info = IP_AON_CTRL->REG_AON_DIG_RSVD4.all;
+    boot_info &= ~(BOOT_INFO_REBOOT_CNT_MASK | BOOT_INFO_RECOVER_REASON_MASK |
+                   BOOT_INFO_HANDSHAKE_TIMEOUT | BOOT_INFO_WDT_FLAG | BOOT_INFO_RECOVERY_REQ);
+    boot_info |= BOOT_INFO_RECOVER_REASON_SOFT | BOOT_INFO_RECOVERY_REQ;
+    IP_AON_CTRL->REG_AON_DIG_RSVD4.all = boot_info;
+    (void)IP_AON_CTRL->REG_AON_DIG_RSVD4.all;
+    __RWMB();
+
+    IP_AON_IOMUX->REG_PAD_AON_GPIOB_03.all &= ~(0xFu << 21);
+    IP_AON_IOMUX->REG_PAD_AON_GPIOB_03.all |= (0xEu << 21);
+    (void)IP_AON_IOMUX->REG_PAD_AON_GPIOB_03.all;
+    __RWMB();
+
+    while (1) {
+        IP_SYSCTRL->REG_SW_RESET_CP1.bit.CMNSW2CMN_RST_EN = 1;
+        IP_SYSCTRL->REG_SW_RESET_CP1.bit.CMNSW2CP_RST_EN = 1;
+        IP_SYSCTRL->REG_SW_RESET_CP1.bit.CMNSW2AP_RST_EN = 1;
+        __RWMB();
+        IP_SYSCTRL->REG_SW_RESET_CP0.all = SYSTEM_SW_RESET_KEY;
+        __RWMB();
+    }
+}
+
+void ipc_auto_init_failure_handler(int error)
+{
+    printf("IPC shared memory is unavailable or incompatible (%d), entering recovery\n", error);
+    power_reboot_recovery();
+}
+
+void sys_platform_recovery(void)
+{
+#if defined(CONFIG_CHERRYUSB) && CONFIG_CHERRYUSB
+    /*
+     * `adb reboot recovery` reaches this callback directly and bypasses the
+     * shell `recovery` command.  Detach CherryUSB before resetting so the
+     * host observes a complete disconnect and can enumerate the boot ADB
+     * device instead of keeping the application transport offline.
+     */
+    app_usb_prepare_reboot();
+#endif
+    power_reboot_recovery();
 }

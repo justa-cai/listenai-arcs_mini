@@ -41,6 +41,36 @@ static int acomp_fd_res_item_valid(const acomp_fd_res_item_t *item)
     return item->addr != 0U;
 }
 
+/**
+ * @brief 检查可选 FD 资源是否已配置。
+ *
+ * @param item 待检查的资源项。
+ *
+ * @return 资源项存在返回 1，否则返回 0。
+ */
+static int acomp_fd_res_item_present(const acomp_fd_res_item_t *item)
+{
+    return item != NULL && item->size != 0U;
+}
+
+/**
+ * @brief 根据 FD 资源配置填充一个 prepare IPC 资源项。
+ *
+ * @param item 待填充的 prepare IPC 资源项。
+ * @param index 上报给远端的资源索引。
+ * @param config 作为数据来源的 FD 资源配置。
+ */
+static void acomp_fd_prepare_fill_item(acomp_res_item_t *item,
+                                       uint32_t index,
+                                       const acomp_fd_res_item_t *config)
+{
+    item->index = index;
+    item->attr.hdr.storage = config->storage;
+    item->addr = (uint32_t)config->addr;
+    item->offset = 0;
+    item->size = config->size;
+}
+
 static void fd_event_callback(acomp_ipc_message_t *message, void *priv)
 {
 
@@ -150,6 +180,8 @@ static int acomp_fd_prepare_send(const acomp_fd_resource_config_t *config)
 {
     acomp_ipc_prepare_t *prepare = NULL;
     uint32_t size;
+    uint32_t res_count;
+    uint32_t idx = 0;
     int ret;
 
     if (config == NULL) {
@@ -160,7 +192,10 @@ static int acomp_fd_prepare_send(const acomp_fd_resource_config_t *config)
         return ACOMP_ERR_INVALID_STATE;
     }
 
-    size = sizeof(acomp_ipc_prepare_t) + sizeof(acomp_res_item_t) * ACOMP_FD_RES_NUMBER;
+    /** live 资源为可选资源，未配置时不放入 prepare IPC。 */
+    res_count = acomp_fd_res_item_present(&config->live) ?
+                ACOMP_FD_RES_NUMBER : (ACOMP_FD_RES_NUMBER - 1U);
+    size = sizeof(acomp_ipc_prepare_t) + sizeof(acomp_res_item_t) * res_count;
     size = ALIGN_SIZE(size);
 
     prepare = psram_malloc_align(IPC_ALIGN_SIZE, size);
@@ -170,30 +205,14 @@ static int acomp_fd_prepare_send(const acomp_fd_resource_config_t *config)
     }
     memset(prepare, 0, size);
 
-    prepare->number = ACOMP_FD_RES_NUMBER;
-    prepare->item[0].index = RES_FACE_DETECT;
-    prepare->item[0].attr.hdr.storage = config->detect.storage;
-    prepare->item[0].addr = (uint32_t)config->detect.addr;
-    prepare->item[0].offset = 0;
-    prepare->item[0].size = config->detect.size;
-
-    prepare->item[1].index = RES_FACE_ALIGN;
-    prepare->item[1].attr.hdr.storage = config->align.storage;
-    prepare->item[1].addr = (uint32_t)config->align.addr;
-    prepare->item[1].offset = 0;
-    prepare->item[1].size = config->align.size;
-
-    prepare->item[2].index = RES_FACE_LIVE;
-    prepare->item[2].attr.hdr.storage = config->live.storage;
-    prepare->item[2].addr = (uint32_t)config->live.addr;
-    prepare->item[2].offset = 0;
-    prepare->item[2].size = config->live.size;
-
-    prepare->item[3].index = RES_FACE_VERIFY;
-    prepare->item[3].attr.hdr.storage = config->verify.storage;
-    prepare->item[3].addr = (uint32_t)config->verify.addr;
-    prepare->item[3].offset = 0;
-    prepare->item[3].size = config->verify.size;
+    prepare->number = res_count;
+    acomp_fd_prepare_fill_item(&prepare->item[idx++], RES_FACE_DETECT, &config->detect);
+    acomp_fd_prepare_fill_item(&prepare->item[idx++], RES_FACE_ALIGN, &config->align);
+    /** 跳过可选 live 资源时，保持 prepare 资源项顺序稳定。 */
+    if (acomp_fd_res_item_present(&config->live)) {
+        acomp_fd_prepare_fill_item(&prepare->item[idx++], RES_FACE_LIVE, &config->live);
+    }
+    acomp_fd_prepare_fill_item(&prepare->item[idx++], RES_FACE_VERIFY, &config->verify);
 
     LISA_LOGI(TAG, "acomp fd prepare:%p, size:%u", prepare, size);
     ret = acomp_ipc_build_frame_send_sync(fd_handle->dev_index, ACOMP_CONTEXT_IPC_GLB_CONTROL | IPC_HEADER_REQ_REPALY,
@@ -242,8 +261,13 @@ int acomp_fd_prepare_with_resources(const acomp_fd_resource_config_t *config)
 
     if (config == NULL || !acomp_fd_res_item_valid(&config->detect) ||
         !acomp_fd_res_item_valid(&config->align) ||
-        !acomp_fd_res_item_valid(&config->live) ||
         !acomp_fd_res_item_valid(&config->verify)) {
+        return ACOMP_ERR_INVALID_ARG;
+    }
+
+    /** 仅在可选 live 资源已配置时校验其合法性。 */
+    if (acomp_fd_res_item_present(&config->live) &&
+        !acomp_fd_res_item_valid(&config->live)) {
         return ACOMP_ERR_INVALID_ARG;
     }
 

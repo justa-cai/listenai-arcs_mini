@@ -1,0 +1,219 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config MEM_CONFIG
+	bool
+	default y
+
+# VenusA 默认 SRAM 布局（半开区间：[start, end)）
+#
+# 低 128KB CPU SRAM：
+#   0x20000000  +----------+  CIDU IPC 共享邮箱       4KB   [0x20000000, 0x20001000)
+#               |   IPC    |
+#   0x20001000  +----------+  LUNA shared/.sharedmem  32KB  [0x20001000, 0x20009000)
+#               |   LUNA   |
+#               |  shared  |
+#   0x20009000  +----------+  AP SRAM                 52KB  [0x20009000, 0x20016000)
+#               | AP SRAM  |
+#   0x20016000  +----------+  CP SRAM                 40KB  [0x20016000, 0x20020000)
+#               | CP SRAM  |
+#   0x20020000  +----------+
+#
+# 算法 SRAM 与 LUNA 专属 SRAM：
+#   0x20020000  +----------+  APRAM/算法 SRAM        384KB  [0x20020000, 0x20080000)
+#               |  APRAM   |
+#   0x20080000  +----------+  LUNA private            24KB  [0x20080000, *)
+#               | LUNA 私有|
+#   *  			+----------+
+#
+# 说明：
+#   - MEM_SRAM_BASE/SIZE 只描述当前镜像的普通 SRAM。
+#   - AP/CP 镜像独立链接，链接脚本不检查 AP SRAM 与 CP SRAM 是否互踩。
+#	- 不建议修改 IPC 分区。
+#   - prj.conf 可调整各分区大小/位置；链接脚本会检查当前镜像 SRAM、IPC、
+#     LUNA shared、APRAM、LUNA private 之间是否重叠。
+
+menu "内存布局"
+
+config MEM_INTERRUPT_STACK_SIZE
+	hex "中断栈大小"
+	default 0x1000
+
+config MEM_HEAP_SIZE
+	int "堆大小（字节）"
+	default 512
+
+menu "SRAM"
+config MEM_SRAM_BASE
+	hex "SRAM 起始地址"
+	default 0x20009000 if VENUSA_AP_CORE
+	default 0x20016000 if VENUSA_CP_CORE
+	default 0x20009000
+	help
+		VenusA 当前镜像普通 SRAM 起始地址。低 128KB 默认划分为
+		CIDU IPC、LUNA 共享段、AP SRAM 和 CP SRAM；默认 AP 使用
+		0x20009000 起始的 52KB，CP 使用 0x20016000 起始的 40KB。
+		可在 prj.conf 中按项目需求覆盖；链接阶段只检查当前镜像
+		SRAM 是否和 LUNA 共享段、IPC、APRAM、LUNA 专属区重叠。
+		AP和CP的SRAM需要保证不踩踏，由用户自行保证，链接脚本无法检查。
+
+config MEM_SRAM_SIZE
+	hex "SRAM 大小"
+	default 0x0000D000 if VENUSA_AP_CORE
+	default 0x0000A000 if VENUSA_CP_CORE
+	default 0x0000D000
+	help
+		VenusA 当前镜像普通 SRAM 大小。默认 CIDU IPC 预留 4KB
+		[0x20000000, 0x20001000)，LUNA 共享段预留 32KB
+		[0x20001000, 0x20009000)，AP 预留 52KB
+		[0x20009000, 0x20016000)，CP 预留 40KB
+		[0x20016000, 0x20020000)。
+endmenu
+
+menu "PSRAM"
+config MEM_PSRAM_BASE
+	hex "PSRAM 起始地址"
+	default 0x38000000
+	help
+		VenusA 外部 PSRAM 芯片映射起始地址，默认使用硬件窗口
+		0x38000000。AP/CP 双镜像如需分区，应在工程 prj.conf 中
+		按产品内存布局显式覆盖。
+
+config MEM_PSRAM_SIZE
+	hex "PSRAM 大小"
+	default 0x00800000 if !SOC_SERIES_CSK70XX
+	help
+		外部 PSRAM 可用大小。csk70xx 具体芯片在 defconfig 中给出
+		容量默认值，这里只提供非 csk70xx VenusA 平台的兜底值。
+endmenu
+
+menu "Flash"
+config MEM_FLASH_BASE
+	hex "Flash XIP 起始地址"
+	default 0x30000000
+	help
+		VenusA Flash XIP 芯片映射起始地址，默认使用硬件窗口
+		0x30000000。AP/CP 双镜像或多镜像场景应在工程 prj.conf
+		中按烧录分区显式覆盖。
+
+config MEM_FLASH_SIZE
+	hex "Flash 大小"
+	default 0x00800000 if !SOC_SERIES_CSK70XX
+	help
+		Flash 可用大小。csk70xx 具体芯片在 defconfig 中给出容量
+		默认值，这里只提供非 csk70xx VenusA 平台的兜底值。可在工程 prj.conf 中覆盖。
+endmenu
+
+menu "本地内存（TCM）"
+config MEM_ILM_BASE
+	hex "ILM 起始地址"
+	default 0x00000000
+	help
+		VenusA 没有 ILM，保留该配置用于兼容公共链接脚本。
+
+config MEM_ILM_SIZE
+	hex "ILM 大小"
+	default 0x0
+
+config MEM_DLM_BASE
+	hex "DLM 起始地址"
+	default 0x00000000
+	help
+		VenusA 没有 DLM，保留该配置用于兼容公共链接脚本。
+
+config MEM_DLM_SIZE
+	hex "DLM 大小"
+	default 0x0
+endmenu
+
+menu "LUNA RAM"
+config MEM_LUNA_BASE
+	hex "LUNA 专属 SRAM 起始地址"
+	default 0x20080000
+	help
+		LUNA 核专属 SRAM 起始地址。该区域由 LUNA 核内部使用，不用于
+		放置 AP/CP 侧 .sharedmem.* 段。
+
+config MEM_LUNA_SIZE
+	hex "LUNA 专属 SRAM 大小"
+	default 0x00006000
+	help
+		LUNA 核专属 SRAM 大小，默认按 ARCS 保持 24KB。
+
+config MEM_LUNA_SHARED_BASE
+	hex "LUNA 共享内存起始地址"
+	default 0x20001000
+	help
+		LUNA 共享内存起始地址。默认位于低 128KB 中 CIDU IPC 之后，
+		只用于放置 libluna.a 的 .sharedmem.text/.data/.bss，
+		不能占用 0x20020000 起始的 384KB 算法 SRAM。
+
+config MEM_LUNA_SHARED_SIZE
+	hex "LUNA 共享内存大小"
+	default 0x00008000
+	help
+		LUNA 共享内存大小，默认 32KB。设为 0 会禁用 SoC 级
+		.sharedmem.* 专用链接段。若 libluna.a 的共享段增长，
+		应优先评估低 128KB 内 AP/CP/IPC 的重新划分。
+endmenu
+
+menu "IPC 共享内存"
+config MEM_IPC_ISOLATED
+	bool "预留独立 IPC 共享内存区域"
+	default y
+	help
+		VenusA 默认在低 128KB 起始位置预留 4KB IPC 共享内存：
+		[0x20000000, 0x20001000)。当前 CIDU IPC 后端默认使用这块
+		区域作为 AP/CP 共享邮箱。
+
+config MEM_IPC_BASE
+	hex "IPC 共享内存起始地址"
+	default 0x20000000
+	depends on MEM_IPC_ISOLATED
+	help
+		VenusA IPC 共享内存的布局级起始地址。CIDU IPC 默认通过
+		IPC_CIDU_SHMEM_BASE 跟随该地址。
+
+config MEM_IPC_SIZE
+	hex "IPC 共享内存大小"
+	default 0x00001000
+	depends on MEM_IPC_ISOLATED
+	help
+		VenusA IPC 共享内存大小，默认 4KB。CIDU IPC 默认通过
+		IPC_CIDU_SHMEM_SIZE 跟随该大小。
+endmenu
+
+menu "CIDU IPC 共享内存"
+config IPC_CIDU_SHMEM_BASE
+	default MEM_IPC_BASE if MEM_IPC_ISOLATED
+	default 0x20000000
+	help
+		CIDU IPC 共享邮箱起始地址。默认跟随 VenusA 布局级
+		MEM_IPC_BASE，对应低 128KB 中的 IPC 共享内存区域。
+		只有在需要让 CIDU 使用非默认 mailbox 时才建议覆盖。
+
+config IPC_CIDU_SHMEM_SIZE
+	default MEM_IPC_SIZE if MEM_IPC_ISOLATED
+	default 0x00001000
+	help
+		CIDU IPC 共享邮箱大小。默认跟随 VenusA 布局级
+		MEM_IPC_SIZE。AP/CP 两侧镜像必须使用相同配置。
+endmenu
+
+menu "算法 RAM"
+config MEM_APRAM_BASE
+	hex "算法 SRAM 起始地址"
+	default 0x20020000
+	help
+		算法专用 SRAM 起始地址。VenusA 默认把 0x20020000 起始的
+		384KB 留给 FD/LSFace 等算法工作区。
+
+config MEM_APRAM_SIZE
+	hex "算法 SRAM 大小"
+	default 0x00060000
+	help
+		算法专用 SRAM 大小，默认 384KB。该区域不能被
+		.sharedmem.text/.data/.bss 占用。
+endmenu
+
+endmenu # 内存布局

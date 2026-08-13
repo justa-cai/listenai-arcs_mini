@@ -6,6 +6,8 @@
 
 #include <string.h>
 #include <stdint.h>
+#include <errno.h>
+#include <stdlib.h>
 #include "audio_sbc.h"
 #include "audio_pcm.h"
 
@@ -22,6 +24,8 @@
 #include "lisa_bluetooth.h"
 #include "fs/user_fs.h"
 #include "bt_audio_interface_virtual.h"
+#include "bt_avrcp.h"
+
 
 /* 音频模式选择宏：
  * 0 = 透传模式（发送预编码的 SBC 数据）
@@ -47,6 +51,167 @@
 // 音频任务相关
 static TaskHandle_t audio_task_handle = NULL;
 static bool g_audio_start = false;
+
+static const char *avrcp_key_name(uint8_t key_id)
+{
+    switch (key_id) {
+    case BT_AVRCP_KEY_ID_PLAY:
+        return "PLAY";
+    case BT_AVRCP_KEY_ID_PAUSE:
+        return "PAUSE";
+    case BT_AVRCP_KEY_ID_STOP:
+        return "STOP";
+    case BT_AVRCP_KEY_ID_FORWARD:
+        return "FORWARD";
+    case BT_AVRCP_KEY_ID_BACKWARD:
+        return "BACKWARD";
+    case BT_AVRCP_KEY_ID_VOLUME_UP:
+        return "VOLUME_UP";
+    case BT_AVRCP_KEY_ID_VOLUME_DOWN:
+        return "VOLUME_DOWN";
+    case BT_AVRCP_KEY_ID_MUTE:
+        return "MUTE";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+static void bt_avrcp_key_cb(uint8_t conidx, uint8_t key_id)
+{
+    LOGI("AVRCP key: conidx=%u key_id=0x%02x (%s)",
+         conidx, key_id, avrcp_key_name(key_id));
+}
+
+static int parse_bt_addr(const char *str, gap_bdaddr_t *addr)
+{
+    char *end = NULL;
+    unsigned long value;
+
+    if (!str || !addr) {
+        return -1;
+    }
+
+    memset(addr, 0, sizeof(*addr));
+    addr->addr_type = 0;
+
+    for (int i = 0; i < 6; i++) {
+        value = strtoul(str, &end, 16);
+        if ((end == str) || (value > 0xFF)) {
+            return -1;
+        }
+
+        addr->addr[i] = (uint8_t)value;
+        if (i < 5) {
+            if (*end != ':') {
+                return -1;
+            }
+            str = end + 1;
+        } else if (*end != '\0') {
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+
+static const char *bt_paired_transport_name(uint8_t transport)
+{
+    switch (transport) {
+    case BT_PAIRED_TRANSPORT_BLE:
+        return "BLE";
+    case BT_PAIRED_TRANSPORT_CLASSIC:
+        return "Classic";
+    default:
+        return "Unknown";
+    }
+}
+
+static void bt_print_addr(const gap_bdaddr_t *addr)
+{
+    LOGI("%02X:%02X:%02X:%02X:%02X:%02X type=%u",
+         addr->addr[0], addr->addr[1], addr->addr[2],
+         addr->addr[3], addr->addr[4], addr->addr[5],
+         addr->addr_type);
+}
+
+static int cmd_bt_paired_list(int argc, char *argv[])
+{
+    bt_paired_info_t list[BT_PAIRED_MAX_COUNT];
+    uint8_t count = 0;
+    int ret;
+
+    (void)argc;
+    (void)argv;
+
+    ret = bt_paired_list_get(list, BT_PAIRED_MAX_COUNT, &count);
+    if (ret != 0 && ret != -ENOSPC) {
+        LOGE("bt_paired_list_get failed: %d", ret);
+        return ret;
+    }
+
+    LOGI("Paired device count: %u", count);
+    for (uint8_t i = 0; i < count && i < BT_PAIRED_MAX_COUNT; i++) {
+        LOGI("paired[%u]: transport=%s name=%.*s", i,
+             bt_paired_transport_name(list[i].transport),
+             list[i].name_len, (const char *)list[i].name);
+        bt_print_addr(&list[i].addr);
+    }
+
+    if (ret == -ENOSPC) {
+        LOGW("Paired list truncated to %u entries", BT_PAIRED_MAX_COUNT);
+    }
+
+    return ret;
+}
+
+static int cmd_bt_paired_name(int argc, char *argv[])
+{
+    gap_bdaddr_t addr;
+    char name[BT_PAIRED_NAME_MAX_LEN + 1];
+    int ret;
+
+    if (argc < 2) {
+        LOGE("Usage: bt_paired_name <XX:XX:XX:XX:XX:XX>");
+        return -1;
+    }
+
+    if (parse_bt_addr(argv[1], &addr) != 0) {
+        LOGE("Invalid bluetooth address: %s", argv[1]);
+        return -1;
+    }
+
+    ret = bt_paired_name_get(&addr, name, sizeof(name));
+    if (ret != 0) {
+        LOGE("bt_paired_name_get failed: %d", ret);
+        return ret;
+    }
+
+    LOGI("Paired device name: %s", name);
+    return 0;
+}
+
+static int cmd_bt_paired_remove(int argc, char *argv[])
+{
+    gap_bdaddr_t addr;
+    int ret;
+
+    if (argc < 2 || strcmp(argv[1], "all") == 0) {
+        ret = bt_paired_remove(NULL);
+        LOGI("Remove all paired devices ret=%d", ret);
+        return ret;
+    }
+
+    if (parse_bt_addr(argv[1], &addr) != 0) {
+        LOGE("Invalid bluetooth address: %s", argv[1]);
+        LOGE("Usage: bt_paired_remove [all|XX:XX:XX:XX:XX:XX]");
+        return -1;
+    }
+
+    ret = bt_paired_remove(&addr);
+    LOGI("Remove paired device %s ret=%d", argv[1], ret);
+    return ret;
+}
 
 // 音频发送任务 - 使用 framework 架构
 static void audio_source_task(void *pvParameters)
@@ -119,6 +284,28 @@ static int cmd_bt_inquiry(void)
     return lisa_bluetooth_inquiry_start(GAPM_DISC_TYPE_GEN_DISC, MAX_DISCOVERED_DEVICES);
 }
 
+static int cmd_bt_open(int argc, char *argv[])
+{
+    int ret;
+
+    (void)argc;
+    (void)argv;
+
+    ret = lisa_bluetooth_open();
+    LOGI("bt_open ret=%d opened=%d", ret, lisa_bluetooth_is_opened());
+    return ret;
+}
+
+static int cmd_bt_status(int argc, char *argv[])
+{
+    (void)argc;
+    (void)argv;
+
+    LOGI("Bluetooth opened: %s", lisa_bluetooth_is_opened() ? "yes" : "no");
+    LOGI("Audio running: %s", g_audio_start ? "yes" : "no");
+    return 0;
+}
+
 static int cmd_bt_connect(int argc, char *argv[])
 {
     int ret;
@@ -155,6 +342,86 @@ static int cmd_bt_connect_by_index(int argc, char *argv[])
          LOGE("Failed to connect to device at index %d: %d", device_index, ret);
      }
      return ret;
+}
+
+static int cmd_bt_connect_by_addr(int argc, char *argv[])
+{
+    gap_bdaddr_t addr;
+    int ret;
+
+    if (argc < 2) {
+        LOGE("Usage: bt_connect_addr <XX:XX:XX:XX:XX:XX>");
+        return -1;
+    }
+
+    if (parse_bt_addr(argv[1], &addr) != 0) {
+        LOGE("Invalid bluetooth address: %s", argv[1]);
+        LOGE("Usage: bt_connect_addr <XX:XX:XX:XX:XX:XX>");
+        return -1;
+    }
+
+    ret = lisa_bluetooth_connect_by_addr(&addr);
+    if (ret != 0) {
+        LOGE("Failed to connect to device addr '%s': %d", argv[1], ret);
+    }
+    return ret;
+}
+
+static int cmd_bt_disconnect(int argc, char *argv[])
+{
+    int ret;
+
+    if (argc < 2) {
+        LOGE("Usage: bt_disconnect <device_name>");
+        return -1;
+    }
+
+    ret = lisa_bluetooth_disconnect_by_name(argv[1]);
+    if (ret != 0) {
+        LOGE("Failed to disconnect device '%s': %d", argv[1], ret);
+    }
+    return ret;
+}
+
+static int cmd_bt_disconnect_by_index(int argc, char *argv[])
+{
+    uint8_t device_index;
+    int ret;
+
+    if (argc < 2) {
+        LOGE("Usage: bt_disconnect_index <device_index>");
+        return -1;
+    }
+
+    device_index = (uint8_t)atoi(argv[1]);
+    ret = lisa_bluetooth_disconnect_by_index(device_index);
+    if (ret != 0) {
+        LOGE("Failed to disconnect device at index %d: %d", device_index, ret);
+    }
+    return ret;
+}
+
+static int cmd_bt_disconnect_by_addr(int argc, char *argv[])
+{
+    gap_bdaddr_t addr;
+    int ret;
+
+    if (argc < 2) {
+        LOGE("Usage: bt_disconnect_addr <XX:XX:XX:XX:XX:XX>");
+        return -1;
+    }
+
+    if (parse_bt_addr(argv[1], &addr) != 0) {
+        LOGE("Invalid bluetooth address: %s", argv[1]);
+        LOGE("Usage: bt_disconnect_addr <XX:XX:XX:XX:XX:XX>");
+        return -1;
+    }
+
+    ret = lisa_bluetooth_disconnect_by_addr(&addr);
+    if (ret != 0) {
+        LOGE("Failed to disconnect device addr '%s': %d", argv[1], ret);
+    }
+    return ret;
 }
 
 static int cmd_bt_audio_start(int argc, char *argv[])
@@ -197,15 +464,19 @@ static int cmd_bt_audio_start(int argc, char *argv[])
     err = vintf_profile_open(&info);
     if (err != BT_AUDIO_OK) {
         LOGE("vintf_profile_open failed: %d", err);
+        return -1;
     }
     
-    LOGI("Virtual interface opened successfully");
+    LOGI("Virtual interface open requested");
 
     return 0;
 }
 
 static int cmd_bt_audio_stop(int argc, char *argv[])
 {
+    (void)argc;
+    (void)argv;
+
     if (!g_audio_start) {
         LOGI("Audio not running");
         return 0;
@@ -224,6 +495,19 @@ static int cmd_bt_audio_stop(int argc, char *argv[])
     
     LOGI("BT audio source stopped");
     return 0;
+}
+
+static int cmd_bt_close(int argc, char *argv[])
+{
+    int ret;
+
+    (void)argc;
+    (void)argv;
+
+    (void)cmd_bt_audio_stop(0, NULL);
+    ret = lisa_bluetooth_close();
+    LOGI("bt_close ret=%d opened=%d", ret, lisa_bluetooth_is_opened());
+    return ret;
 }
 
 static int cmd_bt_audio_volume(int argc, char *argv[])
@@ -278,11 +562,13 @@ int main(int argc, char **argv)
     user_fs_init();
     lisa_kv_init();
 
+
     lisa_bluetooth_init(NULL);
 
     vTaskDelay(pdMS_TO_TICKS(50));
 
     lisa_bluetooth_register_discovery_callback(bt_stack_classic_discover_ind);
+    lisa_bt_classic_register_avrcp_cb(bt_avrcp_key_cb);
     
     ret = bt_vintf_init();
     if (ret != BT_AUDIO_OK) {
@@ -299,6 +585,15 @@ int main(int argc, char **argv)
 }
 
 // 蓝牙音频控制命令
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_open, cmd_bt_open, open bluetooth stack);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_close, cmd_bt_close, close bluetooth stack);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_status, cmd_bt_status, show bluetooth status);
+
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  bt_inquiry, cmd_bt_inquiry, bt inquiry audio);
 
@@ -307,6 +602,18 @@ SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
 
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  bt_connect_index, cmd_bt_connect_by_index, bt connect to device by index);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_connect_addr, cmd_bt_connect_by_addr, bt connect to device by address);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_disconnect, cmd_bt_disconnect, bt disconnect device by name);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_disconnect_index, cmd_bt_disconnect_by_index, bt disconnect device by index);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_disconnect_addr, cmd_bt_disconnect_by_addr, bt disconnect device by address);
 
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN), 
                  bt_audio_start, cmd_bt_audio_start, start bt audio);
@@ -328,4 +635,14 @@ static int at_passthrough_handler(char *data, unsigned short len)
 // Usage:
 //   Interactive mode: AT (then input AT+?, no space needed)
 //   Single-line mode: AT AT+? (execute at once)
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_paired_list, cmd_bt_paired_list, list paired bt devices);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_paired_name, cmd_bt_paired_name, get paired bt device name by address);
+
+SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN),
+                 bt_paired_remove, cmd_bt_paired_remove, remove paired bt device by address or all);
+
 SHELL_EXPORT_PASSTROUGH(SHELL_CMD_PERMISSION(0), AT, AT>>, at_passthrough_handler, AT command passthrough mode);

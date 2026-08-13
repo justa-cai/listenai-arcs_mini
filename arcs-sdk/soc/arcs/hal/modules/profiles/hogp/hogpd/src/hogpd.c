@@ -46,9 +46,6 @@
 // number of attribute index for a report
 #define HIDS_REPORT_NB_IDX              (4)
 
-/// Maximal length for Characteristic values - 128 bytes
-#define HOGPD_VAL_MAX_LEN               (128)
-
 /* HID information flags */
 #define HID_FLAGS_REMOTE_WAKE           0x01 /* RemoteWake */
 #define HID_FLAGS_NORMALLY_CONNECTABLE  0x02 /* NormallyConnectable */
@@ -90,6 +87,7 @@ static const uint8_t hid_info[] =
 /* define the HID report map */
 static const uint8_t hid_report_value[] ={0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+uint8_t hogpd_map_enc = 0;
 
 #if 0
 static const uint8_t hid_report_map[] =
@@ -290,6 +288,7 @@ const ble_gatt_att16_desc_t hids_att_db[HOGPD_IDX_NB] =
 };
 
 
+const ble_gatt_att16_desc_t hids_att_report_map_enc_db = {BLE_GATT_CHAR_REPORT_MAP,            (BLE_PROP(RD) | BLE_SEC_LVL(RP, NO_AUTH)),                         HOGPD_REPORT_MAP_MAX_LEN                    };
 
 
 /*
@@ -761,7 +760,7 @@ int ble_hogpd_report_upd(uint8_t conidx, uint8_t report_idx, uint8_t length, uin
  * @param[in] user_lid      GATT user local identifier
  ****************************************************************************************
  */
-void hogpd_cb_notify_cmp(uint32_t token, uint8_t val_id)
+void hogpd_cb_notify_cmp(uint8_t conidx, uint32_t token, uint8_t val_id)
 {
     //Todu: add notify complete to app
 }
@@ -774,7 +773,7 @@ void hogpd_cb_event_sent(uint8_t conidx, uint8_t user_lid, uint16_t dummy, uint1
     {
         if(p_hogpd_env->p_cb->cb_notify_cmp)
         {
-            p_hogpd_env->p_cb->cb_notify_cmp(dummy, 0);
+            p_hogpd_env->p_cb->cb_notify_cmp(conidx, dummy, 0);
         }
     }
 }
@@ -848,7 +847,7 @@ static void hogpd_cb_att_read_get(uint8_t conidx, uint8_t user_lid, uint16_t tok
                         p_hogpd_env->svcs[svc_idx].report_map_info.remain_size -= max_length;
                     }else{
                         length = p_hogpd_env->svcs[svc_idx].report_map_info.remain_size;
-                        p_hogpd_env->p_cb->cb_read_cmp(token, svc_idx);
+                        p_hogpd_env->p_cb->cb_read_cmp(conidx, token, svc_idx);
                     }
                     status = ble_gatt_srv_att_read_get_cfm(conidx, user_lid, token, status, p_hogpd_env->svcs[svc_idx].report_map_info.size, length, (p_hogpd_env->svcs[svc_idx].report_map_info.rep_map+offset));
                 }break;
@@ -1099,6 +1098,11 @@ uint16_t hogpd_init(uint16_t *p_start_hdl, uint8_t sec_lvl, uint8_t user_prio,
             // copy default definition of the HID attribute database
             memcpy(hids_db[svc_idx], hids_att_db, sizeof(ble_gatt_att16_desc_t) * HOGPD_ATT_UNIQ_NB);
 
+            if(hogpd_map_enc)
+            {
+                memcpy(&hids_db[svc_idx][HOGPD_IDX_REPORT_MAP_VAL], &hids_att_report_map_enc_db, sizeof(ble_gatt_att16_desc_t));
+            }
+            
             //--------------------------------------------------------------------
             // Compute cfg_flag[i] without Report Characteristics
             //--------------------------------------------------------------------
@@ -1337,6 +1341,19 @@ void hogpd_cleanup(uint8_t conidx, uint16_t reason)
         p_hogpd_env->svcs[svc_idx].ntf_cfg[conidx] = 0;
     }
 }
+
+/**
+ ****************************************************************************************
+ * @brief Handles hogpd report map enc on or off
+ *
+ * @param[in]        on
+ ****************************************************************************************
+ */
+void ble_hogpd_report_map_enc_set(uint8_t on)
+{
+    hogpd_map_enc = on;
+}
+
 
 
 #endif /* BLE_HID_DEVICE */

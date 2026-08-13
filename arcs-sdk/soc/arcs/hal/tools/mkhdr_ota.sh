@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # the script builds binary files with ota header
 #
@@ -22,8 +22,8 @@ checksum=0
 pos=1024
 while [ $pos -lt $img_size ]; do
     val=$(od -An -v -j $pos -N 4 -t u4 $1)
-    ((checksum^=val))
-    ((pos+=1024))
+    checksum=$((checksum ^ val))
+    pos=$((pos + 1024))
     if [ $pos -gt 32768 ]; then break; fi
 done
 printf \""%x:%02x%02x%02x%02x"\" $hdr_sum_pos $((checksum&0xff)) \

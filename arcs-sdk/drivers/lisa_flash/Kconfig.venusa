@@ -1,0 +1,97 @@
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+config LISA_FLASH_VENUSA
+	bool "Enable LISA Flash VENUSA support"
+	depends on SOC_VENUSA
+	help
+		Enable LISA Flash support on VENUSA platforms.
+
+if LISA_FLASH_VENUSA
+
+config LISA_FLASH_VENUSA_CONTROLLER_BASE_ADDR
+	hex "Flash controller base address"
+	default 0x44200000
+	help
+		Base address of the VENUSA Flash controller.
+
+config LISA_FLASH_VENUSA_DELAY_LINE_BASE_ADDR
+	hex "Flash delay line base address"
+	default 0x44300000
+	help
+		Base address of the VENUSA Flash delay line control register block.
+
+config LISA_FLASH_VENUSA_DISABLE_DELAY_LINE
+	bool "Disable Flash delay line during init"
+	default y
+	help
+		Disable Flash delay line before initializing the SPI Flash controller.
+
+config LISA_FLASH_VENUSA_ERASE_SECTOR_SIZE
+	int "Flash erase sector size"
+	default 4096
+	help
+		Erase sector size for Flash operations.
+
+config LISA_FLASH_VENUSA_WRITE_BLOCK_SIZE
+	int "Flash write min block size"
+	default 1
+	help
+		Write min block size for Flash operations.
+
+config LISA_FLASH_VENUSA_DATA_WIDTH
+	int "Flash data width (1, 2, or 4)"
+	default 4
+	range 1 4
+	help
+		Data width for Flash: 1 (standard SPI), 2 (dual SPI), or 4 (quad SPI).
+
+config LISA_FLASH_VENUSA_SCLK_DIV
+	int "Flash SPI clock divider"
+	default 255
+	help
+		SPI clock divider for Flash. 255 means use the SPI clock source directly.
+
+config LISA_FLASH_VENUSA_ADDR_BYTES
+	int "Flash address bytes (3 or 4)"
+	default 3
+	range 3 4
+	help
+		Number of address bytes: 3 for Flash <= 16MB, 4 for Flash > 16MB.
+
+config LISA_FLASH_VENUSA_ADDR_AUTO
+	bool "Auto-detect Flash address bytes"
+	help
+		Read SFDP during init and auto-detect 3-byte or 4-byte address mode.
+
+config LISA_FLASH_VENUSA_WRITE_PROTECT_ENABLE
+	bool "Enable Flash write protection"
+	default y
+	help
+		Re-enable Flash write protection after write and erase operations.
+
+config LISA_FLASH_VENUSA_DISABLE_INTERRUPTS
+	bool "Disable interrupts during Flash operations"
+	default y
+	help
+		Disable system interrupts during low-level Flash operations.
+
+config LISA_FLASH_VENUSA_TIMEOUT
+	int "Flash operation timeout"
+	default 1800000
+	help
+		Retry count used by the VENUSA SPI Flash HAL.
+
+config LISA_FLASH_VENUSA_FLASH_PHYS_ADDR
+	hex "Physical address of Flash memory"
+	default MEM_FLASH_BASE
+	help
+		Physical address where the Flash memory is mapped.
+
+config LISA_FLASH_VENUSA_FLASH_SIZE
+	hex "Flash memory size"
+	default MEM_FLASH_SIZE
+	help
+		Maximum Flash address space exposed by this LISA Flash device.
+
+endif

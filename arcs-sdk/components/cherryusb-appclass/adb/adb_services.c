@@ -11,11 +11,11 @@
 #include <string.h>
 #include <stdio.h>
 
+#define ADB_SERVICE_LOCAL_ID_DEFAULT 100
 
 static struct adb_service adb_services[ADB_SERVICE_MAX_NUM] = {0};
-static struct adb_service_handle const* adb_services_handle[ADB_SERVICE_HANDLE_MAX_NUM] = {0};
-
-#define ADB_SERVICE_LOCAL_ID_DEFAULT 100
+static struct adb_service_handle const *adb_services_handle[ADB_SERVICE_HANDLE_MAX_NUM] = {0};
+static uint32_t adb_local_id_seed = ADB_SERVICE_LOCAL_ID_DEFAULT;
 
 static bool local_id_in_use(uint32_t id)
 {
@@ -30,20 +30,19 @@ static bool local_id_in_use(uint32_t id)
 
 static uint32_t local_id_get(void)
 {
-	static uint32_t local_id = ADB_SERVICE_LOCAL_ID_DEFAULT;
 	int retries = ADB_SERVICE_MAX_NUM + 1;
 
 	do {
-		if (local_id == 0) {
-			local_id = ADB_SERVICE_LOCAL_ID_DEFAULT;
+		if (adb_local_id_seed == 0U) {
+			adb_local_id_seed = ADB_SERVICE_LOCAL_ID_DEFAULT;
 		}
-		if (!local_id_in_use(local_id)) {
-			return local_id++;
+		if (!local_id_in_use(adb_local_id_seed)) {
+			return adb_local_id_seed++;
 		}
-		local_id++;
+		adb_local_id_seed++;
 	} while (--retries > 0);
 
-	return local_id++;
+	return adb_local_id_seed++;
 }
 
 static const struct adb_service_handle *adb_service_handle_find(const uint8_t *name)
@@ -65,19 +64,28 @@ static const struct adb_service_handle *adb_service_handle_find(const uint8_t *n
 
 static struct adb_service *adb_service_find(uint32_t local_id, uint32_t remote_id)
 {
-    int i;
+	int i;
 
-    for (i = 0; i < sizeof(adb_services) / sizeof(adb_services[0]); i++) {
-        if (adb_services[i].used == 0) {
-            continue;
-        }
+	for (i = 0; i < sizeof(adb_services) / sizeof(adb_services[0]); i++) {
+		if (adb_services[i].used == 0) {
+			continue;
+		}
 
-        if (adb_services[i].local_id == local_id && adb_services[i].remote_id == remote_id) {
-            return &adb_services[i];
-        }
-    }
+		if (adb_services[i].local_id == local_id && adb_services[i].remote_id == remote_id) {
+			return &adb_services[i];
+		}
+	}
 
-    return NULL;
+	return NULL;
+}
+
+void adb_service_note_close_sent(uint32_t local_id, uint32_t remote_id)
+{
+	struct adb_service *s = adb_service_find(local_id, remote_id);
+
+	if (s != NULL) {
+		s->close_sent = 1U;
+	}
 }
 
 uint32_t adb_service_open(const uint8_t *name, const uint8_t *args, uint32_t remote_id)
@@ -97,12 +105,14 @@ uint32_t adb_service_open(const uint8_t *name, const uint8_t *args, uint32_t rem
 		}
 
 		adb_services[i].used = 1;
+		adb_services[i].close_sent = 0U;
 		adb_services[i].local_id = local_id_get();
 		adb_services[i].remote_id = remote_id;
 		adb_services[i].hd = service_hd;
 
 		if (service_hd->open(&adb_services[i], args) != 0) {
 			ADB_LOGE("service handle open failed, name: %s\n", service_hd->name);
+			memset(&adb_services[i], 0, sizeof(adb_services[i]));
 			return 0;
 		}
 
@@ -142,6 +152,15 @@ int adb_service_write(uint32_t local_id, uint32_t remote_id, adb_packet_t *p)
 	return 0;
 }
 
+void adb_service_ready(uint32_t local_id, uint32_t remote_id)
+{
+	struct adb_service *s = adb_service_find(local_id, remote_id);
+
+	if (s != NULL && s->hd != NULL && s->hd->ready != NULL) {
+		s->hd->ready(s);
+	}
+}
+
 void adb_service_write_remote(struct adb_service *s, uint8_t *data, int len)
 {
 	if (s && data && len > 0) {
@@ -156,17 +175,22 @@ void adb_service_close(uint32_t local_id, uint32_t remote_id)
 	ADB_LOGI("adb service close, local_id: %d, remote_id: %d, %p\n", local_id, remote_id, s);
 
 	if (s) {
+		bool need_close_reply = (s->close_sent == 0U);
+
 		if (s->hd != NULL && s->hd->close != NULL) {
 			s->hd->close(s);
 		}
 
-		adb_close(local_id, remote_id);
+		if (need_close_reply) {
+			adb_close(local_id, remote_id);
+		}
 		ADB_LOGI("adb service close, %p, %p\n", s->hd, s->hd->write);
 		s->used = 0;
+		s->close_sent = 0U;
 		s->hd = NULL;
 		s->local_id = 0;
 		s->remote_id = 0;
-        s->data = NULL;
+		s->data = NULL;
 	}
 }
 
@@ -187,6 +211,7 @@ void adb_service_close_all(void)
 		}
 
 		adb_services[i].used = 0;
+		adb_services[i].close_sent = 0U;
 		adb_services[i].hd = NULL;
 		adb_services[i].local_id = 0;
 		adb_services[i].remote_id = 0;

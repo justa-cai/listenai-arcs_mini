@@ -913,6 +913,38 @@ bt_audio_error_t bt_audio_session_capture_read_frame(bt_audio_session_handle_t s
     return BT_AUDIO_OK;
 }
 
+bt_audio_error_t bt_audio_session_capture_is_drained(bt_audio_session_handle_t session,
+                                                      bool *drained)
+{
+    bt_audio_session_t *sess = get_session(session);
+    if (!sess || !drained) {
+        return BT_AUDIO_ERR_INVALID_PARAM;
+    }
+
+    if (sess->config.direction != BT_AUDIO_DIR_CAPTURE) {
+        return BT_AUDIO_ERR_INVALID_PARAM;
+    }
+
+    if (sess->state != SESSION_STATE_STARTED) {
+        return BT_AUDIO_ERR_INVALID_STATE;
+    }
+
+    if (!sess->is_passthrough) {
+        if (!sess->uplink.pcm_ringbuf.buffer) {
+            return BT_AUDIO_ERR_INVALID_STATE;
+        }
+        *drained = (ring_buf_size_get(&sess->uplink.pcm_ringbuf) == 0);
+        return BT_AUDIO_OK;
+    }
+
+    if (!sess->uplink.encoded_frame_queue) {
+        return BT_AUDIO_ERR_INVALID_STATE;
+    }
+
+    *drained = (uxQueueMessagesWaiting(sess->uplink.encoded_frame_queue) == 0);
+    return BT_AUDIO_OK;
+}
+
 /* ========================================================================
  * 控制和查询
  * ======================================================================== */
@@ -1117,7 +1149,7 @@ static void playback_task_func(void *param)
                                         pcm_buffer, sess->decode_work_buffer_size);
         
         if (pcm_len == 0) {
-            LISA_LOGW(TAG, "playback_task_func get data falied");
+            // LISA_LOGW(TAG, "playback_task_func get data falied");
             vTaskDelay(pdMS_TO_TICKS(5));
             continue;
         }

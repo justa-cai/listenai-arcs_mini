@@ -1,0 +1,3 @@
+tests:
+  labs.lnn.thinker_resnet18_real:
+    build_only: true

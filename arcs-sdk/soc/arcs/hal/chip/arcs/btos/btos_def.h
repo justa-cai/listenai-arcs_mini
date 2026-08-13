@@ -121,7 +121,6 @@ typedef struct btos_handle
 
 typedef enum
 {
-    TIMER_TYPE_IDLE,
     TIMER_TYPE_SINGLE,
     TIMER_TYPE_PERIODIC,
 } timer_type_t;

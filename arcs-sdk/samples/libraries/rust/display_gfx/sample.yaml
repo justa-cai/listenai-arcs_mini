@@ -1,0 +1,9 @@
+tests:
+  samples.libraries.rust.display_gfx:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "display_gfx:done"

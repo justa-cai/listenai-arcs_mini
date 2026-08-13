@@ -1,0 +1,6 @@
+tests:
+  demos.arcs.face_detect:
+    platform:
+      arcs_evb
+    build_only: true
+

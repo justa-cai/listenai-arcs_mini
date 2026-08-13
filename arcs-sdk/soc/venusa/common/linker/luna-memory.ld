@@ -1,0 +1,9 @@
+/* LUNA 核专属 SRAM 区域：只声明地址窗口，不放置 AP/CP 段。 */
+#if defined(CONFIG_MEM_LUNA_BASE) && defined(CONFIG_MEM_LUNA_SIZE) && CONFIG_MEM_LUNA_SIZE > 0
+    LUNA_PRIV_RAM(rwx) : ORIGIN = CONFIG_MEM_LUNA_BASE, LENGTH = CONFIG_MEM_LUNA_SIZE
+#endif
+
+/* LUNA 共享 SRAM 区域：用于放置 libluna.a 的 .sharedmem.* 段。 */
+#if defined(CONFIG_MEM_LUNA_SHARED_SIZE) && CONFIG_MEM_LUNA_SHARED_SIZE > 0
+    LUNA_RAM(rwxa) : ORIGIN = CONFIG_MEM_LUNA_SHARED_BASE, LENGTH = CONFIG_MEM_LUNA_SHARED_SIZE
+#endif

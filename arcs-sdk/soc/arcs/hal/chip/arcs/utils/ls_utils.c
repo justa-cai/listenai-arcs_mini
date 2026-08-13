@@ -20,6 +20,7 @@
 #include "ls_utils.h"
 #include "Driver_GPADC.h"
 #include "ClockManager.h"
+#include "rtos_al.h"
 #include "Driver_TRNG.h"
 
 /*
@@ -40,11 +41,12 @@
  * GLOBAL VARIABLE DEFINITIONS
  ****************************************************************************************
  */
+static rtos_mutex ls_temp_mutex = NULL;
 
 /**
  * @brief     This func read temperatue voltage from GPADC TEMP related channel
  *
- * @attention it is for wifi get temperature, if wifi and application not in same core, IPC/MRPC utils should be used 
+ * @attention it is for wifi get temperature, if wifi and application not in same core, IPC/MRPC utils should be used
  *
  * @params
  *
@@ -63,14 +65,20 @@ __attribute__((weak)) int ls_read_temp_voltage(float *vout)
 //    volatile int32_t delay_count = 10000;
     int ret = 0;
 
-#if (CONFIG_PM == 0)
+    // Initialize mutex (thread-safe, can be called multiple times)
+    if (ls_temp_mutex == NULL) {
+        if (rtos_mutex_create(&ls_temp_mutex) != 0) {
+            *vout = 0.0;
+            return -1;
+        }
+    }
+    // Lock to prevent reentry
+    rtos_mutex_lock(ls_temp_mutex);
+
     if (!init)
-#endif
     {
         HAL_GPADC_Initialize(GPADC());
-#if (CONFIG_PM == 0)
         init = 1;
-#endif
     }
     HAL_GPADC_Control(GPADC(), (CSK_GPADC_CHANNEL_SEL_TEMP | CSK_GPADC_CHANNEL_SEL_VBAT) | \
                                 CSK_GPADC_DMA_ENABLE(0));
@@ -88,6 +96,7 @@ __attribute__((weak)) int ls_read_temp_voltage(float *vout)
     //vptat_sum += vptat;
 
     *vout = vptat;
+    rtos_mutex_unlock(ls_temp_mutex);
     return ret;
 }
 
@@ -120,7 +129,7 @@ static void gen_random_mac(uint8_t *mac_addr)
 /**
  * @brief     This func get mac address from NVS for wifi
  *
- * @attention it is to get mac from nvs, if wifi and application not in same core, IPC/MRPC utils should be used 
+ * @attention it is to get mac from nvs, if wifi and application not in same core, IPC/MRPC utils should be used
  *
  * @params
  *
@@ -132,9 +141,9 @@ int8_t ls_get_mac_from_nvs(uint8_t mac_addr[6])
 {
 #if CFG_NVS
     uint8_t ret, mac[8] ={0};
-    size_t len = NVDS_LEN_WIFI_MAC_ADDR;
+    uint32_t  len = NVDS_LEN_WIFI_MAC_ADDR;
 
-    ret = nvds_get(NVDS_TAG_WIFI_MAC_ADDR, &len, mac);
+    ret = nvds_get(NVDS_TAG_WIFI_MAC_ADDR, (size_t *)&len, mac);
     if (ret != NVDS_OK)
     {
         gen_random_mac(mac);
@@ -161,5 +170,6 @@ int8_t ls_get_mac_from_nvs(uint8_t mac_addr[6])
 __attribute__((weak)) int8_t ls_get_mac_customized(uint8_t mac_addr[6])
 {
      /// TODO
+     return 0;
 }
 

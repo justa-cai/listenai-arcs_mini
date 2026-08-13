@@ -37,16 +37,9 @@ static int adb_sync_stage_try_alloc_boot(struct adb_sync_stage *stage, uint32_t 
     size_t largest_internal_block = heap_caps_get_largest_free_block(
         MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
 
-    printf("boot adb: stage alloc req=%u align=%u largest_internal=%u\n",
-           (unsigned int)capacity,
-           (unsigned int)alignment,
-           (unsigned int)largest_internal_block);
     if (largest_internal_block >= required_internal_block) {
         stage->buf = adb_boot_try_inram_malloc(alignment, capacity);
         if (stage->buf != NULL) {
-            printf("boot adb: stage alloc ok req=%u buf=%p\n",
-                   (unsigned int)capacity,
-                   stage->buf);
             stage->free_fn = inram_free;
             return 0;
         }
@@ -57,9 +50,6 @@ static int adb_sync_stage_try_alloc_boot(struct adb_sync_stage *stage, uint32_t 
         return -1;
     }
 
-    printf("boot adb: stage alloc fallback psram req=%u buf=%p\n",
-           (unsigned int)capacity,
-           stage->buf);
     stage->free_fn = psram_free;
     return 0;
 }

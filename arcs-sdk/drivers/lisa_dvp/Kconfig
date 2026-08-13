@@ -5,3 +5,18 @@ menuconfig LISA_DVP_DEVICE
 	bool "LISA DVP driver"
 	help
 		Enable LISA DVP driver.
+
+if LISA_DVP_DEVICE
+
+config LISA_DVP_VENUSA_USE_CMNDMA
+	bool "Use Venusa CMNDMA for LISA DVP"
+	depends on SOC_VENUSA
+	default y
+	help
+		Use Venusa CMNDMA for DVP capture by default. This backend
+		corresponds to the ARCS CPDMA semantics, while the disabled
+		state keeps the DMA2D backend corresponding to ARCS GPDMA.
+		Ping-Pong mode uses the DMA HAL hardware PiPo/LLP path.
+		TODO: 待hal解决DMA2D AMP双核架构下冲突问题, 考虑取消默认, 对齐arcs使用GPDMA(即DMA2D)
+
+endif # LISA_DVP_DEVICE

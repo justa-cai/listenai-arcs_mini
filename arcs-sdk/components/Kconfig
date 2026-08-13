@@ -29,5 +29,8 @@ rsource "lisa_modem/Kconfig"
 rsource "lisa_net/Kconfig"
 rsource "httpdns/Kconfig"
 rsource "lisa_bt_audio_framework/Kconfig"
+rsource "lisa_media_player/Kconfig"
+rsource "lisa_jpeg/Kconfig"
+rsource "lisa_pm/Kconfig"
 
 endmenu

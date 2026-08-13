@@ -12,9 +12,9 @@
 #include "cache.h"
 #include <string.h> // for memset
 #include <assert.h>
-//#define __aeabi_assert // for keil compiler
 
-#define HAS_CACHE_SYNC      0 // 1
+#define HAS_CACHE_SYNC  0 // 1
+#define WB_BLK_DONE		0 // 1: DONE bit is written back to LLItem
 
 //--------------------------------------------------------------------------
 
@@ -86,7 +86,6 @@ typedef struct {
 } DMA_RegMap;
 
 #define CSK_DMA              ((DMA_RegMap *) DMAC_BASE)
-//#define IRQ_DMAC_VECTOR     IRQ_DMAC_VECTOR
 volatile DMA_RegMap *       gDmaReg = CSK_DMA;
 //--------------------------------------------------------------------------
 
@@ -110,7 +109,8 @@ typedef struct {
     // DST width shift from CTLx.DST_TR_WIDTH, for faster calculation
     uint8_t             dst_wid_shift;
 
-    // bit[0]: HW LLP if 1; bit[1]: polling (NO interrupt) if 1
+    // see details below.
+    // bit[7]: indicate that the channel has been setup
     uint8_t             flags;
 
     // value of SGR (Source Gather)
@@ -122,8 +122,11 @@ typedef struct {
     uint32_t            SizeXfered;
     // Size, remaining size of current LLI or single BLOCK
     uint32_t            SizeToXfer;
-    // point to next LLI (mock BLOCK), and NULL if single or last LLI
+    // point to next LLI (real or mock BLOCK), and NULL if single or last LLI
     DMA_LLP             llp;
+
+    // record last transferred LLI, usually used in BLOCK COMPLETE ISR
+    DMA_LLP             last_llp;
 
     // SRC address for next time (one DMA transfer each time)
     uint32_t            SrcAddr;
@@ -139,19 +142,33 @@ typedef struct {
 
 } DMA_Channel_Info;
 
-#define DMA_FLAG_HW_LLP     0x1 // bit[0] @ flags
-#define DMA_FLAG_POLLING    0x2 // bit[1] @ flags
+#define DMA_FLAG_HW_LLP		(0x1 << 0) // bit[0] @ flags (use HW_LLP or Single/SW_LLP?)
+#define DMA_FLAG_POLLING    	(0x1 << 1) // bit[1] @ flags (use polling, NO interrupts)
+#define DMA_FLAG_PIPO       	(0x1 << 2) // bit[2] @ flags (use PingPong transfer)
+//#define DMA_FLAG_PIPO_LAST  	(0x1 << 3) // bit[3] @ flags (last two blocks of PingPong transfer)
+#define DMA_FLAG_SETUP      	(0x1 << 7) // bit[7] @ flags
 
-#if SUPPORT_HW_LLP
-_DMA DMA_LLI ll_items[DMA_MAX_LL_ITEMS]; // link list items
-#endif // #if SUPPORT_HW_LLP
+
+#if (SUPPORT_HW_LLP && USE_INTERNAL_LLITEMS)
+
+// max count of Link List Item implicitly supported by DMA driver
+// it means max. (MAX_BLK_TS * DMA_MAX_LL_ITEMS) data can be transfered for 1 DMA interrupt.
+// Those items are usually used in PingPong transfers for all dma channels.
+#define DMA_MAX_LL_ITEMS                (DMA_NUMBER_OF_CHANNELS * 2) // 2 items each channel
+#define DMA_MAX_LL_DATA                 (DMA_MAX_LL_ITEMS * MAX_BLK_TS)
+
+DMA_LLI ll_items[DMA_MAX_LL_ITEMS]; // link list items
+volatile uint32_t ll_item_bits = 0; // bit[x] = 1 indicates that item has been used, max. 32 items
+
+#endif // SUPPORT_HW_LLP && USE_INTERNAL_LLITEMS
+
 
 static uint32_t init_cnt       = 0U;
 // channel active flag, set when channel is selected and cleared when DMA is completed or disabled
-_DMA static uint32_t channel_active = 0U;
+_FAST_BSS static uint32_t channel_active = 0U;
 // channel reserved flag (if set, channel active flag is always kept until unreserved).
-_DMA static uint32_t channel_reserved = 0U;
-_DMA static DMA_Channel_Info channel_info[DMA_NUMBER_OF_CHANNELS];
+_FAST_BSS static uint32_t channel_reserved = 0U;
+_FAST_BSS static DMA_Channel_Info channel_info[DMA_NUMBER_OF_CHANNELS];
 
 #define DMA_CHANNEL(n)  ((DMA_CHANNEL_REG *)&(CSK_DMA->CHANNEL[n]))
 
@@ -166,7 +183,7 @@ void dma_irq_handler (void);
    - \b  0: function succeeded
    - \b -1: function failed
 */
-_FAST_FUNC_RO static int32_t set_channel_active_flag (uint8_t ch)
+_FAST_TEXT static int32_t set_channel_active_flag (uint8_t ch)
 {
   uint8_t gie = GINT_enabled();
 
@@ -188,7 +205,7 @@ _FAST_FUNC_RO static int32_t set_channel_active_flag (uint8_t ch)
   \brief       Protected clear of channel active flag
   \param[in]   ch        Channel number (0..7 or 4)
 */
-_FAST_FUNC_RO static void clear_channel_active_flag (uint8_t ch)
+_FAST_TEXT static void clear_channel_active_flag (uint8_t ch)
 {
   uint8_t gie = GINT_enabled();
   uint32_t ch_bit = 1U << ch;
@@ -199,6 +216,7 @@ _FAST_FUNC_RO static void clear_channel_active_flag (uint8_t ch)
   //BSD: only NOT reserved channel can be clear active flay...
   if ((channel_reserved & ch_bit) == 0)
       channel_active &= ~ch_bit;
+//  channel_info[ch].flags = 0; // clear to 0
 
   if (gie) { enable_GINT(); }
 }
@@ -353,7 +371,7 @@ int32_t dma_uninitialize (void) {
 //dynamically allocate available free DMA channel
 //return 0: function succeeded
 //return -1: function failed
-_FAST_FUNC_RO static int32_t dma_get_free_channel(uint8_t *pch)
+_FAST_TEXT static int32_t dma_get_free_channel(uint8_t *pch)
 {
 
     uint8_t gie, i, found = 0;
@@ -394,7 +412,7 @@ _FAST_FUNC_RO static int32_t dma_get_free_channel(uint8_t *pch)
   \returns
    - \b  the selected DMA channel number if successful, or DMA_CHANNEL_ANY (0xFF) if failed.
  */
-_FAST_FUNC_RO uint8_t dma_channel_select(uint8_t *pch,
+_FAST_TEXT uint8_t dma_channel_select(uint8_t *pch,
                                         DMA_SignalEvent_t  cb_event,
                                         uint32_t           usr_param,
                                         DMA_CACHE_SYNC     cache_sync)
@@ -520,7 +538,7 @@ bool dma_channel_is_reserved(uint8_t ch)
 }
 
 #if HAS_CACHE_SYNC
-_FAST_FUNC_RO static void cache_sync_src(uint32_t control, uint32_t src_addr, uint32_t bytes, DMA_Channel_Info *ch_info)
+_FAST_TEXT static void cache_sync_src(uint32_t control, uint32_t src_addr, uint32_t bytes, DMA_Channel_Info *ch_info)
 {
     uint32_t start, end;
     uint32_t addr_ctrl = control & DMA_CH_CTLL_SRCADDRCTL_MASK;
@@ -551,7 +569,7 @@ _FAST_FUNC_RO static void cache_sync_src(uint32_t control, uint32_t src_addr, ui
     dcache_clean_range(start, end);
 }
 
-_FAST_FUNC_SRAM static void cache_sync_dst(uint32_t control, uint32_t dst_addr, uint32_t bytes, DMA_Channel_Info *ch_info)
+_FAST_TEXT static void cache_sync_dst(uint32_t control, uint32_t dst_addr, uint32_t bytes, DMA_Channel_Info *ch_info)
 {
     uint32_t start, end;
     uint32_t addr_ctrl = control & DMA_CH_CTLL_DSTADDRCTL_MASK;
@@ -594,10 +612,10 @@ _FAST_FUNC_SRAM static void cache_sync_dst(uint32_t control, uint32_t dst_addr, 
     else // with DST SCATTER, there may be some memory holes which should be synchronized with cache
         dcache_flush_range(start, end);
 }
-#endif
+#endif // HAS_CACHE_SYNC
 
 // Calculate how many bytes equal to "size" of data items on Source
-_FAST_FUNC_SRAM static uint32_t calc_src_bytes(DMA_Channel_Info *ch_info, uint32_t control, uint32_t size)
+_FAST_TEXT static uint32_t calc_src_bytes(DMA_Channel_Info *ch_info, uint32_t control, uint32_t size)
 {
     uint32_t bytes, sg_cnt, sg_int;
 
@@ -614,7 +632,7 @@ _FAST_FUNC_SRAM static uint32_t calc_src_bytes(DMA_Channel_Info *ch_info, uint32
 
 
 // Calculate how many bytes equal to "size" of data items on Destination
-_FAST_FUNC_SRAM static uint32_t calc_dst_bytes(DMA_Channel_Info *ch_info, uint32_t control, uint32_t size)
+_FAST_TEXT static uint32_t calc_dst_bytes(DMA_Channel_Info *ch_info, uint32_t control, uint32_t size)
 {
     uint32_t bytes, dst_size, sg_cnt, sg_int;
 
@@ -632,7 +650,7 @@ _FAST_FUNC_SRAM static uint32_t calc_dst_bytes(DMA_Channel_Info *ch_info, uint32
 
 #if HAS_CACHE_SYNC
 // do cache sync operation on src/dst
-_FAST_FUNC_SRAM static void do_cache_sync(DMA_Channel_Info *ch_info, uint32_t control, uint32_t src_addr, uint32_t dst_addr, uint32_t size)
+_FAST_TEXT static void do_cache_sync(DMA_Channel_Info *ch_info, uint32_t control, uint32_t src_addr, uint32_t dst_addr, uint32_t size)
 {
     uint32_t src_bytes, dst_bytes;
     assert(ch_info != NULL && size != 0);
@@ -686,7 +704,7 @@ _FAST_FUNC_SRAM static void do_cache_sync(DMA_Channel_Info *ch_info, uint32_t co
 
 #endif // HAS_CACHE_SYNC
 
-_FAST_FUNC_RO static void update_next_xfer_addr(DMA_Channel_Info *ch_info, uint32_t control,
+_FAST_TEXT static void update_next_xfer_addr(DMA_Channel_Info *ch_info, uint32_t control,
                                 uint32_t src_addr, uint32_t dst_addr, uint32_t size)
 {
     assert(ch_info != NULL && size != 0);
@@ -724,7 +742,7 @@ _FAST_FUNC_RO static void update_next_xfer_addr(DMA_Channel_Info *ch_info, uint3
     ch_info->DstAddr = dst_addr;
 }
 
-_FAST_FUNC_SRAM __inline static void clear_all_interrupts(uint32_t ch_bits)
+__inline static void clear_all_interrupts(uint32_t ch_bits)
 {
     // Clear all DMA interrupt flags of specified channels
     CSK_DMA->CLEAR.XFER = ch_bits;
@@ -797,6 +815,30 @@ __inline static void disable_error_interrupts(uint32_t ch_bits)
     CSK_DMA->MASK.ERROR = (ch_bits << 8);
 }
 
+void dma_channel_mask_xfer_interrupt(uint8_t ch, bool mask)
+{
+    if (ch >= DMA_NUMBER_OF_CHANNELS) return;
+    uint32_t ch_bit = 1U << ch;
+    if (mask) disable_xfer_interrupts(ch_bit);
+    else      enable_xfer_interrupts(ch_bit);
+}
+
+void dma_channel_mask_block_interrupt(uint8_t ch, bool mask)
+{
+    if (ch >= DMA_NUMBER_OF_CHANNELS) return;
+    uint32_t ch_bit = 1U << ch;
+    if (mask) disable_block_interrupts(ch_bit);
+    else      enable_block_interrupts(ch_bit);
+}
+
+void dma_channel_mask_error_interrupt(uint8_t ch, bool mask)
+{
+    if (ch >= DMA_NUMBER_OF_CHANNELS) return;
+    uint32_t ch_bit = 1U << ch;
+    if (mask) disable_error_interrupts(ch_bit);
+    else      enable_error_interrupts(ch_bit);
+}
+
 __inline static uint32_t calc_burst_bytes(uint32_t width, uint32_t bsize)
 {
     uint32_t count;
@@ -848,7 +890,7 @@ static int32_t check_burst_bytes(uint8_t ch, uint32_t control)
    - \b  0: function succeeded
    - \b -1: function failed
 */
-_FAST_FUNC_RO static int32_t dma_channel_configure_internal (
+_FAST_TEXT static int32_t dma_channel_configure_internal (
                                 uint8_t            ch,
                                 uint8_t            en_int,
                                 uint32_t           src_addr,
@@ -892,12 +934,15 @@ _FAST_FUNC_RO static int32_t dma_channel_configure_internal (
     dma_ch->CFG_HI = config_high;
 
     // Reset LLP, if NOT use HW LLP (single block or SW LLP, a.k.a. mock BLOCK transfer
+    // Comment out following lines -- NO NEED to handle it!!
+/*
 #if SUPPORT_HW_LLP
     //FIXME: set dma_ch->LLP register if HW_LLP!!
     if (ch_info->flags & DMA_FLAG_HW_LLP) // HW LLP
         ; //TODO: do something?
     else
 #endif
+*/
         dma_ch->LLP = 0;
 
     // Reset scatter/gather etc. registers
@@ -923,7 +968,7 @@ _FAST_FUNC_RO static int32_t dma_channel_configure_internal (
 }
 
 //BSD: Add dma_channel_configure_internal_lite experimentally...
-_FAST_FUNC_RO static int32_t dma_channel_configure_internal_lite (
+_FAST_TEXT static int32_t dma_channel_configure_internal_lite (
                                 uint8_t            ch,
                                 uint32_t           src_addr,
                                 uint32_t           dst_addr,
@@ -935,12 +980,6 @@ _FAST_FUNC_RO static int32_t dma_channel_configure_internal_lite (
 
     ch_bit = 0x1U << ch;
     dma_ch = DMA_CHANNEL(ch);
-/*
-    ch_info = &channel_info[ch];
-
-    // Disable DMA interrupts
-    disable_all_interrupts(ch_bit);
-*/
 
     // Max block transfer size is MAX_BLK_TS (BLOCK_TS holds N bits)
     assert(size <= MAX_BLK_TS);
@@ -950,32 +989,6 @@ _FAST_FUNC_RO static int32_t dma_channel_configure_internal_lite (
     // Set Source and Destination address
     dma_ch->SAR = src_addr;
     dma_ch->DAR = dst_addr;
-
-/*
-    // Write control & configuration etc. registers
-    dma_ch->CTL_LO = control;
-    dma_ch->CFG_LO = config_low;
-    dma_ch->CFG_HI = config_high;
-
-    // Reset LLP, if NOT use HW LLP (single block or SW LLP, a.k.a. mock BLOCK transfer
-#if SUPPORT_HW_LLP
-    if (!(ch_info->flags & DMA_FLAG_HW_LLP)) // HW LLP
-#endif
-        dma_ch->LLP = 0;
-
-    // Reset scatter/gather etc. registers
-    dma_ch->SGR = (control & DMA_CH_CTLL_S_GATH_EN ? ch_info->src_gath : 0);
-    dma_ch->DSR = (control & DMA_CH_CTLL_D_SCAT_EN ? ch_info->dst_scat : 0);
-
-    // Enable DMA XFER and ERROR interrupts (no BLOCK & TRANS interrupts)
-    if (en_int == 0) {
-        disable_xfer_interrupts(ch_bit);
-        disable_error_interrupts(ch_bit);
-    } else {
-        enable_xfer_interrupts(ch_bit);
-        enable_error_interrupts(ch_bit);
-    }
-*/
 
     // Enable DMA Channel to trigger data transfer
     CSK_DMA->CH_EN = (ch_bit << 8) | ch_bit;
@@ -1015,14 +1028,13 @@ _FAST_FUNC_RO static int32_t dma_channel_configure_internal_lite (
 */
 
 #if SUPPORT_HW_LLP
-
-_FAST_FUNC_SRAM static bool dma_fill_ll_items(DMA_Channel_Info *ch_info,
+/*
+_FAST_TEXT static bool dma_fill_ll_items(DMA_Channel_Info *ch_info,
                                             uint32_t      src_addr,
                                             uint32_t      dst_addr,
                                             uint32_t      control,
                                             uint32_t      total_size)
 {
-    //JUST HERE!!
     uint32_t i, count, size;
     DMA_LLP pi = &ll_items[0];
 
@@ -1061,8 +1073,9 @@ _FAST_FUNC_SRAM static bool dma_fill_ll_items(DMA_Channel_Info *ch_info,
 
     return true;
 }
+*/
 
-_FAST_FUNC_SRAM int32_t dma_channel_configure_wrapper (uint8_t      ch,
+_FAST_TEXT int32_t dma_channel_configure_wrapper (uint8_t      ch,
                                             uint8_t       en_int,
                                             uint32_t      src_addr,
                                             uint32_t      dst_addr,
@@ -1143,15 +1156,13 @@ _FAST_FUNC_SRAM int32_t dma_channel_configure_wrapper (uint8_t      ch,
 
     // make sure remove LLP_EN
     // NOT use HW LLP is less than MAX_BLK_TS or greater than DMA_MAX_LL_DATA
-    if (total_size <= MAX_BLK_TS || total_size > DMA_MAX_LL_DATA) { // use single block or SW LLP
+//    if (total_size <= MAX_BLK_TS || total_size > DMA_MAX_LL_DATA) { // use single block or SW LLP
         size = total_size > MAX_BLK_TS ? MAX_BLK_TS : total_size;
         update_next_xfer_addr(ch_info, control, src_addr, dst_addr, size);
 
         ch_info->flags &= ~DMA_FLAG_HW_LLP;
         control &= ~DMA_CH_CTLL_LLP_EN_MASK;
-    } else { // use HW LLP
-        return -1; // return failure if use HW_LLP here...
-/*
+/*    } else { // use HW LLP
         ch_info->llp = &ll_items[0];
         dma_fill_ll_items(ch_info,
                         src_addr + (MAX_BLK_TS << ch_info->width_shift),
@@ -1162,8 +1173,8 @@ _FAST_FUNC_SRAM int32_t dma_channel_configure_wrapper (uint8_t      ch,
 
         ch_info->flags |= DMA_FLAG_HW_LLP;
         control |= DMA_CH_CTLL_LLP_EN_MASK;
-*/
     }
+*/
 
     // Trigger first DMA transfer
     return dma_channel_configure_internal(ch, en_int, src_addr, dst_addr, size, control, config_low, config_high);
@@ -1171,7 +1182,7 @@ _FAST_FUNC_SRAM int32_t dma_channel_configure_wrapper (uint8_t      ch,
 
 #else  // !SUPPORT_HW_LLP
 
-_FAST_FUNC_RO int32_t dma_channel_configure_wrapper (uint8_t      ch,
+_FAST_TEXT int32_t dma_channel_configure_wrapper (uint8_t      ch,
                                             uint8_t       en_int,
                                             uint32_t      src_addr,
                                             uint32_t      dst_addr,
@@ -1233,8 +1244,10 @@ _FAST_FUNC_RO int32_t dma_channel_configure_wrapper (uint8_t      ch,
     ch_info->llp = 0;
     ch_info->SrcAddr = 0;
     ch_info->DstAddr = 0;
+#if HAS_CACHE_SYNC
     ch_info->CacheSyncStart = 0;
     ch_info->CacheSyncBytes = 0;
+#endif
 
     size = total_size > MAX_BLK_TS ? MAX_BLK_TS : total_size;
     update_next_xfer_addr(ch_info, control, src_addr, dst_addr, size);
@@ -1257,53 +1270,140 @@ _FAST_FUNC_RO int32_t dma_channel_configure_wrapper (uint8_t      ch,
 
 #endif // SUPPORT_HW_LLP
 
-/*
-_FAST_FUNC_RO int32_t dma_channel_configure (uint8_t      ch,
-                                            uint32_t      src_addr,
-                                            uint32_t      dst_addr,
-                                            uint32_t      total_size,
-                                            uint32_t      control,
-                                            uint32_t      config_low,
-                                            uint32_t      config_high,
-                                            uint32_t      src_gath,
-                                            uint32_t      dst_scat)
+//[NEW]
+int32_t dma_channel_setup (uint8_t      ch,
+                           uint8_t       en_bits, //en_int
+                           uint32_t      control,
+                           uint32_t      config_low,
+                           uint32_t      config_high,
+                           uint32_t      src_gath,
+                           uint32_t      dst_scat)
 {
-    return dma_channel_configure_wrapper(ch, 1, src_addr, dst_addr, total_size, control,
-                                    config_low, config_high, src_gath, dst_scat);
+    uint32_t ch_bit, width; //, size
+    DMA_Channel_Info *ch_info;
+    uint8_t en_int, en_blk, en_pipo;
+
+    // Check if channel is valid
+    if (ch >= DMA_NUMBER_OF_CHANNELS)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    ch_bit = 0x1U << ch;
+
+    // return failure if channel is enabled or active flag is not set (indicates NOT selected before)
+    if ((CSK_DMA->CH_EN & ch_bit) || !(channel_active & ch_bit))
+        return CSK_DRIVER_ERROR;
+
+    // check if src/dst burst size & xfer width are legal
+    //if (check_burst_bytes(ch, control) != 0)
+    //    return -1;
+
+    // check scatter/gather validity
+    if (control & DMA_CH_CTLL_S_GATH_EN) {
+        if (SG_COUNT(src_gath) == 0)
+            return CSK_DRIVER_ERROR_PARAMETER;
+    }
+    if (control & DMA_CH_CTLL_D_SCAT_EN) {
+        if (SG_COUNT(dst_scat) == 0)
+            return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    en_blk = en_bits & DMA_CH_EN_BLK_INT;
+    en_pipo = en_bits & DMA_CH_EN_PIPO;
+    // block interrupt SHOULD be enabled for PingPong transfer
+    if (en_pipo && !en_blk)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    // Disable DMA interrupts
+    disable_all_interrupts(ch_bit);
+
+    // Clear DMA interrupts
+    clear_all_interrupts(ch_bit);
+
+    ch_info = &channel_info[ch];
+    ch_info->flags = 0;
+
+    width = (control & DMA_CH_CTLL_DST_WIDTH_MASK) >> DMA_CH_CTLL_DST_WIDTH_POS;
+    if (width > DMA_WIDTH_MAX)
+        return CSK_DRIVER_ERROR_PARAMETER;
+    ch_info->dst_wid_shift = width; // dst width shift
+
+    width = (control & DMA_CH_CTLL_SRC_WIDTH_MASK) >> DMA_CH_CTLL_SRC_WIDTH_POS;
+    if (width > DMA_WIDTH_MAX)
+        return CSK_DRIVER_ERROR_PARAMETER;
+    ch_info->width_shift = width; // src width shift
+
+    ch_info->src_gath = src_gath;
+    ch_info->dst_scat = dst_scat;
+
+    en_int = en_bits & DMA_CH_EN_XFER_INT;
+    if (en_int == 0) {
+        ch_info->flags |= DMA_FLAG_POLLING; // polling, no interrupt
+        control &= ~DMA_CH_CTLL_INT_EN; // Disable interrupt
+    } else {
+        ch_info->flags &= ~DMA_FLAG_POLLING; // use interrupt
+        control |= DMA_CH_CTLL_INT_EN; // Enable interrupt
+    }
+
+    // make sure remove LLP_EN currently
+    if (en_pipo) {
+        // HW_LLP is necessary for PingPong transfer
+        ch_info->flags |= DMA_FLAG_PIPO | DMA_FLAG_HW_LLP;
+        control |= DMA_CH_CTLL_LLP_EN_MASK;
+    } else {
+        ch_info->flags &= ~DMA_FLAG_PIPO; // Non-PingPong transfer
+        control &= ~DMA_CH_CTLL_LLP_EN_MASK;
+    }
+
+    DMA_CHANNEL_REG * dma_ch;
+    dma_ch = DMA_CHANNEL(ch);
+
+    // Write control & configuration etc. registers
+    dma_ch->CTL_LO = control;
+    dma_ch->CFG_LO = config_low;
+    dma_ch->CFG_HI = config_high;
+    dma_ch->LLP = 0; // Reset LLP when setup
+
+    // Reset scatter/gather etc. registers
+    dma_ch->SGR = (control & DMA_CH_CTLL_S_GATH_EN ? ch_info->src_gath : 0);
+    dma_ch->DSR = (control & DMA_CH_CTLL_D_SCAT_EN ? ch_info->dst_scat : 0);
+
+    // Enable DMA XFER and ERROR interrupts (no BLOCK & TRANS interrupts)
+    if (en_int != 0) {
+        enable_xfer_interrupts(ch_bit);
+        enable_error_interrupts(ch_bit);
+    }
+    if (en_blk != 0) {
+        enable_block_interrupts(ch_bit);
+    }
+
+    ch_info->flags |= DMA_FLAG_SETUP;
+    return CSK_DRIVER_OK;
 }
-*/
 
 
-_FAST_FUNC_RO int32_t dma_channel_configure_polling (uint8_t      ch,
-                                            uint32_t      src_addr,
-                                            uint32_t      dst_addr,
-                                            uint32_t      total_size,
-                                            uint32_t      control,
-                                            uint32_t      config_low,
-                                            uint32_t      config_high,
-                                            uint32_t      src_gath,
-                                            uint32_t      dst_scat)
+//[NEW]
+_FAST_TEXT int32_t dma_channel_start (uint8_t      ch,
+                                  uint32_t      src_addr,
+                                  uint32_t      dst_addr,
+                                  uint32_t      total_size)
 {
-#if SUPPORT_HW_LLP
-    if (total_size > DMA_MAX_LL_DATA)
-#else
-    if (total_size > MAX_BLK_TS)
-#endif
-        return -1; //TODO: CSK_DRIVER_ERROR_PARAMETER;
-
-    return dma_channel_configure_wrapper(ch, 0, src_addr, dst_addr, total_size, control,
-                                    config_low, config_high, src_gath, dst_scat);
+    return dma_channel_start_block(ch, DMACH_CFG_FLAG_BOTH_ADDR,
+                            src_addr, dst_addr, total_size);
 }
+
 
 // Check the DMA channel has been configured for some peripheral as specified before and select if configured
 // xfer_type    Memory to Peripheral (M2P) or Peripheral to Memory (P2M)
 // hs_id        hardware handshaking interface # (SHOULD less than DMA_HSID_COUNT)
-_FAST_FUNC_RO bool dma_channel_select_if_configured(uint8_t ch, uint8_t xfer_type, uint8_t hs_id)
+/*_FAST_TEXT*/ bool dma_channel_check_select(uint8_t ch, uint8_t xfer_flag, uint8_t hs_id)
 {
     DMA_CHANNEL_REG * dma_ch;
+    bool in_pipo_xfer;
+    uint8_t xfer_type = DMA_TT_MASK(xfer_flag);
+    uint8_t req_pipo = DMA_PIPO_MASK(xfer_flag);
     //uint32_t control, config_low, config_high;
 
-    if (ch >= DMA_NUMBER_OF_CHANNELS || (channel_active & (0x1 << ch)) ||
+    if (ch >= DMA_NUMBER_OF_CHANNELS || // (channel_active & (0x1 << ch)) ||
         ((xfer_type != DMA_TT_M2P) && (xfer_type != DMA_TT_P2M)))
         return false;
 
@@ -1312,6 +1412,17 @@ _FAST_FUNC_RO bool dma_channel_select_if_configured(uint8_t ch, uint8_t xfer_typ
     //config_low = dma_ch->CFG_LO;
     //config_high = dma_ch->CFG_HI;
 
+    // check the channel has been setup, return if NOT yet
+    if (!(channel_info[ch].flags & DMA_FLAG_SETUP))
+        return false;
+
+    // don't check if active or not if in_pipo_xfer
+    in_pipo_xfer = (channel_info[ch].flags & DMA_FLAG_PIPO) != 0;
+    if (!in_pipo_xfer) {// already active or request PIPO xfer
+        if((channel_active & (0x1 << ch)) || req_pipo)
+            return false;
+    }
+
     // check if transfer type meets requirement
     if ((dma_ch->CTL_LO & DMA_CH_CTLL_TTFC_MASK) >> DMA_CH_CTLL_TTFC_POS != xfer_type)
         return false;
@@ -1319,12 +1430,12 @@ _FAST_FUNC_RO bool dma_channel_select_if_configured(uint8_t ch, uint8_t xfer_typ
     // check if handshaking interface # meets requirement
     if (xfer_type == DMA_TT_M2P) { // memory -> peripheral, hw handshake with DST
         if ((dma_ch->CFG_HI & DMA_CH_CFGH_DST_PER_MASK) >> DMA_CH_CFGH_DST_PER_POS == hs_id) {
-            if (set_channel_active_flag(ch) == 0)
+            if (in_pipo_xfer || set_channel_active_flag(ch) == 0)
                 return true;
         }
     } else { // peripheral -> memory, hw handshake with SRC
         if ((dma_ch->CFG_HI & DMA_CH_CFGH_SRC_PER_MASK) >> DMA_CH_CFGH_SRC_PER_POS == hs_id) {
-            if (set_channel_active_flag(ch) == 0)
+            if (in_pipo_xfer || set_channel_active_flag(ch) == 0)
                 return true;
         }
     }
@@ -1332,12 +1443,20 @@ _FAST_FUNC_RO bool dma_channel_select_if_configured(uint8_t ch, uint8_t xfer_typ
     return false;
 }
 
+
 //BSD: Add dma_channel_configure_lite experimentally...
+/*
 extern int32_t dma_channel_configure_lite (uint8_t      ch,
                                            uint8_t      cfg_flags,
                                            uint32_t     src_addr,
                                            uint32_t     dst_addr,
                                            uint32_t     total_size)
+*/
+/*_FAST_TEXT*/ int32_t dma_channel_start_block (uint8_t      ch,
+                                                      uint8_t      cfg_flags,
+                                                      uint32_t     src_addr,
+                                                      uint32_t     dst_addr,
+                                                      uint32_t     total_size)
 {
     uint32_t ch_bit, control, size;
     DMA_Channel_Info *ch_info;
@@ -1345,23 +1464,22 @@ extern int32_t dma_channel_configure_lite (uint8_t      ch,
 
     // Check if channel is valid
     if (ch >= DMA_NUMBER_OF_CHANNELS)
-        return -1;
+        return CSK_DRIVER_ERROR_PARAMETER;
 
     ch_bit = 0x1U << ch;
 
-    // return failure if channel is enabled or reserved flag is not set
-    //if ((CSK_DMA->CH_EN & ch_bit) || !(channel_reserved & ch_bit))
-    if (CSK_DMA->CH_EN & ch_bit)
-        return -1;
+    // return failure if channel is enabled or active flag is not set (indicates NOT selected before)
+    if ((CSK_DMA->CH_EN & ch_bit) || !(channel_active & ch_bit)) // !(channel_reserved & ch_bit)
+        return CSK_DRIVER_ERROR;
 
     ch_info = &channel_info[ch];
     ch_info->SizeToXfer = total_size;
     ch_info->SizeXfered = 0;
-    //ch_info->llp = 0;
-    //ch_info->SrcAddr = 0;
-    //ch_info->DstAddr = 0;
-    //ch_info->CacheSyncStart = 0;
-    //ch_info->CacheSyncBytes = 0;
+    ch_info->llp = 0;
+#if HAS_CACHE_SYNC
+    ch_info->CacheSyncStart = 0;
+    ch_info->CacheSyncBytes = 0;
+#endif
 
     dma_ch = DMA_CHANNEL(ch);
     control = dma_ch->CTL_LO;
@@ -1370,13 +1488,17 @@ extern int32_t dma_channel_configure_lite (uint8_t      ch,
         update_next_xfer_addr(ch_info, control, src_addr, dst_addr, size);
     } else {
         size = total_size;
+        ch_info->SrcAddr = 0;
+        ch_info->DstAddr = 0;
     }
 
     // do cache sync operation before the mock BLOCK transfer
     if (ch_info->cache_sync != DMA_CACHE_SYNC_NOP)
         do_cache_sync(ch_info, control, src_addr, dst_addr, total_size);
 
+    // Set CTLx.BLOCK_TS = size and cTLx.Done = 0
     dma_ch->CTL_HI = (size & DMA_CH_CTLH_BLOCK_TS_MASK);
+
     if (cfg_flags & DMACH_CFG_FLAG_SRC_ADDR)
         dma_ch->SAR = src_addr;
     if (cfg_flags & DMACH_CFG_FLAG_DST_ADDR)
@@ -1391,7 +1513,236 @@ extern int32_t dma_channel_configure_lite (uint8_t      ch,
     // Enable DMA Controller
     //CSK_DMA->CFG = 0x1;
 
-    return 0;
+    return CSK_DRIVER_OK;
+}
+
+
+//[IN] blk_array    blocks by which data are transfered in Ping-Pong mode endlessly
+//[IN/OUT] blk_cnt_p    indicate count of blocks in blk_arry when input, and
+//                  count of blocks (start from head) set successfully into DMAC when output.
+int32_t dma_channel_start_pipo (uint8_t ch, DMA_PIPO_BLK *blk_array, uint8_t *blk_cnt_p)
+{
+    uint32_t ch_bit, reg_val;
+    uint8_t blks, i, gie, first_start;
+
+    // Check if channel is valid
+    if (ch >= DMA_NUMBER_OF_CHANNELS || blk_array == NULL || blk_cnt_p == NULL) // || *blk_cnt_p < 2
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    for (i = 0; i < *blk_cnt_p; i++) {
+        if (blk_array[i].size > MAX_BLK_TS)
+            return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    ch_bit = 0x1U << ch;
+
+    // return failure if channel active flag is not set (indicates NOT selected before)
+    if (!(channel_active & ch_bit)) //(CSK_DMA->CH_EN & ch_bit)
+        return CSK_DRIVER_ERROR;
+
+    // first start_pipo call after dma_channel_setup
+    first_start = !(CSK_DMA->CH_EN & ch_bit);
+    if (first_start && *blk_cnt_p < 2)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    DMA_Channel_Info *ch_info;
+    DMA_CHANNEL_REG * dma_ch;
+    DMA_LLP mark, cur, pre;
+
+    ch_info = &channel_info[ch];
+    dma_ch = DMA_CHANNEL(ch);
+
+    if (first_start) { // dma_ch->LLP == NULL
+        uint32_t used_bits = 0;
+
+        // initialize all 0 for PingPong transfer
+        ch_info->SizeToXfer = 0;
+        ch_info->SizeXfered = 0;
+        ch_info->SrcAddr = ch_info->DstAddr = 0;
+        ch_info->last_llp = NULL;
+
+        //dma_ch->LLP = NULL;
+        mark = cur = NULL;
+        gie = GINT_enabled();
+        if (gie) { disable_GINT(); }
+        for (i = 0, blks = 0; i < DMA_MAX_LL_ITEMS; i++) {
+            if (ll_item_bits & (0x1 << i)) // used
+                continue;
+            used_bits |= (0x1 << i);
+            memset(&ll_items[i], 0, sizeof(DMA_LLI));
+
+            if (mark == NULL) {
+                cur = mark = &ll_items[i];
+            } else {
+                cur->LLP = (uint32_t)&ll_items[i];
+                ll_items[i].preLLP = cur;
+                cur = &ll_items[i];
+            }
+            blks++; // increase count of allocated block
+            if (blks == *blk_cnt_p)
+                break;
+        } // end for i
+
+        if (blks == *blk_cnt_p || blks >= 2) {
+            cur->LLP = (uint32_t)mark;
+            mark->preLLP = cur;
+            ch_info->llp = mark; // saved in channel info
+            //*blk_cnt_p = blks;
+            ll_item_bits |= used_bits;
+            dma_ch->LLP = (uint32_t)mark;
+        }
+        if (gie) { enable_GINT(); }
+
+        if (blks < 2) { // no enough LL_ITEM memory
+            *blk_cnt_p = 0;
+            return CSK_DRIVER_ERROR;
+        }
+    } // first start_pipo call
+
+    // fill in LLI items
+    i = 0;
+#if WB_BLK_DONE // DONE bit is written back to LLItem
+    cur = mark = (DMA_LLP)dma_ch->LLP; // next LLI
+    assert(cur != NULL);
+    do {
+        reg_val = cur->u.CTL_HI;
+        // check if current LLI item is available
+        if (reg_val == 0 || (reg_val & DMA_CH_CTLH_DONE)) {
+            reg_val = (uint32_t)blk_array[i].src;
+            cur->SAR = reg_val ? reg_val : dma_ch->SAR; // keep current value if reg_val == 0
+            reg_val = (uint32_t)blk_array[i].dst;
+            cur->DAR = reg_val ? reg_val : dma_ch->DAR; // keep current value if reg_val == 0
+            cur->CTL_LO = dma_ch->CTL_LO; // use current DMA channel control
+            cur->u.SIZE = blk_array[i].size;
+            i++;
+
+            // do cache sync operation before BLOCK transfer
+            if (ch_info->cache_sync != DMA_CACHE_SYNC_NOP)
+                do_cache_sync(ch_info, cur->CTL_LO, cur->SAR, cur->DAR, cur->u.SIZE);
+        }
+        cur = (DMA_LLP)cur->LLP;
+    } while (i < *blk_cnt_p && cur != mark);
+
+#else // IP bug: DONE bit is NOT written back to LLItem (ONLY 2 blocks PingPong)
+    // Currently DONE bit is NOT set correctly, so we CANNOT know which blocks
+    // have been transferred! We just assume that the other block is finished
+    // when there are only 2 blocks in the linked list!
+
+//    volatile int dly_cnt = 10000;
+//    while (dly_cnt -- > 0);
+
+    cur = mark = (DMA_LLP)dma_ch->LLP;
+
+    do {
+        reg_val = (uint32_t)blk_array[i].src;
+        cur->SAR = reg_val ? reg_val : dma_ch->SAR; // keep current value if 0
+        reg_val = (uint32_t)blk_array[i].dst;
+        cur->DAR = reg_val ? reg_val : dma_ch->DAR; // keep current value if 0
+        cur->CTL_LO = dma_ch->CTL_LO; // use current DMA channel control
+        cur->u.SIZE = blk_array[i].size;
+
+        // do cache sync operation before BLOCK transfer
+        if (ch_info->cache_sync != DMA_CACHE_SYNC_NOP)
+            do_cache_sync(ch_info, cur->CTL_LO, cur->SAR, cur->DAR, cur->u.SIZE);
+
+        pre = cur;
+        cur = (DMA_LLP)cur->LLP;
+
+        // Stop PingPong after this block
+        if (blk_array[i].flags & PIPO_BLK_FLAG_STOP) {
+            // clean EN_LLP flags of src & dst in CTL_LO
+            pre->CTL_LO &= ~DMA_CH_CTLL_LLP_EN_MASK;
+            pre->LLP = 0;
+
+            // set DONE bit, clear BLOCK_TS;
+            //cur->u.CTL_HI = DMA_CH_CTLH_BLOCK_TS_MASK;
+            //cur->u.CTL_HI = 0;
+            //cur->LLP = 0;
+        }
+
+        i++;
+    } while (i < *blk_cnt_p && cur != mark);
+
+#endif
+
+    *blk_cnt_p = i; // return count of LLI item actually filled
+
+    // Enable DMA Channel to trigger data transfer
+    if (first_start) {
+        //dma_ch->LLP = (uint32_t)ch_info->llp;
+        CSK_DMA->CH_EN = (ch_bit << 8) | ch_bit;
+    }
+
+    // Enable DMA Controller
+    //CSK_DMA->CFG = 0x1;
+
+#if 0
+    DMA_LLP old_cur = mark;
+    if (!first_start) {
+        if(old_cur == &ll_items[0])
+            logDbg("Fblock 0!\n");
+        else if(old_cur == &ll_items[1])
+            logDbg("Fblock #1!\n");
+    } else {
+        if(old_cur == &ll_items[0])
+            logDbg("Init Fblock 0!\n");
+        else if(old_cur == &ll_items[1])
+            logDbg("Init Fblock #1!\n");
+    }
+#endif
+
+    return CSK_DRIVER_OK;
+}
+
+
+// cancel the circular Ping/Ping operation, that is, break  the circular chain,
+// usually called in BLOCK COMPLETE ISR.
+int32_t dma_channel_cancel_pipo (uint8_t ch)
+{
+    uint32_t ch_bit, reg_val;
+
+    // Check if channel is valid
+    if (ch >= DMA_NUMBER_OF_CHANNELS)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    ch_bit = 0x1U << ch;
+
+    DMA_Channel_Info *ch_info;
+    DMA_CHANNEL_REG * dma_ch;
+    DMA_LLP cur, first;
+
+    ch_info = &channel_info[ch];
+    if (!(ch_info->flags & DMA_FLAG_PIPO))
+        return CSK_DRIVER_OK; //CSK_DRIVER_ERROR;
+
+    dma_ch = DMA_CHANNEL(ch);
+    first = (DMA_LLP)dma_ch->LLP;
+    if (first == NULL)
+        return CSK_DRIVER_OK;
+
+#if WB_BLK_DONE
+    dma_ch->LLP = 0;
+    cur = first;
+    do {
+        reg_val = cur->u.CTL_HI;
+        // check if current LLI item is intact or done
+        if (reg_val == 0 || (reg_val & DMA_CH_CTLH_DONE)) {
+            //if (cur == first)
+            //    dma_ch->LLP = 0;
+            cur->preLLP->LLP = 0;
+            return CSK_DRIVER_OK;
+        }
+        cur = (DMA_LLP)cur->LLP;
+    } while (cur != first);
+
+#else // !WB_BLK_DONE
+    // There are only 2 blocks in the linked list!
+    dma_ch->LLP = 0;
+    first->preLLP->LLP = 0;
+
+#endif // !WB_BLK_DONE
+
+    return CSK_DRIVER_OK;
 }
 
 /**
@@ -1418,116 +1769,161 @@ extern int32_t dma_channel_configure_lite (uint8_t      ch,
 
 #if SUPPORT_HW_LLP
 
-_FAST_FUNC_RO int32_t dma_channel_configure_LLP_with_size (
-                                       uint8_t      ch,
-                                       DMA_LLP      llp,
-                                       uint32_t     config_low,
-                                       uint32_t     config_high,
-                                       uint32_t     src_gath,
-                                       uint32_t     dst_scat,
-                                       uint32_t     total_size)
-{
-    uint32_t ch_bit, width, size;
-    DMA_Channel_Info *ch_info;
-
-    ch_bit = 0x1U << ch;
-    ch_info = &channel_info[ch];
-
-    ch_info->src_gath = src_gath;
-    ch_info->dst_scat = dst_scat;
-
-    ch_info->llp = llp;
-
-    ch_info->flags |= DMA_FLAG_HW_LLP;
-
-    ch_info->SizeToXfer = total_size;
-
-    DMA_CHANNEL_REG *dma_ch = DMA_CHANNEL(ch);
-    dma_ch->LLP = (uint32_t)llp;
-    dma_ch->CTL_LO = DMA_CH_CTLL_LLP_EN_MASK;
-    dma_ch->CFG_LO = config_low;
-    dma_ch->CFG_HI = config_high;
-
-    dma_ch->DSR = ch_info->dst_scat;
-    CSK_DMA->MASK.XFER = (ch_bit << 8) | ch_bit;
-    CSK_DMA->MASK.ERROR = (ch_bit << 8) | ch_bit;
-
-    CSK_DMA->CH_EN = (ch_bit << 8) | ch_bit;
-
-    return 0; // CSK_DRIVER_OK;
-}
-
-//FIXME: if HW LLP is used, DMA_CACHE_SYNC_DST may NOT take effect!!
-_FAST_FUNC_RO int32_t dma_channel_configure_LLP (
-                                       uint8_t      ch,
-                                       DMA_LLP      llp,
-                                       uint32_t     config_low,
-                                       uint32_t     config_high,
-                                       uint32_t     src_gath,
-                                       uint32_t     dst_scat,
-                                       uint32_t lli_count)
+/*_FAST_TEXT*/ int32_t dma_channel_start_LLP (uint8_t ch, DMA_LLP llp)
 {
     // traverse all Linked List items
     DMA_LLP cur, next;
 
     // List Master Select, AHB layer/interface of memory device where LLI stores
-    uint32_t ch_bit, lms, width, size;
+    uint32_t ch_bit, lms, control; // width, size
     DMA_Channel_Info *ch_info;
-
-    // SHOULD NOT set Auto Reload for Src/Dst
-    if (llp == NULL || (config_low & DMA_CH_CFGL_RELOAD_MASK) != 0)
-        return -1;
-
-    // use "mock" BLOCK transfer (actually DMA transfer), SHOULD remove LLP_EN
-//    llp->CTL_LO &= ~DMA_CH_CTLL_LLP_EN_MASK;
-
-     lms = llp->LLP & 0x03;
-   // LMS is hardcoded on ARCS?
-//    if ( lms != DMAH_CH_LMS )
-//        return -1;
-
-    bool hw_llp = true; // assume HW LLP is supported
-
-    //cur = (DMA_LLP)(llp->LLP & ~0x3UL); // LLI address is 4bytes aligned
-    cur = llp;
-    // while (cur != NULL) {
-    //     // Usually LMS bits SHOULD NOT change
-    //     if (lms != (cur->LLP & 0x03))
-    //         return -1;
-
-    //     // check scatter/gather validity
-    //     if (cur->CTL_LO & DMA_CH_CTLL_S_GATH_EN) {
-    //         if (SG_COUNT(src_gath) == 0)
-    //             return -1;
-    //     }
-    //     if (cur->CTL_LO & DMA_CH_CTLL_D_SCAT_EN) {
-    //         if (SG_COUNT(dst_scat) == 0)
-    //             return -1;
-    //     }
-
-    //     if (cur->u.SIZE > MAX_BLK_TS)
-    //         //hw_llp = false;
-    //         return -1;
-
-
-    //     // Get next LLI (LLI address is 4bytes aligned)
-    //     next = (DMA_LLP)(cur->LLP & ~0x3UL);
-
-    //     // use "mock" BLOCK transfer (actually DMA transfer), SHOULD remove LLP_EN
-    //     //cur->CTL_LO &= ~DMA_CH_CTLL_LLP_EN_MASK;
-
-    //     cur = next; // next LLI
-    // } //end while
+    DMA_CHANNEL_REG * dma_ch;
 
     // Check if channel is valid
-    if (ch >= DMA_NUMBER_OF_CHANNELS)
-        return -1;
+    if (ch >= DMA_NUMBER_OF_CHANNELS || llp == NULL)
+        return CSK_DRIVER_ERROR_PARAMETER;
 
     ch_bit = 0x1U << ch;
 
     // return failure if channel is enabled or active flag is not set (indicates NOT selected before)
     if ((CSK_DMA->CH_EN & ch_bit) || !(channel_active & ch_bit))
-        return -1;
+        return CSK_DRIVER_ERROR;
+
+    ch_info = &channel_info[ch];
+    dma_ch = DMA_CHANNEL(ch);
+
+    control = dma_ch->CTL_LO;
+    lms = llp->LLP & 0x03;
+
+    //cur = (DMA_LLP)(llp->LLP & ~0x3UL); // LLI address is 4bytes aligned
+    cur = llp;
+    while (cur != NULL) {
+        // size doesn't exceed MAX_BLK_TS
+        if (cur->u.SIZE > MAX_BLK_TS)
+            return CSK_DRIVER_ERROR_PARAMETER;
+
+        // use current CTL if NOT set
+        if (cur->CTL_LO == 0)
+            cur->CTL_LO = control;
+
+        // Usually LMS bits SHOULD NOT change
+        if (lms != (cur->LLP & 0x03))
+            return CSK_DRIVER_ERROR_PARAMETER;
+
+        // check scatter/gather validity
+        if (cur->CTL_LO & DMA_CH_CTLL_S_GATH_EN) {
+            if (SG_COUNT(ch_info->src_gath) == 0)
+                return CSK_DRIVER_ERROR_PARAMETER;
+        }
+        if (cur->CTL_LO & DMA_CH_CTLL_D_SCAT_EN) {
+            if (SG_COUNT(ch_info->dst_scat) == 0)
+                return CSK_DRIVER_ERROR_PARAMETER;
+        }
+
+        // Get next LLI (LLI address is 4bytes aligned)
+        cur = (DMA_LLP)(cur->LLP & ~0x3UL);
+
+    } //end while
+
+    ch_info->SizeXfered = 0;
+    ch_info->llp = llp; //(DMA_LLP)(llp->LLP);
+    ch_info->SrcAddr = 0;
+    ch_info->DstAddr = 0;
+#if HAS_CACHE_SYNC
+    ch_info->CacheSyncStart = 0;
+    ch_info->CacheSyncBytes = 0;
+#endif
+
+    ch_info->flags |= DMA_FLAG_HW_LLP;
+    ch_info->SizeToXfer = 0;
+
+    //cur = (DMA_LLP)(llp->LLP & ~0x3UL); // LLI address is 4bytes aligned
+    cur = llp;
+    while (cur != NULL) {
+        ch_info->SizeToXfer += cur->u.SIZE;
+        // do cache sync operation before the mock BLOCK transfer
+        if (ch_info->cache_sync != DMA_CACHE_SYNC_NOP)
+            do_cache_sync(ch_info, cur->CTL_LO, cur->SAR, cur->DAR, cur->u.SIZE);
+        // Get next LLI (LLI address is 4bytes aligned)
+        next = (DMA_LLP)(cur->LLP & ~0x3UL);
+        // add LLP_EN if not last one
+        if (next != NULL)
+            cur->CTL_LO |= DMA_CH_CTLL_LLP_EN_MASK;
+        else
+            cur->CTL_LO &= ~DMA_CH_CTLL_LLP_EN_MASK;
+        cur = next; // next LLI
+    } //end while
+
+    dma_ch->LLP = (uint32_t)llp;
+    dma_ch->CTL_LO = DMA_CH_CTLL_LLP_EN_MASK;
+
+    // Enable DMA Channel to trigger data transfer
+    CSK_DMA->CH_EN = (ch_bit << 8) | ch_bit;
+
+    // Enable DMA Controller
+    //CSK_DMA->CFG = 0x1;
+
+    return CSK_DRIVER_OK;
+}
+
+//FIXME: if HW LLP is used, DMA_CACHE_SYNC_DST may NOT take effect!!
+/*_FAST_TEXT*/ int32_t dma_channel_configure_LLP (
+                                       uint8_t      ch,
+                                       DMA_LLP      llp,
+                                       uint32_t     config_low,
+                                       uint32_t     config_high,
+                                       uint32_t     src_gath,
+                                       uint32_t     dst_scat)
+{
+    // traverse all Linked List items
+    DMA_LLP cur, next;
+
+    // List Master Select, AHB layer/interface of memory device where LLI stores
+    uint32_t ch_bit, lms, width; //, size
+    DMA_Channel_Info *ch_info;
+
+    // Check if channel is valid
+    if (ch >= DMA_NUMBER_OF_CHANNELS)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    // SHOULD NOT set Auto Reload for Src/Dst
+    if (llp == NULL || (config_low & DMA_CH_CFGL_RELOAD_MASK) != 0)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    ch_bit = 0x1U << ch;
+
+    // return failure if channel is enabled or active flag is not set (indicates NOT selected before)
+    if ((CSK_DMA->CH_EN & ch_bit) || !(channel_active & ch_bit))
+        return CSK_DRIVER_ERROR;
+
+     lms = llp->LLP & 0x03;
+    //LMS is hardcoded on ARCS?
+    //if ( lms != DMAH_CH_LMS )
+    //    return CSK_DRIVER_ERROR;
+
+    //cur = (DMA_LLP)(llp->LLP & ~0x3UL); // LLI address is 4bytes aligned
+    cur = llp;
+    while (cur != NULL) {
+        // Usually LMS bits SHOULD NOT change
+        if (lms != (cur->LLP & 0x03))
+            return CSK_DRIVER_ERROR_PARAMETER;
+
+        // check scatter/gather validity
+        if (cur->CTL_LO & DMA_CH_CTLL_S_GATH_EN) {
+            if (SG_COUNT(src_gath) == 0)
+                return CSK_DRIVER_ERROR_PARAMETER;
+        }
+        if (cur->CTL_LO & DMA_CH_CTLL_D_SCAT_EN) {
+            if (SG_COUNT(dst_scat) == 0)
+                return CSK_DRIVER_ERROR_PARAMETER;
+        }
+
+        if (cur->u.SIZE > MAX_BLK_TS)
+            return CSK_DRIVER_ERROR_PARAMETER;
+
+        // Get next LLI (LLI address is 4bytes aligned)
+        cur = (DMA_LLP)(cur->LLP & ~0x3UL);
+    } //end while
 
     // check if src/dst burst size & xfer width are legal
     //if (check_burst_bytes(ch, llp->CTL_LO) != 0)
@@ -1537,25 +1933,20 @@ _FAST_FUNC_RO int32_t dma_channel_configure_LLP (
 
     width = (llp->CTL_LO & DMA_CH_CTLL_DST_WIDTH_MASK) >> DMA_CH_CTLL_DST_WIDTH_POS;
     if (width > DMA_WIDTH_MAX) {
-        return -1;
-        //width = DMA_WIDTH_MAX;
+        return CSK_DRIVER_ERROR;
     }
     ch_info->dst_wid_shift = width; // dst width shift
-//    ch_info->dst_wid_bytes = (1 << width); // dst width bytes
 
     width = (llp->CTL_LO & DMA_CH_CTLL_SRC_WIDTH_MASK) >> DMA_CH_CTLL_SRC_WIDTH_POS;
     if (width > DMA_WIDTH_MAX) {
-        return -1;
-        //width = DMA_WIDTH_MAX;
+        return CSK_DRIVER_ERROR;
     }
     ch_info->width_shift = width; // src width shift
-//    ch_info->width_bytes = (1 << width); // src width bytes
 
     ch_info->src_gath = src_gath;
     ch_info->dst_scat = dst_scat;
     ch_info->SizeXfered = 0;
-//    ch_info->llp = (DMA_LLP)(llp->LLP);
-    ch_info->llp = llp;
+    ch_info->llp = llp; //(DMA_LLP)(llp->LLP);
     ch_info->SrcAddr = 0;
     ch_info->DstAddr = 0;
 #if HAS_CACHE_SYNC
@@ -1563,71 +1954,162 @@ _FAST_FUNC_RO int32_t dma_channel_configure_LLP (
     ch_info->CacheSyncBytes = 0;
 #endif
 
-    //size = llp->u.SIZE > MAX_BLK_TS ? FIT_BLK_TS : llp->u.SIZE;
-    size = llp->u.SIZE > MAX_BLK_TS ? MAX_BLK_TS : llp->u.SIZE;
+     ch_info->flags |= DMA_FLAG_HW_LLP;
+     ch_info->SizeToXfer = 0;
 
-/*    if (!hw_llp) { // SW LLP
-        ch_info->flags &= ~DMA_FLAG_HW_LLP;
-        ch_info->SizeToXfer = llp->u.SIZE;
-
-        update_next_xfer_addr(ch_info, llp->CTL_LO, llp->SAR, llp->DAR, size);
-
+    //cur = (DMA_LLP)(llp->LLP & ~0x3UL); // LLI address is 4bytes aligned
+    cur = llp;
+    while (cur != NULL) {
+        ch_info->SizeToXfer += cur->u.SIZE;
         // do cache sync operation before the mock BLOCK transfer
-        do_cache_sync(ch_info, llp->CTL_LO, llp->SAR, llp->DAR, llp->u.SIZE);
-
-    } else { // HW LLP	*/
-        ch_info->flags |= DMA_FLAG_HW_LLP;
-        ch_info->SizeToXfer = 0;
-        //cur = (DMA_LLP)(llp->LLP & ~0x3UL); // LLI address is 4bytes aligned
-        cur = llp;
-        ch_info->SizeToXfer += cur->u.SIZE*172;
-        // while (cur != NULL) {
-        //     ch_info->SizeToXfer += cur->u.SIZE;
-        //     // do cache sync operation before the mock BLOCK transfer
-        //     // do_cache_sync(ch_info, cur->CTL_LO, cur->SAR, cur->DAR, cur->u.SIZE);
-        //     // Get next LLI (LLI address is 4bytes aligned)
-        //     next = (DMA_LLP)(cur->LLP & ~0x3UL);
-        //     // add LLP_EN if not last one
-        //     if (next != NULL)   cur->CTL_LO |= DMA_CH_CTLL_LLP_EN_MASK;
-		// 	else cur->CTL_LO &= ~DMA_CH_CTLL_LLP_EN_MASK;
-        //     cur = next; // next LLI
-        // } //end while
-
-        //BSD0324
-        DMA_CHANNEL_REG * dma_ch = DMA_CHANNEL(ch);
-        dma_ch->LLP = (uint32_t)llp;
-        dma_ch->CTL_LO = DMA_CH_CTLL_LLP_EN_MASK;
-        dma_ch->CFG_LO = config_low;
-        dma_ch->CFG_HI = config_high;
-        dma_ch->SGR = src_gath;
-        dma_ch->DSR = dst_scat;
-
-        dma_ch->DSR = ch_info->dst_scat;
-
-        enable_xfer_interrupts(ch_bit);
-        enable_error_interrupts(ch_bit);
-
-        // Enable DMA Channel to trigger data transfer
-        CSK_DMA->CH_EN = (ch_bit << 8) | ch_bit;
-        return 0; //CSK_DRIVER_OK;
-/*    } */
-
-/*
-    // Disable DMA Channel
-    //CSK_DMA->CH_EN = (ch_bit << 8);
+        do_cache_sync(ch_info, cur->CTL_LO, cur->SAR, cur->DAR, cur->u.SIZE);
+        // Get next LLI (LLI address is 4bytes aligned)
+        next = (DMA_LLP)(cur->LLP & ~0x3UL);
+        // add LLP_EN if not last one
+        if (next != NULL)   cur->CTL_LO |= DMA_CH_CTLL_LLP_EN_MASK;
+        else cur->CTL_LO &= ~DMA_CH_CTLL_LLP_EN_MASK;
+        cur = next; // next LLI
+    } //end while
 
     // Clear DMA interrupts
     clear_all_interrupts(ch_bit);
 
-    // Trigger first DMA transfer
-    return dma_channel_configure_internal(ch, 1, llp->SAR, llp->DAR, size, llp->CTL_LO,
-                                          config_low, config_high);
-*/
+    DMA_CHANNEL_REG * dma_ch = DMA_CHANNEL(ch);
+    dma_ch->LLP = (uint32_t)llp;
+    dma_ch->CTL_LO = DMA_CH_CTLL_LLP_EN_MASK;
+    dma_ch->CFG_LO = config_low;
+    dma_ch->CFG_HI = config_high;
+
+    enable_xfer_interrupts(ch_bit);
+    enable_error_interrupts(ch_bit);
+
+    // Enable DMA Channel to trigger data transfer
+    CSK_DMA->CH_EN = (ch_bit << 8) | ch_bit;
+
+    return CSK_DRIVER_OK;
 }
 
 #else // !SUPPORT_HW_LLP
 
-_FAST_FUNC_RO int32_t dma_channel_configure_LLP (
+/*_FAST_TEXT*/ int32_t dma_channel_start_LLP (uint8_t ch, DMA_LLP llp)
+{
+    // traverse all Linked List items
+    DMA_LLP cur, next;
+    uint32_t ch_bit, lms, control, size; //width
+    DMA_Channel_Info *ch_info;
+    DMA_CHANNEL_REG * dma_ch;
+
+    // Check if channel is valid
+    if (ch >= DMA_NUMBER_OF_CHANNELS || llp == NULL)
+        return CSK_DRIVER_ERROR_PARAMETER;
+
+    ch_bit = 0x1U << ch;
+
+    // return failure if channel is enabled or active flag is not set (indicates NOT selected before)
+    if ((CSK_DMA->CH_EN & ch_bit) || !(channel_active & ch_bit))
+        return CSK_DRIVER_ERROR;
+
+    lms = llp->LLP & 0x03;
+
+    ch_info = &channel_info[ch];
+    dma_ch = DMA_CHANNEL(ch);
+    control = dma_ch->CTL_LO;
+
+    if (llp->CTL_LO == 0)
+        llp->CTL_LO = control;
+    //else
+    //    assert(control == llp->CTL_LO);
+
+    // use "mock" BLOCK transfer (actually DMA transfer), SHOULD remove LLP_EN
+    llp->CTL_LO &= ~DMA_CH_CTLL_LLP_EN_MASK;
+
+    //cur = (DMA_LLP)(llp->LLP & ~0x3UL); // LLI address is 4bytes aligned
+    cur = llp;
+    while (cur != NULL) {
+/*
+        // Usually LMS bits SHOULD NOT change
+        if (lms != (cur->LLP & 0x03))
+            return -1;
+
+        // check scatter/gather validity
+        if (cur->CTL_LO & DMA_CH_CTLL_S_GATH_EN) {
+            if (SG_COUNT(src_gath) == 0)
+                return -1;
+        }
+        if (cur->CTL_LO & DMA_CH_CTLL_D_SCAT_EN) {
+            if (SG_COUNT(dst_scat) == 0)
+                return -1;
+        }
+*/
+
+        // Get next LLI (LLI address is 4bytes aligned)
+        next = (DMA_LLP)(cur->LLP & ~0x3UL);
+
+        //value = cur->CTL_LO & DMA_CH_CTLL_LLP_EN_MASK;
+        //if (next == NULL) {
+        //    // LLP enabled bits SHOULD of last LLI should be 0
+        //    if (value != 0)
+        //        return -1;
+        //} else if (llp_en != value) {
+        //    // LLP enabled bits SHOULD NOT change between blocks
+        //    return -1;
+        //}
+
+        if (cur->CTL_LO == 0)
+            cur->CTL_LO = control;
+        //else
+        //    assert(cur->CTL_LO = control);
+
+        // use "mock" BLOCK transfer (actually DMA transfer), SHOULD remove LLP_EN
+        cur->CTL_LO &= ~DMA_CH_CTLL_LLP_EN_MASK;
+
+        cur = next; // next LLI
+    } //end while
+
+
+    ch_info->SizeToXfer = llp->u.SIZE;
+    ch_info->SizeXfered = 0;
+    ch_info->llp = (DMA_LLP)(llp->LLP);
+    ch_info->SrcAddr = 0;
+    ch_info->DstAddr = 0;
+#if HAS_CACHE_SYNC
+    ch_info->CacheSyncStart = 0;
+    ch_info->CacheSyncBytes = 0;
+#endif
+    size = llp->u.SIZE > MAX_BLK_TS ? MAX_BLK_TS : llp->u.SIZE;
+    update_next_xfer_addr(ch_info, control, llp->SAR, llp->DAR, size); // llp->CTL_LO
+
+    // do cache sync operation before the mock BLOCK transfer
+    if (ch_info->cache_sync != DMA_CACHE_SYNC_NOP)
+        do_cache_sync(ch_info, control, llp->SAR, llp->DAR, llp->u.SIZE); // llp->CTL_LO
+
+    // Clear DMA interrupts
+    clear_all_interrupts(ch_bit);
+
+//    // Trigger first DMA transfer
+//    return dma_channel_configure_internal(ch, 1, llp->SAR, llp->DAR, size, llp->CTL_LO,
+//                                          config_low, config_high);
+
+    // Set CTLx.BLOCK_TS = size and cTLx.Done = 0
+    dma_ch->CTL_HI = (size & DMA_CH_CTLH_BLOCK_TS_MASK);
+    //assert(dma_ch->CTL_LO == llp->CTL_LO);
+    dma_ch->CTL_LO = llp->CTL_LO;
+    dma_ch->SAR = llp->SAR;
+    dma_ch->DAR = llp->DAR;
+
+    // Reset LLP
+    dma_ch->LLP = 0;
+
+    // Enable DMA Channel to trigger data transfer
+    CSK_DMA->CH_EN = (ch_bit << 8) | ch_bit;
+
+    // Enable DMA Controller
+    //CSK_DMA->CFG = 0x1;
+
+    return CSK_DRIVER_OK;
+}
+
+/*_FAST_TEXT*/ int32_t dma_channel_configure_LLP (
                                        uint8_t      ch,
                                        DMA_LLP      llp,
                                        uint32_t     config_low,
@@ -1881,6 +2363,42 @@ int32_t dma_channel_enable (uint8_t ch)
 }
 
 
+static void dma_channel_release_pipo(DMA_Channel_Info * pchi)
+{
+    assert(pchi != NULL);
+
+    // release LLI items only if PingPong transfer
+    if (!(pchi->flags & DMA_FLAG_PIPO))
+        return;
+
+    // PIPO cleanup
+    DMA_LLP cur, pre, first = pchi->llp;
+    pchi->llp = NULL;
+
+    if (first == NULL)
+        return;
+
+    uint8_t gie = GINT_enabled();
+    if (gie) { disable_GINT(); }
+
+    cur = first;
+    do {
+        uint32_t i = ((uint32_t)cur - (uint32_t)&ll_items[0]) / sizeof (DMA_LLI);
+        assert(i < 32);
+        ll_item_bits &= ~(0x1 << i);
+        cur->LLP = 0;
+
+        //NOTE: use preLLP to traverse all items used by a DMA channel
+        pre = cur->preLLP;
+        cur->preLLP = NULL;
+        cur = pre;
+    } while (cur != NULL && cur != first);
+
+    if (gie) { enable_GINT(); }
+
+    pchi->flags &= ~DMA_FLAG_PIPO;
+}
+
 /**
   \fn          int32_t dma_channel_disable (uint8_t ch, uint8_t wait_done)
   \brief       Abort transfer and then Disable DMA channel
@@ -1922,6 +2440,9 @@ int32_t dma_channel_disable (uint8_t ch, uint8_t wait_done)
 
     // Clear Channel active flag if set
     if (channel_active & ch_bit) {
+        // release pipo items if any
+        dma_channel_release_pipo(&channel_info[ch]);
+
         clear_channel_active_flag (ch);
     }
 
@@ -2097,7 +2618,7 @@ void dma_channel_clear_xfer_status(uint8_t ch)
   \param[in]   ch Channel number
   \returns     Number of transferred data items
 */
-_FAST_FUNC_SRAM uint32_t dma_channel_get_count (uint8_t ch) {
+_FAST_TEXT uint32_t dma_channel_get_count (uint8_t ch) {
     // Check if channel is valid
     if (ch >= DMA_NUMBER_OF_CHANNELS) return 0;
 
@@ -2111,6 +2632,7 @@ _FAST_FUNC_SRAM uint32_t dma_channel_get_count (uint8_t ch) {
 
     uint32_t count = channel_info[ch].SizeXfered;
     //if (CSK_DMA->CH_EN & (1U << ch)) // DMA channel transfer is ongoing
+    //if (!(channel_info[ch].flags & DMA_FLAG_PIPO))
     count += (DMA_CHANNEL(ch)->CTL_HI & DMA_CH_CTLH_BLOCK_TS_MASK);
 
     //if (int_en) enable_IRQ(IRQ_DMAC_VECTOR);
@@ -2120,11 +2642,175 @@ _FAST_FUNC_SRAM uint32_t dma_channel_get_count (uint8_t ch) {
 }
 
 
+// called in BLOCK COMPLETE ISR for PingPong transfer
+static uint32_t update_pipo_block_xferred_count(uint8_t ch)
+{
+    uint32_t xfer_cnt = 0;
+    DMA_Channel_Info *pchi;
+    DMA_CHANNEL_REG * dma_ch;
+    DMA_LLP mark, cur;
+    bool last_two = false, last_blk = false;
+
+    assert (ch < DMA_NUMBER_OF_CHANNELS);
+    pchi = &channel_info[ch];
+    if (!(pchi->flags & DMA_FLAG_PIPO))
+        return 0;
+
+    dma_ch = DMA_CHANNEL(ch);
+    mark = (DMA_LLP)dma_ch->LLP;
+
+    uint8_t gie = GINT_enabled();
+    if (gie) { disable_GINT(); }
+
+#if WB_BLK_DONE // DONE bit is written back to LLItem
+    //the second to last or the last
+    if (mark == NULL) {
+        cur = pchi->llp;
+        while (cur->LLP != 0)
+            cur = (DMA_LLP)cur->LLP;
+        mark = cur->preLLP;
+    }
+
+    cur = mark;
+    //mark = mark->preLLP; // ignore the ongoing LLI in the DMAC REG
+    do {
+        if (cur->u.CTL_HI & DMA_CH_CTLH_DONE) {
+            pchi->last_llp = cur;
+            xfer_cnt += cur->u.CTL_HI & DMA_CH_CTLH_BLOCK_TS_MASK;
+        }
+        cur = (DMA_LLP)cur->LLP; // use LLP to traverse all items
+    } while (cur != NULL && cur != mark);
+
+#else // IP bug: DONE bit is NOT written back to LLItem (ONLY 2 blocks PingPong)
+
+    //the second to last or the last
+    if (mark == NULL) {
+        last_two = true;
+        cur = pchi->llp;
+        while (cur->LLP != 0)
+            cur = (DMA_LLP)cur->LLP;
+        mark = cur->preLLP; // second to last by default
+
+        if (pchi->last_llp == cur->preLLP) {
+            mark = (DMA_LLP)mark->LLP; // last one
+            last_blk = true;
+        }
+    }
+
+    pchi->last_llp = mark;
+    xfer_cnt += mark->u.CTL_HI & DMA_CH_CTLH_BLOCK_TS_MASK;
+    if (last_blk)
+        dma_ch->CTL_HI &= ~DMA_CH_CTLH_BLOCK_TS_MASK; // clear BLOCK_TS
+
+#endif // WB_BLK_DONE
+
+    if (gie) { enable_GINT(); }
+    return xfer_cnt;
+}
+
+
+// called in BLOCK COMPLETE ISR for PingPong transfer
+#if WB_BLK_DONE // DONE bit is written back to LLItem
+static void clr_pipo_block_done_count(uint8_t ch)
+{
+    DMA_Channel_Info *pchi;
+    DMA_CHANNEL_REG * dma_ch;
+    DMA_LLP mark, cur;
+
+    assert (ch < DMA_NUMBER_OF_CHANNELS);
+    pchi = &channel_info[ch];
+    if (!(pchi->flags & DMA_FLAG_PIPO))
+        return;
+
+    dma_ch = DMA_CHANNEL(ch);
+    mark = (DMA_LLP)dma_ch->LLP;
+    if (mark == NULL)
+        return;
+
+    uint8_t gie = GINT_enabled();
+    if (gie) { disable_GINT(); }
+
+    cur = mark;
+    mark = mark->preLLP;
+    do {
+        if (cur->u.CTL_HI & DMA_CH_CTLH_DONE)
+            cur->u.CTL_HI &= ~(DMA_CH_CTLH_DONE | DMA_CH_CTLH_BLOCK_TS_MASK);
+        cur = (DMA_LLP)cur->LLP; // use LLP to traverse all items
+    } while (cur != NULL && cur != mark);
+
+    if (gie) { enable_GINT(); }
+}
+#endif // WB_BLK_DONE
+
+
+// return count of transferred block, called in BLOCK COMPLETE ISR for PingPong transfer
+int32_t dma_channel_get_pipo_blks(uint8_t ch, DMA_PIPO_BLK *blk_array, uint8_t blk_cnt)
+{
+    uint32_t cnt = 0;
+    DMA_Channel_Info *pchi;
+
+    assert (ch < DMA_NUMBER_OF_CHANNELS);
+    pchi = &channel_info[ch];
+    if (!(pchi->flags & DMA_FLAG_PIPO))
+        return CSK_DRIVER_ERROR;
+
+#if WB_BLK_DONE // DONE bit is written back to LLItem
+    DMA_LLP mark, cur;
+    DMA_CHANNEL_REG * dma_ch;
+
+    dma_ch = DMA_CHANNEL(ch);
+    mark = (DMA_LLP)dma_ch->LLP;
+
+    //the second to last or the last
+    if (mark == NULL) {
+        cur = pchi->llp;
+        while (cur->LLP != 0)
+            cur = (DMA_LLP)cur->LLP;
+        mark = cur->preLLP;
+    }
+
+    uint8_t gie = GINT_enabled();
+    if (gie) { disable_GINT(); }
+
+    cur = mark;
+    //mark = mark->preLLP; // ignore the ongoing LLI in the DMAC REG
+    do {
+        if (cur->u.CTL_HI & DMA_CH_CTLH_DONE) {
+            if (cnt < blk_cnt) {
+                blk_array[cnt].src = (void *)cur->SAR;
+                blk_array[cnt].dst = (void *)cur->DAR;
+                blk_array[cnt].size = cur->u.CTL_HI & DMA_CH_CTLH_BLOCK_TS_MASK;
+                blk_array[cnt].flags = 0;
+            }
+            cnt++;
+        }
+        cur = (DMA_LLP)cur->LLP; // use LLP to traverse all items
+    } while (cur != NULL && cur != mark);
+
+    if (gie) { enable_GINT(); }
+
+#else // IP bug: DONE bit is NOT written back to LLItem (ONLY 2 blocks PingPong)
+
+    assert(pchi->last_llp != NULL);
+
+    if (cnt < blk_cnt) {
+        blk_array[cnt].src = (void *)pchi->last_llp->SAR;
+        blk_array[cnt].dst = (void *)pchi->last_llp->DAR;
+        blk_array[cnt].size = pchi->last_llp->u.CTL_HI & DMA_CH_CTLH_BLOCK_TS_MASK;
+        blk_array[cnt].flags = 0;
+    }
+    cnt++;
+
+#endif // WB_BLK_DONE
+
+    return cnt;
+}
+
 /**
   \fn          void dma_irq_handler (void)
   \brief       DMA interrupt handler
 */
-_FAST_FUNC_SRAM void dma_irq_handler (void) {
+_FAST_TEXT void dma_irq_handler (void) {
     uint16_t i, ch;
     uint32_t ch_bit, size;
     DMA_CHANNEL_REG * dma_ch;
@@ -2177,8 +2863,32 @@ _FAST_FUNC_SRAM void dma_irq_handler (void) {
 
         } // end Error interrupt
 
+        // real BLOCK complete interrupt
+        if (CSK_DMA->STATUS.BLOCK & ch_bit) { // & CSK_DMA->MASK.BLOCK
+            //TODO:
+            // Clear interrupt flag
+            clear_block_interrupts(ch_bit);
+
+            // accumulate transferred count of block
+            if (ch_info->flags & DMA_FLAG_PIPO)
+                ch_info->SizeXfered += update_pipo_block_xferred_count(ch);
+
+            // Signal Event
+            if (ch_info->cb_event) {
+                ch_info->cb_event(
+                        (ch << 8) | DMA_EVENT_BLOCK_COMPLETE,
+                        0, //(dma_ch->CTL_HI & MAX_BLK_TS) << ch_info->width_shift,
+                        ch_info->usr_param);
+            }
+
+            //FIXME: clean all DONE bits and size in the block chain?
+        #if WB_BLK_DONE // DONE bit is written back to LLItem
+            clr_pipo_block_done_count(ch);
+        #endif
+        }
+
         // DMA transfer complete interrupt
-        else if (CSK_DMA->STATUS.XFER & ch_bit) { // & CSK_DMA->MASK.XFER
+        if (CSK_DMA->STATUS.XFER & ch_bit) { // & CSK_DMA->MASK.XFER
             // Clear interrupt flag
             clear_xfer_interrupts(ch_bit);
 
@@ -2186,8 +2896,13 @@ _FAST_FUNC_SRAM void dma_irq_handler (void) {
 
         #if SUPPORT_HW_LLP
             if (ch_info->flags & DMA_FLAG_HW_LLP) { // HW LLP
-                ch_info->SizeXfered = ch_info->SizeToXfer;
-                ch_info->SizeToXfer = 0;
+                //FIXME:
+                if (!(ch_info->flags & DMA_FLAG_PIPO)) { // non-PingPong
+                    ch_info->SizeXfered = ch_info->SizeToXfer;
+                    ch_info->SizeToXfer = 0;
+                }
+
+                dma_ch->CTL_HI &= ~DMA_CH_CTLH_BLOCK_TS_MASK; // clear BLOCK_TS
                 done = true;
             } else { // SW LLP or single block
         #endif
@@ -2221,13 +2936,13 @@ _FAST_FUNC_SRAM void dma_irq_handler (void) {
                     dma_channel_configure_internal_lite(ch, src_addr, dst_addr, size);
 
                 } else { // current LLI/block is done
-                #if HAS_CACHE_SYNC
                     // do post-dma invalidate operation if necessary
+                #if HAS_CACHE_SYNC
                     if (ch_info->CacheSyncBytes != 0) {
-                        cache_dma_fast_inv_stage2(ch_info->CacheSyncStart,
-                                ch_info->CacheSyncStart + ch_info->CacheSyncBytes);
-                        ch_info->CacheSyncStart = 0;
-                        ch_info->CacheSyncBytes = 0;
+//                        cache_dma_fast_inv_stage2(ch_info->CacheSyncStart,
+//                                ch_info->CacheSyncStart + ch_info->CacheSyncBytes);
+//                        ch_info->CacheSyncStart = 0;
+//                        ch_info->CacheSyncBytes = 0;
                     }
                 #endif
                     if (ch_info->llp != NULL) { // next LLI/block
@@ -2254,6 +2969,9 @@ _FAST_FUNC_SRAM void dma_irq_handler (void) {
         #endif
 
             if (done) {
+                // release pipo items if any
+                dma_channel_release_pipo(ch_info);
+
                 // Clear Channel active flag
                 clear_channel_active_flag (ch);
 
@@ -2268,11 +2986,6 @@ _FAST_FUNC_SRAM void dma_irq_handler (void) {
             } // end done
 
         } // end DMA transfer complete interrupt
-
-        // real BLOCK complete interrupt
-        else if (CSK_DMA->STATUS.BLOCK & ch_bit) { // & CSK_DMA->MASK.BLOCK
-            //TODO:
-        }
 
     } // end for each channel
 }
@@ -2424,90 +3137,3 @@ int32_t dma_memcpy (uint8_t        ch,
     return 0;
 }
 
-
-/**
-  \fn          int32_t dma_memcpy_SG ( uint8_t    ch,
-                                uint32_t          src_addr,
-                                uint32_t          dst_addr,
-                                uint32_t          total_bytes,
-                                uint32_t          src_gather,
-                                uint32_t          dst_scatter,
-                                uint8_t           src_width,
-                                uint8_t           dst_width)
-  \brief       Copy memory data *SCATTEREDLY* through some DMA channel.
-  \param[in]   ch           The selected Channel number returned by dma_channel_select()
-  \param[in]   src_addr     Source address
-  \param[in]   dest_addr    Destination address
-  \param[in]   total_bytes  The total bytes to be transfered.
-  \param[in]   src_gather   Source Gather Register, including SG Interval & Count fields, see above.
-  \param[in]   dst_scatter  Destination Scatter Register, including SG Interval & Count fields, see above.
-  \param[in]   src_width    n in DMA_CH_CTLL_SRC_WIDTH(n), see DMA_WIDTH_XXX
-  \param[in]   dst_width    n in DMA_CH_CTLL_DST_WIDTH(n), see DMA_WIDTH_XXX
-*/
-int32_t dma_memcpy_SG (uint8_t        ch,
-                                  uint32_t          src_addr,
-                                  uint32_t          dst_addr,
-                                  uint32_t          total_bytes,
-                                  uint32_t          src_gath,
-                                  uint32_t          dst_scat,
-                                  uint8_t           src_width, // see DMA_WIDTH_XXX
-                                  uint8_t           dst_width) // see DMA_WIDTH_XXX
-{
-    uint32_t ch_bit, sw_bytes, dw_bytes, src_bsize, dst_bsize;
-    uint32_t size, control, config_low, config_high;
-
-    // return failure if channel is enabled or active flag is not set (indicates NOT selected before)
-    ch_bit = 0x1U << ch;
-    if ((CSK_DMA->CH_EN & ch_bit) || !(channel_active & ch_bit))
-        return -1;
-
-    // max value of src_width / dst_width is greater than DMA_WIDTH_MAX
-    if (src_width > DMA_WIDTH_MAX || dst_width > DMA_WIDTH_MAX)
-        return -1;
-
-    sw_bytes = 1 << src_width;
-    dw_bytes = 1 << dst_width;
-
-    // src_addr / dst_addr address should be aligned to src_width / dst_width
-    if ( (src_addr & (sw_bytes - 1)) || (dst_addr & (dw_bytes - 1)) )
-        return -1;
-
-    // total_bytes should be aligned to src_width & dst_width
-    if ( (total_bytes & (sw_bytes - 1)) || (total_bytes & (dw_bytes - 1)) )
-        return -1;
-
-    DMA_Channel_Info *ch_info = &channel_info[ch];
-    ch_info->width_shift = src_width;
-    ch_info->dst_wid_shift = dst_width;
-    ch_info->SizeToXfer = (total_bytes >> 2);
-    ch_info->src_gath = src_gath;
-    ch_info->dst_scat = dst_scat;
-
-    src_bsize = calc_max_burst_size(DMA_CHANNELS_FIFO_DEPTH[ch] / sw_bytes);
-    dst_bsize = calc_max_burst_size(DMA_CHANNELS_FIFO_DEPTH[ch] / dw_bytes);
-
-    control = DMA_CH_CTLL_INT_EN | DMA_CH_CTLL_DST_WIDTH(dst_width) | DMA_CH_CTLL_SRC_WIDTH(src_width) |
-            DMA_CH_CTLL_DST_INC | DMA_CH_CTLL_SRC_INC | DMA_CH_CTLL_DST_BSIZE(dst_bsize) | DMA_CH_CTLL_SRC_BSIZE(src_bsize) |
-            DMA_CH_CTLL_TTFC_M2M | DMA_CH_CTLL_DMS(0) | DMA_CH_CTLL_SMS(0);
-    if (src_gath != 0)
-        control |= DMA_CH_CTLL_S_GATH_EN;
-    if (dst_scat != 0)
-        control |= DMA_CH_CTLL_D_SCAT_EN;
-
-    config_low = DMA_CH_CFGL_CH_PRIOR(0);
-    config_high = DMA_CH_CFGH_FIFO_MODE; // DMA_CH_CFGH_SRC_PER(x) | DMA_CH_CFGH_DST_PER
-
-    //size = ch_info->SizeToXfer > MAX_BLK_TS ? FIT_BLK_TS : ch_info->SizeToXfer;
-    size = ch_info->SizeToXfer > MAX_BLK_TS ? MAX_BLK_TS : ch_info->SizeToXfer;
-    update_next_xfer_addr(ch_info, control, src_addr, dst_addr, size);
-
-    // do cache sync operation before the mock BLOCK transfer
-    do_cache_sync(ch_info, control, src_addr, dst_addr, ch_info->SizeToXfer);
-
-    // Clear DMA interrupts
-    clear_all_interrupts(ch_bit);
-
-    // Trigger first DMA transfer
-    int32_t ret = dma_channel_configure_internal(ch, 1, src_addr, dst_addr, size, control, config_low, config_high);
-    return ret;
-}

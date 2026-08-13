@@ -160,6 +160,9 @@ static int audio_class_interface_request_handler(uint8_t busid, struct usb_setup
                                 (*data)[1] = 0x00;
                                 *len = 2;
                                 break;
+                            case AUDIO_REQUEST_SET_RES:
+                                /* Some hosts send SET_RES even though the sample uses a fixed 1 dB resolution. */
+                                break;
                             case AUDIO_REQUEST_GET_RES:
                                 (*data)[0] = 0x00; /* 1 dB */
                                 (*data)[1] = 0x01;

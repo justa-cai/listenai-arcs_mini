@@ -19,6 +19,11 @@
 #include "board.h"
 #include "gpio.h"
 
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#include "pm.h"
+#endif
+
 #define LOG_TAG "lisa_gpio_arcs"
 #include <lisa_log.h>
 
@@ -410,6 +415,30 @@ static const lisa_gpio_api_t arcs_gpio_api = {
 
 /* ===== 设备初始化函数 ===== */
 
+/* HAL 层 GPIO 复位：GPIO_Initialize + pinmux 回写。
+ * 由 _init_fn 调用（唤醒后经 reinit 重新走 _init_fn 路径）；只写 HAL 寄存器，
+ * 不分配 mutex / sem / 堆内存。 */
+static int arcs_gpio_init_hw(lisa_gpio_priv_t *priv)
+{
+    if (GPIO_Initialize(priv->hal_handler, gpio_hal_irq_callback, priv) != 0) {
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+
+#if CONFIG_LISA_GPIOA
+    if (priv == &gpioa_priv) {
+        lisa_gpioa_pinmux();
+    }
+#endif
+#if CONFIG_LISA_GPIOB
+    if (priv == &gpiob_priv) {
+        lisa_gpiob_pinmux();
+    }
+#endif
+
+    priv->max_pins = MAX_GPIO_PINS;
+    return LISA_DEVICE_OK;
+}
+
 #if CONFIG_LISA_GPIOA
 static int arcs_gpioa_init(void)
 {
@@ -429,15 +458,7 @@ static int arcs_gpioa_init(void)
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    /* 初始化 HAL GPIO，注册中断回调 */
-    if (GPIO_Initialize(gpioa_priv.hal_handler, gpio_hal_irq_callback, &gpioa_priv) != 0) {
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    lisa_gpioa_pinmux();
-
-    gpioa_priv.max_pins = MAX_GPIO_PINS;
-    return LISA_DEVICE_OK;
+    return arcs_gpio_init_hw(&gpioa_priv);
 }
 #endif
 
@@ -460,24 +481,205 @@ static int arcs_gpiob_init(void)
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    /* 初始化 HAL GPIO，注册中断回调 */
-    if (GPIO_Initialize(gpiob_priv.hal_handler, gpio_hal_irq_callback, &gpiob_priv) != 0) {
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
-    lisa_gpiob_pinmux();
-
-    gpiob_priv.max_pins = MAX_GPIO_PINS;
-    return LISA_DEVICE_OK;
+    return arcs_gpio_init_hw(&gpiob_priv);
 }
 #endif
 
-/* ===== 设备注册 ===== */
+/* ===== 设备反初始化函数 ===== */
+
+/**
+ * @brief 停止并释放单个 GPIO 实例的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 经各实例 deinit 包装调用：
+ *   1) GPIO_Uninitialize：关时钟门 / disable IRQ / 清 cb_event / 注销 ISR；
+ *   2) 释放 OS 资源 mutex；
+ *   3) memset 整个 priv（含 hal_handler / irq_info[] / max_pins），回到 _init 之前
+ *      的零初值。
+ *
+ * 注：GPIOB 的 PMU wakeup-source 状态（s_gpiob_wakeup_*）由独立的 wakeup_ops 管理，
+ *     与 GPIO 控制器 init 无关，不在此清理——以免 destroy 抹掉用户配置的唤醒源。
+ *
+ * 约定：调用方需保证此时无并发业务在使用本设备。
+ */
+static int arcs_gpio_deinit_instance(lisa_gpio_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    if (priv->hal_handler) {
+        GPIO_Uninitialize(priv->hal_handler);
+    }
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+    }
+
+    memset(priv, 0, sizeof(*priv));
+    return LISA_DEVICE_OK;
+}
 
 #if CONFIG_LISA_GPIOA
-LISA_DEVICE_REGISTER(gpioa, &arcs_gpio_api, &gpioa_priv, NULL, arcs_gpioa_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+static int arcs_gpioa_deinit(void)
+{
+    return arcs_gpio_deinit_instance(&gpioa_priv);
+}
 #endif
 
 #if CONFIG_LISA_GPIOB
-LISA_DEVICE_REGISTER(gpiob, &arcs_gpio_api, &gpiob_priv, NULL, arcs_gpiob_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+static int arcs_gpiob_deinit(void)
+{
+    return arcs_gpio_deinit_instance(&gpiob_priv);
+}
+#endif
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在睡眠前
+ * 调 lisa_device_destroy(gpioX) 释放全部软硬件资源（GPIO_Uninitialize + mutex），
+ * 唤醒后调 lisa_device_reinit(gpioX) 重建到 _init 后的状态，并由业务重新 configure /
+ * configure_irq 恢复业务 IO。因此 prepare_suspend / resume_restore 不再需要（原先
+ * 它们只做 GPIO_Uninitialize / _init_hw，已被 destroy/reinit 覆盖）。
+ *
+ * check_idle：GPIO 无传输概念，永远返回 1（不阻塞 AUTO_LIGHT_SLEEP）。
+ *
+ * 注：GPIOB 仍通过 wakeup_ops 提供 PMU 唤醒源能力，与本 system_ops 相互独立。
+ */
+static int32_t lisa_gpio_pm_check_idle(void *ctx)
+{
+    (void)ctx;
+    return 1;
+}
+
+static const lisa_pm_system_ops_t arcs_gpio_pm_ops = {
+    .check_idle = lisa_gpio_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore = NULL,
+};
+
+/* ===== GPIOB wakeup-source 实现 =====
+ *
+ * 仅 GPIOB_00..09 可作 PMU 唤醒源（HAL pm_enable_gpio_wakeup 限制）。
+ * 仅支持电平触发 LEVEL_LOW / LEVEL_HIGH，可按 pin 混合配置触发电平。
+ *
+ * per-pin trigger cache 长度 = ARCS_GPIOB_WAKEUP_PINS。
+ * 未配置标记用 int8_t -1；其余存 lisa_gpio_wakeup_trigger_t。
+ * configure / clear 只更新 cache；set_enabled 时一次性下发 HAL：
+ * - gpio_mask 表示启用哪些 GPIOB wakeup pin
+ * - gpio_level bit=1 表示对应 pin high-active，bit=0 表示 low-active
+ */
+#define ARCS_GPIOB_WAKEUP_PINS              10
+#define ARCS_GPIOB_WAKEUP_NOT_CONFIGURED    ((int8_t)-1)
+
+static int8_t s_gpiob_wakeup_trigger_cache[ARCS_GPIOB_WAKEUP_PINS] = {
+    ARCS_GPIOB_WAKEUP_NOT_CONFIGURED, ARCS_GPIOB_WAKEUP_NOT_CONFIGURED,
+    ARCS_GPIOB_WAKEUP_NOT_CONFIGURED, ARCS_GPIOB_WAKEUP_NOT_CONFIGURED,
+    ARCS_GPIOB_WAKEUP_NOT_CONFIGURED, ARCS_GPIOB_WAKEUP_NOT_CONFIGURED,
+    ARCS_GPIOB_WAKEUP_NOT_CONFIGURED, ARCS_GPIOB_WAKEUP_NOT_CONFIGURED,
+    ARCS_GPIOB_WAKEUP_NOT_CONFIGURED, ARCS_GPIOB_WAKEUP_NOT_CONFIGURED,
+};
+
+static uint32_t              s_gpiob_wakeup_active_mask = 0;
+static bool                  s_gpiob_wakeup_enabled = false;
+
+static int32_t arcs_gpiob_wakeup_configure(lisa_device_t *dev, uint32_t sub_idx,
+                                            uint32_t trigger)
+{
+    (void)dev;
+    if (sub_idx >= ARCS_GPIOB_WAKEUP_PINS) {
+        return LISA_DEVICE_ERR_RANGE;
+    }
+    switch ((lisa_gpio_wakeup_trigger_t)trigger) {
+    case LISA_GPIO_WAKEUP_LEVEL_LOW:
+    case LISA_GPIO_WAKEUP_LEVEL_HIGH:
+        s_gpiob_wakeup_trigger_cache[sub_idx] = (int8_t)trigger;
+        return 0;
+    default:
+        return LISA_DEVICE_ERR_INVALID;
+    }
+}
+
+static int32_t arcs_gpiob_wakeup_clear(lisa_device_t *dev, uint32_t sub_idx)
+{
+    (void)dev;
+    if (sub_idx >= ARCS_GPIOB_WAKEUP_PINS) {
+        return LISA_DEVICE_ERR_RANGE;
+    }
+    s_gpiob_wakeup_trigger_cache[sub_idx] = ARCS_GPIOB_WAKEUP_NOT_CONFIGURED;
+    return 0;
+}
+
+static int32_t arcs_gpiob_wakeup_set_enabled(lisa_device_t *dev, bool enable)
+{
+    (void)dev;
+
+    if (enable) {
+        if (s_gpiob_wakeup_enabled) {
+            return 0;
+        }
+        uint32_t mask = 0;
+        uint32_t level_mask = 0;
+        for (uint32_t i = 0; i < ARCS_GPIOB_WAKEUP_PINS; ++i) {
+            int8_t trig = s_gpiob_wakeup_trigger_cache[i];
+            if (trig == ARCS_GPIOB_WAKEUP_NOT_CONFIGURED) {
+                continue;
+            }
+            uint32_t bit = 1U << i;
+            mask |= bit;
+            if (trig == (int8_t)LISA_GPIO_WAKEUP_LEVEL_HIGH) {
+                level_mask |= bit;
+            }
+        }
+        if (mask == 0) {
+            s_gpiob_wakeup_enabled = true;
+            return 0;  /* cache 全空，幂等空启用 */
+        }
+        int32_t ret = pm_enable_gpio_wakeup(mask, level_mask);
+        if (ret != 0) {
+            return ret;
+        }
+        s_gpiob_wakeup_active_mask = mask;
+        s_gpiob_wakeup_enabled = true;
+        return 0;
+    } else {
+        if (!s_gpiob_wakeup_enabled) {
+            return 0;
+        }
+        if (s_gpiob_wakeup_active_mask != 0) {
+            int32_t ret = pm_disable_gpio_wakeup(s_gpiob_wakeup_active_mask);
+            if (ret != 0) {
+                return ret;
+            }
+        }
+        s_gpiob_wakeup_active_mask = 0;
+        s_gpiob_wakeup_enabled = false;
+        return 0;
+    }
+}
+
+static const lisa_pm_wakeup_ops_t arcs_gpiob_wakeup_ops = {
+    .configure   = arcs_gpiob_wakeup_configure,
+    .clear       = arcs_gpiob_wakeup_clear,
+    .set_enabled = arcs_gpiob_wakeup_set_enabled,
+};
+
+#endif /* CONFIG_LISA_PM */
+
+/* ===== 设备注册 ===== */
+
+
+#if CONFIG_LISA_GPIOA
+LISA_DEVICE_REGISTER_DEINIT(gpioa, &arcs_gpio_api, &gpioa_priv, NULL, arcs_gpioa_init,
+                            arcs_gpioa_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(gpioa, &arcs_gpio_pm_ops, NULL, &gpioa_priv);
+#endif
+#endif
+
+#if CONFIG_LISA_GPIOB
+LISA_DEVICE_REGISTER_DEINIT(gpiob, &arcs_gpio_api, &gpiob_priv, NULL, arcs_gpiob_init,
+                            arcs_gpiob_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(gpiob, &arcs_gpio_pm_ops, &arcs_gpiob_wakeup_ops, &gpiob_priv);
+#endif
 #endif

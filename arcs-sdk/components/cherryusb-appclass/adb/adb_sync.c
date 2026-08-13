@@ -3,7 +3,6 @@
 #include "adb_services.h"
 #include "adb.h"
 #include "adb_device.h"
-#include "adb_debug_stats.h"
 #include "adb_utils.h"
 #include "FreeRTOS.h"
 #include "task.h"
@@ -14,7 +13,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -80,6 +78,15 @@ extern int lsfs_preallocate(struct lsfs_file_t *fp, off_t length) __attribute__(
  */
 #define ADB_SYNC_MAX_REQ_CHUNK_SIZE ADB_SYNC_STAGE_PACKET_SIZE
 
+static inline uint32_t adb_sync_send_chunk_limit(uint32_t max_payload)
+{
+    if (max_payload > ADB_SYNC_STAGE_PACKET_SIZE) {
+        return ADB_SYNC_STAGE_PACKET_SIZE;
+    }
+
+    return max_payload;
+}
+
 #define ADB_SYNC_TASK_PRIORITY (CONFIG_ADB_TASK_PRIORITY - 1)
 
 #if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
@@ -89,13 +96,18 @@ extern int lsfs_preallocate(struct lsfs_file_t *fp, off_t length) __attribute__(
  */
 #define ADB_SYNC_TASK_STACK_DEPTH 1024U
 /*
- * Keep only one queued WRTE packet behind the packet currently being drained
- * so the internal-RAM RX packets stay available for USB RX instead of being
- * hoarded inside the sync service queue.
+ * Boot sync still runs in WRTE/OKAY pacing. Two queued packets give the
+ * producer one extra 64 KiB window before OKAY stalls on the consumer, while
+ * still fitting inside recovery's internal-RAM budget.
  */
 #define ADB_SYNC_RX_QUEUE_DEPTH 1U
 #define ADB_SYNC_BOOT_CHERRYUSB_STAGE_BUFFER_SIZE ADB_SYNC_BOOT_CHERRYUSB_IO_BUFFER_SIZE
 #if defined(CONFIG_PSRAM_HEAP) && CONFIG_PSRAM_HEAP
+/*
+ * Three 64 KiB async buffers leave the producer waiting on almost every SDRAW
+ * chunk; keep the buffers in PSRAM and deepen the queue enough to overlap USB
+ * ingress with TF writes.
+ */
 #define ADB_SYNC_ASYNC_STAGE_BUFFER_COUNT 3U
 #define ADB_SYNC_ASYNC_STAGE_BUFFER_SIZE ADB_SYNC_STAGE_PACKET_SIZE
 #define ADB_SYNC_ASYNC_WRITER_STACK_DEPTH 1024U
@@ -162,8 +174,6 @@ extern int lsfs_preallocate(struct lsfs_file_t *fp, off_t length) __attribute__(
  * covering dozens of fragments if the TF card is moderately fragmented.
  */
 #define ADB_SYNC_FILE_FASTSEEK_MAP_ITEMS 128U
-#define ADB_SYNC_DIAG_BOUNDARY_SIZE (60U * 1024U)
-
 struct adb_sync_req {
 	uint32_t id;
 	uint32_t len;
@@ -207,6 +217,10 @@ struct adb_sync_ctx {
 	uint32_t rd_pos;
 	adb_packet_t *curr_pkt;
 	volatile bool closing;
+#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
+    StackType_t *task_stack;
+    StaticTask_t *task_tcb;
+#endif
 #if defined(ADB_SYNC_BOOT_CHERRYUSB_PREALLOC_STAGE)
     uint8_t *reserved_file_stage;
     uint8_t *reserved_raw_align;
@@ -249,8 +263,7 @@ struct adb_sync_packet_span {
     uint32_t len;
 };
 
-#define ADB_SYNC_EXT_DISK_WRITEV_MAX_SPANS   4U
-#define ADB_SYNC_EXT_DISK_WRITEV_MAX_BUFFERS (ADB_SYNC_EXT_DISK_WRITEV_MAX_SPANS * 2U)
+#define ADB_SYNC_EXT_DISK_GATHER_MAX_SPANS 4U
 
 #if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
 struct adb_sync_async_buffer {
@@ -276,120 +289,12 @@ struct adb_sync_async_writer {
 };
 #endif
 
-static struct adb_sync_debug_stats g_adb_sync_debug_stats;
 static struct adb_sync_ring_sink g_adb_sync_ram_sink;
 #if defined(ADB_SYNC_BOOT_CHERRYUSB_PREALLOC_STAGE)
 static uint8_t *g_adb_sync_reserved_file_stage_buf;
 static uint32_t g_adb_sync_reserved_file_stage_busy;
 static uint8_t *g_adb_sync_reserved_raw_align_buf;
 static uint32_t g_adb_sync_reserved_raw_align_busy;
-#endif
-
-static void adb_sync_debug_recent_push(uint32_t recent[BOOT_ADB_SYNC_DIAG_RECENT_COUNT], uint32_t value)
-{
-    memmove(&recent[0], &recent[1], sizeof(recent[0]) * (BOOT_ADB_SYNC_DIAG_RECENT_COUNT - 1U));
-    recent[BOOT_ADB_SYNC_DIAG_RECENT_COUNT - 1U] = value;
-}
-
-static void adb_sync_debug_stats_reset(void)
-{
-    memset(&g_adb_sync_debug_stats, 0, sizeof(g_adb_sync_debug_stats));
-}
-
-static void adb_sync_debug_record_wrte(uint32_t len)
-{
-    g_adb_sync_debug_stats.wrte_total++;
-    adb_sync_debug_recent_push(g_adb_sync_debug_stats.wrte_recent, len);
-
-#ifdef CONFIG_BOOT_ADB
-    if (g_adb_sync_debug_stats.wrte_total <= 8U || len <= 16U) {
-        ADB_LOGI("sync diag wrte len=%lu total=%lu\n",
-                 (unsigned long)len,
-                 (unsigned long)g_adb_sync_debug_stats.wrte_total);
-    }
-#endif
-}
-
-static void adb_sync_debug_record_claim(uint32_t requested, uint32_t actual)
-{
-    g_adb_sync_debug_stats.claim_total++;
-    adb_sync_debug_recent_push(g_adb_sync_debug_stats.claim_recent, actual);
-
-#ifdef CONFIG_BOOT_ADB
-    if (g_adb_sync_debug_stats.claim_total <= 8U || actual <= 16U) {
-        ADB_LOGD("sync diag claim req=%lu actual=%lu total=%lu\n",
-                 (unsigned long)requested,
-                 (unsigned long)actual,
-                 (unsigned long)g_adb_sync_debug_stats.claim_total);
-    }
-#endif
-}
-
-static void adb_sync_debug_record_data(uint32_t chunk_size)
-{
-    g_adb_sync_debug_stats.data_total++;
-    g_adb_sync_debug_stats.data_bytes += chunk_size;
-    adb_sync_debug_recent_push(g_adb_sync_debug_stats.data_recent, chunk_size);
-
-#ifdef CONFIG_BOOT_ADB
-    if (g_adb_sync_debug_stats.data_total <= 8U || chunk_size == 0U) {
-        ADB_LOGI("sync diag data chunk=%lu total=%lu bytes=%llu\n",
-                 (unsigned long)chunk_size,
-                 (unsigned long)g_adb_sync_debug_stats.data_total,
-                 (unsigned long long)g_adb_sync_debug_stats.data_bytes);
-    }
-#endif
-}
-
-static uint32_t adb_sync_debug_time_ms(void)
-{
-    return pdTICKS_TO_MS(xTaskGetTickCount());
-}
-
-static void adb_sync_debug_record_duration(uint32_t *total_ms, uint32_t *max_ms, uint32_t elapsed_ms)
-{
-    if (total_ms != NULL) {
-        *total_ms += elapsed_ms;
-    }
-
-    if (max_ms != NULL && elapsed_ms > *max_ms) {
-        *max_ms = elapsed_ms;
-    }
-}
-
-static void adb_sync_debug_set_path_mode(uint32_t path_mode)
-{
-    g_adb_sync_debug_stats.file_path_mode = path_mode;
-}
-
-static void adb_sync_debug_record_async_init_failure(uint32_t stage, int rc)
-{
-    g_adb_sync_debug_stats.async_init_fail_stage = stage;
-    g_adb_sync_debug_stats.async_init_fail_rc = rc;
-}
-
-#if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
-static const char *adb_sync_async_init_stage_name(uint32_t stage)
-{
-    switch (stage) {
-    case BOOT_ADB_SYNC_ASYNC_INIT_NONE:
-        return "none";
-    case BOOT_ADB_SYNC_ASYNC_INIT_FREE_QUEUE:
-        return "free_queue";
-    case BOOT_ADB_SYNC_ASYNC_INIT_READY_QUEUE:
-        return "ready_queue";
-    case BOOT_ADB_SYNC_ASYNC_INIT_DONE_QUEUE:
-        return "done_queue";
-    case BOOT_ADB_SYNC_ASYNC_INIT_BUFFER_ALLOC:
-        return "buffer_alloc";
-    case BOOT_ADB_SYNC_ASYNC_INIT_FREE_QUEUE_FILL:
-        return "free_queue_fill";
-    case BOOT_ADB_SYNC_ASYNC_INIT_TASK_CREATE:
-        return "task_create";
-    default:
-        return "unknown";
-    }
-}
 #endif
 
 static inline uint32_t adb_sync_buffer_claim(struct adb_sync_ctx *ctx, uint8_t **data, uint32_t size)
@@ -413,7 +318,6 @@ static inline uint32_t adb_sync_buffer_claim(struct adb_sync_ctx *ctx, uint8_t *
     }
 
     *data = ctx->curr_pkt->data + ctx->rd_pos;
-    adb_sync_debug_record_claim(size, len);
 
 	return len;
 }
@@ -522,7 +426,6 @@ static int adb_sync_buffer_gather_spans(struct adb_sync_ctx *ctx,
         spans[count].release_pkt = NULL;
         spans[count].data = ctx->curr_pkt->data + ctx->rd_pos;
         spans[count].len = len;
-        adb_sync_debug_record_claim(total_size, len);
 
         ctx->rd_pos += len;
         total_size -= len;
@@ -877,14 +780,10 @@ static void adb_sync_rsp_okay(struct adb_service *s);
 static int adb_sync_handle_sink_path(struct adb_service *s,
                                      struct adb_sync_ctx *ctx,
                                      const char *tag,
-                                     uint32_t path_mode,
                                      void *sink_ctx,
                                      adb_sync_sink_consume_fn consume,
                                      uint32_t *total_size)
 {
-    adb_sync_debug_set_path_mode(path_mode);
-    adb_sync_debug_record_async_init_failure(BOOT_ADB_SYNC_ASYNC_INIT_NONE, 0);
-
     while (1) {
         struct adb_sync_send_data req;
         int r;
@@ -893,8 +792,6 @@ static int adb_sync_handle_sink_path(struct adb_service *s,
 
         if (req.id != ADB_SYNC_ID_DATA) {
             if (req.id == ADB_SYNC_ID_DONE) {
-                g_adb_sync_debug_stats.done_total++;
-                g_adb_sync_debug_stats.file_bytes = *total_size;
                 ADB_LOGI("do_send, %s done, timestamp:%d size=%u\n",
                          tag,
                          req.chunk_size,
@@ -912,14 +809,11 @@ static int adb_sync_handle_sink_path(struct adb_service *s,
             return -EINVAL;
         }
 
-        adb_sync_debug_record_data(req.chunk_size);
         r = consume(ctx, sink_ctx, &req.chunk_size, total_size);
         if (r != 0) {
             ADB_LOGE("do_send, %s consume error: %d\n", tag, r);
             return r;
         }
-
-        g_adb_sync_debug_stats.file_bytes = *total_size;
     }
 }
 
@@ -1046,30 +940,16 @@ static int adb_sync_reserved_file_stage_prepare_internal(void)
                               (size_t)ADB_SYNC_STAGE_ALIGNMENT;
     largest_internal_block = heap_caps_get_largest_free_block(
         MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
-    printf("boot adb: reserve stage req=%u align=%u largest_internal=%u\n",
-           (unsigned int)ADB_SYNC_STAGE_BUFFER_SIZE,
-           (unsigned int)ADB_SYNC_STAGE_ALIGNMENT,
-           (unsigned int)largest_internal_block);
     if (largest_internal_block < required_internal_block) {
-        printf("boot adb: reserve stage skip req=%u need=%u largest_internal=%u\n",
-               (unsigned int)ADB_SYNC_STAGE_BUFFER_SIZE,
-               (unsigned int)required_internal_block,
-               (unsigned int)largest_internal_block);
         return -ENOMEM;
     }
 
     g_adb_sync_reserved_file_stage_buf = inram_malloc(ADB_SYNC_STAGE_ALIGNMENT,
                                                       ADB_SYNC_STAGE_BUFFER_SIZE);
     if (g_adb_sync_reserved_file_stage_buf == NULL) {
-        printf("boot adb: reserve stage failed req=%u largest_internal=%u\n",
-               (unsigned int)ADB_SYNC_STAGE_BUFFER_SIZE,
-               (unsigned int)largest_internal_block);
         return -ENOMEM;
     }
 
-    printf("boot adb: reserve stage ok req=%u buf=%p\n",
-           (unsigned int)ADB_SYNC_STAGE_BUFFER_SIZE,
-           g_adb_sync_reserved_file_stage_buf);
     return 0;
 }
 
@@ -1208,18 +1088,11 @@ static void adb_sync_stage_cleanup(struct adb_sync_stage *stage, bool *stage_rea
 static int adb_sync_file_stage_flush(void *user_data, const uint8_t *data, uint32_t len);
 static int adb_sync_ext_disk_stage_flush(void *user_data, const uint8_t *data, uint32_t len);
 static int adb_sync_ext_disk_async_writer_flush(void *user_data, const uint8_t *data, uint32_t len);
-
-static void adb_sync_boot_trace_tail(const char *tag, uint32_t value)
-{
-#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
-    if (tag != NULL) {
-        printf("boot adb: tf-tail %s=%u\n", tag, (unsigned int)value);
-    }
-#else
-    (void)tag;
-    (void)value;
+#if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
+static int adb_sync_ext_disk_async_writer_flushv(void *user_data,
+                                                 struct adb_sync_async_buffer *const *buffers,
+                                                 uint32_t buffer_count);
 #endif
-}
 
 static bool adb_sync_file_use_reserve(void)
 {
@@ -1235,12 +1108,30 @@ static bool adb_sync_file_use_reserve(void)
 static bool adb_sync_file_use_direct_path(void)
 {
 #if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
+#if defined(CONFIG_PSRAM_HEAP) && CONFIG_PSRAM_HEAP
+    /*
+     * Recovery can spill the stage buffer to PSRAM, so forcing direct writes
+     * here only turns long TF pushes into many small lsfs_write() calls.
+     */
+    return false;
+#else
     size_t largest_internal_block = heap_caps_get_largest_free_block(
         MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
-    /* Keep room for both a file stage buffer and the next incoming 64 KiB WRTE packet. */
     size_t required_internal_block = (size_t)ADB_SYNC_STAGE_BUFFER_SIZE +
                                      (size_t)ADB_SYNC_MAX_REQ_CHUNK_SIZE +
                                      (size_t)ADB_SYNC_STAGE_ALIGNMENT;
+
+#if defined(ADB_SYNC_BOOT_CHERRYUSB_PREALLOC_STAGE)
+    if (g_adb_sync_reserved_file_stage_buf != NULL) {
+        /*
+         * The global reserved stage buffer persists across transfers, so a
+         * follow-up push only needs headroom for the next incoming WRTE
+         * packet, not another full stage allocation.
+         */
+        required_internal_block = (size_t)ADB_SYNC_MAX_REQ_CHUNK_SIZE +
+                                  (size_t)ADB_SYNC_STAGE_ALIGNMENT;
+    }
+#endif
 
     if (largest_internal_block < required_internal_block) {
         ADB_LOGW("do_send, file direct path forced, largest_internal=%u need=%u\n",
@@ -1248,6 +1139,7 @@ static bool adb_sync_file_use_direct_path(void)
                  (unsigned int)required_internal_block);
         return true;
     }
+#endif
 #endif
 
     return false;
@@ -1363,7 +1255,6 @@ static int adb_sync_file_reserve(struct adb_sync_file_stage_ctx *stage_ctx, uint
 static int adb_sync_file_write_exact(struct adb_sync_file_stage_ctx *stage_ctx, const uint8_t *data, uint32_t len)
 {
     int written;
-    uint32_t start_ms = adb_sync_debug_time_ms();
     int r;
 
     if (stage_ctx == NULL || stage_ctx->fp == NULL || stage_ctx->total_size == NULL) {
@@ -1378,10 +1269,6 @@ static int adb_sync_file_write_exact(struct adb_sync_file_stage_ctx *stage_ctx, 
     }
 
     written = lsfs_write(stage_ctx->fp, data, len);
-    g_adb_sync_debug_stats.file_write_calls++;
-    adb_sync_debug_record_duration(&g_adb_sync_debug_stats.file_write_ms,
-                                   &g_adb_sync_debug_stats.file_write_max_ms,
-                                   adb_sync_debug_time_ms() - start_ms);
     if (written != (int)len) {
         if (written == 0) {
             return -1;
@@ -1390,7 +1277,6 @@ static int adb_sync_file_write_exact(struct adb_sync_file_stage_ctx *stage_ctx, 
     }
 
     *stage_ctx->total_size += (uint32_t)written;
-    g_adb_sync_debug_stats.file_bytes = *stage_ctx->total_size;
     ADB_LOGD("do_send, file saved %u bytes", *stage_ctx->total_size);
 
     return 0;
@@ -1399,27 +1285,18 @@ static int adb_sync_file_write_exact(struct adb_sync_file_stage_ctx *stage_ctx, 
 static int adb_sync_file_stage_flush(void *user_data, const uint8_t *data, uint32_t len)
 {
     struct adb_sync_file_stage_ctx *stage_ctx = (struct adb_sync_file_stage_ctx *)user_data;
-    uint32_t start_ms = adb_sync_debug_time_ms();
-    int r;
 
     if (stage_ctx == NULL || stage_ctx->fp == NULL || stage_ctx->total_size == NULL) {
         return -1;
     }
 
-    g_adb_sync_debug_stats.stage_flush_calls++;
-    r = adb_sync_file_write_exact(stage_ctx, data, len);
-    adb_sync_debug_record_duration(&g_adb_sync_debug_stats.stage_flush_ms,
-                                   &g_adb_sync_debug_stats.stage_flush_max_ms,
-                                   adb_sync_debug_time_ms() - start_ms);
-
-    return r;
+    return adb_sync_file_write_exact(stage_ctx, data, len);
 }
 
 static int adb_sync_ext_disk_write_exact(struct adb_sync_ext_disk_stage_ctx *stage_ctx,
                                          const uint8_t *data,
                                          uint32_t len)
 {
-    uint32_t start_ms = adb_sync_debug_time_ms();
     int r;
 
     if (stage_ctx == NULL || stage_ctx->disk_ctx == NULL || stage_ctx->total_size == NULL) {
@@ -1427,159 +1304,28 @@ static int adb_sync_ext_disk_write_exact(struct adb_sync_ext_disk_stage_ctx *sta
     }
 
     r = adb_sync_ext_disk_write(stage_ctx->disk_ctx, data, len);
-    g_adb_sync_debug_stats.file_write_calls++;
-    adb_sync_debug_record_duration(&g_adb_sync_debug_stats.file_write_ms,
-                                   &g_adb_sync_debug_stats.file_write_max_ms,
-                                   adb_sync_debug_time_ms() - start_ms);
     if (r != 0) {
         return r;
     }
 
     *stage_ctx->total_size += len;
-    g_adb_sync_debug_stats.file_bytes = *stage_ctx->total_size;
     return 0;
-}
-
-static int adb_sync_ext_disk_writev_exact(struct adb_sync_ext_disk_stage_ctx *stage_ctx,
-                                          const sdc_sector_buffer_t *buffers,
-                                          uint32_t buffer_count);
-
-static bool adb_sync_ext_disk_buffer_can_writev(const struct adb_sync_ext_disk_stage_ctx *stage_ctx,
-                                                const uint8_t *data,
-                                                uint32_t len)
-{
-    if (stage_ctx == NULL || stage_ctx->disk_ctx == NULL || data == NULL || len == 0U) {
-        return false;
-    }
-
-    return !stage_ctx->disk_ctx->direct_flash &&
-           stage_ctx->disk_ctx->buf_idx == 0U &&
-           (len % stage_ctx->disk_ctx->sec_size) == 0U &&
-           ((uintptr_t)data % ADB_SYNC_STAGE_ALIGNMENT) == 0U;
 }
 
 static int adb_sync_ext_disk_write_buffer_exact(struct adb_sync_ext_disk_stage_ctx *stage_ctx,
                                                 const uint8_t *data,
                                                 uint32_t len)
 {
-    sdc_sector_buffer_t buffer;
-
     if (stage_ctx == NULL || stage_ctx->disk_ctx == NULL || data == NULL || len == 0U) {
         return -EINVAL;
     }
 
-    if (!adb_sync_ext_disk_buffer_can_writev(stage_ctx, data, len)) {
-        return adb_sync_ext_disk_write_exact(stage_ctx, data, len);
-    }
-
-    buffer.buff = data;
-    buffer.sector_count = len / stage_ctx->disk_ctx->sec_size;
-    return adb_sync_ext_disk_writev_exact(stage_ctx, &buffer, 1U);
+    return adb_sync_ext_disk_write_exact(stage_ctx, data, len);
 }
 
-static int adb_sync_ext_disk_writev_exact(struct adb_sync_ext_disk_stage_ctx *stage_ctx,
-                                          const sdc_sector_buffer_t *buffers,
-                                          uint32_t buffer_count)
-{
-    uint32_t start_ms = adb_sync_debug_time_ms();
-    uint64_t total_len = 0U;
-    int r;
-
-    if (stage_ctx == NULL || stage_ctx->disk_ctx == NULL || stage_ctx->total_size == NULL ||
-        buffers == NULL || buffer_count == 0U) {
-        return -EINVAL;
-    }
-
-    for (uint32_t i = 0; i < buffer_count; ++i) {
-        total_len += (uint64_t)buffers[i].sector_count * (uint64_t)stage_ctx->disk_ctx->sec_size;
-    }
-
-    r = adb_sync_ext_disk_writev(stage_ctx->disk_ctx, buffers, buffer_count);
-    g_adb_sync_debug_stats.file_write_calls++;
-    adb_sync_debug_record_duration(&g_adb_sync_debug_stats.file_write_ms,
-                                   &g_adb_sync_debug_stats.file_write_max_ms,
-                                   adb_sync_debug_time_ms() - start_ms);
-    if (r != 0) {
-        return r;
-    }
-
-    *stage_ctx->total_size += (uint32_t)total_len;
-    g_adb_sync_debug_stats.file_bytes = *stage_ctx->total_size;
-    return 0;
-}
-
-static int adb_sync_ext_disk_writev_append_buffer(sdc_sector_buffer_t *buffers,
-                                                  uint32_t *buffer_count,
-                                                  uint32_t max_buffers,
-                                                  const uint8_t *data,
-                                                  uint32_t len,
-                                                  uint32_t sec_size)
-{
-    if (buffers == NULL || buffer_count == NULL || data == NULL || len == 0U || sec_size == 0U ||
-        (len % sec_size) != 0U) {
-        return -EINVAL;
-    }
-
-    if (*buffer_count >= max_buffers) {
-        return -ENOSPC;
-    }
-
-    buffers[*buffer_count].buff = data;
-    buffers[*buffer_count].sector_count = len / sec_size;
-    (*buffer_count)++;
-    return 0;
-}
-
-static uint8_t *adb_sync_ext_disk_writev_reserve_shadow(uint8_t *shadow_buf,
-                                                        uint32_t shadow_buf_size,
-                                                        uint32_t sec_size,
-                                                        uint32_t bytes,
-                                                        uint32_t *shadow_used)
-{
-    if (shadow_used == NULL || shadow_buf == NULL || bytes == 0U || sec_size == 0U ||
-        (bytes % sec_size) != 0U) {
-        return NULL;
-    }
-
-    if (*shadow_used > shadow_buf_size || (shadow_buf_size - *shadow_used) < bytes) {
-        return NULL;
-    }
-
-    uint8_t *shadow = shadow_buf + *shadow_used;
-
-    *shadow_used += bytes;
-    return shadow;
-}
-
-static const uint8_t *adb_sync_ext_disk_writev_prepare_buffer(uint8_t *shadow_buf,
-                                                              uint32_t shadow_buf_size,
-                                                              uint32_t sec_size,
-                                                              const uint8_t *data,
-                                                              uint32_t len,
-                                                              uint32_t *shadow_used)
-{
-    uint8_t *shadow;
-
-    if (((uintptr_t)data % ADB_SYNC_STAGE_ALIGNMENT) == 0U) {
-        return data;
-    }
-
-    shadow = adb_sync_ext_disk_writev_reserve_shadow(shadow_buf,
-                                                     shadow_buf_size,
-                                                     sec_size,
-                                                     len,
-                                                     shadow_used);
-    if (shadow == NULL) {
-        return NULL;
-    }
-
-    memcpy(shadow, data, len);
-    return shadow;
-}
-
-static int adb_sync_ext_disk_writev_fallback_spans(struct adb_sync_ext_disk_stage_ctx *stage_ctx,
-                                                   const struct adb_sync_packet_span *spans,
-                                                   uint32_t span_count)
+static int adb_sync_ext_disk_write_spans(struct adb_sync_ext_disk_stage_ctx *stage_ctx,
+                                         const struct adb_sync_packet_span *spans,
+                                         uint32_t span_count)
 {
     int r;
 
@@ -1593,222 +1339,61 @@ static int adb_sync_ext_disk_writev_fallback_spans(struct adb_sync_ext_disk_stag
     return 0;
 }
 
-static int adb_sync_ext_disk_writev_from_rx(struct adb_sync_ctx *ctx,
-                                            struct adb_sync_ext_disk_stage_ctx *stage_ctx,
-                                            uint32_t total_size)
+static int adb_sync_ext_disk_write_from_rx(struct adb_sync_ctx *ctx,
+                                           struct adb_sync_ext_disk_stage_ctx *stage_ctx,
+                                           uint32_t total_size)
 {
-    struct adb_sync_packet_span spans[ADB_SYNC_EXT_DISK_WRITEV_MAX_SPANS];
-    sdc_sector_buffer_t buffers[ADB_SYNC_EXT_DISK_WRITEV_MAX_BUFFERS];
-    struct adb_sync_ext_disk_ctx *disk_ctx;
-    uint8_t *shadow_buf;
-    uint32_t shadow_buf_size;
-    uint8_t *shadow_alloc = NULL;
-    uint8_t *shadow_sector = NULL;
-    uint32_t shadow_used = 0U;
-    uint32_t shadow_fill = 0U;
+    struct adb_sync_packet_span spans[ADB_SYNC_EXT_DISK_GATHER_MAX_SPANS];
     uint32_t span_count = 0U;
-    uint32_t buffer_count = 0U;
     int r;
 
     if (ctx == NULL || stage_ctx == NULL || stage_ctx->disk_ctx == NULL) {
         return -EINVAL;
     }
 
-    disk_ctx = stage_ctx->disk_ctx;
-    shadow_buf = disk_ctx->align_buf;
-    shadow_buf_size = disk_ctx->align_buf_size;
-
-#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
-    if ((shadow_buf == NULL || shadow_buf_size < total_size) && disk_ctx->sec_size != 0U) {
-        uint32_t shadow_need = ((total_size + disk_ctx->sec_size - 1U) / disk_ctx->sec_size) * disk_ctx->sec_size;
-
-        shadow_alloc = adb_boot_try_inram_malloc(ADB_SYNC_STAGE_ALIGNMENT, shadow_need);
-        if (shadow_alloc != NULL) {
-            shadow_buf = shadow_alloc;
-            shadow_buf_size = shadow_need;
-        }
-    }
-#endif
-
     memset(spans, 0, sizeof(spans));
-    memset(buffers, 0, sizeof(buffers));
     r = adb_sync_buffer_gather_spans(ctx,
                                      spans,
-                                     ADB_SYNC_EXT_DISK_WRITEV_MAX_SPANS,
+                                     ADB_SYNC_EXT_DISK_GATHER_MAX_SPANS,
                                      total_size,
                                      &span_count);
     if (r != 0) {
-        goto out;
+        return r;
     }
 
-    for (uint32_t i = 0; i < span_count; ++i) {
-        const uint8_t *data = spans[i].data;
-        uint32_t len = spans[i].len;
-
-        while (len != 0U) {
-            if (shadow_fill != 0U) {
-                uint32_t copy_len = disk_ctx->sec_size - shadow_fill;
-
-                if (copy_len > len) {
-                    copy_len = len;
-                }
-
-                memcpy(shadow_sector + shadow_fill, data, copy_len);
-                shadow_fill += copy_len;
-                data += copy_len;
-                len -= copy_len;
-
-                if (shadow_fill == disk_ctx->sec_size) {
-                    r = adb_sync_ext_disk_writev_append_buffer(buffers,
-                                                               &buffer_count,
-                                                               ADB_SYNC_EXT_DISK_WRITEV_MAX_BUFFERS,
-                                                               shadow_sector,
-                                                               disk_ctx->sec_size,
-                                                               disk_ctx->sec_size);
-                    if (r != 0) {
-                        goto fallback;
-                    }
-
-                    shadow_sector = NULL;
-                    shadow_fill = 0U;
-                }
-
-                continue;
-            }
-
-            if (len < disk_ctx->sec_size) {
-                shadow_sector = adb_sync_ext_disk_writev_reserve_shadow(shadow_buf,
-                                                                        shadow_buf_size,
-                                                                        disk_ctx->sec_size,
-                                                                        disk_ctx->sec_size,
-                                                                        &shadow_used);
-                if (shadow_sector == NULL) {
-                    goto fallback;
-                }
-
-                memcpy(shadow_sector, data, len);
-                shadow_fill = len;
-                break;
-            }
-
-            uint32_t direct_len = (len / disk_ctx->sec_size) * disk_ctx->sec_size;
-
-            if (direct_len == len) {
-                const uint8_t *buffer_ptr = adb_sync_ext_disk_writev_prepare_buffer(shadow_buf,
-                                                                                     shadow_buf_size,
-                                                                                     disk_ctx->sec_size,
-                                                                                     data,
-                                                                                     direct_len,
-                                                                                     &shadow_used);
-                if (buffer_ptr == NULL) {
-                    goto fallback;
-                }
-
-                r = adb_sync_ext_disk_writev_append_buffer(buffers,
-                                                           &buffer_count,
-                                                           ADB_SYNC_EXT_DISK_WRITEV_MAX_BUFFERS,
-                                                           buffer_ptr,
-                                                           direct_len,
-                                                           disk_ctx->sec_size);
-                if (r != 0) {
-                    goto fallback;
-                }
-                break;
-            }
-
-            if (direct_len != 0U) {
-                const uint8_t *buffer_ptr = adb_sync_ext_disk_writev_prepare_buffer(shadow_buf,
-                                                                                     shadow_buf_size,
-                                                                                     disk_ctx->sec_size,
-                                                                                     data,
-                                                                                     direct_len,
-                                                                                     &shadow_used);
-                if (buffer_ptr == NULL) {
-                    goto fallback;
-                }
-
-                r = adb_sync_ext_disk_writev_append_buffer(buffers,
-                                                           &buffer_count,
-                                                           ADB_SYNC_EXT_DISK_WRITEV_MAX_BUFFERS,
-                                                           buffer_ptr,
-                                                           direct_len,
-                                                           disk_ctx->sec_size);
-                if (r != 0) {
-                    goto fallback;
-                }
-                data += direct_len;
-                len -= direct_len;
-            }
-        }
-    }
-
-    r = 0;
-    if (buffer_count != 0U) {
-        r = adb_sync_ext_disk_writev_exact(stage_ctx, buffers, buffer_count);
-    }
-    if (r == 0 && shadow_fill != 0U) {
-        r = adb_sync_ext_disk_write_exact(stage_ctx, shadow_sector, shadow_fill);
-    }
-
-    goto out;
-
-fallback:
-    r = adb_sync_ext_disk_writev_fallback_spans(stage_ctx, spans, span_count);
-
-out:
+    r = adb_sync_ext_disk_write_spans(stage_ctx, spans, span_count);
     adb_sync_buffer_release_spans(spans, span_count);
-#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
-    if (shadow_alloc != NULL) {
-        inram_free(shadow_alloc);
-    }
-#endif
     return r;
 }
 
 static int adb_sync_ext_disk_stage_flush(void *user_data, const uint8_t *data, uint32_t len)
 {
     struct adb_sync_ext_disk_stage_ctx *stage_ctx = (struct adb_sync_ext_disk_stage_ctx *)user_data;
-    uint32_t start_ms = adb_sync_debug_time_ms();
-    int r;
 
     if (stage_ctx == NULL || stage_ctx->disk_ctx == NULL || stage_ctx->total_size == NULL) {
         return -EINVAL;
     }
 
-    g_adb_sync_debug_stats.stage_flush_calls++;
-    r = adb_sync_ext_disk_write_buffer_exact(stage_ctx, data, len);
-    adb_sync_debug_record_duration(&g_adb_sync_debug_stats.stage_flush_ms,
-                                   &g_adb_sync_debug_stats.stage_flush_max_ms,
-                                   adb_sync_debug_time_ms() - start_ms);
-
-    return r;
+    return adb_sync_ext_disk_write_buffer_exact(stage_ctx, data, len);
 }
 
 static int adb_sync_ext_disk_async_writer_flush(void *user_data, const uint8_t *data, uint32_t len)
 {
     struct adb_sync_ext_disk_async_ctx *async_ctx = (struct adb_sync_ext_disk_async_ctx *)user_data;
-    uint32_t start_ms = adb_sync_debug_time_ms();
-    int r;
 
     if (async_ctx == NULL || async_ctx->stage_ctx == NULL) {
         return -EINVAL;
     }
 
-    g_adb_sync_debug_stats.async_writer_flush_calls++;
     if (async_ctx->stage != NULL && async_ctx->stage_ready != NULL && *async_ctx->stage_ready) {
-        r = adb_sync_stage_write(async_ctx->stage,
-                                 data,
-                                 len,
-                                 adb_sync_ext_disk_stage_flush,
-                                 async_ctx->stage_ctx);
-    } else {
-        r = adb_sync_ext_disk_write_buffer_exact(async_ctx->stage_ctx, data, len);
+        return adb_sync_stage_write(async_ctx->stage,
+                                    data,
+                                    len,
+                                    adb_sync_ext_disk_stage_flush,
+                                    async_ctx->stage_ctx);
     }
-    adb_sync_debug_record_duration(&g_adb_sync_debug_stats.async_writer_flush_ms,
-                                   &g_adb_sync_debug_stats.async_writer_flush_max_ms,
-                                   adb_sync_debug_time_ms() - start_ms);
 
-    return r;
+    return adb_sync_ext_disk_write_buffer_exact(async_ctx->stage_ctx, data, len);
 }
 
 #if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
@@ -1816,61 +1401,23 @@ static int adb_sync_ext_disk_async_writer_flushv(void *user_data,
                                                  struct adb_sync_async_buffer *const *buffers,
                                                  uint32_t buffer_count)
 {
-    struct adb_sync_ext_disk_async_ctx *async_ctx = (struct adb_sync_ext_disk_async_ctx *)user_data;
-    sdc_sector_buffer_t sector_buffers[ADB_SYNC_ASYNC_STAGE_BUFFER_COUNT];
-    uint32_t sector_buffer_count = 0U;
-    uint32_t start_ms = adb_sync_debug_time_ms();
+    uint32_t i;
     int r;
 
-    if (async_ctx == NULL || async_ctx->stage_ctx == NULL || buffers == NULL || buffer_count == 0U) {
+    if (buffers == NULL) {
         return -EINVAL;
     }
 
-    if (async_ctx->stage != NULL && async_ctx->stage_ready != NULL && *async_ctx->stage_ready) {
-        goto fallback;
-    }
-
-    for (uint32_t i = 0; i < buffer_count; ++i) {
-        const struct adb_sync_async_buffer *buffer = buffers[i];
-        const uint8_t *data;
-        uint32_t len;
-
-        if (buffer == NULL || buffer->size == 0U) {
+    /*
+     * Keep the async writer draining ready buffers in batches even though
+     * the SDRAW backend now falls back to repeated sector_write() calls.
+     */
+    for (i = 0U; i < buffer_count; ++i) {
+        if (buffers[i] == NULL || buffers[i]->size == 0U) {
             continue;
         }
 
-        data = buffer->buf;
-        len = buffer->size;
-        if (!adb_sync_ext_disk_buffer_can_writev(async_ctx->stage_ctx, data, len)) {
-            goto fallback;
-        }
-
-        sector_buffers[sector_buffer_count].buff = data;
-        sector_buffers[sector_buffer_count].sector_count =
-            len / async_ctx->stage_ctx->disk_ctx->sec_size;
-        sector_buffer_count++;
-    }
-
-    if (sector_buffer_count == 0U) {
-        return 0;
-    }
-
-    g_adb_sync_debug_stats.async_writer_flush_calls++;
-    r = adb_sync_ext_disk_writev_exact(async_ctx->stage_ctx, sector_buffers, sector_buffer_count);
-    adb_sync_debug_record_duration(&g_adb_sync_debug_stats.async_writer_flush_ms,
-                                   &g_adb_sync_debug_stats.async_writer_flush_max_ms,
-                                   adb_sync_debug_time_ms() - start_ms);
-    return r;
-
-fallback:
-    for (uint32_t i = 0; i < buffer_count; ++i) {
-        const struct adb_sync_async_buffer *buffer = buffers[i];
-
-        if (buffer == NULL || buffer->size == 0U) {
-            continue;
-        }
-
-        r = adb_sync_ext_disk_async_writer_flush(user_data, buffer->buf, buffer->size);
+        r = adb_sync_ext_disk_async_writer_flush(user_data, buffers[i]->buf, buffers[i]->size);
         if (r != 0) {
             return r;
         }
@@ -1883,20 +1430,12 @@ fallback:
 static int adb_sync_file_async_writer_flush(void *user_data, const uint8_t *data, uint32_t len)
 {
     struct adb_sync_file_stage_ctx *stage_ctx = (struct adb_sync_file_stage_ctx *)user_data;
-    uint32_t start_ms = adb_sync_debug_time_ms();
-    int r;
 
     if (stage_ctx == NULL || stage_ctx->fp == NULL || stage_ctx->total_size == NULL) {
         return -1;
     }
 
-    g_adb_sync_debug_stats.async_writer_flush_calls++;
-    r = adb_sync_file_write_exact(stage_ctx, data, len);
-    adb_sync_debug_record_duration(&g_adb_sync_debug_stats.async_writer_flush_ms,
-                                   &g_adb_sync_debug_stats.async_writer_flush_max_ms,
-                                   adb_sync_debug_time_ms() - start_ms);
-
-    return r;
+    return adb_sync_file_write_exact(stage_ctx, data, len);
 }
 
 static int adb_sync_file_finalize(struct adb_sync_file_stage_ctx *stage_ctx)
@@ -1921,19 +1460,6 @@ static int adb_sync_file_finalize(struct adb_sync_file_stage_ctx *stage_ctx)
     }
 
     return lsfs_truncate(stage_ctx->fp, (off_t)*stage_ctx->total_size);
-}
-
-static void adb_sync_file_close_tracked(struct lsfs_file_t *fp)
-{
-    uint32_t start_ms;
-
-    if (fp == NULL) {
-        return;
-    }
-
-    start_ms = adb_sync_debug_time_ms();
-    adb_file_close(fp);
-    g_adb_sync_debug_stats.file_close_ms = adb_sync_debug_time_ms() - start_ms;
 }
 
 static int adb_sync_stage_fill_from_rx(struct adb_sync_ctx *ctx,
@@ -2048,11 +1574,9 @@ static void adb_sync_async_writer_log_buffers(const struct adb_sync_async_writer
         }
     }
 
-    printf("boot adb: sync async buffers inram=%u psram=%u largest_internal=%u size=%u\n",
-           (unsigned int)inram_count,
-           (unsigned int)psram_count,
-           (unsigned int)largest_internal_before,
-           (unsigned int)ADB_SYNC_ASYNC_STAGE_BUFFER_SIZE);
+    (void)inram_count;
+    (void)psram_count;
+    (void)largest_internal_before;
 }
 
 static void adb_sync_async_writer_deinit(struct adb_sync_async_writer *writer)
@@ -2082,9 +1606,8 @@ static void adb_sync_async_writer_deinit(struct adb_sync_async_writer *writer)
     memset(writer, 0, sizeof(*writer));
 }
 
-static int adb_sync_async_writer_init_fail(struct adb_sync_async_writer *writer, uint32_t stage, int rc)
+static int adb_sync_async_writer_init_fail(struct adb_sync_async_writer *writer, int rc)
 {
-    adb_sync_debug_record_async_init_failure(stage, rc);
     adb_sync_async_writer_deinit(writer);
     return rc;
 }
@@ -2218,9 +1741,6 @@ static void adb_sync_async_writer_task(void *arg)
 
 static int adb_sync_async_writer_take_active(struct adb_sync_async_writer *writer)
 {
-    bool wait_for_free_buffer;
-    uint32_t start_ms = 0U;
-
     if (writer == NULL) {
         return -EINVAL;
     }
@@ -2229,21 +1749,9 @@ static int adb_sync_async_writer_take_active(struct adb_sync_async_writer *write
         return 0;
     }
 
-    wait_for_free_buffer = uxQueueMessagesWaiting(writer->free_queue) == 0U;
-    if (wait_for_free_buffer) {
-        start_ms = adb_sync_debug_time_ms();
-    }
-
     if (xQueueReceive(writer->free_queue, &writer->active, portMAX_DELAY) != pdTRUE || writer->active == NULL) {
         writer->active = NULL;
         return -1;
-    }
-
-    if (wait_for_free_buffer) {
-        g_adb_sync_debug_stats.async_wait_free_count++;
-        adb_sync_debug_record_duration(&g_adb_sync_debug_stats.async_wait_free_ms,
-                                       &g_adb_sync_debug_stats.async_wait_free_max_ms,
-                                       adb_sync_debug_time_ms() - start_ms);
     }
 
     writer->active->size = 0U;
@@ -2269,8 +1777,6 @@ static int adb_sync_async_writer_submit_active(struct adb_sync_async_writer *wri
         return -1;
     }
 
-    g_adb_sync_debug_stats.async_submit_calls++;
-    g_adb_sync_debug_stats.async_submit_bytes += buf->size;
     return 0;
 }
 
@@ -2363,40 +1869,38 @@ static int adb_sync_async_writer_init(struct adb_sync_async_writer *writer,
         MALLOC_CAP_DEFAULT | MALLOC_CAP_INTERNAL);
     writer->free_queue = xQueueCreate(ADB_SYNC_ASYNC_STAGE_BUFFER_COUNT, sizeof(struct adb_sync_async_buffer *));
     if (writer->free_queue == NULL) {
-        return adb_sync_async_writer_init_fail(writer, BOOT_ADB_SYNC_ASYNC_INIT_FREE_QUEUE, -ENOMEM);
+        return adb_sync_async_writer_init_fail(writer, -ENOMEM);
     }
 
     writer->ready_queue = xQueueCreate(ADB_SYNC_ASYNC_STAGE_BUFFER_COUNT, sizeof(struct adb_sync_async_buffer *));
     if (writer->ready_queue == NULL) {
-        return adb_sync_async_writer_init_fail(writer, BOOT_ADB_SYNC_ASYNC_INIT_READY_QUEUE, -ENOMEM);
+        return adb_sync_async_writer_init_fail(writer, -ENOMEM);
     }
 
     writer->done_queue = xQueueCreate(1, sizeof(int));
     if (writer->done_queue == NULL) {
-        return adb_sync_async_writer_init_fail(writer, BOOT_ADB_SYNC_ASYNC_INIT_DONE_QUEUE, -ENOMEM);
+        return adb_sync_async_writer_init_fail(writer, -ENOMEM);
     }
 
     for (i = 0; i < ADB_SYNC_ASYNC_STAGE_BUFFER_COUNT; i++) {
         struct adb_sync_async_buffer *buf = &writer->buffers[i];
 
         if (adb_sync_async_buffer_alloc(buf, (i == 0U) && (flushv == NULL)) != 0) {
-            return adb_sync_async_writer_init_fail(writer, BOOT_ADB_SYNC_ASYNC_INIT_BUFFER_ALLOC,
-                                                   -ENOMEM);
+            return adb_sync_async_writer_init_fail(writer, -ENOMEM);
         }
         buf->size = 0U;
 
         if (xQueueSend(writer->free_queue, &buf, 0) != pdTRUE) {
-            return adb_sync_async_writer_init_fail(writer, BOOT_ADB_SYNC_ASYNC_INIT_FREE_QUEUE_FILL, -1);
+            return adb_sync_async_writer_init_fail(writer, -1);
         }
     }
 
     if (xTaskCreate(adb_sync_async_writer_task, "sync_file_wr",
                     ADB_SYNC_ASYNC_WRITER_STACK_DEPTH, writer,
                     ADB_SYNC_ASYNC_WRITER_PRIORITY, NULL) != pdPASS) {
-        return adb_sync_async_writer_init_fail(writer, BOOT_ADB_SYNC_ASYNC_INIT_TASK_CREATE, -1);
+        return adb_sync_async_writer_init_fail(writer, -1);
     }
 
-    adb_sync_debug_record_async_init_failure(BOOT_ADB_SYNC_ASYNC_INIT_NONE, 0);
     writer->task_started = true;
     adb_sync_async_writer_log_buffers(writer, largest_internal_before);
     return 0;
@@ -2408,7 +1912,9 @@ static bool adb_sync_async_writer_try_enable(struct adb_sync_async_writer *write
                                              void *flush_user_data,
                                              const char *tag)
 {
-    if (adb_sync_async_writer_init(writer, flush, flushv, flush_user_data) == 0) {
+    int rc = adb_sync_async_writer_init(writer, flush, flushv, flush_user_data);
+
+    if (rc == 0) {
         ADB_LOGI("do_send, %s async staging enabled, buffers=%u size=%u\n",
                  tag,
                  (unsigned int)ADB_SYNC_ASYNC_STAGE_BUFFER_COUNT,
@@ -2416,10 +1922,9 @@ static bool adb_sync_async_writer_try_enable(struct adb_sync_async_writer *write
         return true;
     }
 
-    ADB_LOGW("do_send, %s async staging init failed stage=%s rc=%d, fallback to sync stage\n",
+    ADB_LOGW("do_send, %s async staging init failed rc=%d, fallback to sync stage\n",
              tag,
-             adb_sync_async_init_stage_name(g_adb_sync_debug_stats.async_init_fail_stage),
-             g_adb_sync_debug_stats.async_init_fail_rc);
+             rc);
     return false;
 }
 
@@ -2474,8 +1979,6 @@ static void do_stat(struct adb_service *s, struct adb_sync_req *req)
 	};
 	int r;
 	uint8_t *full_path = NULL;
-
-    g_adb_sync_debug_stats.stat_total++;
 
 	if (file_name == NULL) {
 		ADB_LOGE("do stat,file_name ADB_MALLOC error\n");
@@ -2538,7 +2041,7 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 {
 	struct adb_sync_ctx *ctx = s->data;
 	uint32_t total_size = 0;
-	struct lsfs_file_t fp = {0};
+    struct lsfs_file_t fp = {0};
     struct adb_sync_stage file_stage = {0};
     struct adb_sync_stage ext_disk_stage = {0};
     struct adb_sync_file_stage_ctx file_stage_ctx = {0};
@@ -2559,8 +2062,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 
 	uint8_t *file_name = ADB_MALLOC(req->len + 1);
 	int r;
-
-    g_adb_sync_debug_stats.send_total++;
 
 	if (file_name == NULL) {
 		ADB_LOGE("do_send, file_name ADB_MALLOC error\n");
@@ -2592,7 +2093,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
         r = adb_sync_handle_sink_path(s,
                                       ctx,
                                       "null sink",
-                                      BOOT_ADB_SYNC_PATH_NULL,
                                       NULL,
                                       adb_sync_null_sink_consume,
                                       &total_size);
@@ -2616,7 +2116,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
         r = adb_sync_handle_sink_path(s,
                                       ctx,
                                       "ram sink",
-                                      BOOT_ADB_SYNC_PATH_RAM,
                                       &g_adb_sync_ram_sink,
                                       adb_sync_ring_sink_consume,
                                       &total_size);
@@ -2643,7 +2142,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
         r = adb_sync_handle_sink_path(s,
                                       ctx,
                                       "inram sink",
-                                      BOOT_ADB_SYNC_PATH_INRAM,
                                       &inram_sink,
                                       adb_sync_ring_sink_consume,
                                       &total_size);
@@ -2676,17 +2174,9 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 			ADB_LOGE("do send, ext disk init error\n");
 			goto failed;
 		}
-
         ext_disk_stage_ctx.disk_ctx = disk_ctx;
         ext_disk_stage_ctx.total_size = &total_size;
-        adb_sync_debug_set_path_mode(BOOT_ADB_SYNC_PATH_DIRECT);
 
-        /*
-         * Reuse the preallocated SRAM stage as an alignment shadow buffer for
-         * direct SD writes. This keeps the fast direct-write path from
-         * solution/boot without holding another long-lived 64 KiB SRAM buffer
-         * when async raw writes are already available.
-         */
         if (!disk_ctx->direct_flash) {
 #if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
             ext_disk_async_ctx.stage = &ext_disk_stage;
@@ -2697,9 +2187,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
                                                                     adb_sync_ext_disk_async_writer_flushv,
                                                                     &ext_disk_async_ctx,
                                                                     "ext disk");
-            if (ext_disk_async_ready) {
-                adb_sync_debug_set_path_mode(BOOT_ADB_SYNC_PATH_ASYNC);
-            }
 #endif
 #if defined(ADB_SYNC_BOOT_CHERRYUSB_PREALLOC_STAGE)
             if (!ext_disk_async_ready) {
@@ -2712,17 +2199,10 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
                 }
 
                 adb_sync_ext_disk_set_align_buf(disk_ctx, raw_align_buf, raw_align_size);
-                if (raw_align_buf != NULL) {
-                    ADB_LOGI("do_send, raw aligned shadow enabled, size=%u\n",
-                             (unsigned int)raw_align_size);
-                } else {
-                    ADB_LOGW("do_send, raw aligned shadow unavailable, fallback to packet/bounce path\n");
-                }
             }
 #endif
         }
 
-		/* Raw flash already aligns/stages inside disk_ctx; keep WRTE packets short-lived here. */
 		while (1) {
 			struct adb_sync_send_data req;
 			adb_sync_buffer_read(ctx, (uint8_t *)&req, sizeof(struct adb_sync_send_data));
@@ -2818,9 +2298,9 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 #endif
             if (!disk_ctx->direct_flash && !ext_disk_stage_ready) {
                 need_discard = false;
-                r = adb_sync_ext_disk_writev_from_rx(ctx, &ext_disk_stage_ctx, req.chunk_size);
+                r = adb_sync_ext_disk_write_from_rx(ctx, &ext_disk_stage_ctx, req.chunk_size);
                 if (r != 0) {
-                    ADB_LOGE("do_send, ext disk writev error: %d\n", r);
+                    ADB_LOGE("do_send, ext disk write error: %d\n", r);
                     adb_sync_stage_cleanup(&ext_disk_stage, &ext_disk_stage_ready);
                     adb_sync_ext_disk_ctx_free(disk_ctx);
                     goto failed;
@@ -2895,8 +2375,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 	file_opened = true;
     file_stage_ctx.fp = &fp;
     file_stage_ctx.total_size = &total_size;
-    adb_sync_debug_set_path_mode(BOOT_ADB_SYNC_PATH_DIRECT);
-    adb_sync_debug_record_async_init_failure(BOOT_ADB_SYNC_ASYNC_INIT_NONE, 0);
     if (!adb_sync_file_use_direct_path()) {
         if (adb_sync_file_use_async_writer()) {
 #if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
@@ -2905,9 +2383,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
                                                                 NULL,
                                                                 &file_stage_ctx,
                                                                 "file");
-            if (file_async_ready) {
-                adb_sync_debug_set_path_mode(BOOT_ADB_SYNC_PATH_ASYNC);
-            }
 #endif
         }
 #if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
@@ -2924,9 +2399,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 #else
             file_stage_ready = adb_sync_stage_try_enable(&file_stage, "file");
 #endif
-            if (file_stage_ready) {
-                adb_sync_debug_set_path_mode(BOOT_ADB_SYNC_PATH_STAGE);
-            }
         }
     }
 
@@ -2948,14 +2420,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 
 		if (req.id != ADB_SYNC_ID_DATA) {
 			if (req.id == ADB_SYNC_ID_DONE) {
-                g_adb_sync_debug_stats.done_total++;
-                g_adb_sync_debug_stats.file_bytes = total_size;
-                adb_sync_boot_trace_tail("done", total_size);
-#ifdef CONFIG_BOOT_ADB
-                ADB_LOGI("sync diag done data_bytes=%llu file_bytes=%lu\n",
-                         (unsigned long long)g_adb_sync_debug_stats.data_bytes,
-                         (unsigned long)g_adb_sync_debug_stats.file_bytes);
-#endif
 				ADB_LOGI("do_send, done, timestamp:%d\n", req.chunk_size);
                 need_discard = false;
 				break;
@@ -2972,8 +2436,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 			goto failed;
         }
 
-        adb_sync_debug_record_data(req.chunk_size);
-
 #if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
         if (file_async_ready) {
             need_discard = false;
@@ -2982,7 +2444,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
                 ADB_LOGE("lsfs async write error: %d\n", r);
                 goto failed;
             }
-            g_adb_sync_debug_stats.file_bytes = total_size;
             need_discard = true;
             continue;
         }
@@ -2996,7 +2457,6 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
                 ADB_LOGE("lsfs write error: %d\n", r);
                 goto failed;
             }
-            g_adb_sync_debug_stats.file_bytes = total_size;
             need_discard = true;
             continue;
         }
@@ -3014,54 +2474,40 @@ static void do_send(struct adb_service *s, struct adb_sync_req *req)
 				ADB_LOGE("lsfs write error: %d\n", r);
 				goto failed;
 			}
-            g_adb_sync_debug_stats.file_bytes = total_size;
 		}
         need_discard = true;
 	}
 
 #if defined(ADB_SYNC_ASYNC_WRITER_ENABLED)
     if (file_async_ready) {
-        adb_sync_boot_trace_tail("async_finish_begin", total_size);
         r = adb_sync_async_writer_finish(&file_async_writer);
         if (r != 0) {
             ADB_LOGE("lsfs async finalize error: %d\n", r);
             goto failed;
         }
-        adb_sync_boot_trace_tail("async_finish_end", total_size);
         adb_sync_async_writer_deinit(&file_async_writer);
         file_async_ready = false;
-        g_adb_sync_debug_stats.file_bytes = total_size;
     }
 #endif
 
     if (file_stage_ready) {
-        adb_sync_boot_trace_tail("stage_finish_begin", total_size);
         r = adb_sync_stage_finish(&file_stage, adb_sync_file_stage_flush, &file_stage_ctx);
         if (r != 0) {
             ADB_LOGE("lsfs staging flush error: %d\n", r);
             goto failed;
         }
-        adb_sync_boot_trace_tail("stage_finish_end", total_size);
-        g_adb_sync_debug_stats.file_bytes = total_size;
         adb_sync_stage_cleanup(&file_stage, &file_stage_ready);
     }
 
-    g_adb_sync_debug_stats.file_bytes = total_size;
-    adb_sync_boot_trace_tail("finalize_begin", total_size);
     r = adb_sync_file_finalize(&file_stage_ctx);
     if (r != 0) {
         ADB_LOGE("do_send, file finalize error: %d\n", r);
         goto failed;
     }
-    adb_sync_boot_trace_tail("finalize_end", total_size);
-    adb_sync_boot_trace_tail("close_begin", total_size);
-    adb_sync_file_close_tracked(&fp);
-    adb_sync_boot_trace_tail("close_end", total_size);
+    adb_file_close(&fp);
 	file_opened = false;
     need_discard = false;
-    adb_sync_boot_trace_tail("okay_begin", total_size);
     adb_sync_rsp_okay(s);
-    adb_sync_boot_trace_tail("okay_end", total_size);
     goto done;
 
 failed:
@@ -3108,7 +2554,7 @@ static void do_recv(struct adb_service *s, struct adb_sync_req *req)
 	uint8_t *path = NULL;
 	uint8_t *read_buf = NULL;
 	int r;
-	const uint32_t chunk_size = MAX_PAYLOAD;
+	const uint32_t chunk_size = adb_sync_send_chunk_limit(MAX_PAYLOAD);
 	struct adb_sync_ctx *ctx = s->data;
 
 	read_buf = ADB_MALLOC(chunk_size);
@@ -3228,7 +2674,8 @@ done:
 	ADB_FREE(read_buf);
 }
 
-static void do_list(struct adb_service *s, struct adb_sync_req *req)
+static void __attribute__((section(".psram.text"))) do_list(struct adb_service *s,
+                                                            struct adb_sync_req *req)
 {
 	uint8_t *path = ADB_MALLOC(req->len + 1);
 	uint8_t *full_path = NULL;
@@ -3339,16 +2786,22 @@ static void adb_sync_task(void *arg)
 	if (!ctx->closing) {
 		adb_close(s->local_id, s->remote_id);
 	}
-	ctx->task = NULL;
 	xSemaphoreGive(ctx->exit_sem);
-	vTaskDelete(NULL);
+	for (;;) {
+		vTaskSuspend(NULL);
+	}
 }
 
 static int adb_sync_open(struct adb_service *s, const uint8_t *args)
 {
-	struct adb_sync_ctx *ctx = ADB_MALLOC(sizeof(struct adb_sync_ctx));
+	struct adb_sync_ctx *ctx = NULL;
 
-    adb_sync_debug_stats_reset();
+#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
+    ctx = adb_boot_try_inram_malloc(ADB_SYNC_STAGE_ALIGNMENT, sizeof(*ctx));
+#endif
+    if (ctx == NULL) {
+        ctx = ADB_MALLOC(sizeof(*ctx));
+    }
 
 	if (ctx == NULL) {
 		return -1;
@@ -3377,9 +2830,38 @@ static int adb_sync_open(struct adb_service *s, const uint8_t *args)
 	ctx->s = s;
 	s->data = ctx;
 
-	BaseType_t xReturn = xTaskCreate(adb_sync_task, "sync_task",
-                                         ADB_SYNC_TASK_STACK_DEPTH, ctx,
-                                         ADB_SYNC_TASK_PRIORITY, &ctx->task);
+	BaseType_t xReturn;
+
+#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
+    ctx->task_stack = inram_calloc(32, ADB_SYNC_TASK_STACK_DEPTH, sizeof(StackType_t));
+    ctx->task_tcb = inram_calloc(sizeof(void *), 1, sizeof(StaticTask_t));
+    ctx->task = NULL;
+    if (ctx->task_stack != NULL && ctx->task_tcb != NULL) {
+        ctx->task = xTaskCreateStatic(adb_sync_task, "sync_task",
+                                      ADB_SYNC_TASK_STACK_DEPTH, ctx,
+                                      ADB_SYNC_TASK_PRIORITY,
+                                      ctx->task_stack, ctx->task_tcb);
+    }
+    if (ctx->task != NULL) {
+        xReturn = pdPASS;
+    } else {
+        if (ctx->task_tcb != NULL) {
+            inram_free(ctx->task_tcb);
+            ctx->task_tcb = NULL;
+        }
+        if (ctx->task_stack != NULL) {
+            inram_free(ctx->task_stack);
+            ctx->task_stack = NULL;
+        }
+        xReturn = xTaskCreate(adb_sync_task, "sync_task",
+                              ADB_SYNC_TASK_STACK_DEPTH, ctx,
+                              ADB_SYNC_TASK_PRIORITY, &ctx->task);
+    }
+#else
+	xReturn = xTaskCreate(adb_sync_task, "sync_task",
+                              ADB_SYNC_TASK_STACK_DEPTH, ctx,
+                              ADB_SYNC_TASK_PRIORITY, &ctx->task);
+#endif
 	if (xReturn != pdPASS) {
 		vQueueDelete(ctx->rx_queue);
 		vSemaphoreDelete(ctx->exit_sem);
@@ -3401,7 +2883,6 @@ static int adb_sync_write(struct adb_service *s, adb_packet_t *p)
 	struct adb_sync_ctx *ctx = s->data;
 
 	if (ctx && ctx->rx_queue && !ctx->closing) {
-        adb_sync_debug_record_wrte(p->msg.data_length);
 		xQueueSend(ctx->rx_queue, &p, portMAX_DELAY);
 	} else {
 		adb_packet_free(p);
@@ -3430,9 +2911,10 @@ static int adb_sync_close(struct adb_service *s)
 		if (ctx->exit_sem != NULL &&
 		    xSemaphoreTake(ctx->exit_sem, pdMS_TO_TICKS(3000)) != pdTRUE) {
 			ADB_LOGE("sync task exit timeout, force delete\n");
-			vTaskDelete(ctx->task);
-			ctx->task = NULL;
 		}
+		vTaskDelete(ctx->task);
+		ctx->task = NULL;
+		vTaskDelay(pdMS_TO_TICKS(5));
 	}
 
 	if (ctx->curr_pkt) {
@@ -3454,6 +2936,17 @@ static int adb_sync_close(struct adb_service *s)
 #if defined(ADB_SYNC_BOOT_CHERRYUSB_PREALLOC_STAGE)
     adb_sync_reserved_file_stage_put(ctx);
     adb_sync_reserved_raw_align_put(ctx);
+#endif
+
+#if defined(CONFIG_BOOT_ADB) && defined(CONFIG_BOOT_ADB_BACKEND_CHERRYUSB)
+    if (ctx->task_tcb != NULL) {
+        inram_free(ctx->task_tcb);
+        ctx->task_tcb = NULL;
+    }
+    if (ctx->task_stack != NULL) {
+        inram_free(ctx->task_stack);
+        ctx->task_stack = NULL;
+    }
 #endif
 
 	ADB_FREE(ctx);
@@ -3481,13 +2974,4 @@ int adb_sync_prepare(void)
 #else
     return 0;
 #endif
-}
-
-void adb_sync_debug_stats_get(struct adb_sync_debug_stats *stats)
-{
-    if (stats == NULL) {
-        return;
-    }
-
-    *stats = g_adb_sync_debug_stats;
 }

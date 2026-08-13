@@ -1,0 +1,26 @@
+[package]
+name         = "arcs-embassy"
+version      = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+description  = "Embassy async runtime integration for the ARCS SDK (FreeRTOS-cooperative executor + time driver)"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Pinned to the last edition-2021 releases that build on Rust 1.83.0.
+# (embassy-executor 0.10 / embassy-time 0.5 / time-driver 0.2.1+ are edition
+# 2024 and require Rust >= 1.85.)
+embassy-executor.workspace = true
+# generic-queue-8: a standalone heapless timer queue (8 slots). The default
+# "integrated" queue hard-depends on embassy-executor 0.7.0 and only works with
+# that executor's task headers — incompatible with our 0.9.1 executor's wakers.
+embassy-time.workspace = true
+embassy-time-driver.workspace = true
+embassy-time-queue-utils.workspace = true
+embassy-sync.workspace = true
+embedded-hal-async.workspace = true
+critical-section.workspace = true
+static_cell.workspace = true

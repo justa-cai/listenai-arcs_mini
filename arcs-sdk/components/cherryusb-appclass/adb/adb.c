@@ -114,6 +114,7 @@ void adb_close(uint32_t local_id, uint32_t remote_id)
 {
     struct message msg = {0};
 
+    adb_service_note_close_sent(local_id, remote_id);
     msg.command = A_CLSE;
     msg.arg0 = local_id;
     msg.arg1 = remote_id;
@@ -132,15 +133,24 @@ void adb_write(uint32_t local_id, uint32_t remote_id, uint8_t *data, uint32_t le
 
 adb_packet_t *adb_packet_alloc(uint32_t payload_len)
 {
+    size_t packet_size;
+    adb_packet_t *packet = NULL;
+
 #ifdef CONFIG_BOOT_ADB
     if (payload_len > MAX_PAYLOAD) {
         return NULL;
     }
-
-    return (adb_packet_t *)adb_boot_try_inram_malloc(32U, sizeof(adb_packet_t) + payload_len);
-#else
-    return (adb_packet_t *)ADB_MALLOC(sizeof(adb_packet_t) + payload_len);
 #endif
+
+    packet_size = sizeof(adb_packet_t) + payload_len;
+
+#ifdef CONFIG_BOOT_ADB
+    packet = (adb_packet_t *)adb_boot_try_inram_malloc(ADB_PACKET_ALIGN, packet_size);
+#else
+    packet = (adb_packet_t *)ADB_MALLOC(packet_size);
+#endif
+
+    return packet;
 }
 
 void adb_packet_free(adb_packet_t *packet)
@@ -234,6 +244,7 @@ static void adb_packet_received_cb(adb_packet_t *packet)
         break;
     }
     case A_OKAY:
+        adb_service_ready(packet->msg.arg1, packet->msg.arg0);
         adb_packet_free(packet);
         break;
     case A_CLSE:

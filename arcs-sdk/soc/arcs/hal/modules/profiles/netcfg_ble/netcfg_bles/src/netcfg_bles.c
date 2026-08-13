@@ -111,7 +111,7 @@ static int netcfg_ble_dump_data(uint8_t *data, uint16_t len)
         NETCFG_BLE_PRINT("%02x ", data[i]);
         if (!((i + 1) % 6))
             NETCFG_BLE_PRINT("\n");
-            }
+    }
 
     if ((i % 6))
         NETCFG_BLE_PRINT("\n");

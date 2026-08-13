@@ -1,0 +1,9 @@
+tests:
+  samples.libraries.rust.i2c_scan:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "i2c_scan:done"

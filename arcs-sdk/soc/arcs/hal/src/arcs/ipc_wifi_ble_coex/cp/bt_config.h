@@ -9,7 +9,7 @@
 
 //# controller
 #define  BT_EMB_PRESENT       0
-#define  BLE_EMB_PRESENT      1
+#define  BLE_EMB_PRESENT      0
 #define  BLE_ISO_PRESENT      0
 #define  BT_DUAL_MODE         (BT_EMB_PRESENT && BLE_EMB_PRESENT)
 //# run ble only on dual mode set 1, run dual mode set 0
@@ -27,10 +27,12 @@
 #define  LEA_PRESENT          0
 #define  MESH_PRESENT         0
 //# transport
-#define  HCIT_UART_PRESENT    1
+#define  HCIT_UART_PRESENT    0
 #define  HCIT_USB_PRESENT     0
 //#hci audio access
-#define  HCIT_AUD_PRESENT     0
+#define  HCIT_AUD_PRESENT     1
+
+#define  HCI_IPC              1
 
 #define  HCI_PRESENT          1
 #define  AHI_PRESENT          0
@@ -102,9 +104,9 @@
 
 //# ISO configure
 //#// Connected Isochronous Stream
-#define  BLE_CIS                   1
+#define  BLE_CIS                   0
 //#// Broadcast Isochronous Stream
-#define  BLE_BIS                   1
+#define  BLE_BIS                   0
 //#/// Maximum number of ISO channel / streams
 #define  BLE_ISO_CON               4
 //#/// Proprietary ISO over HCI

@@ -839,11 +839,9 @@ typedef const struct wifi_ops {
     uint8_t dpd_track_temp_disable;
     uint8_t dpd_track_connect_en;
     uint8_t fw_log_level; /* 1~5 CRT/ERR/WAR/INFO/VRB, default level 4*/
+    uint8_t max_scan_num;
     int8_t (* get_mac)(uint8_t *mac_addr);
     int (* get_temp)(float *vout);
-    uint8_t wifi_bt_coex;        //0: wifi only, 1: wifi/bt coex
-    uint32_t (* coex_get_bt_status)(void);
-    uint32_t (* coex_get_bt_link_state)(void);
 } _wifi_ops, *pwifi_ops;
 
 #define WIFI_PS_LOCK_BIT_APP           0x00000001
@@ -871,5 +869,11 @@ typedef struct wifi_ps_state
     uint32_t tx_cnt;
     uint32_t timer_prevent;
 } wifi_ps_state_t;
+
+enum wifi_task_type {
+    WIFI_TASK_WPA = 0,
+
+    WIFI_TASK_MAX
+};
 
 #endif

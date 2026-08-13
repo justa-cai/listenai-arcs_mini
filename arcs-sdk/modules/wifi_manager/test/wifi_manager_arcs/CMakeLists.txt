@@ -66,6 +66,7 @@ target_sources(tests PRIVATE
     ${PRJ_ROOT}/test/common/mock_wifi_api/mock_wifi_api.c
     ${PRJ_ROOT}/test/common/mock_ls_event/mock_ls_event.c
     ${PRJ_ROOT}/test/common/mock_cache/mock_cache.c
+    ${PRJ_ROOT}/test/common/freertos/mock_event_groups.c
 )
 
 add_subdirectory(${PRJ_ROOT}/test/common/mock_mem mock_mem)

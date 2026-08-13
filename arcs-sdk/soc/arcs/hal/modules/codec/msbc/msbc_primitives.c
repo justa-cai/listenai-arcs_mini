@@ -23,7 +23,7 @@
 #include "msbc_tables.h"
 
 #include "msbc_primitives.h"
-
+#include "sbc_primitives.h"
 
 /*
  * A reference C code of analysis filter with SIMD-friendly tables
@@ -241,11 +241,11 @@ static int msbc_enc_process_input_8s_le(int position,
 }
 
 static int sbc_enc_process_input_8s_be(int position,
-		const uint8_t *pcm, int16_t X/*[2]*/[SBC_X_BUFFER_SIZE],
+		const uint8_t *pcm, int16_t X[2][SBC_X_BUFFER_SIZE],
 		int nsamples, int nchannels)
 {
 		return sbc_encoder_process_input_s8_internal(
-			position, pcm, X, nsamples,/* 1,*/ 1);
+			position, pcm, X, nsamples, 1, 1);
 }
 /* Supplementary function to count the number of leading zeros */
 

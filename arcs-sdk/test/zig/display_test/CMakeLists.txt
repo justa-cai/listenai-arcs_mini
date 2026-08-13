@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.19)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+find_package(listenai-cmake REQUIRED HINTS $ENV{ARCS_BASE})
+project(zig_display_test)
+set(LISTENAI_ZIG_APP ${CMAKE_CURRENT_SOURCE_DIR}/src/zig_app.zig)
+listenai_add_executable(${PROJECT_NAME})
+listenai_maybe_enable_zig_target(${PROJECT_NAME})
+target_sources(${PROJECT_NAME} PRIVATE src/main.c)

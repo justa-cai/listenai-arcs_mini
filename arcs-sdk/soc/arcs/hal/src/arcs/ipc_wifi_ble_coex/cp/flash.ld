@@ -25,15 +25,19 @@ OUTPUT_ARCH( "riscv" )
 
 ENTRY( _start )
 
+__EXT_RAM_SIZE = 0x00005800; /* 22K*/
 MEMORY
 {
   flash (rxa!w) : ORIGIN = 0x30180000, LENGTH = 1M
   ilm (rxa!w) : ORIGIN = 0x00280000, LENGTH = 16K
   dlm (wxa!r) : ORIGIN = 0x00300000, LENGTH = 8K
+
   NETRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 45K /*lwip pbuf*/
-  ram (wxa!r) : ORIGIN = 0x2005A000, LENGTH = 384K - 8K - 32K
-  IPCSHRAM (rwx) : ORIGIN = 0x20050000, LENGTH = 8K /*ipc*/
-  psram(wxa!r) : ORIGIN = 0x28000000, LENGTH = 256K
+  IPCSHRAM (rwx) : ORIGIN = 0x20050000, LENGTH = 16K /*ipc+bt*/   /*  AP_RAM:0x20050000~0x20054000*/  
+                                                                  /*  AP_RAM:0x20054000~0x2005A000*/
+  ram (wxa!r) : ORIGIN = 0x2005A000, LENGTH = 384K - 16K - 24K  /*  AP_RAM:0x2005A000~0x200B0000  reserved for user*/
+  
+  psram(wxa!r) : ORIGIN = 0x28000000, LENGTH = 256K  /* PSRAM:256K:0x28000000~0x28040000*/
 }
 
 REGION_ALIAS("ROM", flash)
@@ -49,6 +53,7 @@ SECTIONS
   PROVIDE(__STACK_SIZE = 4K);
   /* heap size defined in FreeRtosConfig.h, if RTOS module was not used, define heap size in ld */
   /*PROVIDE(__HEAP_SIZE = 80K);*/
+  PROVIDE(__BT_HEAP_SIZE = 24K);/*32K size for BT heap*/
   PROVIDE(_ipc_dbg_len = 1K);
   PROVIDE(__SMP_CPU_CNT = 1);
   __TOT_STACK_SIZE = __STACK_SIZE * __SMP_CPU_CNT;
@@ -272,6 +277,13 @@ SECTIONS
   PROVIDE( _data = ADDR(.data) );
   PROVIDE( _edata = . );
   PROVIDE( edata = . );
+  .ext_btbuf_ram_sec :  ALIGN(8)
+  {
+    PROVIDE( __ext_ram_start = . );
+     . = . + __EXT_RAM_SIZE;
+     . = ALIGN(16);
+     PROVIDE( __ext_ram_end = . );
+  } > RAM AT>RAM
 
   .cali_luna_bss (NOLOAD) : ALIGN(8)
   {
@@ -316,6 +328,9 @@ SECTIONS
     . = ALIGN(4);
     . = ALIGN(8);
     *(.sharedmem.bss)
+    PROVIDE( __ext_ram_start = . );
+    . = . + __BT_HEAP_SIZE;
+    PROVIDE( __ext_ram_end = . );
 #ifdef CFG_IPC_PRINT
     _ipc_dbg_start = .;
     . += _ipc_dbg_len;

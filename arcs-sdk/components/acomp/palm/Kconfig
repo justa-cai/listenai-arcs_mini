@@ -1,0 +1,22 @@
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+if ACOMP_PALM
+
+	config ACOMP_PALM_RES_DETECT_ADDRESS
+		hex "palm detect resource address"
+		default 0x0
+
+	config ACOMP_PALM_RES_DETECT_LENGTH
+		int "palm detect resource length"
+		default 0
+
+	config ACOMP_PALM_RES_VERIFY_ADDRESS
+		hex "palm verify resource address"
+		default 0x0
+
+	config ACOMP_PALM_RES_VERIFY_LENGTH
+		int "palm verify resource length"
+		default 0
+
+endif

@@ -21,20 +21,13 @@
 
 #define MAX_BLK_BITS    20
 
-//NOTE: original BLOCK_TS 12bits => 19/20bits @CTLx bit[50/51:32], 512K/1M-1
+//NOTE: original BLOCK_TS 12bits => 20bits @CTLx bit[51:32], 1M-1
 #define MAX_BLK_TS      ((1 << MAX_BLK_BITS) - 1)
 #define BLK_TS_MASK     ((1 << MAX_BLK_BITS) - 1)
 
 // HW LLP (Linked list multi-block) is supported on ARCS...
-#define SUPPORT_HW_LLP  1 //TODO: change to 1 since Linked list is supported!
-
-#if SUPPORT_HW_LLP
-// max count of Link List Item implicitly supported by DMA driver
-// it means max. (MAX_BLK_TS * DMA_MAX_LL_ITEMS) data can be transfered for 1 DMA interrupt.
-#define DMA_MAX_LL_ITEMS                4
-//#define DMA_MAX_LL_DATA                 ((DMA_MAX_LL_ITEMS + 1) * MAX_BLK_TS)
-#define DMA_MAX_LL_DATA                 (DMA_MAX_LL_ITEMS * MAX_BLK_TS)
-#endif // SUPPORT_HW_LLP
+#define SUPPORT_HW_LLP  		1 // 0
+#define USE_INTERNAL_LLITEMS   1 // 0
 
 extern uint32_t calc_max_burst_size(uint32_t items);
 
@@ -169,11 +162,13 @@ typedef struct _DMA_LINK_LIST_ITEM {
     uint32_t LLP;     // Linked List Pointer
     uint32_t CTL_LO;    // Control Register Low WORD
     union {
-    uint32_t CTL_HI;    // Control Register High WORD (Transfer Size @ bit[11:0])
+    uint32_t CTL_HI;    // Control Register High WORD (Transfer Size @ bit[x:0])
     uint32_t SIZE;      // Block Transfer Size, not limited by 4095!
     } u;
     //uint32_t SSTAT;   // Source Status Register, unimplemented, set to 0
-    uint32_t DSTAT;   // Destination Status Register, unimplemented, set to 0
+    //uint32_t DSTAT;   // Destination Status Register, unimplemented, set to 0
+    //NOTE: preLLP is purely used by software, and it WILL NOT be loaded into HW register!
+    struct _DMA_LINK_LIST_ITEM *preLLP; // point to previous Linked List Item
 } DMA_LLI, *DMA_LLP;
 
 // Source Gather / Destination Scatter register definition
@@ -216,6 +211,11 @@ typedef enum _DMA_CACHE_SYNC {
     DMA_CACHE_SYNC_COUNT
 } DMA_CACHE_SYNC;
 
+
+// Mask/unmask channel interrupts (mask = true means disable that interrupt source)
+extern void dma_channel_mask_xfer_interrupt(uint8_t ch, bool mask);
+extern void dma_channel_mask_block_interrupt(uint8_t ch, bool mask);
+extern void dma_channel_mask_error_interrupt(uint8_t ch, bool mask);
 
 /**
   \fn          int32_t dma_initialize (void)
@@ -341,50 +341,32 @@ extern int32_t dma_channel_configure_wrapper (uint8_t      ch,
                                             uint32_t      config_low,
                                             uint32_t      config_high,
                                             uint32_t      src_gath,
-                                            uint32_t      dst_scat);
+                                            uint32_t      dst_scat); //[REMOVED]:
 
 
-/**
-  \fn          int32_t dma_channel_configure (uint8_t      ch,
-                                    uint32_t        src_addr,
-                                    uint32_t        dst_addr,
-                                    uint32_t        total_size,
-                                    uint32_t        control,
-                                    uint32_t        config_low,
-                                    uint32_t        config_high,
-                                    uint32_t        src_gath,
-                                    uint32_t        dst_scat);
-*/
 #define dma_channel_configure(ch, ...)  \
-    dma_channel_configure_wrapper(ch, 1, ##__VA_ARGS__)
+    dma_channel_configure_wrapper(ch, 1, ##__VA_ARGS__) //[REMOVED]:
 
+#define dma_channel_configure_polling(ch, ...)  \
+    dma_channel_configure_wrapper(ch, 0, ##__VA_ARGS__) //[REMOVED]:
 
-/**
-  \fn          int32_t dma_channel_configure_polling (uint8_t      ch,
-                                    uint32_t        src_addr,
-                                    uint32_t        dst_addr,
-                                    uint32_t        total_size,
-                                    uint32_t        control,
-                                    uint32_t        config_low,
-                                    uint32_t        config_high,
-                                    uint32_t        src_gath,
-                                    uint32_t        dst_scat);
-*/
-//#define dma_channel_configure_polling(ch, ...)  \
-//    dma_channel_configure_wrapper(ch, 0, ##__VA_ARGS__)
-
+//[NEW]
 #define DMA_CH_EN_XFER_INT      (0x1 << 0) // enable xfer & error interrupt (clear for polling)
 #define DMA_CH_EN_BLK_INT       (0x1 << 1) // enable block interrupt (set if PingPong transfer)
 #define DMA_CH_EN_PIPO          (0x1 << 7) // enable PingPong transfer
-extern int32_t dma_channel_configure_polling (uint8_t      ch,
-                                            uint32_t      src_addr,
-                                            uint32_t      dst_addr,
-                                            uint32_t      total_size,
-                                            uint32_t      control,
-                                            uint32_t      config_low,
-                                            uint32_t      config_high,
-                                            uint32_t      src_gath,
-                                            uint32_t      dst_scat);
+extern int32_t dma_channel_setup (uint8_t       ch,
+                                  uint8_t       en_bits, //en_int
+                                  uint32_t      control,
+                                  uint32_t      config_low,
+                                  uint32_t      config_high,
+                                  uint32_t      src_gath,
+                                  uint32_t      dst_scat);
+
+//[NEW]
+extern int32_t dma_channel_start (uint8_t      ch,
+                                  uint32_t      src_addr,
+                                  uint32_t      dst_addr,
+                                  uint32_t      total_size);
 
 
 #define DMA_HSID_COUNT  16
@@ -400,7 +382,8 @@ typedef enum {
 // Check the DMA channel has been configured for some peripheral as specified before and select if configured
 // xfer_type    Memory to Peripheral (M2P) or Peripheral to Memory (P2M)
 // hs_id        hardware handshaking interface # (SHOULD less than DMA_HSID_COUNT)
-extern bool dma_channel_select_if_configured(uint8_t ch, uint8_t xfer_type, uint8_t hs_id);
+extern bool dma_channel_check_select(uint8_t ch, uint8_t xfer_flag, uint8_t hs_id);
+//#define dma_channel_select_if_configured    dma_channel_check_select //[REMOVED]:
 
 // ONLY used for "RESERVED" or unchanged DMA channel!!
 // NOTE: dma_channel_configure OR dma_channel_configure_polling is invoked
@@ -411,12 +394,13 @@ extern bool dma_channel_select_if_configured(uint8_t ch, uint8_t xfer_type, uint
 #define DMACH_CFG_FLAG_SRC_ADDR     0x1 // bit[0]
 #define DMACH_CFG_FLAG_DST_ADDR     0x2 // bit[1]
 #define DMACH_CFG_FLAG_BOTH_ADDR    0x3 // bit[1:0]
+extern int32_t dma_channel_start_block (uint8_t      ch,
+                                       uint8_t      cfg_flags,
+                                       uint32_t     src_addr,
+                                       uint32_t     dst_addr,
+                                       uint32_t     total_size);//[NEW]
+//#define dma_channel_configure_lite  dma_channel_start_block //[REMOVED]:
 
-extern int32_t dma_channel_configure_lite (uint8_t      ch,
-                                           uint8_t      cfg_flags,
-                                           uint32_t     src_addr,
-                                           uint32_t     dst_addr,
-                                           uint32_t     total_size);
 #define PIPO_BLK_FLAG_STOP  (0x1 << 0)
 typedef struct {
     void *src;     // Source Address
@@ -426,6 +410,18 @@ typedef struct {
     uint32_t size;    // Block Size
     uint32_t flags; // 1: Stop PingPing after this block transfer
 } DMA_PIPO_BLK;
+
+//[IN] blk_array    blocks which transfer data in ping pong mode endlessly
+//[IN/OUT] blk_cnt    indicate count of blocks (<= DMA_MAX_LL_ITEMS) in blk_arry when input,
+//                  and count of blocks (start from head) set successfully into DMAC when output.
+extern int32_t dma_channel_start_pipo (uint8_t ch, DMA_PIPO_BLK *blk_array, uint8_t *blk_cnt_p);//[NEW]
+
+// cancel the circular Ping/Ping operation, that is, break  the circular chain,
+// usually called in BLOCK COMPLETE ISR.
+extern int32_t dma_channel_cancel_pipo (uint8_t ch);//[NEW]
+
+// return count of transferred block, called in BLOCK COMPLETE ISR for PingPong transfer
+extern int32_t dma_channel_get_pipo_blks(uint8_t ch, DMA_PIPO_BLK *blk_array, uint8_t blk_cnt); //[NEW]
 
 /**
   \fn          int32_t dma_channel_configure_LLP (
@@ -449,13 +445,14 @@ typedef struct {
    - \b -1: function failed
 */
 extern int32_t dma_channel_configure_LLP (
-                                       uint8_t      ch,
-                                       DMA_LLP      llp,
-                                       uint32_t     config_low,
-                                       uint32_t     config_high,
-                                       uint32_t     src_gath,
-                                       uint32_t     dst_scat,
-                                       uint32_t lli_count);
+                                   uint8_t      ch,
+                                   DMA_LLP      llp,
+                                   uint32_t     config_low,
+                                   uint32_t     config_high,
+                                   uint32_t     src_gath,
+                                   uint32_t     dst_scat); //[REMOVED]:
+
+extern int32_t dma_channel_start_LLP (uint8_t ch, DMA_LLP llp); //[NEW]
 
 
 /**
@@ -558,43 +555,5 @@ extern int32_t dma_memcpy ( uint8_t            ch,
                             uint32_t           dst_addr,
                             uint32_t           total_bytes);
 
-
-
-/**
-  \fn          int32_t dma_memcpy_SG ( uint8_t    ch,
-                                uint32_t          src_addr,
-                                uint32_t          dst_addr,
-                                uint32_t          total_bytes,
-                                uint32_t          src_gather,
-                                uint32_t          dst_scatter,
-                                uint8_t           src_width,
-                                uint8_t           dst_width)
-  \brief       Copy memory data *SCATTEREDLY* through some DMA channel.
-  \param[in]   ch           The selected Channel number returned by dma_channel_select()
-  \param[in]   src_addr     Source address
-  \param[in]   dest_addr    Destination address
-  \param[in]   total_bytes  The total bytes to be transfered.
-  \param[in]   src_gather   Source Gather Register, including SG Interval & Count fields, see above.
-  \param[in]   dst_scatter  Destination Scatter Register, including SG Interval & Count fields, see above.
-  \param[in]   src_width    n in DMA_CH_CTLL_SRC_WIDTH(n), see DMA_WIDTH_XXX
-  \param[in]   dst_width    n in DMA_CH_CTLL_DST_WIDTH(n), see DMA_WIDTH_XXX
-*/
-extern  int32_t dma_memcpy_SG ( uint8_t       ch,
-                            uint32_t          src_addr,
-                            uint32_t          dst_addr,
-                            uint32_t          total_bytes,
-                            uint32_t          src_gath,
-                            uint32_t          dst_scat,
-                            uint8_t           src_width,
-                            uint8_t           dst_width);
-
-int32_t dma_channel_configure_LLP_with_size (
-                                       uint8_t      ch,
-                                       DMA_LLP      llp,
-                                       uint32_t     config_low,
-                                       uint32_t     config_high,
-                                       uint32_t     src_gath,
-                                       uint32_t     dst_scat,
-                                       uint32_t     total_size);
 
 #endif /* __DMA_ARCS_H */

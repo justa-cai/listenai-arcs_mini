@@ -504,6 +504,8 @@ netif_do_set_ipaddr(struct netif *netif, const ip4_addr_t *ipaddr, ip_addr_t *ol
     NETIF_STATUS_CALLBACK(netif);
     return 1; /* address changed */
   }
+  /* address unchanged, but still need call status CB to send get ip event */
+  NETIF_STATUS_CALLBACK(netif);
   return 0; /* address unchanged */
 }
 

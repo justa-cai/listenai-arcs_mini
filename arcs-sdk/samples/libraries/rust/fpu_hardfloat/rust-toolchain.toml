@@ -1,0 +1,10 @@
+# The hard-float ABI needs nightly + -Zbuild-std so Rust rebuilds
+# compiler_builtins with the ilp32f float-ABI attribute (the precompiled
+# riscv32imafc std is tagged soft-float and GNU ld refuses to merge it with the
+# single-float SDK). Quarantined to this sample so the rest of the Rust tree
+# stays on stable 1.83.0.
+[toolchain]
+channel    = "nightly-2026-05-31"
+components = ["rust-src", "rustfmt", "clippy"]
+targets    = ["riscv32imafc-unknown-none-elf"]
+profile    = "minimal"

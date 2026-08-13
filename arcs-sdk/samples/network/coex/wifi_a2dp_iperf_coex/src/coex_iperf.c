@@ -56,10 +56,13 @@
 #define IPERF3_CTRL_POLL_DELAY_MS 50
 #define IPERF3_CTRL_RECV_TIMEOUT_MS 35000
 #define IPERF3_CLIENT_VERSION   "3.18"
+#define COEX_IPERF_SERVER_IP_MAX_LEN 16
 
 static volatile int g_ctrl_sock = -1;
 static volatile int g_tx_sock = -1;
 static volatile int g_rx_sock = -1;
+static char g_coex_iperf_server_ip[COEX_IPERF_SERVER_IP_MAX_LEN] = COEX_SERVER_IP;
+static int g_coex_iperf_server_port = COEX_SERVER_PORT;
 
 /* ---------- 辅助函数 ---------- */
 
@@ -175,10 +178,10 @@ static void format_bitrate(uint64_t bytes, uint32_t duration_ms, char *buf, size
     }
 }
 
-static void log_iperf3_report_preamble(void)
+static void log_iperf3_report_preamble(const char *server_ip, int server_port)
 {
     LOGI("-----------------------------------------------------------");
-    LOGI("Client connecting to %s, TCP port %d", COEX_SERVER_IP, COEX_SERVER_PORT);
+    LOGI("Client connecting to %s, TCP port %d", server_ip, server_port);
     LOGI("[ ID] Interval           Transfer     Bitrate");
 }
 
@@ -451,12 +454,16 @@ static char *recv_json(int sock)
     return buf;
 }
 
-static int create_data_stream(const char *cookie, volatile int *slot, volatile bool *enabled)
+static int create_data_stream(const char *server_ip,
+                              int server_port,
+                              const char *cookie,
+                              volatile int *slot,
+                              volatile bool *enabled)
 {
     int data_sock;
     int flag = 1;
 
-    data_sock = connect_blocking(COEX_SERVER_IP, COEX_SERVER_PORT,
+    data_sock = connect_blocking(server_ip, server_port,
                                  COEX_CONNECT_TIMEOUT_MS, enabled);
     if (data_sock < 0) {
         LOGE("data stream connect failed");
@@ -625,6 +632,8 @@ int coex_runner_iperf3_run(coex_mode_t mode, volatile bool *enabled, coex_round_
     int ctrl_sock = -1;
     int tx_sock = -1;
     int rx_sock = -1;
+    char server_ip[COEX_IPERF_SERVER_IP_MAX_LEN];
+    int server_port;
     char cookie[IPERF3_COOKIE_SIZE];
     int8_t state;
     int ret = -1;
@@ -634,6 +643,8 @@ int coex_runner_iperf3_run(coex_mode_t mode, volatile bool *enabled, coex_round_
     if (result == NULL || enabled == NULL) {
         return -1;
     }
+
+    coex_iperf_get_server(server_ip, sizeof(server_ip), &server_port);
 
 retry:
     attempt++;
@@ -646,8 +657,8 @@ retry:
     generate_cookie(cookie, IPERF3_COOKIE_SIZE);
 
     /* === 1. 建立控制连接 === */
-    LOGI("connect to iperf3 server %s:%d", COEX_SERVER_IP, COEX_SERVER_PORT);
-    ctrl_sock = connect_blocking(COEX_SERVER_IP, COEX_SERVER_PORT,
+    LOGI("connect to iperf3 server %s:%d", server_ip, server_port);
+    ctrl_sock = connect_blocking(server_ip, server_port,
                                  COEX_CONNECT_TIMEOUT_MS, enabled);
     if (ctrl_sock < 0) {
         result->stop_reason = coex_wifi_is_ready()
@@ -759,26 +770,26 @@ retry:
     }
 
     if (mode == COEX_MODE_BIDIRECTIONAL) {
-        LOGD("creating bidirectional tx stream to %s:%d", COEX_SERVER_IP, COEX_SERVER_PORT);
-        tx_sock = create_data_stream(cookie, &g_tx_sock, enabled);
+        LOGD("creating bidirectional tx stream to %s:%d", server_ip, server_port);
+        tx_sock = create_data_stream(server_ip, server_port, cookie, &g_tx_sock, enabled);
         if (tx_sock < 0) {
             goto cleanup;
         }
 
-        LOGD("creating bidirectional rx stream to %s:%d", COEX_SERVER_IP, COEX_SERVER_PORT);
-        rx_sock = create_data_stream(cookie, &g_rx_sock, enabled);
+        LOGD("creating bidirectional rx stream to %s:%d", server_ip, server_port);
+        rx_sock = create_data_stream(server_ip, server_port, cookie, &g_rx_sock, enabled);
         if (rx_sock < 0) {
             goto cleanup;
         }
     } else if (mode == COEX_MODE_UPLINK) {
-        LOGD("creating uplink data stream to %s:%d", COEX_SERVER_IP, COEX_SERVER_PORT);
-        tx_sock = create_data_stream(cookie, &g_tx_sock, enabled);
+        LOGD("creating uplink data stream to %s:%d", server_ip, server_port);
+        tx_sock = create_data_stream(server_ip, server_port, cookie, &g_tx_sock, enabled);
         if (tx_sock < 0) {
             goto cleanup;
         }
     } else {
-        LOGD("creating downlink data stream to %s:%d", COEX_SERVER_IP, COEX_SERVER_PORT);
-        rx_sock = create_data_stream(cookie, &g_rx_sock, enabled);
+        LOGD("creating downlink data stream to %s:%d", server_ip, server_port);
+        rx_sock = create_data_stream(server_ip, server_port, cookie, &g_rx_sock, enabled);
         if (rx_sock < 0) {
             goto cleanup;
         }
@@ -814,7 +825,7 @@ retry:
         goto cleanup;
     }
     LOGI("test running, mode=%s for %d seconds", coex_mode_str(mode), COEX_ROUND_SECONDS);
-    log_iperf3_report_preamble();
+    log_iperf3_report_preamble(server_ip, server_port);
     ret = run_test_data_flow(mode, tx_sock, rx_sock, enabled, result);
 
     /* === 7. TEST_END: 通知服务器测试结束 === */
@@ -955,13 +966,18 @@ static uint32_t coex_iperf_next_round_id(void)
 
 static void coex_iperf_log_placeholder_warning(void)
 {
+    char server_ip[COEX_IPERF_SERVER_IP_MAX_LEN];
+    int server_port;
+
+    coex_iperf_get_server(server_ip, sizeof(server_ip), &server_port);
+
     if (strcmp(COEX_TARGET_WIFI_SSID, COEX_PLACEHOLDER_WIFI_SSID) == 0 ||
         strcmp(COEX_TARGET_WIFI_PWD, COEX_PLACEHOLDER_WIFI_PWD) == 0) {
         LOGW("please update CONFIG_IPERF_WIFI_SSID/CONFIG_IPERF_WIFI_PWD before running");
     }
 
-    if (strcmp(COEX_SERVER_IP, COEX_PLACEHOLDER_SERVER_IP) == 0) {
-        LOGW("CONFIG_IPERF_SERVER_IP is still the example value: %s", COEX_SERVER_IP);
+    if (strcmp(server_ip, COEX_PLACEHOLDER_SERVER_IP) == 0) {
+        LOGW("CONFIG_IPERF_SERVER_IP is still the example value: %s", server_ip);
     }
 }
 
@@ -1010,6 +1026,52 @@ void coex_iperf_set_mode(coex_mode_t mode)
 coex_mode_t coex_iperf_get_mode(void)
 {
     return g_coex_iperf_pending_mode;
+}
+
+int coex_iperf_set_server(const char *ip, int port)
+{
+    struct in_addr addr;
+    size_t ip_len;
+
+    if (ip == NULL || ip[0] == '\0' || port <= 0 || port > 65535) {
+        return -EINVAL;
+    }
+
+    if (g_coex_iperf_enabled) {
+        return -EBUSY;
+    }
+
+    ip_len = strlen(ip);
+    if (ip_len >= sizeof(g_coex_iperf_server_ip)) {
+        return -ENAMETOOLONG;
+    }
+
+    if (inet_aton(ip, &addr) == 0) {
+        return -EINVAL;
+    }
+
+    taskENTER_CRITICAL();
+    strncpy(g_coex_iperf_server_ip, ip, sizeof(g_coex_iperf_server_ip) - 1);
+    g_coex_iperf_server_ip[sizeof(g_coex_iperf_server_ip) - 1] = '\0';
+    g_coex_iperf_server_port = port;
+    taskEXIT_CRITICAL();
+
+    return 0;
+}
+
+void coex_iperf_get_server(char *ip, size_t ip_len, int *port)
+{
+    if (ip == NULL || ip_len == 0) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    strncpy(ip, g_coex_iperf_server_ip, ip_len - 1);
+    ip[ip_len - 1] = '\0';
+    if (port != NULL) {
+        *port = g_coex_iperf_server_port;
+    }
+    taskEXIT_CRITICAL();
 }
 
 void coex_iperf_get_status(coex_iperf_status_t *status)
@@ -1117,14 +1179,18 @@ static void coex_iperf_task(void *arg)
 
 int coex_iperf_init(void)
 {
+    char server_ip[COEX_IPERF_SERVER_IP_MAX_LEN];
+    int server_port;
+
     if (g_coex_iperf_initialized) {
         return 0;
     }
 
+    coex_iperf_get_server(server_ip, sizeof(server_ip), &server_port);
     LOGI("iperf init: default_mode=%s server=%s:%d round_seconds=%d block_size=%d interval_ms=%d",
          coex_mode_str(COEX_DEFAULT_MODE),
-         COEX_SERVER_IP,
-         COEX_SERVER_PORT,
+         server_ip,
+         server_port,
          COEX_ROUND_SECONDS,
          COEX_SEND_BLOCK_SIZE,
          COEX_ROUND_INTERVAL_MS);

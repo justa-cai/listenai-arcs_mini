@@ -1,9 +1,10 @@
-
+#include <stdint.h>
+#include <string.h>
+#include <stdbool.h>
 #include "ls_err.h"
 #include "ls_list.h"
 #include "rtos_al.h"
 #include "ls_event.h"
-#include <string.h>
 #include "event.h"
 
 
@@ -448,7 +449,7 @@ ls_err_t ls_event_init(void)
 	}
 
 	event_inited = true;
-	CLOGD(EVENT_TAG,"inited\n");
+	CLOGV(EVENT_TAG "inited\n");
 	return LS_OK;
 }
 

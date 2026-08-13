@@ -1,5 +1,5 @@
 #include "log_print.h"
-#include "arcs_ap.h"
+#include "soc/chip.h"
 #include "lisa_log.h"
 
 #include "usbd_core.h"
@@ -41,7 +41,11 @@ static void usbd_event_handler(uint8_t busid, uint8_t event)
 
 int cherryusb_adb_start(void)
 {
+#if defined(CONFIG_SOC_ARCS) && (CONFIG_SOC_ARCS == 1)
     IP_SYSCTRL->REG_PERI_CLK_CFG6.bit.ENA_USB_CLK = 0x01;
+#elif defined(CONFIG_SOC_VENUSA) && (CONFIG_SOC_VENUSA == 1)
+    IP_CMN_SYSCFG->REG_PERI_CLK_CFG7.bit.ENA_USB_CLK = 0x01;
+#endif
     IP_CMN_SYS->REG_USB_CTRL1.bit.USBPHY_OUTCLKSEL = 0x1;
     IP_CMN_SYS->REG_USB_CTRL1.bit.USBC_CFG_IDDIG = 0x1;
     IP_CMN_SYS->REG_USB_CTRL1.bit.UTMI_DATABUS16_8 = 0x1;

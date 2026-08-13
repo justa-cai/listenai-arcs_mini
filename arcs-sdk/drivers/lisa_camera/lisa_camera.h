@@ -22,7 +22,7 @@ extern "C" {
 /* ========================================================================
  * Camera 类型定义
  * ======================================================================== */
- 
+
 /**
  * @brief Camera 像素格式
  */
@@ -60,6 +60,18 @@ typedef enum {
     LISA_CAMERA_BUS_DVP = 0,         /* DVP (Digital Video Port) 并行接口 */
     LISA_CAMERA_BUS_SPI = 1,         /* SPI 串行接口 */
 } lisa_camera_bus_type_e;
+
+typedef enum {
+    LISA_CAMERA_SENSOR_0 = 0,
+    LISA_CAMERA_SENSOR_1 = 1,
+    LISA_CAMERA_SENSOR_MAX,
+} lisa_camera_sensor_index_t;
+
+typedef struct {
+    lisa_device_t *pwdn_gpio_dev;
+    uint8_t pwdn_pin;
+    uint8_t pwdn_active_level;
+} lisa_camera_sensor_pwdn_t;
 
 /**
  * @brief Camera DVP 总线配置
@@ -115,12 +127,18 @@ typedef struct {
 typedef struct {
     uint8_t mclk_pad;
     uint8_t mclk_pin;
-    lisa_device_t *pwdn_gpio_dev;    /* PWDN GPIO 设备指针 */
+    lisa_device_t *pwdn_gpio_dev;    /* PWDN GPIO 设备指针, 为 NULL 时跳过硬件复位 */
     uint8_t pwdn_pin;                /* PWDN 引脚号 */
+    lisa_device_t *reset_gpio_dev;   /* RESET GPIO 设备指针，为 NULL 时跳过硬件复位 */
+    uint8_t reset_pin;               /* RESET 引脚号 */
+    uint8_t reset_active_level;      /* RESET 有效电平 (0: 低有效, 1: 高有效) */
+    uint32_t reset_delay_us;         /* RESET 有效/释放后的延时 (微秒) */
     uint32_t pwdn_delay_us;          /* PWDN 延时 (微秒) */
     uint32_t xclk_delay_us;          /* 时钟输出后延时 (微秒) */
     lisa_device_t *i2c_dev;          /* I2C 设备 */
-    /* 新字段追加在结构体末尾，保持既有按位置初始化/二进制布局兼容 */
+    bool multiplex_camera;
+    lisa_camera_sensor_pwdn_t sensor_pwdn[LISA_CAMERA_SENSOR_MAX];
+    /* 产品扩展字段追加在结构体末尾，保持 v0.1.8 字段布局兼容 */
     uint8_t pwdn_inactive_level;     /* PWDN 释放电平: 0=低电平, 1=高电平 */
 } lisa_camera_hw_config_t;
 
@@ -202,6 +220,8 @@ typedef struct {
     int (*get_reg)(lisa_device_t *dev, int reg, int mask);
     int (*set_callback)(lisa_device_t *dev, lisa_camera_frame_callback_t callback, void *user_data);
     lisa_camera_pixel_format_t (*get_pixformat)(lisa_device_t *dev);
+    int (*switch_sensor)(lisa_device_t *dev, lisa_camera_sensor_index_t index);
+    int (*get_current_sensor)(lisa_device_t *dev, lisa_camera_sensor_index_t *index);
 } lisa_camera_api_t;
 
 /* ========================================================================
@@ -547,6 +567,24 @@ static inline int lisa_camera_set_callback(lisa_device_t *dev, lisa_camera_frame
     }
     lisa_camera_api_t *api = (lisa_camera_api_t *)dev->api;
     return api->set_callback ? api->set_callback(dev, callback, user_data) : LISA_DEVICE_ERR_NOT_SUPPORT;
+}
+
+static inline int lisa_camera_switch_sensor(lisa_device_t *dev, lisa_camera_sensor_index_t index)
+{
+    if (!dev || !dev->api) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_camera_api_t *api = (lisa_camera_api_t *)dev->api;
+    return api->switch_sensor ? api->switch_sensor(dev, index) : LISA_DEVICE_ERR_NOT_SUPPORT;
+}
+
+static inline int lisa_camera_get_current_sensor(lisa_device_t *dev, lisa_camera_sensor_index_t *index)
+{
+    if (!dev || !dev->api || !index) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+    lisa_camera_api_t *api = (lisa_camera_api_t *)dev->api;
+    return api->get_current_sensor ? api->get_current_sensor(dev, index) : LISA_DEVICE_ERR_NOT_SUPPORT;
 }
 
 /* ========================================================================

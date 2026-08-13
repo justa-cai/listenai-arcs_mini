@@ -65,6 +65,9 @@ typedef struct lisa_device {
     void *api;                     // 设备专用 API
     void *priv_data;               // 设备私有数据
     void *user_data;               // 用户自定义数据
+#if CONFIG_LISA_PM
+    const lisa_device_pm_t *pm;    // 可选 PM 能力描述（system_ops / wakeup_ops）
+#endif
     struct lisa_device *next;      // 链表节点
 } lisa_device_t;
 ```
@@ -73,6 +76,7 @@ typedef struct lisa_device {
 - `name`: 设备唯一标识符，用于查找设备
 - `api`: 指向设备特定的 API 结构体
 - `priv_data`: 硬件平台私有数据（如 HAL 句柄）
+- `pm`: 兼容旧 PM 注册宏的可选 PM 能力描述；新驱动推荐使用独立 PM attach 段，`CONFIG_LISA_PM=n` 时字段不存在
 
 ### 3.2 设备状态
 
@@ -116,7 +120,7 @@ LISA_DEVICE_PRIORITY_LOWEST     // 99  - 可选功能
 ### 4.1 静态注册宏
 
 ```c
-LISA_DEVICE_REGISTER(name, api_ptr, priv_data_ptr, user_data_ptr, init_fn, priority)
+LISA_DEVICE_REGISTER(name, api_ptr, priv_data_ptr, user_data_ptr, init_fn, level, priority)
 ```
 
 **参数：**
@@ -125,11 +129,30 @@ LISA_DEVICE_REGISTER(name, api_ptr, priv_data_ptr, user_data_ptr, init_fn, prior
 - `priv_data_ptr`: 私有数据指针
 - `user_data_ptr`: 用户数据（可选）
 - `init_fn`: 初始化函数（返回 0 表示成功）
+- `level`: 初始化级别（`LISA_DEVICE_LEVEL_EARLY` / `LISA_DEVICE_LEVEL_NORMAL`）
 - `priority`: 初始化优先级（使用 LISA_DEVICE_PRIORITY_* 宏）
+
+当设备需要参与 `lisa_pm` 的 PM 能力（system PM 调度或作为 wakeup-source）时，推荐保持普通设备注册不变，并在同一 C 文件中追加独立 PM 能力声明：
+
+```c
+LISA_DEVICE_REGISTER_DEINIT(name, api_ptr, priv_data_ptr, user_data_ptr,
+                            init_fn, deinit_fn, level, priority);
+
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(name, system_ops, wakeup_ops, ctx);
+#endif
+```
+
+- `system_ops`: 指向 `const lisa_pm_system_ops_t` 的指针；不支持 system PM 时填 `NULL`。
+- `wakeup_ops`: 指向 `const lisa_pm_wakeup_ops_t` 的指针；不支持作唤醒源时填 `NULL`。
+- `ctx`: 透传给两组 ops 的所有回调，通常填设备私有数据指针。
+
+`LISA_DEVICE_PM_ATTACH(...)` 只在 `CONFIG_LISA_PM=y` 时生成 PM attach 条目；`CONFIG_LISA_PM=n` 时为空宏，不影响设备本体注册和驱动可用性。现有代码仍可使用兼容宏 `LISA_DEVICE_REGISTER_PM(...)` / `LISA_DEVICE_REGISTER_PM_DEINIT(...)`。
 
 ### 4.2 注册原理
 
-使用链接器段机制（`.lisa_device_registry`），系统初始化时自动扫描并按优先级注册设备。
+使用链接器段机制（`.lisa_device_registry`），系统初始化时自动扫描并按级别、
+优先级注册设备。若启用了 `CONFIG_LISA_PM`，`lisa_pm_init()` 会同时扫描设备自带 PM 描述和独立 PM attach 段，自动接管带 `system_ops` 的设备参与 system PM 调度。
 
 ---
 
@@ -168,6 +191,86 @@ int lisa_device_foreach(lisa_device_iterator_cb callback, void *user_data);
 ```
 - 遍历所有已注册设备
 - 回调返回非 0 时停止遍历
+
+### 5.5 PM 能力（`CONFIG_LISA_PM`）
+
+`CONFIG_LISA_PM=y` 时，设备可声明两类互相独立的 PM 能力：
+
+```c
+LISA_DEVICE_PM_ATTACH(name, system_ops, wakeup_ops, ctx)
+```
+
+推荐用法是先通过 `LISA_DEVICE_REGISTER()` 或 `LISA_DEVICE_REGISTER_DEINIT()` 完成设备本体注册，再在同一 C 文件中使用 `LISA_DEVICE_PM_ATTACH()` 追加 PM 能力。`name` 必须与前面的设备注册名一致。
+
+该宏会生成独立的 `lisa_device_pm_t` attach 条目：
+
+```c
+typedef struct {
+    const lisa_pm_system_ops_t *system_ops;
+    const lisa_pm_wakeup_ops_t *wakeup_ops;
+    void *ctx;
+} lisa_device_pm_t;
+```
+
+`system_ops` 和 `wakeup_ops` 是两个独立能力槽位：
+
+| 字段 | 回答的问题 | 调用方 | 典型内容 | 不负责 |
+|------|------------|--------|----------|--------|
+| `system_ops` | 设备当前是否允许系统睡眠，以及睡前/醒后如何快速处理 | `lisa_pm` 系统睡眠流程 | `check_idle()`、睡前停止硬件、唤醒后恢复 HAL/寄存器/pinmux 基础状态 | 配置唤醒条件、使能唤醒源 |
+| `wakeup_ops` | 设备能否作为唤醒源，以及如何启停硬件 wakeup | `lisa_device_wakeup_*()` | 缓存唤醒条件、统一下发/撤销硬件唤醒配置 | 判断设备是否忙、睡前挂起、醒后恢复 |
+
+- 两个槽位互不依赖：设备可以只提供 `system_ops`、只提供 `wakeup_ops`，也可以两个都提供；不支持的能力填 `NULL`。
+- `ctx` 只透传给 `system_ops` 回调，通常填设备私有数据指针；`wakeup_ops` 回调直接接收 `lisa_device_t *dev`。
+- `CONFIG_LISA_PM=n` 时，`LISA_DEVICE_PM_ATTACH()` 为空宏，设备结构中没有 `pm` 字段。
+- `LISA_DEVICE_REGISTER_PM()` / `LISA_DEVICE_REGISTER_PM_DEINIT()` 仍保留兼容，现有驱动可继续使用。
+
+#### System PM 调度
+
+`lisa_pm_init()` 会遍历已注册的 `lisa_device`，自动复制带 `system_ops` 的设备到 `lisa_pm` 内部表。驱动侧回调类型为：
+
+```c
+typedef struct {
+    int32_t (*check_idle)(void *ctx);
+    int32_t (*prepare_suspend)(void *ctx);
+    int32_t (*resume_restore)(void *ctx);
+} lisa_pm_system_ops_t;
+```
+
+| 回调 | 语义 |
+|------|------|
+| `check_idle()` | 只读检查；返回 `1` 表示空闲、允许本轮 deep sleep，返回 `0` 表示忙、阻止本轮 deep sleep |
+| `prepare_suspend()` | 睡眠前快速关闭或保存硬件状态；返回 `0` 表示成功 |
+| `resume_restore()` | 唤醒后快速恢复 HAL、寄存器、pinmux 等基础状态；返回 `0` 表示成功 |
+
+这些回调运行在 PM 关键路径中，不能等待 mutex/event，不能访问文件系统、网络或执行大块动态内存分配。需要业务级重连、重新配置 IRQ 或恢复 UI 时，应由应用在 `lisa_pm` 的 `after_wake` 回调或普通任务上下文完成。
+
+#### Wakeup-source 控制
+
+`wakeup_ops` 只处理“把这个设备配置成唤醒源”这一件事，不参与 system PM 的 idle 判断、睡前挂起或唤醒恢复。框架提供与源类型无关的总闸接口，配合驱动自己的 configure API 使用：
+
+```c
+bool    lisa_device_wakeup_is_capable(lisa_device_t *dev);
+int32_t lisa_device_wakeup_enable    (lisa_device_t *dev, bool enable);
+bool    lisa_device_wakeup_is_enabled(lisa_device_t *dev);
+```
+
+- `lisa_device_wakeup_is_capable()`：等价于检查 `dev->pm != NULL && dev->pm->wakeup_ops != NULL`。
+- `lisa_device_wakeup_enable(dev, true)`：调用 driver `set_enabled(true)`，把 driver 内部缓存的 wakeup 配置下发到硬件，并记录 enabled 状态。
+- `lisa_device_wakeup_enable(dev, false)`：撤销该 device 已下发的所有硬件 wakeup 配置。
+- `lisa_device_wakeup_is_enabled()`：查询设备框架维护的 enabled 状态，不实时向 driver 查询硬件。
+
+驱动侧 `lisa_pm_wakeup_ops_t` 遵循缓存模型：`configure()` / `clear()` 只更新 driver 内部缓存，不下发硬件；只有 `set_enabled(true)` 才统一下发。在线变更触发条件必须按 `enable(false) -> configure/clear -> enable(true)` 顺序执行。缓存为空时 `enable(true)` 返回 0，但不会打开任何硬件唤醒源。
+
+**典型调用顺序**（以 GPIO 为例）：
+
+```c
+lisa_device_t *gpiob = lisa_device_get("gpiob");
+lisa_gpio_configure(gpiob, 7, LISA_GPIO_INPUT | LISA_GPIO_PULL_UP);
+lisa_gpio_configure_wakeup(gpiob, 7, LISA_GPIO_WAKEUP_LEVEL_LOW);
+lisa_device_wakeup_enable(gpiob, true);
+```
+
+框架内部用 `CONFIG_LISA_DEVICE_WAKEUP_STATE_POOL_SIZE`（默认 8）大小的静态节点池记录 enabled 状态，受 `uint32_t` 位图约束，上限为 32。
 
 ---
 
@@ -351,4 +454,3 @@ typedef struct {
 3. 设备名称必须唯一
 4. 使用前建议检查 `lisa_device_ready()`
 5. 引用计数仅用于统计
-

@@ -1474,7 +1474,7 @@ ftsdc021_set_bus_speed_mode(u8 ip_idx, u8 speed)
 #endif
         } else if (speed < 3){
 #if CONFIG_ARCS_HAL_SDMMC_SDNAND_COMPAT
-            SDHost[ip_idx].Card->max_dtr = 50000000;
+        	SDHost[ip_idx].Card->max_dtr = 50000000;
 #else
             SDHost[ip_idx].Card->max_dtr = 100000000;
 #endif
@@ -2409,6 +2409,8 @@ ftsdc021_scan_cards(u8 ip_idx)            //, u8 boot_mode)
             sdc_dbg_print("MMC card init failed ... CMD1 !\n'");
             return 1;
         }
+
+        SDHost[ip_idx].Card->OCR = rocr;
 
         if (((SDHost[ip_idx].Card->OCR >> 29) & 3) == 2) {
             SDHost[ip_idx].Card->block_addr = 1;

@@ -18,6 +18,10 @@
 #include <string.h>
 #include <lisa_mutex.h>
 
+#if CONFIG_LISA_PM
+#include "lisa_pm.h"
+#endif
+
 #define LOG_TAG "lisa_wdt_arcs"
 #include <lisa_log.h>
 
@@ -542,49 +546,145 @@ static const lisa_wdt_api_t arcs_wdt_api = {
 
 /* ===== 设备初始化函数 ===== */
 
-static int arcs_wdt0_init(void)
+/**
+ * @brief 创建 WDT 的 OS 资源（仅一次，启动期调用）
+ *
+ * 仅做 mutex 创建之类的一次性 OS 资源分配，不触碰 HAL。
+ * resume_restore 路径不会调用此函数。
+ */
+static int arcs_wdt_init_resources(lisa_wdt_priv_t *priv)
 {
-    /* 清空私有数据 */
-    memset(&wdt0_priv, 0, sizeof(lisa_wdt_priv_t));
+    priv->mutex = lisa_mutex_create();
+    if (!priv->mutex) {
+        LISA_LOGE(LOG_TAG, "Failed to create mutex");
+        return LISA_DEVICE_ERR_INIT_FAIL;
+    }
+    return LISA_DEVICE_OK;
+}
 
+/**
+ * @brief 幂等的 WDT0 HAL 硬件初始化
+ *
+ * 由 _init 调用；只动 HAL，不分配 mutex / 堆内存。唤醒后经 reinit 重新走
+ * _init 路径时，destroy 阶段已先 WDT_Disable + WDT_PowerControl(OFF)；启动期
+ * 首次调用时 HAL 状态本就为零，重新 Initialize + PowerControl(FULL) 即可把 HAL
+ * 拉回出口形态。HAL 未提供 WDT_Uninitialize，依赖 WDT_Initialize 自身做覆盖式注册。
+ */
+static int arcs_wdt0_init_hw(lisa_wdt_priv_t *priv)
+{
     /* 获取 HAL WDT 句柄 */
-    wdt0_priv.hal_handler = WDT();
-    if (!wdt0_priv.hal_handler) {
+    priv->hal_handler = WDT();
+    if (!priv->hal_handler) {
         LISA_LOGE(LOG_TAG, "Failed to get WDT handler");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    /* 创建互斥锁 */
-    wdt0_priv.mutex = lisa_mutex_create();
-    if (!wdt0_priv.mutex) {
-        LISA_LOGE(LOG_TAG, "Failed to create mutex");
-        return LISA_DEVICE_ERR_INIT_FAIL;
-    }
-
     /* 初始化 HAL WDT，注册中断回调 */
-    if (WDT_Initialize(wdt0_priv.hal_handler, wdt_hal_irq_callback, &wdt0_priv) != 0) {
+    if (WDT_Initialize(priv->hal_handler, wdt_hal_irq_callback, priv) != 0) {
         LISA_LOGE(LOG_TAG, "Failed to initialize WDT");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
     /* 上电 WDT */
-    if (WDT_PowerControl(wdt0_priv.hal_handler, CSK_POWER_FULL) != 0) {
+    if (WDT_PowerControl(priv->hal_handler, CSK_POWER_FULL) != 0) {
         LISA_LOGE(LOG_TAG, "Failed to power on WDT");
         return LISA_DEVICE_ERR_INIT_FAIL;
     }
 
-    wdt0_priv.state = LISA_WDT_STATE_IDLE;
+    /* HW 刚上电；唤醒路径需把 app 可见状态重置为 IDLE，强制应用重新
+     * setup() + start()，避免上层根据陈旧 state 继续 feed 已掉电的 WDT。 */
+    priv->state = LISA_WDT_STATE_IDLE;
+    memset(&priv->config, 0, sizeof(priv->config));
+    priv->configured_timeout_ms = 0;
+
+    return LISA_DEVICE_OK;
+}
+
+static int arcs_wdt0_init(void)
+{
+    /* 清空私有数据 */
+    memset(&wdt0_priv, 0, sizeof(lisa_wdt_priv_t));
+
+    int ret = arcs_wdt_init_resources(&wdt0_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    ret = arcs_wdt0_init_hw(&wdt0_priv);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
 
     LISA_LOGI(LOG_TAG, "WDT0 initialized successfully");
 
     return LISA_DEVICE_OK;
 }
 
+/* ===== 设备反初始化函数 ===== */
+
+/**
+ * @brief 停止并释放 WDT0 设备的全部软硬件资源，恢复芯片上电初始状态
+ *
+ * 由 lisa_device_destroy() 调用。释放顺序与 arcs_wdt0_init 申请相反：
+ *   1) HAL 下电：先 WDT_Disable 停计数，再 WDT_PowerControl(OFF)（HAL 未导出
+ *      WDT_Uninitialize，中断回调由后续 reinit 的 WDT_Initialize 覆盖式重注册）；
+ *   2) 释放 OS 资源 mutex；
+ *   3) memset 整个 priv，回到 _init 之前的零初值（含 state / config /
+ *      configured_timeout_ms 归零，强制唤醒后业务侧重新 setup() + start()）。
+ *
+ * 约定：调用方需保证此时无并发业务在使用本设备。
+ */
+static int arcs_wdt0_deinit(void)
+{
+    lisa_wdt_priv_t *priv = &wdt0_priv;
+
+    if (priv->hal_handler) {
+        WDT_Disable(priv->hal_handler);
+        WDT_PowerControl(priv->hal_handler, CSK_POWER_OFF);
+    }
+
+    if (priv->mutex) {
+        lisa_mutex_delete(priv->mutex);
+    }
+
+    memset(&wdt0_priv, 0, sizeof(lisa_wdt_priv_t));
+    return LISA_DEVICE_OK;
+}
+
+#if CONFIG_LISA_PM
+/* ===== System PM 回调 =====
+ *
+ * 与 lisa_audio 一致，本驱动采用“睡前 destroy / 唤醒后 reinit”模型：应用在睡眠前
+ * 调 lisa_device_destroy(wdt0) 释放全部软硬件资源（HAL 下电 + mutex），唤醒后在
+ * PM after_wake 回调中调 lisa_device_reinit(wdt0) 重建到 _init 后的状态，并由业务
+ * 重新 setup() + start()。因此 prepare_suspend / resume_restore 不再需要（原先它们只做
+ * HAL 拆卸 / 字段清零，已被 destroy/reinit 覆盖，且二者运行于 PM 临界区无法做重活）。
+ *
+ * 仅保留 check_idle：WDT 处于 RUNNING 时阻塞 AUTO_LIGHT_SLEEP，避免睡眠期间硬件继续
+ * 倒计时触发误 reset。只读 priv->state，不取 mutex / 不读 HAL。
+ */
+static int32_t arcs_wdt_pm_check_idle(void *ctx)
+{
+    lisa_wdt_priv_t *priv = (lisa_wdt_priv_t *)ctx;
+    if (priv == NULL) {
+        return 1; /* 上下文异常时允许睡眠，不阻塞整机 */
+    }
+    /* WDT 处于 RUNNING 时阻塞 AUTO_LIGHT_SLEEP，避免误触 reset */
+    return (priv->state == LISA_WDT_STATE_RUNNING) ? 0 : 1;
+}
+
+static const lisa_pm_system_ops_t arcs_wdt0_pm_ops = {
+    .check_idle      = arcs_wdt_pm_check_idle,
+    .prepare_suspend = NULL,
+    .resume_restore  = NULL,
+};
+#endif /* CONFIG_LISA_PM */
+
 /* ===== 设备注册 ===== */
-LISA_DEVICE_REGISTER(wdt0,                        /* 设备名称 */
-                     &arcs_wdt_api,               /* API指针 */
-                     &wdt0_priv,                  /* 私有数据指针 */
-                     NULL,                        /* 用户数据 */
-                     arcs_wdt0_init,              /* 初始化函数 */
-                     LISA_DEVICE_LEVEL_NORMAL,    /* 级别 */
-                     LISA_DEVICE_PRIORITY_NORMAL); /* 优先级 */
+
+
+LISA_DEVICE_REGISTER_DEINIT(wdt0, &arcs_wdt_api, &wdt0_priv, NULL, arcs_wdt0_init,
+                            arcs_wdt0_deinit, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_NORMAL);
+#if CONFIG_LISA_PM
+LISA_DEVICE_PM_ATTACH(wdt0, &arcs_wdt0_pm_ops, NULL, &wdt0_priv);
+#endif

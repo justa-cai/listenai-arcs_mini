@@ -40,6 +40,7 @@
 
 //#include "app_os_task.h"
 #include "bt_os_task.h"
+#include "bt_stack_hal.h"
 
 /*
  * DEFINES

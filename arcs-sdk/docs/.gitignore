@@ -1,13 +1,25 @@
-build
-output
-zh/components
-zh/boards
-zh/drivers
-zh/_static
-zh/samples
-zh/modules
-zh/demos
-zh/tools
-zh/system
-zh/CHANGELOG.md
-_ext/__pycache__
+# Sphinx build outputs
+/build/
+/output/
+
+# Local documentation build environment
+/.venv/
+/venv/
+
+# external_content generated copies under zh/
+/zh/_static/
+/zh/boards/
+/zh/components/
+/zh/demos/
+/zh/drivers/
+/zh/labs/*
+!/zh/labs/index.rst
+/zh/modules/
+/zh/samples/
+/zh/system/
+/zh/tools/
+/zh/CHANGELOG.md
+
+# Python cache files
+__pycache__/
+*.py[cod]

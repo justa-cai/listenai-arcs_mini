@@ -7,6 +7,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "coex_result.h"
@@ -37,6 +38,8 @@ void coex_iperf_set_enabled(bool enabled);
 bool coex_iperf_is_enabled(void);
 void coex_iperf_set_mode(coex_mode_t mode);
 coex_mode_t coex_iperf_get_mode(void);
+int coex_iperf_set_server(const char *ip, int port);
+void coex_iperf_get_server(char *ip, size_t ip_len, int *port);
 void coex_iperf_get_status(coex_iperf_status_t *status);
 const char *coex_iperf_state_str(coex_iperf_state_t state);
 

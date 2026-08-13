@@ -11,8 +11,11 @@ SHRINK ?= 0
 BT_MODE = bt_dual
 
 #CONFIG_DEEP_SLEEP/CONFIG_GPIO_ADC_TEST just for testing
+ifeq ($(CFG_MFG_RF_TEST), 1)
 CONFIG_DEEP_SLEEP = 1
 CONFIG_GPIO_ADC_TEST = 1
+endif
+
 include default.config
 include $(TOPDIR)/src/${CHIP}/general.mk
 
@@ -85,6 +88,9 @@ BUILD_NANO=1
 PSRAM_SEC=0
 SYS_TRACE ?= 0
 
+CONFIG_ARCS_HAL_AT_CMD_BT_HCI_MODE := 1
+export CONFIG_ARCS_HAL_AT_CMD_BT_HCI_MODE
+
 SYS_PSM=1
 ifneq ("$(SHRINK)", "1")
 CFG_BACK_TRACE := 1
@@ -151,8 +157,8 @@ BT_WIFI_COEX=1
 export BT_WIFI_COEX
 CFLAGS += -DBT_WIFI_COEX=$(BT_WIFI_COEX)
 
-# Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BT
-WCN_TYPE=both
+# Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BLE,WCN_TYPE=both_dual:Both support for Wifi and BT-BLE
+WCN_TYPE=both_dual
 export WCN_TYPE
 # RF_BOARD_VER=0 or undefine for ArcsD EVB,
 # RF_BOARD_VER=1 for Taoyun DVT1
@@ -183,6 +189,13 @@ CFG_WIFI_MFG=1
 ifeq ($(CFG_WIFI_MFG), 1)
 CFLAGS += -DCFG_WIFI_MFG
 export CFG_WIFI_MFG
+endif
+
+ifeq ($(CFG_MFG_RF_TEST), 1)
+CFG_FLASH_WF_MFG_CONF_BASE_ADDR=0x303FF000
+export CFG_FLASH_WF_MFG_CONF_BASE_ADDR
+CFLAGS += -DMFG_RF_TEST
+export CFG_MFG_RF_TEST
 endif
 
 CFG_MEMDUMP=1

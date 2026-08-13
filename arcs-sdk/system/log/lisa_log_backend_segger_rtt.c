@@ -11,7 +11,11 @@
 
 void lisa_log_backend_rtt_output(const uint8_t *log, uint32_t len, void *data)
 {
-    SEGGER_RTT_printf(0, log,len);
+    /* Use Write (length-counted) — NOT printf: `log` is a raw, non-NUL-
+     * terminated easylogger buffer of `len` bytes that may contain '%'.
+     * SEGGER_RTT_printf(0, log, len) would treat it as a format string and emit
+     * garbage past the first message. */
+    SEGGER_RTT_Write(0, log, len);
 }
 
 void lisa_log_backend_rtt_panic_output(const uint8_t *log, uint32_t len, void *data)

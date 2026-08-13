@@ -1,0 +1,9 @@
+tests:
+  samples.libraries.rust.rtt_log:
+    programmer: arcs
+    runner: uart
+    platform_allow:
+      - arcs_evb
+    log_analyzer:
+      type: "regex"
+      pattern: "rtt_log: tick"

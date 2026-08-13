@@ -23,7 +23,10 @@
 #include "atcmd.h"
 #ifdef CFG_AMP_IPC
 #include "ipc.h"
-#ifdef IPC_TEST_CASE
+#ifdef CFG_AMP_IPC_BUS_DEMO
+#include "ipc_bus.h"
+#endif
+#ifdef CFG_IPC_TEST_CASE
 #include "ipc_test.h"
 #endif
 #endif
@@ -36,7 +39,7 @@
 #include "wifi_api.h"
 #endif
 #if CONFIG_PM
-#include "pm_impl.h"
+#include "pm.h"
 #include "vrtc.h"
 #endif
 #if CONFIG_DEEP_SLEEP
@@ -269,7 +272,7 @@ int utils_cli_parse_ip4(char *str, uint32_t *ip, uint32_t *mask)
 static int cli_memdump(char *param)
 {
 #if CFG_MEMDUMP
-    CLOG("uart dump begin, waiting to run script...\n");
+    CLI_LOG("uart dump begin, waiting to run script...\n");
     memdump_process(MDUMP_PATH_UART);
 
     return CLI_SUCCESS;
@@ -282,7 +285,7 @@ static int cli_get_chip_temp(char *param)
 {
     int32_t temp = 0;
     temp = ls_get_cur_temp();
-    CLOG("get temperature %d \n", temp);
+    CLI_LOG("get temperature %d \n", temp);
 
     return CLI_SUCCESS;
 
@@ -666,7 +669,7 @@ int cli_version(char *params)
 
     version = rtos_aligned_malloc(VERSION_STR_SIZE, HAL_DCACHE_CFG_LINE_SIZE);
 #ifdef SDK_VER_ON
-    CLOG("  SDK Version:\n    Ver v%s - build: %s %s\n    Commit ID:%s",
+    CLI_LOG("  SDK Version:\n    Ver v%s - build: %s %s\n    Commit ID:%s",
         SDK_BUILD_VER, SDK_BUILD_USER, SDK_BUILD_DATE,
         SDK_COMMIT_ID);
 #endif
@@ -692,7 +695,7 @@ int cli_version(char *params)
 static int cli_light_sleep(char *params)
 {
     char *ptr = NULL, *next = params;
-    uint32_t val;
+    uint32_t val, level = 0;
     pm_config_t config = {.mode = PM_MODE_LIGHT_SLEEP};
     pm_sleep_config_t sleep_config;
 
@@ -739,6 +742,11 @@ static int cli_light_sleep(char *params)
                         sleep_config.gpio_mask = 1 << val;
                     }
                     break;
+                case ('l'):
+                    if (!(ptr = utils_next_token(&next)))
+                        return CLI_SHOW_USAGE;
+                    level = atoi(ptr);
+                    break;
                 case ('p'):
                     if (!(ptr = utils_next_token(&next)))
                         return CLI_SHOW_USAGE;
@@ -750,6 +758,10 @@ static int cli_light_sleep(char *params)
         }
         ptr = utils_next_token(&next);
     };
+
+    if (sleep_config.gpio_mask != 0)
+        if (level)
+            sleep_config.gpio_level = sleep_config.gpio_mask;
 
     pm_set_sleep_config(&sleep_config);
 END:
@@ -794,51 +806,71 @@ static int cli_deep_sleep(char *params)
 }
 #endif
 #ifdef CFG_AMP_IPC
-#ifdef IPC_STATS
 static int cli_ipc_dump(char *params)
 {
-    int32_t i = 0;
-    struct ipc_ccb *ccb;
-    struct ipc_instance *dev;
-    struct dl_list *hdr[2];
-
-    dev    = ipc_get_ep_dump();
-    hdr[0] = &dev->local_ccb;
-    hdr[1] = &dev->remote_ccb;
-    CLI_LOG("IRQ\n\trx_irq_cnt %u\n", dev->rx_irq_cnt);
-    CLI_LOG("MSG chain\n");
-    ipc_msg_print();
-    while (i < 2)
-    {
-        dl_list_for_each(ccb, hdr[i], struct ipc_ccb, list)
-        {
-            CLI_LOG("%s: %p chan 0x%08x flags 0x%08x \n", ccb->name, ccb, ccb->chan, ccb->flags);
-            if (ccb->vq)
-            {
-                CLI_LOG("\tsize %u num %u\n", ccb->stats.q_size, ccb->stats.q_num);
-                if (ccb->flags & IPC_CHAN_FLAGS_REMOTE)
-                {
-                    CLI_LOG("\ttx_ok %u tx_retry %u tx_failed %u send_notify %u\n",
-                        ccb->stats.tx.tx_ok, ccb->stats.tx.tx_retry, ccb->stats.tx.tx_failed, ccb->stats.tx.send_notify);
-                    CLI_LOG("\tavail_wr_idx %u avail_rd_idx %u ready_wr_idx %u ready_rd_idx_%u\n", ccb->stats.tx.txq_avail_wr_idx,
-                        ccb->stats.tx.txq_avail_rd_idx, ccb->stats.tx.txq_ready_wr_idx , ccb->stats.tx.txq_ready_rd_idx);
-                }
-                else
-                {
-                    CLI_LOG("\trx_ok %u rx_retry %u\n",  ccb->stats.rx.rx_ok, ccb->stats.rx.rx_retry);
-                    CLI_LOG("\tavail_wr_idx %u avail_rd_idx %u ready_wr_idx %u ready_rd_idx %u\n", ccb->stats.rx.rxq_avail_wr_idx,
-                        ccb->stats.rx.rxq_avail_rd_idx, ccb->stats.rx.rxq_ready_wr_idx , ccb->stats.rx.rxq_ready_rd_idx);
-                }
-            }
-        }
-        i++;
-    }
+    ipc_stats_dump();
 
     return 0;
 }
+
+#ifdef CFG_AMP_IPC_BUS_DEMO
+int32_t ipc_bus_demo_ping(uint32_t value);
+int32_t ipc_bus_demo_post(uint32_t value);
+int32_t ipc_bus_demo_publish(uint32_t value);
+
+static int cli_ipc_bus_test(char *params)
+{
+    char *token;
+    char *value_token;
+    char *next = params;
+    uint32_t value = 1;
+    int32_t ret = 0;
+
+    token = utils_next_token(&next);
+    if (token == NULL)
+        return CLI_SHOW_USAGE;
+
+    value_token = utils_next_token(&next);
+    if (value_token != NULL)
+        value = strtoul(value_token, NULL, 0);
+
+    if (!strcmp(token, "ping"))
+    {
+        ret = ipc_bus_demo_ping(value);
+    }
+    else if (!strcmp(token, "post"))
+    {
+        ret = ipc_bus_demo_post(value);
+    }
+    else if (!strcmp(token, "publish"))
+    {
+        ret = ipc_bus_demo_publish(value);
+    }
+    else if (!strcmp(token, "all"))
+    {
+        ret = ipc_bus_demo_ping(value);
+        if (ret == 0)
+            ret = ipc_bus_demo_post(value);
+        if (ret == 0)
+            ret = ipc_bus_demo_publish(value);
+    }
+    else
+    {
+        return CLI_SHOW_USAGE;
+    }
+
+    if (ret != 0)
+    {
+        CLI_LOGE("ipc_bus %s failed ret=%d\n", token, ret);
+        return CLI_ERROR;
+    }
+
+    CLI_LOG("ipc_bus %s ok\n", token);
+    return CLI_SUCCESS;
+}
 #endif
 
-#ifdef IPC_TEST_CASE
+#ifdef CFG_IPC_TEST_CASE
 int cli_ipc_test(char *params)
 {
     char *token, *next = params;
@@ -847,7 +879,7 @@ int cli_ipc_test(char *params)
     token = utils_next_token(&next);
     if (token == NULL)
         return CLI_SHOW_USAGE;
-    param.task_num = 1;
+    param.task_pairs = 1;
     if (strcmp("stop", token))
     {
         do
@@ -862,13 +894,13 @@ int cli_ipc_test(char *params)
                             return CLI_SHOW_USAGE;
                         param.cnt = atoi(token);
                         break;
-                    case 'n':
+                    case 'p':
                         token = utils_next_token(&next);
                         if (!token)
                             return CLI_SHOW_USAGE;
-                        param.task_num = atoi(token);
-                        if (param.task_num > 4)
-                            param.task_num = 4;
+                        param.task_pairs = atoi(token);
+                        if (param.task_pairs > 4)
+                            param.task_pairs = 4;
                         break;
                     default:
                         break;
@@ -894,7 +926,7 @@ int cli_ipc_slave_test(char *params)
     token = utils_next_token(&next);
     if (token == NULL)
         return CLI_SHOW_USAGE;
-    param.task_num = 1;
+    param.task_pairs = 1;
     if (strcmp("stop", token))
     {
         do
@@ -909,13 +941,13 @@ int cli_ipc_slave_test(char *params)
                             return CLI_SHOW_USAGE;
                         param.cnt = atoi(token);
                         break;
-                    case 'n':
+                    case 'p':
                         token = utils_next_token(&next);
                         if (!token)
                             return CLI_SHOW_USAGE;
-                        param.task_num = atoi(token);
-                        if (param.task_num > 4)
-                            param.task_num = 4;
+                        param.task_pairs = atoi(token);
+                        if (param.task_pairs > 4)
+                            param.task_pairs = 4;
                         break;
                     default:
                         break;
@@ -933,7 +965,7 @@ int cli_ipc_slave_test(char *params)
     return CLI_SUCCESS;
 }
 #endif
-#ifdef CFG_IPC_PRINT
+#ifdef CFG_IPC_PRINT_READER
 extern void ipc_dbg_enable(int32_t enable);
 int cli_ipc_dbg(char *params)
 {
@@ -963,7 +995,7 @@ static int cli_help(char *params)
 
     for (; cli_main_commands[i].exec != NULL; i++)
     {
-        CLOG(" - %s %s\n", cli_main_commands[i].name, cli_main_commands[i].params);
+        CLI_LOG(" - %s %s\n", cli_main_commands[i].name, cli_main_commands[i].params);
     }
     /* wifi cli cmd */
 
@@ -1192,18 +1224,18 @@ static int cli_dpd_redo(char *params)
 int cli_dpd_track(char *params)
 {
     char *token, *next = params;
+    uint8_t enable = 0;
 
     token = utils_next_token(&next);
     if (token == NULL)
         return CLI_SHOW_USAGE;
-    if (!strcmp("on", token))
-    {
-        wifi_dpd_track_connect_switch(1);
-    }
-    else if (!strcmp("off", token))
-    {
-        wifi_dpd_track_connect_switch(0);
-    }
+
+    enable = atoi(token);
+    if (enable >= 0 && enable < 4)
+        wifi_dpd_track_connect_switch(enable);
+    else
+        return CLI_SHOW_USAGE;
+
     return CLI_SUCCESS;
 }
 
@@ -1220,13 +1252,39 @@ static int cli_set_temp_thr(char *params)
     return CLI_SUCCESS;
 }
 
+#ifdef CFG_MQTT_TEST
+extern void mqtt_test_start(char* host);
+
+static int cli_mqtt_test(char *params)
+{
+    char *token, *next = params;
+    uint32_t ip = 0;
+    int32_t ret = CLI_SUCCESS;
+
+    if (next)
+    {
+        token = utils_next_token(&next);
+        if (!strcmp(token, "stop"))
+            mqtt_test_start(NULL);
+        else
+            mqtt_test_start(token);
+    }
+    else
+    {
+        ret = CLI_SHOW_USAGE;
+    }
+
+    return ret;
+}
+#endif
+
 static const struct cli_cmd cli_main_commands[] =
 {
     {cli_help, "help", ""},
     {cli_help, "?", ""},
     {cli_version,     "version", "show version information"},
-#ifndef WIFI_RAM_ATE
     {net_cli_reboot, "reset", ""},
+#ifndef WIFI_RAM_ATE
 #if CFG_PING
     {net_cli_ping, "ping",
      "[-s <pkt_size>] [-r <rate>] [-d (duration)] [-Q <ToS>] [-G (background)] <dest_ip>\n"
@@ -1240,14 +1298,15 @@ static const struct cli_cmd cli_main_commands[] =
     {cli_memdump,   "memdump",            "dump memory through uart"},
 #endif
 #ifdef CFG_AMP_IPC
-#ifdef IPC_STATS
     {cli_ipc_dump, "ipc_dump", ""},
+#ifdef CFG_AMP_IPC_BUS_DEMO
+    {cli_ipc_bus_test, "ipc_bus", "ping [value]|post [value]|publish [value]|all [value]"},
 #endif
-#ifdef IPC_TEST_CASE
-     {cli_ipc_test, "ipc_test", "[-n number] [-c count]\n    stop"},
-     {cli_ipc_slave_test, "ipc_slave_test", "[-n number] [-c count]\n    stop"},
+#ifdef CFG_IPC_TEST_CASE
+     {cli_ipc_test, "ipc_test", "[-p task_pairs] [-c count]\n    stop"},
+     {cli_ipc_slave_test, "ipc_slave_test", "[-p task_pairs] [-c count]\n    stop"},
 #endif
-#ifdef CFG_IPC_PRINT
+#ifdef CFG_IPC_PRINT_READER
      {cli_ipc_dbg, "ipc_dbg", "[on|off]\n"},
 #endif
 #endif
@@ -1261,10 +1320,13 @@ static const struct cli_cmd cli_main_commands[] =
     {cli_cali_redo,  "redo_cali", "redo rf ppa cap + dpd calibration, should in wifi disconnect or soft ap stop state"},
     {cli_dpd_redo,  "redo_dpd", "redo rf dpd calibration, should in wifi disconnect or soft ap stop state"},
 #endif
-    {cli_dpd_track,  "dpd_track", "[on|off] on:enable dpd track, off:disable dpd track"},
+    {cli_dpd_track,  "dpd_track", "<value>  \n"
+     "            0: disable dpd on connect time and temp comp \n"
+     "            1: enable dpd on connect time and disable dpd on temp comp \n"
+     "            2: disable dpd on connect time and enable dpd on temp comp \n"
+     "            3: enable dpd on connect time and enable dpd on temp comp \n" },
 #if CONFIG_PM
-    {cli_light_sleep,    "light_sleep",  "[off] [-t <timer value(ms)>] [-r <retention bits>] [-g <gpio pin number>]\n"
-    },
+    {cli_light_sleep,    "light_sleep",  "[off] [-t <timer value(ms)>] [-r <retention bits>] [-g <gpio pin number>]\n"},
 #endif
 #endif
 #if CONFIG_DEEP_SLEEP
@@ -1309,6 +1371,9 @@ static const struct cli_cmd cli_main_commands[] =
      "           adc2dac loop test adc0 <---> dac or adc1 <---> dac \r\n"},
 #endif
     /* could add other cli cmd below */
+#ifdef CFG_MQTT_TEST
+    {cli_mqtt_test,    "mqtt_test",  "<ip>"},
+#endif
     {NULL, "", ""}
 };
 #endif

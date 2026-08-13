@@ -177,7 +177,7 @@ int32_t HAL_GPT_TimerControl(void *pGpt, uint32_t control, GPT_CHANNEL_TYPE chan
 		return CSK_DRIVER_ERROR;
 	}
 
-	pGptTimer->gpt_resources->hardware->channel_stat[channel]= HARDWARE_CHANNEL_STAT_USED_BY_TIM;
+	pGptTimer->gpt_resources->hardware->channel_stat[channel] = HARDWARE_CHANNEL_STAT_USED_BY_TIM;
 
   /* TODO: hardware layer */
 	//clock gate disable

@@ -1,0 +1,3 @@
+tests:
+  samples.libraries.zig.wifi_demo:
+    build_only: true

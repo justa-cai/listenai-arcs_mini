@@ -1,4 +1,4 @@
-# Bluetooth Audio Source Sample
+# 经典蓝牙 A2DP 音频发送示例
 
 ## 功能说明
 
@@ -31,7 +31,7 @@
 2. 初始化蓝牙协议栈并注册发现回调
 3. 初始化虚拟蓝牙音频接口
 4. 通过 `bt_inquiry` 扫描可连接设备
-5. 通过 `bt_connect` 或 `bt_connect_index` 连接目标设备
+5. 通过 `bt_connect`、`bt_connect_index` 或 `bt_connect_addr` 连接目标设备
 6. 通过 `bt_audio_start` 启动音频发送任务
 
 ## 编译
@@ -173,6 +173,12 @@ bt_connect "soundcore Liberty 4"
 bt_connect_index 0
 ```
 
+如果已知远端蓝牙地址，也可以不依赖扫描列表直接连接：
+
+```bash
+bt_connect_addr E0:5D:3B:CC:EE:E8
+```
+
 ### 4. 启动音频发送
 
 连接成功后，执行：
@@ -195,11 +201,25 @@ bt_audio_volume 60
 bt_audio_stop
 ```
 
+### 7. 断开蓝牙连接
+
+可以按名称、扫描列表索引或地址断开连接：
+
+```bash
+bt_disconnect "soundcore Liberty 4"
+bt_disconnect_index 0
+bt_disconnect_addr E0:5D:3B:CC:EE:E8
+```
+
 ## Shell 命令
 
 - `bt_inquiry`：扫描周围经典蓝牙设备。
 - `bt_connect <device_name>`：按设备名连接远端设备。
 - `bt_connect_index <device_index>`：按扫描结果索引连接远端设备。
+- `bt_connect_addr <XX:XX:XX:XX:XX:XX>`：按蓝牙地址直接连接远端设备。
+- `bt_disconnect <device_name>`：按设备名断开远端设备。
+- `bt_disconnect_index <device_index>`：按扫描结果索引断开远端设备。
+- `bt_disconnect_addr <XX:XX:XX:XX:XX:XX>`：按蓝牙地址断开远端设备。
 - `bt_audio_start`：打开虚拟音频接口并启动音频发送任务。
 - `bt_audio_stop`：停止音频发送任务并关闭虚拟接口。
 - `bt_audio_volume <0-100>`：设置发送音量。
@@ -252,7 +272,8 @@ A2DP 发送到远端设备
 ### 关键点
 
 - `cmd_bt_inquiry()`：调用 `lisa_bluetooth_inquiry_start()` 扫描附近设备。
-- `cmd_bt_connect()` / `cmd_bt_connect_by_index()`：按名称或索引发起连接。
+- `cmd_bt_connect()` / `cmd_bt_connect_by_index()` / `cmd_bt_connect_by_addr()`：按名称、索引或地址发起连接。
+- `cmd_bt_disconnect()` / `cmd_bt_disconnect_by_index()` / `cmd_bt_disconnect_by_addr()`：按名称、索引或地址断开连接。
 - `cmd_bt_audio_start()`：设置编码模式并打开 `VINTF_PROFILE_PLAYBACK`。
 - `audio_source_task()`：循环发送预置 PCM 数据。
 

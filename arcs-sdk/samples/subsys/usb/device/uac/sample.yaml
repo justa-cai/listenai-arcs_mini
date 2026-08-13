@@ -1,0 +1,3 @@
+tests:
+  samples.usb.device.uac:
+    build_only: true

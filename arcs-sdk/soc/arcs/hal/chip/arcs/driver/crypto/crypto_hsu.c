@@ -11,8 +11,10 @@
 #include "dma.h"
 #include "log_print.h"
 #include <string.h>
-#include <FreeRTOS.h>
 
+#ifdef CFG_RTOS
+#include <FreeRTOS.h>
+#endif
 
 int32_t crypto_hsu_set_key(CRYPTO_RESOURCES *crypto, uint32_t* key)
 {
@@ -81,7 +83,7 @@ CRYPTO_IP_Checksum(void *res, const uint8_t *addr, uint16_t len, uint16_t *check
 
     CRYPTO_RESOURCES* crypto = (CRYPTO_RESOURCES*)res;
 
-#if defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1)
+#if defined(CFG_RTOS) && defined(__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1)
     if (((uint32_t)addr >= PSRAM_BASE_ADDRESS) && DCachePresent())
     {
         vPortEnterCritical();

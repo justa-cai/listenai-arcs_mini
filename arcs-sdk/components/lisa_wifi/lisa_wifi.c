@@ -29,6 +29,7 @@ static lisa_wifi_ops_t g_user_ops = {0};
 #define LISA_WIFI_CB_TASK_STACK_SIZE CONFIG_LISA_WIFI_CB_TASK_STACK_SIZE
 #define LISA_WIFI_CB_TASK_PRIORITY   CONFIG_LISA_WIFI_CB_TASK_PRIORITY
 #define LISA_WIFI_CB_QUEUE_LEN       CONFIG_LISA_WIFI_CB_QUEUE_LEN
+#define LISA_WIFI_MAX_SCAN_NUM       CONFIG_LISA_WIFI_MAX_SCAN_NUM
 
 typedef enum {
     LISA_WIFI_CB_EVENT_INIT_DONE = 0,
@@ -110,13 +111,12 @@ static void lisa_wifi_cb_post(lisa_wifi_cb_event_t event)
 }
 
 #if CONFIG_WIFI_LWIP_DIFF_CORE
-#include "ic_lock.h"
 #if CONFIG_WIFI
-#include "ipc_slave.h"
+#include "ipc_slave_wifi.h"
 #include "net_al.h"
 #include "wifi_api.h"
 #elif CONFIG_LWIP
-#include "ipc_master.h"
+#include "ipc_master_wifi.h"
 #include "wlif.h"
 #endif
 #endif
@@ -238,6 +238,7 @@ static int single_core_wifi_init(lisa_wifi_ops_t *ops)
     }
 
     struct wifi_ops wifi_ops = {
+        .max_scan_num = LISA_WIFI_MAX_SCAN_NUM,
         .get_mac = ops->custom_mac,
         .get_temp = ls_read_temp_voltage,
     };
@@ -277,6 +278,7 @@ static int single_core_wifi_init(lisa_wifi_ops_t *ops)
     }
 
     vrtc_init();
+    return ret;
 }
 
 
@@ -288,8 +290,6 @@ static int diff_core_lwip_init(void)
     if (ret != 0) {
         return ret;
     }
-
-    ipc_master_wifi_init();
 
     // register event
     ls_event_init();
@@ -320,6 +320,7 @@ static int diff_core_wifi_init(void)
     int ret = 0;
 
     struct wifi_ops ops = {
+        .max_scan_num = LISA_WIFI_MAX_SCAN_NUM,
         .get_mac = custom_get_wifi_mac,
         .get_temp = ls_read_temp_voltage,
     };
@@ -347,10 +348,9 @@ static int diff_core_wifi_init(void)
 /**
  * @brief 如果是双核模式，WIFI协议栈侧，不支持设置OPS
  */
-int lisa_wifi_init(void){
-    int ret = 0;
-
-    ret = diff_core_wifi_init();
+int lisa_wifi_init(void)
+{
+    return diff_core_wifi_init();
 }
 #elif CONFIG_LWIP
 
@@ -401,37 +401,43 @@ int lisa_wifi_init(lisa_wifi_ops_t *ops)
 
 #if CONFIG_WIFI_LWIP_DIFF_CORE
 #if CONFIG_WIFI
-static int app_ipc_init(void)
+static int app_wifi_ipc_init(void)
 {
-    struct ipc_slave_cb_tag ipc_cb = {
-        .ipc_wifi_tx = net_ipc_send,
-        .ipc_wifi_rx_cfm = net_ipc_rx_cfm,
+    struct ipc_slave_wifi_ops wifi_ops = {
+        .tx = net_ipc_send,
+        .rx_cfm = net_ipc_rx_cfm,
     };
 
-    ipc_mem_init(1);
-    ic_lock_init();
-    ipc_slave_init(&ipc_cb);
+    int ret = ipc_slave_wifi_init(&wifi_ops);
+    if (ret != 0) {
+        return ret;
+    }
+
     extern uint8_t _sshram[], _eshram[];
     memset(_sshram, 0, (_eshram - _sshram));
 
     return 0;
 }
 
-SYS_INIT(app_ipc_init, SYS_INIT_LEVEL_PRE_DEVICES_INIT, SYS_INIT_SUB_PRIORITY_MAX); /* 优先级 */
+SYS_INIT(app_wifi_ipc_init, SYS_INIT_LEVEL_PRE_DEVICES_INIT, SYS_INIT_SUB_PRIORITY_EARLY);
 #elif CONFIG_LWIP
-static int app_ipc_init(void)
+static int app_wifi_ipc_init(void)
 {
-    struct ipc_master_cb_tag ipc_cb = {
-            .wifi_tx_data_cfm   = wlif_tx_cfm,
-            .wifi_rx_data       = wlif_rx_buf_forward,
-            .indication_handler = ipc_master_indication_handler
+    struct ipc_master_wifi_ops wifi_ops = {
+        .tx_data_cfm = wlif_tx_cfm,
+        .rx_data = wlif_rx_buf_forward,
     };
 
-    ic_lock_init();
-    ipc_master_init(&ipc_cb);
-    return 0;
+    return ipc_master_wifi_init(&wifi_ops);
 }
 
-SYS_INIT(app_ipc_init,SYS_INIT_LEVEL_PRE_DEVICES_INIT, SYS_INIT_SUB_PRIORITY_MAX);
+SYS_INIT(app_wifi_ipc_init, SYS_INIT_LEVEL_PRE_DEVICES_INIT, SYS_INIT_SUB_PRIORITY_EARLY);
+
+static int app_lwip_start(void)
+{
+    return wlif_start();
+}
+
+SYS_INIT(app_lwip_start, SYS_INIT_LEVEL_PRE_DEVICES_INIT, SYS_INIT_SUB_PRIORITY_MAX);
 #endif //CONFIG_WIFI
 #endif //CONFIG_WIFI_LWIP_DIFF_CORE

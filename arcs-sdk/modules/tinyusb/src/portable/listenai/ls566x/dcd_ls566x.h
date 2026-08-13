@@ -9,6 +9,13 @@
 #include <stdint.h>
 #include "usb_reg.h"
 
+#if defined(CONFIG_SOC_VENUSA)
+#include "venusa_ap.h"
+#else
+#include "arcs_ap.h"
+#endif
+#include "dcd_ls566x_venusa_compat.h"
+
 //BSD: decrease EP0 MPS to 16 so as to reduce bandwidth requirement
 #define USB_MAX_CTRL_MPS    64 // 16   /**< maximum packet size (MPS) for EP 0 */
 #define USB_CTRL_FIFO_SIZE  64   /**< FIFO size of EP 0, fixed in MUSB IP, CANNOT BE MODIFIED */
@@ -111,8 +118,8 @@ struct usb_ep_ctrl_prv {
  */
 struct usb_venus_ctrl_prv {
 //  usb_dc_status_callback status_cb;  //BSD: TODO:
-//  struct usb_ep_ctrl_prv in_ep_ctrl[USB_VENUS_IN_EP_NUM];     /* USB IN endpoint information */
-//  struct usb_ep_ctrl_prv out_ep_ctrl[USB_VENUS_OUT_EP_NUM];   /* USB OUT endpoint information */
+//  struct usb_ep_ctrl_prv in_ep_ctrl[USB_IN_EP_NUM];     /* USB IN endpoint information */
+//  struct usb_ep_ctrl_prv out_ep_ctrl[USB_OUT_EP_NUM];   /* USB OUT endpoint information */
     struct usb_ep_ctrl_prv ep_info[2][USB_ARCS_IN_EP_NUM];     /* USB IN & OUT endpoint information, 0=OUT, 1=IN */
 
 //    uint32_t txfifo_alloc_addr;                                 /* USB TxFifo address allocated */

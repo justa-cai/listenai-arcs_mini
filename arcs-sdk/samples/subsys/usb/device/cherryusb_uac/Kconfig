@@ -1,0 +1,131 @@
+# Copyright (c) 2026, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+osource "$ARCS_BASE/Kconfig"
+
+menu "UAC sample configuration"
+
+config UAC_ENABLE_BOARD_PA
+	bool "Enable board speaker PA control"
+	default y if BOARD_VENUSA_RD_EVB
+	select LISA_AUDIO_PLAY_PA_ENABLE
+	help
+	  Enable board-level speaker power amplifier control for boards that
+	  require it. venusa_rd_evb routes PA_EN to GPIOA0.
+
+config LISA_AUDIO_PLAY_PA_PAD
+	default 0 if UAC_ENABLE_BOARD_PA
+
+config LISA_AUDIO_PLAY_PA_PIN
+	default 0 if UAC_ENABLE_BOARD_PA
+
+config LISA_AUDIO_PLAY_PA_PULSE_COUNT
+	default 0 if UAC_ENABLE_BOARD_PA
+
+config UAC_MIC_SAMPLE_RATE
+	int "UAC microphone sample rate"
+	default 16000
+	help
+	  Sample rate used by the board microphone stream sent to the USB host.
+
+config UAC_MIC_CHANNELS
+	int "UAC microphone channel count"
+	default 2
+	range 1 16
+	help
+	  Channel count used by the board microphone stream sent to the USB host.
+
+config UAC_MIC_SAMPLE_BITS
+	int "UAC microphone sample bits"
+	default 16
+	range 16 32
+	help
+	  Sample depth in bits used by the board microphone stream sent to the USB host.
+	  Supported values are 16, 24 and 32.
+
+config UAC_SPK_SAMPLE_RATE
+	int "UAC speaker sample rate"
+	default 16000
+	help
+	  Sample rate used by the USB host speaker stream played on the board.
+
+config UAC_SPK_CHANNELS
+	int "UAC speaker channel count"
+	default 1
+	range 1 2
+	help
+	  Channel count used by the USB host speaker stream played on the board.
+
+config UAC_SPK_SAMPLE_BITS
+	int "UAC speaker sample bits"
+	default 16
+	range 16 32
+	help
+	  Sample depth in bits used by the USB host speaker stream played on the board.
+	  Supported values are 16, 24 and 32.
+
+config UAC_HS_INTERVAL
+	int "High-speed audio endpoint interval"
+	default 1
+	range 1 4
+	help
+	  USB high-speed interval in 125us units encoded as 2^(bInterval - 1).
+
+config UAC_MIC_RING_MS
+	int "UAC microphone ring buffer time in ms"
+	default 256
+	range 16 2000
+
+config UAC_SPK_RING_MS
+	int "UAC speaker ring buffer time in ms"
+	default 256
+	range 16 2000
+
+config UAC_PLAY_BUFFER_COUNT
+	int "LISA audio playback buffer count"
+	default 12
+	range 2 32
+
+config UAC_PLAY_BUFFER_MS
+	int "LISA audio playback buffer duration in ms"
+	default 16
+	range 1 100
+	help
+	  Playback chunk duration written to lisa_audio. This may be larger than
+	  one USB audio frame; the sample accumulates USB OUT packets before write.
+
+config UAC_RECORD_ANALOG_GAIN
+	int "LISA audio record analog gain"
+	default 16
+
+config UAC_RECORD_DIGITAL_GAIN
+	int "LISA audio record digital gain"
+	default 8
+
+config UAC_PLAY_ANALOG_GAIN
+	int "LISA audio playback analog gain"
+	default 0
+
+config UAC_PLAY_DIGITAL_GAIN
+	int "LISA audio playback digital gain"
+	default -12
+
+config UAC_PLAY_VOLUME_DIVISOR
+	int "UAC host volume attenuation divisor"
+	default 4
+	range 1 16
+
+config UAC_PLAY_MUTE_DB
+	int "UAC host volume mute threshold in dB"
+	default -96
+	range -100 -1
+
+config UAC_RECORD_DIFFERENTIAL_INPUT
+	bool "Use differential microphone input"
+	default y
+
+config UAC_RECORD_HPF
+	bool "Enable record high-pass filter"
+	default y
+
+endmenu

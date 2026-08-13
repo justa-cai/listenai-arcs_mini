@@ -72,7 +72,7 @@ typedef enum {
     BF20A6_PID = 0x20A6,
     BF3005_PID = 0x30,
     BF3901_PID = 0x3901,
-    SC030IOT_PID = 0x9A46,
+    SC030IOT_PID = 0x46,    //only low byte
     SC031GS_PID = 0x0031,
     SC101IOT_PID = 0xdA4A,
     TC6036_PID = 0x0371,

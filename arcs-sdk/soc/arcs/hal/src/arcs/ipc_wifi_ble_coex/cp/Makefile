@@ -9,24 +9,37 @@ export APP_PATH=arcs/ipc_wifi_ble_coex/cp
 include default.config
 include $(TOPDIR)/src/${CHIP}/general.mk
 
+BT_MODE = ipc_ble
 
+MODULES +=  profiles bt_hal
 
+#libraries depend: eg. LIBS = -lbsp -ldrv -lrtos
+LIBS    +=   -lprf -lbt_hal
+
+ifeq ($(INNER), 0)
+ifeq ($(HARD_FLOAT),1)
+EXTLIBS +=  -lstack -lbt_base_cp -L$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilpf32
+else
+EXTLIBS +=  -lstack -lbt_base_cp -L$(TOPDIR)/chip/${CHIP}/lib/$(BT_MODE)/ilp32
+endif
+else
+LIBS    += -lstack -lbt_base
+MODULES += bt
+endif
 #exclude subdirs
 exclude_dirs=
 
 #files want to build: eg. CSRCS=a.c  CPPSRCS=b.cpp  SSRCS=c.S
 CSRCS	= $(wildcard *.c)
 CSRCS	+=$(wildcard if/bt_if/*.c)
+CSRCS	+=$(wildcard task/*.c)
 CPPSRCS	=
 SSRCS	= $(wildcard *.S)
 
 #includings and flags
 CFLAGS += -I $(TOPDIR)/include/NMSIS/Core/Include \
          -I $(TOPDIR)/chip/${CHIP}/driver/private_include \
-         -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_core \
-         -I $(TOPDIR)/chip/$(CHIP)/ipc/ipc_utils \
          -I $(TOPDIR)/chip/${CHIP}/include/ipc \
-         -I $(TOPDIR)/chip/${CHIP}/ipc/ipc_master \
          -I $(TOPDIR)/chip/${CHIP}/atcmd \
          -I $(TOPDIR)/chip/${CHIP}/cli_cmd \
          -I $(TOPDIR)/chip/${CHIP}/event \
@@ -34,6 +47,7 @@ CFLAGS += -I $(TOPDIR)/include/NMSIS/Core/Include \
          -I $(TOPDIR)/chip/${CHIP}/include/bt \
          -I $(TOPDIR)/chip/${CHIP}/btos \
          -I $(TOPDIR)/chip/${CHIP}/btos/task/api \
+         -I $(TOPDIR)/chip/${CHIP}/bt_hal \
          -I $(TOPDIR)/modules/profiles/ota/otas/api  \
          -I $(TOPDIR)/modules/profiles/hogp/hogpd/api \
          -I $(TOPDIR)/modules/profiles/bas/bass/api  \
@@ -80,7 +94,7 @@ endif
 BT_WIFI_COEX=1
 export BT_WIFI_COEX
 CFLAGS += -DBT_WIFI_COEX=$(BT_WIFI_COEX)
-# Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BT
+# Note: WCN_TYPE=wf:WiFi only, WCN_TYPE=bt:BT only, WCN_TYPE=both:Both support for Wifi and BLE,WCN_TYPE=both_dual:Both support for Wifi and BT-BLE
 WCN_TYPE=both
 export WCN_TYPE
 
@@ -90,30 +104,34 @@ CFG_IPERF := 1
 CFG_PING := 1
 CFG_BACK_TRACE := 1
 CFG_AMP_IPC_MASTER := 1
+CFG_AMP_IPC_BT_CHAN := 1
 CFG_AMP_IPC_WIFI_CHAN := 1
 CFG_AMP_IPC_TCPIP := 1
 CFG_AMP_IPC_MRPC_SERVER := 1
 CFG_AMP_IPC_MRPC_CLIENT := 1
 CFG_AMP_IPC_MRPC_SERVER_LWIP := 1
 CFG_AMP_IPC_MRPC_CLIENT_BT :=1
+CFG_AMP_IPC_MRPC_SERVER_BT_S2M :=1
 CFG_AMP_IPC_MRPC_CLIENT_WIFI := 1
 CFG_AMP_IPC_MRPC_SERVER_NVS  := 1
 CFG_AMP_IPC_MRPC_SERVER_FLASH_IF := 1
 CFG_AMP_IPC_FLASH_AGENT := 1
 CFG_AMP_IPC_HALT_PEER_CORE := 1
 CFG_AMP_IPC_HALT_BY_PEER_CORE := 1
+CFG_AMP_IPC_INDICATION := 1
 CONFIG_SKIP_BOOTCLOCK = 1
 CFG_WIFI_MFG := 1
 CFG_FLASH_IF := 1
-export CFG_RTOS CONFIG_RTOS_AL CFG_IPERF CFG_PING CFG_BACK_TRACE CFG_AMP_IPC_MASTER CONFIG_SKIP_BOOTCLOCK CFG_AMP_IPC_MRPC_SERVER CFG_AMP_IPC_MRPC_CLIENT_BT
+export CFG_RTOS CONFIG_RTOS_AL CFG_IPERF CFG_PING CFG_BACK_TRACE CFG_AMP_IPC_MASTER CONFIG_SKIP_BOOTCLOCK CFG_AMP_IPC_MRPC_SERVER CFG_AMP_IPC_MRPC_CLIENT_BT CFG_AMP_IPC_MRPC_SERVER_BT_S2M
 export CFG_AMP_IPC_MRPC_CLIENT CFG_AMP_IPC_MRPC_SERVER_LWIP CFG_AMP_IPC_MRPC_CLIENT_WIFI CFG_WIFI_MFG CFG_FLASH_IF
-export CFG_AMP_IPC_MRPC_SERVER_NVS CFG_AMP_IPC_FLASH_AGENT CFG_AMP_IPC_WIFI_CHAN CFG_AMP_IPC_HALT_PEER_CORE CFG_AMP_IPC_TCPIP CFG_AMP_IPC_MRPC_SERVER_FLASH_IF CFG_AMP_IPC_HALT_BY_PEER_CORE
+export CFG_AMP_IPC_MRPC_SERVER_NVS CFG_AMP_IPC_FLASH_AGENT CFG_AMP_IPC_BT_CHAN CFG_AMP_IPC_WIFI_CHAN CFG_AMP_IPC_HALT_PEER_CORE CFG_AMP_IPC_TCPIP CFG_AMP_IPC_MRPC_SERVER_FLASH_IF CFG_AMP_IPC_HALT_BY_PEER_CORE
+export CFG_AMP_IPC_INDICATION
 
 # mrpc server: GPADC get temp .. on IPC master side
 CFG_AMP_IPC_MRPC_SERVER_UTILS_S2M  := 1
 export  CFG_AMP_IPC_MRPC_SERVER_UTILS_S2M
 
-CFG_AMP_IPC_MRPC_CLIENT_UTILS_M2S  := 1
+CFG_AMP_IPC_MRPC_CLIENT_UTILS_M2S  := 0
 export  CFG_AMP_IPC_MRPC_CLIENT_UTILS_M2S
 
 
@@ -149,9 +167,9 @@ ifeq ($(PSRAM_HEAP), 1)
 CFLAGS += -DPSRAM_HEAP
 endif
 
-
-
-
+PROFILE_NETCFG=1
+export PROFILE_NETCFG
+CFLAGS += -DPROFILE_NETCFG=$(PROFILE_NETCFG)
 
 CONFIG_EXT_RAM=1
 ifeq ($(strip $(CONFIG_EXT_RAM)), 1)

@@ -31,11 +31,12 @@ MEMORY
   ilm (rxa!w) : ORIGIN = 0x00080000, LENGTH = 16K
   dlm (wxa!r) : ORIGIN = 0x00100000, LENGTH = 8K
   NETRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 45K /*lwip pbuf*/
-  SHRAM (rwx) : ORIGIN = 0x2000D400, LENGTH = 211K - 8K
-  ram (wxa!r) : ORIGIN = 0x2000D400, LENGTH = 275K - 64K - 8K
-  apram (wxa!r) : ORIGIN = 0x20052000, LENGTH = 32K
-  IPCSHRAM (rwx) : ORIGIN = 0x20040000, LENGTH = 8K /*ipc*/
+  SHRAM (rwx) : ORIGIN = 0x2000B400, LENGTH = 256K - 45K
+  ram (wxa!r) : ORIGIN = 0x2000B400, LENGTH = 256K - 45K
+  apram (wxa!r) : ORIGIN = 0x20050000, LENGTH = 32K
+  IPCSHRAM (rwx) : ORIGIN = 0x20040000, LENGTH = 7K /*ipc*/
   psram(wxa!r) : ORIGIN = 0x28040000, LENGTH = 128K
+  snapshot_psram (wxa!r) : ORIGIN = 0x28060000, LENGTH = 64K
 }
 
 REGION_ALIAS("ROM", flash)
@@ -43,7 +44,11 @@ REGION_ALIAS("RAM", ram)
 REGION_ALIAS("EXTRAM", apram)
 REGION_ALIAS("DATA_LMA", flash)
 REGION_ALIAS("ILM", ilm)
+#if CONFIG_PM && !CONFIG_PM_PSRAM
 REGION_ALIAS("DLM", ram)
+#else
+REGION_ALIAS("DLM", dlm)
+#endif
 REGION_ALIAS("PSRAM", psram)
 
 SECTIONS
@@ -62,6 +67,8 @@ SECTIONS
   /* memory for LA dump */
   PROVIDE(_slaram = ORIGIN(EXTRAM));
   PROVIDE(_elaram = ORIGIN(EXTRAM) + LENGTH(EXTRAM));
+  PROVIDE(__pm_snapshot_psram_start = ORIGIN(snapshot_psram));
+  PROVIDE(__pm_snapshot_psram_end = ORIGIN(snapshot_psram) + LENGTH(snapshot_psram));
 
   /* ipc shared RAM */
   IPCSHARED (NOLOAD):
@@ -130,6 +137,7 @@ SECTIONS
     *(.text.ap_ilm .text.ap_ilm.* .text.entry .text.irq .text.irq.* .text.xPortTaskSwitch .text.vTaskSwitchContext)
     *(._wf_critical)
     *(.text.pm)
+    *(.pm.ilm)
     . = ALIGN(4);
     __ap_ilm_text_end__ = .;
   } >ILM AT>ROM
@@ -311,6 +319,13 @@ SECTIONS
   PROVIDE( _data = ADDR(.data) );
   PROVIDE( _edata = . );
   PROVIDE( edata = . );
+
+  .pm_startup_bss (NOLOAD) : ALIGN(16)
+  {
+    __pm_startup_reserved_start = .;
+    *(.pm.startup_bss .pm.startup_bss.*)
+    __pm_startup_reserved_end = .;
+  } >RAM AT>RAM
 
   .tbss (NOLOAD)   : ALIGN(8)
   {

@@ -1,0 +1,3 @@
+tests:
+  startup.boot:
+    build_only: true

@@ -33,6 +33,7 @@ config LISA_I2S_BLOCK_COUNT
 
 config LISA_I2S_PIPO
 	bool "Enable I2S PIPO mode"
+	default y
 	help
 		Enable I2S PIPO mode.
 

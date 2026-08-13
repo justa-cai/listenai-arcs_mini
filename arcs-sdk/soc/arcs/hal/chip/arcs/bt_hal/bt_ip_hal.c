@@ -46,6 +46,13 @@
  ****************************************************************************************
  */
 extern void Bt_BootClock_Init(void);
+extern void bt_disable_bt_clock(void);
+
+extern void lsip_bt_open(void);
+extern void lsip_bt_close(void);
+extern void ke_task_msg_flush_all(void);
+extern void ke_flush(void);
+
 extern uint32_t ls_rand(void);
 extern int main();
 
@@ -133,8 +140,10 @@ void platform_reset(uint32_t error)
 
 void bt_platform_init(uint32_t flag)
 {
+#if (BT_EMB_PRESENT || BLE_EMB_PRESENT)
     // BTIP CLK INIT
     Bt_BootClock_Init();
+#endif
 
 #if (IC_BOARD == 1)
     // Initialize random process
@@ -145,5 +154,32 @@ void bt_platform_init(uint32_t flag)
 
 }
 
+extern void ke_mem_reset(void);
+
+void bt_platform_close(uint32_t flag)
+{
+#if (BT_EMB_PRESENT || BLE_EMB_PRESENT)
+    //mask isr
+    // BTIP clk close
+    //BTIP power off
+    lsip_bt_close();
+    // Disable BTIP CLK
+    //bt_disable_bt_clock();
+    /// clear bt task;
+    //ke_flush();
+    ke_task_msg_flush_all();
+    ke_mem_reset();
+
+#endif
+
+}
+
+void bt_platform_open(uint32_t flag)
+{
+#if (BT_EMB_PRESENT || BLE_EMB_PRESENT)
+    lsip_bt_open();
+#endif
+
+}
 
 

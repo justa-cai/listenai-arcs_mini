@@ -5,11 +5,14 @@
  *      Author: LAPTOP-07
  */
 #include "dbg_assert.h"
-#include "arcs_ap.h"
+#include "chip.h"
 #include "crypto.h"
 #include "Driver_GPDMA.h"
 #include "ClockManager.h"
 #include "cache.h"
+#if CONFIG_PM_CLOSE_AP
+#include "pm.h"
+#endif
 
 #define CSK_CRYPTO_DRV_VERSION CSK_DRIVER_VERSION_MAJOR_MINOR(1,1)
 

@@ -1,0 +1,132 @@
+# Copyright (c) 2025, LISTENAI
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig LISA_PM
+	bool "Enable LISA PM Framework"
+	select ARCS_HAL_PM
+	# pm_impl light_sleep 路径硬依赖 vrtc（vrtc_get_time_us / vrtc_is_allow_sleep）；
+	# lisa_pm_init 内部会自动调用 vrtc_init()，因此 vrtc.c 必须随 lisa_pm 一起编进来。
+	select ARCS_HAL_VRTC
+	# CP-core 应用：AP 由独立 remote 固件加载，睡眠时必须 tear-down AP 子系统。
+	# PM 双核运行模式下 AP 是运行中的对端核心，不能关闭 AP 子系统。
+	select ARCS_HAL_PM_CLOSE_AP if ARCS_CP_CORE && !LISA_PM_DUAL_CORE
+	help
+		Enable the LISA power management framework.
+		Provides sleep statistics, system-policy control,
+		optional WiFi extension APIs,
+		and a phase-1 system PM device registry
+		on top of the HAL PM implementation.
+
+if LISA_PM
+
+config LISA_PM_CORE_PRIMARY
+	bool "Build this core as HAL PM primary core"
+	default y if ARCS_CP_CORE
+	default n if ARCS_AP_CORE
+	default y
+	help
+		Select the HAL PM primary role for this lisa_pm instance.
+		The primary core performs the final AON/PMU sleep entry after the
+		peer core has entered idle. Clear this option for the peer that
+		only coordinates with the primary core.
+
+config LISA_PM_DUAL_CORE
+	bool "Enable LISA PM AP/CP runtime dual-core mode"
+	depends on ARCS_CP_CORE && ARCS_HAL_IPC
+	help
+		Enable this when the application runs with an active AP peer firmware.
+		In this mode lisa_pm must not select ARCS_HAL_PM_CLOSE_AP, because
+		the AP core participates in PM coordination instead of acting as a
+		single-core PM boot shim.
+
+config LISA_PM_STATS
+	bool "Enable sleep statistics collection"
+	default y
+	help
+		Collect sleep and wakeup statistics through PM hooks.
+
+config LISA_PM_DEVICE_RUNTIME
+	bool "Reserve Runtime PM option for phase 2"
+	help
+		Reserved for a later per-device runtime PM rollout.
+		Phase-1 system PM registration does not depend on this option.
+
+config LISA_PM_SYSTEM_DEVICE_MAX
+	int "Maximum number of system PM devices"
+	default 16
+	help
+		Maximum number of devices that can be discovered from lisa_device
+		and copied into the internal lisa_pm system PM registry.
+
+config LISA_PM_AFTER_WAKE_TASK_STACK_SIZE
+	int "LISA PM after-wake task stack size"
+	default 2048
+	help
+		Stack size of the internal task that dispatches application
+		after_wake callbacks after the PM exit path has completed.
+
+config LISA_PM_AFTER_WAKE_TASK_PRIORITY
+	int "LISA PM after-wake task priority"
+	default 5
+	help
+		FreeRTOS priority of the internal task that dispatches application
+		after_wake callbacks.
+
+config LISA_PM_WIFI
+	bool "Enable LISA PM WiFi extension layer"
+	default y
+	depends on LISA_WIFI
+	# WiFi 睡眠期间的 ARP keep-alive 只有在 WiFi PM 场景下才有意义
+	select ARCS_HAL_PM_KEEP_ALIVE
+	help
+		Enable the new lisa_pm_wifi_* atomic APIs for WiFi power-save
+		control and locks. This option aligns with CONFIG_LISA_PM_WIFI used
+		in headers; prefer this switch when designing new code.
+
+config LISA_PM_REMOTE_LOCK_CLIENT
+	bool "Enable LISA PM remote lock client"
+	depends on SOC_ARCS && ARCS_HAL_IPC
+	select ARCS_HAL_IPC_MRPC_CLIENT_AP_PM_LOCK
+	help
+		Enable CP-side lisa_pm_remote_lock_acquire/release wrappers.
+		The transport uses the AP PM lock MRPC service, so the request can
+		wake an AP core that is waiting in the light-sleep MRPC wake path.
+
+config LISA_PM_REMOTE_LOCK_SERVER
+	bool "Enable LISA PM remote lock server"
+	depends on SOC_ARCS && ARCS_HAL_IPC
+	select ARCS_HAL_IPC_MRPC_SERVER_AP_PM_LOCK
+	help
+		Enable AP-side MRPC handlers that map remote requests to local
+		lisa_pm_lock_acquire/release calls.
+
+config LISA_PM_DEVICE_MAX
+	int "Maximum number of Runtime PM devices"
+	default 8
+	depends on LISA_PM_DEVICE_RUNTIME
+
+config LISA_PM_SNAPSHOT_DEFAULT_ILM_DLM
+	bool "Auto-register ILM/DLM regions to PM snapshot at lisa_pm init"
+	default y
+	help
+		Enable auto-registration of ILM .itcm and DLM .dtcm .data
+		sections to the HAL PM snapshot framework at lisa_pm init.
+		After deep-sleep wakeup, HAL restores these regions from PSRAM.
+
+		Effective only when CONFIG_MEM_ILM_SIZE > 0.
+
+config LISA_PM_SNAPSHOT_DEFAULT_SRAM
+	bool "Auto-register non-AON SRAM region to PM snapshot at lisa_pm init"
+	help
+		Enable auto-registration of the fixed SRAM region
+		0x20050000..0x200C0000 to the HAL PM snapshot framework at
+		lisa_pm init.
+
+		ARCS SRAM starts at 0x20000000 and is 0xC0000 bytes in total.
+		The first 320 KiB (0x20000000..0x20050000) belongs to the AON
+		domain and remains powered during sleep, so only the non-AON
+		region 0x20050000..0x200C0000 needs snapshot restore.
+
+		Effective only when CONFIG_MEM_ILM_SIZE > 0.
+
+endif

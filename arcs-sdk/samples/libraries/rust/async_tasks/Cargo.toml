@@ -1,0 +1,22 @@
+[package]
+name    = "rust_async_tasks"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.83"
+license = "Apache-2.0"
+
+[workspace]
+
+[lib]
+crate-type = ["staticlib"]
+path       = "src/lib.rs"
+
+[dependencies]
+arcs         = "0.1.0"
+arcs-embassy = "0.1.0"
+# embassy-executor / embassy-time are direct deps because the
+# #[embassy_executor::task] macro and embassy_time::Timer emit `::embassy_*`
+# paths in this crate. Versions/features must match arcs-embassy exactly.
+embassy-executor = { version = "=0.9.1", default-features = false }
+embassy-time     = { version = "=0.4.0", default-features = false, features = ["tick-hz-1_000_000", "generic-queue-8"] }
+log              = { version = "0.4", default-features = false }

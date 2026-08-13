@@ -14,7 +14,7 @@ zephyr_library_sources(
     )
 elseif(CONFIG_CSK_SQLITE_SDK_ARCS)
 
-set(LIBRARY_NAME csk_sqlite3)
+set(LIBRARY_NAME psram_csk_sqlite3)
 add_library(${LIBRARY_NAME} STATIC "")
 
 target_include_directories(${LIBRARY_NAME} PUBLIC

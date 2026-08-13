@@ -8,6 +8,7 @@
 #include "log_print.h"
 #include "shell_def.h"
 #include "ipc_master.h"
+#include "ipc_master_wifi.h"
 #include "ls_wifi_type.h"
 #include "wifi_api.h"
 #include "ls_event.h"
@@ -16,6 +17,9 @@
 #include "nvs.h"
 #include "net_al.h"
 #include "net_ip.h"
+#ifdef PSRAM_HEAP
+#include "PSRAMManager.h"
+#endif
 
 
 #define AMP_CP_START_ADDRESS            0x30100000
@@ -148,10 +152,9 @@ int arcs_nvs_init(void)
  */
 int main(void)
 {
-    struct ipc_master_cb_tag ipc_cb = {
-            .wifi_tx_data_cfm   = wlif_tx_cfm,
-            .wifi_rx_data       = wlif_rx_buf_forward,
-            .indication_handler = ipc_master_indication_handler
+    struct ipc_master_wifi_ops ipc_wifi_ops = {
+            .tx_data_cfm = wlif_tx_cfm,
+            .rx_data = wlif_rx_buf_forward,
     };
 
     logInit(SHELL_UART0, SHELL_UART0_BAUDRATE);
@@ -161,14 +164,15 @@ int main(void)
 #endif
     start_cp(AMP_CP_START_ADDRESS);
 
-    ipc_mem_init(1);
-    ipc_master_init(&ipc_cb);
+    ipc_mem_init();
+    ipc_master_init();
+    ipc_master_wifi_init(&ipc_wifi_ops);
 
 #if CFG_NVS
     arcs_nvs_init();
 #endif
 
-    ipc_master_wifi_init();
+    wlif_start();
 
     // register event
     ls_event_init();

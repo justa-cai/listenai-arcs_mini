@@ -21,6 +21,7 @@ typedef struct {
 
 int coex_wifi_init(void);
 int coex_wifi_connect(void);
+int coex_wifi_connect_to(const char *ssid, const char *pwd);
 int coex_wifi_disconnect(void);
 bool coex_wifi_is_ready(void);
 void coex_wifi_get_status(coex_wifi_status_t *status);

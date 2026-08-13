@@ -1,5 +1,0 @@
-# Copyright (c) 2025, LISTENAI
-# SPDX-License-Identifier: Apache-2.0
-
-osource "$ARCS_BASE/Kconfig"
-osource "../../../modules/fs/Kconfig"

@@ -100,5 +100,33 @@ void bt_stack_bt_connect_cancel(void)
 {
     bt_gap_connect_cancel();
 }
+
+void bt_stack_bt_send_a2dp_media_to_peer(uint8_t conidx, uint8_t frame_num, uint16_t len, uint8_t *data)
+{
+#if 0
+    extern uint32_t co_time_us_get();
+    static uint32_t last_time = 0;
+    uint32_t times = co_time_us_get();
+    CLOGD("s:%d-%d", times, times-last_time);
+    last_time = times;
+#endif
+
+    //static uint32_t time1 = 0, time2 = 0, time3 = 0;
+    bt_stack_if_env_tag_t *stack_env = bt_stack_if_get_env();
+    if(stack_env->bt_music_send_cnt < BT_STACK_CLASSIC_BIG_ACL_SEND_MAX)
+    {
+        app_a2dp_send_media_to_peer(conidx, frame_num, len, data);
+        stack_env->bt_music_send_cnt++;
+    }
+    else
+    {
+        if(stack_env->bt_music_full == 0)
+        {
+            CLOGD("A2dp full");
+            stack_env->bt_music_full = 1;
+        }
+    }
+}
+
 #endif
 

@@ -1209,7 +1209,7 @@ uint16_t ble_basc_init(const basc_cb_t* p_cb)
  */
 uint16_t ble_basc_enable(uint8_t conidx, uint8_t con_type, const bas_content_t* p_bas)
 {
-    basc_enable(conidx, con_type, 1, p_bas);
+    return basc_enable(conidx, con_type, 1, p_bas);
 }
 
 /**

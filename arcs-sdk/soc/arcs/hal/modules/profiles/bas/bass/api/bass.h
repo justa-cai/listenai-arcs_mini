@@ -91,7 +91,7 @@ typedef struct bass_cb
      * @param[in] status Status of the procedure execution (@see enum hl_err)
      ****************************************************************************************
      */
-    void (*cb_batt_level_upd_cmp)(uint16_t status);
+    void (*cb_batt_level_upd_cmp)(uint8_t conidx, uint16_t status);
 
     /**
      ****************************************************************************************

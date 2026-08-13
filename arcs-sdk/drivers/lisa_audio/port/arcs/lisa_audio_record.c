@@ -76,6 +76,65 @@ static uint32_t record_get_osr_for_rate(lisa_audio_rate_t rate)
     }
 }
 
+static int record_clamp_gain_db(int gain_db, int min_db, int max_db)
+{
+    if (gain_db < min_db) {
+        return min_db;
+    }
+    if (gain_db > max_db) {
+        return max_db;
+    }
+    return gain_db;
+}
+
+static uint32_t record_analog_gain_val(int8_t gain_db)
+{
+    return ADC_PDM_GAIN_A_VAL(record_clamp_gain_db(gain_db,
+                                                   ADC_PDM_GAIN_A_MIN_DB,
+                                                   ADC_PDM_GAIN_A_MAX_DB));
+}
+
+static uint32_t record_digital_gain_val(int8_t gain_db)
+{
+    return ADC_PDM_GAIN_D_VAL(record_clamp_gain_db(gain_db,
+                                                   ADC_PDM_GAIN_D_MIN_DB,
+                                                   ADC_PDM_GAIN_D_MAX_DB));
+}
+
+static int record_apply_uniform_gain(lisa_audio_record_priv_t *priv, const lisa_audio_gain_t *gain)
+{
+    uint32_t gain_a = 0;
+    uint32_t gain_d = 0;
+    uint32_t vol_flag = 0;
+    lisa_audio_channel_t channels = priv->config.format.channels;
+
+    if (channels & LISA_AUDIO_CH_LEFT) {
+        gain_a |= record_analog_gain_val(gain->analog_gain);
+        gain_d |= record_digital_gain_val(gain->digital_gain);
+        vol_flag |= ADC_PDM_VOL_FLAG_A_LEFT | ADC_PDM_VOL_FLAG_D_LEFT;
+    }
+    if (channels & LISA_AUDIO_CH_RIGHT) {
+        gain_a |= record_analog_gain_val(gain->analog_gain) << 16;
+        gain_d |= record_digital_gain_val(gain->digital_gain) << 16;
+        vol_flag |= ADC_PDM_VOL_FLAG_A_RIGHT | ADC_PDM_VOL_FLAG_D_RIGHT;
+    }
+
+    return ADC_PDM_SetVolume(priv->hdrv, gain_a, gain_d, vol_flag);
+}
+
+static int record_apply_channel_gain(lisa_audio_record_priv_t *priv,
+                                     const lisa_audio_record_channel_gain_t *gain)
+{
+    uint32_t gain_a = record_analog_gain_val(gain->left.analog_gain) |
+                      (record_analog_gain_val(gain->right.analog_gain) << 16);
+    uint32_t gain_d = record_digital_gain_val(gain->left.digital_gain) |
+                      (record_digital_gain_val(gain->right.digital_gain) << 16);
+    uint32_t vol_flag = ADC_PDM_VOL_FLAG_A_LEFT | ADC_PDM_VOL_FLAG_A_RIGHT |
+                        ADC_PDM_VOL_FLAG_D_LEFT | ADC_PDM_VOL_FLAG_D_RIGHT;
+
+    return ADC_PDM_SetVolume(priv->hdrv, gain_a, gain_d, vol_flag);
+}
+
 /* ===== Record 事件回调 ===== */
 
 #ifndef DMA_CHANNEL_ANY
@@ -432,39 +491,25 @@ int arcs_audio_record_control(lisa_audio_record_priv_t *priv, uint32_t cmd, void
 
     case LISA_AUDIO_IOCTL_RECORD_SET_GAIN:
         if (arg) {
-            lisa_audio_record_config_t *config = &priv->config;
             lisa_audio_gain_t *gain = (lisa_audio_gain_t *)arg;
-#ifdef CONFIG_LISA_AUDIO_RECORD_INDIVIDUAL_GAIN
-            uint32_t gain_a = ADC_PDM_GAIN_A_VAL(gain[0].analog_gain);
-            uint32_t gain_d = ADC_PDM_GAIN_D_VAL(gain[0].digital_gain);
-#else
-            uint32_t gain_a = ADC_PDM_GAIN_A_VAL(gain->analog_gain);
-            uint32_t gain_d = ADC_PDM_GAIN_D_VAL(gain->digital_gain);
-#endif
-            uint32_t vol_flag = 0;
 
-            if (config->format.channels & LISA_AUDIO_CH_LEFT) {
-                vol_flag |= ADC_PDM_VOL_FLAG_A_LEFT | ADC_PDM_VOL_FLAG_D_LEFT;
-            }
-            if (config->format.channels & LISA_AUDIO_CH_RIGHT) {
-#ifdef CONFIG_LISA_AUDIO_RECORD_INDIVIDUAL_GAIN
-                gain_a |= ADC_PDM_GAIN_A_VAL(gain[1].analog_gain) << 16;
-                gain_d |= ADC_PDM_GAIN_D_VAL(gain[1].digital_gain) << 16;
-#else
-                gain_a |= ADC_PDM_GAIN_A_VAL(gain->analog_gain) << 16;
-                gain_d |= ADC_PDM_GAIN_D_VAL(gain->digital_gain) << 16;
-#endif
-                vol_flag |= ADC_PDM_VOL_FLAG_A_RIGHT | ADC_PDM_VOL_FLAG_D_RIGHT;
-            }
-
-            ret = ADC_PDM_SetVolume(priv->hdrv, gain_a, gain_d, vol_flag);
-#ifdef CONFIG_LISA_AUDIO_RECORD_INDIVIDUAL_GAIN
-            LOGI("Record gain set: L=%d/%d dB, R=%d/%d dB",
-                 gain[0].analog_gain, gain[0].digital_gain,
-                 gain[1].analog_gain, gain[1].digital_gain);
-#else
+            ret = record_apply_uniform_gain(priv, gain);
             LOGI("Record gain set: %d/%d dB", gain->analog_gain, gain->digital_gain);
-#endif
+        }
+        break;
+
+    case LISA_AUDIO_IOCTL_RECORD_SET_CHANNEL_GAIN:
+        if (arg) {
+            lisa_audio_record_channel_gain_t *gain = (lisa_audio_record_channel_gain_t *)arg;
+
+            ret = record_apply_channel_gain(priv, gain);
+            LOGI("Record channel gain set: L=%d/%d dB, R=%d/%d dB",
+                 gain->left.analog_gain,
+                 gain->left.digital_gain,
+                 gain->right.analog_gain,
+                 gain->right.digital_gain);
+        } else {
+            ret = LISA_DEVICE_ERR_INVALID;
         }
         break;
 
@@ -495,6 +540,32 @@ int arcs_audio_record_init(lisa_audio_record_priv_t *priv)
     priv->initialized = true;
 
     LOGI("LISA Audio Record initialized");
+
+    return LISA_DEVICE_OK;
+}
+
+int arcs_audio_record_deinit(lisa_audio_record_priv_t *priv)
+{
+    if (priv == NULL) {
+        return LISA_DEVICE_ERR_INVALID;
+    }
+
+    /* 停止采集并释放运行期 buffer（record_stop_locked 内部按 is_running 判定，
+     * 会 ADC_PDM_Abort 并 lisa_mem_free 掉 buffers 数组与各 buffer） */
+    record_stop_locked(priv);
+
+    /* 关闭 ADC PDM：先 PowerControl(OFF) 再 Uninitialize，使硬件回到上电初始态 */
+    if (priv->hdrv) {
+        ADC_PDM_PowerControl(priv->hdrv, CSK_POWER_OFF);
+        ADC_PDM_Uninitialize(priv->hdrv);
+    }
+
+    priv->status = LISA_AUDIO_STATUS_IDLE;
+    priv->is_running = false;
+    priv->adc_initialized = false;
+    priv->initialized = false;
+
+    LOGI("LISA Audio Record deinitialized");
 
     return LISA_DEVICE_OK;
 }

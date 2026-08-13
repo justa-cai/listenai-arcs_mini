@@ -86,12 +86,11 @@ static void button_camera_preview_publish_start(void)
 {
     voice_msg_camera_preview_req_t req = {0};
 
-    /* 按键拍照是独立交互，进入预览前先结束仍在录音的语音会话。
-     * 统一退出事件会停止云端会话、清除 TTS 后重启录音标志并弹出
-     * VOICE_SESSION；事件按发布顺序先于预览请求处理。 */
+    /* 按键拍照是独立交互，进入预览前强制结束本地和云端语音会话，
+     * 避免未结束的云端音频会话影响后续图片识别。 */
     if (voice_intent_contains(INTENT_VOICE_SESSION)) {
-        LOGI("exit active voice session before button photo preview");
-        voice_msg_pub(VOICE_MSG_CLOUD_MCP_CHAT_EXIT, NULL, 0);
+        LOGI("interrupt active voice session before button photo preview");
+        voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, NULL, 0);
     }
 
     if (lisa_ui_nav_scr_get_top_id() != 0) {

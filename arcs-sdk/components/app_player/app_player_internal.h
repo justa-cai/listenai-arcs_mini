@@ -149,6 +149,10 @@ app_player_t *__find_player_by_id(uint32_t id);
  */
 app_player_t *__find_player_by_focus_channel_id(int focus_channel_id);
 
+/** Acquire/release this player's PA reference around actual audio output. */
+int __app_player_pa_acquire(app_player_t *player);
+void __app_player_pa_release(app_player_t *player, uint32_t delay_ms);
+
 #ifdef __cplusplus
 }
 #endif

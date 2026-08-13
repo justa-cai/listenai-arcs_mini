@@ -53,6 +53,7 @@
 ## 烧录
 
 ```bash
+cskburn -C arcs -s /dev/ttyACM0 -b 3000000 0x0 build/remote/ap.bin
 cskburn -C arcs -s /dev/ttyACM0 -b 3000000 0x800000 build/arcs.bin
 ```
 
