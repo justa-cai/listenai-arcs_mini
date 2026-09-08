@@ -49,6 +49,16 @@ config LISA_SDMMC_ACCESS_WRAP_BUFFER_SIZE
 			Larger buffer improves performance for large transfers but uses
 			more memory. Must be multiple of sector size (512 bytes).
 
+config LISA_SDMMC_ACCESS_MAX_SECTORS
+	int "Maximum sectors per hardware transfer"
+	default 128
+	range 1 4096
+	help
+			Limit each SD controller request to this many 512-byte sectors.
+			The ARCS SDMA path is sensitive to very large requests; 128 sectors
+			(64 KiB) keeps MSC transfers multi-block while avoiding long DMA
+			transactions that are more likely to time out or need recovery.
+
 config LISA_SDMMC_VENUSA_FORCE_3_3V
 	bool "Force Venusa SDMMC 3.3V signaling"
 	depends on SOC_VENUSA

@@ -10,6 +10,8 @@
 
 LV_IMG_DECLARE(icons_ic_status_duplex_interruptible_png);
 LV_IMG_DECLARE(icons_ic_status_duplex_non_interruptible_png);
+LV_IMG_DECLARE(icons_ic_status_tf_card_png);
+LV_IMG_DECLARE(icons_ic_status_usb_png);
 LV_IMG_DECLARE(icons_ic_status_alarm_png);
 LV_IMG_DECLARE(icons_icon_finger_png);
 
@@ -21,13 +23,27 @@ LV_IMG_DECLARE(icons_icon_finger_png);
 #define LISA_UI_CONTENT_TEXT_HORIZONTAL_PAD 12
 #define LISA_UI_CONTENT_TEXT_LINE_COUNT     2
 
+#define LISA_UI_STATUS_USB_BATTERY_GAP     4
+
 static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
+static void lisa_ui_llm_primary_align_usb_icon(lisa_ui_llm_primary_t *llm_primary);
 
 const lv_obj_class_t lisa_ui_llm_primary_class = {
     .base_class = &lisa_ui_llm_base_class,
     .instance_size = sizeof(lisa_ui_llm_primary_t),
     .constructor_cb = lisa_ui_llm_primary_class_constructor,
 };
+
+static void lisa_ui_llm_primary_align_usb_icon(lisa_ui_llm_primary_t *llm_primary)
+{
+    if (!llm_primary || !llm_primary->usb_icon || !llm_primary->battery_icon) {
+        return;
+    }
+
+    lv_obj_update_layout(llm_primary->battery_icon);
+    lv_obj_align_to(llm_primary->usb_icon, llm_primary->battery_icon,
+                    LV_ALIGN_OUT_LEFT_MID, -LISA_UI_STATUS_USB_BATTERY_GAP, 0);
+}
 
 static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj) 
 {
@@ -65,6 +81,12 @@ static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p,
 
     // 创建交互模式图标（全双工）
     llm_primary->full_duplex_icon = lv_img_create(bar);
+
+    // 创建 TF 卡图标
+    llm_primary->tf_card_icon = lv_img_create(bar);
+
+    // 创建 USB Host 图标
+    llm_primary->usb_icon = lv_img_create(bar);
 
     // 创建闹钟图标
     llm_primary->alarm_icon = lv_img_create(bar);
@@ -133,6 +155,14 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_align(llm_primary->full_duplex_icon, LV_ALIGN_LEFT_MID, 26, 0);
     lv_obj_add_flag(llm_primary->full_duplex_icon, LV_OBJ_FLAG_HIDDEN);
 
+    // TF 卡图标位于左侧状态图标组最右侧，默认隐藏
+    lv_img_set_src(llm_primary->tf_card_icon, &icons_ic_status_tf_card_png);
+    lv_obj_align(llm_primary->tf_card_icon, LV_ALIGN_LEFT_MID, 52, 0);
+    lv_obj_add_flag(llm_primary->tf_card_icon, LV_OBJ_FLAG_HIDDEN);
+
+    lv_img_set_src(llm_primary->usb_icon, &icons_ic_status_usb_png);
+    lv_obj_add_flag(llm_primary->usb_icon, LV_OBJ_FLAG_HIDDEN);
+
     // 设置闹钟图标（默认隐藏）
     lv_img_set_src(llm_primary->alarm_icon, &icons_ic_status_alarm_png);
     lv_obj_align(llm_primary->alarm_icon, LV_ALIGN_RIGHT_MID, -30, 0);
@@ -150,6 +180,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_set_style_text_align(llm_primary->status_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_line_space(llm_primary->status_label, 0, LV_PART_MAIN);
     lv_obj_align(llm_primary->status_label, LV_ALIGN_CENTER, 0, 0);
+    lisa_ui_llm_primary_align_usb_icon(llm_primary);
 
     // 设置emoji动画图片（在页面根对象上，使用FLOATING脱离布局）
     lv_obj_set_size(llm_primary->emoji_anim, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -303,6 +334,7 @@ void lisa_ui_llm_primary_set_status_text(lv_obj_t *obj, const char *status)
 
     if (llm_primary->status_label) {
         lv_label_set_text(llm_primary->status_label, status ? status : "");
+        lisa_ui_llm_primary_align_usb_icon(llm_primary);
     }
 }
 
@@ -391,6 +423,44 @@ void lisa_ui_llm_primary_set_full_duplex_icon_img(lv_obj_t *obj, const void *img
     }
 
     lv_img_set_src(llm_primary->full_duplex_icon, img_path);
+}
+
+void lisa_ui_llm_primary_set_tf_card_icon_visible(lv_obj_t *obj, bool visible)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (!llm_primary->tf_card_icon) {
+        return;
+    }
+
+    if (visible) {
+        lv_obj_clear_flag(llm_primary->tf_card_icon, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(llm_primary->tf_card_icon, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void lisa_ui_llm_primary_set_usb_icon_visible(lv_obj_t *obj, bool visible)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (!llm_primary->usb_icon) {
+        return;
+    }
+
+    if (visible) {
+        lv_obj_clear_flag(llm_primary->usb_icon, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(llm_primary->usb_icon, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lisa_ui_llm_primary_align_usb_icon(llm_primary);
 }
 
 void lisa_ui_llm_primary_set_alarm_icon_visible(lv_obj_t *obj, bool visible)

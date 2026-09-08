@@ -175,6 +175,14 @@ void lisa_ui_sd_music_sync_view_update(lv_obj_t *obj,
         break;
     case VOICE_MSG_SD_MUSIC_SYNC_STATE_FAILED:
     {
+        if (state->result == VOICE_MSG_SD_MUSIC_SYNC_RESULT_FS_UNSUPPORTED) {
+            align_sync_labels(view, -12, 14, 0);
+            lv_label_set_text_static(view->title_label, "TF卡仅支持FAT32文件系统");
+            lv_label_set_text_static(view->detail_label, "请重新格式化");
+            lv_label_set_text_static(view->progress_label, "");
+            break;
+        }
+
         bool has_http_error = state->http_status_code || state->http_error_code;
 
         align_sync_labels(view, has_http_error ? -12 : 0,

@@ -16,11 +16,13 @@
 struct model_camera_context {
     uint32_t inited: 1;
     uint32_t running: 1;
+    uint32_t suspended: 1;
 };
 
 static struct model_camera_context model_camera_ctx = {
     .inited = 0,
     .running = 0,
+    .suspended = 0,
 };
 
 #ifdef LISA_UI_PLATFORM_ARCS
@@ -114,6 +116,7 @@ int model_camera_capture(uint8_t *in, uint32_t len)
     } else {
         if (rsp.base.err) {
             LISA_UI_LOGE("camera cap invoke sync rsp err, r: %d", rsp.base.err);
+            model_camera_ctx.running = 0;
             return rsp.base.err;
         }
     }
@@ -122,6 +125,7 @@ int model_camera_capture(uint8_t *in, uint32_t len)
     return -5;
 #endif
 
+    model_camera_ctx.running = 1;
     return 0;
 }
 
@@ -138,6 +142,11 @@ static void bn_camera_stop(void *data, uint32_t len, struct voice_invoke_rsp *rs
 int model_camera_stop(void)
 {
 #ifdef LISA_UI_PLATFORM_ARCS
+    if (!model_camera_ctx.running) {
+        LISA_UI_LOGD("Camera already stopped, skip stop");
+        return 0;
+    }
+
     struct voice_invoke_rsp rsp = {
         .err = -1,
     };
@@ -147,7 +156,87 @@ int model_camera_stop(void)
         LISA_UI_LOGE("camera stop invoke sync failed, r: %d", r);
         return r;
     }
+    if (rsp.err == 0) {
+        model_camera_ctx.running = 0;
+    }
     return rsp.err;
+#else
+    return -5;
+#endif
+}
+
+#ifdef LISA_UI_PLATFORM_ARCS
+static void bn_camera_suspend(void *data, uint32_t len, struct voice_invoke_rsp *rsp)
+{
+    (void)data;
+    (void)len;
+
+    rsp->err = service_camera_suspend();
+}
+
+static void bn_camera_resume(void *data, uint32_t len, struct voice_invoke_rsp *rsp)
+{
+    (void)data;
+    (void)len;
+
+    rsp->err = service_camera_resume();
+}
+#endif
+
+int model_camera_suspend(void)
+{
+#ifdef LISA_UI_PLATFORM_ARCS
+    struct voice_invoke_rsp rsp = {
+        .err = -1,
+    };
+
+    if (!model_camera_ctx.inited || model_camera_ctx.suspended) {
+        return 0;
+    }
+
+    int r = voice_invoke_sync(bn_camera_suspend, NULL, 0, &rsp, 1000);
+    if (r != 0) {
+        LISA_UI_LOGE("camera suspend invoke failed: %d", r);
+        return r;
+    }
+    if (rsp.err != 0) {
+        LISA_UI_LOGE("camera suspend failed: %d", rsp.err);
+        return rsp.err;
+    }
+
+    model_camera_ctx.running = 0;
+    model_camera_ctx.suspended = 1;
+    return 0;
+#else
+    return -5;
+#endif
+}
+
+int model_camera_resume(void)
+{
+#ifdef LISA_UI_PLATFORM_ARCS
+    struct voice_invoke_rsp rsp = {
+        .err = -1,
+    };
+
+    if (!model_camera_ctx.suspended) {
+        return 0;
+    }
+
+    int r = voice_invoke_sync(bn_camera_resume, NULL, 0, &rsp, 2000);
+    if (r != 0) {
+        LISA_UI_LOGE("camera resume invoke failed: %d", r);
+        return r;
+    }
+    if (rsp.err != 0) {
+        LISA_UI_LOGE("camera resume failed: %d", rsp.err);
+        return rsp.err;
+    }
+
+    model_camera_ctx.inited = 1;
+    model_camera_ctx.running = 0;
+    model_camera_ctx.suspended = 0;
+    return 0;
 #else
     return -5;
 #endif

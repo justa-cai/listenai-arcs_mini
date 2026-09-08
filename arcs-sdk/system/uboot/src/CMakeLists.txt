@@ -78,6 +78,16 @@ set(BOOT_PRE_PSRAM_SOURCES
     system.c
 )
 
+listenai_library_sources_ifdef(CONFIG_BOOT_FACTORY_PARAMS
+    boot_factory_params.c
+)
+
+if(CONFIG_BOOT_FACTORY_PARAMS)
+    list(APPEND BOOT_PRE_PSRAM_SOURCES
+        boot_factory_params.c
+    )
+endif()
+
 listenai_library_sources_ifdef(CONFIG_BOOT_CHECK_POWER_KEY
     boot_gpio_check.c
 )
@@ -329,7 +339,13 @@ if(DEFINED CONFIG_BOOT_OTA_PACKAGE AND DEFINED CONFIG_BOOT_CONTROL_STORE_TEST)
     )
 endif()
 
-target_link_libraries(boot_app PUBLIC arcs-hal freertos heap)
+if(TARGET hal)
+    set(BOOT_HAL_LIBRARY hal)
+else()
+    set(BOOT_HAL_LIBRARY arcs-hal)
+endif()
+
+target_link_libraries(boot_app PUBLIC ${BOOT_HAL_LIBRARY} freertos heap)
 
 if(BOOT_USES_FILE_SYNC_STORAGE)
     target_link_libraries(boot_app PUBLIC lsfs)
@@ -358,7 +374,7 @@ if(DEFINED CONFIG_BOOT_OTA_PACKAGE)
 endif()
 
 if(CONFIG_BOOT_SECOND_STAGE)
-    listenai_code_relocate(LIBRARY arcs-hal LOCATION PSRAM)
+    listenai_code_relocate(LIBRARY ${BOOT_HAL_LIBRARY} LOCATION PSRAM)
     listenai_code_relocate(LIBRARY c LOCATION PSRAM EXCLUDE_OBJECTS libc_a-impure.o libc_a-rand.o)
     listenai_code_relocate(LIBRARY c_nano LOCATION PSRAM EXCLUDE_OBJECTS libc_a-impure.o libc_a-rand.o)
     listenai_code_relocate(LIBRARY gcc LOCATION SRAM)

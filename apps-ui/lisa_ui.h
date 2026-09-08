@@ -1,6 +1,7 @@
 #ifndef __LISA_UI_H__
 #define __LISA_UI_H__
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -11,6 +12,8 @@
 #include "lv_i18n.h"
 
 int lisa_ui_init(void);
+void lisa_ui_handler_suspend(void);
+void lisa_ui_handler_resume(void);
 void lisa_ui_free(void *p);
 void *lisa_ui_malloc(uint32_t size);
 

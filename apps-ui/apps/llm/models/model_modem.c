@@ -10,11 +10,13 @@
 
 #ifdef LISA_UI_PLATFORM_ARCS
 #include "lisa_ui_invoke.h"
+#include "async_task.h"
 #include "FreeRTOS.h"
 #include "task.h"
 #include "sys_network_manager.h"
 #include "voice_msg.h"
 #include "voice_player_comm.h"
+#include "model_voice.h"
 #endif
 
 #define MODEL_MODEM_SIGNAL_RSSI_UNKNOWN 99
@@ -26,6 +28,7 @@ typedef struct {
     bool ok;
     int rssi;
     int ber;
+    uint32_t elapsed_ms;
 } model_modem_signal_result_t;
 
 struct model_modem_context {
@@ -35,6 +38,7 @@ struct model_modem_context {
     model_modem_info_t info;
 #ifdef LISA_UI_PLATFORM_ARCS
     TickType_t last_signal_query_tick;
+    model_modem_signal_result_t signal_result;
 #endif
 };
 
@@ -138,11 +142,75 @@ static void model_modem_state_msg_handle(void *unused, uint32_t msg_id, void *da
     });
 }
 
+/* The modem API is synchronous and may wait for the UART/dispatcher. Keep it
+ * off the voice event bus so a slow CSQ query cannot stall audio upload. */
+static void model_modem_signal_query_task(void *user_data, bool *should_stop)
+{
+    model_modem_signal_result_t *result = user_data;
+    TickType_t start_tick;
+
+    (void)should_stop;
+
+    if (!result) {
+        return;
+    }
+
+    start_tick = xTaskGetTickCount();
+    result->ok = sys_network_get_signal_quality(&result->rssi, &result->ber);
+    result->elapsed_ms = (uint32_t)pdTICKS_TO_MS(xTaskGetTickCount() - start_tick);
+}
+
+static void model_modem_signal_query_complete(void *user_data, bool completed, bool interrupted)
+{
+    model_modem_signal_result_t result;
+
+    if (!user_data) {
+        return;
+    }
+
+    result = *(model_modem_signal_result_t *)user_data;
+    if (!completed || interrupted) {
+        result.ok = false;
+    }
+
+    LISA_UI_LOGI("modem CSQ query seq=%u ok=%d rssi=%d ber=%d elapsed=%u ms",
+                 result.seq, result.ok, result.rssi, result.ber, result.elapsed_ms);
+
+    LISA_UI_INVOKE_UI_ARG_BASE(result, {
+        if (model_modem_ctx.signal_query_seq != _invoke_result.seq) {
+            return;
+        }
+
+        model_modem_ctx.signal_query_pending = 0;
+
+        if (!model_modem_ctx.info.active ||
+            !model_modem_ctx.info.connected ||
+            model_modem_ctx.info.switching) {
+            return;
+        }
+
+        if (!_invoke_result.ok) {
+            model_modem_clear_signal_result();
+            return;
+        }
+
+        model_modem_ctx.info.signal_rssi = _invoke_result.rssi;
+        model_modem_ctx.info.signal_ber = _invoke_result.ber;
+        model_modem_ctx.info.signal_level = model_modem_csq_to_level(_invoke_result.rssi);
+    });
+}
+
 static void model_modem_schedule_signal_refresh(void)
 {
     if (!model_modem_ctx.info.active ||
         !model_modem_ctx.info.connected ||
         model_modem_ctx.info.switching ||
+        /* A connected cloud session may move data through the same modem
+         * AT client even when no voice turn is active. */
+        model_voice_cloud_is_connected() ||
+        model_voice_cloud_is_running() ||
+        model_voice_tts_is_playing() ||
+        model_voice_tts_is_pending() ||
         voice_player_is_music_active() ||
         model_modem_ctx.signal_query_pending) {
         return;
@@ -160,38 +228,24 @@ static void model_modem_schedule_signal_refresh(void)
     model_modem_ctx.signal_query_pending = 1;
     model_modem_ctx.last_signal_query_tick = now;
 
-    LISA_UI_INVOKE_BN_ARG_BASE(query_seq, {
-        model_modem_signal_result_t result;
-        result.seq = _invoke_query_seq;
-        result.ok = false;
-        result.rssi = MODEL_MODEM_SIGNAL_RSSI_UNKNOWN;
-        result.ber = MODEL_MODEM_SIGNAL_BER_UNKNOWN;
+    model_modem_signal_result_t *result = &model_modem_ctx.signal_result;
+    result->seq = query_seq;
+    result->ok = false;
+    result->rssi = MODEL_MODEM_SIGNAL_RSSI_UNKNOWN;
+    result->ber = MODEL_MODEM_SIGNAL_BER_UNKNOWN;
+    result->elapsed_ms = 0;
 
-        result.ok = sys_network_get_signal_quality(&result.rssi, &result.ber);
-
-        LISA_UI_INVOKE_UI_ARG_BASE(result, {
-            if (model_modem_ctx.signal_query_seq != _invoke_result.seq) {
-                return;
-            }
-
-            model_modem_ctx.signal_query_pending = 0;
-
-            if (!model_modem_ctx.info.active ||
-                !model_modem_ctx.info.connected ||
-                model_modem_ctx.info.switching) {
-                return;
-            }
-
-            if (!_invoke_result.ok) {
-                model_modem_clear_signal_result();
-                return;
-            }
-
-            model_modem_ctx.info.signal_rssi = _invoke_result.rssi;
-            model_modem_ctx.info.signal_ber = _invoke_result.ber;
-            model_modem_ctx.info.signal_level = model_modem_csq_to_level(_invoke_result.rssi);
-        });
-    });
+    async_task_t *task = async_task_create("modem_csq", 2048, 5,
+                                           model_modem_signal_query_task,
+                                           model_modem_signal_query_complete,
+                                           result);
+    if (!task || async_task_start(task) != 0) {
+        if (task) {
+            async_task_destroy(task);
+        }
+        model_modem_ctx.signal_query_pending = 0;
+        LISA_UI_LOGW("failed to start modem signal query task");
+    }
 }
 
 #endif

@@ -130,6 +130,10 @@ static void session_voice_proc_thread(void *arg)
 		case SESSION_REPLY_URL:
 			lisa_evt_publisher_publish(obj->pub, SESSION_VOICE_REPLY_URL, msg.data, msg.size);
 			break;
+		case SESSION_REPLY_TIMELINE_URL:
+			lisa_evt_publisher_publish(obj->pub, SESSION_VOICE_REPLY_TIMELINE_URL,
+						   msg.data, msg.size);
+			break;
 		case SESSION_DRAW_URL:
 			lisa_evt_publisher_publish(obj->pub, SESSION_VOICE_DRAW, msg.data, msg.size);
 			break;
@@ -299,7 +303,7 @@ int session_voice_remove_evt_callback(session_voice_event_cb_t cb)
 	return LSC_OK;
 }
 
-int session_voice_start(void)
+int session_voice_start_ex(bool preserve_reply_sid)
 {
 	session_voice_t *obj = g_session_voice_obj;
 	CHECK_COND_RETURN_VAL(obj, LSC_INVALID_STATE, "not init");
@@ -308,7 +312,7 @@ int session_voice_start(void)
 
 	lisa_semaphore_reset(obj->sem_started);
 
-	int ret = session_start(obj->ss, NULL);
+	int ret = session_start_ex(obj->ss, NULL, preserve_reply_sid);
 	if (ret) {
 		SESSION_VOICE_UNLOCK(obj->mutex);
 		return LSC_ERR;
@@ -324,6 +328,11 @@ int session_voice_start(void)
 	SESSION_VOICE_UNLOCK(obj->mutex);
 
 	return LSC_OK;
+}
+
+int session_voice_start(void)
+{
+	return session_voice_start_ex(false);
 }
 
 int session_voice_cancel(void)
@@ -342,6 +351,21 @@ int session_voice_cancel(void)
 	SESSION_VOICE_UNLOCK(obj->mutex);
 
 	return LSC_OK;
+}
+
+int session_voice_reply_interrupted(uint32_t sentence_index,
+				    uint32_t sentence_start,
+				    uint32_t sentence_end)
+{
+	session_voice_t *obj = g_session_voice_obj;
+	CHECK_COND_RETURN_VAL(obj, LSC_INVALID_STATE, "not init");
+
+	SESSION_VOICE_LOCK(obj->mutex);
+	int ret = session_reply_interrupted(obj->ss, sentence_index,
+					    sentence_start, sentence_end);
+	SESSION_VOICE_UNLOCK(obj->mutex);
+
+	return ret;
 }
 
 #define AUDIO_SEND_DATA_MAX_SIZE (2560)
@@ -409,7 +433,8 @@ int session_voice_init(void)
 	int ret = session_add_evt_callback(session->ss, voice_session_event_cb,
 					   SESSION_STARTED | SESSION_GOT_VAD | SESSION_TTS_URL | SESSION_IAT_TXT |
 						   SESSION_IAT_START | SESSION_IAT_END | SESSION_AIUI_CTR |
-						   SESSION_REPLY_URL | SESSION_DRAW_URL | SESSION_MUSIC_LISTS |
+						   SESSION_REPLY_URL | SESSION_REPLY_TIMELINE_URL |
+						   SESSION_DRAW_URL | SESSION_MUSIC_LISTS |
 						   SESSION_MUSIC_INSTR | SESSION_FINISH | SESSION_ERR_FRAME |
 						   SESSION_RESULT_RAW_DATA | SESSION_TIMEOUT | SESSION_ALARM_INTENT |
 						   SESSION_VPR_INFO | SESSION_VPR_FEATURE,
@@ -433,6 +458,7 @@ int session_voice_init(void)
 		.nlu_properties =
 			{
 				.enable = true,
+				.reply_interruption = true,
 			},
 		.tts_params =
 			{

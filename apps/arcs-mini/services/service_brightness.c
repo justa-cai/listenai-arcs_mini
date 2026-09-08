@@ -19,6 +19,21 @@
 /* ---- 配置 --------------------------------------------------------------- */
 
 #define DEFAULT_BRIGHTNESS 70
+#define BRIGHTNESS_MAP_STEP 10
+
+static const uint8_t s_brightness_hw_map[] = {
+    1,   /* 逻辑亮度 0 */
+    3,   /* 逻辑亮度 10 */
+    5,   /* 逻辑亮度 20 */
+    8,   /* 逻辑亮度 30 */
+    13,  /* 逻辑亮度 40 */
+    20,  /* 逻辑亮度 50 */
+    30,  /* 逻辑亮度 60 */
+    40,  /* 逻辑亮度 70 */
+    60,  /* 逻辑亮度 80 */
+    80,  /* 逻辑亮度 90 */
+    100, /* 逻辑亮度 100 */
+};
 
 /* ---- 前向声明 ----------------------------------------------------------- */
 
@@ -47,22 +62,21 @@ static int service_brightness_clamp(int brightness)
     return brightness;
 }
 
-/*
- * 将用户亮度（0–100）映射为硬件亮度。
- *
- * 人眼对亮度的感知是非线性的（近似对数 / 幂律关系），直接使用线性值会
- * 导致低亮度区间调节不敏感。因此对中间值采用二次曲线映射以补偿感知
- * 非线性；端点 0 和 100 保持不变，保证"全暗"和"全亮"行为与用户预期一致。
- */
+/* 将逻辑亮度映射到标定后的硬件亮度，非整档值在相邻锚点间线性插值。 */
 static int service_brightness_to_hw(int brightness)
 {
     brightness = service_brightness_clamp(brightness);
-    if (brightness == 0 || brightness == 100) {
-        return brightness;
+    int lower_index = brightness / BRIGHTNESS_MAP_STEP;
+    int remainder = brightness % BRIGHTNESS_MAP_STEP;
+
+    if (remainder == 0) {
+        return s_brightness_hw_map[lower_index];
     }
 
-    /* brightness² / 100，+99 向上取整 */
-    return (brightness * brightness + 99) / 100;
+    int lower = s_brightness_hw_map[lower_index];
+    int upper = s_brightness_hw_map[lower_index + 1];
+    return lower + ((upper - lower) * remainder + BRIGHTNESS_MAP_STEP / 2) /
+                       BRIGHTNESS_MAP_STEP;
 }
 
 static void service_brightness_apply(int brightness)
@@ -77,8 +91,6 @@ static void service_brightness_apply(int brightness)
     int hw_brightness = service_brightness_to_hw(brightness);
     if (lisa_display_set_brightness(s_display_device, hw_brightness) != 0) {
         LOGE("Failed to set brightness to %d (hw: %d)", brightness, hw_brightness);
-    } else {
-        LOGI("Brightness set to %d (hw: %d)", brightness, hw_brightness);
     }
 }
 
@@ -206,6 +218,26 @@ void service_brightness_set_temp(int brightness)
 {
     brightness = service_brightness_clamp(brightness);
     service_brightness_apply(brightness);
+}
+
+int service_brightness_set_blanked(bool blanked)
+{
+    int ret;
+
+    if (!s_display_device) {
+        LOGW("Display device not available");
+        return -1;
+    }
+
+    ret = blanked ? lisa_display_blanking_on(s_display_device)
+                  : lisa_display_blanking_off(s_display_device);
+    if (ret != 0) {
+        LOGE("Failed to %s display blanking: %d", blanked ? "enable" : "disable", ret);
+        return ret;
+    }
+
+    LOGI("Display blanking %s", blanked ? "enabled" : "disabled");
+    return 0;
 }
 
 int service_brightness_get(void)

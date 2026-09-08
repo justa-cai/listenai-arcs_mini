@@ -17,3 +17,6 @@ listenai_library_sources(
     version.c
     wifi.c
 )
+
+listenai_library_sources_ifdef(CONFIG_CHERRYUSB_HOST_CDC_ACM usb_serial.c)
+listenai_include_directories(${CMAKE_CURRENT_LIST_DIR}/../../middleware/usb)

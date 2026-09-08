@@ -300,10 +300,27 @@ static inline int session_parse_nlp(cJSON *data, session_t *ss)
 			CHECK_COND_GOTO(nlp, _err, "parse nlp item faild");
 
 			cJSON *stream_url = cJSON_GetObjectItem(nlp, "stream_url");
-			CHECK_COND_GOTO(stream_url, _err, "parse stream_url item faild");
+			CHECK_COND_GOTO(stream_url && cJSON_IsString(stream_url) &&
+					stream_url->valuestring && stream_url->valuestring[0] != '\0',
+					_err, "parse stream_url item faild");
 
-			LISA_NLOGI("--- reply text url: %s", stream_url->valuestring);
-			lisa_evt_publisher_publish(ss->pub, SESSION_REPLY_URL, stream_url->valuestring,
+			cJSON *stream_format = cJSON_GetObjectItem(nlp, "stream_format");
+			bool timeline = ss->params.nlu_properties.reply_interruption &&
+					stream_format && cJSON_IsString(stream_format) &&
+					stream_format->valuestring &&
+					strcmp(stream_format->valuestring, "timeline") == 0;
+			if (timeline) {
+				strncpy(ss->reply_sid, ss->sid, sizeof(ss->reply_sid) - 1U);
+				ss->reply_sid[sizeof(ss->reply_sid) - 1U] = '\0';
+			} else {
+				ss->reply_sid[0] = '\0';
+			}
+
+			LISA_NLOGI("--- reply text url: %s, format: %s", stream_url->valuestring,
+				      timeline ? "timeline" : "default");
+			lisa_evt_publisher_publish(ss->pub,
+						   timeline ? SESSION_REPLY_TIMELINE_URL : SESSION_REPLY_URL,
+						   stream_url->valuestring,
 						   strlen(stream_url->valuestring) + 1);
 		} else if (!strcmp(nlp_origin->valuestring, "image_generation")) {
 			cJSON *iner_data = cJSON_GetObjectItem(data, "data");
@@ -425,6 +442,13 @@ static void sessions_core_conn_evt_cb(conn_event_e evt, void *data, uint32_t siz
 	session_t *ss = _foreach_session_from_rid(rid);
 	CHECK_COND_GOTO(ss, _err, "Unexpected rid(%u)", rid);
 
+	cJSON *root_sid = cJSON_GetObjectItem(root, "sid");
+	if (root_sid && cJSON_IsString(root_sid) && root_sid->valuestring &&
+	    root_sid->valuestring[0] != '\0') {
+		strncpy(ss->sid, root_sid->valuestring, sizeof(ss->sid) - 1);
+		ss->sid[sizeof(ss->sid) - 1] = '\0';
+	}
+
 	char *raw_data = cJSON_PrintUnformatted(root);
 	lisa_evt_publisher_publish(ss->pub, SESSION_RESULT_RAW_DATA, raw_data, strlen(raw_data) + 1);
 	cJSON_free(raw_data);
@@ -513,14 +537,24 @@ static char *session_build_start_frame(uint32_t rid, session_params_t *cfg, uint
 	cJSON *custom = cJSON_CreateObject();
 	if (cfg->nlu_properties.enable) {
 		cJSON *abilities = cJSON_CreateArray();
-		cJSON *intents = cJSON_CreateArray();
-		cJSON *ability = cJSON_CreateObject();
 		cJSON_AddItemToObject(nlu_properties, "abilities", abilities);
-		cJSON_AddItemToArray(abilities, ability);
-		cJSON_AddStringToObject(ability, "name", "alarm");
-		cJSON_AddItemToObject(ability, "intents", intents);
-		cJSON_AddItemToArray(intents, cJSON_CreateString("create"));
-		cJSON_AddItemToArray(intents, cJSON_CreateString("cancel"));
+		{
+			cJSON *intents = cJSON_CreateArray();
+			cJSON *ability = cJSON_CreateObject();
+			cJSON_AddItemToArray(abilities, ability);
+			cJSON_AddStringToObject(ability, "name", "alarm");
+			cJSON_AddItemToObject(ability, "intents", intents);
+			cJSON_AddItemToArray(intents, cJSON_CreateString("create"));
+			cJSON_AddItemToArray(intents, cJSON_CreateString("cancel"));
+		}
+		if (cfg->nlu_properties.reply_interruption) {
+			cJSON *intents = cJSON_CreateArray();
+			cJSON *ability = cJSON_CreateObject();
+			cJSON_AddItemToArray(abilities, ability);
+			cJSON_AddStringToObject(ability, "name", "event");
+			cJSON_AddItemToObject(ability, "intents", intents);
+			cJSON_AddItemToArray(intents, cJSON_CreateString("reply_interrupted"));
+		}
 		cJSON_AddStringToObject(nlu_properties, "lat", "");
 		cJSON_AddStringToObject(nlu_properties, "lng", "");
 		cJSON_AddStringToObject(custom, "userID", "");
@@ -570,7 +604,7 @@ static char *session_build_start_frame(uint32_t rid, session_params_t *cfg, uint
 			cJSON_AddItemToObject(asr_properties, "svad", cJSON_CreateString("0"));
 		}
 
-		cJSON_AddStringToObject(asr_properties, "audio_gain", "3.0");
+		cJSON_AddStringToObject(asr_properties, "audio_gain", "1.0");
 
 		if (cfg->asr_params.oneshot) {
 			cJSON_AddItemToObject(asr_properties, "oneshot", cJSON_CreateString("1"));
@@ -663,7 +697,7 @@ int session_get_config(session_t *hdl, session_params_t *cfg)
 	return LSC_OK;
 }
 
-int session_start(session_t *hdl, char *data)
+int session_start_ex(session_t *hdl, char *data, bool preserve_reply_sid)
 {
 	sessions_core_t *core = g_sessions_core_obj;
 	uint32_t rid = lisa_rand32();
@@ -674,6 +708,11 @@ int session_start(session_t *hdl, char *data)
 		return LSC_ERR;
 	}
 
+	/* 新 start 写出前丢弃上一轮 sid，避免任何新下行被旧值覆盖。 */
+	hdl->sid[0] = '\0';
+	if (!preserve_reply_sid) {
+		hdl->reply_sid[0] = '\0';
+	}
 	int ret = core->conn->send_text(text);
 	if (ret) {
 		LISA_NLOGE("send start frame faild(ret=%d)", ret);
@@ -695,6 +734,11 @@ int session_start(session_t *hdl, char *data)
 	return LSC_OK;
 }
 
+int session_start(session_t *hdl, char *data)
+{
+	return session_start_ex(hdl, data, false);
+}
+
 int session_cancel(session_t *hdl)
 {
 #define CANCEL_FORMAT "{\"action\":\"cancel\"}"
@@ -707,6 +751,64 @@ int session_cancel(session_t *hdl)
 	}
 
 	return LSC_OK;
+}
+
+int session_reply_interrupted(session_t *hdl, uint32_t sentence_index,
+			      uint32_t sentence_start, uint32_t sentence_end)
+{
+	sessions_core_t *core = g_sessions_core_obj;
+	cJSON *root = NULL;
+	cJSON *params = NULL;
+	cJSON *payload = NULL;
+	char *text = NULL;
+	int ret = LSC_ERR;
+
+	if (hdl == NULL || core == NULL || core->conn == NULL ||
+	    !hdl->params.nlu_properties.reply_interruption || hdl->reply_sid[0] == '\0' ||
+	    sentence_end <= sentence_start) {
+		LISA_NLOGE("reply interrupted event invalid state");
+		return LSC_INVALID_STATE;
+	}
+
+	root = cJSON_CreateObject();
+	if (root == NULL) {
+		return LSC_NO_MEM;
+	}
+
+	cJSON_AddStringToObject(root, "action", "event");
+	params = cJSON_AddObjectToObject(root, "params");
+	payload = params ? cJSON_AddObjectToObject(params, "payload") : NULL;
+	if (params == NULL || payload == NULL) {
+		goto _out;
+	}
+
+	cJSON_AddStringToObject(params, "event_name", "reply_interrupted");
+	cJSON_AddStringToObject(payload, "sid", hdl->reply_sid);
+	cJSON_AddNumberToObject(payload, "sentence_index", sentence_index);
+	cJSON_AddNumberToObject(payload, "sentence_start", sentence_start);
+	cJSON_AddNumberToObject(payload, "sentence_end", sentence_end);
+
+	text = cJSON_PrintUnformatted(root);
+	if (text == NULL) {
+		goto _out;
+	}
+
+	ret = core->conn->send_text(text);
+	if (ret != 0) {
+		LISA_NLOGE("send reply interrupted event failed(ret=%d)", ret);
+		ret = LSC_ERR;
+	} else {
+		LISA_NLOGI("reply interrupted event sent, sid=%s, sentence=%u, range=[%u,%u)",
+			   hdl->reply_sid, sentence_index, sentence_start, sentence_end);
+		ret = LSC_OK;
+	}
+
+_out:
+	if (text) {
+		cJSON_free(text);
+	}
+	cJSON_Delete(root);
+	return ret;
 }
 
 int session_send_bin(session_t *hdl, const uint8_t *data, uint32_t size)

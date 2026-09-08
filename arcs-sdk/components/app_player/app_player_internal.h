@@ -57,6 +57,7 @@ extern "C" {
 typedef struct callback_event {
     app_player_event_t event;       /**< 事件类型 */
     struct callback_event *next;    /**< 链表指针 */
+    uint32_t request_tag;
 } callback_event_t;
 
 /**
@@ -126,6 +127,11 @@ struct app_player_s {
     char *pending_url;              /**< 待播放URL（焦点被抢占时保存） */
     uint32_t pending_throw_time;    /**< 待播放的throw_time参数 */
 #endif
+    const volatile uint32_t *play_cancel_token;
+    uint32_t play_request_tag;
+    uint32_t callback_request_tag;
+    SemaphoreHandle_t cancel_lock;
+    bool cancel_requested;
 };
 
 /**
@@ -134,6 +140,9 @@ struct app_player_s {
  * @param event 事件类型
  */
 void __enqueue_callback_event(app_player_t *player, app_player_event_t event);
+
+bool __app_player_play_cancelled(const app_player_t *player);
+bool __app_player_play_cancelled_locked(const app_player_t *player);
 
 /**
  * @brief 通过播放器ID查找播放器实例（内部函数，由 core 层调用）

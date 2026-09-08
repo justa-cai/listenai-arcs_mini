@@ -109,6 +109,7 @@ enum {
     /* Power事件 */
     VOICE_MSG_POWER_START = VOICE_MSG_ID(VOICE_DOMAIN_POWER, 0),
     VOICE_MSG_POWER_BATTERY_UPDATE,
+    VOICE_MSG_POWER_POLICY_STATE_CHANGED,
     VOICE_MSG_POWER_MAX,
 
     /* Platform事件 */
@@ -201,7 +202,7 @@ enum {
     VOICE_MSG_CLOUD_MCP_EMOJI,
     VOICE_MSG_CLOUD_MCP_LOADING,
     VOICE_MSG_CLOUD_MCP_CHAT_EXIT,
-    VOICE_MSG_CLOUD_SESSION_INTERRUPT,
+    VOICE_MSG_CLOUD_SESSION_INTERRUPT,       /* voice_msg_cloud_session_interrupt_t *，可为空 */
     VOICE_MSG_CLOUD_MCP_IMAGE_RECOGNITION, /* char * */
     VOICE_MSG_CLOUD_MCP_IMAGE_URL,         /* char * */
     VOICE_MSG_CLOUD_ROLE_SETTING_QRCODE,
@@ -212,7 +213,11 @@ enum {
     VOICE_MSG_CLOUD_OPEN_INFO,
     VOICE_MSG_CLOUD_RESOURCE_UPDATE_REBOOT, /* voice_msg_cloud_reboot_t * */
     VOICE_MSG_CLOUD_PUSHUP_TTS_URL,         /* char * 云端主动推送的 TTS URL，不属于会话 */
-    VOICE_MSG_CLOUD_MUSIC_NAME,           /* char * 正在播放的曲目名称 */
+    VOICE_MSG_CLOUD_MUSIC_NAME,           /* voice_msg_music_info_t * */
+    VOICE_MSG_CLOUD_TTS_TIMELINE_START,
+    VOICE_MSG_CLOUD_TTS_TIMELINE_UPDATE,  /* voice_msg_tts_timeline_t * */
+    VOICE_MSG_CLOUD_TTS_TIMELINE_END,
+    VOICE_MSG_CLOUD_TTS_TIMELINE_FALLBACK,
     VOICE_MSG_CLOUD_MAX,
 
     /* Player事件 */
@@ -224,6 +229,7 @@ enum {
     VOICE_MSG_PLAYER_MUSIC_STOPPED,
     VOICE_MSG_PLAYER_TTS_COMPLETED,  /* TTS 自然播放完成 */
     VOICE_MSG_PLAYER_TONE_COMPLETED, /* tone 自然播放完成 */
+    VOICE_MSG_PLAYER_TTS_ERROR,      /* TTS 播放器打开或播放失败 */
     VOICE_MSG_PLAYER_MAX,
 
     /* Record事件 */
@@ -274,6 +280,7 @@ enum {
     VOICE_MSG_APP_SD_MUSIC_SYNC_FAILED,     /* voice_msg_sd_music_sync_state_t * */
     VOICE_MSG_APP_SD_MUSIC_SYNC_FINISHED,   /* voice_msg_sd_music_sync_state_t * */
     VOICE_MSG_APP_SD_MUSIC_CARD_REMOVED,
+    VOICE_MSG_APP_SD_MUSIC_CARD_STATE,      /* voice_msg_sd_card_state_t * */
 
     VOICE_MSG_APP_BATTERY_QUERY_SHOW, /* voice_msg_battery_info_t * */
     VOICE_MSG_APP_SD_MUSIC_PLAY_FAILED,

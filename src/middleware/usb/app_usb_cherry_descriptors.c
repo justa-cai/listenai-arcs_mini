@@ -17,15 +17,17 @@
 #define APP_USB_VID     0x0483U
 #define APP_USB_ADB_PID 0x0ADBU
 #define APP_USB_MSC_PID 0x4001U
-#define APP_USB_ADB_BCD_DEVICE 0x0104U
+#define APP_USB_ADB_BCD_DEVICE 0x0107U
 
 #define APP_USB_MAX_POWER_MA 100U
 #define APP_USB_ADB_DESC_LEN 23U
 
 #if defined(CONFIG_USB_HS)
 #define APP_USB_BULK_MPS 512U
+#define APP_USB_AUDIO_INTERVAL 0x04U
 #else
 #define APP_USB_BULK_MPS 64U
+#define APP_USB_AUDIO_INTERVAL 0x01U
 #endif
 
 enum {
@@ -38,11 +40,12 @@ enum {
 };
 
 #if defined(CONFIG_APP_USB_AUDIO_ENABLE) && CONFIG_APP_USB_AUDIO_ENABLE
-#define APP_USB_AUDIO_INPUT_TERM_ID  0x01U
+#define APP_USB_AUDIO_INPUT_TERM_ID   0x01U
 #define APP_USB_AUDIO_FEATURE_UNIT_ID 0x02U
-#define APP_USB_AUDIO_OUTPUT_TERM_ID 0x03U
+#define APP_USB_AUDIO_OUTPUT_TERM_ID  0x03U
 
-#define APP_USB_AUDIO_CHANNEL_CONFIG 0x0033U
+/* These are logical mic/ref/algorithm channels, not speaker positions. */
+#define APP_USB_AUDIO_CHANNEL_CONFIG 0x0000U
 #define APP_USB_AUDIO_INPUT_CONTROLS \
     0x03U, 0x03U, 0x03U, 0x03U, 0x03U
 
@@ -59,7 +62,7 @@ enum {
      AUDIO_SIZEOF_AC_OUTPUT_TERMINAL_DESC + \
      AUDIO_AS_DESCRIPTOR_LEN(1))
 
-/* The ARCS CherryUSB sample clears sampling-frequency control for fixed-rate HS audio. */
+/* Fixed-rate UAC1 avoids Windows sending unsupported SET_CUR requests. */
 #define APP_USB_AUDIO_AS_FIXED_FREQ_DESCRIPTOR_INIT() \
     0x09, USB_DESCRIPTOR_TYPE_INTERFACE, APP_USB_ITF_AUDIO_STREAM, 0x00, 0x00, \
         USB_DEVICE_CLASS_AUDIO, AUDIO_SUBCLASS_AUDIOSTREAMING, AUDIO_PROTOCOL_UNDEFINED, 0x05, \
@@ -71,7 +74,7 @@ enum {
         AUDIO_FORMAT_TYPE_I, APP_USB_AUDIO_CHANNELS, APP_USB_AUDIO_SAMPLE_BITS / 8U, \
         APP_USB_AUDIO_SAMPLE_BITS, 0x01, AUDIO_SAMPLE_FREQ_3B(APP_USB_AUDIO_SAMPLE_RATE), \
     0x09, USB_DESCRIPTOR_TYPE_ENDPOINT, APP_USB_AUDIO_IN_EP, 0x05, \
-        WBVAL(APP_USB_AUDIO_MAX_PACKET_SIZE), 0x04, 0x00, 0x00, \
+        WBVAL(APP_USB_AUDIO_MAX_PACKET_SIZE), APP_USB_AUDIO_INTERVAL, 0x00, 0x00, \
     0x07, AUDIO_ENDPOINT_DESCRIPTOR_TYPE, AUDIO_ENDPOINT_GENERAL, \
         0x00, 0x00, 0x00, 0x00
 #else
@@ -146,7 +149,7 @@ static const char *string_descriptors[] = {
     (const char[]){ 0x09, 0x04 },
     "ListenAi",
     "VoiceAssistant CherryUSB UAC1",
-    "FFBBCCDDEE001122",
+    "FFBBCCDDEE001124",
     "ADB Interface",
     "CherryUSB UAC1 Audio",
 };

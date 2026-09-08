@@ -162,14 +162,14 @@ static int voice_platform_init(void)
         lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
 
         if (lsfs_mount(&sdmmc_mnt) != 0) {
-            LOGI("Mount failed, formatting...");
-            if (lsfs_mkfs(LSFS_FATFS, SDMMC_DEVICE, NULL, 0) == 0) {
-                if (lsfs_mount(&sdmmc_mnt) == 0) {
-                    LOGI("Mounted %s successfully\n", SDMMC_MOUNT_POINT);
-                }
-            } else {
-                LOGE("Failed to mount filesystem");
-            }
+            /*
+             * Never format an inserted card automatically.  FatFs cannot
+             * mount NTFS (or any other unsupported/corrupt filesystem), and
+             * formatting here would destroy the user's data.  Leave the
+             * card unmounted; the SD service will report it as unavailable.
+             */
+            LOGW("Failed to mount %s; filesystem unsupported or invalid, skip without formatting",
+                 SDMMC_MOUNT_POINT);
         } else {
             LOGI("Mounted %s successfully\n", SDMMC_MOUNT_POINT);
         }
@@ -181,7 +181,11 @@ static int voice_platform_init(void)
     // Check if KV storage is already initialized (e.g., from factory reset)
     lisa_kv_init();
     app_datas_init();
-    user_usb_start();
+    int usb_ret = user_usb_start();
+    if (usb_ret != 0) {
+        LISA_LOGE(TAG, "USB initialization failed: %d", usb_ret);
+        return usb_ret;
+    }
     /* USB-MSC模式下, 不运行应用程序, 只支持USB文件传输 */
     if (app_usb_msc_enabled()) {
         LISA_LOGW(TAG," Enter USB MSC mode, application will not start.\n");

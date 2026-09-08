@@ -6,6 +6,24 @@ config BOOT_AP_ENTRY
     hex "AP entry"
     default 0
 
+config BOOT_FACTORY_PARAMS
+    bool "Boot application selected by factory parameters"
+    default n
+    help
+      Read the FACT header from the factory parameter sector during boot_f.
+      A valid header selects the configured factory-test image; otherwise the
+      normal application address is used.
+
+config BOOT_FACTORY_PARAMS_OFFSET
+    hex "Factory parameter Flash offset"
+    default 0x3E000
+    depends on BOOT_FACTORY_PARAMS
+
+config BOOT_FACTORY_TEST_OFFSET
+    hex "Factory-test image Flash offset"
+    default 0xA00000
+    depends on BOOT_FACTORY_PARAMS
+
 config BOOT_SECOND_STAGE
     bool "Enable boot second stage (boot_s)"
     default n

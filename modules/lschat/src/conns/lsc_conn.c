@@ -228,6 +228,7 @@ static int conn_connect(char *token)
 
 	lsc_conn_t *conn = g_lsc_conn_obj;
 	CHECK_COND_RETURN_VAL(conn, LSC_INVALID_STATE, "conn not init");
+	CHECK_COND_RETURN_VAL(!lsc_is_network_suspended(), LSC_INVALID_STATE, "lsc network suspended");
 
 	if (conn->ws_hdl == NULL) {
 		conn->ws_hdl = lisa_ws_new();
@@ -289,11 +290,12 @@ static int conn_disconnect(void)
 {
 	lsc_conn_t *conn = g_lsc_conn_obj;
 	CHECK_COND_RETURN_VAL(conn, LSC_INVALID_STATE, "conn not init");
-	CHECK_COND_RETURN_VAL(conn->ws_hdl, LSC_INVALID_STATE, "conn ws not init");
 
 	conn_clear_auth_header();
 
-	lisa_ws_disconnect(conn->ws_hdl);
+	if (conn->ws_hdl) {
+		lisa_ws_disconnect(conn->ws_hdl);
+	}
 
 	return LSC_OK;
 }
@@ -328,6 +330,7 @@ static int conn_send_bin(const uint8_t *data, uint32_t size)
 	lsc_conn_t *conn = g_lsc_conn_obj;
 	CHECK_COND_RETURN_VAL(conn, LSC_INVALID_STATE, "conn not init");
 	CHECK_COND_RETURN_VAL(conn->ws_hdl, LSC_INVALID_STATE, "conn ws not create");
+	CHECK_COND_RETURN_VAL(!lsc_is_network_suspended(), LSC_INVALID_STATE, "lsc network suspended");
 
 	int ret = lisa_ws_send_binary(conn->ws_hdl, (const void *)data, size);
 	if (ret) {
@@ -342,6 +345,7 @@ static int conn_send_text(char *text)
 	lsc_conn_t *conn = g_lsc_conn_obj;
 	CHECK_COND_RETURN_VAL(conn, LSC_INVALID_STATE, "conn not init");
 	CHECK_COND_RETURN_VAL(conn->ws_hdl, LSC_INVALID_STATE, "conn ws not create");
+	CHECK_COND_RETURN_VAL(!lsc_is_network_suspended(), LSC_INVALID_STATE, "lsc network suspended");
 
 	int ret = lisa_ws_send_text(conn->ws_hdl, (const uint8_t *)text);
 	if (ret) {
@@ -357,10 +361,11 @@ static int conn_auth(char *device_id, char *product_id, char *secret_id, char *e
 	lsc_device_mode_t device_mode = LSC_DEVICE_MODE_PROD;
 	LISA_NLOGI("[%s] dev_id:%s pro_id:%s ser_id:%s extra:%s", __FUNCTION__, device_id, product_id, secret_id,
 		   extra_param ? extra_param : "NULL");
+	CHECK_COND_RETURN_VAL(!lsc_is_network_suspended(), LSC_INVALID_STATE, "lsc network suspended");
 
 	struct lisa_sntp_time time = {0};
 	const char *servers[] = {"ntp.aliyun.com", "ntp.tencent.com", "ntp.ntsc.ac.cn"};
-	int err = lisa_sntp_query(servers, sizeof(servers) / sizeof(char *), 500, &time);
+	int err = lisa_sntp_query(servers, sizeof(servers) / sizeof(servers[0]), 2000, &time);
 	CHECK_COND_RETURN_VAL(err == 0, LSC_ERR, "sntp query faild");
 
 	// 数据格式化后最大10位数字，再加上结束符

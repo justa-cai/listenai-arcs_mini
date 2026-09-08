@@ -78,6 +78,12 @@ void voice_player_play_tone_url(const char *url);
  */
 void voice_player_play_prompt_tone_url(const char *url);
 
+/**
+ * @brief Queue the low-battery shutdown warning with a distinct completion source.
+ * @return true when the request was queued, false when no usable request was submitted
+ */
+bool voice_player_play_power_shutdown_tone_url(const char *url);
+
 /* ==================== TTS API ==================== */
 
 /**

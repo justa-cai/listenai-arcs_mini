@@ -13,3 +13,4 @@ tools/tone_tool/tts
 listenai-dev-tools/
 tmp/
 *.log
+apps/factorytest/config.yaml

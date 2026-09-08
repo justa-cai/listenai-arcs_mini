@@ -50,6 +50,12 @@ int service_sd_music_scan(const char *path);
  */
 bool service_sd_music_is_syncing(void);
 
+/**
+ * @brief   TF card filesystem availability snapshot.
+ * @return  true when the card has been identified and can be accessed.
+ */
+bool service_sd_music_is_card_ready(void);
+
 #ifdef __cplusplus
 }
 #endif

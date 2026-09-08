@@ -183,9 +183,9 @@ static void on_camera_preview_start(void *unused, uint32_t msg_id,
          * no_pushup_tts=1 表示 JSON args 中带 "sync":true，云端不会下发
          * pushup TTS URL，丢弃快照，避免误复播其他 session 的过期 URL。 */
         if (!req->no_pushup_tts) {
-            voice_player_tts_snapshot_and_stop();
+            voice_player_tts_snapshot_and_stop_async();
         } else {
-            voice_player_tts_stop();
+            voice_player_tts_stop_async();
         }
         LOGI("mcp photo preview start, push PHOTO_FLOW");
         voice_intent_push(INTENT_PHOTO_FLOW);

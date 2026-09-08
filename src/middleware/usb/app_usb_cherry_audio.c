@@ -37,6 +37,13 @@ static bool mute[APP_USB_AUDIO_CHANNELS + 1U];
 static int volume_db[APP_USB_AUDIO_CHANNELS + 1U];
 static uint32_t sample_rate = APP_USB_AUDIO_SAMPLE_RATE;
 
+static const uint8_t audio_sampling_freq_table[] = {
+    AUDIO_SAMPLE_FREQ_NUM(1),
+    AUDIO_SAMPLE_FREQ_4B(APP_USB_AUDIO_SAMPLE_RATE),
+    AUDIO_SAMPLE_FREQ_4B(APP_USB_AUDIO_SAMPLE_RATE),
+    AUDIO_SAMPLE_FREQ_4B(0U),
+};
+
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX
 static uint8_t audio_packet[APP_USB_AUDIO_PACKET_BYTES];
 
@@ -287,4 +294,14 @@ uint32_t usbd_audio_get_sampling_freq(uint8_t busid, uint8_t ep)
     (void)busid;
 
     return ep == APP_USB_AUDIO_IN_EP ? sample_rate : 0U;
+}
+
+void usbd_audio_get_sampling_freq_table(uint8_t busid, uint8_t ep,
+                                        uint8_t **table)
+{
+    (void)busid;
+
+    if (ep == APP_USB_AUDIO_IN_EP) {
+        *table = (uint8_t *)audio_sampling_freq_table;
+    }
 }

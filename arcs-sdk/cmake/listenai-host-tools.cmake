@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: Apache-2.0
+
+if(NOT DEFINED LISTENAI_TOOLS_PATH)
+    if(DEFINED ENV{LISTENAI_TOOLS_PATH})
+        set(LISTENAI_TOOLS_PATH $ENV{LISTENAI_TOOLS_PATH})
+    elseif(NOT CMAKE_HOST_APPLE)
+        message(FATAL_ERROR "LISTENAI_TOOLS_PATH is not defined")
+    endif()
+endif()
+
+string(REPLACE "\\" "/" LISTENAI_TOOLS_PATH "${LISTENAI_TOOLS_PATH}")
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+set(LISTENAI_TOOLS_MKHDR "${ARCS_SDK_BASE}/tools/mkhdr/mkhdr.py")
+set(LISTENAI_TOOLS_MKHDR_COMMAND
+    "${Python3_EXECUTABLE}"
+    "${LISTENAI_TOOLS_MKHDR}"
+)
+
+if(CMAKE_HOST_WIN32)
+    set(LISTENAI_TOOLS_KCONFIG "${LISTENAI_TOOLS_PATH}/kconfig/kconfig.py")
+    set(LISTENAI_TOOLS_MENUCONFIG "${LISTENAI_TOOLS_PATH}/menuconfig/menuconfig.py")
+elseif(CMAKE_HOST_APPLE)
+    set(LISTENAI_TOOLS_KCONFIG "${ARCS_SDK_BASE}/tools/kconfig/kconfig.py")
+    set(LISTENAI_TOOLS_MENUCONFIG "${ARCS_SDK_BASE}/tools/menuconfig/menuconfig.py")
+else()
+    set(LISTENAI_TOOLS_KCONFIG "${LISTENAI_TOOLS_PATH}/kconfig/kconfig")
+    set(LISTENAI_TOOLS_MENUCONFIG "${LISTENAI_TOOLS_PATH}/menuconfig/menuconfig")
+endif()
+
+if(CMAKE_HOST_WIN32 OR CMAKE_HOST_APPLE)
+    set(LISTENAI_TOOLS_KCONFIG_COMMAND
+        "${Python3_EXECUTABLE}" "${LISTENAI_TOOLS_KCONFIG}"
+    )
+    set(LISTENAI_TOOLS_MENUCONFIG_COMMAND
+        "${Python3_EXECUTABLE}" "${LISTENAI_TOOLS_MENUCONFIG}"
+    )
+else()
+    set(LISTENAI_TOOLS_KCONFIG_COMMAND "${LISTENAI_TOOLS_KCONFIG}")
+    set(LISTENAI_TOOLS_MENUCONFIG_COMMAND "${LISTENAI_TOOLS_MENUCONFIG}")
+endif()

@@ -108,6 +108,8 @@ typedef enum {
 	SESSION_VOICE_VPR_INFO = BIT(19),
 	/** 声纹ID*/
 	SESSION_VOICE_VPR_FEATURE = BIT(20),
+	/** 带 timeline 格式的语音文本结果 URL */
+	SESSION_VOICE_REPLY_TIMELINE_URL = BIT(21),
 	/** 原始结果数据 */
 	SESSION_VOICE_RAW_DATA = BIT(30),
 } session_voice_event_e;
@@ -126,6 +128,7 @@ typedef enum {
  * SESSION_VOICE_MUSIC_LISTS | session_voice_music_lists_t
  * SESSION_VOICE_MUSIC_INSTR | session_voice_music_instr_t
  * SESSION_VOICE_REPLY_URL  | char*
+ * SESSION_VOICE_REPLY_TIMELINE_URL | char*
  * SESSION_VOICE_DRAW       | char*
  * SESSION_VOICE_AIUI_CTRL   | char*
  * SESSION_VOICE_ERR        | NULL
@@ -230,6 +233,7 @@ int session_voice_remove_evt_callback(session_voice_event_cb_t cb);
  * @retval 0： 成功
  */
 int session_voice_start(void);
+int session_voice_start_ex(bool preserve_reply_sid);
 
 /**
  * @brief 中止会话
@@ -237,6 +241,17 @@ int session_voice_start(void);
  * @retval 0： 成功
  */
 int session_voice_cancel(void);
+
+/**
+ * @brief 上报当前 TTS 回复被用户打断的位置。
+ *
+ * 该接口使用最近一次 timeline 回复到达时保存的 sid，不会使用后续 IAT sid。
+ *
+ * @retval 0 发送成功，其他值表示当前会话不支持上报或发送失败
+ */
+int session_voice_reply_interrupted(uint32_t sentence_index,
+				    uint32_t sentence_start,
+				    uint32_t sentence_end);
 
 /**
  * @brief 发送音频

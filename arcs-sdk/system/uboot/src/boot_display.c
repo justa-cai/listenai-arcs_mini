@@ -153,6 +153,7 @@ void boot_display_init(void)
         .backlight =
             {
                 .type = LISA_DISPLAY_BACKLIGHT_TYPE_PWM,
+                .blacklight_polarity = LISA_DISPLAY_BLACKLIGHT_POLARITY_HIGH,
                 .config.pwm =
                     {
                         .channel = 1,

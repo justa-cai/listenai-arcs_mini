@@ -54,6 +54,8 @@ struct lisa_ui_llm_primary {
 #endif
     lv_obj_t *wifi_icon;     /*!< WiFi图标 */
     lv_obj_t *full_duplex_icon; /*!< 交互模式图标（全双工） */
+    lv_obj_t *tf_card_icon;  /*!< TF 卡图标 */
+    lv_obj_t *usb_icon;      /*!< USB Host 图标 */
     lv_obj_t *alarm_icon;    /*!< 闹钟图标 */
     lv_obj_t *battery_icon;  /*!< 电量图标 */
     lv_obj_t *status_label;  /*!< 状态文本标签 */
@@ -201,6 +203,15 @@ void lisa_ui_llm_primary_set_full_duplex_icon_visible(lv_obj_t *obj, bool visibl
  * @param img_path 图片路径，如果为NULL则不更新图片
  */
 void lisa_ui_llm_primary_set_full_duplex_icon_img(lv_obj_t *obj, const void *img_path);
+
+/**
+ * @brief 设置 TF 卡图标显示状态
+ * @param obj LLM UI 主要组件对象
+ * @param visible true 显示，false 隐藏
+ */
+void lisa_ui_llm_primary_set_tf_card_icon_visible(lv_obj_t *obj, bool visible);
+
+void lisa_ui_llm_primary_set_usb_icon_visible(lv_obj_t *obj, bool visible);
 
 /**
  * @brief 设置闹钟图标显示状态

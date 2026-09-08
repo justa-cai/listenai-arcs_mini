@@ -15,6 +15,7 @@
 #include "app_player.h"
 #include "tone.h"
 #include "voice_player_comm.h"
+#include "voice_player/voice_player_tts.h"
 #include "lisa_log.h"
 
 __attribute__((weak)) bool app_voice_interaction_blocked(void)
@@ -127,6 +128,8 @@ static bool start_voice_cloud(struct app_datas *app_datas)
     const char *keywords[] = {"小聆小聆"};
     struct voice_cloud_chat_config chat_config = {
         .full_duplex = app_interaction_mode_is_continuous(app_datas->int_mode),
+        .wait_wakeup_tone = app_datas->int_mode == APP_INTERACTION_MODE_MULTI_NO_INTERRUPT ||
+                            app_datas->int_mode == APP_INTERACTION_MODE_SINGLE,
         .timeout_ms = app_datas->full_duplex_timeout_ms,
         .oneshot = app_interaction_mode_is_continuous(app_datas->int_mode) ? false : app_datas->oneshot,
         .words = (char **)keywords,
@@ -153,12 +156,32 @@ static bool voice_wakeup_tts_interrupt_needed(void)
 
 static void interrupt_photo_flow(const char *source)
 {
+    app_player_state_t state;
+    uint32_t playback_position_ms = 0;
+    bool position_valid = false;
+
     LOGI("interrupt photo flow by %s", source ? source : "unknown");
     if (voice_wakeup_tts_interrupt_needed()) {
-        if (app_player_stop(tts_player) == APP_PLAYER_OK) {
-            LOGI("interrupt photo flow: stopped active tts");
-        } else {
-            LOGW("interrupt photo flow: stop tts failed");
+        state = app_player_get_state(tts_player);
+        position_valid = state == APP_PLAYER_STATE_PREPARING ||
+                         state == APP_PLAYER_STATE_PREPARED ||
+                         app_player_get_position(tts_player, &playback_position_ms) == APP_PLAYER_OK;
+        voice_player_tts_stop_async();
+        LOGI("interrupt active reply at %u ms, position_valid=%u",
+             (unsigned)playback_position_ms, (unsigned)position_valid);
+
+        if (position_valid &&
+            voice_cloud_report_reply_interrupted(playback_position_ms) != 0) {
+            LOGW("reply interruption position not reported");
+        }
+
+        /* Invalidate subtitle callbacks after reporting the old reply.  The
+         * stream task can already have queued SSE events which must not be
+         * applied to the newly started wakeup session. */
+        voice_cloud_tts_text_cancel();
+
+        if (voice_cloud_is_session_active() && voice_cloud_chat_stop() != 0) {
+            LOGW("cancel interrupted cloud session failed");
         }
     }
     voice_msg_pub(VOICE_MSG_APP_CAMERA_PREVIEW_EXIT, NULL, 0);

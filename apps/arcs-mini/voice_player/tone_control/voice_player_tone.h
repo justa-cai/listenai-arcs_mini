@@ -10,6 +10,7 @@ typedef enum {
     VOICE_PLAYER_TONE_SOURCE_DEFAULT = 0,
     VOICE_PLAYER_TONE_SOURCE_WAKEUP,
     VOICE_PLAYER_TONE_SOURCE_ALARM,
+    VOICE_PLAYER_TONE_SOURCE_POWER_SHUTDOWN,
 } voice_player_tone_source_t;
 
 /** tone 自然播放完成事件携带的来源信息。 */

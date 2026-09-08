@@ -6,6 +6,7 @@
 #include "lisa_time.h"
 
 #include "app_datas.h"
+#include "app_wakeup.h"
 #include "app_tone.h"
 #include "service_sd_music.h"
 #include "sys_network_manager.h"
@@ -180,6 +181,7 @@ static void voice_player_wakeup_on_message(void *unused, uint32_t msg_id,
                                           void *data, uint32_t len,
                                           void *user_data)
 {
+    int power_ret;
     uint32_t required_mode;
 
     (void)unused;
@@ -197,6 +199,15 @@ static void voice_player_wakeup_on_message(void *unused, uint32_t msg_id,
         break;
     default:
         return;
+    }
+
+    /*
+     * Button-triggered wake events do not pass through the wake-word callback,
+     * so restore the DAC here as a final guard before playing any wake tone.
+     */
+    power_ret = app_wakeup_audio_standby_resume();
+    if (power_ret != 0) {
+        LISA_LOGW(TAG, "Audio standby resume before wake tone failed: %d", power_ret);
     }
 
     voice_player_wakeup_handle(required_mode);

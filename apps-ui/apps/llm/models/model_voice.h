@@ -19,11 +19,23 @@ typedef enum {
     MODEL_VOICE_WAKEUP_MODE_MAX
 } model_voice_wakeup_mode_t;
 
+typedef struct {
+    uint32_t index;
+    uint32_t start_index;
+    uint32_t end_index;
+    uint32_t start_ms;
+    uint32_t end_ms;
+    uint16_t text_len;
+    uint16_t reserved;
+    char text[];
+} model_voice_tts_timeline_t;
+
 int model_voice_off(void);
 int model_voice_on(void);
 
 struct model_voice_cb {
     void (*on_tts_stoped)(void *arg);
+    void (*on_tts_error)(void *arg);
     void (*on_tts_playing)(void *arg);
     void (*on_camera_capture_tone_finished)(void *arg);
     void (*on_emoji)(void *arg, const char *emoji_name);
@@ -37,6 +49,11 @@ struct model_voice_cb {
     void (*on_tts_text_start)(void *arg);
     void (*on_tts_text_update)(const char *text, void *arg);
     void (*on_tts_text_end)(void *arg);
+    void (*on_tts_text_interrupt)(void *arg);
+    void (*on_tts_timeline_start)(void *arg);
+    void (*on_tts_timeline_update)(const model_voice_tts_timeline_t *timeline, void *arg);
+    void (*on_tts_timeline_end)(void *arg);
+    void (*on_tts_timeline_fallback)(void *arg);
     void (*on_iat_text_start)(void *arg);
     void (*on_iat_text_update)(const char *text, void *arg);
     void (*on_iat_text_end)(void *arg);
@@ -48,6 +65,7 @@ struct model_voice_cb {
     void (*on_show_qrcode)(void *arg);
     void (*on_standby_texts_changed)(void *arg);
     void (*on_standby_text_update)(void *arg, const char *text, bool is_cloud_text);
+    void (*on_alarm_stopped)(void *arg);
     void (*on_battery_query)(void *arg, uint8_t level, uint8_t status);
 #ifdef CONFIG_OTA
     void (*on_ota_state_change)(const ota_state_t *state, void *arg);
@@ -67,6 +85,7 @@ uint8_t model_voice_cloud_is_connected(void);
 uint8_t model_voice_cloud_is_running(void);
 uint8_t model_voice_tts_is_playing(void);
 uint8_t model_voice_tts_is_pending(void);
+int model_voice_tts_position_get(uint32_t *position_ms);
 uint8_t model_voice_music_is_playing(void);
 const char *model_voice_music_text_get(void);
 uint8_t model_voice_img_rec_is_mcp(void);

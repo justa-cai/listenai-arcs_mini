@@ -15,6 +15,7 @@
 #include "voice_msg.h"
 #include "voice_player_comm.h"
 #include "voice_player/voice_player_tts.h"
+#include "sys_wifi.h"
 
 #ifdef CONFIG_OTA
 #include "ota_manager.h"
@@ -24,6 +25,7 @@
 #include "button_blecfg.h"
 #include "button_camera_preview.h"
 #include "button_factory_reset.h"
+#include "service_power_policy.h"
 
 /* ==================== 模块配置与状态 ==================== */
 
@@ -243,6 +245,11 @@ static bool app_button_redirect_to_cloud_info(voice_msg_button_action_t action)
  */
 static void app_button_handle_click(void)
 {
+    if (service_power_policy_handle_function_click()) {
+        LISA_LOGI(TAG, "Single click: restored from hibernate without starting interaction");
+        return;
+    }
+
     /* 拍照流程优先：预览中执行拍照，语音拍照锁定时退出拍照流程。 */
     if (button_camera_preview_handle_click()) {
         return;
@@ -255,14 +262,25 @@ static void app_button_handle_click(void)
         return;
     }
 
-    /* 主页单击：会话进行中则强制结束本地和云端会话，
-     * 否则模拟唤醒词发起会话。 */
-    LISA_LOGI(TAG, "Single click: wakeup trigger");
-    if (model_voice_cloud_is_running()) {
+    /* TTS 阶段单击需要打断回复并重新收音；其余会话阶段单击用于结束当前唤醒。 */
+    if (model_voice_cloud_is_running() && !voice_player_tts_is_active()) {
+        LISA_LOGI(TAG, "Single click: stop active wakeup");
         voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, NULL, 0);
     } else {
         const char wakeup_keyword[] = "xiao ling xiao ling";
 
+#if CONFIG_WIFI
+        /*
+         * Standby deliberately uses the maximum listen interval. Exit Wi-Fi
+         * power save before publishing the local wake so the outbound request
+         * never waits for the next beacon.
+         */
+        int ret = sys_wifi_set_standby_power_save(false);
+        if (ret != 0) {
+            LISA_LOGW(TAG, "WiFi standby resume before button wake failed: %d", ret);
+        }
+#endif
+        LISA_LOGI(TAG, "Single click: wakeup trigger");
         voice_msg_pub(VOICE_MSG_WAKEUP_KEYWORD,
                       (void *)wakeup_keyword,
                       sizeof(wakeup_keyword));
@@ -306,6 +324,13 @@ static void app_button_handle_triple_click(void)
     /* 将云端异常状态转换为未联网、未绑定等页面状态；云端正常时保持已连接状态。 */
     (void)app_button_resolve_cloud_info_status(&status);
     LISA_LOGI(TAG, "power button triple click, open info page");
+
+    /* 三击可能发生在按键拍照预览期间。先发送统一的预览退出事件，
+     * 让 PHOTO_FLOW 出栈并触发 MUSIC 恢复，再切换到二维码页面。 */
+    if (button_camera_preview_is_busy()) {
+        LISA_LOGI(TAG, "Triple click: exit active photo preview before info page");
+        button_camera_preview_request_exit();
+    }
 
     /* 三击配置页会中断正在进行的对话，确保提示音结束后恢复音乐而非旧会话。 */
     app_button_exit_voice_session_for_info();
@@ -369,7 +394,7 @@ static void app_button_dispatch_action(voice_msg_button_action_t action)
 {
     switch (action) {
     case VOICE_MSG_BUTTON_ACTION_CLICK:
-        /* 单击：预览页拍照或退出语音拍照；非主页返回主页；主页唤醒或退出会话。 */
+        /* 单击：预览页拍照或退出语音拍照；非主页返回主页；主页唤醒或结束会话。 */
         app_button_handle_click();
         break;
     case VOICE_MSG_BUTTON_ACTION_DOUBLE_CLICK:

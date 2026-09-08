@@ -152,36 +152,36 @@ static bool battery_external_power_stable_get(void)
 // 4. 多次测量取平均值以提高准确性
 //
 // 数据来源：240032-7-6/7/8 实测恒流放电（155mA）曲线，3组取平均值
-// 截止电压约 3.0V，满电开路电压约 4.20V（155mA 负载下测量值）
+// 结合整机实测校准：拔掉 USB 后 4.00V 及以上视为满电，修正量按档位逐级分摊
 static const uint16_t battery_voltage_table_discharge[11] = {
     3010, // 0%  - 实测截止电压（约3.0V）
-    3440, // 10%
-    3576, // 20%
-    3719, // 30%
-    3781, // 40%
-    3820, // 50%
-    3860, // 60%
-    3925, // 70%
-    3973, // 80%
-    4013, // 90%
-    4160  // 100% - 满电端电压（155mA 负载）
+    3424, // 10%
+    3544, // 20%
+    3671, // 30%
+    3717, // 40%
+    3740, // 50%
+    3764, // 60%
+    3813, // 70%
+    3845, // 80%
+    3869, // 90%
+    4000  // 100% - 拔掉 USB 后的整机满电阈值
 };
 
 // 充电电压百分比查找表 (按10%步进，从0%到100%)
 // 数据来源：240032-7-6/7/8 实测恒流恒压充电（500mA CC / 4.2V CV）曲线，3组取平均值
-// 说明：CC 阶段端电压上升较快（0%→10% 区间）；CV 阶段（10%→100%）电压在 4.04~4.20V 缓慢上升
+// 结合整机实测校准：插着 USB 时 4.10V 及以上视为满电，修正量按档位逐级分摊
 static const uint16_t battery_voltage_table_charge[11] = {
     3257, // 0%  - 充电起始端电压（近空电池，500mA 充电开始）
-    3677, // 10%
-    3757, // 20%
-    3850, // 30%
-    3943, // 40%
-    4002, // 50%
-    4039, // 60%
-    4071, // 70%
-    4103, // 80%
-    4150, // 90%
-    4200  // 100% - CV 截止电压
+    3667, // 10%
+    3737, // 20%
+    3820, // 30%
+    3903, // 40%
+    3952, // 50%
+    3979, // 60%
+    4001, // 70%
+    4023, // 80%
+    4060, // 90%
+    4100  // 100% - 插着 USB 时的整机满电阈值
 };
 
 /**
@@ -448,8 +448,7 @@ battery_status_t battery_get_status(void)
         s_discharge_static_cnt = 0;
     }
 
-    const uint16_t *table = external_power ? battery_voltage_table_charge : battery_voltage_table_discharge;
-    if (external_power && voltage_to_percentage_by_table(filtered_voltage, table) >= 98) {
+    if (external_power && filtered_voltage >= battery_voltage_table_charge[10]) {
         ret = BATTERY_STATUS_CHARGE_DONE;
     }
     

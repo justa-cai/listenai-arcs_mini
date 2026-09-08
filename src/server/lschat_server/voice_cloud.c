@@ -18,6 +18,7 @@
 #include "image_url_utils.h"
 #include "service_image.h"
 #include "async_task.h"
+#include "voice_player/tone_control/voice_player_tone.h"
 
 #include "acomp_wakeup.h"
 #include "power/power_manager.h"
@@ -61,6 +62,8 @@ static volatile uint8_t g_voice_session_active = 0;
 
 static volatile uint8_t pcm_send_en = 0;
 static volatile uint8_t cloud_init_done = 0;
+/* 非全双工唤醒会话需等本地唤醒应答音播完后才允许上传麦克风数据。 */
+static volatile uint8_t g_wait_wakeup_tone = 0;
 static session_objrec_t objrec = NULL;
 static uint8_t *voice_cloud_token = NULL;
 static uint8_t full_duplex = 0;
@@ -72,8 +75,74 @@ static volatile uint32_t g_objrec_accept_seq = 0;
 
 #define VOICE_CLOUD_TTS_TEXT 1
 #define RESOURCE_UPDATE_REBOOT_DELAY_MS_DEFAULT 3000U
+#define TTS_TIMELINE_MAX_SENTENCES 64U
+#define TTS_TIMELINE_TEXT_MAX 2048U
+#define TTS_TIMELINE_DIAG_PREVIEW_BYTES 96U
+#define TTS_TIMELINE_EMPTY_RETRY_MAX 3U
+#define TTS_TIMELINE_EMPTY_RETRY_DELAY_MS 1500U
+#define TTS_TIMELINE_URL_MAX 512U
 
 static volatile uint32_t g_stream_text_generation = 1U;
+
+typedef struct {
+    uint32_t index;
+    uint32_t start_index;
+    uint32_t end_index;
+    uint32_t start_ms;
+    uint32_t end_ms;
+} voice_tts_timeline_cursor_t;
+
+typedef struct {
+    uint32_t generation;
+    uint32_t expected_index;
+    uint32_t expected_start_index;
+    uint32_t previous_end_ms;
+    uint32_t cursor_count;
+    uint32_t legacy_text_len;
+    bool negotiated;
+    bool valid;
+    bool fallback;
+    bool started;
+    bool reported;
+    bool ended;
+    bool retry_scheduled;
+    uint32_t empty_retry_count;
+    voice_tts_timeline_cursor_t cursors[TTS_TIMELINE_MAX_SENTENCES];
+    char legacy_text[TTS_TIMELINE_TEXT_MAX];
+    char stream_url[TTS_TIMELINE_URL_MAX];
+} voice_tts_timeline_state_t;
+
+static voice_tts_timeline_state_t g_tts_timeline;
+
+static void voice_tts_timeline_log_invalid_payload(const char *data, bool json_valid,
+                                                   bool text_valid)
+{
+    size_t len = data ? strlen(data) : 0U;
+    size_t head_len = len < TTS_TIMELINE_DIAG_PREVIEW_BYTES ?
+                      len : TTS_TIMELINE_DIAG_PREVIEW_BYTES;
+    size_t tail_len = 0U;
+    int error_offset = -1;
+
+    if (!json_valid && data) {
+        const char *error = cJSON_GetErrorPtr();
+        if (error && error >= data && error <= data + len) {
+            error_offset = (int)(error - data);
+        }
+    }
+
+    LOGW("invalid timeline payload: len=%u, json_valid=%u, text_valid=%u, error_offset=%d",
+         (unsigned)len, (unsigned)json_valid, (unsigned)text_valid, error_offset);
+    if (head_len > 0U) {
+        LOGH("timeline_payload_head", data, head_len);
+    }
+    if (len > head_len) {
+        tail_len = len - head_len;
+        if (tail_len > TTS_TIMELINE_DIAG_PREVIEW_BYTES) {
+            tail_len = TTS_TIMELINE_DIAG_PREVIEW_BYTES;
+        }
+        LOGH("timeline_payload_tail", data + len - tail_len, tail_len);
+    }
+}
 
 const char *lsc_get_firmware_type(void)
 {
@@ -146,6 +215,9 @@ static void voice_cloud_handle_device_unbound(void)
     int pause_ret = 0;
     int session_active = voice_cloud_is_session_active();
     int uploading_audio = voice_cloud_is_uploading_audio();
+    voice_msg_cloud_session_interrupt_t interrupt = {
+        .report_reply_position = 0,
+    };
 
     if (!session_active && !uploading_audio) {
         return;
@@ -161,7 +233,7 @@ static void voice_cloud_handle_device_unbound(void)
     }
 
     LOGW("device unbound: interrupt active voice session");
-    voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, NULL, 0);
+    voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, &interrupt, sizeof(interrupt));
 }
 
 
@@ -219,6 +291,33 @@ static void voice_pcm_send_disable(void)
     pcm_send_en = 0;
 }
 
+static void voice_cloud_wakeup_tone_completed(void *unused, uint32_t msg_id,
+                                              void *data, uint32_t len,
+                                              void *user_data)
+{
+    const voice_player_tone_completed_t *completed =
+        (const voice_player_tone_completed_t *)data;
+
+    (void)unused;
+    (void)user_data;
+
+    if (msg_id != VOICE_MSG_PLAYER_TONE_COMPLETED ||
+        completed == NULL || len < sizeof(*completed) ||
+        completed->source != VOICE_PLAYER_TONE_SOURCE_WAKEUP) {
+        return;
+    }
+
+    if (!g_wait_wakeup_tone || !g_voice_session_active) {
+        return;
+    }
+
+    g_wait_wakeup_tone = 0;
+    LOGI("wakeup tone completed, resume audio upload");
+    if (voice_cloud_upload_audio_resume() != 0) {
+        LOGW("resume audio upload after wakeup tone failed");
+    }
+}
+
 int voice_cloud_upload_audio_pause(void)
 {
     if (!cloud_init_done) {
@@ -251,6 +350,11 @@ int voice_cloud_upload_audio_resume(void)
         return -1;
     }
 
+    if (g_wait_wakeup_tone) {
+        LOGI("upload audio resume deferred until wakeup tone completes");
+        return 0;
+    }
+
     if (g_record_stream_buffer) {
         xStreamBufferReset(g_record_stream_buffer);
     }
@@ -278,6 +382,403 @@ int voice_cloud_upload_audio_resume(void)
 static void pcm_send_en_timer_cb(TimerHandle_t xTimer)
 {
     voice_pcm_send_enable();
+}
+
+static void voice_tts_timeline_reset(bool negotiated, uint32_t generation,
+                                     const char *url)
+{
+    taskENTER_CRITICAL();
+    g_tts_timeline.generation = generation;
+    g_tts_timeline.expected_index = 0;
+    g_tts_timeline.expected_start_index = 0;
+    g_tts_timeline.previous_end_ms = 0;
+    g_tts_timeline.cursor_count = 0;
+    g_tts_timeline.legacy_text_len = 0;
+    g_tts_timeline.legacy_text[0] = '\0';
+    g_tts_timeline.negotiated = negotiated;
+    g_tts_timeline.valid = negotiated;
+    g_tts_timeline.fallback = false;
+    g_tts_timeline.started = false;
+    g_tts_timeline.reported = false;
+    g_tts_timeline.ended = false;
+    g_tts_timeline.retry_scheduled = false;
+    g_tts_timeline.empty_retry_count = 0;
+    g_tts_timeline.stream_url[0] = '\0';
+    if (url && url[0] != '\0') {
+        strncpy(g_tts_timeline.stream_url, url,
+                sizeof(g_tts_timeline.stream_url) - 1U);
+        g_tts_timeline.stream_url[sizeof(g_tts_timeline.stream_url) - 1U] = '\0';
+    }
+    taskEXIT_CRITICAL();
+}
+
+static bool voice_tts_json_uint32(const cJSON *item, uint32_t *value)
+{
+    double number;
+    uint32_t converted;
+
+    if (!item || !value || !cJSON_IsNumber(item)) {
+        return false;
+    }
+
+    number = item->valuedouble;
+    if (number < 0.0 || number > (double)UINT32_MAX) {
+        return false;
+    }
+
+    converted = (uint32_t)number;
+    if ((double)converted != number) {
+        return false;
+    }
+
+    *value = converted;
+    return true;
+}
+
+static bool voice_tts_utf8_codepoint_count(const char *text, uint32_t *count)
+{
+    const uint8_t *p = (const uint8_t *)text;
+    uint32_t total = 0;
+
+    if (!text || !count) {
+        return false;
+    }
+
+    while (*p) {
+        uint32_t codepoint;
+        uint8_t continuation_count;
+
+        if (*p < 0x80) {
+            codepoint = *p++;
+            continuation_count = 0;
+        } else if ((*p & 0xE0) == 0xC0) {
+            codepoint = *p++ & 0x1F;
+            continuation_count = 1;
+            if (codepoint < 2) {
+                return false;
+            }
+        } else if ((*p & 0xF0) == 0xE0) {
+            codepoint = *p++ & 0x0F;
+            continuation_count = 2;
+        } else if ((*p & 0xF8) == 0xF0) {
+            codepoint = *p++ & 0x07;
+            continuation_count = 3;
+        } else {
+            return false;
+        }
+
+        for (uint8_t i = 0; i < continuation_count; i++) {
+            if ((p[i] & 0xC0) != 0x80) {
+                return false;
+            }
+            codepoint = (codepoint << 6) | (p[i] & 0x3F);
+        }
+        p += continuation_count;
+
+        if ((continuation_count == 2 && codepoint < 0x800) ||
+            (continuation_count == 3 && codepoint < 0x10000) ||
+            (codepoint >= 0xD800 && codepoint <= 0xDFFF) ||
+            codepoint > 0x10FFFF) {
+            return false;
+        }
+        total++;
+    }
+
+    *count = total;
+    return true;
+}
+
+static bool voice_tts_timeline_append_legacy_text(const char *text)
+{
+    size_t text_len = strlen(text);
+    size_t remaining = sizeof(g_tts_timeline.legacy_text) -
+                       g_tts_timeline.legacy_text_len - 1U;
+
+    if (text_len > remaining) {
+        return false;
+    }
+
+    memcpy(g_tts_timeline.legacy_text + g_tts_timeline.legacy_text_len,
+           text, text_len);
+    g_tts_timeline.legacy_text_len += (uint32_t)text_len;
+    g_tts_timeline.legacy_text[g_tts_timeline.legacy_text_len] = '\0';
+    return true;
+}
+
+static void voice_tts_timeline_publish_fallback(const char *reason)
+{
+    if (g_tts_timeline.fallback) {
+        return;
+    }
+
+    LOGW("timeline unavailable, fallback legacy subtitle timing: %s",
+         reason ? reason : "unknown");
+    taskENTER_CRITICAL();
+    g_tts_timeline.valid = false;
+    g_tts_timeline.fallback = true;
+    taskEXIT_CRITICAL();
+    voice_msg_pub(VOICE_MSG_CLOUD_TTS_TIMELINE_FALLBACK, NULL, 0);
+}
+
+static void voice_tts_timeline_publish_entry(const voice_msg_tts_timeline_t *entry)
+{
+    uint32_t size = sizeof(*entry) + entry->text_len + 1U;
+    voice_msg_pub(VOICE_MSG_CLOUD_TTS_TIMELINE_UPDATE, (void *)entry, size);
+}
+
+static void stream_timeline_cb_handle(int evt, const char *data, void *user);
+
+struct voice_tts_timeline_retry_ctx {
+    uint32_t generation;
+    char url[TTS_TIMELINE_URL_MAX];
+};
+
+static void voice_tts_timeline_retry_complete(void *user_data, bool completed,
+                                              bool interrupted)
+{
+    (void)completed;
+    (void)interrupted;
+    if (user_data) {
+        lisa_mem_free(user_data);
+    }
+}
+
+static void voice_tts_timeline_retry_task(void *user_data, bool *should_stop)
+{
+    struct voice_tts_timeline_retry_ctx *ctx = user_data;
+    bool valid = false;
+
+    if (!ctx || !should_stop) {
+        return;
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(TTS_TIMELINE_EMPTY_RETRY_DELAY_MS));
+    if (*should_stop) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    valid = ctx->generation == g_stream_text_generation &&
+            ctx->generation == g_tts_timeline.generation &&
+            !g_tts_timeline.started && !g_tts_timeline.ended;
+    if (ctx->generation == g_tts_timeline.generation) {
+        g_tts_timeline.retry_scheduled = false;
+    }
+    taskEXIT_CRITICAL();
+
+    if (!valid) {
+        return;
+    }
+
+    LOGI("retry empty TTS timeline stream, generation=%u", (unsigned)ctx->generation);
+    if (lsc_stream_text_request_thread_async(
+            ctx->url, stream_timeline_cb_handle,
+            (void *)(uintptr_t)ctx->generation, false) != 0) {
+        LOGW("retry empty TTS timeline stream request failed");
+    }
+}
+
+static bool voice_tts_timeline_schedule_empty_retry(uint32_t generation)
+{
+    struct voice_tts_timeline_retry_ctx *ctx;
+    async_task_t *task;
+    bool schedule = false;
+
+    ctx = lisa_mem_calloc(1, sizeof(*ctx));
+    if (!ctx) {
+        return false;
+    }
+
+    taskENTER_CRITICAL();
+    if (generation == g_stream_text_generation &&
+        generation == g_tts_timeline.generation &&
+        !g_tts_timeline.started && !g_tts_timeline.ended &&
+        !g_tts_timeline.retry_scheduled &&
+        g_tts_timeline.empty_retry_count < TTS_TIMELINE_EMPTY_RETRY_MAX &&
+        g_tts_timeline.stream_url[0] != '\0') {
+        g_tts_timeline.retry_scheduled = true;
+        g_tts_timeline.empty_retry_count++;
+        ctx->generation = generation;
+        strncpy(ctx->url, g_tts_timeline.stream_url, sizeof(ctx->url) - 1U);
+        ctx->url[sizeof(ctx->url) - 1U] = '\0';
+        schedule = true;
+    }
+    taskEXIT_CRITICAL();
+
+    if (!schedule) {
+        lisa_mem_free(ctx);
+        return false;
+    }
+
+    task = async_task_create("tts_timeline_retry", 3072, 5,
+                             voice_tts_timeline_retry_task,
+                             voice_tts_timeline_retry_complete, ctx);
+    if (!task || async_task_start(task) != 0) {
+        LOGW("create empty TTS timeline retry task failed");
+        if (task) {
+            async_task_destroy(task);
+        }
+        taskENTER_CRITICAL();
+        if (generation == g_tts_timeline.generation) {
+            g_tts_timeline.retry_scheduled = false;
+        }
+        taskEXIT_CRITICAL();
+        lisa_mem_free(ctx);
+        return false;
+    }
+
+    LOGI("scheduled empty TTS timeline retry %u/%u, generation=%u",
+         (unsigned)g_tts_timeline.empty_retry_count,
+         (unsigned)TTS_TIMELINE_EMPTY_RETRY_MAX, (unsigned)generation);
+    return true;
+}
+
+static void stream_timeline_cb_handle(int evt, const char *data, void *user)
+{
+    uint32_t generation = (uint32_t)(uintptr_t)user;
+
+    if (generation == 0U || generation != g_stream_text_generation ||
+        generation != g_tts_timeline.generation) {
+        return;
+    }
+
+    if (g_tts_timeline.ended) {
+        return;
+    }
+
+    if (evt == SSE_EVT_DONE) {
+        if (!g_tts_timeline.started && !g_tts_timeline.fallback &&
+            voice_tts_timeline_schedule_empty_retry(generation)) {
+            LOGW("empty TTS timeline stream, retry pending");
+            return;
+        }
+        g_tts_timeline.ended = true;
+        if (g_tts_timeline.fallback) {
+            voice_msg_pub(VOICE_MSG_CLOUD_TTS_TEXT_END, NULL, 0);
+        } else if (g_tts_timeline.started) {
+            voice_msg_pub(VOICE_MSG_CLOUD_TTS_TIMELINE_END, NULL, 0);
+        } else {
+            voice_tts_timeline_publish_fallback("empty timeline stream");
+            voice_msg_pub(VOICE_MSG_CLOUD_TTS_TEXT_END, NULL, 0);
+        }
+        return;
+    }
+
+    if (evt == SSE_EVT_ABORT) {
+        g_tts_timeline.ended = true;
+        voice_tts_timeline_publish_fallback("timeline stream aborted");
+        voice_msg_pub(VOICE_MSG_CLOUD_TTS_TEXT_END, NULL, 0);
+        return;
+    }
+
+    if (evt != SSE_EVT_DATA || !data) {
+        return;
+    }
+
+    cJSON *root = cJSON_Parse(data);
+    cJSON *text_item = root ? cJSON_GetObjectItem(root, "text") : NULL;
+    const char *text = (text_item && cJSON_IsString(text_item) && text_item->valuestring) ?
+                       text_item->valuestring : NULL;
+
+    if (g_tts_timeline.fallback) {
+        if (text && text[0] != '\0') {
+            voice_msg_pub(VOICE_MSG_CLOUD_TTS_TEXT_UPDATE, (void *)text, strlen(text) + 1U);
+        }
+        cJSON_Delete(root);
+        return;
+    }
+
+    if (!root || !text || text[0] == '\0') {
+        voice_tts_timeline_log_invalid_payload(data, root != NULL,
+                                               text != NULL && text[0] != '\0');
+        cJSON_Delete(root);
+        voice_tts_timeline_publish_fallback("invalid timeline JSON or text");
+        return;
+    }
+
+    bool text_saved = voice_tts_timeline_append_legacy_text(text);
+    uint32_t codepoints = 0;
+    uint32_t index = 0;
+    uint32_t start_index = 0;
+    uint32_t end_index = 0;
+    uint32_t start_ms = 0;
+    uint32_t end_ms = 0;
+    bool utf8_valid = text && voice_tts_utf8_codepoint_count(text, &codepoints);
+    bool fields_valid = root &&
+        voice_tts_json_uint32(cJSON_GetObjectItem(root, "index"), &index) &&
+        voice_tts_json_uint32(cJSON_GetObjectItem(root, "start_index"), &start_index) &&
+        voice_tts_json_uint32(cJSON_GetObjectItem(root, "end_index"), &end_index) &&
+        voice_tts_json_uint32(cJSON_GetObjectItem(root, "start_ms"), &start_ms) &&
+        voice_tts_json_uint32(cJSON_GetObjectItem(root, "end_ms"), &end_ms);
+    size_t text_len = text ? strlen(text) : 0U;
+    bool sequence_valid = fields_valid &&
+        index == g_tts_timeline.expected_index &&
+        start_index == g_tts_timeline.expected_start_index &&
+        end_index > start_index && end_index - start_index == codepoints &&
+        end_ms > start_ms && start_ms >= g_tts_timeline.previous_end_ms &&
+        g_tts_timeline.cursor_count < TTS_TIMELINE_MAX_SENTENCES;
+    bool valid = utf8_valid && fields_valid && sequence_valid &&
+        text_len <= UINT16_MAX;
+
+    if (!valid) {
+        LOGW("timeline validation failed: saved=%u utf8=%u fields=%u sequence=%u "
+             "text_len=%u codepoints=%u index=%u expected_index=%u "
+             "start_index=%u expected_start_index=%u end_index=%u "
+             "start_ms=%u previous_end_ms=%u end_ms=%u cursor_count=%u",
+             (unsigned)text_saved, (unsigned)utf8_valid, (unsigned)fields_valid,
+             (unsigned)sequence_valid, (unsigned)text_len, (unsigned)codepoints,
+             (unsigned)index, (unsigned)g_tts_timeline.expected_index,
+             (unsigned)start_index, (unsigned)g_tts_timeline.expected_start_index,
+             (unsigned)end_index, (unsigned)start_ms,
+             (unsigned)g_tts_timeline.previous_end_ms, (unsigned)end_ms,
+             (unsigned)g_tts_timeline.cursor_count);
+        voice_tts_timeline_publish_fallback("invalid sequence, range, or timestamp");
+        if (text && text[0] != '\0') {
+            voice_msg_pub(VOICE_MSG_CLOUD_TTS_TEXT_UPDATE, (void *)text, text_len + 1U);
+        }
+        cJSON_Delete(root);
+        return;
+    }
+
+    uint32_t message_size = sizeof(voice_msg_tts_timeline_t) + strlen(text) + 1U;
+    voice_msg_tts_timeline_t *message = lisa_mem_alloc(message_size);
+    if (!message) {
+        cJSON_Delete(root);
+        voice_tts_timeline_publish_fallback("timeline message allocation failed");
+        return;
+    }
+
+    message->index = index;
+    message->start_index = start_index;
+    message->end_index = end_index;
+    message->start_ms = start_ms;
+    message->end_ms = end_ms;
+    message->text_len = (uint16_t)strlen(text);
+    message->reserved = 0;
+    memcpy(message->text, text, message->text_len + 1U);
+
+    taskENTER_CRITICAL();
+    voice_tts_timeline_cursor_t *cursor =
+        &g_tts_timeline.cursors[g_tts_timeline.cursor_count];
+    cursor->index = index;
+    cursor->start_index = start_index;
+    cursor->end_index = end_index;
+    cursor->start_ms = start_ms;
+    cursor->end_ms = end_ms;
+    g_tts_timeline.cursor_count++;
+    g_tts_timeline.expected_index = index + 1U;
+    g_tts_timeline.expected_start_index = end_index;
+    g_tts_timeline.previous_end_ms = end_ms;
+    taskEXIT_CRITICAL();
+
+    if (!g_tts_timeline.started) {
+        g_tts_timeline.started = true;
+        voice_msg_pub(VOICE_MSG_CLOUD_TTS_TIMELINE_START, NULL, 0);
+    }
+    voice_tts_timeline_publish_entry(message);
+
+    lisa_mem_free(message);
+    cJSON_Delete(root);
 }
 
 static void stream_text_cb_handle(int evt, const char *data, void *user)
@@ -317,6 +818,46 @@ static void stream_text_cb_handle(int evt, const char *data, void *user)
     default:
         break;
     }
+}
+
+static int voice_tts_text_stream_start(const char *url, bool timeline)
+{
+    uint32_t generation;
+
+    taskENTER_CRITICAL();
+    generation = ++g_stream_text_generation;
+    if (generation == 0U) {
+        generation = 1U;
+        g_stream_text_generation = generation;
+    }
+    taskEXIT_CRITICAL();
+
+    /* Invalidate and drain the old stream before resetting shared subtitle state. */
+    lsc_stream_text_request_thread_abort_all();
+    voice_tts_timeline_reset(timeline, generation, url);
+
+    return lsc_stream_text_request_thread_async(
+        url,
+        timeline ? stream_timeline_cb_handle : stream_text_cb_handle,
+        (void *)(uintptr_t)generation,
+        false);
+}
+
+void voice_cloud_tts_text_cancel(void)
+{
+    uint32_t generation;
+
+    taskENTER_CRITICAL();
+    generation = ++g_stream_text_generation;
+    if (generation == 0U) {
+        generation = 1U;
+        g_stream_text_generation = generation;
+    }
+    taskEXIT_CRITICAL();
+
+    lsc_stream_text_request_thread_abort_all();
+    voice_tts_timeline_reset(false, generation, NULL);
+    LOGI("cancel active TTS text stream, generation=%u", (unsigned)generation);
 }
 
 static void lsc_emoji_msg_process(cJSON *emoji_data)
@@ -618,6 +1159,7 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
         g_cloud_connected = 0;
         g_cloud_connecting = 0;
         g_voice_session_active = 0;
+        g_wait_wakeup_tone = 0;
         voice_pcm_send_disable();
         xStreamBufferReset(g_record_stream_buffer);
         voice_msg_pub(VOICE_MSG_CLOUD_DISCONNECTED, NULL, 0);
@@ -673,6 +1215,7 @@ static void voice_event_cb(session_voice_event_e evt, void *data, uint32_t size,
     switch (evt) {
     case SESSION_VOICE_FINISH:
         g_voice_session_active = 0;
+        g_wait_wakeup_tone = 0;
         voice_pcm_send_disable();
         voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
         break;
@@ -680,8 +1223,14 @@ static void voice_event_cb(session_voice_event_e evt, void *data, uint32_t size,
         voice_msg_pub(VOICE_MSG_CLOUD_TTS_URL, (char *)data, size);
         break;
     case SESSION_VOICE_REPLY_URL:
-        lsc_stream_text_request_thread_async((char *)data, stream_text_cb_handle,
-                                             (void *)(uintptr_t)g_stream_text_generation, true);
+        if (voice_tts_text_stream_start((char *)data, false) != 0) {
+            LOGE("start TTS text stream failed");
+        }
+        break;
+    case SESSION_VOICE_REPLY_TIMELINE_URL:
+        if (voice_tts_text_stream_start((char *)data, true) != 0) {
+            LOGE("start TTS timeline stream failed");
+        }
         break;
     case SESSION_VOICE_IAT:
         if (data != NULL && size > 0 && ((char *)data)[0] != '\0') {
@@ -1048,7 +1597,10 @@ int voice_cloud_init(struct voice_cloud_connect_config *config)
     session_text_add_evt_callback(text_event_cb, SESSION_TEXT_TTS_URL, NULL);
 
 #if VOICE_CLOUD_TTS_TEXT
-    r |= session_voice_add_evt_callback(voice_event_cb, SESSION_VOICE_REPLY_URL, NULL);
+    r |= session_voice_add_evt_callback(voice_event_cb,
+                                        SESSION_VOICE_REPLY_URL |
+                                            SESSION_VOICE_REPLY_TIMELINE_URL,
+                                        NULL);
 #endif
 
     if (r != 0) {
@@ -1059,6 +1611,12 @@ int voice_cloud_init(struct voice_cloud_connect_config *config)
     voice_msg_sub(VOICE_MSG_CLOUD_MCP, mcp_msg_cb_handle, NULL);
 
     voice_msg_sub(VOICE_MSG_CLOUD_MCP_CALL_RESP, mcp_call_resp_cb_handle, NULL);
+
+    if (voice_msg_sub(VOICE_MSG_PLAYER_TONE_COMPLETED,
+                      voice_cloud_wakeup_tone_completed, NULL) != 0) {
+        LOGE("failed to subscribe wakeup tone completion");
+        return -1;
+    }
 
 #if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
     g_pcm_send_en_timer = xTimerCreate("voice.cloud.pcm.en", pdMS_TO_TICKS(PCM_SEND_AFTER_CLOUD_CHAT_START_MS), pdFALSE,
@@ -1122,14 +1680,30 @@ int voice_cloud_connect(struct voice_cloud_connect_config *config)
 int voice_cloud_chat_start(struct voice_cloud_chat_config *config)
 {
     int ret;
+    bool preserve_tts_timeline = false;
 
-    if (!cloud_init_done) {
+    if (!cloud_init_done || !config) {
         return -1;
     }
 
-    g_stream_text_generation++;
-    if (g_stream_text_generation == 0U) {
-        g_stream_text_generation = 1U;
+    if (config->preserve_tts_timeline) {
+        taskENTER_CRITICAL();
+        preserve_tts_timeline =
+            g_tts_timeline.negotiated &&
+            !g_tts_timeline.ended &&
+            g_tts_timeline.generation == g_stream_text_generation;
+        taskEXIT_CRITICAL();
+    }
+
+    if (preserve_tts_timeline) {
+        LOGI("preserve active TTS timeline while starting silent barge-in, generation=%u",
+             (unsigned)g_stream_text_generation);
+    } else {
+        g_stream_text_generation++;
+        if (g_stream_text_generation == 0U) {
+            g_stream_text_generation = 1U;
+        }
+        voice_tts_timeline_reset(false, g_stream_text_generation, NULL);
     }
     
     /* Disable audio sending first to prevent uploading wakeup word */
@@ -1150,30 +1724,37 @@ int voice_cloud_chat_start(struct voice_cloud_chat_config *config)
     };
 
     full_duplex = config->full_duplex;
+    g_wait_wakeup_tone = config->wait_wakeup_tone ? 1 : 0;
 
     ret = session_voice_set_config(&voice_config);
     if (ret != 0) {
         LOGE("session_voice_set_config failed");
+        g_wait_wakeup_tone = 0;
         return ret;
     }
 
-    ret = session_voice_start();
+    ret = session_voice_start_ex(preserve_tts_timeline);
     if (ret != 0) {
         LOGE("session_voice_start failed");
+        g_wait_wakeup_tone = 0;
         return ret;
     }
 
     g_voice_session_active = 1;
 
-    #if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
-    if (xTimerStart(g_pcm_send_en_timer, pdMS_TO_TICKS(20)) != pdPASS) {
-        LOGE("pcm send en timer start failed");
-        g_voice_session_active = 0;
-        return -1;
-    }
+    if (!g_wait_wakeup_tone) {
+#if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
+        if (xTimerStart(g_pcm_send_en_timer, pdMS_TO_TICKS(20)) != pdPASS) {
+            LOGE("pcm send en timer start failed");
+            g_voice_session_active = 0;
+            return -1;
+        }
 #else
-    voice_pcm_send_enable();
+        voice_pcm_send_enable();
 #endif
+    } else {
+        LOGI("wakeup session: wait for wakeup tone before audio upload");
+    }
 
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_STARTING, NULL, 0);
 
@@ -1190,6 +1771,7 @@ int voice_cloud_chat_stop(void)
         return ret;
     }
     g_voice_session_active = 0;
+    g_wait_wakeup_tone = 0;
     voice_pcm_send_disable();
 
     return ret;
@@ -1206,36 +1788,49 @@ int voice_cloud_chat_stop_local(void)
     }
 
     g_voice_session_active = 0;
+    g_wait_wakeup_tone = 0;
     return 0;
 }
 
-int voice_cloud_cancel_current_response(void)
+int voice_cloud_report_reply_interrupted(uint32_t playback_position_ms)
 {
-    int ret;
+    voice_tts_timeline_cursor_t selected = {0};
+    bool found = false;
 
-    if (!cloud_init_done || !g_voice_session_active) {
-        LOGW("cancel current response ignored, session inactive");
+    taskENTER_CRITICAL();
+    if (g_tts_timeline.negotiated && g_tts_timeline.valid &&
+        !g_tts_timeline.fallback && !g_tts_timeline.reported) {
+        for (uint32_t i = 0; i < g_tts_timeline.cursor_count; i++) {
+            if (g_tts_timeline.cursors[i].end_ms > playback_position_ms) {
+                selected = g_tts_timeline.cursors[i];
+                g_tts_timeline.reported = true;
+                found = true;
+                break;
+            }
+        }
+    }
+    taskEXIT_CRITICAL();
+
+    if (!found) {
+        LOGW("reply interruption cursor unavailable at %u ms",
+             (unsigned)playback_position_ms);
         return -1;
     }
-    if (!full_duplex) {
-        LOGW("cancel current response ignored, not full duplex");
-        return -1;
-    }
 
-    ret = session_voice_cancel();
-    if (ret != 0) {
-        LOGE("cancel current response failed");
-        return ret;
-    }
-
-    LOGI("cancel current response on new full-duplex IAT");
-    return 0;
+    return session_voice_reply_interrupted(selected.index,
+                                           selected.start_index,
+                                           selected.end_index);
 }
 
 int voice_cloud_chat_send_audio(uint8_t *data, int len)
 {
     if (!g_record_stream_buffer) {
         return -1;
+    }
+
+    /* The wakeup stream is produced continuously; never queue audio while upload is paused. */
+    if (!pcm_send_en) {
+        return 0;
     }
 
     if (xStreamBufferSend(g_record_stream_buffer, data, len, 0) == pdFALSE) {
@@ -1345,6 +1940,12 @@ int voice_cloud_audio_recognition_start(void)
     if (!cloud_init_done) {
         return -1;
     }
+
+    g_stream_text_generation++;
+    if (g_stream_text_generation == 0U) {
+        g_stream_text_generation = 1U;
+    }
+    voice_tts_timeline_reset(false, g_stream_text_generation, NULL);
     
     /* Disable audio sending first to prevent uploading wakeup word */
     voice_pcm_send_disable();
@@ -1376,6 +1977,7 @@ int voice_cloud_audio_recognition_start(void)
     }
 
     g_voice_session_active = 1;
+    g_wait_wakeup_tone = 0;
 
 #if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
     if (xTimerStart(g_pcm_send_en_timer, pdMS_TO_TICKS(20)) != pdPASS) {

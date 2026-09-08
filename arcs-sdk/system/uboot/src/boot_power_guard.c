@@ -208,7 +208,8 @@ __boot_ramcode__ static void mark_recovery(uint32_t *boot_info_raw)
     *boot_info_raw = bits.raw;
 }
 
-__boot_ramcode__ void boot_power_guard_run(uint32_t sysrst_status, uint32_t *boot_info_raw)
+__boot_ramcode__ void boot_power_guard_run(uint32_t sysrst_status, uint32_t *boot_info_raw,
+                                           bool factory_mode)
 {
     /* 芯片默认电平下 LED 一上电就亮。guard 期间先关掉，等决定启动 app 再点亮 */
     led_set(0);
@@ -286,6 +287,15 @@ __boot_ramcode__ void boot_power_guard_run(uint32_t sysrst_status, uint32_t *boo
      * 启动时 VBUS/VCC 上升过程会让 USB_DET 单次采样可能漏判，导致
      * PB+USB recovery 手势 / USB charging_wait 都识别不到。 */
     bool usb_at_entry = usb_plugged_stable();
+
+    /* 产测参数有效时，USB 既是供电来源也是允许直接开机的条件。电池
+     * 供电仍继续走下面的 POWER_KEY 长按流程。 */
+    if (factory_mode && usb_at_entry) {
+        latch_set(1);
+        led_set(1);
+        clear_sysrst_status();
+        return;
+    }
 
     /* 冷启动入口 USB 插着 + PB 按下：用户预先按 PB 再插 USB（老版本的
      * 保底 recovery 手势）。无电池场景 USB 先上电，guard 看到的就是

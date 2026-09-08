@@ -41,7 +41,11 @@ extern "C" {
 #define CFG_TUSB_RHPORT0_MODE (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
 #define CFG_TUSB_MCU          OPT_MCU_LS566X
 #define CFG_TUSB_OS           OPT_OS_FREERTOS
+#if defined(CONFIG_BOARD_ARCS_MINI3)
+#define CFG_TUSB_DEBUG        3
+#else
 #define CFG_TUSB_DEBUG        0
+#endif
 
 #define CFG_TUSB_MEM_SECTION __psram_bss__
 

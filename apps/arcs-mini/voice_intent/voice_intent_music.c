@@ -71,7 +71,13 @@ static void music_resume_timer_cb(TimerHandle_t xTimer)
         LOGI("MUSIC resume timer: user paused, skip");
         return;
     }
-    if (app_player_get_state(music_player) == APP_PLAYER_STATE_IDLE) {
+    app_player_state_t state = app_player_get_state(music_player);
+    if (state == APP_PLAYER_STATE_PLAYING) {
+        /* Focus recovery may already have resumed music before this timer runs. */
+        LOGI("MUSIC resume timer: already playing, skip");
+        return;
+    }
+    if (state == APP_PLAYER_STATE_IDLE) {
         LOGI("MUSIC resume timer: player idle, init from current track");
         music_intent_play_current();
         return;

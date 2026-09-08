@@ -8,7 +8,7 @@
 
 /* ================ USB common Configuration ================ */
 #define CONFIG_USB_PRINTF(...) printf(__VA_ARGS__)
-#define CONFIG_USB_DBG_LEVEL USB_DBG_INFO//USB_DBG_LOG
+#define CONFIG_USB_DBG_LEVEL USB_DBG_WARNING
 
 /* Enable print with color */
 #define CONFIG_USB_PRINTF_COLOR_ENABLE
