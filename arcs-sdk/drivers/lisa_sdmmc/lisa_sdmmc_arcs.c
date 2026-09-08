@@ -48,6 +48,12 @@
 #define CONFIG_LISA_SDMMC_ACCESS_WRAP_BUFFER_SIZE (4 * 1024)
 #endif
 
+#ifndef CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS
+#define CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS 128
+#endif
+
+#define SDMMC_MAX_RETRIES 2
+
 /* ========================================================================
  * DISK 私有数据结构定义
  * ======================================================================== */
@@ -98,6 +104,48 @@ static inline int check_device_initialized(lisa_device_t *dev)
     }
 
     return LISA_DEVICE_OK;
+}
+
+static int arcs_sdmmc_read_chunk(uint32_t sector, uint32_t count, uint8_t *buffer)
+{
+    uint32_t retry;
+    int ret = LISA_DEVICE_ERR_IO;
+
+    for (retry = 0; retry < SDMMC_MAX_RETRIES; retry++) {
+        ret = (int)gm_sdc_api_sdcard_sector_read(SD_PORT, sector, count, buffer);
+        if (ret == 0) {
+            return LISA_DEVICE_OK;
+        }
+
+        if (retry + 1 < SDMMC_MAX_RETRIES) {
+            uint32_t reset_flag = 6; /* SDHCI_SOFTRST_CMD | SDHCI_SOFTRST_DAT */
+            gm_sdc_api_action(SD_PORT, GM_SDC_ACTION_SOFT_RESET, &reset_flag, NULL);
+        }
+    }
+
+    return LISA_DEVICE_ERR_IO;
+}
+
+static int arcs_sdmmc_write_chunk(uint32_t sector, uint32_t count,
+                                  const uint8_t *buffer)
+{
+    uint32_t retry;
+    int ret = LISA_DEVICE_ERR_IO;
+
+    for (retry = 0; retry < SDMMC_MAX_RETRIES; retry++) {
+        ret = (int)gm_sdc_api_sdcard_sector_write(SD_PORT, sector, count,
+                                                  (void *)buffer);
+        if (ret == 0) {
+            return LISA_DEVICE_OK;
+        }
+
+        if (retry + 1 < SDMMC_MAX_RETRIES) {
+            uint32_t reset_flag = 6; /* SDHCI_SOFTRST_CMD | SDHCI_SOFTRST_DAT */
+            gm_sdc_api_action(SD_PORT, GM_SDC_ACTION_SOFT_RESET, &reset_flag, NULL);
+        }
+    }
+
+    return LISA_DEVICE_ERR_IO;
 }
 
 /* ===== API 实现函数 ===== */
@@ -170,7 +218,7 @@ static int arcs_sdmmc_status(lisa_device_t *dev)
  */
 static int arcs_sdmmc_read(lisa_device_t *dev, uint8_t *buff, uint32_t sector, uint32_t count)
 {
-    int ret;
+    int ret = LISA_DEVICE_OK;
     uint32_t sectors_per_wrap = CONFIG_LISA_SDMMC_ACCESS_WRAP_BUFFER_SIZE / DISK_SECTOR_SIZE;
 
     if (!buff || count == 0) {
@@ -186,6 +234,10 @@ static int arcs_sdmmc_read(lisa_device_t *dev, uint8_t *buff, uint32_t sector, u
 
     DEVICE_LOCK(priv);
     priv->xfer_in_flight = true;
+
+    if (sectors_per_wrap > CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS) {
+        sectors_per_wrap = CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS;
+    }
 
     /* 检查缓冲区是否对齐 */
     if ((uint32_t)buff % CONFIG_LISA_SDMMC_ACCESS_BUFFER_ALIGN_SIZE != 0) {
@@ -197,16 +249,9 @@ static int arcs_sdmmc_read(lisa_device_t *dev, uint8_t *buff, uint32_t sector, u
         while (remaining > 0) {
             uint32_t sectors_to_read = (remaining > sectors_per_wrap) ? sectors_per_wrap : remaining;
 
-            ret = gm_sdc_api_sdcard_sector_read(SD_PORT, current_sector, sectors_to_read, read_wrap_buffer);
-            if (ret != 0) {
-                uint32_t reset_flag = 6; /* SDHCI_SOFTRST_CMD | SDHCI_SOFTRST_DAT */
-                gm_sdc_api_action(SD_PORT, GM_SDC_ACTION_SOFT_RESET, &reset_flag, NULL);
-                ret = gm_sdc_api_sdcard_sector_read(SD_PORT, current_sector, sectors_to_read, read_wrap_buffer);
-                if (ret != 0) {
-                    LISA_LOGE(LOG_TAG, "Disk read failed at sector %u, count %u: %d", current_sector, sectors_to_read, ret);
-                    DEVICE_UNLOCK(priv);
-                    return LISA_DEVICE_ERR_IO;
-                }
+            ret = arcs_sdmmc_read_chunk(current_sector, sectors_to_read, read_wrap_buffer);
+            if (ret != LISA_DEVICE_OK) {
+                goto read_out;
             }
 
             memcpy(dst_ptr, read_wrap_buffer, sectors_to_read * DISK_SECTOR_SIZE);
@@ -215,23 +260,30 @@ static int arcs_sdmmc_read(lisa_device_t *dev, uint8_t *buff, uint32_t sector, u
             remaining -= sectors_to_read;
         }
     } else {
-        /* 对齐缓冲区，直接读取 */
-        ret = gm_sdc_api_sdcard_sector_read(SD_PORT, sector, count, buff);
-        if (ret != 0) {
-            uint32_t reset_flag = 6; /* SDHCI_SOFTRST_CMD | SDHCI_SOFTRST_DAT */
-            gm_sdc_api_action(SD_PORT, GM_SDC_ACTION_SOFT_RESET, &reset_flag, NULL);
-            ret = gm_sdc_api_sdcard_sector_read(SD_PORT, sector, count, buff);
-            if (ret != 0) {
-                LISA_LOGE(LOG_TAG, "Disk read failed at sector %u, count %u: %d", sector, count, ret);
-                DEVICE_UNLOCK(priv);
-                return LISA_DEVICE_ERR_IO;
+        /* 对齐缓冲区也按受控大小分块，避免一次请求跨越过长 SDMA 事务。 */
+        uint32_t remaining = count;
+        uint32_t current_sector = sector;
+        uint8_t *dst_ptr = buff;
+
+        while (remaining > 0) {
+            uint32_t sectors_to_read = (remaining > CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS) ?
+                                        CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS : remaining;
+
+            ret = arcs_sdmmc_read_chunk(current_sector, sectors_to_read, dst_ptr);
+            if (ret != LISA_DEVICE_OK) {
+                goto read_out;
             }
+
+            dst_ptr += sectors_to_read * DISK_SECTOR_SIZE;
+            current_sector += sectors_to_read;
+            remaining -= sectors_to_read;
         }
     }
 
+read_out:
     priv->xfer_in_flight = false;
     DEVICE_UNLOCK(priv);
-    return LISA_DEVICE_OK;
+    return ret;
 }
 
 /**
@@ -239,7 +291,7 @@ static int arcs_sdmmc_read(lisa_device_t *dev, uint8_t *buff, uint32_t sector, u
  */
 static int arcs_sdmmc_write(lisa_device_t *dev, const uint8_t *buff, uint32_t sector, uint32_t count)
 {
-    int ret;
+    int ret = LISA_DEVICE_OK;
     uint32_t sectors_per_wrap = CONFIG_LISA_SDMMC_ACCESS_WRAP_BUFFER_SIZE / DISK_SECTOR_SIZE;
 
     if (!buff || count == 0) {
@@ -255,6 +307,10 @@ static int arcs_sdmmc_write(lisa_device_t *dev, const uint8_t *buff, uint32_t se
 
     DEVICE_LOCK(priv);
     priv->xfer_in_flight = true;
+
+    if (sectors_per_wrap > CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS) {
+        sectors_per_wrap = CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS;
+    }
 
     /* 检查缓冲区是否对齐 */
     if ((uint32_t)buff % CONFIG_LISA_SDMMC_ACCESS_BUFFER_ALIGN_SIZE != 0) {
@@ -268,12 +324,9 @@ static int arcs_sdmmc_write(lisa_device_t *dev, const uint8_t *buff, uint32_t se
 
             memcpy(write_wrap_buffer, src_ptr, sectors_to_write * DISK_SECTOR_SIZE);
 
-            ret = gm_sdc_api_sdcard_sector_write(SD_PORT, current_sector, sectors_to_write, write_wrap_buffer);
-            if (ret != 0) {
-                LISA_LOGE(LOG_TAG, "Disk write failed at sector %u, count %u: %d", current_sector, sectors_to_write, ret);
-                priv->xfer_in_flight = false;
-                DEVICE_UNLOCK(priv);
-                return LISA_DEVICE_ERR_IO;
+            ret = arcs_sdmmc_write_chunk(current_sector, sectors_to_write, write_wrap_buffer);
+            if (ret != LISA_DEVICE_OK) {
+                goto write_out;
             }
 
             src_ptr += sectors_to_write * DISK_SECTOR_SIZE;
@@ -281,18 +334,29 @@ static int arcs_sdmmc_write(lisa_device_t *dev, const uint8_t *buff, uint32_t se
             remaining -= sectors_to_write;
         }
     } else {
-        ret = gm_sdc_api_sdcard_sector_write(SD_PORT, sector, count, (void *)buff);
-        if (ret != 0) {
-            LISA_LOGE(LOG_TAG, "Disk write failed at sector %u, count %u: %d", sector, count, ret);
-            priv->xfer_in_flight = false;
-            DEVICE_UNLOCK(priv);
-            return LISA_DEVICE_ERR_IO;
+        uint32_t remaining = count;
+        uint32_t current_sector = sector;
+        const uint8_t *src_ptr = buff;
+
+        while (remaining > 0) {
+            uint32_t sectors_to_write = (remaining > CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS) ?
+                                         CONFIG_LISA_SDMMC_ACCESS_MAX_SECTORS : remaining;
+
+            ret = arcs_sdmmc_write_chunk(current_sector, sectors_to_write, src_ptr);
+            if (ret != LISA_DEVICE_OK) {
+                goto write_out;
+            }
+
+            src_ptr += sectors_to_write * DISK_SECTOR_SIZE;
+            current_sector += sectors_to_write;
+            remaining -= sectors_to_write;
         }
     }
 
+write_out:
     priv->xfer_in_flight = false;
     DEVICE_UNLOCK(priv);
-    return LISA_DEVICE_OK;
+    return ret;
 }
 
 /**

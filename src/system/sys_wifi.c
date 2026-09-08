@@ -6,6 +6,7 @@
 #include "lwip/dns.h"
 
 #include "lisa_wifi.h"
+#include "wifi_api.h"
 #include "ls_misc.h"
 #include "mac_manager.h"
 #include "mac_manager_ops.h"
@@ -34,6 +35,14 @@ typedef struct {
 } sys_wifi_status_t;
 
 static sys_wifi_status_t s_wifi = {0};
+static bool s_wifi_standby_power_save = false;
+
+/*
+ * The driver accepts 1..19. Standby has no downlink-latency requirement, so
+ * use the maximum interval while keeping the STA associated. Any local wake
+ * path exits Wi-Fi PS before it publishes the interaction event.
+ */
+#define SYS_WIFI_STANDBY_LISTEN_INTERVAL 19
 
 static mac_manager_t *m_mac_manager = NULL;
 
@@ -685,4 +694,50 @@ bool sys_wifi_is_started(void)
 bool sys_wifi_is_connected(void)
 {
     return s_wifi.connected;
+}
+
+int sys_wifi_set_standby_power_save(bool enable)
+{
+    int ret;
+
+    if (!s_wifi.ready || !s_wifi.started) {
+        return 0;
+    }
+
+    if (enable) {
+        if (s_wifi_standby_power_save || !s_wifi.connected) {
+            return 0;
+        }
+
+        ret = wifi_sta_set_listen_itv(SYS_WIFI_STANDBY_LISTEN_INTERVAL);
+        if (ret != LS_OK) {
+            LISA_LOGW(TAG, "Set WiFi standby listen interval failed: %d", ret);
+            return ret;
+        }
+
+        ret = wifi_ps_mode_set(WIFI_PS_MODE_DTIM);
+        if (ret != LS_OK) {
+            LISA_LOGW(TAG, "Enable WiFi DTIM power save failed: %d", ret);
+            return ret;
+        }
+
+        s_wifi_standby_power_save = true;
+        LISA_LOGI(TAG, "WiFi DTIM power save enabled, listen interval=%d",
+                  SYS_WIFI_STANDBY_LISTEN_INTERVAL);
+        return 0;
+    }
+
+    if (!s_wifi_standby_power_save) {
+        return 0;
+    }
+
+    ret = wifi_ps_mode_set(WIFI_PS_MODE_OFF);
+    if (ret != LS_OK) {
+        LISA_LOGW(TAG, "Disable WiFi DTIM power save failed: %d", ret);
+        return ret;
+    }
+
+    s_wifi_standby_power_save = false;
+    LISA_LOGI(TAG, "WiFi DTIM power save disabled");
+    return 0;
 }

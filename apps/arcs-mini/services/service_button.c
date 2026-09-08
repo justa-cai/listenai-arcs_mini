@@ -3,6 +3,9 @@
 
 #define TAG "service_button"
 
+#include "FreeRTOS.h"
+#include "timers.h"
+
 #include "lisa_log.h"
 #include "lisa_btn.h"
 
@@ -148,6 +151,25 @@ static void btn_event_callback(lisa_btn_event_t event, uint8_t btn_id, void *use
 {
     (void)user;
     publish_button_event(btn_id, event);
+}
+
+static void service_button_publish_mouse_click(void *arg, uint32_t value)
+{
+    (void)arg;
+    (void)value;
+    publish_button_event(MINI_POWER_KEY_ID, LISA_BTN_PRESS_CLICK);
+}
+
+void app_usb_hid_mouse_left_click_from_isr(void)
+{
+    BaseType_t yield = pdFALSE;
+
+    if (xTimerPendFunctionCallFromISR(service_button_publish_mouse_click,
+                                      NULL, 0U, &yield) != pdPASS) {
+        LISA_LOGW(TAG, "Failed to defer USB mouse click");
+        return;
+    }
+    portYIELD_FROM_ISR(yield);
 }
 
 /* ---- 公开 API ----------------------------------------------------------- */

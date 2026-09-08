@@ -18,6 +18,10 @@
 /* Describe EndPoints configuration */
 static struct usbd_endpoint mass_ep_data[CONFIG_USBDEV_MAX_BUS][2];
 
+/* Keep the single MSC transfer buffer in PSRAM while retaining the baseline
+ * one-buffer state machine. */
+static USB_MSC_RAM_SECTION USB_MEM_ALIGNX uint8_t msc_block_buffer[CONFIG_USBDEV_MAX_BUS][CONFIG_USBDEV_MSC_MAX_BUFSIZE];
+
 /* MSC Bulk-only Stage */
 enum Stage {
     MSC_READ_CBW = 0, /* Command Block Wrapper */
@@ -44,8 +48,6 @@ USB_NOCACHE_RAM_SECTION struct usbd_msc_priv {
     uint32_t nsectors;
     uint32_t scsi_blk_size[CONFIG_USBDEV_MSC_MAX_LUN];
     uint32_t scsi_blk_nbr[CONFIG_USBDEV_MSC_MAX_LUN];
-
-    USB_MEM_ALIGNX uint8_t block_buffer[CONFIG_USBDEV_MSC_MAX_BUFSIZE];
 
 #if defined(CONFIG_USBDEV_MSC_THREAD)
     usb_osal_mq_t usbd_msc_mq;
@@ -596,7 +598,7 @@ static bool SCSI_write10(uint8_t busid, uint8_t **data, uint32_t *len)
     }
     g_usbd_msc[busid].stage = MSC_DATA_OUT;
     data_len = MIN(data_len, CONFIG_USBDEV_MSC_MAX_BUFSIZE);
-    usbd_ep_start_read(busid, mass_ep_data[busid][MSD_OUT_EP_IDX].ep_addr, g_usbd_msc[busid].block_buffer, data_len);
+    usbd_ep_start_read(busid, mass_ep_data[busid][MSD_OUT_EP_IDX].ep_addr, msc_block_buffer[busid], data_len);
     return true;
 }
 
@@ -625,7 +627,7 @@ static bool SCSI_write12(uint8_t busid, uint8_t **data, uint32_t *len)
     }
     g_usbd_msc[busid].stage = MSC_DATA_OUT;
     data_len = MIN(data_len, CONFIG_USBDEV_MSC_MAX_BUFSIZE);
-    usbd_ep_start_read(busid, mass_ep_data[busid][MSD_OUT_EP_IDX].ep_addr, g_usbd_msc[busid].block_buffer, data_len);
+    usbd_ep_start_read(busid, mass_ep_data[busid][MSD_OUT_EP_IDX].ep_addr, msc_block_buffer[busid], data_len);
     return true;
 }
 
@@ -633,11 +635,9 @@ static bool SCSI_processRead(uint8_t busid)
 {
     uint32_t transfer_len;
 
-    USB_LOG_DBG("read lba:%d\r\n", g_usbd_msc[busid].start_sector);
-
     transfer_len = MIN(g_usbd_msc[busid].nsectors * g_usbd_msc[busid].scsi_blk_size[g_usbd_msc[busid].cbw.bLUN], CONFIG_USBDEV_MSC_MAX_BUFSIZE);
 
-    if (usbd_msc_sector_read(busid, g_usbd_msc[busid].cbw.bLUN, g_usbd_msc[busid].start_sector, g_usbd_msc[busid].block_buffer, transfer_len) != 0) {
+    if (usbd_msc_sector_read(busid, g_usbd_msc[busid].cbw.bLUN, g_usbd_msc[busid].start_sector, msc_block_buffer[busid], transfer_len) != 0) {
         SCSI_SetSenseData(busid, SCSI_KCQHE_UREINRESERVEDAREA);
         return false;
     }
@@ -650,7 +650,7 @@ static bool SCSI_processRead(uint8_t busid)
         g_usbd_msc[busid].stage = MSC_SEND_CSW;
     }
 
-    usbd_ep_start_write(busid, mass_ep_data[busid][MSD_IN_EP_IDX].ep_addr, g_usbd_msc[busid].block_buffer, transfer_len);
+    usbd_ep_start_write(busid, mass_ep_data[busid][MSD_IN_EP_IDX].ep_addr, msc_block_buffer[busid], transfer_len);
 
     return true;
 }
@@ -659,9 +659,7 @@ static bool SCSI_processWrite(uint8_t busid, uint32_t nbytes)
 {
     uint32_t data_len = 0;
 
-    USB_LOG_DBG("write lba:%d\r\n", g_usbd_msc[busid].start_sector);
-
-    if (usbd_msc_sector_write(busid, g_usbd_msc[busid].cbw.bLUN, g_usbd_msc[busid].start_sector, g_usbd_msc[busid].block_buffer, nbytes) != 0) {
+    if (usbd_msc_sector_write(busid, g_usbd_msc[busid].cbw.bLUN, g_usbd_msc[busid].start_sector, msc_block_buffer[busid], nbytes) != 0) {
         SCSI_SetSenseData(busid, SCSI_KCQHE_WRITEFAULT);
         return false;
     }
@@ -674,7 +672,7 @@ static bool SCSI_processWrite(uint8_t busid, uint32_t nbytes)
         usbd_msc_send_csw(busid, CSW_STATUS_CMD_PASSED);
     } else {
         data_len = MIN(g_usbd_msc[busid].nsectors * g_usbd_msc[busid].scsi_blk_size[g_usbd_msc[busid].cbw.bLUN], CONFIG_USBDEV_MSC_MAX_BUFSIZE);
-        usbd_ep_start_read(busid, mass_ep_data[busid][MSD_OUT_EP_IDX].ep_addr, g_usbd_msc[busid].block_buffer, data_len);
+        usbd_ep_start_read(busid, mass_ep_data[busid][MSD_OUT_EP_IDX].ep_addr, msc_block_buffer[busid], data_len);
     }
 
     return true;
@@ -682,7 +680,7 @@ static bool SCSI_processWrite(uint8_t busid, uint32_t nbytes)
 
 static bool SCSI_CBWDecode(uint8_t busid, uint32_t nbytes)
 {
-    uint8_t *buf2send = g_usbd_msc[busid].block_buffer;
+    uint8_t *buf2send = msc_block_buffer[busid];
     uint32_t len2send = 0;
     bool ret = false;
 

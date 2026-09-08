@@ -19,4 +19,11 @@ int voice_player_music_init(void);
  */
 int voice_player_play_music_url(const char *url);
 
+/**
+ * @brief Publish the current track name and source for the UI.
+ * @param name Display name. NULL or empty clears the current music text.
+ * @param url Track URL used to distinguish online and TF-card playback.
+ */
+void voice_player_music_publish_info(const char *name, const char *url);
+
 #endif /* VOICE_PLAYER_MUSIC_H */

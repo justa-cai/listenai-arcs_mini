@@ -12,6 +12,7 @@
 #include "service_alarm.h"
 #include "service_image.h"
 #include "service_sd_music.h"
+#include "service_power_policy.h"
 
 #include "app_button.h"
 #include "button_blecfg.h"
@@ -24,6 +25,7 @@
 #include "battery/battery.h"
 #include "apps/llm/models/model_qrcode.h"
 #include "voice_cloud.h"
+#include "app_ble_common.h"
 
 /* 被动网络提示的单次触发状态。 */
 static bool s_netcfg_tone_latched = false;
@@ -75,6 +77,10 @@ static void app_open_cloud_info(uint32_t status)
 #if CONFIG_WIFI_MANAGER
 #ifdef CONFIG_BOARD_ARCS_MINI_DOLL_V2
     if (status == QR_STATUS_NOT_CONNECTED) {
+        if (!sys_wifi_has_ap()) {
+            LISA_LOGI(TAG, "No saved WiFi AP, start BLE netcfg on doll_v2");
+            app_ble_netcfg_adv_start_delayed();
+        }
         app_show_wifi_emoji();
         return;
     }
@@ -175,13 +181,9 @@ static void voice_cloud_auth_failed(void *unused, uint32_t msg_id, void *data, u
 
 static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
-    int network_mode = SYS_NETWORK_MODE_WIFI;
-
     service_alarm_init();
-    (void)lisa_kv_get_int("user.network_mode", &network_mode);
-    if (network_mode != SYS_NETWORK_MODE_MODEM) {
-        service_sd_music_init();
-    }
+    /* SD state must also be reconciled on modem-only devices. */
+    (void)service_sd_music_init();
 }
 
 static void voice_wifi_provision_guard(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -266,12 +268,13 @@ int main(int argc, char **argv)
 
     app_button_init();
 
+    battery_init();
+    service_power_policy_init();
+
 #if CONFIG_APPLICATION_UI
     extern int lisa_ui_init(void);
     lisa_ui_init();
 #endif
-
-    battery_init();
 
     app_show_initial_wifi_info_if_needed();
 

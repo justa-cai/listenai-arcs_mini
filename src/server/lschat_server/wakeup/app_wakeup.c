@@ -28,6 +28,9 @@
 #include "cmd/cmd.h"
 #include "Driver_ADC_PDM.h"
 #include "Driver_DAC.h"
+#if CONFIG_WIFI
+#include "sys_wifi.h"
+#endif
 #endif // CONFIG_BOARD_ARCS_MINI
 
 /* Audio parameters */
@@ -39,7 +42,15 @@
 #define BUFFER_SAMPLES      256
 
 #ifdef CONFIG_BOARD_ARCS_MINI
+#define AUDIO_STANDBY_PLAYBACK_WARMUP_MS 50U
+#define AUDIO_STANDBY_RECORD_WARMUP_MS   20U
+
 static bool s_wakeup_started = false;
+static bool s_audio_adc_low_power = false;
+static bool s_audio_reference_channel_off = false;
+static bool s_audio_playback_off = false;
+static SemaphoreHandle_t s_audio_power_mutex = NULL;
+static app_wakeup_audio_diag_t s_audio_diag;
 #endif
 static bool s_audio_inited = false;
 static bool s_wakeup_feed_enabled = false;
@@ -64,6 +75,47 @@ static int32_t g_play_digital_gain = -20;
 #endif // CONFIG_BOARD_ARCS_MINI
 
 static app_wakeup_sensitivity_level_e s_sensitivity_level = APP_WAKEUP_SENSITIVITY_LEVEL_2;
+
+#ifdef CONFIG_BOARD_ARCS_MINI
+static bool app_wakeup_audio_standby_active(void)
+{
+    return s_audio_adc_low_power || s_audio_reference_channel_off ||
+           s_audio_playback_off;
+}
+
+static void app_wakeup_audio_diag_sync_state(void)
+{
+    s_audio_diag.adc_low_power = s_audio_adc_low_power;
+    s_audio_diag.reference_channel_off = s_audio_reference_channel_off;
+    s_audio_diag.playback_off = s_audio_playback_off;
+}
+
+static void app_wakeup_audio_diag_begin_wake(void)
+{
+    taskENTER_CRITICAL();
+    s_audio_diag.wake_count++;
+    s_audio_diag.record_events_since_wake = 0U;
+    s_audio_diag.input_submit_failures_since_wake = 0U;
+    s_audio_diag.output_buffers_since_wake = 0U;
+    s_audio_diag.output_bytes_since_wake = 0U;
+    s_audio_diag.cloud_frames_since_wake = 0U;
+    s_audio_diag.cloud_non_silent_frames_since_wake = 0U;
+    s_audio_diag.cloud_send_failures_since_wake = 0U;
+    s_audio_diag.last_cloud_peak = 0U;
+    taskEXIT_CRITICAL();
+}
+
+void app_wakeup_audio_diag_get(app_wakeup_audio_diag_t *diag)
+{
+    if (diag == NULL) {
+        return;
+    }
+
+    taskENTER_CRITICAL();
+    *diag = s_audio_diag;
+    taskEXIT_CRITICAL();
+}
+#endif
 
 static uint32_t app_wakeup_get_esr_timeout_ms(void)
 {
@@ -175,6 +227,29 @@ static void wakeup_event_handler(uint32_t event, void *event_data, uint32_t even
             if (is_wakeup_keyword) {
                 TickType_t now = xTaskGetTickCount();
                 if (now - s_last_wakeup_keyword_tick >= pdMS_TO_TICKS(WAKEUP_KEYWORD_PUB_MIN_INTERVAL_MS)) {
+#ifdef CONFIG_BOARD_ARCS_MINI
+                    app_wakeup_audio_diag_begin_wake();
+                    /*
+                     * Restore playback before publishing the wake event. The wake tone is a
+                     * direct subscriber and may start before the UI processes its activity
+                     * callback.
+                     */
+                    int power_ret = app_wakeup_audio_standby_resume();
+                    if (power_ret != 0) {
+                        LISA_LOGW(TAG, "Audio standby resume before wake event failed: %d", power_ret);
+                    }
+#if CONFIG_WIFI
+                    /*
+                     * Standby may skip up to 19 DTIM periods. A local wake is
+                     * an outbound event, so wake the radio before subscribers
+                     * start the cloud interaction.
+                     */
+                    power_ret = sys_wifi_set_standby_power_save(false);
+                    if (power_ret != 0) {
+                        LISA_LOGW(TAG, "WiFi standby resume before wake event failed: %d", power_ret);
+                    }
+#endif
+#endif
                     s_last_wakeup_keyword_tick = now;
                     voice_msg_pub(VOICE_MSG_WAKEUP_KEYWORD, keyword, strlen((char *)keyword) + 1);
                 } else {
@@ -279,6 +354,10 @@ static void audio_stream_callback(const lisa_audio_event_t *event, void *user_da
         return;
     }
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+    s_audio_diag.record_events_since_wake++;
+#endif
+
 
 #if CONFIG_ACOMP_WAKEUP_ALGORITHM_TYPE_DUAL_MIC
     algo_ref_data = (ref_in_t*)event->echo_buffer;
@@ -299,6 +378,9 @@ static void audio_stream_callback(const lisa_audio_event_t *event, void *user_da
         acomp_wakeup_stream_tx_buffer_submit(WAKEUP_AUDIO_MIX2CH_STREAM_CH_INDEX, buffer, buf_size, desc_idx);
     } else {
         LOGE("acomp_wakeup_stream_tx_buffer_alloc failed");
+#ifdef CONFIG_BOARD_ARCS_MINI
+        s_audio_diag.input_submit_failures_since_wake++;
+#endif
     }
 }
 
@@ -399,6 +481,202 @@ static int start_playback(lisa_device_t *audio_dev)
     return LISA_DEVICE_OK;
 }
 
+#ifdef CONFIG_BOARD_ARCS_MINI
+int app_wakeup_audio_standby_suspend(void)
+{
+    int ret = 0;
+    int step_ret;
+
+    if (!s_audio_inited || g_audio_dev == NULL || s_audio_power_mutex == NULL) {
+        return -1;
+    }
+
+    xSemaphoreTake(s_audio_power_mutex, portMAX_DELAY);
+
+    if (app_wakeup_audio_standby_active()) {
+        xSemaphoreGive(s_audio_power_mutex);
+        return 0;
+    }
+
+    s_audio_diag.suspend_count++;
+
+    step_ret = lisa_audio_play_stop(g_audio_dev);
+    if (step_ret != LISA_DEVICE_OK) {
+        LISA_LOGW(TAG, "Standby play stop failed: %d", step_ret);
+        ret = step_ret;
+    } else {
+        s_audio_playback_off = true;
+    }
+
+    step_ret = DAC_PowerControl(DAC01(), CSK_POWER_OFF);
+    if (step_ret != CSK_DRIVER_OK) {
+        LISA_LOGW(TAG, "Standby DAC power off failed: %d", step_ret);
+        if (ret == 0) {
+            ret = step_ret;
+        }
+    } else {
+        s_audio_playback_off = true;
+    }
+
+    /*
+     * The single-mic wake path consumes MIC0 (left). MIC1 (right) is only the
+     * hard AEC reference and has no useful signal while playback is off.
+     * Keep its DMA slot alive but power down its ADC/PGA/VREF.
+     */
+    step_ret = ADC_PDM_AnalogChannelPowerControl(ADC_PDM01(),
+                                                 ADC_PDM_BMP_RIGHT,
+                                                 CSK_POWER_OFF);
+    if (step_ret != CSK_DRIVER_OK) {
+        LISA_LOGW(TAG, "Standby reference ADC power off failed: %d", step_ret);
+        if (ret == 0) {
+            ret = step_ret;
+        }
+    } else {
+        s_audio_reference_channel_off = true;
+    }
+
+    /*
+     * CSK_POWER_LOW only changes ADC/PGA bias settings. Recording, DMA and
+     * wake-word processing remain active.
+     */
+    step_ret = ADC_PDM_PowerControl(ADC_PDM01(), CSK_POWER_LOW);
+    if (step_ret != CSK_DRIVER_OK) {
+        LISA_LOGW(TAG, "Standby ADC low-power request failed: %d", step_ret);
+        if (ret == 0) {
+            ret = step_ret;
+        }
+    } else {
+        s_audio_adc_low_power = true;
+    }
+
+    app_wakeup_audio_diag_sync_state();
+    xSemaphoreGive(s_audio_power_mutex);
+
+    LISA_LOGI(TAG, "Audio standby active: DAC/DMA stopped, ADC low-power bias, recording kept");
+    return ret;
+}
+
+int app_wakeup_audio_standby_resume(void)
+{
+    int ret = 0;
+    int step_ret;
+    bool record_restored = false;
+
+    if (!s_audio_inited || g_audio_dev == NULL || s_audio_power_mutex == NULL) {
+        return 0;
+    }
+
+    LISA_LOGI(TAG, "Audio standby resume: mutex wait");
+    xSemaphoreTake(s_audio_power_mutex, portMAX_DELAY);
+    LISA_LOGI(TAG,
+              "Audio standby resume: mutex acquired, adc_low=%u ref_off=%u play_off=%u",
+              (unsigned int)s_audio_adc_low_power,
+              (unsigned int)s_audio_reference_channel_off,
+              (unsigned int)s_audio_playback_off);
+
+    if (!app_wakeup_audio_standby_active()) {
+        xSemaphoreGive(s_audio_power_mutex);
+        return 0;
+    }
+
+    s_audio_diag.resume_count++;
+
+    if (s_audio_adc_low_power) {
+        LISA_LOGI(TAG, "Audio standby resume: ADC bias begin");
+        step_ret = ADC_PDM_PowerControl(ADC_PDM01(), CSK_POWER_FULL);
+        LISA_LOGI(TAG, "Audio standby resume: ADC bias end ret=%d", step_ret);
+        if (step_ret != CSK_DRIVER_OK) {
+            LISA_LOGW(TAG, "ADC full-power restore failed: %d", step_ret);
+            ret = step_ret;
+        } else {
+            s_audio_adc_low_power = false;
+        }
+    }
+
+    if (s_audio_reference_channel_off) {
+        LISA_LOGI(TAG, "Audio standby resume: reference ADC begin");
+        step_ret = ADC_PDM_AnalogChannelPowerControl(ADC_PDM01(),
+                                                     ADC_PDM_BMP_RIGHT,
+                                                     CSK_POWER_FULL);
+        LISA_LOGI(TAG, "Audio standby resume: reference ADC end ret=%d", step_ret);
+        if (step_ret != CSK_DRIVER_OK) {
+            LISA_LOGW(TAG, "Reference ADC full-power restore failed: %d", step_ret);
+            if (ret == 0) {
+                ret = step_ret;
+            }
+        } else {
+            lisa_audio_record_channel_gain_t gain = {
+                .left = {
+                    .analog_gain = g_record_mic_analog_gain,
+                    .digital_gain = g_record_mic_digital_gain,
+                },
+                .right = {
+                    .analog_gain = g_record_ref_analog_gain,
+                    .digital_gain = g_record_ref_digital_gain,
+                },
+            };
+
+            step_ret = lisa_audio_record_set_channel_gain(g_audio_dev, &gain);
+            if (step_ret != LISA_DEVICE_OK) {
+                LISA_LOGW(TAG, "Record gain restore failed: %d", step_ret);
+                if (ret == 0) {
+                    ret = step_ret;
+                }
+            } else {
+                s_audio_reference_channel_off = false;
+            }
+        }
+    }
+
+    record_restored = !s_audio_adc_low_power &&
+                      !s_audio_reference_channel_off;
+    if (record_restored) {
+        vTaskDelay(pdMS_TO_TICKS(AUDIO_STANDBY_RECORD_WARMUP_MS));
+    }
+
+    /*
+     * DAC power-off clears the HAL configured flag, so perform the complete
+     * LISA configure/start sequence rather than only issuing PLAY_START.
+     */
+    if (s_audio_playback_off) {
+        LISA_LOGI(TAG, "Audio standby resume: playback rebuild begin");
+        step_ret = start_playback(g_audio_dev);
+        LISA_LOGI(TAG, "Audio standby resume: playback rebuild end ret=%d", step_ret);
+        if (step_ret != LISA_DEVICE_OK) {
+            LISA_LOGE(TAG, "Playback rebuild after standby failed: %d", step_ret);
+            if (ret == 0) {
+                ret = step_ret;
+            }
+        } else {
+            s_audio_playback_off = false;
+            /*
+             * start_playback() starts the DAC with two silent DMA buffers. Let
+             * the output path settle before the short wake tone is queued.
+             */
+            vTaskDelay(pdMS_TO_TICKS(AUDIO_STANDBY_PLAYBACK_WARMUP_MS));
+        }
+    }
+
+    app_wakeup_audio_diag_sync_state();
+    if (app_wakeup_audio_standby_active()) {
+        s_audio_diag.resume_failures++;
+        if (ret == 0) {
+            ret = -1;
+        }
+        LISA_LOGW(TAG,
+                  "Audio standby resume incomplete: adc_low=%u ref_off=%u play_off=%u ret=%d",
+                  (unsigned int)s_audio_adc_low_power,
+                  (unsigned int)s_audio_reference_channel_off,
+                  (unsigned int)s_audio_playback_off, ret);
+    } else {
+        LISA_LOGI(TAG, "Audio standby exited: ADC and playback restored");
+    }
+
+    xSemaphoreGive(s_audio_power_mutex);
+    return ret;
+}
+#endif
+
 static int audio_init(void)
 {
     int ret;
@@ -407,6 +685,16 @@ static int audio_init(void)
     if (s_audio_inited) {
         return 0;
     }
+
+#ifdef CONFIG_BOARD_ARCS_MINI
+    if (s_audio_power_mutex == NULL) {
+        s_audio_power_mutex = xSemaphoreCreateMutex();
+        if (s_audio_power_mutex == NULL) {
+            LISA_LOGE(TAG, "Failed to create audio power mutex");
+            return -1;
+        }
+    }
+#endif
 
     LISA_LOGI(TAG, "Fused format: 4-channel (mic0, mic1, ref0, ref1)");
 
@@ -550,6 +838,7 @@ static void wakeup_out_stream_to_cloud(uint8_t *data, int len)
 
     for (int j = 0; j < len / (LS_RECORD_ONE_CHNNEL_SIZE * UAS_REC_CHANNELS); j++) {
         short algo_out[UAS_REC_FRM_SAMPS] = {0};
+        uint32_t peak = 0U;
         short(*algo_frame)[UAS_REC_CHANNELS] =
             (short(*)[UAS_REC_CHANNELS])((uint8_t *)data + LS_RECORD_ONE_CHNNEL_SIZE * UAS_REC_CHANNELS * j);
         for (int i = 0; i < UAS_REC_FRM_SAMPS; i++) {
@@ -570,9 +859,21 @@ static void wakeup_out_stream_to_cloud(uint8_t *data, int len)
             }
             algo_frame[i][4] = (short)sample; // 保存上报云端的数据，后续UAC传出
             algo_out[i] = (short)sample;
+            uint32_t magnitude = (uint32_t)(sample < 0 ? -sample : sample);
+            if (magnitude > peak) {
+                peak = magnitude;
+            }
         }
 
-        voice_cloud_chat_send_audio((uint8_t *)algo_out, LS_RECORD_ONE_CHNNEL_SIZE);
+        s_audio_diag.cloud_frames_since_wake++;
+        s_audio_diag.last_cloud_peak = peak;
+        if (peak > 0U) {
+            s_audio_diag.cloud_non_silent_frames_since_wake++;
+        }
+        if (voice_cloud_chat_send_audio((uint8_t *)algo_out,
+                                        LS_RECORD_ONE_CHNNEL_SIZE) != 0) {
+            s_audio_diag.cloud_send_failures_since_wake++;
+        }
     }
 }
 
@@ -599,6 +900,8 @@ static void wakeup_out_task(void *pvParameters)
 
                 LISA_LOGD(TAG, "acomp_wakeup_stream_rx_buffer_get ok");
 
+                s_audio_diag.output_buffers_since_wake++;
+                s_audio_diag.output_bytes_since_wake += len;
                 wakeup_out_stream_to_cloud(buffer, len);
 
                 wakeup_stream_debug_data_output(buffer, len);

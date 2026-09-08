@@ -7,6 +7,9 @@
 #endif 
 #include "boot_config.h"
 #include "boot_default_app.h"
+#ifdef CONFIG_BOOT_FACTORY_PARAMS
+#include "boot_factory_params.h"
+#endif
 #include "boot_gpio_check.h"
 #include "boot_power_guard.h"
 #include "boot_reset_cause.h"
@@ -38,6 +41,41 @@ extern volatile uint32_t SystemCoreClock;
 extern volatile IRegion_Info_Type SystemIRegionInfo;
 
 static uint32_t boot_rand_state = 0xACE1U;
+
+__boot_ramcode__ static void boot_jump_to_cp(uint32_t addr);
+
+#ifdef CONFIG_BOOT_FACTORY_PARAMS
+/* A failed/previous recovery attempt can leave transient routing bits in the
+ * AON register.  They must not divert a valid factory image into boot_s. */
+__boot_ramcode__ static void boot_factory_clear_transient_state(uint32_t *boot_info_raw)
+{
+    union {
+        struct boot_info info;
+        uint32_t raw;
+    } bits;
+
+    if (boot_info_raw == NULL) {
+        return;
+    }
+
+    bits.raw = *boot_info_raw;
+    bits.info.reboot_cnt = 0U;
+    bits.info.recover_reason = RECOVER_REASON_NONE;
+    bits.info.ota_pending = 0U;
+    bits.info.shutdown_req = 0U;
+    bits.info.charging_wait = 0U;
+    bits.info.resume_normal_boot = 0U;
+    bits.info.handshake_timeout = 0U;
+    bits.info.boot_wdt = 0U;
+    bits.info.req = 0U;
+    *boot_info_raw = bits.raw;
+}
+#endif
+
+__boot_ramcode__ __attribute__((weak)) int soc_cpu_id_get(void)
+{
+    return CONFIG_HARTID;
+}
 
 /* -------------------------------------------------------------------------
  * boot_f 阶段裸 UART 日志（不依赖 syslog）。
@@ -405,23 +443,47 @@ __boot_text__ __noreturn__ void boot_f(void)
 
     boot_reset_route_init();
 
+    uint32_t app_addr = boot_default_app_addr_get();
+    bool factory_mode = false;
+#ifdef CONFIG_BOOT_FACTORY_PARAMS
+    app_addr = boot_factory_app_addr_get(app_addr);
+    factory_mode = app_addr == CONFIG_MEM_FLASH_BASE + CONFIG_BOOT_FACTORY_TEST_OFFSET;
+#endif
+
 #ifdef CONFIG_BOOT_SECOND_STAGE
     {
         uint32_t *boot_info_raw = (uint32_t *)&IP_AON_CTRL->REG_AON_DIG_RSVD4.all;
         uint32_t sysrst_status = IP_AON_CTRL->REG_SYSRST_STATUS.all;
 
 #ifdef CONFIG_BOOT_POWER_GUARD
-        boot_power_guard_run(sysrst_status, boot_info_raw);
+        if (factory_mode) {
+            boot_factory_clear_transient_state(boot_info_raw);
+        }
+        boot_power_guard_run(sysrst_status, boot_info_raw, factory_mode);
+#endif
+
+#ifdef CONFIG_BOOT_FACTORY_PARAMS
+        if (factory_mode) {
+#ifndef CONFIG_BOOT_POWER_GUARD
+            boot_factory_clear_transient_state(boot_info_raw);
+#endif
+            BFLOG("[bf] ->factory cp @");
+            BFLOG_HEX(app_addr);
+            BFLOG("\r\n");
+            BFLOG_FLUSH();
+            boot_jump_to_cp(app_addr);
+        }
 #endif
 
         const struct boot_config *boot_cfg = boot_config_load_valid(NULL);
 
         boot_reset_cause_apply(boot_info_raw, sysrst_status);
-        bool app_valid = boot_default_app_is_valid();
+        bool app_valid = boot_default_app_image_is_valid(
+            (const uint8_t *)(uintptr_t)app_addr, app_addr);
         boot_default_app_prepare_recovery(boot_info_raw, app_valid);
 
         BFLOG("[bf] A=");
-        BFLOG_HEX(boot_default_app_addr_get());
+        BFLOG_HEX(app_addr);
         BFLOG(" V=");
         BFLOG(app_valid ? "1" : "0");
         BFLOG(" rst=");
@@ -475,52 +537,52 @@ __boot_text__ __noreturn__ void boot_f(void)
 #endif
 
 #if CONFIG_BOOT_APP_CORE_AUTO
-    switch (boot_app_detect_target(boot_default_app_addr_get())) {
+    switch (boot_app_detect_target(app_addr)) {
     case BOOT_APP_TARGET_CP:
         BFLOG("[bf] ->cp @");
-        BFLOG_HEX(boot_default_app_addr_get());
+        BFLOG_HEX(app_addr);
         BFLOG("\r\n");
         BFLOG_FLUSH();
-        boot_jump_to_cp(boot_default_app_addr_get());
+        boot_jump_to_cp(app_addr);
         break;
     case BOOT_APP_TARGET_AP:
         BFLOG("[bf] ->ap @");
-        BFLOG_HEX(boot_default_app_addr_get());
+        BFLOG_HEX(app_addr);
         BFLOG("\r\n");
         BFLOG_FLUSH();
         boot_prepare_handoff();
-        ((void (*)(void))boot_default_app_addr_get())();
+        ((void (*)(void))app_addr)();
         break;
     default:
 #if CONFIG_BOOT_APP_CORE_AUTO_FALLBACK_CP
         BFLOG("[bf] ->cp(fb) @");
-        BFLOG_HEX(boot_default_app_addr_get());
+        BFLOG_HEX(app_addr);
         BFLOG("\r\n");
         BFLOG_FLUSH();
-        boot_jump_to_cp(boot_default_app_addr_get());
+        boot_jump_to_cp(app_addr);
 #else
         BFLOG("[bf] ->ap(fb) @");
-        BFLOG_HEX(boot_default_app_addr_get());
+        BFLOG_HEX(app_addr);
         BFLOG("\r\n");
         BFLOG_FLUSH();
         boot_prepare_handoff();
-        ((void (*)(void))boot_default_app_addr_get())();
+        ((void (*)(void))app_addr)();
 #endif
         break;
     }
 #elif CONFIG_BOOT_APP_CORE_CP
     BFLOG("[bf] ->cp @");
-    BFLOG_HEX(boot_default_app_addr_get());
+    BFLOG_HEX(app_addr);
     BFLOG("\r\n");
     BFLOG_FLUSH();
-    boot_jump_to_cp(boot_default_app_addr_get());
+    boot_jump_to_cp(app_addr);
 #else
     BFLOG("[bf] ->ap @");
-    BFLOG_HEX(boot_default_app_addr_get());
+    BFLOG_HEX(app_addr);
     BFLOG("\r\n");
     BFLOG_FLUSH();
     boot_prepare_handoff();
-    ((void (*)(void))boot_default_app_addr_get())();
+    ((void (*)(void))app_addr)();
 #endif
 
     while (1) {

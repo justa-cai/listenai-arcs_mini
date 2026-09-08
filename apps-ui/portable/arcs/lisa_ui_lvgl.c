@@ -26,6 +26,9 @@ extern void lvgl_task_cpu_percent_peroid500ms(void);
 
 #define LISA_KV_KEY_LANGUAGE "user.locale"
 
+static bool s_lvgl_handler_suspended;
+static bool s_lvgl_handler_pending;
+
 int lisa_ui_lvgl_init()
 {
     lv_init();
@@ -63,14 +66,44 @@ int lisa_ui_lvgl_init()
 
 static void lisa_ui_invoke_worker(void *arg, uint32_t len)
 {
-    uint32_t sleep = lv_task_handler();
+    uint32_t sleep;
 
-    LISA_UI_INVOKE_UI_DELAYED(lisa_ui_invoke_worker, arg, len, sleep);
+    s_lvgl_handler_pending = false;
+    if (s_lvgl_handler_suspended) {
+        return;
+    }
+
+    sleep = lv_task_handler();
+    if (!s_lvgl_handler_suspended) {
+        s_lvgl_handler_pending = true;
+        LISA_UI_INVOKE_UI_DELAYED(lisa_ui_invoke_worker, arg, len, sleep);
+    }
 }
 
 int lisa_ui_lvgl_run(void)
 {
+    s_lvgl_handler_pending = true;
     LISA_UI_INVOKE_UI_DELAYED(lisa_ui_invoke_worker, NULL, 0, 0);
 
     return 0;
+}
+
+void lisa_ui_handler_suspend(void)
+{
+    s_lvgl_handler_suspended = true;
+    LOGI("LVGL handler suspended");
+}
+
+void lisa_ui_handler_resume(void)
+{
+    if (!s_lvgl_handler_suspended) {
+        return;
+    }
+
+    s_lvgl_handler_suspended = false;
+    if (!s_lvgl_handler_pending) {
+        s_lvgl_handler_pending = true;
+        LISA_UI_INVOKE_UI_DELAYED(lisa_ui_invoke_worker, NULL, 0, 0);
+    }
+    LOGI("LVGL handler resumed");
 }

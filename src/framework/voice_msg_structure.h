@@ -36,11 +36,64 @@ typedef struct {
     uint8_t status; /* voice_msg_battery_status_t */
 } voice_msg_battery_info_t;
 
+typedef enum {
+    VOICE_MSG_POWER_POLICY_STATE_NORMAL = 0,
+    VOICE_MSG_POWER_POLICY_STATE_IDLE,
+    VOICE_MSG_POWER_POLICY_STATE_HIBERNATE,
+    VOICE_MSG_POWER_POLICY_STATE_SHUTDOWN_PENDING,
+} voice_msg_power_policy_state_t;
+
+typedef enum {
+    VOICE_MSG_POWER_POLICY_REASON_INIT = 0,
+    VOICE_MSG_POWER_POLICY_REASON_IDLE_TIMEOUT,
+    VOICE_MSG_POWER_POLICY_REASON_HIBERNATE_TIMEOUT,
+    VOICE_MSG_POWER_POLICY_REASON_LOW_BATTERY,
+    VOICE_MSG_POWER_POLICY_REASON_VOICE_WAKE,
+    VOICE_MSG_POWER_POLICY_REASON_BUTTON,
+    VOICE_MSG_POWER_POLICY_REASON_EXTERNAL_POWER,
+    VOICE_MSG_POWER_POLICY_REASON_INTERACTION,
+} voice_msg_power_policy_reason_t;
+
+typedef struct {
+    uint8_t state;  /* voice_msg_power_policy_state_t */
+    uint8_t reason; /* voice_msg_power_policy_reason_t */
+    uint8_t reserved[2];
+} voice_msg_power_policy_state_event_t;
+
+typedef enum {
+    VOICE_MSG_MUSIC_SOURCE_ONLINE = 0,
+    VOICE_MSG_MUSIC_SOURCE_TF_CARD,
+} voice_msg_music_source_e;
+
+#define VOICE_MSG_MUSIC_NAME_MAX 256
+
+typedef struct {
+    uint32_t source; /* voice_msg_music_source_e */
+    char name[VOICE_MSG_MUSIC_NAME_MAX];
+} voice_msg_music_info_t;
+
 typedef struct {
     uint8_t auto_reboot;
     uint8_t reserved[3];
     uint32_t delay_ms;
 } voice_msg_cloud_reboot_t;
+
+/** 云端会话中断选项；空 payload 保持历史行为并视为用户主动中断。 */
+typedef struct {
+    uint8_t report_reply_position;
+} voice_msg_cloud_session_interrupt_t;
+
+/** Timeline 字幕条目；text 紧随结构体存储且以 NUL 结尾。 */
+typedef struct {
+    uint32_t index;
+    uint32_t start_index;
+    uint32_t end_index;
+    uint32_t start_ms;
+    uint32_t end_ms;
+    uint16_t text_len;
+    uint16_t reserved;
+    char text[];
+} voice_msg_tts_timeline_t;
 
 typedef enum {
     VOICE_MSG_SD_MUSIC_SYNC_STATE_IDLE = 0,
@@ -56,6 +109,7 @@ typedef enum {
     VOICE_MSG_SD_MUSIC_SYNC_RESULT_DATA_UNCHANGED = 1,
     VOICE_MSG_SD_MUSIC_SYNC_RESULT_NO_MP3 = 2,
     VOICE_MSG_SD_MUSIC_SYNC_RESULT_FAILED = -1,
+    VOICE_MSG_SD_MUSIC_SYNC_RESULT_FS_UNSUPPORTED = -2,
 } voice_msg_sd_music_sync_result_e;
 
 typedef struct {
@@ -67,6 +121,11 @@ typedef struct {
     int32_t http_error_code;   /* HTTP 客户端错误码，0 表示无 */
     uint32_t skipped_count;         /* 扫描到但因限制未上报的音频文件数 */
 } voice_msg_sd_music_sync_state_t;
+
+typedef struct {
+    uint8_t available;
+    uint8_t reserved[3];
+} voice_msg_sd_card_state_t;
 
 
 

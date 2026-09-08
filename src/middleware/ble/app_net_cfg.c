@@ -279,6 +279,7 @@ uint16_t netcfg_bles_profile_set_cb(uint8_t conidx, uint8_t att_idx, uint16_t op
         ble_netcfg_bles_send_notify_custom_data(conidx, strlen(auth_info), (uint8_t *)auth_info);
         LISA_LOGI(TAG, "netcfg_bles_profile_set_cb TEST done status: 0x%04X", status);
         // assist_controller_trigger_event(CONTROLLER_EVENT_OPT_EXIT_BLE_CONFIG, NULL, 0);
+        btos_task_suspend(200);
         app_ble_adv_stop(0);
         status = NETCFG_BLE_SUCCESS;
         break;

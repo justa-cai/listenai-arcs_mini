@@ -9,10 +9,14 @@
 #include "lisa_evt_pub.h"
 #include "lisa_thread.h"
 #include "lisa_semaphore.h"
+#include "lisa_mutex.h"
 #include "lisa_log.h"
 #include "lisa_http.h"
 #include "cJSON.h"
 #include "lsc_config.h"
+
+#define LSC_NETWORK_IDLE_POLL_MS 20U
+
 typedef struct {
 	lsc_config_t *config;
 	lsc_conn_t *conn;
@@ -23,6 +27,9 @@ typedef struct {
 	lisa_thread_t *reconnect_thread;
 	lsc_event_e statu;
 	lisa_semaphore_t *connected_sem;
+	lisa_mutex_t *network_lock;
+	bool network_suspended;
+	uint32_t network_active_count;
 } lsc_t;
 
 static lsc_t *g_lsc_obj = NULL;
@@ -96,6 +103,130 @@ static lsc_event_e lsc_get_status(void)
 {
 	lsc_t *lsc = g_lsc_obj;
 	return lsc->statu;
+}
+
+static bool lsc_network_request_enter(void)
+{
+	lsc_t *lsc = g_lsc_obj;
+	bool allowed = false;
+
+	if (lsc == NULL || lsc->network_lock == NULL) {
+		return false;
+	}
+
+	if (lisa_mutex_lock(lsc->network_lock, LISA_OS_WAIT_FOREVER) != LISA_OK) {
+		return false;
+	}
+
+	if (!lsc->network_suspended) {
+		lsc->network_active_count++;
+		allowed = true;
+	}
+
+	lisa_mutex_unlock(lsc->network_lock);
+	return allowed;
+}
+
+static void lsc_network_request_leave(void)
+{
+	lsc_t *lsc = g_lsc_obj;
+
+	if (lsc == NULL || lsc->network_lock == NULL) {
+		return;
+	}
+
+	if (lisa_mutex_lock(lsc->network_lock, LISA_OS_WAIT_FOREVER) != LISA_OK) {
+		return;
+	}
+
+	if (lsc->network_active_count > 0) {
+		lsc->network_active_count--;
+	}
+
+	lisa_mutex_unlock(lsc->network_lock);
+}
+
+bool lsc_is_network_suspended(void)
+{
+	lsc_t *lsc = g_lsc_obj;
+	bool suspended = false;
+
+	if (lsc == NULL || lsc->network_lock == NULL) {
+		return false;
+	}
+
+	if (lisa_mutex_lock(lsc->network_lock, LISA_OS_WAIT_FOREVER) != LISA_OK) {
+		return false;
+	}
+
+	suspended = lsc->network_suspended;
+	lisa_mutex_unlock(lsc->network_lock);
+
+	return suspended;
+}
+
+int lsc_set_network_suspended(bool suspended)
+{
+	lsc_t *lsc = g_lsc_obj;
+
+	CHECK_COND_RETURN_VAL(lsc, LSC_INVALID_STATE, "lsc not create");
+	CHECK_COND_RETURN_VAL(lsc->network_lock, LSC_INVALID_STATE, "lsc network lock not create");
+
+	if (lisa_mutex_lock(lsc->network_lock, LISA_OS_WAIT_FOREVER) != LISA_OK) {
+		return LSC_ERR;
+	}
+
+	if (lsc->network_suspended != suspended) {
+		LISA_NLOGI("lsc network %s", suspended ? "suspended" : "resumed");
+	}
+	lsc->network_suspended = suspended;
+
+	lisa_mutex_unlock(lsc->network_lock);
+
+	if (lsc->connected_sem) {
+		if (suspended) {
+			lisa_semaphore_give(lsc->connected_sem);
+		} else {
+			lisa_semaphore_clear(lsc->connected_sem);
+		}
+	}
+
+	return LSC_OK;
+}
+
+int lsc_wait_network_idle(uint32_t timeout_ms)
+{
+	lsc_t *lsc = g_lsc_obj;
+	uint32_t waited_ms = 0;
+
+	CHECK_COND_RETURN_VAL(lsc, LSC_INVALID_STATE, "lsc not create");
+	CHECK_COND_RETURN_VAL(lsc->network_lock, LSC_INVALID_STATE, "lsc network lock not create");
+
+	while (1) {
+		uint32_t active_count;
+
+		if (lisa_mutex_lock(lsc->network_lock, LISA_OS_WAIT_FOREVER) != LISA_OK) {
+			return LSC_ERR;
+		}
+		active_count = lsc->network_active_count;
+		lisa_mutex_unlock(lsc->network_lock);
+
+		if (active_count == 0) {
+			return LSC_OK;
+		}
+
+		if (waited_ms >= timeout_ms) {
+			LISA_NLOGW("lsc network idle wait timeout, active=%u", active_count);
+			return LSC_ERR;
+		}
+
+		uint32_t delay_ms = timeout_ms - waited_ms;
+		if (delay_ms > LSC_NETWORK_IDLE_POLL_MS) {
+			delay_ms = LSC_NETWORK_IDLE_POLL_MS;
+		}
+		lisa_thread_mdelay(delay_ms);
+		waited_ms += delay_ms;
+	}
 }
 
 static void _lsc_core_conn_evt_cb(conn_event_e evt, void *data, uint32_t size, void *usr)
@@ -389,24 +520,49 @@ static void lsc_reconnect_thread(void *param)
 
 	while (1) {
 		if (lsc_get_status() == LSC_DISCONNECTED) {
+			if (lsc_is_network_suspended()) {
+				goto reconnect_delay;
+			}
+
 			LISA_NLOGI("lsc_reconnect_thread, reconnect start");
 			if (lsc_if_got_token() == false) {
+				if (!lsc_network_request_enter()) {
+					goto reconnect_delay;
+				}
+
 				ret = lsc->conn->auth(lsc->config->device_id, lsc->config->product_id,
 						      lsc->config->secret_id, lsc->config->extra_param);
+				lsc_network_request_leave();
+
 				if (ret) {
 					LISA_NLOGE("lsc auth opt faild(ret = %d)", ret);
 				}
 
+				if (lsc_is_network_suspended()) {
+					goto reconnect_delay;
+				}
+
 				if (lsc_if_got_token() == false) {
 					LISA_NLOGE("lsc auth faild !");
-					continue;
+					goto reconnect_delay;
 				}
 			}
+
+			if (!lsc_network_request_enter()) {
+				goto reconnect_delay;
+			}
+
+			if (lsc->connected_sem) {
+				lisa_semaphore_clear(lsc->connected_sem);
+			}
+
 			ret = lsc->conn->connect(lsc->auth_token);
 			if (ret == 0) {
 				LISA_NLOGI("lsc waiting connected...");
 				ret = lisa_semaphore_take(lsc->connected_sem, 10 * 1000);
-				if (ret) {
+				if (lsc_is_network_suspended()) {
+					LISA_NLOGI("lsc reconnect aborted by network suspend");
+				} else if (ret) {
 					LISA_NLOGE("lsc waiting connected sem timeout");
 					lsc->conn->disconnect();
 				} else {
@@ -415,7 +571,11 @@ static void lsc_reconnect_thread(void *param)
 			} else {
 				LISA_NLOGE("lsc connect faild(ret = %d)", ret);
 			}
+
+			lsc_network_request_leave();
 		}
+
+reconnect_delay:
 		lisa_thread_mdelay(lsc->config->reconn_interval_ms);
 	}
 }
@@ -453,6 +613,9 @@ int lsc_init(lsc_config_t *cfg)
 	CHECK_COND_GOTO(lsc, _err, "no mem");
 
 	g_lsc_obj = lsc;
+
+	lsc->network_lock = lisa_mutex_create();
+	CHECK_COND_GOTO(lsc->network_lock, _err, "lsc network lock create faild");
 
 	lsc->cb_list = lisa_evt_publisher_new();
 	CHECK_COND_GOTO(lsc->cb_list, _err, "lisa cb list create faild");
@@ -500,9 +663,16 @@ int lsc_init(lsc_config_t *cfg)
 	return LSC_OK;
 _err:
 	if (lsc) {
+		if (lsc->reconnect_thread) {
+			lisa_thread_delete(lsc->reconnect_thread);
+			lsc->reconnect_thread = NULL;
+		}
 
 		if (lsc->connected_sem) {
 			lisa_semaphore_delete(lsc->connected_sem);
+		}
+		if (lsc->network_lock) {
+			lisa_mutex_delete(lsc->network_lock);
 		}
 
 		if (lsc->cb_list) {
@@ -514,9 +684,6 @@ _err:
 		if (lsc->conn) {
 			lsc_conn_destroy(lsc->conn);
 			lsc->conn = NULL;
-		}
-		if (lsc->reconnect_thread) {
-			lisa_thread_delete(lsc->reconnect_thread);
 		}
 		lsc_clear_token();
 		lisa_mem_free(lsc);
@@ -555,6 +722,7 @@ int lsc_connect(void)
 	lsc_t *lsc = g_lsc_obj;
 	int ret = LSC_OK;
 	CHECK_COND_RETURN_VAL(lsc, LSC_INVALID_STATE, "lsc not create");
+	CHECK_COND_RETURN_VAL(lsc_network_request_enter(), LSC_INVALID_STATE, "lsc network suspended");
 
 	LISA_NLOGI("lsc connect");
 
@@ -563,11 +731,13 @@ int lsc_connect(void)
 				      lsc->config->extra_param);
 		if (ret) {
 			LISA_NLOGE("lsc auth opt faild(ret = %d)", ret);
+			lsc_network_request_leave();
 			return LSC_ERR;
 		}
 
 		if (lsc_if_got_token() == false) {
 			LISA_NLOGE("lsc auth faild !");
+			lsc_network_request_leave();
 			return LSC_ERR;
 		}
 	}
@@ -575,9 +745,11 @@ int lsc_connect(void)
 	ret = lsc->conn->connect(lsc->auth_token);
 	if (ret) {
 		LISA_NLOGE("lsc connect faild(ret = %d)", ret);
+		lsc_network_request_leave();
 		return LSC_ERR;
 	}
 
+	lsc_network_request_leave();
 	return LSC_OK;
 }
 
@@ -604,9 +776,19 @@ int lsc_deinit(void)
 	lsc_t *lsc = g_lsc_obj;
 	CHECK_COND_RETURN_VAL(lsc, LSC_INVALID_STATE, "lsc not create");
 
+	if (lsc->reconnect_thread) {
+		lisa_thread_delete(lsc->reconnect_thread);
+		lsc->reconnect_thread = NULL;
+	}
+
 	if (lsc->connected_sem) {
 		lisa_semaphore_delete(lsc->connected_sem);
 		lsc->connected_sem = NULL;
+	}
+
+	if (lsc->network_lock) {
+		lisa_mutex_delete(lsc->network_lock);
+		lsc->network_lock = NULL;
 	}
 
 	if (lsc->conn) {
@@ -624,9 +806,6 @@ int lsc_deinit(void)
 		lsc->config = NULL;
 	}
 
-	if (lsc->reconnect_thread) {
-		lisa_thread_delete(lsc->reconnect_thread);
-	}
 	lsc_clear_token();
 	lisa_mem_free(lsc);
 	sessions_core_deinit();
@@ -667,6 +846,7 @@ int lsc_music_active(void)
 	CHECK_COND_RETURN_VAL(lsc, LSC_INVALID_STATE, "lsc not create");
 
 	CHECK_COND_RETURN_VAL(lsc->auth_token, LSC_INVALID_STATE, "lsc not auth");
+	CHECK_COND_RETURN_VAL(lsc_network_request_enter(), LSC_INVALID_STATE, "lsc network suspended");
 
 	lisa_http_request_t req = {0};
 	req.method = LISA_HTTP_POST;
@@ -684,6 +864,7 @@ int lsc_music_active(void)
 	CHECK_COND_GOTO(ret == LISA_HTTP_OK, _err, "http perform faild(ret=%d)", ret);
 
 	lisa_http_cleanup(http);
+	lsc_network_request_leave();
 
 	if (lsc->music_active == false) {
 		return LSC_ERR;
@@ -694,6 +875,7 @@ _err:
 	if (http) {
 		lisa_http_cleanup(http);
 	}
+	lsc_network_request_leave();
 	return LSC_ERR;
 }
 
@@ -755,6 +937,7 @@ int lsc_music_request_url(const char *music_item_id, char music_url[256])
 	CHECK_COND_RETURN_VAL(lsc, LSC_INVALID_STATE, "lsc not create");
 
 	CHECK_COND_RETURN_VAL(lsc->auth_token, LSC_INVALID_STATE, "lsc not auth");
+	CHECK_COND_RETURN_VAL(lsc_network_request_enter(), LSC_INVALID_STATE, "lsc network suspended");
 
 	LISA_NLOGI("http req music(id:%s) url", music_item_id);
 
@@ -785,6 +968,7 @@ int lsc_music_request_url(const char *music_item_id, char music_url[256])
 	CHECK_COND_GOTO(ret == LISA_HTTP_OK, _err, "http perform faild(ret=%d)", ret);
 
 	lisa_http_cleanup(http);
+	lsc_network_request_leave();
 
 	cJSON_free(req_body);
 	cJSON_Delete(jsonItem);
@@ -803,6 +987,7 @@ _err:
 	if (http) {
 		lisa_http_cleanup(http);
 	}
+	lsc_network_request_leave();
 
 	if (req_body) {
 		cJSON_free(req_body);

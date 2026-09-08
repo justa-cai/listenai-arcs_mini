@@ -80,6 +80,7 @@ typedef struct {
 typedef struct {
 	bool enable;
 	struct abilities *abilities;
+	bool reply_interruption;
 } nlu_properties;
 
 typedef struct {
@@ -126,6 +127,7 @@ typedef struct {
 typedef struct {
 	uint32_t rid;
 	char sid[64];
+	char reply_sid[64];
 	session_params_t params;
 	lisa_evt_publisher_t *pub;
 	lisa_timer_t *timer;
@@ -183,6 +185,7 @@ typedef enum {
 	SESSION_IAT_END = BIT(20),
 	SESSION_VPR_INFO = BIT(21),
 	SESSION_VPR_FEATURE = BIT(22),
+	SESSION_REPLY_TIMELINE_URL = BIT(23),
 } sessions_event_e;
 
 /**
@@ -233,12 +236,16 @@ int session_get_config(session_t *hdl, session_params_t *cfg);
  * @retval 0： 成功
  */
 int session_start(session_t *hdl, char *data);
+int session_start_ex(session_t *hdl, char *data, bool preserve_reply_sid);
 /**
  * @brief 中止会话
  *
  * @retval 0： 成功
  */
 int session_cancel(session_t *hdl);
+
+int session_reply_interrupted(session_t *hdl, uint32_t sentence_index,
+			      uint32_t sentence_start, uint32_t sentence_end);
 /**
  * @brief 发送二进制数据
  *

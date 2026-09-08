@@ -1,6 +1,9 @@
 #ifndef __LS_VOICE_SERVER_H__
 #define __LS_VOICE_SERVER_H__
 
+#include <stddef.h>
+#include <stdint.h>
+
 typedef enum {
     VOICE_CLOUD_STATE_CONNECTED = 0,
     VOICE_CLOUD_STATE_CONNECTING,
@@ -12,6 +15,10 @@ typedef enum {
 
 struct voice_cloud_chat_config {
     uint8_t full_duplex;
+    /* 非全双工唤醒会话在本地唤醒应答语完成前保持音频上传关闭。 */
+    uint8_t wait_wakeup_tone;
+    /* Keep an in-flight photo-result TTS timeline while starting silent barge-in. */
+    uint8_t preserve_tts_timeline;
     uint32_t timeout_ms; /* full_duplex timeout */
     uint8_t oneshot;
     char **words;
@@ -42,10 +49,11 @@ int voice_cloud_disconnect(void);
 int voice_cloud_chat_start(struct voice_cloud_chat_config *config);
 int voice_cloud_chat_stop(void);
 int voice_cloud_chat_stop_local(void);
-int voice_cloud_cancel_current_response(void);
+int voice_cloud_report_reply_interrupted(uint32_t playback_position_ms);
 int voice_cloud_chat_send_audio(uint8_t *data, int len);
 int voice_cloud_image_recognition(uint8_t *jpg_image, uint32_t len);
 void voice_cloud_image_recognition_drop_pending_result(void);
+void voice_cloud_tts_text_cancel(void);
 int voice_cloud_audio_recognition_start(void);
 int voice_cloud_audio_recognition_stop(void);
 int voice_cloud_upload_audio_pause(void);

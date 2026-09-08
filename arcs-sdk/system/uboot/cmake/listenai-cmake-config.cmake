@@ -9,23 +9,12 @@ endif()
 set(ARCS_SDK_CMAKE_PATH "${ARCS_SDK_BASE}/cmake")
 set(LISTENAI_CMAKE_PATH "${ARCS_SDK_CMAKE_PATH}")
 
-if(NOT DEFINED LISTENAI_TOOLS_PATH)
-    if(NOT DEFINED ENV{LISTENAI_TOOLS_PATH})
-        message(FATAL_ERROR "LISTENAI_TOOLS_PATH is not defined")
-    else()
-        set(LISTENAI_TOOLS_PATH $ENV{LISTENAI_TOOLS_PATH})
-    endif()
-endif()
-
-string(REPLACE "\\" "/" LISTENAI_TOOLS_PATH "${LISTENAI_TOOLS_PATH}")
 string(REPLACE "\\" "/" ARCS_SDK_BASE "${ARCS_SDK_BASE}")
 string(REPLACE "\\" "/" ARCS_SDK_CMAKE_PATH "${ARCS_SDK_CMAKE_PATH}")
 
 set(ENV{ARCS_BASE} "${ARCS_SDK_BASE}")
 
-set(LISTENAI_TOOLS_MKHDR "${LISTENAI_TOOLS_PATH}/mkhdr/mkhdr")
-set(LISTENAI_TOOLS_KCONFIG "${LISTENAI_TOOLS_PATH}/kconfig/kconfig")
-set(LISTENAI_TOOLS_MENUCONFIG "${LISTENAI_TOOLS_PATH}/menuconfig/menuconfig")
+include(${ARCS_SDK_CMAKE_PATH}/listenai-host-tools.cmake)
 
 option(LISTENAI_ADD_BIN_HEADR "kconfig no generate header of bin " ON)
 
@@ -81,7 +70,7 @@ include(${LISTENAI_CMAKE_PATH}/extensions.cmake)
 
 if(CONFIG_BOOT_APP_CORE_AUTO)
     execute_process(
-        COMMAND ${LISTENAI_TOOLS_MKHDR} -h
+        COMMAND ${LISTENAI_TOOLS_MKHDR_COMMAND} -h
         OUTPUT_VARIABLE _mkhdr_help
         ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE
     )
@@ -99,7 +88,11 @@ if (NOT DEFINED CHIP)
 endif()
 
 include(${LISTENAI_CMAKE_PATH}/${CHIP}-chip.cmake)
-include(${LISTENAI_CMAKE_PATH}/${CHIP}-toolchain.cmake)
+if(EXISTS "${LISTENAI_CMAKE_PATH}/${CHIP}-toolchain.cmake")
+    include(${LISTENAI_CMAKE_PATH}/${CHIP}-toolchain.cmake)
+else()
+    include(${LISTENAI_CMAKE_PATH}/riscv-toolchain.cmake)
+endif()
 include(${LISTENAI_CMAKE_PATH}/common_compile_options.cmake)
 include(${LISTENAI_CMAKE_PATH}/common_link_options.cmake)
 

@@ -11,6 +11,7 @@
 #include "voice_cloud.h"
 #include "app_player.h"
 #include "voice_player_comm.h"
+#include "voice_player/voice_player_tts.h"
 #include "voice_intent_mgr.h"
 #include "voice_intent_music.h"
 #include "voice_intent_photo_flow.h"
@@ -170,6 +171,40 @@ static void voice_idle_exit_timer_start(void)
 static bool voice_tts_is_playing(void)
 {
     return s_voice_cloud_tts_active;
+}
+
+static bool voice_reply_interrupt_if_active(const char *reason)
+{
+    app_player_state_t state;
+    uint32_t playback_position_ms = 0;
+    bool position_valid;
+
+    if (!tts_player) {
+        return false;
+    }
+
+    state = app_player_get_state(tts_player);
+    if (state != APP_PLAYER_STATE_PREPARING &&
+        state != APP_PLAYER_STATE_PREPARED &&
+        state != APP_PLAYER_STATE_PLAYING &&
+        state != APP_PLAYER_STATE_PAUSED) {
+        return false;
+    }
+
+    position_valid = state == APP_PLAYER_STATE_PREPARING ||
+                     state == APP_PLAYER_STATE_PREPARED ||
+                     app_player_get_position(tts_player, &playback_position_ms) == APP_PLAYER_OK;
+    voice_player_tts_stop_async();
+    LOGI("interrupt active reply at %u ms (%s), position_valid=%u",
+         (unsigned)playback_position_ms, reason ? reason : "unknown",
+         (unsigned)position_valid);
+
+    if (position_valid &&
+        voice_cloud_report_reply_interrupted(playback_position_ms) != 0) {
+        LOGW("reply interruption position not reported");
+    }
+
+    return true;
 }
 
 static bool voice_has_active_background_music(void)
@@ -403,6 +438,7 @@ static int camera_preview_result_bargein_session_start(void)
     LOGI("barge-in wakeword: %s", wakeword);
 
     chat_config.full_duplex = app_interaction_mode_is_continuous(app_datas->int_mode);
+    chat_config.preserve_tts_timeline = 1;
     chat_config.timeout_ms = app_datas->full_duplex_timeout_ms;
     chat_config.oneshot = app_interaction_mode_is_continuous(app_datas->int_mode) ? false : app_datas->oneshot;
     chat_config.words = (char **)keywords;
@@ -574,6 +610,15 @@ static void voice_cloud_iat_txt(void *unused, uint32_t msg_id, void *data, uint3
     } else if (msg_id == VOICE_MSG_CLOUD_IAT_UPDATE) {
         LOGI("voice_cloud_iat_txt, update: %s", (char *)data);
         if (data && len > 0 && ((char *)data)[0] != '\0') {
+            struct app_datas *app_datas = get_app_datas();
+
+            if (app_datas &&
+                app_interaction_mode_supports_barge_in(app_datas->int_mode) &&
+                s_voice_cloud_tts_active &&
+                voice_reply_interrupt_if_active("full-duplex IAT")) {
+                LOGI("keep full-duplex IAT session active after reply interruption");
+            }
+
             voice_idle_exit_timer_stop();
             service_image_waiting_cancel();
         }
@@ -697,8 +742,17 @@ static void voice_cloud_session_interrupt(void *unused, uint32_t msg_id, void *d
                                           uint32_t len, void *user_data)
 {
     int stop_ret;
+    bool report_reply_position = true;
 
     LOGI("voice_cloud_session_interrupt");
+
+    if (data && len >= sizeof(voice_msg_cloud_session_interrupt_t)) {
+        report_reply_position =
+            ((const voice_msg_cloud_session_interrupt_t *)data)->report_reply_position != 0;
+    }
+    if (report_reply_position) {
+        voice_reply_interrupt_if_active("cloud session interrupt");
+    }
 
     s_voice_cloud_session_running = false;
     s_voice_cloud_session_restart_after_tts = false;

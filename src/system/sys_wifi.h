@@ -26,6 +26,7 @@ bool sys_wifi_is_ready(void);
 bool sys_wifi_is_started(void);
 bool sys_wifi_is_connected(void);
 bool sys_wifi_has_ap(void);
+int sys_wifi_set_standby_power_save(bool enable);
 
 #ifdef __cplusplus
 }

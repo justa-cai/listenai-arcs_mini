@@ -138,11 +138,28 @@ static int st7789p3_write(lisa_display_panel_t *panel, uint16_t x, uint16_t y,
 
 static int st7789p3_blanking_on(lisa_display_panel_t *panel)
 {
-    return panel_write_cmd_data(panel, LCD_CMD_DISPLAY_OFF, 8, NULL, 0);
+    int ret = panel_write_cmd_data(panel, LCD_CMD_DISPLAY_OFF, 8, NULL, 0);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    lisa_thread_mdelay(20);
+    ret = panel_write_cmd_data(panel, LCD_CMD_SLEEP_IN, 8, NULL, 0);
+    if (ret == LISA_DEVICE_OK) {
+        lisa_thread_mdelay(120);
+    }
+
+    return ret;
 }
 
 static int st7789p3_blanking_off(lisa_display_panel_t *panel)
 {
+    int ret = panel_write_cmd_data(panel, LCD_CMD_SLEEP_OUT, 8, NULL, 0);
+    if (ret != LISA_DEVICE_OK) {
+        return ret;
+    }
+
+    lisa_thread_mdelay(120);
     return panel_write_cmd_data(panel, LCD_CMD_DISPLAY_ON, 8, NULL, 0);
 }
 
@@ -174,4 +191,3 @@ int panel_st7789p3_device_init(void)
 }
 
 LISA_DEVICE_REGISTER(st7789p3, &lisa_display_st7789p3_driver, NULL, NULL, &panel_st7789p3_device_init, LISA_DEVICE_LEVEL_NORMAL, LISA_DEVICE_PRIORITY_HIGH);
-

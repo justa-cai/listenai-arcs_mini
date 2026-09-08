@@ -8,8 +8,13 @@
 #include "lisa_ui_invoke.h"
 #include "voice_msg.h"
 
+#ifdef LISA_UI_PLATFORM_ARCS
+#include "service_sd_music.h"
+#endif
+
 struct model_sd_music_sync_context {
     bool inited;
+    bool card_available;
     voice_msg_sd_music_sync_state_t snapshot;
     struct {
         const struct model_sd_music_sync_cb *cb;
@@ -62,6 +67,20 @@ static void notify_removed_listeners(void)
         if (g_model_sd_music_sync_ctx.listeners[i].cb &&
             g_model_sd_music_sync_ctx.listeners[i].cb->on_sd_music_card_removed) {
             g_model_sd_music_sync_ctx.listeners[i].cb->on_sd_music_card_removed(
+                g_model_sd_music_sync_ctx.listeners[i].arg);
+        }
+    }
+}
+
+static void notify_card_state_listeners(void)
+{
+    for (size_t i = 0;
+         i < sizeof(g_model_sd_music_sync_ctx.listeners) / sizeof(g_model_sd_music_sync_ctx.listeners[0]);
+         i++) {
+        if (g_model_sd_music_sync_ctx.listeners[i].cb &&
+            g_model_sd_music_sync_ctx.listeners[i].cb->on_sd_music_card_state_change) {
+            g_model_sd_music_sync_ctx.listeners[i].cb->on_sd_music_card_state_change(
+                g_model_sd_music_sync_ctx.card_available,
                 g_model_sd_music_sync_ctx.listeners[i].arg);
         }
     }
@@ -122,6 +141,27 @@ static void handle_sd_music_notify(void *unused, uint32_t msg_id,
     }
 }
 
+static void handle_sd_music_card_state(void *unused, uint32_t msg_id,
+                                       void *data, uint32_t len,
+                                       void *user_data)
+{
+    voice_msg_sd_card_state_t state = {0};
+
+    (void)unused;
+    (void)msg_id;
+    (void)user_data;
+
+    if (data && len >= sizeof(state)) {
+        memcpy(&state, data, sizeof(state));
+    }
+
+    bool available = state.available != 0;
+    LISA_UI_INVOKE_UI_ARG_BASE(available, {
+        g_model_sd_music_sync_ctx.card_available = _invoke_available;
+        notify_card_state_listeners();
+    });
+}
+
 int model_sd_music_sync_init(void)
 {
     if (g_model_sd_music_sync_ctx.inited) {
@@ -134,7 +174,12 @@ int model_sd_music_sync_init(void)
     voice_msg_sub(VOICE_MSG_APP_SD_MUSIC_SYNC_FAILED, handle_sd_music_sync_state_change, NULL);
     voice_msg_sub(VOICE_MSG_APP_SD_MUSIC_SYNC_FINISHED, handle_sd_music_sync_state_change, NULL);
     voice_msg_sub(VOICE_MSG_APP_SD_MUSIC_CARD_REMOVED, handle_sd_music_notify, NULL);
+    voice_msg_sub(VOICE_MSG_APP_SD_MUSIC_CARD_STATE, handle_sd_music_card_state, NULL);
     voice_msg_sub(VOICE_MSG_APP_SD_MUSIC_PLAY_FAILED, handle_sd_music_notify, NULL);
+
+#ifdef LISA_UI_PLATFORM_ARCS
+    g_model_sd_music_sync_ctx.card_available = service_sd_music_is_card_ready();
+#endif
 
     g_model_sd_music_sync_ctx.inited = true;
     return 0;
@@ -154,6 +199,9 @@ int model_sd_music_sync_cb_register(const struct model_sd_music_sync_cb *cb, voi
             if (cb->on_sd_music_sync_state_change) {
                 cb->on_sd_music_sync_state_change(&g_model_sd_music_sync_ctx.snapshot, arg);
             }
+            if (cb->on_sd_music_card_state_change) {
+                cb->on_sd_music_card_state_change(g_model_sd_music_sync_ctx.card_available, arg);
+            }
             return 0;
         }
     }
@@ -164,6 +212,9 @@ int model_sd_music_sync_cb_register(const struct model_sd_music_sync_cb *cb, voi
             g_model_sd_music_sync_ctx.listeners[i].arg = arg;
             if (cb->on_sd_music_sync_state_change) {
                 cb->on_sd_music_sync_state_change(&g_model_sd_music_sync_ctx.snapshot, arg);
+            }
+            if (cb->on_sd_music_card_state_change) {
+                cb->on_sd_music_card_state_change(g_model_sd_music_sync_ctx.card_available, arg);
             }
             return 0;
         }
@@ -199,4 +250,9 @@ int model_sd_music_sync_get_state_snapshot(voice_msg_sd_music_sync_state_t *stat
 
     memcpy(state, &g_model_sd_music_sync_ctx.snapshot, sizeof(*state));
     return 0;
+}
+
+bool model_sd_music_card_is_available(void)
+{
+    return g_model_sd_music_sync_ctx.card_available;
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stdint.h>
 
 /**
  * @file voice_player_tts.h
@@ -16,11 +17,23 @@ int voice_player_tts_init(void);
 /** @brief 立即作废当前请求、清空播放队列并同步停止底层播放器。 */
 void voice_player_tts_stop(void);
 
+/** @brief 使当前 TTS 请求立即失效，播放器停止操作在异步任务中执行。 */
+void voice_player_tts_stop_async(void);
+
+/** @brief Wait briefly for a queued async stop to release the underlying track. */
+bool voice_player_tts_wait_stop_complete(uint32_t timeout_ms);
+
 /**
  * @brief 快照当前 TTS 后执行硬停止；快照不属于播放队列。
  * @return true 已保存复播快照，false 当前没有可保存的 TTS。
  */
 bool voice_player_tts_snapshot_and_stop(void);
+
+/**
+ * @brief 快照并使当前 TTS 请求立即失效，播放器停止操作在异步任务中执行。
+ * @return true 已保存可复播的 TTS 快照，false 当前没有可保存的 TTS。
+ */
+bool voice_player_tts_snapshot_and_stop_async(void);
 
 /** @brief 丢弃尚未消费的 TTS 复播快照。 */
 void voice_player_tts_discard_prepared_replay(void);

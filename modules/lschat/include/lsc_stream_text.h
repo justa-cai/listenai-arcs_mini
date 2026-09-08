@@ -3,6 +3,9 @@
 
 #include "lisa_semaphore.h"
 
+#include <stdbool.h>
+#include <stddef.h>
+
 /**
  * @addtogroup lsc_stream_text 流式文本数据请求
  * @{
@@ -28,7 +31,24 @@ struct lsc_stream_text_request_ctx {
 	sse_evt_cb_t cb;            /**< 流式数据回调的地址，@see sse_evt_cb_t */
 	void *user;                 /**< 用户参数 */
 	lisa_semaphore_t *exit_sem; /**< 用于打断流式数据请求，该参数为NULL时，表示不需要打断 */
+	char *sse_buffer;           /**< 跨 HTTP 读取保存的未完整 SSE 事件 */
+	size_t sse_buffer_len;
+	size_t sse_buffer_capacity;
+	bool sse_done;
 };
+
+/**
+ * @brief 向请求会话输入一段 HTTP 响应数据。
+ *
+ * 数据可以在任意字节位置分段；仅在收到完整 SSE 事件后触发回调。
+ *
+ * @param ctx 会话实体
+ * @param data 本次收到的数据
+ * @param len 数据长度
+ * @return int 0表示成功，非0表示数据过长或内存不足
+ */
+int lsc_stream_text_request_feed(struct lsc_stream_text_request_ctx *ctx,
+				 const void *data, size_t len);
 
 /**
  * @brief 创建一个流式数据请求会话

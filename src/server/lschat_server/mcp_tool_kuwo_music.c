@@ -96,22 +96,46 @@ static bool ls_play_kuwo_music_item_has_valid_id(const cJSON *item)
     return true;
 }
 
-static cJSON *ls_play_kuwo_music_no_valid_result(const char *name, const char *reason)
+static cJSON *ls_play_kuwo_music_result(const char *name, const char *text, bool is_error)
 {
-    LOGW("No valid kuwo music items: %s", reason);
-
     cJSON *result = mcp_tool_call_result_create(name);
+    cJSON *content_array = NULL;
+    cJSON *content_item = NULL;
+
     if (!result) {
         return NULL;
     }
 
-    cJSON_AddStringToObject(result, "content", "暂无可播放音乐");
+    content_array = cJSON_CreateArray();
+    content_item = cJSON_CreateObject();
+    if (!content_array || !content_item) {
+        cJSON_Delete(content_item);
+        cJSON_Delete(content_array);
+        cJSON_Delete(result);
+        return NULL;
+    }
+
+    cJSON_AddStringToObject(content_item, "type", "text");
+    cJSON_AddStringToObject(content_item, "text", text);
+    cJSON_AddItemToArray(content_array, content_item);
+    cJSON_AddItemToObject(result, "content", content_array);
+    cJSON_AddBoolToObject(result, "isError", is_error);
+
     return result;
+}
+
+static cJSON *ls_play_kuwo_music_no_valid_result(const char *name, const char *reason)
+{
+    LOGW("No valid kuwo music items: %s", reason);
+
+    return ls_play_kuwo_music_result(name, "暂无可播放音乐", true);
 }
 
 
 static cJSON *ls_play_kuwo_music_call(const char *id, const char *name, cJSON *args)
 {
+    (void)id;
+
     if (args == NULL) {
         LOGE("mcp tool call args is NULL");
         return ls_play_kuwo_music_no_valid_result(name, "args is NULL");
@@ -151,8 +175,10 @@ static cJSON *ls_play_kuwo_music_call(const char *id, const char *name, cJSON *a
     }
 
     if (valid_cnt == 0) {
-        return ls_play_kuwo_music_no_valid_result(name, "all items are invalid");
+        return ls_play_kuwo_music_no_valid_result(name, "all items have invalid IDs");
     }
+
+    LOGI("Valid kuwo music items: %d/%d", valid_cnt, cnt);
 
     size_t music_items_size =
         sizeof(struct voice_msg_audio_items) + valid_cnt * sizeof(struct voice_msg_audio_item);
@@ -172,13 +198,16 @@ static cJSON *ls_play_kuwo_music_call(const char *id, const char *name, cJSON *a
 
         const cJSON *itemid = cJSON_GetObjectItem(item, "itemid");
         const cJSON *name = cJSON_GetObjectItem(item, "name");
+        const cJSON *playable = cJSON_GetObjectItem(item, "playable");
 
         if (itemid) {
             memcpy(music_items->items[music_index].id, itemid->valuestring,
                    _MIN(strlen(itemid->valuestring) + 1, sizeof(music_items->items[music_index].id)));
         }
 
-        music_items->items[music_index].playable = 1;
+        if (cJSON_IsNumber(playable)) {
+            music_items->items[music_index].playable = playable->valueint;
+        }
 
         if (cJSON_IsString(name)) {
             sanitize_music_name(music_items->items[music_index].name, name->valuestring,
@@ -193,14 +222,7 @@ static cJSON *ls_play_kuwo_music_call(const char *id, const char *name, cJSON *a
     voice_msg_pub(VOICE_MSG_CLOUD_AUDIO_ITEM, music_items, music_items_size);
     lisa_mem_free(music_items);
 
-    cJSON *result = mcp_tool_call_result_create(name);
-    if (!result) {
-        return NULL;
-    }
-
-    cJSON_AddStringToObject(result, "content", "播放成功");
-
-    return result;
+    return ls_play_kuwo_music_result(name, "已提交播放请求", false);
 }
 
 MCP_TOOL_DEFINE(ls.built_in.play_kuwo_music, ls_play_kuwo_music_list, ls_play_kuwo_music_call);

@@ -10,4 +10,14 @@ config APP_USB_CDC_ENABLE
     depends on TINY_USB
     default n
 
+config APP_USB_ROLE_DETECT
+    bool "Enable automatic hardware USB role switching"
+    depends on BOARD_ARCS_MINI3 && LISA_I2C1
+    depends on CHERRYUSB && CHERRYUSB_DEVICE && CHERRYUSB_HOST
+    default n
+    help
+        Read the USB-C role controller on the Mini 3 I2C1 bus. STATUS bit 0
+        reports connection state; TYPE bit 3 selects Host/Source and bit 4
+        selects Device/Sink.
+
 endmenu

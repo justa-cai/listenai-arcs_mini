@@ -11,6 +11,15 @@
 #define WORK_TYPE_IMG_REC 1
 #define WORK_TYPE_CAMERA 2
 #define HOME_EMOJI_NAME_MAX 64
+#define HOME_TTS_TIMELINE_MAX_SENTENCES 64
+#define HOME_TTS_TEXT_BUF_SIZE 8192
+
+typedef struct {
+    uint32_t start_ms;
+    uint32_t end_ms;
+    uint16_t text_offset;
+    uint16_t text_len;
+} home_tts_timeline_entry_t;
 
 struct home_nav_scr_data {
     lv_obj_t *view;
@@ -22,7 +31,6 @@ struct home_nav_scr_data {
     lv_timer_t *img_hide_timer;
     lv_timer_t *battery_query_timer;
     lv_timer_t *standby_text_timer;
-    lv_timer_t *standby_sleep_timer;
     uint32_t standby_text_index;
     lv_img_dsc_t img;
     lv_img_dsc_t *net_img;
@@ -44,17 +52,25 @@ struct home_nav_scr_data {
     uint8_t work_type;
     uint8_t oneshot_emoji_running;
     uint8_t standby_sleep_active;
+    uint8_t standby_brightness_saved;
+    uint8_t standby_restore_brightness;
     uint8_t standby_after_tts_pending;
-    uint8_t standby_sleep_restore_brightness;
     uint8_t music_text_active;
+    uint8_t alarm_stopped_pending;
     model_battery_status_t last_battery_status;
     model_camera_preview_t camera_preview;
     char current_emoji_name[HOME_EMOJI_NAME_MAX];
     char oneshot_restore_emoji_name[HOME_EMOJI_NAME_MAX];
-    char tts_text_buf[2048];
+    char tts_text_buf[HOME_TTS_TEXT_BUF_SIZE];
     uint16_t tts_text_len;
     uint16_t tts_text_displayed;
     uint8_t tts_text_stream_done;
+    uint8_t tts_text_mode;
+    uint8_t tts_text_prefix_len;
+    uint8_t tts_timeline_position_failures;
+    int16_t tts_timeline_displayed;
+    uint16_t tts_timeline_count;
+    home_tts_timeline_entry_t tts_timeline[HOME_TTS_TIMELINE_MAX_SENTENCES];
     lv_timer_t *tts_text_timer;
 };
 

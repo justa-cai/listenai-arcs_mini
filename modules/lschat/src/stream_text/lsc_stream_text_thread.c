@@ -59,6 +59,9 @@ static void lsc_stream_text_request_thread(void *arg)
 
 		LISA_NLOGI("request start, url:%s", ctx->url);
 		err = lsc_stream_text_request_start(ctx, 120);
+		if (err && ctx->cb) {
+			ctx->cb(SSE_EVT_ABORT, NULL, ctx->user);
+		}
 		lsc_stream_text_request_delete(ctx);
 		set_curr_ctx(NULL);
 		if (err) {

@@ -8,8 +8,11 @@
 #include "lisa_kv.h"
 #include "lisa_device.h"
 #include "lisa_camera.h"
+#include "lisa_gpio.h"
 
 #include "IOMuxManager.h"
+#include "ClockManager.h"
+#include "Driver_DVP.h"
 #include "board.h"
 
 #include "service_camera.h"
@@ -65,6 +68,7 @@
 struct camera_context {
     bool inited;
     bool streaming;
+    bool suspended;
     lisa_device_t *camera_dev;
     lisa_device_t *i2c_dev;
     lisa_device_t *dvp_dev;
@@ -389,6 +393,82 @@ int service_camera_stop(void)
     }
 
     service_camera_stop_stream();
+    return 0;
+}
+
+int service_camera_suspend(void)
+{
+    int ret = 0;
+
+    if (!cam_ctx.inited) {
+        return 0;
+    }
+
+    if (cam_ctx.suspended) {
+        return 0;
+    }
+
+    service_camera_stop_stream();
+
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    lisa_device_t *pwdn_gpio_dev = lisa_device_get(CAM_PWDN_DEVICE_NAME);
+    if (!pwdn_gpio_dev || !lisa_device_ready(pwdn_gpio_dev)) {
+        LISA_LOGE(TAG, "Camera PWDN GPIO device not ready during suspend");
+        ret = -1;
+    } else {
+        int pwdn_ret = lisa_gpio_write_pin(pwdn_gpio_dev, CAM_PWDN_PIN,
+                                           CAM_PWDN_ACTIVE_LEVEL ? LISA_GPIO_HIGH
+                                                                 : LISA_GPIO_LOW);
+        if (pwdn_ret != 0) {
+            LISA_LOGE(TAG, "Camera PWDN assert failed: %d", pwdn_ret);
+            ret = pwdn_ret;
+        }
+    }
+
+    int clock_ret = DVP_DisableClockout(DVP0());
+    if (clock_ret != 0) {
+        LISA_LOGE(TAG, "Camera XCLK disable failed: %d", clock_ret);
+        if (ret == 0) {
+            ret = clock_ret;
+        }
+    }
+
+    __HAL_CRM_DVP_CLK_DISABLE();
+    __HAL_CRM_VIDEO_CLK_DISABLE();
+#endif
+
+    cam_ctx.suspended = true;
+    LISA_LOGI(TAG, "Camera suspended: stream/PWDN/XCLK and VIDEO/VIC clocks disabled");
+    return ret;
+}
+
+int service_camera_resume(void)
+{
+    int ret;
+
+    if (!cam_ctx.suspended) {
+        return 0;
+    }
+
+    /*
+     * PWDN 会使 sensor 寄存器丢失。强制重新执行完整 setup/attach；
+     * lisa_camera_setup() 会先释放旧 runtime，再恢复 PWDN、XCLK 和寄存器。
+     */
+    cam_ctx.inited = false;
+    cam_ctx.streaming = false;
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    __HAL_CRM_VIDEO_CLK_ENABLE();
+    __HAL_CRM_DVP_CLK_ENABLE();
+#endif
+    ret = service_camera_init();
+    if (ret != 0) {
+        cam_ctx.suspended = true;
+        LISA_LOGE(TAG, "Camera resume re-initialization failed: %d", ret);
+        return ret;
+    }
+
+    cam_ctx.suspended = false;
+    LISA_LOGI(TAG, "Camera resumed and re-initialized");
     return 0;
 }
 

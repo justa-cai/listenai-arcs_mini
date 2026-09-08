@@ -8,6 +8,7 @@
 #include "lisa_ui_nav_scr.h"
 #include "voice_intent_mgr.h"
 #include "voice_intent_photo_flow.h"
+#include "voice_cloud.h"
 #include "voice_msg.h"
 
 #define BUTTON_CAMERA_PREVIEW_GUARD_MS 3000U
@@ -158,6 +159,11 @@ void button_camera_preview_handle_double_click(void)
     }
 
     LOGI("power button double click, enter photo preview");
+    /* Invalidate both the object-recognition response and its subtitle stream
+     * before publishing the preview event. The response can arrive after the
+     * synchronous PHOTO_FLOW/TTS stop and would otherwise enqueue old TTS URL. */
+    voice_cloud_image_recognition_drop_pending_result();
+    voice_cloud_tts_text_cancel();
     button_camera_preview_publish_start();
 }
 

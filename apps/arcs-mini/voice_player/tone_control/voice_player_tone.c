@@ -13,6 +13,7 @@
 #include "voice_intent_mgr.h"
 #include "voice_msg.h"
 #include "voice_player_comm.h"
+#include "voice_player/voice_player_tts.h"
 
 #include "tone_control/voice_player_tone.h"
 
@@ -161,8 +162,13 @@ static bool tone_start(const tone_request_t *request)
                            : TONE_STATE_PLAYING_NORMAL;
     s_tone_ctx.current = *request;
 
+    LOGI("tone start: source=%u prompt=%u url=%s",
+         (unsigned int)request->source,
+         (unsigned int)request->prompt,
+         request->url);
     if (app_player_play(tone_player, request->url) != APP_PLAYER_OK) {
-        LOGW("failed to play tone url");
+        LOGW("tone start failed: source=%u url=%s",
+             (unsigned int)request->source, request->url);
         s_tone_ctx.state = TONE_STATE_IDLE;
         s_tone_ctx.current = (tone_request_t){0};
         if (entered_prompt) {
@@ -171,6 +177,7 @@ static bool tone_start(const tone_request_t *request)
         return false;
     }
 
+    LOGI("tone start accepted: source=%u", (unsigned int)request->source);
     return true;
 }
 
@@ -267,6 +274,14 @@ static bool tone_process_request(const tone_request_t *request)
         return false;
     }
 
+    /* TTS stop is intentionally asynchronous so voice.ebus stays responsive.
+     * A wakeup tone must still wait for the lower-level track to finish
+     * releasing ownership before starting a new track. */
+    if (request->source == VOICE_PLAYER_TONE_SOURCE_WAKEUP &&
+        !voice_player_tts_wait_stop_complete(500U)) {
+        LOGW("TTS stop did not complete before wakeup tone timeout");
+    }
+
     if (!tone_context_acquire()) {
         return false;
     }
@@ -317,6 +332,7 @@ static void voice_player_tone_task(void *arg)
             continue;
         }
 
+        LOGI("tone command received: source=%u", (unsigned int)request.source);
         (void)tone_process_request(&request);
     }
 }
@@ -384,6 +400,8 @@ static bool voice_player_tone_submit(const char *url,
         return false;
     }
 
+    LOGI("tone command queued: source=%u url=%s",
+         (unsigned int)source, url);
     return true;
 }
 
@@ -403,6 +421,8 @@ static void voice_player_tone_event(app_player_t *player,
         return;
     }
 
+    LOGI("tone event: event=%d state=%d source=%u",
+         event, s_tone_ctx.state, (unsigned int)s_tone_ctx.current.source);
     if (tone_event_is_stale(event)) {
         LOGD("ignore stale tone terminal event: %d", event);
     } else {
@@ -502,6 +522,13 @@ void voice_player_play_prompt_tone_url(const char *url)
     (void)voice_player_tone_submit(url,
                                    true,
                                    VOICE_PLAYER_TONE_SOURCE_DEFAULT);
+}
+
+bool voice_player_play_power_shutdown_tone_url(const char *url)
+{
+    return voice_player_tone_submit(url,
+                                    true,
+                                    VOICE_PLAYER_TONE_SOURCE_POWER_SHUTDOWN);
 }
 
 /* 唤醒来源采用清队列、抢占当前 tone、重复唤醒不排队的特殊策略。 */

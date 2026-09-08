@@ -289,6 +289,20 @@ int32_t
 ADC_PDM_PowerControl(void *adc_pdm_grp, CSK_POWER_STATE state);
 
 /**
+ \fn          int32_t ADC_PDM_AnalogChannelPowerControl(void *adc_pdm_grp, ...)
+ \brief       Control one or more AMIC analog channels without stopping the
+              configured digital receive path or DMA.
+ \param[in]   adc_pdm_grp  Pointer to ADC/PDM device group instance
+ \param[in]   dev_bmp  ADC channel bitmap
+ \param[in]   state  CSK_POWER_OFF or CSK_POWER_FULL
+ \return      \ref execution_status
+*/
+int32_t
+ADC_PDM_AnalogChannelPowerControl(void *adc_pdm_grp,
+                                  uint8_t dev_bmp,
+                                  CSK_POWER_STATE state);
+
+/**
  \fn          int32_t ADC_PDM_Receive(void *adc_pdm_grp, ...)
  \brief       Receive data from ADC/PDM interface.
  \param[in]   adc_pdm_grp  Pointer to ADC/PDM device group instance

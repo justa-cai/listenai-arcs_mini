@@ -61,11 +61,13 @@
 #include "lisa_thread.h"
 #include "lisa_time.h"
 #include "lisa_device.h"
+#include "lisa_gpio.h"
 #include "lisa_kv.h"
 #include "lsfs.h"
 #include "lisa_sdmmc.h"
 #include "drv_sdc.h"
 #include "listen_system.h"
+#include "board.h"
 
 #include "kv_user.h"
 #include "voice_msg.h"
@@ -104,6 +106,8 @@ typedef struct {
     volatile bool sync_busy;      /**< TF 卡扫描/上报 UI 流程中，屏蔽按键和唤醒 */
     volatile uint64_t sync_busy_until_ms; /**< 结果态交互屏蔽截止时间，0 表示不等待 */
     volatile bool runtime_insert_busy;    /**< 运行态插卡挂载/扫描线程正在执行 */
+    volatile bool fs_error_notified;      /**< 当前插卡周期已提示文件系统不支持 */
+    volatile bool runtime_probe_failed;   /**< 文件系统错误后最近一次 SDMMC 探测失败 */
 } sd_music_ctx_t;
 
 static sd_music_ctx_t g_sd_music;
@@ -198,6 +202,33 @@ static void sd_music_finish_sync(voice_msg_sd_music_sync_state_e state,
     }
 }
 
+static void sd_music_set_card_ready(bool ready)
+{
+    voice_msg_sd_card_state_t msg = {
+        .available = ready ? 1U : 0U,
+    };
+
+    if (g_sd_music.card_ready == ready) {
+        return;
+    }
+
+    g_sd_music.card_ready = ready;
+    voice_msg_pub(VOICE_MSG_APP_SD_MUSIC_CARD_STATE, &msg, sizeof(msg));
+}
+
+static void sd_music_notify_unsupported_filesystem(void)
+{
+    if (g_sd_music.fs_error_notified) {
+        return;
+    }
+
+    g_sd_music.fs_error_notified = true;
+    sd_music_finish_sync(VOICE_MSG_SD_MUSIC_SYNC_STATE_FAILED,
+                         0, 0,
+                         VOICE_MSG_SD_MUSIC_SYNC_RESULT_FS_UNSUPPORTED,
+                         0, 0, 0);
+}
+
 /* ============================================================================
  * 本地运行态缓存
  * ============================================================================ */
@@ -209,9 +240,11 @@ static void sd_music_clear_local_card_state(void)
     g_sd_music.saved_count = 0;
     g_sd_music.current_card_id[0] = '\0';
     g_sd_music.probe_path[0] = '\0';
-    g_sd_music.card_ready = false;
+    sd_music_set_card_ready(false);
     g_sd_music.sync_busy = false;
     g_sd_music.sync_busy_until_ms = 0;
+    g_sd_music.fs_error_notified = false;
+    g_sd_music.runtime_probe_failed = false;
 }
 
 static void sd_music_stop_music_on_remove(void)
@@ -564,7 +597,7 @@ static int sd_music_report_inserted_and_sync_files(const char *path,
         LOGW("inserted 事件上报失败，跳过扫描和文件列表上传并保留本地插卡状态");
         g_sd_music.saved_count = 0;
         g_sd_music.probe_path[0] = '\0';
-        g_sd_music.card_ready = true;
+        sd_music_set_card_ready(true);
         sd_music_finish_sync(VOICE_MSG_SD_MUSIC_SYNC_STATE_FAILED, 0, known_total,
                              VOICE_MSG_SD_MUSIC_SYNC_RESULT_FAILED,
                              http_status_code, http_error_code, 0);
@@ -580,7 +613,7 @@ static int sd_music_report_inserted_and_sync_files(const char *path,
         LOGE("分配扫描累积缓冲区失败, cap=%d", accum_cap);
         g_sd_music.current_card_id[0] = '\0';
         g_sd_music.probe_path[0] = '\0';
-        g_sd_music.card_ready = false;
+        sd_music_set_card_ready(false);
         sd_music_finish_sync(VOICE_MSG_SD_MUSIC_SYNC_STATE_FAILED, 0, known_total,
                              VOICE_MSG_SD_MUSIC_SYNC_RESULT_FAILED, 0, 0, 0);
         return -1;
@@ -601,7 +634,7 @@ static int sd_music_report_inserted_and_sync_files(const char *path,
         lisa_mem_free(accum);
         g_sd_music.current_card_id[0] = '\0';
         g_sd_music.probe_path[0] = '\0';
-        g_sd_music.card_ready = false;
+        sd_music_set_card_ready(false);
         sd_music_finish_sync(VOICE_MSG_SD_MUSIC_SYNC_STATE_FAILED, 0,
                              known_total, ret, 0, 0, 0);
         return ret;
@@ -621,7 +654,7 @@ static int sd_music_report_inserted_and_sync_files(const char *path,
     }
     known_total = ctx.accum_count;
     g_sd_music.full_count = known_total;
-    g_sd_music.card_ready = true;
+    sd_music_set_card_ready(true);
 
     /* 快速指纹未变 → 跳过文件列表上报 */
     if (!stamp_changed) {
@@ -728,13 +761,13 @@ static int sd_music_handle_boot_present_card(const char *card_id)
 
     snprintf(g_sd_music.current_card_id, sizeof(g_sd_music.current_card_id),
              "%s", card_id);
-    g_sd_music.card_ready = false;
+    sd_music_set_card_ready(false);
 
     if (sd_music_read_storage_stamp(&capacity, storage_stamp,
                                     sizeof(storage_stamp)) != 0) {
         g_sd_music.current_card_id[0] = '\0';
         g_sd_music.probe_path[0] = '\0';
-        g_sd_music.card_ready = false;
+        sd_music_set_card_ready(false);
         g_sd_music.sync_busy = false;
         g_sd_music.sync_busy_until_ms = 0;
         return -1;
@@ -747,7 +780,7 @@ static int sd_music_handle_boot_present_card(const char *card_id)
         g_sd_music.full_count = 0;
         g_sd_music.saved_count = 0;
         g_sd_music.probe_path[0] = '\0';
-        g_sd_music.card_ready = true;
+        sd_music_set_card_ready(true);
         sd_music_persist_card_present(card_id);
         g_sd_music.sync_busy = false;
         g_sd_music.sync_busy_until_ms = 0;
@@ -807,7 +840,7 @@ static int sd_music_handle_runtime_present_card(const char *path)
 
     snprintf(g_sd_music.current_card_id, sizeof(g_sd_music.current_card_id),
              "%s", card_id);
-    g_sd_music.card_ready = false;
+    sd_music_set_card_ready(false);
     g_sd_music.full_count = 0;
 
     sd_music_publish_sync_state(VOICE_MSG_SD_MUSIC_SYNC_STATE_START,
@@ -817,7 +850,7 @@ static int sd_music_handle_runtime_present_card(const char *path)
                                     sizeof(storage_stamp)) != 0) {
         g_sd_music.current_card_id[0] = '\0';
         g_sd_music.probe_path[0] = '\0';
-        g_sd_music.card_ready = false;
+        sd_music_set_card_ready(false);
         sd_music_finish_sync(VOICE_MSG_SD_MUSIC_SYNC_STATE_FAILED, 0, 0,
                              VOICE_MSG_SD_MUSIC_SYNC_RESULT_FAILED, 0, 0, 0);
         return -1;
@@ -904,9 +937,15 @@ static bool sd_music_mount_runtime_card(void)
 
     lisa_device_t *dev = lisa_device_get("sdmmc0");
     if (!dev || lisa_sdmmc_probe(dev) != 0) {
+        /* 文件系统错误后再次探测失败，说明这轮插卡已经被拔出。 */
+        if (g_sd_music.fs_error_notified) {
+            g_sd_music.runtime_probe_failed = true;
+        }
         LOGI("SD 卡硬件探测失败，稍后重试");
         return false;
     }
+
+    g_sd_music.runtime_probe_failed = false;
 
     struct lsfs_mount_t *mp = platform_sd_mount_get();
     if (!mp) {
@@ -916,10 +955,10 @@ static bool sd_music_mount_runtime_card(void)
 
     int mount_ret = lsfs_mount(mp);
     if (mount_ret != 0 && !sd_music_card_test_dir(SD_MUSIC_ROOT_DIR)) {
-        LOGI("SD 卡挂载失败，稍后重试");
+        LOGW("SD 卡文件系统不受支持或无法识别，跳过挂载: %d", mount_ret);
+        sd_music_notify_unsupported_filesystem();
         return false;
     }
-
     return true;
 }
 
@@ -990,12 +1029,37 @@ static bool sd_music_start_runtime_insert_worker(void)
     return true;
 }
 
+/* Mini3 has a dedicated active-low TF detect GPIO. The original Mini board
+ * has no such signal, so it continues using the SD controller probe. */
+static bool sd_music_runtime_card_inserted(void)
+{
+#ifdef TF_DET_DEVICE_NAME
+    lisa_device_t *det_dev = lisa_device_get(TF_DET_DEVICE_NAME);
+    if (!lisa_device_ready(det_dev)) {
+        return false;
+    }
+
+    if (lisa_gpio_configure(det_dev, TF_DET_PIN, LISA_GPIO_INPUT) != 0) {
+        return false;
+    }
+
+    int level = lisa_gpio_read_pin(det_dev, TF_DET_PIN);
+    if (level < 0) {
+        return false;
+    }
+
+    return level == (TF_DET_ACTIVE_LEVEL ? LISA_GPIO_HIGH : LISA_GPIO_LOW);
+#else
+    return lib_sdc_card_exist(0) == ERR_SD_NO_ERROR;
+#endif
+}
+
 /* ============================================================================
  * 后台轮询
  *
  * 检测策略：
  *   - 卡在位时：通过 probe_path 读 MP3 文件；无 MP3 时读物理扇区强制 I/O 检测
- *   - 卡不在位时：lib_sdc_card_exist() 快检触发运行时挂载恢复线程
+ *   - 卡不在位时：周期性尝试 SDMMC 探测和文件系统挂载来确认插卡
  * ============================================================================ */
 
 static void sd_music_poll_thread(void *arg)
@@ -1018,6 +1082,7 @@ static void sd_music_poll_thread(void *arg)
             const char *test_path = g_sd_music.probe_path[0] ?
                                     g_sd_music.probe_path : NULL;
 
+            /* 板级 SDMMC 使用 FIXED 模式，没有可靠的卡检测引脚，依靠实际 I/O 判断。 */
             bool accessible = sd_music_card_test_access(test_path);
 
             if (accessible) {
@@ -1039,7 +1104,7 @@ static void sd_music_poll_thread(void *arg)
                 }
             }
         } else {
-            /* ---- 卡不在位：用寄存器快检感知插入 ---- */
+            /* ---- 卡不在位：周期性探测并尝试挂载来感知插入 ---- */
             if (g_sd_music.card_ready) {
                 was_present = true;
                 debounce_count = 0;
@@ -1047,13 +1112,52 @@ static void sd_music_poll_thread(void *arg)
                 probe_backoff = 0;
             } else if (g_sd_music.runtime_insert_busy) {
                 /* 插卡挂载/扫描/上报在 sd_work 中执行，poll 线程保持轻量。 */
-            } else if (probe_backoff > 0) {
-                probe_backoff--;
-            } else if (lib_sdc_card_exist(0) == ERR_SD_NO_ERROR) {
-                if (sd_music_start_runtime_insert_worker()) {
-                    probe_backoff = SD_MUSIC_PROBE_BACKOFF;
-                } else {
-                    probe_backoff = 1;
+            } else {
+                /* 挂载失败的卡也每秒做原始扇区探测，避免等待完整 probe 的退避周期。 */
+                if (g_sd_music.fs_error_notified &&
+                    !sd_music_card_test_access(NULL)) {
+                    if (!removal_toast_sent) {
+                        voice_msg_pub(VOICE_MSG_APP_SD_MUSIC_CARD_REMOVED, NULL, 0);
+                        sd_music_stop_music_on_remove();
+                        removal_toast_sent = true;
+                    }
+                    debounce_count++;
+                    if (debounce_count >= SD_MUSIC_DEBOUNCE_COUNT) {
+                        sd_music_handle_runtime_remove();
+                        was_present = false;
+                        debounce_count = 0;
+                        removal_toast_sent = false;
+                        probe_backoff = 0;
+                        LOGI("文件系统错误卡拔出清理完成，等待重新插入");
+                    }
+                    lisa_thread_mdelay(SD_MUSIC_POLL_INTERVAL_MS);
+                    continue;
+                }
+
+                debounce_count = 0;
+                removal_toast_sent = false;
+
+                if (probe_backoff > 0) {
+                    probe_backoff--;
+                    lisa_thread_mdelay(SD_MUSIC_POLL_INTERVAL_MS);
+                    continue;
+                }
+
+                if (g_sd_music.fs_error_notified &&
+                    g_sd_music.runtime_probe_failed) {
+                    LOGI("文件系统错误后 SDMMC 探测失败，确认 TF 卡已拔出");
+                    voice_msg_pub(VOICE_MSG_APP_SD_MUSIC_CARD_REMOVED, NULL, 0);
+                    sd_music_handle_runtime_remove();
+                    was_present = false;
+                    debounce_count = 0;
+                    removal_toast_sent = false;
+                    probe_backoff = 0;
+                } else if (sd_music_runtime_card_inserted()) {
+                    if (sd_music_start_runtime_insert_worker()) {
+                        probe_backoff = SD_MUSIC_PROBE_BACKOFF;
+                    } else {
+                        probe_backoff = 1;
+                    }
                 }
             }
         }
@@ -1159,6 +1263,11 @@ bool service_sd_music_is_syncing(void)
 {
     sd_music_clear_sync_busy_if_due();
     return g_sd_music.sync_busy;
+}
+
+bool service_sd_music_is_card_ready(void)
+{
+    return g_sd_music.card_ready;
 }
 
 bool app_voice_interaction_blocked(void)

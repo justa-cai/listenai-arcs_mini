@@ -14,6 +14,8 @@
 #include "voice_music_list.h"
 #include "voice_intent/voice_intent_mgr.h"
 #include "voice_intent/voice_intent_music.h"
+#include "voice_player/voice_player_music.h"
+#include "service_sd_music.h"
 
 #define TAG "mcp_tool_sd_music"
 
@@ -178,6 +180,11 @@ static void fill_track_display_name(music_item_t *track,
 
 static cJSON *play_tf_card_list(const char *name)
 {
+	if (!service_sd_music_is_card_ready()) {
+		LOGI("TF card tool hidden: card is unavailable");
+		return NULL;
+	}
+
 	cJSON *tool = mcp_tool_list_info_create_default(name,
 	    "播放本地TF卡音频");
 
@@ -273,6 +280,10 @@ static cJSON *play_tf_card_list(const char *name)
 static cJSON *play_tf_card_call(const char *id, const char *name, cJSON *args)
 {
 	(void)id;
+
+	if (!service_sd_music_is_card_ready()) {
+		return result_create_file_not_found(name);
+	}
 
 	if (!args) {
 		return result_create(name, "缺少参数", true);
@@ -371,8 +382,7 @@ static cJSON *play_tf_card_call(const char *id, const char *name, cJSON *args)
 		if (voice_music_list_get_current(&current) == 0) {
 			played_id = current.mid;
 			char *show = current.m_name[0] ? current.m_name : current.m_title;
-			voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME,
-			              show, strlen(show) + 1);
+			voice_player_music_publish_info(show, current.m_url);
 		}
 	}
 

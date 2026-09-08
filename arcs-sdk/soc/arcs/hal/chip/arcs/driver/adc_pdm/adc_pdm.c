@@ -423,6 +423,81 @@ ADC_PDM_PowerControl(void *adc_pdm_grp, CSK_POWER_STATE state)
     return CSK_DRIVER_OK;
 }
 
+int32_t
+ADC_PDM_AnalogChannelPowerControl(void *adc_pdm_grp,
+                                  uint8_t dev_bmp,
+                                  CSK_POWER_STATE state)
+{
+    int32_t ret;
+    uint8_t bmp;
+    uint32_t reg_r11;
+    uint32_t reg_r12;
+    ADC_PDM_GRP *adc = safe_adc_pdm_grp(adc_pdm_grp);
+
+    if (adc == NULL) {
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    bmp = adc->info->ch_bmp & dev_bmp & ADC_PDM_BMP_STEREO;
+    if (bmp == 0 || adc->info->use_pdm ||
+        !(adc->info->flags & ADC_PDM_FLAG_POWERED) ||
+        !(adc->info->flags & ADC_PDM_FLAG_CONFIGURED)) {
+        return CSK_DRIVER_ERROR_PARAMETER;
+    }
+
+    if (state == CSK_POWER_OFF) {
+        /*
+         * Keep the digital channel and APC/DMA running so the interleaved
+         * stereo frame cadence is unchanged. Muting first guarantees that
+         * the powered-down analog channel contributes zeros.
+         */
+        ret = ADC_PDM_SetMute(adc_pdm_grp, bmp, bmp);
+        if (ret != CSK_DRIVER_OK) {
+            return ret;
+        }
+
+        reg_r11 = adc->reg->REG_AUD_R11_ADC_CTRL6.all;
+        reg_r12 = adc->reg->REG_AUD_R12_ADC_CTRL7.all;
+
+        if (bmp & ADC_PDM_BMP_LEFT) {
+            reg_r11 &= ~R11_ADCL_EN;
+            reg_r12 &= ~(R12_LPGA_EN | R12_LPGA_ZCEN |
+                         R12_LPGA_ZCEN_REG | R12_LPGA_ZCEN_FORCE |
+                         R12_LPGA_VCMBUF_EN | R12_ADCL_VREF_EN);
+        }
+        if (bmp & ADC_PDM_BMP_RIGHT) {
+            reg_r11 &= ~R11_ADCR_EN;
+            reg_r12 &= ~(R12_RPGA_EN | R12_RPGA_ZCEN |
+                         R12_RPGA_ZCEN_REG | R12_RPGA_ZCEN_FORCE |
+                         R12_RPGA_VCMBUF_EN | R12_ADCR_VREF_EN);
+        }
+
+        adc->reg->REG_AUD_R12_ADC_CTRL7.all = reg_r12;
+        adc->reg->REG_AUD_R11_ADC_CTRL6.all = reg_r11;
+        return CSK_DRIVER_OK;
+    }
+
+    if (state == CSK_POWER_FULL) {
+        reg_r11 = adc->reg->REG_AUD_R11_ADC_CTRL6.all;
+        reg_r12 = adc->reg->REG_AUD_R12_ADC_CTRL7.all;
+
+        if (bmp & ADC_PDM_BMP_LEFT) {
+            reg_r12 |= R12_ADCL_VREF_EN | R12_LPGA_EN | R12_LPGA_ZCEN;
+            reg_r11 |= R11_ADCL_EN;
+        }
+        if (bmp & ADC_PDM_BMP_RIGHT) {
+            reg_r12 |= R12_ADCR_VREF_EN | R12_RPGA_EN | R12_RPGA_ZCEN;
+            reg_r11 |= R11_ADCR_EN;
+        }
+
+        adc->reg->REG_AUD_R12_ADC_CTRL7.all = reg_r12;
+        adc->reg->REG_AUD_R11_ADC_CTRL6.all = reg_r11;
+        return ADC_PDM_SetMute(adc_pdm_grp, 0, bmp);
+    }
+
+    return CSK_DRIVER_ERROR_UNSUPPORTED;
+}
+
 
 static int32_t adc_enable_rx_channels(ADC_PDM_GRP *adc, uint8_t dev_bmp)
 {

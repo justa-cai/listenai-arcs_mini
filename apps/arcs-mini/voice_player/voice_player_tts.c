@@ -13,6 +13,9 @@
 #include "sysutils.h"
 
 #include "app_player.h"
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+#include "app_player_focus.h"
+#endif
 #include "voice_msg.h"
 #include "voice_player_comm.h"
 #include "voice_player/voice_player_tts.h"
@@ -38,6 +41,11 @@
 
 typedef struct {
     uint32_t generation;
+    bool stop;
+    uint32_t stop_seq;
+    bool snapshot_saved;
+    bool active_before;
+    UBaseType_t queue_depth;
     bool is_replay;
     bool prefetch_mp3;
     char url[TTS_PLAY_URL_MAX];
@@ -62,7 +70,49 @@ static char s_latest_tts_url[TTS_PLAY_URL_MAX] = {0};
 static char s_prepared_tts_url[TTS_PLAY_URL_MAX] __psram_bss__;
 static volatile bool s_tts_active = false;
 static bool s_latest_replay_prepared = false;
-static uint32_t s_tts_generation = 1U;
+static volatile uint32_t s_tts_generation = 1U;
+static uint32_t s_tts_stop_seq = 0U;
+/* Set before an async stop is queued and cleared after app_player_stop returns.
+ * Wakeup tones use this as a short cross-executor completion barrier. */
+static uint32_t s_tts_stop_pending_seq = 0U;
+
+static const char *voice_player_tts_state_name(app_player_state_t state)
+{
+    switch (state) {
+    case APP_PLAYER_STATE_IDLE:
+        return "IDLE";
+    case APP_PLAYER_STATE_PREPARING:
+        return "PREPARING";
+    case APP_PLAYER_STATE_PREPARED:
+        return "PREPARED";
+    case APP_PLAYER_STATE_PLAYING:
+        return "PLAYING";
+    case APP_PLAYER_STATE_PAUSED:
+        return "PAUSED";
+    case APP_PLAYER_STATE_STOPPED:
+        return "STOPPED";
+    case APP_PLAYER_STATE_ERROR:
+        return "ERROR";
+    default:
+        return "UNKNOWN";
+    }
+}
+
+/* IDLE/STOPPED 已经没有可停止的轨道，重复调用 stop 只会触发底层无效状态错误。 */
+static bool voice_player_tts_state_needs_stop(app_player_state_t state)
+{
+    return state != APP_PLAYER_STATE_IDLE &&
+           state != APP_PLAYER_STATE_STOPPED;
+}
+
+static void voice_player_tts_clear_user_stop_marker(void)
+{
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    if (tts_player != NULL) {
+        app_player_focus_set_user_initiated(tts_player, false);
+    }
+#endif
+}
 
 /* ==================== 内部工具：URL 缓存与判定 ==================== */
 
@@ -285,6 +335,12 @@ static int voice_player_prefetch_pushup_tts_mp3(const char *url,
 /* ==================== 内部工具：异步播放队列 ==================== */
 
 /* TTS 播放工作线程：串行处理 TTS 播放请求，避免在 ebus 回调里阻塞 HTTP prepare。 */
+static void voice_player_tts_stop_player(uint32_t stop_seq,
+                                         uint32_t generation,
+                                         bool snapshot_saved,
+                                         bool active_before,
+                                         UBaseType_t queue_depth);
+
 static void voice_player_tts_play_task(void *pvParameters)
 {
     tts_play_request_t request;
@@ -293,6 +349,15 @@ static void voice_player_tts_play_task(void *pvParameters)
 
     while (1) {
         if (xQueueReceive(s_tts_play_queue, &request, portMAX_DELAY) == pdTRUE) {
+            if (request.stop) {
+                voice_player_tts_stop_player(request.stop_seq,
+                                             request.generation,
+                                             request.snapshot_saved,
+                                             request.active_before,
+                                             request.queue_depth);
+                continue;
+            }
+
             LOGI("async play task received request, type=0, player=%p, prefetch=%u, url=%s",
                  tts_player,
                  (unsigned int)request.prefetch_mp3,
@@ -328,13 +393,38 @@ static void voice_player_tts_play_task(void *pvParameters)
             }
 
             /* 在独立任务中执行播放操作，不会阻塞ebus线程 */
-            app_player_play(tts_player, request.url);
+            app_player_state_t state_before = app_player_get_state(tts_player);
+            app_player_play_opt_t play_opt = {
+                .url = request.url,
+                .throw_time_ms = 0,
+                .request_tag = request.generation,
+                .cancel_token = &s_tts_generation,
+            };
+            int play_ret = app_player_play_ex(tts_player, &play_opt);
+            app_player_state_t state_after = app_player_get_state(tts_player);
+            LOGI("TTS play request generation=%u ret=%d state=%s(%d)->%s(%d)",
+                 (unsigned int)request.generation,
+                 play_ret,
+                 voice_player_tts_state_name(state_before),
+                 state_before,
+                 voice_player_tts_state_name(state_after),
+                 state_after);
             /* stop 可能恰好发生在 generation 检查与 play 之间。 */
             if (!voice_player_tts_generation_is_current(
                     request.generation)) {
-                LOGI("stop tts started by canceled request, generation=%u",
-                     (unsigned int)request.generation);
-                app_player_stop(tts_player);
+                app_player_state_t stale_state = app_player_get_state(tts_player);
+                if (voice_player_tts_state_needs_stop(stale_state)) {
+                    LOGI("stop tts started by canceled request, generation=%u state=%s(%d)",
+                         (unsigned int)request.generation,
+                         voice_player_tts_state_name(stale_state),
+                         stale_state);
+                    app_player_stop(tts_player);
+                } else {
+                    LOGI("skip stop for canceled tts request, generation=%u state=%s(%d)",
+                         (unsigned int)request.generation,
+                         voice_player_tts_state_name(stale_state),
+                         stale_state);
+                }
             }
         }
     }
@@ -388,7 +478,6 @@ static void voice_player_tts_msg(void *unused, uint32_t msg_id,
     const char *url = (const char *)data;
 
     (void)unused;
-    (void)msg_id;
     (void)len;
     (void)user_data;
 
@@ -402,7 +491,9 @@ static void voice_player_tts_msg(void *unused, uint32_t msg_id,
         url,
         (tts_submit_options_t){
             .is_replay = false,
-            .prefetch_mp3 = voice_player_url_is_mp3(url),
+            /* Pushup MP3 直接交给播放器，避免预取期间被最新 URL 判为 stale。 */
+            .prefetch_mp3 = msg_id != VOICE_MSG_CLOUD_PUSHUP_TTS_URL &&
+                            voice_player_url_is_mp3(url),
         });
 }
 
@@ -411,10 +502,22 @@ static void voice_player_tts_event(app_player_t *player,
                                    app_player_event_t event,
                                    void *user_data)
 {
+    uint32_t event_tag;
+
     (void)player;
     (void)user_data;
 
     LOGI("tts player event: %d", event);
+
+    event_tag = app_player_get_callback_request_tag(player);
+    if (event_tag != 0U &&
+        !voice_player_tts_generation_is_current(event_tag)) {
+        LOGI("ignore stale tts player event: event=%d tag=%u current=%u",
+             event,
+             (unsigned int)event_tag,
+             (unsigned int)s_tts_generation);
+        return;
+    }
 
     switch (event) {
     case APP_PLAYER_EVENT_PLAYING:
@@ -429,8 +532,12 @@ static void voice_player_tts_event(app_player_t *player,
         voice_msg_pub(VOICE_MSG_PLAYER_TTS_STOPED, NULL, 0);
         break;
     case APP_PLAYER_EVENT_STOPPED:
+        s_tts_active = false;
+        voice_msg_pub(VOICE_MSG_PLAYER_TTS_STOPED, NULL, 0);
+        break;
     case APP_PLAYER_EVENT_ERROR:
         s_tts_active = false;
+        voice_msg_pub(VOICE_MSG_PLAYER_TTS_ERROR, NULL, 0);
         voice_msg_pub(VOICE_MSG_PLAYER_TTS_STOPED, NULL, 0);
         break;
     default:
@@ -477,37 +584,111 @@ static int voice_player_tts_play_queue_init(void)
  * 硬停止顺序：先推进 generation 作废所有旧请求，再清空队列，最后同步
  * 停止底层播放器。snapshot=true 时只保留显式复播快照。
  */
-static bool voice_player_tts_hard_stop(bool snapshot)
+static void voice_player_tts_prepare_stop(bool snapshot,
+                                          uint32_t *stop_seq,
+                                          uint32_t *generation,
+                                          bool *snapshot_saved,
+                                          bool *active_before,
+                                          UBaseType_t *queue_depth)
 {
-    bool snapshot_saved = false;
-    uint32_t generation;
+    *snapshot_saved = false;
+    *queue_depth = 0;
 
     taskENTER_CRITICAL();
+    *stop_seq = ++s_tts_stop_seq;
+    if (*stop_seq == 0U) {
+        *stop_seq = 1U;
+        s_tts_stop_seq = *stop_seq;
+    }
+    *active_before = s_tts_active;
     if (snapshot && s_tts_active && s_latest_tts_url[0] != '\0') {
         strncpy(s_prepared_tts_url, s_latest_tts_url,
                 sizeof(s_prepared_tts_url) - 1);
         s_prepared_tts_url[sizeof(s_prepared_tts_url) - 1] = '\0';
         s_latest_replay_prepared = true;
-        snapshot_saved = true;
+        *snapshot_saved = true;
     } else {
         s_prepared_tts_url[0] = '\0';
         s_latest_replay_prepared = false;
     }
 
-    generation = ++s_tts_generation;
+    *generation = ++s_tts_generation;
     s_latest_tts_url[0] = '\0';
     s_tts_active = false;
     taskEXIT_CRITICAL();
 
-    if (s_tts_play_queue != NULL) {
-        xQueueReset(s_tts_play_queue);
+    /* Generation invalidation happens before queueing stop.  Mark the SDK
+     * player cancelled as well, so PREPARED cannot race into PLAYING. */
+    if (tts_player != NULL) {
+        (void)app_player_cancel_pending(tts_player);
     }
 
-    app_player_stop(tts_player);
+    if (s_tts_play_queue != NULL) {
+        xQueueReset(s_tts_play_queue);
+        *queue_depth = uxQueueMessagesWaiting(s_tts_play_queue);
+    }
+}
+
+static void voice_player_tts_stop_player(uint32_t stop_seq,
+                                         uint32_t generation,
+                                         bool snapshot_saved,
+                                         bool active_before,
+                                         UBaseType_t queue_depth)
+{
+    app_player_state_t state_before;
+    app_player_state_t state_after;
+
+    state_before = app_player_get_state(tts_player);
+    LOGI("TTS stop begin seq=%u generation=%u snapshot=%u active=%u state=%s(%d) queue=%u",
+         (unsigned int)stop_seq,
+         (unsigned int)generation,
+         (unsigned int)snapshot_saved,
+         (unsigned int)active_before,
+         voice_player_tts_state_name(state_before),
+         state_before,
+         (unsigned int)queue_depth);
+
+    int stop_ret = 0;
+    if (voice_player_tts_state_needs_stop(state_before)) {
+        stop_ret = app_player_stop(tts_player);
+    } else {
+        LOGI("skip duplicate tts stop seq=%u state=%s(%d)",
+             (unsigned int)stop_seq,
+             voice_player_tts_state_name(state_before),
+             state_before);
+    }
+    state_after = app_player_get_state(tts_player);
+    voice_player_tts_clear_user_stop_marker();
+    taskENTER_CRITICAL();
+    if (s_tts_stop_pending_seq == stop_seq) {
+        s_tts_stop_pending_seq = 0U;
+    }
+    taskEXIT_CRITICAL();
+    LOGI("TTS stop end seq=%u ret=%d state=%s(%d)->%s(%d)",
+         (unsigned int)stop_seq,
+         stop_ret,
+         voice_player_tts_state_name(state_before),
+         state_before,
+         voice_player_tts_state_name(state_after),
+         state_after);
 
 
     LOGI("hard stop tts, generation=%u, snapshot=%u",
          (unsigned int)generation, (unsigned int)snapshot_saved);
+}
+
+static bool voice_player_tts_hard_stop(bool snapshot)
+{
+    uint32_t stop_seq;
+    uint32_t generation;
+    bool snapshot_saved;
+    bool active_before;
+    UBaseType_t queue_depth;
+
+    voice_player_tts_prepare_stop(snapshot, &stop_seq, &generation,
+                                  &snapshot_saved, &active_before, &queue_depth);
+    voice_player_tts_stop_player(stop_seq, generation, snapshot_saved,
+                                 active_before, queue_depth);
     return snapshot_saved;
 }
 
@@ -535,6 +716,104 @@ void voice_player_tts_stop(void)
 bool voice_player_tts_snapshot_and_stop(void)
 {
     return voice_player_tts_hard_stop(true);
+}
+
+static bool voice_player_tts_schedule_stop_async(bool snapshot)
+{
+    tts_play_request_t stop_request = {0};
+    uint32_t stop_seq;
+    uint32_t generation;
+    bool snapshot_saved;
+    bool active_before;
+    UBaseType_t queue_depth;
+
+    if (s_tts_play_queue == NULL) {
+        LOGE("async tts stop queue is not ready, fallback to sync stop");
+        return voice_player_tts_hard_stop(snapshot);
+    }
+
+    voice_player_tts_prepare_stop(snapshot, &stop_seq, &generation,
+                                  &snapshot_saved, &active_before,
+                                  &queue_depth);
+
+    taskENTER_CRITICAL();
+    s_tts_stop_pending_seq = stop_seq;
+    taskEXIT_CRITICAL();
+
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+    /* The stop command is handled by async_play. Mark it as user initiated
+     * before the queue wakes the worker, so focus callbacks do not issue a
+     * competing stop while the command is pending. */
+    if (active_before) {
+        app_player_focus_set_user_initiated(tts_player, true);
+    }
+#endif
+
+    stop_request.generation = generation;
+    stop_request.stop = true;
+    stop_request.stop_seq = stop_seq;
+    stop_request.snapshot_saved = snapshot_saved;
+    stop_request.active_before = active_before;
+    stop_request.queue_depth = queue_depth;
+
+    if (xQueueSend(s_tts_play_queue, &stop_request, 0) != pdTRUE) {
+        taskENTER_CRITICAL();
+        if (s_tts_stop_pending_seq == stop_seq) {
+            s_tts_stop_pending_seq = 0U;
+        }
+        taskEXIT_CRITICAL();
+#ifdef CONFIG_APP_PLAYER_AUDIO_FOCUS
+        if (active_before) {
+            app_player_focus_set_user_initiated(tts_player, false);
+        }
+#endif
+        LOGE("failed to queue async tts stop seq=%u",
+             (unsigned int)stop_seq);
+        return snapshot_saved;
+    }
+
+    LOGI("queued async tts stop seq=%u generation=%u snapshot=%u",
+         (unsigned int)stop_seq,
+         (unsigned int)generation,
+         (unsigned int)snapshot_saved);
+    return snapshot_saved;
+}
+
+void voice_player_tts_stop_async(void)
+{
+    (void)voice_player_tts_schedule_stop_async(false);
+}
+
+bool voice_player_tts_snapshot_and_stop_async(void)
+{
+    return voice_player_tts_schedule_stop_async(true);
+}
+
+bool voice_player_tts_wait_stop_complete(uint32_t timeout_ms)
+{
+    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+    TickType_t deadline;
+
+    if (timeout_ticks == 0U) {
+        timeout_ticks = 1U;
+    }
+    deadline = xTaskGetTickCount() + timeout_ticks;
+
+    while (true) {
+        bool pending;
+
+        taskENTER_CRITICAL();
+        pending = s_tts_stop_pending_seq != 0U;
+        taskEXIT_CRITICAL();
+        if (!pending) {
+            return true;
+        }
+
+        if ((int32_t)(xTaskGetTickCount() - deadline) >= 0) {
+            return false;
+        }
+        vTaskDelay(1);
+    }
 }
 
 void voice_player_tts_discard_prepared_replay(void)

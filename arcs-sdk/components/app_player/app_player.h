@@ -162,6 +162,8 @@ typedef void (*app_player_event_cb_t)(app_player_t *player, app_player_event_t e
 typedef struct {
     const char *url;        /**< 播放 URL（必填） */
     uint32_t throw_time_ms; /**< 开始指定时长内的低能量段（毫秒，0=不跳过） */
+    uint32_t request_tag;   /**< Callback correlation tag, copied to player events. */
+    const volatile uint32_t *cancel_token; /**< Request is cancelled when token differs from request_tag. */
 } app_player_play_opt_t;
 
 /**
@@ -212,6 +214,12 @@ int app_player_play(app_player_t *player, const char *url);
  * @return  APP_PLAYER_OK 成功，其他表示错误
  */
 int app_player_play_ex(app_player_t *player, const app_player_play_opt_t *opt);
+
+/** @brief Return the request tag of the callback currently being dispatched. */
+uint32_t app_player_get_callback_request_tag(app_player_t *player);
+
+/** @brief Cancel a pending/current play request before it reaches playback. */
+int app_player_cancel_pending(app_player_t *player);
 
 /**
  * @brief   停止播放（同步）

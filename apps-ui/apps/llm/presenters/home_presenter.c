@@ -29,10 +29,11 @@
 #include "lisa_kv.h"
 #include "kv_user.h"
 #include "voice_msg.h"
+#include "app_usb_cherry.h"
 #endif
 
-#define HOME_STANDBY_SLEEP_DELAY_MS_DEFAULT (30 * 1000U)
-#define HOME_STANDBY_DIM_BRIGHTNESS 30
+#define HOME_IDLE_BRIGHTNESS      30U
+#define HOME_HIBERNATE_BRIGHTNESS 0U
 
 /* MCP emoji loop 段最少播放时长，低于此时间不允许切换其他表情 */
 #define MCP_EMOJI_MIN_LOOP_MS 3000
@@ -51,6 +52,12 @@ static void model_voice_on_finished(void *arg);
 static void model_voice_on_tts_text_start(void *arg);
 static void model_voice_on_tts_text_end(void *arg);
 static void model_voice_on_tts_text_update(const char *text, void *arg);
+static void model_voice_on_tts_text_interrupt(void *arg);
+static void model_voice_on_tts_timeline_start(void *arg);
+static void model_voice_on_tts_timeline_update(const model_voice_tts_timeline_t *timeline,
+                                               void *arg);
+static void model_voice_on_tts_timeline_end(void *arg);
+static void model_voice_on_tts_timeline_fallback(void *arg);
 static void model_voice_on_iat_text_start(void *arg);
 static void model_voice_on_iat_text_end(void *arg);
 static void model_voice_on_iat_text_update(const char *text, void *arg);
@@ -58,12 +65,14 @@ static void model_voice_on_connected(void *arg);
 static void model_voice_on_disconnected(void *arg);
 static void model_voice_on_tts_player_playing(void *arg);
 static void model_voice_on_tts_player_stoped(void *arg);
+static void model_voice_on_tts_player_error(void *arg);
 static void model_voice_on_image_rec(void *arg);
 static void model_voice_on_image_rec_failed(void *arg);
 static void model_voice_on_info_show(void *arg);
 static void model_voice_on_image_preview(void *arg);
 static void model_voice_on_image_url(void *arg, const char *url);
 static void model_voice_on_standby_text_update(void *arg, const char *text, bool is_cloud_text);
+static void model_voice_on_alarm_stopped(void *arg);
 static void model_voice_on_show_qrcode(void *arg);
 static void model_voice_on_standby_texts_changed(void *arg);
 static void model_voice_on_wakeup_mode_changed(void *arg, model_voice_wakeup_mode_t mode);
@@ -73,10 +82,10 @@ static void model_voice_on_log_upload_state_change(const log_upload_state_t *sta
 #endif
 static void model_sd_music_sync_on_state_change(const voice_msg_sd_music_sync_state_t *state,
                                                  void *arg);
+static void model_sd_music_on_card_state_change(bool available, void *arg);
 static void model_sd_music_on_card_removed(void *arg);
 static void model_sd_music_on_play_failed(void *arg);
 static void standby_text_timer_cb(lv_timer_t *timer);
-static void standby_sleep_timer_cb(lv_timer_t *timer);
 static void tts_text_stop_timer(struct home_nav_scr_data *scr_data);
 static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const char *status_text, uint8_t imm);
 static bool home_try_enter_standby_after_tts(struct home_nav_scr_data *scr_data);
@@ -88,9 +97,12 @@ static void home_update_full_duplex_icon(struct home_nav_scr_data *scr_data);
 static void home_update_alarm_icon(struct home_nav_scr_data *scr_data);
 static void home_update_battery_icon(struct home_nav_scr_data *scr_data);
 static void oneshot_emoji_timer_cb(lv_timer_t *timer);
-static void home_schedule_standby_sleep(struct home_nav_scr_data *scr_data);
 static void home_update_network_icon(struct home_nav_scr_data *scr_data);
+static void home_update_tf_card_icon(struct home_nav_scr_data *scr_data);
+static void home_update_usb_icon(struct home_nav_scr_data *scr_data);
 static void battery_query_timer_cb(lv_timer_t *timer);
+static void home_power_state_changed(model_common_power_state_t state,
+                                     uint8_t reason, void *arg);
 
 static void home_anim_timer_pause(struct home_nav_scr_data *scr_data)
 {
@@ -118,28 +130,6 @@ static void home_update_emoji_visibility_for_image(struct home_nav_scr_data *d, 
     } else {
         lv_obj_clear_flag(anim, LV_OBJ_FLAG_HIDDEN);
     }
-}
-
-static uint32_t home_get_standby_sleep_delay_ms(void)
-{
-    uint32_t delay_ms = HOME_STANDBY_SLEEP_DELAY_MS_DEFAULT;
-
-#ifdef LISA_UI_PLATFORM_ARCS
-    int kv_delay_ms = 0;
-
-    if (lisa_kv_get_int(KV_KEY_USER_STANDBY_SLEEP_DELAY_MS, &kv_delay_ms) != 0) {
-        lisa_kv_set_int(KV_KEY_USER_STANDBY_SLEEP_DELAY_MS, (int)delay_ms);
-        return delay_ms;
-    }
-
-    if (kv_delay_ms > 0) {
-        return (uint32_t)kv_delay_ms;
-    }
-
-    lisa_kv_set_int(KV_KEY_USER_STANDBY_SLEEP_DELAY_MS, (int)delay_ms);
-#endif
-
-    return delay_ms;
 }
 
 static void home_show_pending_alarm_toast(void)
@@ -215,6 +205,7 @@ static const void *battery_query_charging_icons[] = {
 
 const struct model_voice_cb model_voice_cbs = {
     .on_tts_stoped = model_voice_on_tts_player_stoped,
+    .on_tts_error = model_voice_on_tts_player_error,
     .on_tts_playing = model_voice_on_tts_player_playing,
     .on_emoji = model_voice_on_emoji,
     .on_oneshot_emoji = model_voice_on_oneshot_emoji,
@@ -227,6 +218,11 @@ const struct model_voice_cb model_voice_cbs = {
     .on_tts_text_start = model_voice_on_tts_text_start,
     .on_tts_text_update = model_voice_on_tts_text_update,
     .on_tts_text_end = model_voice_on_tts_text_end,
+    .on_tts_text_interrupt = model_voice_on_tts_text_interrupt,
+    .on_tts_timeline_start = model_voice_on_tts_timeline_start,
+    .on_tts_timeline_update = model_voice_on_tts_timeline_update,
+    .on_tts_timeline_end = model_voice_on_tts_timeline_end,
+    .on_tts_timeline_fallback = model_voice_on_tts_timeline_fallback,
     .on_iat_text_start = model_voice_on_iat_text_start,
     .on_iat_text_update = model_voice_on_iat_text_update,
     .on_iat_text_end = model_voice_on_iat_text_end,
@@ -237,6 +233,7 @@ const struct model_voice_cb model_voice_cbs = {
     .on_image_url = model_voice_on_image_url,
     .on_standby_texts_changed = model_voice_on_standby_texts_changed,
     .on_standby_text_update = model_voice_on_standby_text_update,
+    .on_alarm_stopped = model_voice_on_alarm_stopped,
     .on_show_qrcode = model_voice_on_show_qrcode,
     .on_battery_query = model_voice_on_battery_query,
     .on_wakeup_mode_changed = model_voice_on_wakeup_mode_changed,
@@ -250,6 +247,7 @@ const struct model_voice_cb model_voice_cbs = {
 
 static const struct model_sd_music_sync_cb model_sd_music_sync_cbs = {
     .on_sd_music_sync_state_change = model_sd_music_sync_on_state_change,
+    .on_sd_music_card_state_change = model_sd_music_on_card_state_change,
     .on_sd_music_card_removed = model_sd_music_on_card_removed,
     .on_sd_music_play_failed = model_sd_music_on_play_failed,
 };
@@ -456,18 +454,6 @@ static void home_stop_oneshot_emoji(struct home_nav_scr_data *scr_data)
     }
 }
 
-static void home_stop_standby_sleep_timer(struct home_nav_scr_data *scr_data)
-{
-    if (!scr_data) {
-        return;
-    }
-
-    if (scr_data->standby_sleep_timer) {
-        lv_timer_del(scr_data->standby_sleep_timer);
-        scr_data->standby_sleep_timer = NULL;
-    }
-}
-
 static void home_camera_preview_uploading_clear(struct home_nav_scr_data *scr_data)
 {
     lv_obj_t *content_label = NULL;
@@ -530,38 +516,60 @@ static bool home_should_keep_recognition_image(const struct home_nav_scr_data *s
     return scr_data->net_img != NULL;
 }
 
-static bool home_is_standby_idle(struct home_nav_scr_data *scr_data)
+static void home_save_standby_brightness(struct home_nav_scr_data *scr_data)
 {
-    if (!scr_data || !scr_data->view) {
-        return false;
-    }
-
-    if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
-        return false;
-    }
-
-    if (!scr_data->finished || scr_data->speaking || model_voice_cloud_is_running()) {
-        return false;
-    }
-
-    if (scr_data->img_rec_running || scr_data->img_rec_in_progress ||
-        model_camera_preview_is_active(&scr_data->camera_preview) ||
-        camera_preview_is_camera_work_type(scr_data->work_type)) {
-        return false;
-    }
-
-    return true;
-}
-
-static void home_restore_standby_brightness(struct home_nav_scr_data *scr_data)
-{
-    if (!scr_data || !scr_data->standby_sleep_active) {
+    if (!scr_data || scr_data->standby_brightness_saved) {
         return;
     }
 
-    model_common_brightness_set_temp(scr_data->standby_sleep_restore_brightness);
-    scr_data->standby_sleep_active = 0;
-    show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 1);
+    /* MCP brightness changes go through the service layer, so refresh the UI
+     * model from KV before taking the pre-standby snapshot. */
+    (void)model_common_sync_from_system();
+    scr_data->standby_restore_brightness = model_common_brightness_get();
+    scr_data->standby_brightness_saved = 1;
+    LISA_UI_LOGI("standby brightness saved: %u",
+                 (unsigned int)scr_data->standby_restore_brightness);
+}
+
+static bool home_restore_standby_brightness(struct home_nav_scr_data *scr_data)
+{
+    int camera_ret;
+    bool restored = false;
+
+    if (!scr_data) {
+        return false;
+    }
+
+    if (scr_data->standby_sleep_active) {
+        lisa_ui_handler_resume();
+        model_common_power_experiment_set_suspended(false);
+        model_common_usb_set_suspended(false);
+        model_common_display_set_blanked(false);
+        camera_ret = model_camera_resume();
+        if (camera_ret != 0) {
+            LISA_UI_LOGW("standby wake: camera resume failed: %d", camera_ret);
+        }
+        scr_data->standby_sleep_active = 0;
+        show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 1);
+    }
+
+    if (scr_data->standby_brightness_saved) {
+        model_common_brightness_set_temp(scr_data->standby_restore_brightness);
+        LISA_UI_LOGI("standby brightness restored: %u",
+                     (unsigned int)scr_data->standby_restore_brightness);
+        scr_data->standby_brightness_saved = 0;
+        restored = true;
+    }
+
+    return restored;
+}
+
+static void home_apply_current_brightness(void)
+{
+    /* MCP brightness updates go through the service layer, so refresh the UI
+     * cache before applying the value after a normal session standby. */
+    (void)model_common_sync_from_system();
+    model_common_brightness_set_temp(model_common_brightness_get());
 }
 
 void home_handle_activity(struct home_nav_scr_data *scr_data)
@@ -578,57 +586,86 @@ void home_handle_activity(struct home_nav_scr_data *scr_data)
     }
 
     scr_data->standby_after_tts_pending = 0;
-    home_stop_standby_sleep_timer(scr_data);
-    home_restore_standby_brightness(scr_data);
+    if (!home_restore_standby_brightness(scr_data)) {
+        home_apply_current_brightness();
+    }
 }
 
-static void standby_sleep_timer_cb(lv_timer_t *timer)
+static void home_enter_hibernate(struct home_nav_scr_data *scr_data)
 {
-    struct home_nav_scr_data *scr_data = timer ? timer->user_data : NULL;
+    int camera_ret;
 
-    if (!scr_data) {
+    if (!scr_data || scr_data->standby_sleep_active) {
         return;
     }
 
-    if (scr_data->standby_sleep_timer == timer) {
-        scr_data->standby_sleep_timer = NULL;
-    }
-
-    if (!home_is_standby_idle(scr_data) || scr_data->standby_sleep_active) {
-        return;
-    }
-
-    scr_data->standby_sleep_restore_brightness = model_common_brightness_get();
+    home_save_standby_brightness(scr_data);
     scr_data->standby_sleep_active = 1;
 
-    LISA_UI_LOGI("standby idle timeout, dim brightness to %d, then loop sleepy emoji",
-                 HOME_STANDBY_DIM_BRIGHTNESS);
-    model_common_brightness_set_temp(HOME_STANDBY_DIM_BRIGHTNESS);
-    show_emoji_anim(scr_data, EMOJI_NAME_SLEEPY, 1);
+    home_stop_emoji_display(scr_data);
+    model_common_brightness_set_temp(HOME_HIBERNATE_BRIGHTNESS);
+    model_common_display_set_blanked(true);
+    camera_ret = model_camera_suspend();
+    if (camera_ret != 0) {
+        LISA_UI_LOGW("standby sleep: camera suspend failed: %d", camera_ret);
+    }
+    model_common_power_experiment_set_suspended(true);
+    model_common_usb_set_suspended(true);
+    LISA_UI_LOGI("standby power experiment active: backlight PWM off, panel blanked, "
+                 "camera/USB/DAC/logger suspended, ADC/WiFi low-power, "
+                 "battery timer stopped, LVGL stopped");
+    lisa_ui_handler_suspend();
 }
 
-static void home_schedule_standby_sleep(struct home_nav_scr_data *scr_data)
+static void home_power_state_changed(model_common_power_state_t state,
+                                     uint8_t reason, void *arg)
 {
-    uint32_t standby_sleep_delay_ms = 0;
+    struct home_nav_scr_data *scr_data = arg;
 
-    if (!scr_data) {
+    if (!scr_data || !scr_data->view) {
         return;
     }
 
-    home_stop_standby_sleep_timer(scr_data);
+    LISA_UI_LOGI("power policy state=%u, reason=%u", (unsigned int)state,
+                 (unsigned int)reason);
 
-    if (!home_is_standby_idle(scr_data) || scr_data->standby_sleep_active) {
-        return;
+    if ((state == MODEL_COMMON_POWER_STATE_IDLE ||
+         state == MODEL_COMMON_POWER_STATE_HIBERNATE) &&
+        lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
+        lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
     }
 
-    standby_sleep_delay_ms = home_get_standby_sleep_delay_ms();
-    scr_data->standby_sleep_timer =
-        lv_timer_create(standby_sleep_timer_cb, standby_sleep_delay_ms, scr_data);
-    if (!scr_data->standby_sleep_timer) {
-        return;
+    switch (state) {
+    case MODEL_COMMON_POWER_STATE_NORMAL:
+        if (!home_restore_standby_brightness(scr_data)) {
+            home_apply_current_brightness();
+        }
+        if (scr_data->finished) {
+            show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, 1);
+        }
+        break;
+    case MODEL_COMMON_POWER_STATE_IDLE:
+        (void)home_restore_standby_brightness(scr_data);
+        home_save_standby_brightness(scr_data);
+        home_stop_oneshot_emoji(scr_data);
+        home_anim_timer_pause(scr_data);
+        /* Keep low user brightness values; cap higher values at the idle level. */
+        model_common_brightness_set_temp(
+            scr_data->standby_restore_brightness < HOME_IDLE_BRIGHTNESS
+                ? scr_data->standby_restore_brightness
+                : HOME_IDLE_BRIGHTNESS);
+        show_emoji_anim(scr_data, EMOJI_NAME_SLEEPY, 1);
+        break;
+    case MODEL_COMMON_POWER_STATE_HIBERNATE:
+        home_enter_hibernate(scr_data);
+        break;
+    case MODEL_COMMON_POWER_STATE_SHUTDOWN_PENDING:
+        /* Keep the panel, camera, USB and LVGL off while the policy service
+         * restores only the audio/runtime path for the warning prompt. */
+        break;
+    default:
+        break;
     }
-
-    lv_timer_set_repeat_count(scr_data->standby_sleep_timer, 1);
 }
 
 static void home_update_battery_icon(struct home_nav_scr_data *scr_data)
@@ -1101,11 +1138,15 @@ static void model_sd_music_sync_on_state_change(const voice_msg_sd_music_sync_st
         return;
     }
 
-    if (state->state == VOICE_MSG_SD_MUSIC_SYNC_STATE_FINISHED ||
-        state->state == VOICE_MSG_SD_MUSIC_SYNC_STATE_IDLE) {
+    if (state->state == VOICE_MSG_SD_MUSIC_SYNC_STATE_FINISHED) {
         if (lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_SD_MUSIC_SYNC) {
             lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
         }
+        return;
+    }
+
+    /* IDLE 是模型初始快照，不能把刚显示的同步/文件系统错误页面切回 HOME。 */
+    if (state->state == VOICE_MSG_SD_MUSIC_SYNC_STATE_IDLE) {
         return;
     }
 
@@ -1132,6 +1173,42 @@ static void model_sd_music_on_card_removed(void *arg)
     (void)arg;
 
     lisa_ui_toast_show("设备已弹出TF卡");
+}
+
+static void home_update_tf_card_icon(struct home_nav_scr_data *scr_data)
+{
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+    lisa_ui_llm_primary_set_tf_card_icon_visible(
+        scr_data->view, model_sd_music_card_is_available());
+}
+
+static void home_update_usb_icon(struct home_nav_scr_data *scr_data)
+{
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+#if defined(CONFIG_CHERRYUSB) && CONFIG_CHERRYUSB && \
+    defined(CONFIG_CHERRYUSB_HOST) && CONFIG_CHERRYUSB_HOST
+    lisa_ui_llm_primary_set_usb_icon_visible(
+        scr_data->view, app_usb_host_device_enumerated());
+#else
+    lisa_ui_llm_primary_set_usb_icon_visible(scr_data->view, false);
+#endif
+}
+
+static void model_sd_music_on_card_state_change(bool available, void *arg)
+{
+    struct home_nav_scr_data *scr_data = arg;
+
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+    lisa_ui_llm_primary_set_tf_card_icon_visible(scr_data->view, available);
 }
 
 static void model_sd_music_on_play_failed(void *arg)
@@ -1165,6 +1242,7 @@ static void network_status_timer_callback(lv_timer_t *timer)
 
     home_update_network_icon(d);
     home_update_alarm_icon(d);
+    home_update_usb_icon(d);
 }
 
 static void model_voice_on_image_rec_failed(void *arg)
@@ -1326,7 +1404,6 @@ static void model_voice_on_tts_player_playing(void *arg)
     if (!model_voice_music_is_playing()) {
         scr_data->music_text_active = 0;
     }
-    home_stop_standby_sleep_timer(scr_data);
     home_restore_standby_brightness(scr_data);
 
     content_label = lisa_ui_llm_primary_content_label_get(scr_data->view);
@@ -1335,12 +1412,20 @@ static void model_voice_on_tts_player_playing(void *arg)
     }
 
     if (scr_data && model_camera_preview_is_result_active(&scr_data->camera_preview)) {
-        if (!model_camera_preview_is_result_tts_ready(&scr_data->camera_preview)) {
+        bool result_tts_replay = scr_data->camera_preview_result_pending != 0;
+
+        if (!model_camera_preview_is_result_tts_ready(&scr_data->camera_preview) &&
+            !result_tts_replay) {
             LISA_UI_LOGI("voice photo: non-result TTS playing, keep uploading UI");
             standby_text_timer_update(scr_data);
             return;
         }
 
+        if (result_tts_replay &&
+            !model_camera_preview_is_result_tts_ready(&scr_data->camera_preview)) {
+            model_camera_preview_handle_result_tts_ready(&scr_data->camera_preview);
+            LISA_UI_LOGI("voice photo: replayed result TTS started");
+        }
         model_camera_preview_mark_result_tts_started(&scr_data->camera_preview);
         model_camera_preview_publish_state(&scr_data->camera_preview);
         home_camera_preview_uploading_clear(scr_data);
@@ -1360,6 +1445,24 @@ static void model_voice_on_tts_player_playing(void *arg)
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("speaking"));
 
     standby_text_timer_update(scr_data);
+}
+
+static void model_voice_on_tts_player_error(void *arg)
+{
+    struct home_nav_scr_data *scr_data = arg;
+
+    if (!scr_data || !scr_data->view ||
+        !model_camera_preview_is_result_active(&scr_data->camera_preview) ||
+        (!model_camera_preview_is_result_tts_ready(&scr_data->camera_preview) &&
+         !scr_data->camera_preview_result_pending)) {
+        return;
+    }
+
+    LISA_UI_LOGW("voice photo: result TTS playback failed, dismiss photo UI");
+    scr_data->camera_preview_result_pending = 0;
+    home_camera_preview_uploading_clear(scr_data);
+    camera_preview_hide(scr_data);
+    lisa_ui_toast_show(_("recognition error"));
 }
 
 static void model_voice_on_tts_player_stoped(void *arg)
@@ -1594,8 +1697,12 @@ static void model_voice_on_mcp_loading(void *arg, bool is_loading, const char *l
 static void model_voice_on_connected(void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
+    int top_id = lisa_ui_nav_scr_get_top_id();
 
-    if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
+    /* SD 卡文件系统提示页显示期间，云端连接事件不能抢占页面。 */
+    if (top_id == LISA_UI_NAV_SCR_ID_SD_MUSIC_SYNC) {
+        LISA_UI_LOGI("云端连接完成，保持 SD 同步页不返回 HOME");
+    } else if (top_id != LISA_UI_NAV_SCR_ID_HOME) {
         lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
     }
 
@@ -1627,6 +1734,9 @@ static void model_voice_on_start(void *arg)
     camera_preview_hide(scr_data);
     home_restore_session_emoji(scr_data, 1);
 
+    /* A wakeup can replace an in-flight TTS whose stale stop callback is
+     * intentionally ignored by the player generation guard. */
+    scr_data->speaking = 0;
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
 
     lisa_ui_llm_primary_set_content_text(scr_data->view, _("Please speak"));
@@ -1689,7 +1799,6 @@ static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const c
     show_emoji_anim(scr_data, EMOJI_NAME_NEUTRAL, imm);
     lisa_ui_llm_primary_set_status_text(scr_data->view, status_text);
     standby_text_timer_update(scr_data);
-    home_schedule_standby_sleep(scr_data);
 }
 
 static bool home_try_enter_standby_after_tts(struct home_nav_scr_data *scr_data)
@@ -1796,6 +1905,12 @@ static void model_voice_on_finished(void *arg)
 }
 
 #define TTS_TEXT_MAX_CHARS 12
+#define TTS_TEXT_MODE_LEGACY 0
+#define TTS_TEXT_MODE_TIMELINE 1
+#define TTS_TEXT_MODE_TIMELINE_FALLBACK 2
+#define TTS_TEXT_MODE_INTERRUPTED 3
+#define TTS_TIMELINE_POLL_MS 40
+#define TTS_TIMELINE_POSITION_FAILURE_MAX 5
 
 #ifndef CONFIG_TTS_TEXT_MS_PER_CHAR
 #define CONFIG_TTS_TEXT_MS_PER_CHAR 250
@@ -1964,11 +2079,28 @@ static void tts_text_stop_timer(struct home_nav_scr_data *scr_data)
 	}
 }
 
+static void tts_text_interrupt(struct home_nav_scr_data *scr_data)
+{
+	if (!scr_data) {
+		return;
+	}
+
+	tts_text_stop_timer(scr_data);
+	scr_data->tts_text_len = 0;
+	scr_data->tts_text_displayed = 0;
+	scr_data->tts_text_stream_done = 1;
+	scr_data->tts_text_mode = TTS_TEXT_MODE_INTERRUPTED;
+	scr_data->tts_text_prefix_len = 0;
+	scr_data->tts_timeline_count = 0;
+	scr_data->tts_timeline_displayed = -1;
+	scr_data->tts_timeline_position_failures = 0;
+}
+
 static void tts_text_timer_cb(lv_timer_t *timer);
 
 static void tts_text_try_show_next(struct home_nav_scr_data *scr_data)
 {
-	if (scr_data->finished) return;
+	if (scr_data->finished || scr_data->tts_text_mode == TTS_TEXT_MODE_TIMELINE) return;
 
 	int start = scr_data->tts_text_displayed;
 	int avail = scr_data->tts_text_len - start;
@@ -2024,6 +2156,128 @@ static void tts_text_timer_cb(lv_timer_t *timer)
 	tts_text_try_show_next(scr_data);
 }
 
+static void tts_timeline_fallback_to_legacy(struct home_nav_scr_data *scr_data,
+									const char *reason)
+{
+	uint16_t write_pos;
+	uint16_t displayed_after = 0;
+	int16_t timeline_displayed_before;
+	uint8_t mode_before;
+
+	if (!scr_data || scr_data->tts_text_mode != TTS_TEXT_MODE_TIMELINE) {
+		return;
+	}
+
+	timeline_displayed_before = scr_data->tts_timeline_displayed;
+	mode_before = scr_data->tts_text_mode;
+	tts_text_stop_timer(scr_data);
+	write_pos = scr_data->tts_text_prefix_len;
+	for (uint16_t i = 0; i < scr_data->tts_timeline_count; i++) {
+		home_tts_timeline_entry_t *entry = &scr_data->tts_timeline[i];
+		if ((int16_t)i == timeline_displayed_before) {
+			displayed_after = write_pos;
+		}
+		memmove(scr_data->tts_text_buf + write_pos,
+			scr_data->tts_text_buf + entry->text_offset,
+			entry->text_len);
+		write_pos += entry->text_len;
+	}
+	scr_data->tts_text_buf[write_pos] = '\0';
+	scr_data->tts_text_len = write_pos;
+	scr_data->tts_text_displayed =
+		timeline_displayed_before >= 0 ? displayed_after : 0;
+	scr_data->tts_text_mode = TTS_TEXT_MODE_TIMELINE_FALLBACK;
+	scr_data->tts_timeline_displayed = -1;
+	LISA_UI_LOGW("TTS timeline fallback: reason=%s mode=%u timeline_displayed_before=%d "
+	             "timeline_count=%u text_len=%u prefix_len=%u displayed_after=%u",
+	             reason ? reason : "unknown", (unsigned)mode_before,
+	             (int)timeline_displayed_before,
+	             (unsigned)scr_data->tts_timeline_count,
+	             (unsigned)scr_data->tts_text_len,
+	             (unsigned)scr_data->tts_text_prefix_len,
+	             (unsigned)scr_data->tts_text_displayed);
+	tts_text_try_show_next(scr_data);
+}
+
+static void tts_timeline_timer_cb(lv_timer_t *timer)
+{
+	struct home_nav_scr_data *scr_data = timer->user_data;
+	uint32_t position_ms = 0;
+	int16_t display_index = -1;
+
+	if (!scr_data || scr_data->finished ||
+	    scr_data->tts_text_mode != TTS_TEXT_MODE_TIMELINE) {
+		return;
+	}
+	if (!model_voice_tts_is_playing()) {
+		return;
+	}
+
+	if (model_voice_tts_position_get(&position_ms) != 0) {
+		if (++scr_data->tts_timeline_position_failures >=
+			TTS_TIMELINE_POSITION_FAILURE_MAX) {
+			tts_timeline_fallback_to_legacy(scr_data, "position");
+		} else if (scr_data->tts_timeline_position_failures == 1) {
+			LISA_UI_LOGW("TTS timeline position unavailable");
+		}
+		return;
+	}
+
+	scr_data->tts_timeline_position_failures = 0;
+	for (uint16_t i = 0; i < scr_data->tts_timeline_count; i++) {
+		if (position_ms < scr_data->tts_timeline[i].start_ms) {
+			break;
+		}
+		if (position_ms < scr_data->tts_timeline[i].end_ms) {
+			display_index = (int16_t)i;
+			break;
+		}
+	}
+
+	if (display_index < 0) {
+		/* Keep the nearest sentence visible across small timestamp gaps or
+		 * decoder position jitter.  Clearing here made valid subtitles appear
+		 * to be missing when the stream and audio clocks started at different
+		 * offsets. */
+		if (scr_data->tts_timeline_count > 0) {
+			display_index = position_ms < scr_data->tts_timeline[0].start_ms
+				? 0
+				: (int16_t)(scr_data->tts_timeline_count - 1U);
+		} else {
+			LISA_UI_LOGI("TTS timeline no entries: position_ms=%u",
+			             (unsigned)position_ms);
+			lisa_ui_llm_primary_set_content_text(scr_data->view, "");
+			scr_data->tts_timeline_displayed = -1;
+			return;
+		}
+	}
+	if (display_index == scr_data->tts_timeline_displayed) {
+		return;
+	}
+
+	home_tts_timeline_entry_t *entry = &scr_data->tts_timeline[display_index];
+	LISA_UI_LOGI("TTS timeline display entry: index=%d position_ms=%u start_ms=%u "
+	             "end_ms=%u text_len=%u",
+	             (int)display_index, (unsigned)position_ms,
+	             (unsigned)entry->start_ms, (unsigned)entry->end_ms,
+	             (unsigned)entry->text_len);
+	lisa_ui_llm_primary_set_content_text(
+		scr_data->view, scr_data->tts_text_buf + entry->text_offset);
+	scr_data->tts_timeline_displayed = display_index;
+}
+
+static void tts_timeline_start_timer(struct home_nav_scr_data *scr_data)
+{
+	if (!scr_data || scr_data->tts_text_timer ||
+	    scr_data->tts_text_mode != TTS_TEXT_MODE_TIMELINE ||
+	    scr_data->tts_timeline_count == 0) {
+		return;
+	}
+
+	scr_data->tts_text_timer = lv_timer_create(tts_timeline_timer_cb,
+						   TTS_TIMELINE_POLL_MS, scr_data);
+}
+
 static void model_voice_on_tts_text_start(void *arg)
 {
 	struct home_nav_scr_data *scr_data = arg;
@@ -2049,6 +2303,10 @@ static void model_voice_on_tts_text_start(void *arg)
 		scr_data->tts_text_len = 1;
 		scr_data->tts_text_displayed = 0;
 		scr_data->tts_text_stream_done = 0;
+		scr_data->tts_text_mode = TTS_TEXT_MODE_LEGACY;
+		scr_data->tts_text_prefix_len = 1;
+		scr_data->tts_timeline_count = 0;
+		scr_data->tts_timeline_displayed = -1;
 		return;
 	}
 
@@ -2056,13 +2314,17 @@ static void model_voice_on_tts_text_start(void *arg)
 	scr_data->tts_text_len = 0;
 	scr_data->tts_text_displayed = 0;
 	scr_data->tts_text_stream_done = 0;
+	scr_data->tts_text_mode = TTS_TEXT_MODE_LEGACY;
+	scr_data->tts_text_prefix_len = 0;
+	scr_data->tts_timeline_count = 0;
+	scr_data->tts_timeline_displayed = -1;
 }
 
 static void model_voice_on_tts_text_end(void *arg)
 {
 	struct home_nav_scr_data *scr_data = arg;
 
-	if (!scr_data) {
+	if (!scr_data || scr_data->tts_text_mode == TTS_TEXT_MODE_INTERRUPTED) {
 		return;
 	}
 
@@ -2073,11 +2335,26 @@ static void model_voice_on_tts_text_end(void *arg)
 	}
 }
 
+static void model_voice_on_tts_text_interrupt(void *arg)
+{
+    struct home_nav_scr_data *scr_data = arg;
+
+    if (!scr_data || scr_data->finished) {
+        return;
+    }
+
+    tts_text_interrupt(scr_data);
+    lisa_ui_llm_primary_set_content_text(scr_data->view, "");
+    LISA_UI_LOGI("TTS subtitle stream interrupted by camera preview");
+}
+
 static void model_voice_on_tts_text_update(const char *text, void *arg)
 {
 	struct home_nav_scr_data *scr_data = arg;
 
-	if (!scr_data || scr_data->finished || !text || text[0] == '\0') {
+	if (!scr_data || scr_data->finished ||
+	    scr_data->tts_text_mode == TTS_TEXT_MODE_INTERRUPTED ||
+	    !text || text[0] == '\0') {
 		return;
 	}
 
@@ -2104,6 +2381,118 @@ static void model_voice_on_tts_text_update(const char *text, void *arg)
 	if (scr_data->tts_text_timer == NULL) {
 		tts_text_try_show_next(scr_data);
 	}
+}
+
+static void model_voice_on_tts_timeline_start(void *arg)
+{
+	struct home_nav_scr_data *scr_data = arg;
+
+	model_voice_on_tts_text_start(arg);
+	if (!scr_data || scr_data->finished) {
+		return;
+	}
+
+	scr_data->tts_text_mode = TTS_TEXT_MODE_TIMELINE;
+	scr_data->tts_timeline_count = 0;
+	scr_data->tts_timeline_displayed = -1;
+	scr_data->tts_timeline_position_failures = 0;
+	LISA_UI_LOGI("TTS subtitle timeline mode started");
+}
+
+static void model_voice_on_tts_timeline_update(const model_voice_tts_timeline_t *timeline,
+					       void *arg)
+{
+	struct home_nav_scr_data *scr_data = arg;
+	home_tts_timeline_entry_t *entry;
+	uint32_t required;
+
+	if (!scr_data || scr_data->finished ||
+	    scr_data->tts_text_mode == TTS_TEXT_MODE_INTERRUPTED ||
+	    !timeline || timeline->text_len == 0) {
+		return;
+	}
+
+	if (scr_data->tts_text_mode != TTS_TEXT_MODE_TIMELINE) {
+		model_voice_on_tts_text_update(timeline->text, arg);
+		return;
+	}
+
+	required = (uint32_t)timeline->text_len + 1U;
+	if (timeline->index != scr_data->tts_timeline_count) {
+		tts_timeline_fallback_to_legacy(scr_data, "sequence");
+		model_voice_on_tts_text_update(timeline->text, arg);
+		return;
+	}
+	if (scr_data->tts_timeline_count >= HOME_TTS_TIMELINE_MAX_SENTENCES) {
+		tts_timeline_fallback_to_legacy(scr_data, "entry_limit");
+		model_voice_on_tts_text_update(timeline->text, arg);
+		return;
+	}
+	if (required > sizeof(scr_data->tts_text_buf) - scr_data->tts_text_len) {
+		tts_timeline_fallback_to_legacy(scr_data, "text_buffer");
+		model_voice_on_tts_text_update(timeline->text, arg);
+		return;
+	}
+
+	entry = &scr_data->tts_timeline[scr_data->tts_timeline_count++];
+	entry->start_ms = timeline->start_ms;
+	entry->end_ms = timeline->end_ms;
+	entry->text_offset = scr_data->tts_text_len;
+	entry->text_len = timeline->text_len;
+	memcpy(scr_data->tts_text_buf + scr_data->tts_text_len,
+	       timeline->text, required);
+	scr_data->tts_text_len += (uint16_t)required;
+	LISA_UI_LOGI("TTS timeline entry accepted: index=%u start_ms=%u end_ms=%u "
+	             "text_len=%u count=%u",
+	             (unsigned)timeline->index, (unsigned)entry->start_ms,
+	             (unsigned)entry->end_ms, (unsigned)entry->text_len,
+	             (unsigned)scr_data->tts_timeline_count);
+	if (scr_data->tts_timeline_displayed < 0) {
+		/* Do not wait for the first 40 ms timer tick.  The audio stream can
+		 * already be playing by the time the timeline response arrives. */
+		lisa_ui_llm_primary_set_content_text(scr_data->view,
+		                                     scr_data->tts_text_buf + entry->text_offset);
+		scr_data->tts_timeline_displayed =
+			(int16_t)(scr_data->tts_timeline_count - 1U);
+	}
+
+	tts_timeline_start_timer(scr_data);
+}
+
+static void model_voice_on_tts_timeline_end(void *arg)
+{
+	struct home_nav_scr_data *scr_data = arg;
+
+	if (!scr_data || scr_data->tts_text_mode == TTS_TEXT_MODE_INTERRUPTED) {
+		return;
+	}
+
+	scr_data->tts_text_stream_done = 1;
+	/* A single short timeline interval cannot cover the complete response.
+	 * Use the legacy sentence splitter so the remaining text is still shown
+	 * when the cloud stream omits later timeline entries. */
+	if (scr_data->tts_timeline_count <= 1 &&
+	    scr_data->tts_text_mode == TTS_TEXT_MODE_TIMELINE) {
+		tts_timeline_fallback_to_legacy(scr_data, "single timeline entry");
+		LISA_UI_LOGW("TTS timeline incomplete: count=%u, fallback to legacy text",
+		             (unsigned)scr_data->tts_timeline_count);
+		return;
+	}
+
+	if (scr_data->tts_text_mode == TTS_TEXT_MODE_TIMELINE_FALLBACK) {
+		model_voice_on_tts_text_end(arg);
+		return;
+	}
+
+	LISA_UI_LOGI("TTS timeline stream ended: count=%u displayed=%d text_len=%u",
+	             (unsigned)scr_data->tts_timeline_count,
+	             (int)scr_data->tts_timeline_displayed,
+	             (unsigned)scr_data->tts_text_len);
+}
+
+static void model_voice_on_tts_timeline_fallback(void *arg)
+{
+	tts_timeline_fallback_to_legacy(arg, "server");
 }
 
 static void model_voice_on_iat_text_start(void *arg)
@@ -2163,6 +2552,7 @@ static void model_voice_on_iat_text_update(const char *text, void *arg)
         camera_preview_hide(scr_data);
     }
 
+    tts_text_interrupt(scr_data);
     lisa_ui_llm_primary_set_content_text(scr_data->view, text);
     home_restore_session_emoji(scr_data, 1);
     lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
@@ -2198,6 +2588,23 @@ static void model_voice_on_standby_text_update(void *arg, const char *text, bool
     }
 
     lisa_ui_llm_primary_set_content_text(scr_data->view, text);
+}
+
+static void model_voice_on_alarm_stopped(void *arg)
+{
+    struct home_nav_scr_data *scr_data = arg;
+
+    if (!scr_data || !scr_data->view) {
+        return;
+    }
+
+    /* Alarm stop can hard-stop an in-flight TTS whose player callback is stale.
+     * Defer the final UI reset until the alarm page navigates home; home_reset()
+     * otherwise sees the still-draining cloud session and restores "listening". */
+    scr_data->speaking = 0;
+    scr_data->standby_after_tts_pending = 0;
+    scr_data->alarm_stopped_pending = 1;
+    LISA_UI_LOGI("alarm stopped: reset home UI to standby");
 }
 
 static void model_voice_on_wakeup_mode_changed(void *arg, model_voice_wakeup_mode_t mode)
@@ -2389,12 +2796,22 @@ void home_reset(struct home_nav_scr_data *scr_data)
 {
     const char *init_status =
         model_voice_cloud_is_connected() ? _("Please wake me") : _("service disconnected");
+    uint8_t alarm_stopped = 0;
+
+    if (scr_data) {
+        alarm_stopped = scr_data->alarm_stopped_pending;
+        scr_data->alarm_stopped_pending = 0;
+    }
 
     home_handle_activity(scr_data);
     home_stop_oneshot_emoji(scr_data);
     scr_data->oneshot_restore_emoji_name[0] = '\0';
     camera_preview_hide(scr_data);
-    if (model_voice_cloud_is_running()) {
+    if (alarm_stopped) {
+        scr_data->finished = 1;
+        scr_data->speaking = 0;
+        home_enter_standby_state(scr_data, init_status, 1);
+    } else if (model_voice_cloud_is_running()) {
         scr_data->finished = 0;
         scr_data->speaking = 0;
         home_restore_last_iat_or_prompt(scr_data);
@@ -2413,12 +2830,14 @@ void home_reset(struct home_nav_scr_data *scr_data)
     home_update_full_duplex_icon(scr_data);
     home_update_alarm_icon(scr_data);
     home_update_battery_icon(scr_data);
-    if (model_voice_cloud_is_running() || model_voice_tts_is_playing()) {
+    if (!alarm_stopped && (model_voice_cloud_is_running() || model_voice_tts_is_playing())) {
         home_restore_session_emoji(scr_data, true);
         home_anim_timer_pause(scr_data);
         standby_text_timer_update(scr_data);
     }
     home_update_network_icon(scr_data);
+    home_update_tf_card_icon(scr_data);
+    home_update_usb_icon(scr_data);
 }
 
 static int home_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
@@ -2453,16 +2872,16 @@ static int home_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)
     scr_data->anim_timer = lv_timer_create(anim_timer_callback, 5000, scr_data);
     home_anim_timer_pause(scr_data);
     home_update_network_icon(scr_data);
+    home_update_usb_icon(scr_data);
     scr_data->network_status_timer = lv_timer_create(network_status_timer_callback, 1000, scr_data);
     scr_data->standby_text_timer = NULL;
-    scr_data->standby_sleep_restore_brightness = model_common_brightness_get();
-
     model_battery_cb_register(model_battery_on_battery_status_update, scr_data);
     home_update_battery_icon(scr_data);
 
     *data = scr_data;
 
     model_voice_cb_register(&model_voice_cbs, scr_data);
+    model_common_power_state_cb_register(home_power_state_changed, scr_data);
     model_camera_preview_cb_register(&home_camera_preview_presenter_cbs, scr_data);
     model_sd_music_sync_cb_register(&model_sd_music_sync_cbs, scr_data);
 
@@ -2543,6 +2962,7 @@ static int home_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *data)
     LISA_UI_LOGD("nav scr close, id: %d", scr->unique_id);
 
     model_voice_cb_unregister(&model_voice_cbs);
+    model_common_power_state_cb_unregister(home_power_state_changed);
     model_camera_preview_cb_unregister(&home_camera_preview_presenter_cbs);
     model_battery_cb_unregister(model_battery_on_battery_status_update);
     model_sd_music_sync_cb_unregister(&model_sd_music_sync_cbs);
@@ -2574,10 +2994,6 @@ static int home_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *data)
         if (scr_data->standby_text_timer != NULL) {
             lv_timer_del(scr_data->standby_text_timer);
             scr_data->standby_text_timer = NULL;
-        }
-        if (scr_data->standby_sleep_timer != NULL) {
-            lv_timer_del(scr_data->standby_sleep_timer);
-            scr_data->standby_sleep_timer = NULL;
         }
         if (scr_data->cap_buf != NULL) {
             lisa_ui_free(scr_data->cap_buf);

@@ -471,8 +471,13 @@ static void camera_preview_handle_start(void *arg, const model_camera_preview_re
     home_handle_activity(scr_data);
 
     if (scr_data->img_rec_in_progress) {
-        LISA_UI_LOGI("image recognition in progress, ignore photo preview");
-        return;
+        /* Button preview requests cancel the old upload in model_voice and start
+         * a fresh capture. MCP requests keep the guard to avoid overlapping flows. */
+        if (req->source != MODEL_CAMERA_PREVIEW_SOURCE_BUTTON) {
+            LISA_UI_LOGI("image recognition in progress, ignore photo preview");
+            return;
+        }
+        LISA_UI_LOGI("image recognition in progress, replace with button photo preview");
     }
 
     if (scr_data->img_rec_running || model_camera_preview_is_active(&scr_data->camera_preview) ||
@@ -573,8 +578,19 @@ static void camera_preview_handle_exit(void *arg)
 static void camera_preview_handle_result_tts_ready(void *arg)
 {
     struct home_nav_scr_data *scr_data = arg;
+    bool accept_result_tts;
 
     if (!scr_data) {
+        return;
+    }
+
+    /* CLOUD_TTS_URL is shared by normal voice replies and photo recognition.
+     * Only consume it while this UI has a pending recognition result, or when
+     * a result TTS replay was explicitly requested during flow exit. */
+    accept_result_tts = scr_data->img_rec_in_progress ||
+                        scr_data->camera_preview_result_pending;
+    if (!accept_result_tts) {
+        LISA_UI_LOGI("ignore TTS URL without pending photo recognition");
         return;
     }
 

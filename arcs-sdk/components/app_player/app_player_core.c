@@ -54,7 +54,9 @@ static int __lisa_player_core_callback_handler(PlayerEvt evt, int arg1, int arg2
     // === Core 层职责 3: 特殊事件处理（纯播放器逻辑）===
     switch (evt) {
         case PLAYER_EVT_PREPARED: {
-            if (player->stop_preparing_requested) {
+            PLAYER_MUTEX_LOCK(player->cancel_lock, LISA_OS_WAIT_FOREVER);
+            if (player->stop_preparing_requested ||
+                __app_player_play_cancelled_locked(player)) {
                 LISA_LOGI(TAG, "Core: %s prepared ignored due to stop request", player->name);
                 player->prepare_error = true;
                 /* 不在这里调 lisa_player_reset：实测无论 pre_close 与否，从 PREPARED
@@ -65,6 +67,7 @@ static int __lisa_player_core_callback_handler(PlayerEvt evt, int arg1, int arg2
                  * 排空（PREPARED → PLAYING → STOPPED → reset 成功）。期间用
                  * drain_in_progress 标志抑制上层回调，避免 PA 抖动与虚假 TTS 事件。 */
                 lisa_semaphore_give(player->preparing_sem);
+                PLAYER_MUTEX_UNLOCK(player->cancel_lock);
                 break;
             }
             /* Enable the PA before the decoder can submit its first PCM frame. */
@@ -81,9 +84,11 @@ static int __lisa_player_core_callback_handler(PlayerEvt evt, int arg1, int arg2
                         (app_player_core_callback_t)player->core_upper_callback;
                     cb(player, PLAYER_EVT_ERROR, true);
                 }
+                PLAYER_MUTEX_UNLOCK(player->cancel_lock);
                 return 0;
             }
             lisa_semaphore_give(player->preparing_sem);
+            PLAYER_MUTEX_UNLOCK(player->cancel_lock);
             break;
         }
 

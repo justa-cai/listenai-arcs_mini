@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 
 #define TAG "voice_player_music"
@@ -88,10 +89,17 @@ static void voice_player_music_restart_intent(void)
 /* ==================== 内部工具：曲目信息与播放 ==================== */
 
 /* 通知 UI 更新当前歌曲名；name 为空时清空显示。 */
-static void voice_player_music_publish_name(const char *name)
+void voice_player_music_publish_info(const char *name, const char *url)
 {
     if (name != NULL && name[0] != '\0') {
-        voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, (void *)name, strlen(name) + 1);
+        voice_msg_music_info_t info = {
+            .source = voice_player_music_url_is_sd_file(url) ?
+                      VOICE_MSG_MUSIC_SOURCE_TF_CARD :
+                      VOICE_MSG_MUSIC_SOURCE_ONLINE,
+        };
+
+        snprintf(info.name, sizeof(info.name), "%s", name);
+        voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, &info, sizeof(info));
     } else {
         voice_msg_pub(VOICE_MSG_CLOUD_MUSIC_NAME, NULL, 0);
     }
@@ -106,7 +114,7 @@ static void voice_player_music_play_track(const music_item_t *track)
 
     if (voice_player_play_music_url(track->m_url) == APP_PLAYER_OK &&
         track->m_name[0] != '\0') {
-        voice_player_music_publish_name(track->m_name);
+        voice_player_music_publish_info(track->m_name, track->m_url);
     }
 }
 
@@ -130,13 +138,14 @@ static void voice_player_music_event(app_player_t *player,
         LOGI("[MUSIC] Player playing");
         if (voice_music_list_get_current(&curr_track) == 0 &&
             curr_track.m_name[0] != '\0') {
-            voice_player_music_publish_name(curr_track.m_name);
+            voice_player_music_publish_info(curr_track.m_name, curr_track.m_url);
         }
         voice_msg_pub(VOICE_MSG_PLAYER_MUSIC_PLAYING, NULL, 0);
         break;
     }
     case APP_PLAYER_EVENT_PAUSED:
         LOGI("[MUSIC] Player paused");
+        voice_msg_pub(VOICE_MSG_PLAYER_MUSIC_STOPPED, NULL, 0);
         break;
     case APP_PLAYER_EVENT_COMPLETED: {
         music_item_t next_track;
@@ -147,7 +156,8 @@ static void voice_player_music_event(app_player_t *player,
             voice_player_music_play_track(&next_track);
         } else {
             LOGI("Playlist completed");
-            voice_player_music_publish_name(NULL);
+            voice_player_music_publish_info(NULL, NULL);
+            voice_msg_pub(VOICE_MSG_PLAYER_MUSIC_STOPPED, NULL, 0);
         }
         break;
     }
@@ -163,12 +173,14 @@ static void voice_player_music_event(app_player_t *player,
             LOGI("Error occurred, trying next track");
             voice_player_music_play_track(&next_track);
         } else {
-            voice_player_music_publish_name(NULL);
+            voice_player_music_publish_info(NULL, NULL);
+            voice_msg_pub(VOICE_MSG_PLAYER_MUSIC_STOPPED, NULL, 0);
         }
         break;
     }
     case APP_PLAYER_EVENT_STOPPED:
         LOGI("[MUSIC] Player stopped");
+        voice_msg_pub(VOICE_MSG_PLAYER_MUSIC_STOPPED, NULL, 0);
         break;
     default:
         break;
@@ -188,11 +200,20 @@ static bool voice_player_music_focus_changed(app_player_t *player,
     switch (state) {
     case APP_PLAYER_FOCUS_FOREGROUND:
         LOGI("[MUSIC] Got FOREGROUND focus (by player %p)", by_which);
-        if (by_which == tone_player) {
-            LOGI("[MUSIC] Tone completed, waiting for TTS/session policy");
-            return true;
+        /* A play request made while another player owns focus is kept as a
+         * pending URL while the music player is not active.  Let app_player's
+         * default focus policy consume that URL when focus returns.  Keep the
+         * PAUSED path under the intent-controlled delayed resume policy. */
+        app_player_state_t player_state = app_player_get_state(player);
+        if (player_state != APP_PLAYER_STATE_PLAYING &&
+            player_state != APP_PLAYER_STATE_PAUSED) {
+            LOGI("[MUSIC] Focus acquired with pending play, use default resume policy");
+            return false;
         }
-        break;
+        /* Music intent owns resume timing.  Returning handled here prevents
+         * the focus bridge from auto-resuming in parallel with its timer. */
+        LOGI("[MUSIC] Focus acquired, waiting for intent resume policy");
+        return true;
     case APP_PLAYER_FOCUS_BACKGROUND:
         LOGI("[MUSIC] Moved to BACKGROUND (by player %p)", by_which);
         break;
@@ -227,6 +248,7 @@ static void voice_player_music_audio_item(void *unused, uint32_t msg_id,
 {
     struct voice_msg_audio_items *msg_items = (struct voice_msg_audio_items *)data;
     int count;
+    int track_index = 0;
     music_item_t *tracks;
     char first_track_name[AUIDO_OUT_NAME_LEN] = {0};
 
@@ -241,6 +263,7 @@ static void voice_player_music_audio_item(void *unused, uint32_t msg_id,
     }
 
     count = (msg_items->cnt > ONLINE_TRACK_MAX) ? ONLINE_TRACK_MAX : (int)msg_items->cnt;
+
     tracks = lisa_mem_alloc(count * sizeof(music_item_t));
     if (tracks == NULL) {
         LOGE("Failed to alloc tracks");
@@ -249,23 +272,25 @@ static void voice_player_music_audio_item(void *unused, uint32_t msg_id,
     memset(tracks, 0, count * sizeof(music_item_t));
 
     for (int i = 0; i < count; i++) {
-        voice_player_music_fill_track(&tracks[i], &msg_items->items[i]);
+        voice_player_music_fill_track(&tracks[track_index], &msg_items->items[i]);
+        track_index++;
     }
+
+    LOGI("Cloud music list received: total=%d", count);
 
     if (tracks[0].m_name[0] != '\0') {
         strncpy(first_track_name, tracks[0].m_name, sizeof(first_track_name) - 1);
     }
 
-    if (voice_music_list_set(MUSIC_LIST_ONLINE, tracks, count) != 0) {
+    if (voice_music_list_set(MUSIC_LIST_ONLINE, tracks, track_index) != 0) {
         LOGE("Failed to set online music list");
         lisa_mem_free(tracks);
         return;
     }
     voice_music_list_set_active(MUSIC_LIST_ONLINE);
     voice_music_list_set_current_index(0);
+    voice_player_music_publish_info(first_track_name, tracks[0].m_url);
     lisa_mem_free(tracks);
-
-    voice_player_music_publish_name(first_track_name);
     voice_player_music_restart_intent();
 }
 
@@ -289,12 +314,16 @@ static void voice_player_music_play_control(void *unused, uint32_t msg_id,
     switch (msg_id) {
     case VOICE_MSG_PLAY_CONTROL_PLAY:
         voice_intent_music_set_user_paused(false);
+        if (app_player_get_state(music_player) == APP_PLAYER_STATE_PLAYING) {
+            LOGI("[MUSIC] Play control: already playing, skip resume");
+            break;
+        }
         app_player_resume(music_player);
         break;
     case VOICE_MSG_PLAY_CONTROL_PAUSE:
         voice_intent_music_set_user_paused(true);
         app_player_pause(music_player);
-        voice_player_music_publish_name(NULL);
+        voice_player_music_publish_info(NULL, NULL);
         break;
     case VOICE_MSG_PLAY_CONTROL_NEXT: {
         music_item_t next_track;
@@ -319,7 +348,7 @@ static void voice_player_music_play_control(void *unused, uint32_t msg_id,
     } break;
     case VOICE_MSG_PLAY_CONTROL_STOP:
         if (voice_intent_contains(INTENT_MUSIC)) {
-            voice_player_music_publish_name(NULL);
+            voice_player_music_publish_info(NULL, NULL);
             voice_intent_pop(INTENT_MUSIC);
         }
         break;
