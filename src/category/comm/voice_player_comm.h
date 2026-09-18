@@ -17,6 +17,9 @@ extern app_player_t *tone_player;
 extern app_player_t *tts_player;
 extern app_player_t *music_player;
 extern app_player_t *alert_player;
+#ifdef CONFIG_MINIAPP_BUZZER
+extern app_player_t *miniapp_player;
+#endif
 
 /* ==================== 平台初始化与状态查询 ==================== */
 

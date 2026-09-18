@@ -23,6 +23,10 @@ bool service_power_policy_handle_function_click(void);
 /* Suspend or restore the non-UI consumers used by deep hibernate. */
 int service_power_policy_set_runtime_suspended(bool suspended);
 
+/* Keep the foreground miniapp out of idle/hibernate, preserving the existing
+ * inactive-time, external-power and battery conditions for auto shutdown. */
+void service_power_policy_set_miniapp_active(bool active);
+
 #ifdef __cplusplus
 }
 #endif

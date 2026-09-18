@@ -16,6 +16,7 @@
 #include "voice_intent/voice_intent_music.h"
 
 #include "voice_player_music.h"
+#include "miniapp.h"
 
 /*
  * MUSIC 播放模块：集中管理音乐播放器的初始化、URL 播放、事件处理与播放控制。
@@ -199,6 +200,7 @@ static bool voice_player_music_focus_changed(app_player_t *player,
 
     switch (state) {
     case APP_PLAYER_FOCUS_FOREGROUND:
+        if (miniapp_is_active()) return true;
         LOGI("[MUSIC] Got FOREGROUND focus (by player %p)", by_which);
         /* A play request made while another player owns focus is kept as a
          * pending URL while the music player is not active.  Let app_player's
@@ -246,6 +248,7 @@ static void voice_player_music_audio_item(void *unused, uint32_t msg_id,
                                           void *data, uint32_t len,
                                           void *user_data)
 {
+    if (miniapp_is_active()) return;
     struct voice_msg_audio_items *msg_items = (struct voice_msg_audio_items *)data;
     int count;
     int track_index = 0;
@@ -306,6 +309,7 @@ static void voice_player_music_play_control(void *unused, uint32_t msg_id,
                                             void *data, uint32_t len,
                                             void *user_data)
 {
+    if (miniapp_is_active() && msg_id != VOICE_MSG_PLAY_CONTROL_STOP) return;
     (void)unused;
     (void)data;
     (void)len;
@@ -361,6 +365,7 @@ static void voice_player_music_play_control(void *unused, uint32_t msg_id,
 
 int voice_player_play_music_url(const char *url)
 {
+    if (miniapp_is_active()) return APP_PLAYER_ERR_INVALID_PARAM;
     int ret;
 
     if (music_player == NULL || url == NULL || url[0] == '\0') {

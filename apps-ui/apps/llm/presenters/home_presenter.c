@@ -2643,6 +2643,7 @@ static int home_play_emoji_anim(struct home_nav_scr_data *d, const char *emoji_n
     if (!d || !d->view || !emoji_name || emoji_name[0] == '\0' || anim_config == NULL) {
         return -1;
     }
+    if (lv_obj_has_flag(d->view, LV_OBJ_FLAG_HIDDEN)) return -1;
 
     anim = lisa_ui_llm_primary_emoji_anim_get(d->view);
     if (anim == NULL) {
@@ -2912,6 +2913,10 @@ static int home_nav_scr_pause(const struct lisa_ui_nav_scr *scr, void *data)
     LISA_UI_LOGD("nav scr pause, id: %d", scr->unique_id);
 
     struct home_nav_scr_data *scr_data = (struct home_nav_scr_data *)data;
+    if (scr_data) {
+        home_anim_timer_pause(scr_data);
+        home_stop_emoji_display(scr_data);
+    }
     if (scr_data && scr_data->view) {
         lv_obj_add_flag(scr_data->view, LV_OBJ_FLAG_HIDDEN);
     }

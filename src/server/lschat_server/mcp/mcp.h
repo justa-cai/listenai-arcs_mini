@@ -54,7 +54,11 @@
  * MCP_TOOL_DEFINE(builtin_led_ctrl, led_switch_list, led_switch_call);
  */
 #include <stdint.h>
+#include <stdbool.h>
 #include "cJSON.h"
+
+/* Application policy checked immediately before dispatch, including dynamic tools. */
+bool app_mcp_tool_call_allowed(const char *name);
 
 struct mcp_tool {
     /* 工具名称 */

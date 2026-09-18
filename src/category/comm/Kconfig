@@ -1,4 +1,11 @@
 
+config APP_WAKE_WORD_DEFAULT
+    string "Default wake word text"
+    default "小聆小聆"
+    help
+        Default text used by the UI and voice chat when no OTA wake word
+        is stored. Keep it consistent with the board's bundled resources.
+
 config ROMFS_IMAGE_ADDR
     hex "Address of romfs iamge"
     default 0x30100000

@@ -16,6 +16,10 @@ static unsigned int g_inram_alloc_calls;
 static unsigned int g_psram_alloc_calls;
 static unsigned int g_exram_alloc_calls;
 static bool g_inram_malloc_force_success;
+static struct message g_sent_message;
+static int g_service_write_result;
+static uint32_t g_write_local_id;
+static uint32_t g_write_remote_id;
 
 #include "../../../components/cherryusb-appclass/adb/adb.c"
 
@@ -70,8 +74,9 @@ size_t heap_caps_get_largest_free_block(uint32_t caps)
 
 bool adb_dev_send(uint8_t *buf, uint32_t len)
 {
-    (void)buf;
-    (void)len;
+    if (len == sizeof(g_sent_message)) {
+        memcpy(&g_sent_message, buf, len);
+    }
     return true;
 }
 
@@ -94,10 +99,18 @@ uint32_t adb_service_open(const uint8_t *name, const uint8_t *args, uint32_t rem
 
 int adb_service_write(uint32_t local_id, uint32_t remote_id, adb_packet_t *packet)
 {
+    g_write_local_id = local_id;
+    g_write_remote_id = remote_id;
+    /* Model a consuming service; poison the header before freeing it. */
+    memset(&packet->msg, 0xa5, sizeof(packet->msg));
+    adb_packet_free(packet);
+    return g_service_write_result;
+}
+
+void adb_service_ready(uint32_t local_id, uint32_t remote_id)
+{
     (void)local_id;
     (void)remote_id;
-    adb_packet_free(packet);
-    return 0;
 }
 
 void adb_service_close(uint32_t local_id, uint32_t remote_id)
@@ -151,6 +164,10 @@ void setUp(void)
     g_psram_alloc_calls = 0u;
     g_exram_alloc_calls = 0u;
     g_inram_malloc_force_success = false;
+    memset(&g_sent_message, 0, sizeof(g_sent_message));
+    g_service_write_result = 0;
+    g_write_local_id = 0;
+    g_write_remote_id = 0;
 }
 
 void tearDown(void)
@@ -201,11 +218,45 @@ void test_adb_packet_alloc_rejects_fragmented_inram_before_alloc(void)
     TEST_ASSERT_EQUAL_UINT(0u, g_exram_alloc_calls);
 }
 
+static void check_consumed_write_reply(int result, uint32_t command)
+{
+    g_inram_malloc_force_success = true;
+    g_largest_internal_block = 4096;
+    g_service_write_result = result;
+    adb_init();
+    adb_packet_t *packet = adb_packet_alloc(1);
+    TEST_ASSERT_NOT_NULL(packet);
+    memset(packet, 0, sizeof(*packet));
+    packet->msg.command = A_WRTE;
+    packet->msg.arg0 = 13;
+    packet->msg.arg1 = 101;
+    packet->msg.data_length = 1;
+    packet->data[0] = 'v';
+    adb_packet_received_cb(packet);
+    TEST_ASSERT_EQUAL_UINT32(101, g_write_local_id);
+    TEST_ASSERT_EQUAL_UINT32(13, g_write_remote_id);
+    TEST_ASSERT_EQUAL_HEX32(command, g_sent_message.command);
+    TEST_ASSERT_EQUAL_UINT32(101, g_sent_message.arg0);
+    TEST_ASSERT_EQUAL_UINT32(13, g_sent_message.arg1);
+}
+
+void test_consumed_write_ack_preserves_stream_ids(void)
+{
+    check_consumed_write_reply(0, A_OKAY);
+}
+
+void test_consumed_write_error_preserves_stream_ids(void)
+{
+    check_consumed_write_reply(-1, A_CLSE);
+}
+
 int main(void)
 {
     UNITY_BEGIN();
     RUN_TEST(test_adb_packet_alloc_prefers_inram_when_available);
     RUN_TEST(test_adb_packet_alloc_returns_null_when_inram_unavailable);
     RUN_TEST(test_adb_packet_alloc_rejects_fragmented_inram_before_alloc);
+    RUN_TEST(test_consumed_write_ack_preserves_stream_ids);
+    RUN_TEST(test_consumed_write_error_preserves_stream_ids);
     return UNITY_END();
 }

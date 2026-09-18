@@ -14,6 +14,10 @@
 extern "C" {
 #endif
 
+/* Optional application policy for each start frame. Return a static string or
+ * NULL to omit nlu_properties.custom.mode. Called from the session task. */
+const char *lsc_get_nlu_custom_mode(void);
+
 /* clang-format off */
 #define STRINGS_LSC_EVT(evt)                                             	\
 	((evt == LSC_CONNECTED)                    ? "lsc connected"      		\

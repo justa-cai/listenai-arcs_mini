@@ -6,6 +6,8 @@
 #define __LISTENAI_SYSTEM_H_
 
 #include <stdint.h>
+#include <stdbool.h>
+#include <time.h>
 #include "sys/time.h"
 
 #define TIMEZONE_BERLIN     (1)
@@ -45,6 +47,11 @@ void ls_sys_set_timeval(struct timeval *val);
  * @return  0:成功, -1:失败
  */
 int ls_sys_get_time(struct timeval *tv);
+
+/* False until an external time source has set the clock after boot. */
+bool ls_sys_time_is_valid(void);
+int ls_sys_timezone_offset_seconds(void);
+int ls_sys_get_localtime(struct tm *calendar);
 
 /**
  * @brief   获取系统时间

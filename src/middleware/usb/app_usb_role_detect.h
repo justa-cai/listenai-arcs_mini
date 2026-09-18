@@ -19,7 +19,17 @@ typedef enum {
 int app_usb_role_detect_init(void);
 /* Returns <0 on I2C error, 0 when disconnected, 1 when a valid role is present. */
 int app_usb_role_detect_read(app_usb_role_t *role);
-const char *app_usb_role_name(app_usb_role_t role);
+static inline const char *app_usb_role_name(app_usb_role_t role)
+{
+    switch (role) {
+    case APP_USB_ROLE_DEVICE:
+        return "device";
+    case APP_USB_ROLE_HOST:
+        return "host";
+    default:
+        return "unknown";
+    }
+}
 
 #ifdef __cplusplus
 }

@@ -15,6 +15,11 @@
 
 #define USB_BASE (g_usbdev_bus[0].reg_base)
 
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+/* INTRRX is read-to-clear, even for endpoints masked in INTRRXE. */
+static uint16_t musb_rx_recheck;
+#endif
+
 #if defined(CONFIG_USB_MUSB_SUNXI)
 #define MUSB_FADDR_OFFSET 0x98
 #define MUSB_POWER_OFFSET 0x40
@@ -315,6 +320,9 @@ int usb_dc_init(uint8_t busid)
     uint8_t cfg_num;
     struct musb_fifo_cfg *cfg;
 
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+    musb_rx_recheck = 0;
+#endif
     usb_dc_low_level_init();
 
 #ifdef CONFIG_USB_HS
@@ -681,6 +689,9 @@ int usbd_ep_start_read(uint8_t busid, const uint8_t ep, uint8_t *data, uint32_t 
         return -2;
     }
 
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+    size_t flags = usb_osal_enter_critical_section();
+#endif
     old_ep_idx = musb_get_active_ep();
     musb_set_active_ep(ep_idx);
 
@@ -693,14 +704,31 @@ int usbd_ep_start_read(uint8_t busid, const uint8_t ep, uint8_t *data, uint32_t 
             usb_ep0_state = USB_EP0_STATE_SETUP;
         }
         musb_set_active_ep(old_ep_idx);
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+        usb_osal_leave_critical_section(flags);
+#endif
         return 0;
     }
     if (ep_idx == 0) {
         usb_ep0_state = USB_EP0_STATE_OUT_DATA;
     } else {
         HWREGH(USB_BASE + MUSB_RXIE_OFFSET) |= (1 << ep_idx);
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+        /* A packet can arrive while the class rearms from task context.
+         * Another endpoint's IRQ may already have cleared its INTRRX bit.
+         * Revisit the FIFO in IRQ context so class callbacks remain ISR-safe. */
+        if (HWREGB(USB_RXCSRL_BASE(ep_idx)) & USB_RXCSRL1_RXRDY) {
+            musb_rx_recheck |= (1U << ep_idx);
+            /* The ARCS USB IRQ is level-triggered. Use the next hardware
+             * SOF instead of trying to pend that interrupt in software. */
+            HWREGB(USB_BASE + MUSB_IE_OFFSET) |= USB_IE_SOF;
+        }
+#endif
     }
     musb_set_active_ep(old_ep_idx);
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+    usb_osal_leave_critical_section(flags);
+#endif
     return 0;
 }
 
@@ -713,17 +741,41 @@ static void handle_ep0(void)
     if (ep0_status & USB_CSRL0_STALLED) {
         HWREGB(USB_TXCSRL_BASE(ep_idx)) &= ~USB_CSRL0_STALLED;
         usb_ep0_state = USB_EP0_STATE_SETUP;
+#ifndef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
         return;
+#endif
     }
 
     if (ep0_status & USB_CSRL0_SETEND) {
         HWREGB(USB_TXCSRL_BASE(ep_idx)) = USB_CSRL0_SETENDC;
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+        usb_ep0_state = USB_EP0_STATE_SETUP;
+#endif
     }
 
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+    /* An aborted/stalled transfer and the next SETUP can share an IRQ.
+     * Discard the old address and process any already received SETUP below. */
+    if (ep0_status & (USB_CSRL0_STALLED | USB_CSRL0_SETEND)) {
+        g_musb_udc.dev_addr = 0;
+    }
+#endif
     if (g_musb_udc.dev_addr > 0) {
         HWREGB(USB_BASE + MUSB_FADDR_OFFSET) = g_musb_udc.dev_addr;
         g_musb_udc.dev_addr = 0;
     }
+
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+    /* The host can finish IN/status and send the next SETUP before this
+     * shared EP0 IRQ is serviced. Completing the old IN transfer here would
+     * arm a zero-length status read and clear RXRDY, discarding that SETUP.
+     * Eight bytes during OUT_DATA are payload unless SETUPEND aborted it. */
+    if ((ep0_status & USB_CSRL0_RXRDY) &&
+        usb_ep0_state != USB_EP0_STATE_OUT_DATA &&
+        HWREGH(USB_RXCOUNT_BASE(ep_idx)) == sizeof(struct usb_setup_packet)) {
+        usb_ep0_state = USB_EP0_STATE_SETUP;
+    }
+#endif
 
     switch (usb_ep0_state) {
         case USB_EP0_STATE_SETUP:
@@ -798,6 +850,14 @@ void USBD_IRQHandler(uint8_t busid)
     is = HWREGB(USB_BASE + MUSB_IS_OFFSET);
     txis = HWREGH(USB_BASE + MUSB_TXIS_OFFSET);
     rxis = HWREGH(USB_BASE + MUSB_RXIS_OFFSET);
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+    rxis |= musb_rx_recheck;
+    musb_rx_recheck = 0;
+#ifndef CONFIG_USBDEV_SOF_ENABLE
+    /* SOF is only a one-shot wakeup unless the application subscribes. */
+    HWREGB(USB_BASE + MUSB_IE_OFFSET) &= ~USB_IE_SOF;
+#endif
+#endif
 
     HWREGB(USB_BASE + MUSB_IS_OFFSET) = is;
 
@@ -805,6 +865,11 @@ void USBD_IRQHandler(uint8_t busid)
 
     /* Receive a reset signal from the USB bus */
     if (is & USB_IS_RESET) {
+#ifdef CONFIG_CHERRYUSB_DEVICE_MUSB_LISA
+        /* Neither hardware nor software completions survive a bus reset. */
+        musb_rx_recheck = 0;
+        rxis = 0;
+#endif
         memset(&g_musb_udc, 0, sizeof(struct musb_udc));
         usbd_event_reset_handler(0);
         HWREGH(USB_BASE + MUSB_TXIE_OFFSET) = USB_TXIE_EP0;

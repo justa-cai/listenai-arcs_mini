@@ -16,7 +16,7 @@
 static void *s_calendar = NULL;
 static long s_msec = 0;
 static int s_tz = TIMEZONE_SHANGHAI;
-static bool s_user_sntp_started = false;
+static volatile bool s_time_valid = false;
 static sntp_synced_callback s_sntp_synced_cb = NULL;
 
 static const uint8_t s_days[] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
@@ -202,7 +202,7 @@ void ls_sys_set_time(uint32_t sec, uint32_t usec)
             .tv_sec = sec,
             .tv_usec = 0,
         };
-        _system_time_set(&tv, s_tz);
+        if (_system_time_set(&tv, s_tz) == 0) s_time_valid = true;
     }
 }
 
@@ -210,8 +210,35 @@ void ls_sys_set_timeval(struct timeval *val)
 {
     if (s_calendar) {
         LISA_LOGD(TAG, "sntp timeval callback, sec: %u, usec: %u", val->tv_sec, val->tv_usec);
-        _system_time_set(val, s_tz);
+        if (_system_time_set(val, s_tz) == 0) s_time_valid = true;
     }
+}
+
+bool ls_sys_time_is_valid(void)
+{
+    return s_time_valid;
+}
+
+int ls_sys_timezone_offset_seconds(void)
+{
+    return SECONDS_TIMEZONE_OFFSET(s_tz);
+}
+
+int ls_sys_get_localtime(struct tm *calendar)
+{
+    struct timeval tv;
+    CSK_CALENDAR_TIME value;
+    if (!calendar || !s_time_valid || ls_sys_get_time(&tv) != 0) return -1;
+    time2calendar(&tv, s_tz, &value);
+    memset(calendar, 0, sizeof(*calendar));
+    calendar->tm_year = value.year + BASE_YEAR - 1900;
+    calendar->tm_mon = value.month - 1;
+    calendar->tm_mday = value.day;
+    calendar->tm_hour = value.hour;
+    calendar->tm_min = value.min;
+    calendar->tm_sec = value.sec;
+    calendar->tm_wday = value.weekend;
+    return 0;
 }
 
 int ls_sys_get_time(struct timeval *tv)

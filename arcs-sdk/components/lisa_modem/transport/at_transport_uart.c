@@ -58,7 +58,8 @@ static int uart_open(at_transport_t *transport)
         return -1;
     }
 
-    LISA_LOGI(TAG, "UART transport opened: %s @ %u baud", priv->dev_name, priv->baudrate);
+    LISA_LOGI(TAG, "UART transport opened: %s @ %u baud, rx_buf=%u x %u",
+              priv->dev_name, priv->baudrate, priv->rx_buf_count, priv->rx_buf_size);
     return 0;
 }
 
@@ -106,7 +107,9 @@ static int uart_read(at_transport_t *transport, uint8_t *data, size_t len, uint3
         vTaskDelay(pdMS_TO_TICKS(10));
         lisa_uart_rx_enable(priv->uart_dev);
         LISA_LOGI(TAG, "Buffer overflow recovery completed");
-        return 0;
+        /* Keep the error visible to at_client so it can discard a partial
+         * frame and fail any command waiting for a response. */
+        return LISA_DEVICE_ERR_OVERFLOW;
     }
     return ret;
 }

@@ -74,6 +74,13 @@ static void lisa_ui_invoke_worker(void *arg, uint32_t len)
     }
 
     sleep = lv_task_handler();
+    /* LVGL may return LV_NO_TIMER_READY after a static screen is drawn.
+     * UI work can invalidate that screen or create timers before the next
+     * handler call, so never schedule the handler indefinitely far away.
+     */
+    if (sleep > LV_DISP_DEF_REFR_PERIOD) {
+        sleep = LV_DISP_DEF_REFR_PERIOD;
+    }
     if (!s_lvgl_handler_suspended) {
         s_lvgl_handler_pending = true;
         LISA_UI_INVOKE_UI_DELAYED(lisa_ui_invoke_worker, arg, len, sleep);

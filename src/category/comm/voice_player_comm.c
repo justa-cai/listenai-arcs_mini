@@ -17,6 +17,9 @@ app_player_t *tone_player = NULL;
 app_player_t *tts_player = NULL;
 app_player_t *music_player = NULL;
 app_player_t *alert_player = NULL;
+#ifdef CONFIG_MINIAPP_BUZZER
+app_player_t *miniapp_player = NULL;
+#endif
 
 /** 系统音量（1-100），Kconfig 配置默认值 */
 static int g_system_volume = CONFIG_VOICE_PLAYER_DEFAULT_VOLUME;
@@ -126,6 +129,11 @@ static void volume_thread_func(void *arg)
         if (alert_player != NULL) {
             app_player_set_volume(alert_player, volume);
         }
+#ifdef CONFIG_MINIAPP_BUZZER
+        if (miniapp_player != NULL) {
+            app_player_set_volume(miniapp_player, volume);
+        }
+#endif
     }
 }
 
@@ -235,14 +243,26 @@ int voice_player_platform_init(void)
                 .on_background = APP_PLAYER_FOCUS_LOSS_PAUSE,
                 .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,
             }
-        }
+        },
+#ifdef CONFIG_MINIAPP_BUZZER
+        {
+            .name = "miniapp",
+            .priority = 45,
+            .capture_names = NULL,
+            .capture_count = 0,
+            .behavior = {
+                .on_background = APP_PLAYER_FOCUS_LOSS_STOP,
+                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,
+            }
+        },
+#endif
     };
 
     /* 初始化 app_player 模块（带焦点管理） */
     app_player_config_t app_config = {
         .pa_ctrl_callback = pa_control_callback,
         .focus_configs = focus_configs,
-        .focus_config_count = 4
+        .focus_config_count = sizeof(focus_configs) / sizeof(focus_configs[0])
     };
 
     ret = app_player_init(&app_config);
@@ -274,6 +294,13 @@ int voice_player_platform_init(void)
         LOGE("Failed to create alert player");
         return -1;
     }
+#ifdef CONFIG_MINIAPP_BUZZER
+    miniapp_player = app_player_create("miniapp");
+    if (miniapp_player == NULL) {
+        LOGE("Failed to create miniapp player");
+        return -1;
+    }
+#endif
 
     /* 创建音量控制线程 */
     g_volume_sem = xSemaphoreCreateBinary();
@@ -334,7 +361,11 @@ bool voice_player_is_audio_active(void)
     return voice_player_state_is_audio_active(tone_player) ||
            voice_player_state_is_audio_active(tts_player) ||
            voice_player_state_is_audio_active(music_player) ||
-           voice_player_state_is_audio_active(alert_player);
+           voice_player_state_is_audio_active(alert_player)
+#ifdef CONFIG_MINIAPP_BUZZER
+           || voice_player_state_is_audio_active(miniapp_player)
+#endif
+           ;
 }
 
 

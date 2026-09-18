@@ -57,6 +57,8 @@ struct lisa_ui_llm_primary {
     lv_obj_t *tf_card_icon;  /*!< TF 卡图标 */
     lv_obj_t *usb_icon;      /*!< USB Host 图标 */
     lv_obj_t *alarm_icon;    /*!< 闹钟图标 */
+    lv_obj_t *status_icon_container; /*!< USB/闹钟图标容器 */
+    bool status_icons_usb_first;
     lv_obj_t *battery_icon;  /*!< 电量图标 */
     lv_obj_t *status_label;  /*!< 状态文本标签 */
 

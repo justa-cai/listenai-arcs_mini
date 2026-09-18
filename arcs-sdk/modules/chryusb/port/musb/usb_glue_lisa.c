@@ -28,7 +28,14 @@
 static struct musb_fifo_cfg musb_device_table[] = {
     { .ep_num =  0, .style = FIFO_TXRX, .maxpacket = 64   },
     { .ep_num =  1, .style = FIFO_TXRX, .maxpacket = 1024 },
+#if defined(CONFIG_ADB)
+    /* ADB is full duplex: sharing the RAM address lets OUT overwrite IN.
+     * Split the same 1 KiB allocation into two independent HS bulk FIFOs. */
+    { .ep_num =  2, .style = FIFO_TX,   .maxpacket = 512  },
+    { .ep_num =  2, .style = FIFO_RX,   .maxpacket = 512  },
+#else
     { .ep_num =  2, .style = FIFO_TXRX, .maxpacket = 1024 },
+#endif
     { .ep_num =  3, .style = FIFO_TXRX, .maxpacket = 1024 },
     { .ep_num =  4, .style = FIFO_TXRX, .maxpacket = 512  },
     { .ep_num =  5, .style = FIFO_TXRX, .maxpacket = 64   },

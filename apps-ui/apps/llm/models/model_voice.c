@@ -40,6 +40,11 @@
 #define IMG_REC_MODE_LSCHAT 0
 #define IMG_REC_MODE_MCP    1
 
+/* Desktop UI builds do not load the firmware Kconfig. */
+#ifndef CONFIG_APP_WAKE_WORD_DEFAULT
+#define CONFIG_APP_WAKE_WORD_DEFAULT "小聆小聆"
+#endif
+
 #define MAX_STANDBY_TEXTS 10
 #define MAX_TEXT_LENGTH 128
 #define MAX_LOADING_TEXT_LENGTH 128
@@ -148,10 +153,10 @@ const char *model_voice_role_name_get(void)
     if (strnlen(model_voice_ctx.wake_word, sizeof(model_voice_ctx.wake_word)) > 0) {
         return model_voice_ctx.wake_word;
     } else {
-        return "小聆小聆";
+        return CONFIG_APP_WAKE_WORD_DEFAULT;
     }
 #else
-    return "小聆小聆";
+    return CONFIG_APP_WAKE_WORD_DEFAULT;
 #endif
 }
 

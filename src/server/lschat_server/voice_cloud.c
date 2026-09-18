@@ -33,6 +33,7 @@
 #include "lsc_base64.h"
 #include "project_version.h"
 #include "sys_network_manager.h"
+#include "sysutils.h"
 
 
 /*缓存500ms的音频*/
@@ -75,7 +76,7 @@ static volatile uint32_t g_objrec_accept_seq = 0;
 
 #define VOICE_CLOUD_TTS_TEXT 1
 #define RESOURCE_UPDATE_REBOOT_DELAY_MS_DEFAULT 3000U
-#define TTS_TIMELINE_MAX_SENTENCES 64U
+#define TTS_TIMELINE_MAX_SENTENCES 128U
 #define TTS_TIMELINE_TEXT_MAX 2048U
 #define TTS_TIMELINE_DIAG_PREVIEW_BYTES 96U
 #define TTS_TIMELINE_EMPTY_RETRY_MAX 3U
@@ -112,7 +113,7 @@ typedef struct {
     char stream_url[TTS_TIMELINE_URL_MAX];
 } voice_tts_timeline_state_t;
 
-static voice_tts_timeline_state_t g_tts_timeline;
+static voice_tts_timeline_state_t g_tts_timeline __psram_bss__;
 
 static void voice_tts_timeline_log_invalid_payload(const char *data, bool json_valid,
                                                    bool text_valid)
