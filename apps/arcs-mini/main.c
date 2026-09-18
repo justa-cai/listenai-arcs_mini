@@ -25,6 +25,7 @@
 #include "battery/battery.h"
 #include "apps/llm/models/model_qrcode.h"
 #include "voice_cloud.h"
+#include "miniapp.h"
 #include "app_ble_common.h"
 
 /* 被动网络提示的单次触发状态。 */
@@ -276,6 +277,11 @@ int main(int argc, char **argv)
     lisa_ui_init();
 #endif
 
+#ifdef CONFIG_MINIAPP
+    if (miniapp_init() != 0) {
+        LOGE("Miniapp initialization failed");
+    }
+#endif
     app_show_initial_wifi_info_if_needed();
 
 

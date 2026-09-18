@@ -91,7 +91,7 @@ static void alarm_trigger_nav_ui_worker(void *arg, uint32_t len)
         return;
     }
 
-    if (top_id != LISA_UI_NAV_SCR_ID_HOME) {
+    if (top_id != LISA_UI_NAV_SCR_ID_HOME && top_id != LISA_UI_NAV_SCR_ID_MINIAPP) {
         LISA_UI_LOGI("Model: Navigating to home before alarm ring, top_id=%d", top_id);
         lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
     }

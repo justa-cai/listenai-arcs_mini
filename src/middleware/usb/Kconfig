@@ -20,4 +20,26 @@ config APP_USB_ROLE_DETECT
         reports connection state; TYPE bit 3 selects Host/Source and bit 4
         selects Device/Sink.
 
+if APP_USB_ROLE_DETECT
+
+choice
+    prompt "USB role detection mode"
+    default APP_USB_ROLE_DRP
+
+config APP_USB_ROLE_DRP
+    bool "Enable Dual Role Port (DRP) mode"
+    default y
+
+config APP_USB_ROLE_HOST_ONLY
+    bool "Enable Host Only mode"
+    default n
+
+config APP_USB_ROLE_DEVICE_ONLY
+    bool "Enable Device Only mode"
+    default n
+
+endchoice
+
+endif
+
 endmenu

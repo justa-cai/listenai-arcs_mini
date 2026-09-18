@@ -47,7 +47,6 @@ static bool s_usb_device_services_initialized;
 static bool s_usb_msc_mode;
 static volatile bool s_usb_suspended;
 static volatile app_usb_role_t s_active_role = APP_USB_ROLE_UNKNOWN;
-static volatile uint8_t s_usb_host_enumerated_devices;
 
 static void app_usb_clear_musb_register_bits(uint32_t offset, uint8_t bits)
 {
@@ -88,7 +87,7 @@ app_usb_role_t app_usb_active_role(void)
 
 bool app_usb_host_device_enumerated(void)
 {
-    return s_active_role == APP_USB_ROLE_HOST && s_usb_host_enumerated_devices > 0U;
+    return s_active_role == APP_USB_ROLE_HOST;
 }
 
 static const char *app_usb_cherry_role_name(app_usb_role_t role)
@@ -284,16 +283,6 @@ static void app_usb_host_event_handler(uint8_t busid, uint8_t hub_index,
         return;
     }
 
-    if (event == USBH_EVENT_DEVICE_CONFIGURED) {
-        if (s_usb_host_enumerated_devices < UINT8_MAX) {
-            s_usb_host_enumerated_devices++;
-        }
-    } else if (event == USBH_EVENT_DEVICE_DISCONNECTED) {
-        if (s_usb_host_enumerated_devices > 0U) {
-            s_usb_host_enumerated_devices--;
-        }
-    }
-
     LISA_LOGI(TAG, "CherryUSB host event=%s bus=%u hub=%u port=%u intf=%u",
               name, busid, hub_index, hub_port, intf);
 }
@@ -302,7 +291,6 @@ static int app_usb_host_start(void)
 {
     int ret;
 
-    s_usb_host_enumerated_devices = 0U;
     app_usb_host_port_init();
     ret = usbh_initialize(APP_USB_BUS_ID, USBC_BASE,
                           app_usb_host_event_handler);
@@ -320,7 +308,6 @@ static int app_usb_host_stop(void)
 {
     int ret;
 
-    s_usb_host_enumerated_devices = 0U;
     s_active_role = APP_USB_ROLE_UNKNOWN;
     ret = usbh_deinitialize(APP_USB_BUS_ID);
     if (ret != 0) {

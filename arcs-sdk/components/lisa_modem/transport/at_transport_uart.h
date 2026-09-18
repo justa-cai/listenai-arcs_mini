@@ -22,10 +22,11 @@ typedef struct {
     uint16_t rx_buf_count;      /**< Number of circular buffers */
 } at_transport_uart_config_t;
 
+/* Keep the same total RX pool while reducing buffer-boundary interrupts during bursts. */
 #define AT_TRANSPORT_UART_CONFIG_DEFAULT() { \
     .baudrate = 115200,                      \
-    .rx_buf_size = 512,                      \
-    .rx_buf_count = 60,                      \
+    .rx_buf_size = 2048,                     \
+    .rx_buf_count = 32,                      \
 }
 
 /**

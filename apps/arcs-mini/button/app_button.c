@@ -11,6 +11,7 @@
 #include "tone.h"
 #include "uboot_features_api.h"
 #include "voice_cloud.h"
+#include "miniapp.h"
 #include "voice_intent_mgr.h"
 #include "voice_msg.h"
 #include "voice_player_comm.h"
@@ -450,6 +451,15 @@ static void app_button_on_changed(void *unused, uint32_t msg_id, void *data,
     if (app_button_intercept_alarm_action(evt->action)) {
         return;
     }
+
+#ifdef CONFIG_MINIAPP
+    if (miniapp_is_active()) {
+        if (evt->action == VOICE_MSG_BUTTON_ACTION_CLICK) {
+            (void)miniapp_button_click("function");
+        }
+        return;
+    }
+#endif
 
     /* 云端异常时，部分按键只负责打开错误或绑定信息页。 */
     if (app_button_redirect_to_cloud_info(evt->action)) {

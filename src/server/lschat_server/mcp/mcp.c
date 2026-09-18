@@ -280,6 +280,12 @@ int mcp_tool_call_result_response(const char *id, cJSON *result)
     return 0;
 }
 
+__attribute__((weak)) bool app_mcp_tool_call_allowed(const char *name)
+{
+    (void)name;
+    return true;
+}
+
 static cJSON *mcp_do_tools_call(const char *id, cJSON *msg)
 {
     const cJSON *params = cJSON_GetObjectItem(msg, "params");
@@ -295,6 +301,10 @@ static cJSON *mcp_do_tools_call(const char *id, cJSON *msg)
     }
 
     const char *name_str = name->valuestring;
+    if (!app_mcp_tool_call_allowed(name_str)) {
+        return cJSON_Parse("{\"isError\":true,\"content\":[{\"type\":\"text\","
+                           "\"text\":\"tool unavailable in current application mode\"}]}");
+    }
 
     const cJSON *args = cJSON_GetObjectItem(params, "arguments");
     const struct mcp_tool *tool = mcp_tool_find(name_str);

@@ -20,11 +20,7 @@
 static lisa_device_t *s_role_detect_i2c_dev;
 static bool s_role_detect_initialized;
 static bool s_role_detect_init_error_logged;
-static bool s_reported_state_valid;
-static bool s_last_reported_connected;
 static app_usb_role_t s_last_reported_role;
-static bool s_reported_portrole_valid;
-static uint8_t s_last_reported_portrole;
 
 static int app_usb_role_detect_read_register(uint8_t reg, uint8_t *value);
 static int app_usb_role_detect_write_register(uint8_t reg, uint8_t value);
@@ -33,6 +29,7 @@ static int app_usb_role_detect_validate_controller(void)
 {
     uint8_t device_id;
     uint8_t device_type;
+    uint8_t portrole;
     uint8_t control;
     uint8_t control1;
     int ret;
@@ -56,6 +53,34 @@ static int app_usb_role_detect_validate_controller(void)
             s_role_detect_init_error_logged = true;
         }
         return LISA_DEVICE_ERR_IO;
+    }
+
+    ret = app_usb_role_detect_read_register(USB_ROLE_PORTROLE_REGISTER, &portrole);
+    if (ret != LISA_DEVICE_OK) {
+        goto read_failed;
+    }
+
+    /* Audio accessory is obviously not needed */
+    portrole &= ~USB_ROLE_PORTROLE_AUDIOACC;
+
+#if defined(CONFIG_APP_USB_ROLE_DRP)
+    portrole &= ~(USB_ROLE_PORTROLE_MASK | USB_ROLE_PORTROLE_TRY_MASK);
+    portrole |= USB_ROLE_PORTROLE_DRP | USB_ROLE_PORTROLE_TRY_SINK;
+#elif defined(CONFIG_APP_USB_ROLE_HOST_ONLY)
+    portrole &= ~(USB_ROLE_PORTROLE_MASK | USB_ROLE_PORTROLE_TRY_MASK);
+    portrole |= USB_ROLE_PORTROLE_SOURCE_ONLY | USB_ROLE_PORTROLE_TRY_SOURCE;
+#elif defined(CONFIG_APP_USB_ROLE_DEVICE_ONLY)
+    portrole &= ~(USB_ROLE_PORTROLE_MASK | USB_ROLE_PORTROLE_TRY_MASK);
+    portrole |= USB_ROLE_PORTROLE_SINK_ONLY | USB_ROLE_PORTROLE_TRY_SINK;
+#endif
+
+    ret = app_usb_role_detect_write_register(USB_ROLE_PORTROLE_REGISTER, portrole);
+    if (ret != LISA_DEVICE_OK) {
+        if (!s_role_detect_init_error_logged) {
+            LISA_LOGE(TAG, "PORTROLE DRP/Try.SNK write failed: %d", ret);
+            s_role_detect_init_error_logged = true;
+        }
+        return ret;
     }
 
     ret = app_usb_role_detect_read_register(USB_ROLE_CONTROL_REGISTER, &control);
@@ -161,17 +186,6 @@ static const char *app_usb_portrole_name(uint8_t portrole)
     }
 }
 
-const char *app_usb_role_name(app_usb_role_t role)
-{
-    switch (role) {
-    case APP_USB_ROLE_DEVICE:
-        return "device";
-    case APP_USB_ROLE_HOST:
-        return "host";
-    default:
-        return "unknown";
-    }
-}
 
 int app_usb_role_detect_init(void)
 {
@@ -233,11 +247,7 @@ static int app_usb_role_detect_write_register(uint8_t reg, uint8_t value)
 
 int app_usb_role_detect_read(app_usb_role_t *role)
 {
-    uint8_t portrole;
-    uint8_t status;
     uint8_t type;
-    bool connected;
-    bool portrole_valid;
     bool state_changed;
     int ret;
 
@@ -252,62 +262,26 @@ int app_usb_role_detect_read(app_usb_role_t *role)
         return ret;
     }
 
-    ret = app_usb_role_detect_read_register(USB_ROLE_STATUS_REGISTER, &status);
+    ret = app_usb_role_detect_read_register(USB_ROLE_TYPE_REGISTER, &type);
     if (ret != LISA_DEVICE_OK) {
         return ret;
     }
 
-    connected = (status & USB_ROLE_STATUS_CONNECTED_MASK) != 0U;
-
-    ret = app_usb_role_detect_read_register(USB_ROLE_TYPE_REGISTER, &type);
-    if (ret != LISA_DEVICE_OK) {
-        return connected ? ret : 0;
-    }
-
-    if (connected &&
-        (type & USB_ROLE_TYPE_SOURCE_MASK) != 0U &&
-        (type & USB_ROLE_TYPE_SINK_MASK) == 0U) {
+    if (type & USB_ROLE_TYPE_SOURCE_MASK) {
         *role = APP_USB_ROLE_HOST;
-    } else if (connected &&
-               (type & USB_ROLE_TYPE_SINK_MASK) != 0U &&
-               (type & USB_ROLE_TYPE_SOURCE_MASK) == 0U) {
+    } else {
         *role = APP_USB_ROLE_DEVICE;
     }
 
-    ret = app_usb_role_detect_read_register(USB_ROLE_PORTROLE_REGISTER, &portrole);
-    portrole_valid = ret == LISA_DEVICE_OK;
-    state_changed = !s_reported_state_valid ||
-                    connected != s_last_reported_connected ||
-                    *role != s_last_reported_role;
-    if (state_changed ||
-        (portrole_valid &&
-         (!s_reported_portrole_valid ||
-          portrole != s_last_reported_portrole))) {
-        LISA_LOGI(TAG, "raw STATUS=0x%02x connected=%u vbus_ok=%u",
-                  status, connected,
-                  (status & USB_ROLE_STATUS_VBUS_OK_MASK) != 0U);
+    state_changed = *role != s_last_reported_role;
+    if (state_changed) {
         LISA_LOGI(TAG, "raw TYPE=0x%02x source=%u sink=%u",
                   type,
                   (type & USB_ROLE_TYPE_SOURCE_MASK) != 0U,
                   (type & USB_ROLE_TYPE_SINK_MASK) != 0U);
     }
-    if (portrole_valid &&
-        (state_changed || !s_reported_portrole_valid ||
-         portrole != s_last_reported_portrole)) {
-        LISA_LOGI(TAG, "raw PORTROLE=0x%02x mode=0x%02x (%s)",
-                  portrole, portrole & USB_ROLE_PORTROLE_MASK,
-                  app_usb_portrole_name(portrole));
-        s_last_reported_portrole = portrole;
-        s_reported_portrole_valid = true;
-    }
 
-    s_last_reported_connected = connected;
     s_last_reported_role = *role;
-    s_reported_state_valid = true;
-
-    if (!connected) {
-        return 0;
-    }
 
     if (*role == APP_USB_ROLE_HOST || *role == APP_USB_ROLE_DEVICE) {
         return 1;

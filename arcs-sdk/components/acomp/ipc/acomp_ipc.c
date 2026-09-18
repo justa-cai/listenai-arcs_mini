@@ -48,6 +48,7 @@ typedef struct {
 } acomp_ipc_handle_t;
 
 acomp_ipc_handle_t *ipc_handle = NULL;
+static volatile int acomp_ipc_reply_error = -ACOMP_ERR_UNKNOWN;
 static int acomp_ipc_build_frame_send_async(int dev_index, int cmd, int acomp_cmd, uint8_t flags, void *data, uint16_t len);
 
 
@@ -76,6 +77,24 @@ static int32_t acomp_ipc_callback_wrap(ic_message_handle_info_t *handle_info, ic
     acomp_ipc_message_t *ipc_msg = (acomp_ipc_message_t *)msg->msg;
 
     if (ipc_msg->hdr.hdr.cmd == ACOMP_CONTEXT_IPC_GLB_REPLY) {
+        if (ipc_msg->hdr.hdr.resp) {
+            /*
+             * The AP encodes the operation result in reply.err. Older
+             * versions only released the semaphore here, causing the CP to
+             * treat a failed remote start as success.
+             */
+            uint8_t err = ipc_msg->reply.err;
+            if (err == 0U) {
+                acomp_ipc_reply_error = -ACOMP_ERR_UNKNOWN;
+            } else if (err <= 127U) {
+                acomp_ipc_reply_error = -(int)err;
+            } else {
+                /* Negative errno values are transported as uint8_t. */
+                acomp_ipc_reply_error = -(int)(256U - err);
+            }
+        } else {
+            acomp_ipc_reply_error = ACOMP_ERR_OK;
+        }
         xSemaphoreGive(handle->reply_sem);
         return 0;
     }
@@ -218,6 +237,7 @@ int acomp_ipc_build_frame_send_sync(int dev_index, int cmd, int acomp_cmd, uint8
     ipc_msg.req.flags = flags;
     ipc_msg.len = len;
     ipc_msg.address = (uint32_t)data;
+    acomp_ipc_reply_error = -ACOMP_ERR_UNKNOWN;
 
     if ((data != NULL) && (len > 0)) {
         ASSERT(!(((uint32_t)data % CACHE_LINE_SIZE) && (len % CACHE_LINE_SIZE)),
@@ -233,6 +253,8 @@ int acomp_ipc_build_frame_send_sync(int dev_index, int cmd, int acomp_cmd, uint8
             CLOGE("[%s %d]urpc_send_async_client hdr(0x%x) timeout(%d),ret %d !\n", __FUNCTION__, __LINE__,
                   ipc_msg.hdr.glb_cmd, IPC_TIMOUT_MS, ret);
             ret = -ACOMP_ERR_TIMEOUT;
+        } else {
+            ret = acomp_ipc_reply_error;
         }
     }
 

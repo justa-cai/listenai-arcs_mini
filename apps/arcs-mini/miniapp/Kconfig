@@ -1,0 +1,48 @@
+menuconfig MINIAPP
+    bool "Lua miniapps"
+    default y
+    help
+      Run cloud-delivered Lua source in PSRAM. Source is transient; bounded app data can be saved in KV.
+
+if MINIAPP
+
+config MINIAPP_SOURCE_MAX_BYTES
+    int "Maximum Lua source bytes"
+    range 1024 65536
+    default 65536
+
+config MINIAPP_HEAP_MAX_BYTES
+    int "Maximum heap bytes per Lua VM"
+    range 65536 524288
+    default 393216
+    help
+      Replacing an active app temporarily needs two VMs for rollback.
+
+config MINIAPP_SCREEN
+    bool "Expose screen drawing"
+    depends on APPLICATION_UI
+    default y
+
+config MINIAPP_SCREEN_WIDTH
+    int "Miniapp screen width"
+    range 1 2048
+    default 240
+
+config MINIAPP_SCREEN_HEIGHT
+    int "Miniapp screen height"
+    range 1 2048
+    default 240
+
+config MINIAPP_BUTTON
+    bool "Expose the function button"
+    default y
+
+config MINIAPP_LED
+    bool "Expose the status LED"
+    default y
+
+config MINIAPP_BUZZER
+    bool "Expose speaker-generated tones"
+    default y
+
+endif

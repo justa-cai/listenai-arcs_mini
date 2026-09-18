@@ -349,7 +349,7 @@ static int voice_continuous_session_restart(const char *reason)
     }
 
     lisa_kv_get_string(KV_KEY_SYS_WAKEWORD, &kv_wakeword);
-    wakeword = (kv_wakeword && kv_wakeword[0] != '\0') ? kv_wakeword : "小聆小聆";
+    wakeword = (kv_wakeword && kv_wakeword[0] != '\0') ? kv_wakeword : CONFIG_APP_WAKE_WORD_DEFAULT;
     keywords[0] = wakeword;
 
     chat_config.full_duplex = true;
@@ -433,7 +433,7 @@ static int camera_preview_result_bargein_session_start(void)
     }
 
     lisa_kv_get_string(KV_KEY_SYS_WAKEWORD, &kv_wakeword);
-    wakeword = (kv_wakeword && kv_wakeword[0] != '\0') ? kv_wakeword : "小聆小聆";
+    wakeword = (kv_wakeword && kv_wakeword[0] != '\0') ? kv_wakeword : CONFIG_APP_WAKE_WORD_DEFAULT;
     keywords[0] = wakeword;
     LOGI("barge-in wakeword: %s", wakeword);
 

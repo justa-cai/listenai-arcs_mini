@@ -15,6 +15,9 @@
 #include "lisa_ui.h"
 #include "lisa_ui_nav_scr.h"
 #include "lisa_ui_nav_scr_ids.h"
+#ifdef CONFIG_MINIAPP
+#include "miniapp.h"
+#endif
 #include "alarm_ring_view.h"
 #include "model_alarm.h"
 #include "model_voice.h"
@@ -115,7 +118,11 @@ static void alarm_ring_nav_home_ui(void *arg, uint32_t len)
 
     LISA_UI_LOGI("Alarm ring: nav_home_ui invoked, top_id=%d", lisa_ui_nav_scr_get_top_id());
     if (lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_ALARM_RING) {
-        lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
+        lisa_ui_nav_scr_nav_to(
+#ifdef CONFIG_MINIAPP
+            miniapp_is_active() ? LISA_UI_NAV_SCR_ID_MINIAPP :
+#endif
+            LISA_UI_NAV_SCR_ID_HOME);
     }
 }
 
@@ -295,7 +302,11 @@ static void stop_btn_event_cb(lv_event_t *e)
     
     if (code == LV_EVENT_CLICKED) {
         LISA_UI_LOGI("Alarm ring: stop button clicked, navigating to home");
-        lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
+        lisa_ui_nav_scr_nav_to(
+#ifdef CONFIG_MINIAPP
+            miniapp_is_active() ? LISA_UI_NAV_SCR_ID_MINIAPP :
+#endif
+            LISA_UI_NAV_SCR_ID_HOME);
     }
 }
 
@@ -311,7 +322,11 @@ static void alarm_ring_auto_return_cb(lv_timer_t *timer)
     }
 
     LISA_UI_LOGI("Alarm ring: auto return timer, navigating to home");
-    lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
+    lisa_ui_nav_scr_nav_to(
+#ifdef CONFIG_MINIAPP
+            miniapp_is_active() ? LISA_UI_NAV_SCR_ID_MINIAPP :
+#endif
+            LISA_UI_NAV_SCR_ID_HOME);
 }
 
 static int alarm_ring_nav_scr_open(const struct lisa_ui_nav_scr *scr, void **data)

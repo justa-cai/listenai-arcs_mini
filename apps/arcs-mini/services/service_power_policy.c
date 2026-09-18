@@ -32,6 +32,10 @@
 
 #include "service_power_policy.h"
 
+#ifdef CONFIG_OTA
+#include "ota_manager.h"
+#endif
+
 #define POWER_POLICY_TASK_STACK_SIZE          3072U
 #define POWER_POLICY_TASK_PRIORITY            4U
 #define POWER_POLICY_POLL_INTERVAL_MS          1000U
@@ -59,6 +63,7 @@ struct power_policy_context {
     bool interaction_active;
     bool tts_active;
     bool music_active;
+    bool miniapp_active;
     bool warning_waiting;
     bool countdown_active;
     bool runtime_suspended;
@@ -280,6 +285,31 @@ service_power_policy_state_t service_power_policy_get_state(void)
     return state;
 }
 
+void service_power_policy_set_miniapp_active(bool active)
+{
+    bool changed;
+
+    if (s_policy.state_lock == NULL) {
+        return;
+    }
+
+    xSemaphoreTake(s_policy.state_lock, portMAX_DELAY);
+    changed = s_policy.miniapp_active != active;
+    s_policy.miniapp_active = active;
+    if (active || changed) {
+        s_policy.last_activity_tick = xTaskGetTickCount();
+    }
+    xSemaphoreGive(s_policy.state_lock);
+
+    if (active) {
+        (void)power_policy_transition(VOICE_MSG_POWER_POLICY_STATE_NORMAL,
+                                      VOICE_MSG_POWER_POLICY_REASON_INTERACTION);
+    }
+    if (changed) {
+        LISA_LOGI(TAG, "Miniapp foreground=%u", (unsigned int)active);
+    }
+}
+
 bool service_power_policy_handle_function_click(void)
 {
     service_power_policy_state_t state = service_power_policy_get_state();
@@ -456,6 +486,7 @@ static void power_policy_task(void *arg)
         TickType_t countdown_elapsed;
         service_power_policy_state_t state;
         bool busy;
+        bool miniapp_active;
         bool warning_waiting;
         bool countdown_active;
         bool external_power = battery_usb_plugged_stable_get();
@@ -463,7 +494,9 @@ static void power_policy_task(void *arg)
 
         xSemaphoreTake(s_policy.state_lock, portMAX_DELAY);
         state = s_policy.state;
-        busy = s_policy.interaction_active || s_policy.tts_active || s_policy.music_active;
+        busy = s_policy.interaction_active || s_policy.tts_active ||
+               s_policy.music_active;
+        miniapp_active = s_policy.miniapp_active;
         elapsed = now - s_policy.last_activity_tick;
         warning_waiting = s_policy.warning_waiting;
         warning_elapsed = now - s_policy.warning_start_tick;
@@ -471,13 +504,23 @@ static void power_policy_task(void *arg)
         countdown_elapsed = now - s_policy.countdown_start_tick;
         xSemaphoreGive(s_policy.state_lock);
 
+        /* OTA owns the display through the success prompt and reboot wait:
+         * resource updates may have invalidated the home animation data. */
+#ifdef CONFIG_OTA
+        ota_state_e ota_state = ota_manager_get_state();
+        busy = busy || ota_state == OTA_STATE_CHECKING ||
+               ota_state == OTA_STATE_PACKAGE_INFO || ota_state == OTA_STATE_UPDATING ||
+               ota_state == OTA_STATE_SUCCESSED || ota_state == OTA_STATE_RESOURCE_FAILED;
+#endif
+
         if ((state == VOICE_MSG_POWER_POLICY_STATE_HIBERNATE ||
              state == VOICE_MSG_POWER_POLICY_STATE_SHUTDOWN_PENDING) &&
             external_power) {
             if (state == VOICE_MSG_POWER_POLICY_STATE_SHUTDOWN_PENDING) {
                 voice_player_tone_stop();
             }
-            (void)power_policy_transition(VOICE_MSG_POWER_POLICY_STATE_IDLE,
+            (void)power_policy_transition(miniapp_active ? VOICE_MSG_POWER_POLICY_STATE_NORMAL :
+                                                          VOICE_MSG_POWER_POLICY_STATE_IDLE,
                                           VOICE_MSG_POWER_POLICY_REASON_EXTERNAL_POWER);
             vTaskDelay(pdMS_TO_TICKS(POWER_POLICY_POLL_INTERVAL_MS));
             continue;
@@ -496,7 +539,8 @@ static void power_policy_task(void *arg)
                        countdown_elapsed >= pdMS_TO_TICKS(POWER_POLICY_SHUTDOWN_COUNTDOWN_MS)) {
                 if (power_is_usb_plugged()) {
                     voice_player_tone_stop();
-                    (void)power_policy_transition(VOICE_MSG_POWER_POLICY_STATE_IDLE,
+                    (void)power_policy_transition(miniapp_active ? VOICE_MSG_POWER_POLICY_STATE_NORMAL :
+                                                                  VOICE_MSG_POWER_POLICY_STATE_IDLE,
                                                   VOICE_MSG_POWER_POLICY_REASON_EXTERNAL_POWER);
                 } else {
                     LISA_LOGI(TAG, "Low-battery shutdown countdown elapsed");
@@ -508,7 +552,9 @@ static void power_policy_task(void *arg)
             continue;
         }
 
-        if (state == VOICE_MSG_POWER_POLICY_STATE_HIBERNATE &&
+        /* A miniapp inhibits display idle and runtime hibernate, but does not
+         * count as continuing user activity or exempt low-battery shutdown. */
+        if ((state == VOICE_MSG_POWER_POLICY_STATE_HIBERNATE || miniapp_active) &&
             !busy && !external_power &&
             elapsed >= pdMS_TO_TICKS(POWER_POLICY_SHUTDOWN_TIMEOUT_MS)) {
             battery_pct = battery_get_pct_raw();
@@ -523,11 +569,11 @@ static void power_policy_task(void *arg)
                                         VOICE_MSG_POWER_POLICY_REASON_LOW_BATTERY)) {
                 power_policy_start_shutdown_warning();
             }
-        } else if (!busy && !external_power &&
+        } else if (!busy && !miniapp_active && !external_power &&
                    elapsed >= pdMS_TO_TICKS(POWER_POLICY_HIBERNATE_TIMEOUT_MS)) {
             (void)power_policy_transition(VOICE_MSG_POWER_POLICY_STATE_HIBERNATE,
                                           VOICE_MSG_POWER_POLICY_REASON_HIBERNATE_TIMEOUT);
-        } else if (!busy &&
+        } else if (!busy && !miniapp_active &&
                    elapsed >= pdMS_TO_TICKS(POWER_POLICY_IDLE_TIMEOUT_MS)) {
             (void)power_policy_transition(VOICE_MSG_POWER_POLICY_STATE_IDLE,
                                           VOICE_MSG_POWER_POLICY_REASON_IDLE_TIMEOUT);
@@ -627,7 +673,8 @@ static int power_policy_shell_cmd(int argc, char **argv)
                (unsigned int)audio_diag.cloud_send_failures_since_wake,
                (unsigned int)audio_diag.last_cloud_peak);
         printf("audio_power suspend=%u resume=%u resume_fail=%u adc_low=%u "
-               "ref_off=%u playback_off=%u interaction=%u tts=%u music=%u\n",
+               "ref_off=%u playback_off=%u interaction=%u tts=%u music=%u "
+               "miniapp=%u\n",
                (unsigned int)audio_diag.suspend_count,
                (unsigned int)audio_diag.resume_count,
                (unsigned int)audio_diag.resume_failures,
@@ -636,7 +683,8 @@ static int power_policy_shell_cmd(int argc, char **argv)
                (unsigned int)audio_diag.playback_off,
                (unsigned int)s_policy.interaction_active,
                (unsigned int)s_policy.tts_active,
-               (unsigned int)s_policy.music_active);
+               (unsigned int)s_policy.music_active,
+               (unsigned int)s_policy.miniapp_active);
         return 0;
     }
 

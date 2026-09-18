@@ -16,6 +16,7 @@
 #include "lisa_mutex.h"
 #include "lisa_sdmmc.h"
 #include "drv_sdc.h"
+#include "ftsdc021.h"
 #include "lsfs.h"
 
 /* ---- 常量 ---- */
@@ -63,9 +64,26 @@ void sd_music_card_sdmmc_reset(void)
     struct sdmmc_priv_layout *priv = (struct sdmmc_priv_layout *)dev->priv_data;
     priv->initialized = false;
 
-    /* 清零 HAL 层 sdcard_init_complete 标志 */
+    /* 清零 LISA/SDC 两层状态，避免下一次探卡沿用上一张卡的状态。 */
+    if (SDHost[SD_0].Card) {
+        SDHost[SD_0].Card->already_init = false;
+        SDHost[SD_0].Card->CardType = CARD_TYPE_UNKNOWN;
+        SDHost[SD_0].Card->CardInsert = 0;
+        SDHost[SD_0].Card->bus_width = 0;
+        SDHost[SD_0].Card->cmplMask = 0;
+        SDHost[SD_0].Card->ErrorSts = 0;
+        SDHost[SD_0].Card->autoErr = 0;
+        SDHost[SD_0].dma_transfer_data = 0;
+    }
+    SDHost[SD_0].reset_flag = 1;
+
+    /* 清除控制器命令/数据线状态，下一次 probe 从干净 host 开始。 */
+    u32 reset_val = SD_SOFTRST_ALL;
+    gm_sdc_api_action(SD_0, GM_SDC_ACTION_SOFT_RESET, &reset_val, NULL);
+
+    /* 清零 HAL 层 sdcard_init_complete 标志。 */
     u32 done_val = 0;
-    gm_sdc_api_action(0, GM_SDC_ACTION_SET_APP_INIT_DONE, &done_val, NULL);
+    gm_sdc_api_action(SD_0, GM_SDC_ACTION_SET_APP_INIT_DONE, &done_val, NULL);
 }
 
 /* ---- 卡在位检测 ---- */

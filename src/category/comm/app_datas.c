@@ -51,9 +51,7 @@ typedef struct {
 #define MAX_WAKEUP_KEYWORDS_NUM 10
 
 static char *wakeup_keywords[MAX_WAKEUP_KEYWORDS_NUM] = {
-    "xiao ao tong xue",
-    "ni hao xiao ao",
-    "xiao ling xiao ling",
+    CONFIG_APP_WAKE_WORD_DEFAULT,
 };
 
 static int ini_config_handler(void* user, const char* section, const char* name, const char* value)
@@ -287,7 +285,7 @@ int app_datas_init(void)
 #ifdef CONFIG_OTA
     strcpy(g_app_datas->wakeup_prompt, "请通过\"#唤醒词#\"唤醒我");
 #else
-    strcpy(g_app_datas->wakeup_prompt, "请通过\"小聆小聆\"唤醒我");
+    strcpy(g_app_datas->wakeup_prompt, "请通过\"" CONFIG_APP_WAKE_WORD_DEFAULT "\"唤醒我");
 #endif
 
     app_datas_load_from_romfs();

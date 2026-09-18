@@ -125,7 +125,7 @@ static bool start_voice_cloud(struct app_datas *app_datas)
         return false;
     }
 
-    const char *keywords[] = {"小聆小聆"};
+    const char *keywords[] = {CONFIG_APP_WAKE_WORD_DEFAULT};
     struct voice_cloud_chat_config chat_config = {
         .full_duplex = app_interaction_mode_is_continuous(app_datas->int_mode),
         .wait_wakeup_tone = app_datas->int_mode == APP_INTERACTION_MODE_MULTI_NO_INTERRUPT ||

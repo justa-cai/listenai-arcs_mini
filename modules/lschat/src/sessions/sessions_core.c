@@ -13,6 +13,12 @@
 #include "cJSON.h"
 #include "lisa_time.h"
 #include "lsc_session_voice.h"
+#include "lsc.h"
+
+__attribute__((weak)) const char *lsc_get_nlu_custom_mode(void)
+{
+	return NULL;
+}
 
 /* Set to 1 temporarily when the complete start JSON is needed for debugging. */
 #define LSC_LOG_FULL_START_FRAME 0
@@ -560,6 +566,11 @@ static char *session_build_start_frame(uint32_t rid, session_params_t *cfg, uint
 		cJSON_AddStringToObject(custom, "userID", "");
 	}
 	cJSON_AddItemToObject(nlu_properties, "custom", custom);
+	const char *mode = lsc_get_nlu_custom_mode();
+	if (mode && mode[0] && !cJSON_AddStringToObject(custom, "mode", mode)) {
+		cJSON_Delete(root);
+		return NULL;
+	}
 
 	/* 添加当前选择的模型ID到请求中 */
 	// char current_model_id[64] = {0};

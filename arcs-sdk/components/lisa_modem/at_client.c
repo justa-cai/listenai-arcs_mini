@@ -533,6 +533,31 @@ static void at_client_reset_rx_window_locked(at_client_t *client)
     }
 }
 
+static void at_client_handle_transport_error(at_client_t *client, int error)
+{
+    if (!client) {
+        return;
+    }
+
+    /* A transport error can cut an AT line or a binary stream in half. Do not
+     * let bytes from the old frame contaminate the next modem response. */
+    at_client_finish_line_stream(client, false);
+
+    xSemaphoreTake(client->buffer_mutex, portMAX_DELAY);
+    at_client_reset_rx_window_locked(client);
+    client->rx_pending_cr = false;
+    client->response[0] = '\0';
+    client->cme_error_code = 0;
+    client->binary_response_active = false;
+    client->binary_response_ready = false;
+    client->binary_response_received = 0U;
+    client->binary_response_len = 0U;
+    xSemaphoreGive(client->buffer_mutex);
+
+    xEventGroupSetBits(client->event_group, AT_EVENT_COMMAND_ERROR);
+    LISA_LOGW(TAG, "Transport error %d: RX state reset", error);
+}
+
 static void at_client_compact_rx_window_locked(at_client_t *client)
 {
     if (!client || !client->rx_buffer) {
@@ -1562,7 +1587,7 @@ static void at_client_rx_task(void *pvParameters)
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
         }
-        vTaskDelay(3);
+        /* Drain available data without an extra delay on every chunk. */
         ret = at_transport_read(client->transport, rx_buf, sizeof(rx_buf), AT_CLIENT_RX_TASK_TIMEOUT_MS);
         if (!client->rx_task_running) {
             break;
@@ -1575,7 +1600,11 @@ static void at_client_rx_task(void *pvParameters)
 
         if (ret < 0) {
             LISA_LOGW(TAG, "Transport read failed: %d", ret);
+            at_client_handle_transport_error(client, ret);
         }
+        /* USB transports can return immediately with no data. Yield on idle
+         * or error only, so a disconnected transport cannot busy-loop. */
+        vTaskDelay(3);
     }
 
     if (client) {

@@ -254,18 +254,23 @@ static void adb_packet_received_cb(adb_packet_t *packet)
         adb_service_close(packet->msg.arg1, packet->msg.arg0);
         adb_packet_free(packet);
         break;
-    case A_WRTE:
-        if (packet->msg.arg1 == 0U || packet->msg.arg0 == 0U) {
+    case A_WRTE: {
+        /* The service consumes (and may free) packet, including on error. */
+        uint32_t local_id = packet->msg.arg1;
+        uint32_t remote_id = packet->msg.arg0;
+
+        if (local_id == 0U || remote_id == 0U) {
             adb_packet_free(packet);
             break;
         }
 
-        if (adb_service_write(packet->msg.arg1, packet->msg.arg0, packet) != 0) {
-            adb_close(packet->msg.arg1, packet->msg.arg0);
+        if (adb_service_write(local_id, remote_id, packet) != 0) {
+            adb_close(local_id, remote_id);
         } else {
-            adb_ready(packet->msg.arg1, packet->msg.arg0);
+            adb_ready(local_id, remote_id);
         }
         break;
+    }
     default:
         adb_packet_free(packet);
         break;
