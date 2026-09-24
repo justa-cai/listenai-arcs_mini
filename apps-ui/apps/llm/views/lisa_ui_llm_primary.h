@@ -60,6 +60,8 @@ struct lisa_ui_llm_primary {
     lv_obj_t *status_icon_container; /*!< USB/闹钟图标容器 */
     bool status_icons_usb_first;
     lv_obj_t *battery_icon;  /*!< 电量图标 */
+    uint32_t status_icons_visibility;
+    bool status_icons_suppressed;
     lv_obj_t *status_label;  /*!< 状态文本标签 */
 
     /* 容器内容元素 */
@@ -71,6 +73,7 @@ struct lisa_ui_llm_primary {
     lv_obj_t *img_hint;
     lv_obj_t *finger_hint_icon;
     lv_obj_t *finger_hint_label;
+    lv_obj_t *power_key_hint;
 };
 
 /** LLM UI主要组件类型定义 */
@@ -224,6 +227,13 @@ void lisa_ui_llm_primary_set_usb_icon_visible(lv_obj_t *obj, bool visible);
 void lisa_ui_llm_primary_set_alarm_icon_visible(lv_obj_t *obj, bool visible);
 
 /**
+ * @brief 临时隐藏或恢复状态栏图标
+ *
+ * 状态文本不受影响。恢复时使用调用隐藏前及隐藏期间最新的图标状态。
+ */
+void lisa_ui_llm_primary_set_status_icons_visible(lv_obj_t *obj, bool visible);
+
+/**
  * @brief 设置电量图标显示状态
  *
  * @param obj LLM UI主要组件对象
@@ -328,6 +338,10 @@ void lisa_ui_llm_primary_img_hint_show(lv_obj_t *obj, const char *text);
 void lisa_ui_llm_primary_img_hint_hide(lv_obj_t *obj);
 void lisa_ui_llm_primary_finger_hint_show(lv_obj_t *obj, const char *text);
 void lisa_ui_llm_primary_finger_hint_hide(lv_obj_t *obj);
+void lisa_ui_llm_primary_finger_hint_icon_hide(lv_obj_t *obj);
+lv_obj_t *lisa_ui_llm_primary_power_key_hint_create(lv_obj_t *parent);
+void lisa_ui_llm_primary_power_key_hint_show(lv_obj_t *obj);
+void lisa_ui_llm_primary_power_key_hint_hide(lv_obj_t *obj);
 
 #ifdef __cplusplus
 } /* extern "C" */

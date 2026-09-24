@@ -37,10 +37,26 @@ static void camera_preview_update_hint(struct home_nav_scr_data *scr_data)
         return;
     }
 
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    lisa_ui_llm_primary_set_status_icons_visible(
+        scr_data->view,
+        !(model_camera_preview_is_active(&scr_data->camera_preview) ||
+          camera_preview_is_camera_work_type(scr_data->work_type)));
+#endif
+
     if (model_camera_preview_keep_preview_alive(&scr_data->camera_preview) &&
         camera_preview_is_button_source(&scr_data->camera_preview)) {
+#ifdef CONFIG_BOARD_ARCS_MINI3
+        lisa_ui_llm_primary_power_key_hint_show(scr_data->view);
+#endif
         lisa_ui_llm_primary_finger_hint_show(scr_data->view, "单击：拍照识图\n长按：退出");
+#ifdef CONFIG_BOARD_ARCS_MINI3
+        lisa_ui_llm_primary_finger_hint_icon_hide(scr_data->view);
+#endif
     } else {
+#ifdef CONFIG_BOARD_ARCS_MINI3
+        lisa_ui_llm_primary_power_key_hint_hide(scr_data->view);
+#endif
         lisa_ui_llm_primary_finger_hint_hide(scr_data->view);
     }
 }
@@ -243,6 +259,10 @@ void camera_preview_hide(struct home_nav_scr_data *scr_data)
     model_camera_preview_reset(&scr_data->camera_preview);
 
     lisa_ui_llm_primary_img_hide(scr_data->view);
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    lisa_ui_llm_primary_set_status_icons_visible(scr_data->view, true);
+    lisa_ui_llm_primary_power_key_hint_hide(scr_data->view);
+#endif
     lisa_ui_llm_primary_finger_hint_hide(scr_data->view);
     camera_preview_update_text_offset(scr_data);
     if (camera_preview_is_camera_work_type(scr_data->work_type)) {

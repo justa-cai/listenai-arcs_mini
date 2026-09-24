@@ -534,6 +534,7 @@ void shellHandler(Shell *shell, char data);
 void shellWriteEndLine(Shell *shell, char *buffer, int len);
 void shellTask(void *param);
 int shellRun(Shell *shell, const char *cmd);
+int shellRunNonInteractive(Shell *shell, const char *cmd);
 
 
 

@@ -76,6 +76,14 @@ static uint32_t s_tts_stop_seq = 0U;
  * Wakeup tones use this as a short cross-executor completion barrier. */
 static uint32_t s_tts_stop_pending_seq = 0U;
 
+/* Reservation/result outlive asynchronous callbacks; only the play worker
+ * touches the underlying track for an owner-scoped cancellation. */
+static uint32_t s_owned_id;
+static uint32_t s_owned_generation;
+static voice_tts_owned_result_t s_owned_result;
+static uint32_t s_owned_stop_generation;
+static uint32_t s_playing_generation;
+
 static const char *voice_player_tts_state_name(app_player_state_t state)
 {
     switch (state) {
@@ -161,9 +169,15 @@ static uint32_t voice_player_tts_begin_request(const char *url)
     uint32_t generation;
 
     taskENTER_CRITICAL();
+    if (s_owned_generation && s_owned_generation == s_tts_generation) {
+        if (s_owned_result == VOICE_TTS_OWNED_PENDING)
+            s_owned_result = VOICE_TTS_OWNED_INTERRUPTED;
+        ++s_tts_generation;
+    }
     strncpy(s_latest_tts_url, url, sizeof(s_latest_tts_url) - 1);
     s_latest_tts_url[sizeof(s_latest_tts_url) - 1] = '\0';
     generation = s_tts_generation;
+    s_tts_active = true;
     taskEXIT_CRITICAL();
     LOGI("refresh latest tts url: %s", s_latest_tts_url);
     return generation;
@@ -348,7 +362,20 @@ static void voice_player_tts_play_task(void *pvParameters)
     (void)pvParameters;
 
     while (1) {
-        if (xQueueReceive(s_tts_play_queue, &request, portMAX_DELAY) == pdTRUE) {
+        taskENTER_CRITICAL();
+        uint32_t stop_generation = s_owned_stop_generation;
+        uint32_t playing_generation = s_playing_generation;
+        taskEXIT_CRITICAL();
+        if (stop_generation) {
+            if (stop_generation == playing_generation &&
+                voice_player_tts_state_needs_stop(app_player_get_state(tts_player))) {
+                app_player_stop(tts_player);
+            }
+            taskENTER_CRITICAL();
+            if (s_owned_stop_generation == stop_generation) s_owned_stop_generation = 0;
+            taskEXIT_CRITICAL();
+        }
+        if (xQueueReceive(s_tts_play_queue, &request, pdMS_TO_TICKS(20)) == pdTRUE) {
             if (request.stop) {
                 voice_player_tts_stop_player(request.stop_seq,
                                              request.generation,
@@ -400,7 +427,19 @@ static void voice_player_tts_play_task(void *pvParameters)
                 .request_tag = request.generation,
                 .cancel_token = &s_tts_generation,
             };
+            taskENTER_CRITICAL();
+            s_playing_generation = request.generation;
+            taskEXIT_CRITICAL();
             int play_ret = app_player_play_ex(tts_player, &play_opt);
+            if (play_ret != 0) {
+                taskENTER_CRITICAL();
+                if (s_owned_id && s_owned_generation == request.generation &&
+                    s_owned_result == VOICE_TTS_OWNED_PENDING) {
+                    s_owned_result = VOICE_TTS_OWNED_FAILED;
+                    if (s_tts_generation == request.generation) s_tts_active = false;
+                }
+                taskEXIT_CRITICAL();
+            }
             app_player_state_t state_after = app_player_get_state(tts_player);
             LOGI("TTS play request generation=%u ret=%d state=%s(%d)->%s(%d)",
                  (unsigned int)request.generation,
@@ -450,6 +489,9 @@ static bool voice_player_tts_submit_url(const char *url,
     request.url[sizeof(request.url) - 1] = '\0';
 
     if (xQueueSend(s_tts_play_queue, &request, pdMS_TO_TICKS(100)) != pdTRUE) {
+        taskENTER_CRITICAL();
+        if (request.generation == s_tts_generation) s_tts_active = false;
+        taskEXIT_CRITICAL();
         if (options.prefetch_mp3) {
             LOGE("failed to send pushup tts play request to queue");
         } else {
@@ -519,6 +561,18 @@ static void voice_player_tts_event(app_player_t *player,
         return;
     }
 
+    taskENTER_CRITICAL();
+    /* Keep classifying late events as app speech after its result is consumed. */
+    bool owned = event_tag && event_tag == s_owned_generation;
+    if (owned && s_owned_result == VOICE_TTS_OWNED_PENDING) {
+        if (event == APP_PLAYER_EVENT_COMPLETED) s_owned_result = VOICE_TTS_OWNED_COMPLETED;
+        else if (event == APP_PLAYER_EVENT_ERROR) s_owned_result = VOICE_TTS_OWNED_FAILED;
+        else if (event == APP_PLAYER_EVENT_STOPPED) s_owned_result = VOICE_TTS_OWNED_INTERRUPTED;
+        if (s_owned_result != VOICE_TTS_OWNED_PENDING) s_tts_active = false;
+    }
+    taskEXIT_CRITICAL();
+    /* App speech is not a dialogue completion or an alarm completion. */
+    if (owned) return;
     switch (event) {
     case APP_PLAYER_EVENT_PLAYING:
         voice_msg_pub(VOICE_MSG_PLAYER_TTS_PLAYING, NULL, 0);
@@ -601,7 +655,8 @@ static void voice_player_tts_prepare_stop(bool snapshot,
         s_tts_stop_seq = *stop_seq;
     }
     *active_before = s_tts_active;
-    if (snapshot && s_tts_active && s_latest_tts_url[0] != '\0') {
+    if (snapshot && s_tts_active && s_latest_tts_url[0] != '\0' &&
+        !(s_owned_id && s_owned_generation == s_tts_generation)) {
         strncpy(s_prepared_tts_url, s_latest_tts_url,
                 sizeof(s_prepared_tts_url) - 1);
         s_prepared_tts_url[sizeof(s_prepared_tts_url) - 1] = '\0';
@@ -612,6 +667,9 @@ static void voice_player_tts_prepare_stop(bool snapshot,
         s_latest_replay_prepared = false;
     }
 
+    if (s_owned_id && s_owned_generation == s_tts_generation &&
+        s_owned_result == VOICE_TTS_OWNED_PENDING)
+        s_owned_result = VOICE_TTS_OWNED_INTERRUPTED;
     *generation = ++s_tts_generation;
     s_latest_tts_url[0] = '\0';
     s_tts_active = false;
@@ -860,4 +918,66 @@ bool voice_player_tts_replay_prepared(void)
 bool voice_player_tts_is_active(void)
 {
     return s_tts_active;
+}
+
+bool voice_player_tts_claim(uint32_t owner)
+{
+    bool accepted = false;
+    taskENTER_CRITICAL();
+    if (owner && s_tts_play_queue && !s_tts_active && !s_owned_id &&
+        !s_tts_stop_pending_seq && !s_owned_stop_generation) {
+        s_owned_id = owner;
+        s_owned_generation = ++s_tts_generation;
+        s_owned_result = VOICE_TTS_OWNED_PENDING;
+        s_tts_active = true; /* Includes synthesis, before a URL exists. */
+        s_latest_tts_url[0] = 0;
+        accepted = true;
+    }
+    taskEXIT_CRITICAL();
+    return accepted;
+}
+
+bool voice_player_tts_play_owned(uint32_t owner, const char *url)
+{
+    if (!url || !url[0] || strlen(url) >= TTS_PLAY_URL_MAX) return false;
+    tts_play_request_t request = {0};
+    strncpy(request.url, url, sizeof(request.url) - 1);
+    taskENTER_CRITICAL();
+    bool current = s_owned_id == owner && s_owned_generation == s_tts_generation &&
+                   s_owned_result == VOICE_TTS_OWNED_PENDING;
+    request.generation = s_owned_generation;
+    /* Queue copies are bounded and nonblocking; stop cannot interleave with
+     * validation and enqueueing an owned request. */
+    bool accepted = current && xQueueSend(s_tts_play_queue, &request, 0) == pdTRUE;
+    taskEXIT_CRITICAL();
+    return accepted;
+}
+
+void voice_player_tts_cancel_owned(uint32_t owner)
+{
+    taskENTER_CRITICAL();
+    if (owner && s_owned_id == owner && s_owned_result == VOICE_TTS_OWNED_PENDING) {
+        s_owned_result = VOICE_TTS_OWNED_INTERRUPTED;
+        if (s_owned_generation == s_tts_generation) {
+            s_owned_stop_generation = s_owned_generation;
+            ++s_tts_generation; /* Invalidates only this owner's queued play. */
+            s_tts_active = false;
+        }
+    }
+    taskEXIT_CRITICAL();
+}
+
+voice_tts_owned_result_t voice_player_tts_owned_result(uint32_t owner)
+{
+    taskENTER_CRITICAL();
+    voice_tts_owned_result_t result = s_owned_id == owner ? s_owned_result : VOICE_TTS_OWNED_INTERRUPTED;
+    taskEXIT_CRITICAL();
+    return result;
+}
+
+void voice_player_tts_release_owned(uint32_t owner)
+{
+    taskENTER_CRITICAL();
+    if (s_owned_id == owner && s_owned_result != VOICE_TTS_OWNED_PENDING) s_owned_id = 0;
+    taskEXIT_CRITICAL();
 }

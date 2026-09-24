@@ -61,6 +61,7 @@ int voice_cloud_upload_audio_resume(void);
 int voice_cloud_upload_jpeg_img(const uint8_t *jpeg_data, size_t jpeg_size, char **url_out);
 void voice_cloud_jpeg_img_url_free(void *url);
 int voice_cloud_tts_synth(const char *txt);
+int voice_cloud_tts_cancel(void);
 int voice_cloud_is_connected(void);
 voice_cloud_state_t voice_cloud_get_state(void);
 int voice_cloud_is_device_unbound(void);

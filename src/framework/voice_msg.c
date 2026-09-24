@@ -82,12 +82,11 @@ int voice_invoke(voice_invoke_worker_t worker, void *data, uint32_t len)
         memcpy(invoke->data, data, len);
     }
 
-    if (voice_msg_pub(VOICE_MSG_INVOKE_SUBMIT, invoke, sizeof(*invoke) + len) != 0) {
-        psram_free(invoke);
-        return -1;
-    }
-
-    return 0;
+    /* The bus copies the payload before returning, including for async
+     * delivery. The caller still owns this temporary staging buffer. */
+    int ret = voice_msg_pub(VOICE_MSG_INVOKE_SUBMIT, invoke, sizeof(*invoke) + len);
+    psram_free(invoke);
+    return ret;
 }
 
 int voice_invoke_sync(voice_invoke_sync_worker_t worker, void *data, uint32_t len, struct voice_invoke_rsp *rsp,

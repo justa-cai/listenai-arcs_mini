@@ -236,6 +236,8 @@ int session_get_config(session_t *hdl, session_params_t *cfg);
  * @retval 0： 成功
  */
 int session_start(session_t *hdl, char *data);
+/* Atomically start a text-only request when no session owns the transport. */
+int session_start_text_if_idle(session_t *hdl, const char *text);
 int session_start_ex(session_t *hdl, char *data, bool preserve_reply_sid);
 /**
  * @brief 中止会话

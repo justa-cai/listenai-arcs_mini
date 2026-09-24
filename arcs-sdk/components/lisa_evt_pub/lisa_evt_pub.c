@@ -192,7 +192,8 @@ void lisa_evt_publisher_destroy(lisa_evt_publisher_t p)
 	struct lisa_evt_publisher *pub = (struct lisa_evt_publisher *)p;
 	lisa_mutex_lock(pub->lock, LISA_OS_WAIT_FOREVER);
 
-	lisa_evt_publisher_clear(pub);
+	/* Already holding the non-recursive publisher lock. */
+	slist_remove_all_cb(pub->slist, cc_slist_remove_cb_handle);
 	slist_destroy(pub->slist);
 	pub->slist = NULL;
 

@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define MINIAPP_API_VERSION 3
+#define MINIAPP_API_VERSION 4
 #define MINIAPP_SCREEN_WIDTH CONFIG_MINIAPP_SCREEN_WIDTH
 #define MINIAPP_SCREEN_HEIGHT CONFIG_MINIAPP_SCREEN_HEIGHT
 #define MINIAPP_TEXT_FONT_PX 16
@@ -18,14 +18,26 @@
 #define MINIAPP_CHUNK_INSTRUCTION_LIMIT 500000u
 #define MINIAPP_CHUNK_DEADLINE_MS 150u
 #define MINIAPP_CALLBACK_INSTRUCTION_LIMIT 250000u
-/* Wall time includes preemption by display, network and audio tasks. The
- * independent instruction limit still bounds the script's own work. */
-#define MINIAPP_CALLBACK_DEADLINE_MS 100u
+/* Allow occasional response parsing to exceed the tick interval. Runtime
+ * statistics discount task preemption; the instruction limit stays bounded. */
+#define MINIAPP_CALLBACK_DEADLINE_MS 500u
 #define MINIAPP_BUTTON_EXIT_HOLD_MS 3000u
 #define MINIAPP_BUZZER_MIN_HZ 100u
 #define MINIAPP_BUZZER_MAX_HZ 5000u
 #define MINIAPP_BUZZER_MIN_MS 20u
 #define MINIAPP_BUZZER_MAX_MS 3000u
+#define MINIAPP_TTS_TEXT_MAX 512u
+#define MINIAPP_TTS_MAX_PENDING 1u
+#define MINIAPP_TTS_TIMEOUT_MS 120000u
+#define MINIAPP_HTTP_MAX_URL_BYTES 511u
+#define MINIAPP_HTTP_MAX_REQUESTS 4u
+#define MINIAPP_HTTP_DEFAULT_TIMEOUT_MS 10000u
+#define MINIAPP_HTTP_MAX_TIMEOUT_MS 60000u
+#define MINIAPP_HTTP_DEFAULT_RESPONSE_BYTES 8192u
+#define MINIAPP_HTTP_MAX_RESPONSE_BYTES 32768u
+#define MINIAPP_HTTP_MAX_HEADERS 16u
+#define MINIAPP_HTTP_MAX_HEADER_BYTES 1024u
+#define MINIAPP_HTTP_MAX_BODY_BYTES 8192u
 #ifdef CONFIG_MINIAPP_SCREEN
 #define MINIAPP_HAS_SCREEN 1
 #else

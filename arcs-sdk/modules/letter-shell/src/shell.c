@@ -1454,7 +1454,7 @@ void shellNormalInput(Shell *shell, char data)
  * 
  * @param shell shell对象
  */
-void shellExec(Shell *shell)
+static void shellExecInternal(Shell *shell, int interactive)
 {
     
     if (shell->parser.length == 0)
@@ -1475,7 +1475,10 @@ void shellExec(Shell *shell)
         {
             return;
         }
-        shellWriteString(shell, "\r\n");
+        if (interactive)
+        {
+            shellWriteString(shell, "\r\n");
+        }
 
         ShellCommand *command = shellSeekCommand(shell,
                                                  shell->parser.param[0],
@@ -1496,6 +1499,11 @@ void shellExec(Shell *shell)
     }
 }
 
+
+void shellExec(Shell *shell)
+{
+    shellExecInternal(shell, 1);
+}
 
 #if SHELL_HISTORY_MAX_NUMBER > 0
 /**
@@ -1982,7 +1990,7 @@ clear, shellClear, clear console);
  * @param cmd 命令字符串
  * @return int 返回值
  */
-int shellRun(Shell *shell, const char *cmd)
+static int shellRunInternal(Shell *shell, const char *cmd, int interactive)
 {
     SHELL_ASSERT(shell && cmd, return -1);
     char active = shell->status.isActive;
@@ -1994,10 +2002,22 @@ int shellRun(Shell *shell, const char *cmd)
     else
     {
         shell->parser.length = shellStringCopy(shell->parser.buffer, (char *)cmd);
-        shellExec(shell);
+        shellExecInternal(shell, interactive);
         shell->status.isActive = active;
         return 0;
     }
+}
+
+int shellRun(Shell *shell, const char *cmd)
+{
+    return shellRunInternal(shell, cmd, 1);
+}
+
+/* Execute without the newline that separates interactive input from output.
+ * Command-generated output, including deliberate leading newlines, is kept. */
+int shellRunNonInteractive(Shell *shell, const char *cmd)
+{
+    return shellRunInternal(shell, cmd, 0);
 }
 
 

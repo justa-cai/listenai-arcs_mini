@@ -10,6 +10,9 @@
 #include "lisa_ui_assets.h"
 #include "lisa_ui_llm_base.h"
 #include "lisa_ui_fonts.h"
+#ifdef CONFIG_BOARD_ARCS_MINI3
+#include "lisa_ui_llm_primary.h"
+#endif
 #include <stdio.h>
 
 LV_IMG_DECLARE(icons_icon_finger_png);
@@ -22,6 +25,9 @@ typedef struct {
     lv_obj_t *eta_label;
     lv_obj_t *finger_icon;
     lv_obj_t *finger_hint_label;
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    lv_obj_t *power_key_hint;
+#endif
     char status_text[64];
     char progress_text[224];
     char package_info_text[384];
@@ -116,6 +122,13 @@ static void ota_view_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj)
     lv_obj_add_flag(view->finger_hint_label, LV_OBJ_FLAG_IGNORE_LAYOUT | LV_OBJ_FLAG_FLOATING);
     lv_obj_align_to(view->finger_hint_label, view->finger_icon, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
     lv_obj_move_foreground(view->finger_hint_label);
+
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    view->power_key_hint = lisa_ui_llm_primary_power_key_hint_create(obj);
+    if (view->power_key_hint) {
+        lv_obj_add_flag(view->power_key_hint, LV_OBJ_FLAG_HIDDEN);
+    }
+#endif
 }
 
 static void ota_view_show_checking(lisa_ui_ota_view_t *view, const ota_state_t *state)
@@ -168,6 +181,12 @@ static void ota_view_hide_action_hint(lisa_ui_ota_view_t *view)
     if (view->eta_label != NULL) {
         lv_obj_clear_flag(view->eta_label, LV_OBJ_FLAG_HIDDEN);
     }
+
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    if (view->power_key_hint != NULL) {
+        lv_obj_add_flag(view->power_key_hint, LV_OBJ_FLAG_HIDDEN);
+    }
+#endif
 }
 
 static void ota_view_show_package_info(lisa_ui_ota_view_t *view, const ota_state_t *state)
@@ -192,6 +211,14 @@ static void ota_view_show_package_info(lisa_ui_ota_view_t *view, const ota_state
     lv_label_set_text_static(view->package_info_label, view->package_info_text);
     lv_obj_clear_flag(view->package_info_label, LV_OBJ_FLAG_HIDDEN);
     ota_view_show_action_hint(view, "单击：更新\n长按：下次再说");
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    /* Use the physical power-key hint on mini3 instead of the finger icon. */
+    lv_obj_add_flag(view->finger_icon, LV_OBJ_FLAG_HIDDEN);
+    if (view->power_key_hint != NULL) {
+        lv_obj_clear_flag(view->power_key_hint, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(view->power_key_hint);
+    }
+#endif
 }
 
 static void ota_view_destructor(const lv_obj_class_t *class_p, lv_obj_t *obj)

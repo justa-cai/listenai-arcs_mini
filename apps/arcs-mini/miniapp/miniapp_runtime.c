@@ -22,6 +22,8 @@
 #include "lua.h"
 #include "lualib.h"
 #include "lsc.h"
+#include "lsc_errno.h"
+#include "lsc_sessions_core.h"
 #include "service_led.h"
 #include "service_power_policy.h"
 #include "voice_cloud.h"
@@ -30,6 +32,8 @@
 #include "voice_player/voice_player_music.h"
 #include "voice_player/voice_player_tts.h"
 #include "voice_player_comm.h"
+#include "lisa_http.h"
+#include "HTTPCUsr_api.h"
 
 #define TAG "miniapp"
 #define MINIAPP_HOOK_GRANULARITY 1000u
@@ -48,10 +52,52 @@ typedef struct {
 } miniapp_event_t;
 
 typedef struct {
+    uint32_t speech_id;
+    uint32_t generation;
+    char text[MINIAPP_TTS_TEXT_MAX + 1];
+    char url[512];
+    bool url_ready, synth_failed, cancelled, complete;
+    const char *result;
+    const char *error;
+} miniapp_tts_job_t;
+
+/* One audible request, plus bounded asynchronous busy/error results. */
+#define MINIAPP_TTS_RESULT_SLOTS 4u
+
+typedef struct {
     uint16_t frequency_hz;
     uint16_t duration_ms;
     uint32_t generation;
 } miniapp_buzzer_command_t;
+
+typedef struct miniapp_http_request miniapp_http_request_t;
+
+typedef struct {
+    miniapp_http_request_t *request;
+    int error;
+    unsigned status;
+    char content_type[128];
+    char error_code[24];
+    char error_message[64];
+    char *body;
+    size_t body_len;
+} miniapp_http_response_t;
+
+struct miniapp_http_request {
+    uint32_t id;
+    uint32_t generation;
+    bool cancelled;
+    bool queued;
+    char url[URL_MAX_LENGTH];
+    char headers[MINIAPP_HTTP_MAX_HEADER_BYTES + 1u];
+    char *body;
+    size_t body_len;
+    lisa_http_method_e method;
+    uint32_t timeout_ms;
+    size_t max_response_bytes;
+    bool complete;
+    miniapp_http_response_t response;
+};
 
 typedef struct {
     size_t used;
@@ -63,6 +109,7 @@ typedef struct {
     uint32_t cpu_limit;
 #endif
     bool validating;
+    uint32_t http_generation;
     bool faulted, retiring, storage_read;
     char id[MINIAPP_ID_MAX + 1];
     cJSON *storage_json;
@@ -91,12 +138,124 @@ static QueueHandle_t s_event_queue;
 static TaskHandle_t s_task;
 static QueueHandle_t s_buzzer_queue;
 static TaskHandle_t s_buzzer_task;
+static QueueHandle_t s_http_queue;
+static TaskHandle_t s_http_task;
+static SemaphoreHandle_t s_http_lock;
+static miniapp_http_request_t *s_http_requests[MINIAPP_HTTP_MAX_REQUESTS];
+static uint32_t s_http_next_id = 1;
+static uint32_t s_http_generation;
 static miniapp_status_t s_status;
 static miniapp_package_t s_current;
 static volatile bool s_active;
 static volatile bool s_install_busy;
 static volatile uint32_t s_buzzer_generation;
 static uint32_t s_install_generation;
+static uint32_t s_tts_next_id = 1;
+static uint32_t s_tts_worker_id;
+static miniapp_tts_job_t *s_tts_requests[MINIAPP_TTS_RESULT_SLOTS];
+
+static void miniapp_tts_cloud_event(sessions_event_e event, void *data, uint32_t size, void *user)
+{
+    miniapp_tts_job_t *job = user;
+    taskENTER_CRITICAL();
+    if (!job->cancelled && !job->complete) {
+        if (event == SESSION_TTS_URL && data && size > 1 && size <= sizeof(job->url)) {
+            memcpy(job->url, data, size);
+            job->url[size - 1] = 0;
+            job->url_ready = true;
+        } else job->synth_failed = true;
+    }
+    taskEXIT_CRITICAL();
+}
+
+static void miniapp_tts_worker(void *argument)
+{
+    miniapp_tts_job_t *job = argument;
+    session_t *session = NULL;
+    const char *result = "failed", *error = "unavailable";
+    TickType_t started = xTaskGetTickCount();
+    bool submitted = false;
+    /* An independent SDK session routes late URLs by rid. Never send the
+     * SDK's unscoped cancel frame: it can cancel a newer voice/alarm session. */
+    session = session_create();
+    if (!session) goto done;
+    session_params_t config = {.data_type = "text", .tts_params = {.enable = true}};
+    if (session_set_config(session, &config) != 0 ||
+        session_add_evt_callback(session, miniapp_tts_cloud_event,
+                                 SESSION_TTS_URL | SESSION_ERR_FRAME | SESSION_TIMEOUT, job) != 0) goto done;
+    if (voice_cloud_is_session_active() || voice_cloud_is_uploading_audio() || alarm_ring_is_active()) {
+        error = "busy";
+        goto done;
+    }
+    if (voice_player_tts_owned_result(job->speech_id) != VOICE_TTS_OWNED_PENDING) {
+        result = "interrupted"; error = NULL; goto done;
+    }
+    int start_result = session_start_text_if_idle(session, job->text);
+    if (start_result != 0) {
+        error = start_result == LSC_INVALID_STATE ? "busy" : "unavailable";
+        goto done;
+    }
+    for (;;) {
+        taskENTER_CRITICAL();
+        bool cancelled = job->cancelled;
+        bool ready = job->url_ready;
+        bool failed = job->synth_failed;
+        taskEXIT_CRITICAL();
+        if (cancelled || alarm_ring_is_active() || voice_cloud_is_session_active() ||
+            voice_cloud_is_uploading_audio()) {
+            result = "interrupted"; error = NULL; break;
+        }
+        voice_tts_owned_result_t playback = voice_player_tts_owned_result(job->speech_id);
+        if (playback != VOICE_TTS_OWNED_PENDING) {
+            result = playback == VOICE_TTS_OWNED_COMPLETED ? "completed" :
+                     playback == VOICE_TTS_OWNED_INTERRUPTED ? "interrupted" : "failed";
+            error = playback == VOICE_TTS_OWNED_FAILED ? "unavailable" : NULL;
+            break;
+        }
+        if (failed) break;
+        if ((xTaskGetTickCount() - started) * portTICK_PERIOD_MS >= MINIAPP_TTS_TIMEOUT_MS) {
+            error = "timeout"; break;
+        }
+        if (ready && !submitted) {
+            if (!voice_player_tts_play_owned(job->speech_id, job->url)) {
+                if (voice_player_tts_owned_result(job->speech_id) == VOICE_TTS_OWNED_INTERRUPTED) {
+                    result = "interrupted"; error = NULL;
+                }
+                break;
+            }
+            submitted = true;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+done:
+    voice_player_tts_cancel_owned(job->speech_id);
+    if (session) session_destroy(session); /* waits for in-flight SDK callbacks */
+    voice_player_tts_release_owned(job->speech_id);
+    taskENTER_CRITICAL();
+    if (s_tts_worker_id == job->speech_id) s_tts_worker_id = 0;
+    job->result = result;
+    job->error = error;
+    job->complete = true;
+    taskEXIT_CRITICAL();
+    vTaskDelete(NULL);
+}
+
+static miniapp_tts_job_t *miniapp_tts_take_result(bool frozen)
+{
+    miniapp_tts_job_t *result = NULL;
+    taskENTER_CRITICAL();
+    for (unsigned i = 0; i < MINIAPP_TTS_RESULT_SLOTS; ++i) {
+        miniapp_tts_job_t *job = s_tts_requests[i];
+        if (job && job->complete && (!frozen || job->cancelled ||
+                                    job->generation != s_buzzer_generation)) {
+            result = job;
+            s_tts_requests[i] = NULL;
+            break;
+        }
+    }
+    taskEXIT_CRITICAL();
+    return result;
+}
 
 static void miniapp_set_active(bool active)
 {
@@ -104,11 +263,11 @@ static void miniapp_set_active(bool active)
     s_active = active;
     s_status.active = active;
     service_power_policy_set_miniapp_active(active);
-    if (changed) {
-        /* Mode is captured in the start frame. Stop uploading immediately,
-         * then let the voice task clear pending TTS continuation and finish
-         * the interaction without cancelling its reply. A fresh wakeup uses
-         * the new mode; replacing an active miniapp does not change it. */
+    if (changed || active) {
+        /* Mode and miniapp identity are captured in the start frame. Stop
+         * the current interaction whenever the foreground app changes,
+         * including replacement while miniapp mode is already active. The
+         * next wakeup then creates a start frame with the new identity. */
         if (voice_cloud_is_session_active() || voice_cloud_is_uploading_audio()) {
             if (voice_cloud_chat_stop_local() != 0) {
                 LISA_LOGW(TAG, "failed to stop voice input on miniapp mode change");
@@ -302,6 +461,82 @@ static int miniapp_lua_buzzer_play(lua_State *L)
         miniapp_buzzer_enqueue(&command);
     }
     return 0;
+}
+
+static int miniapp_lua_tts_speak(lua_State *L)
+{
+    miniapp_vm_t *vm = miniapp_vm_get(L);
+    size_t len = 0;
+    const char *text = luaL_checklstring(L, 1, &len);
+    uint32_t speech_id;
+    miniapp_tts_job_t *job;
+
+    if (!len || len > MINIAPP_TTS_TEXT_MAX || memchr(text, '\0', len)) {
+        return luaL_error(L, "text must be 1..%u bytes", MINIAPP_TTS_TEXT_MAX);
+    }
+    if (vm->validating || vm->faulted || vm->retiring) {
+        return luaL_error(L, "tts unavailable during startup or exit");
+    }
+
+    job = lisa_mem_calloc(1, sizeof(*job));
+    if (!job) return luaL_error(L, "not enough memory for TTS request");
+    memcpy(job->text, text, len);
+    job->generation = s_buzzer_generation;
+    taskENTER_CRITICAL();
+    unsigned slot = MINIAPP_TTS_RESULT_SLOTS;
+    for (unsigned i = 0; i < MINIAPP_TTS_RESULT_SLOTS; ++i)
+        if (!s_tts_requests[i]) { slot = i; break; }
+    if (slot == MINIAPP_TTS_RESULT_SLOTS) {
+        taskEXIT_CRITICAL();
+        lisa_mem_free(job);
+        return luaL_error(L, "too many pending TTS results");
+    }
+    speech_id = s_tts_next_id++;
+    if (!speech_id) speech_id = s_tts_next_id++;
+    job->speech_id = speech_id;
+    s_tts_requests[slot] = job;
+    bool worker_busy = s_tts_worker_id != 0;
+    taskEXIT_CRITICAL();
+    if (worker_busy || voice_cloud_is_session_active() || voice_cloud_is_uploading_audio() ||
+        alarm_ring_is_active() || !voice_player_tts_claim(speech_id)) {
+        job->result = "failed";
+        job->error = "busy";
+        job->complete = true;
+    } else {
+        taskENTER_CRITICAL();
+        s_tts_worker_id = speech_id;
+        taskEXIT_CRITICAL();
+        if (xTaskCreate(miniapp_tts_worker, "miniapp.tts", 4096, job, 4, NULL) != pdPASS) {
+            voice_player_tts_cancel_owned(speech_id);
+            voice_player_tts_release_owned(speech_id);
+            s_tts_worker_id = 0;
+            job->result = "failed";
+            job->error = "unavailable";
+            job->complete = true;
+        }
+    }
+    lua_pushinteger(L, speech_id);
+    return 1;
+}
+
+static int miniapp_lua_tts_cancel(lua_State *L)
+{
+    lua_Integer requested = luaL_checkinteger(L, 1);
+    if (requested < 1 || requested > UINT32_MAX) return luaL_error(L, "invalid speech id");
+    bool accepted = false;
+    taskENTER_CRITICAL();
+    for (unsigned i = 0; i < MINIAPP_TTS_RESULT_SLOTS; ++i) {
+        miniapp_tts_job_t *job = s_tts_requests[i];
+        if (job && job->speech_id == requested && job->generation == s_buzzer_generation && !job->cancelled) {
+            job->cancelled = true;
+            accepted = true;
+            break;
+        }
+    }
+    taskEXIT_CRITICAL();
+    if (accepted) voice_player_tts_cancel_owned((uint32_t)requested);
+    lua_pushboolean(L, accepted);
+    return 1;
 }
 
 #if MINIAPP_HAS_BUZZER
@@ -531,6 +766,585 @@ static int miniapp_lua_storage_clear(lua_State *L)
     return miniapp_storage_result(L, miniapp_storage_clear(vm->id));
 }
 
+static bool miniapp_http_is_cancelled(miniapp_http_request_t *request)
+{
+    bool cancelled;
+    bool queued;
+    xSemaphoreTake(s_http_lock, portMAX_DELAY);
+    cancelled = request->cancelled;
+    xSemaphoreGive(s_http_lock);
+    return cancelled;
+}
+
+static void miniapp_http_remove(miniapp_http_request_t *request)
+{
+    xSemaphoreTake(s_http_lock, portMAX_DELAY);
+    for (size_t i = 0; i < MINIAPP_HTTP_MAX_REQUESTS; ++i) {
+        if (s_http_requests[i] == request) s_http_requests[i] = NULL;
+    }
+    xSemaphoreGive(s_http_lock);
+}
+
+static void miniapp_http_free(miniapp_http_request_t *request,
+                              miniapp_http_response_t *response)
+{
+    if (response) {
+        lisa_mem_free(response->body);
+    }
+    if (request) {
+        lisa_mem_free(request->body);
+        lisa_mem_free(request);
+    }
+}
+
+static void miniapp_http_error(miniapp_http_response_t *response, const char *code)
+{
+    response->error = -1;
+    snprintf(response->error_code, sizeof(response->error_code), "%s", code);
+    snprintf(response->error_message, sizeof(response->error_message), "%s", code);
+}
+
+static bool miniapp_http_header(HTTP_SESSION_HANDLE handle, char *name,
+                                char *value, size_t capacity)
+{
+    char line[256];
+    UINT32 length = sizeof(line) - 1;
+    HTTPClientFindFirstHeader(handle, name, line, &length);
+    int rc = HTTPClientGetNextHeader(handle, line, &length);
+    HTTPClientFindCloseHeader(handle);
+    if (rc != HTTP_CLIENT_SUCCESS) return false;
+    char *start = strchr(line, ':');
+    if (!start) return false;
+    do { ++start; } while (*start == ' ' || *start == '\t');
+    size_t size = strcspn(start, "\r\n");
+    while (size && (start[size - 1] == ' ' || start[size - 1] == '\t')) --size;
+    snprintf(value, capacity, "%.*s", (int)size, start);
+    return true;
+}
+
+static UINT32 miniapp_http_timeout(miniapp_http_request_t *request, TickType_t start)
+{
+    uint32_t elapsed = (xTaskGetTickCount() - start) * portTICK_PERIOD_MS;
+    return elapsed < request->timeout_ms ? (request->timeout_ms - elapsed + 999u) / 1000u : 0;
+}
+
+static void miniapp_http_execute(miniapp_http_response_t *response)
+{
+    miniapp_http_request_t *request = response->request;
+    TickType_t started = xTaskGetTickCount();
+    HTTP_SESSION_HANDLE handle = HTTPClientOpenRequest(0);
+    if (!handle) { miniapp_http_error(response, "unavailable"); return; }
+    int rc = HTTPClientSetVerb(handle, request->method == LISA_HTTP_POST ? VerbPost : VerbGet);
+    if (rc != HTTP_CLIENT_SUCCESS) goto done;
+    /* Add headers individually: the SDK's extension callback uses '&' as
+     * a delimiter, which would corrupt otherwise valid header values. */
+    for (char *line = request->headers; *line;) {
+        char *colon = strchr(line, ':');
+        char *end = strstr(line, "\r\n");
+        if (!colon || !end || colon > end) { miniapp_http_error(response, "invalid_argument"); goto done; }
+        *colon = 0;
+        *end = 0;
+        rc = HTTPClientAddRequestHeaders(handle, line, colon + 2, FALSE);
+        *colon = ':';
+        *end = '\r';
+        if (rc != HTTP_CLIENT_SUCCESS) goto done;
+        line = end + 2;
+    }
+    rc = HTTPClientSendRequest(handle, request->url, request->body,
+                              request->body_len, request->method == LISA_HTTP_POST,
+                              miniapp_http_timeout(request, started), 0,
+                              NULL, NULL);
+    if (rc != HTTP_CLIENT_SUCCESS || miniapp_http_is_cancelled(request)) goto done;
+    UINT32 timeout = miniapp_http_timeout(request, started);
+    if (!timeout) { miniapp_http_error(response, "timeout"); goto done; }
+    /* The convenience HTTPC_request follows redirects. Use the same SDK
+     * session directly so 3xx/4xx/5xx are returned to the Lua application. */
+    rc = HTTPClientRecvResponse(handle, timeout);
+    if (rc != HTTP_CLIENT_SUCCESS) goto done;
+    HTTP_CLIENT info;
+    rc = HTTPClientGetInfo(handle, &info);
+    if (rc != HTTP_CLIENT_SUCCESS) goto done;
+    response->status = info.HTTPStatusCode;
+    miniapp_http_header(handle, "Content-Type", response->content_type,
+                        sizeof(response->content_type));
+    if (info.TotalResponseBodyLength > request->max_response_bytes) {
+        miniapp_http_error(response, "response_too_large"); goto done;
+    }
+    char length_header[32];
+    bool empty = miniapp_http_header(handle, "Content-Length", length_header,
+                                     sizeof(length_header)) && !strcmp(length_header, "0");
+    if (empty || response->status == 204 || response->status == 304) goto done;
+    for (;;) {
+        char buffer[513];
+        UINT32 received = 0;
+        timeout = miniapp_http_timeout(request, started);
+        if (!timeout) { miniapp_http_error(response, "timeout"); break; }
+        if (miniapp_http_is_cancelled(request)) break;
+        rc = HTTPClientReadData(handle, buffer, sizeof(buffer) - 1, timeout, &received);
+        if (received > request->max_response_bytes - response->body_len) {
+            miniapp_http_error(response, "response_too_large"); break;
+        }
+        memcpy(response->body + response->body_len, buffer, received);
+        response->body_len += received;
+        response->body[response->body_len] = 0;
+        if (rc == HTTP_CLIENT_EOS || rc != HTTP_CLIENT_SUCCESS) break;
+    }
+done:
+    HTTPClientCloseRequest(&handle);
+    if (!response->error) {
+        if (!miniapp_http_timeout(request, started) || rc == HTTP_CLIENT_ERROR_SOCKET_TIME_OUT)
+            miniapp_http_error(response, "timeout");
+        else if (rc != HTTP_CLIENT_SUCCESS && rc != HTTP_CLIENT_EOS)
+            miniapp_http_error(response, "network_error");
+    }
+}
+
+static void miniapp_http_task(void *argument)
+{
+    (void)argument;
+    for (;;) {
+        miniapp_http_request_t *request = NULL;
+        if (xQueueReceive(s_http_queue, &request, portMAX_DELAY) != pdTRUE || !request) continue;
+        if (miniapp_http_is_cancelled(request)) {
+            miniapp_http_remove(request);
+            miniapp_http_free(request, NULL);
+            continue;
+        }
+        /* The result record was allocated with the accepted request. Even
+         * response-body allocation failure has a durable error result. */
+        miniapp_http_response_t *response = &request->response;
+        response->request = request;
+        response->body = lisa_mem_calloc(1, request->max_response_bytes + 1u);
+        if (!response->body) miniapp_http_error(response, "unavailable");
+        else miniapp_http_execute(response);
+        LISA_LOGI(TAG, "HTTP result id=%u status=%u bytes=%u error=%s",
+                  (unsigned)request->id, response->status,
+                  (unsigned)response->body_len, response->error_code);
+        xSemaphoreTake(s_http_lock, portMAX_DELAY);
+        request->complete = true;
+        xSemaphoreGive(s_http_lock);
+    }
+}
+
+/* Completed results remain owned by their request while the app is frozen. */
+static miniapp_http_response_t *miniapp_http_take_result(miniapp_vm_t *vm, bool frozen)
+{
+    miniapp_http_response_t *result = NULL;
+    xSemaphoreTake(s_http_lock, portMAX_DELAY);
+    for (unsigned i = 0; i < MINIAPP_HTTP_MAX_REQUESTS; ++i) {
+        miniapp_http_request_t *r = s_http_requests[i];
+        if (r && r->complete && (!frozen || r->cancelled || !vm ||
+                                r->generation != vm->http_generation)) {
+            s_http_requests[i] = NULL;
+            result = &r->response;
+            break;
+        }
+    }
+    xSemaphoreGive(s_http_lock);
+    return result;
+}
+
+/* Candidate startup may create requests but cannot send them before commit.
+ * Retiring one VM only cancels requests owned by that instance. */
+static void miniapp_http_discard(miniapp_vm_t *vm)
+{
+    xSemaphoreTake(s_http_lock, portMAX_DELAY);
+    for (size_t i = 0; i < MINIAPP_HTTP_MAX_REQUESTS; ++i) {
+        miniapp_http_request_t *r = s_http_requests[i];
+        if (!r || r->generation != vm->http_generation) continue;
+        r->cancelled = true;
+        if (!r->queued || r->complete) {
+            s_http_requests[i] = NULL;
+            miniapp_http_free(r, &r->response);
+        }
+    }
+    xSemaphoreGive(s_http_lock);
+}
+
+static void miniapp_http_activate(miniapp_vm_t *vm)
+{
+    xSemaphoreTake(s_http_lock, portMAX_DELAY);
+    for (size_t i = 0; i < MINIAPP_HTTP_MAX_REQUESTS; ++i) {
+        miniapp_http_request_t *r = s_http_requests[i];
+        if (!r || r->generation != vm->http_generation || r->queued) continue;
+        /* Registry and worker queue have the same capacity. */
+        r->queued = xQueueSend(s_http_queue, &r, 0) == pdTRUE;
+    }
+    xSemaphoreGive(s_http_lock);
+}
+
+static int miniapp_http_options(lua_State *L, int index, const char *url,
+                                miniapp_http_request_t *request)
+{
+    size_t url_len = strlen(url);
+    if (!url_len || url_len > MINIAPP_HTTP_MAX_URL_BYTES ||
+        (strncmp(url, "http://", 7) && strncmp(url, "https://", 8))) {
+        return luaL_error(L, "invalid http URL");
+    }
+    snprintf(request->url, sizeof(request->url), "%s", url);
+    request->method = LISA_HTTP_GET;
+    request->timeout_ms = MINIAPP_HTTP_DEFAULT_TIMEOUT_MS;
+    request->max_response_bytes = MINIAPP_HTTP_DEFAULT_RESPONSE_BYTES;
+    /* Omitted headers use the SDK defaults without a provider callback. */
+    request->headers[0] = 0;
+    if (index != 0 && !lua_isnoneornil(L, index)) {
+        luaL_checktype(L, index, LUA_TTABLE);
+        lua_getfield(L, index, "method");
+        if (!lua_isnil(L, -1)) {
+            const char *method = luaL_checkstring(L, -1);
+            if (!strcmp(method, "POST")) request->method = LISA_HTTP_POST;
+            else if (strcmp(method, "GET")) { lua_pop(L, 1); return luaL_error(L, "method must be GET or POST"); }
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, index, "timeout_ms");
+        if (!lua_isnil(L, -1)) {
+            lua_Integer value = luaL_checkinteger(L, -1);
+            if (value < 1 || value > MINIAPP_HTTP_MAX_TIMEOUT_MS) { lua_pop(L, 1); return luaL_error(L, "invalid timeout_ms"); }
+            request->timeout_ms = (uint32_t)value;
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, index, "max_response_bytes");
+        if (!lua_isnil(L, -1)) {
+            lua_Integer value = luaL_checkinteger(L, -1);
+            if (value < 1 || value > MINIAPP_HTTP_MAX_RESPONSE_BYTES) { lua_pop(L, 1); return luaL_error(L, "invalid max_response_bytes"); }
+            request->max_response_bytes = (size_t)value;
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, index, "body");
+        if (!lua_isnil(L, -1)) {
+            size_t len = 0;
+            const char *body = luaL_checklstring(L, -1, &len);
+            if (request->method != LISA_HTTP_POST || len > MINIAPP_HTTP_MAX_BODY_BYTES) { lua_pop(L, 1); return luaL_error(L, "body is only valid for POST and must be <= 8192 bytes"); }
+            request->body = lisa_mem_alloc(len + 1u);
+            if (!request->body) { lua_pop(L, 1); return luaL_error(L, "no memory"); }
+            memcpy(request->body, body, len); request->body[len] = '\0'; request->body_len = len;
+        }
+        lua_pop(L, 1);
+        lua_getfield(L, index, "headers");
+        if (!lua_isnil(L, -1)) {
+            luaL_checktype(L, -1, LUA_TTABLE);
+            size_t used = 0, count = 0;
+            lua_pushnil(L);
+            while (lua_next(L, -2) != 0) {
+                size_t key_len = 0, value_len = 0;
+                if (lua_type(L, -2) != LUA_TSTRING) return luaL_error(L, "header names must be strings");
+                const char *key = luaL_checklstring(L, -2, &key_len);
+                const char *value = luaL_checklstring(L, -1, &value_len);
+                if (memchr(key, 0, key_len) || strpbrk(key, "\r\n:") ||
+                    memchr(value, 0, value_len) || strpbrk(value, "\r\n"))
+                    return luaL_error(L, "invalid header characters");
+                size_t add = key_len + value_len + 4u;
+                if (++count > MINIAPP_HTTP_MAX_HEADERS || !key_len || used + add > MINIAPP_HTTP_MAX_HEADER_BYTES) {
+                    lua_pop(L, 2); return luaL_error(L, "invalid headers");
+                }
+                used += (size_t)snprintf(request->headers + used, sizeof(request->headers) - used, "%.*s: %.*s\r\n", (int)key_len, key, (int)value_len, value);
+                lua_pop(L, 1);
+            }
+        }
+        lua_pop(L, 1);
+    }
+    if (request->method == LISA_HTTP_POST && !request->body) {
+        request->body = lisa_mem_calloc(1, 1);
+    }
+    return 0;
+}
+
+static int miniapp_http_options_protected(lua_State *L)
+{
+    miniapp_http_request_t *request = lua_touserdata(L, 1);
+    return miniapp_http_options(L, lua_isnil(L, 2) ? 0 : 2,
+                                lua_tostring(L, 3), request);
+}
+
+static int miniapp_lua_http_request_common(lua_State *L, int url_index, int options_index)
+{
+    miniapp_vm_t *vm = miniapp_vm_get(L);
+    url_index = lua_absindex(L, url_index);
+    size_t url_len;
+    const char *url = luaL_checklstring(L, url_index, &url_len);
+    if (memchr(url, 0, url_len) || strpbrk(url, "\r\n")) return luaL_error(L, "invalid http URL");
+    if (!lua_checkstack(L, 4)) return luaL_error(L, "not enough Lua stack");
+    if (vm->faulted || vm->retiring || !s_http_queue) return luaL_error(L, "http unavailable");
+    miniapp_http_request_t *request = lisa_mem_calloc(1, sizeof(*request));
+    if (!request) return luaL_error(L, "no memory");
+    lua_pushcfunction(L, miniapp_http_options_protected);
+    lua_pushlightuserdata(L, request);
+    if (options_index) lua_pushvalue(L, options_index); else lua_pushnil(L);
+    lua_pushvalue(L, url_index);
+    if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+        miniapp_http_free(request, NULL);
+        return lua_error(L);
+    }
+    xSemaphoreTake(s_http_lock, portMAX_DELAY);
+    size_t slot = MINIAPP_HTTP_MAX_REQUESTS;
+    for (size_t i = 0; i < MINIAPP_HTTP_MAX_REQUESTS; ++i) if (!s_http_requests[i]) { slot = i; break; }
+    if (slot == MINIAPP_HTTP_MAX_REQUESTS) { xSemaphoreGive(s_http_lock); miniapp_http_free(request, NULL); return luaL_error(L, "too many http requests"); }
+    request->id = s_http_next_id++;
+    if (!request->id) request->id = s_http_next_id++;
+    request->generation = vm->http_generation;
+    s_http_requests[slot] = request;
+    xSemaphoreGive(s_http_lock);
+    uint32_t id = request->id;
+    if (!vm->validating) {
+        request->queued = true;
+        if (xQueueSend(s_http_queue, &request, 0) != pdTRUE) {
+            miniapp_http_remove(request); miniapp_http_free(request, NULL);
+            return luaL_error(L, "http queue is busy");
+        }
+    }
+    lua_pushinteger(L, id);
+    return 1;
+}
+
+static int miniapp_lua_http_request(lua_State *L)
+{
+    luaL_checktype(L, 1, LUA_TTABLE);
+    lua_getfield(L, 1, "url");
+    int result = miniapp_lua_http_request_common(L, -1, 1);
+    lua_remove(L, -2); /* remove URL, preserve the returned request ID */
+    return result;
+}
+
+static int miniapp_lua_http_get(lua_State *L)
+{
+    return miniapp_lua_http_request_common(L, 1, lua_isnoneornil(L, 2) ? 0 : 2);
+}
+
+static int miniapp_lua_http_cancel(lua_State *L)
+{
+    uint32_t id = (uint32_t)luaL_checkinteger(L, 1);
+    bool cancelled = false;
+    xSemaphoreTake(s_http_lock, portMAX_DELAY);
+    for (size_t i = 0; i < MINIAPP_HTTP_MAX_REQUESTS; ++i) {
+        miniapp_http_request_t *r = s_http_requests[i];
+        if (r && r->id == id && r->generation == miniapp_vm_get(L)->http_generation && !r->cancelled) {
+            r->cancelled = true;
+            cancelled = true;
+            if (!r->queued) { s_http_requests[i] = NULL; miniapp_http_free(r, NULL); }
+            break;
+        }
+    }
+    xSemaphoreGive(s_http_lock);
+    lua_pushboolean(L, cancelled);
+    return 1;
+}
+
+#define MINIAPP_JSON_MAX_DEPTH 32u
+#define MINIAPP_JSON_MAX_BYTES MINIAPP_LUA_HEAP_LIMIT
+
+static char null_key, array_key;
+typedef struct {
+    cJSON *root;
+    char *printed;
+    const char *error;
+    const void *ancestors[MINIAPP_JSON_MAX_DEPTH + 1];
+    size_t bytes;
+} json_call_t;
+
+static void fill_json(lua_State *L, int index, cJSON *out, json_call_t *c, unsigned depth)
+{
+    index = lua_absindex(L, index);
+    if (!lua_checkstack(L, 6)) { luaL_error(L, "not enough Lua stack"); return; }
+    if (c->bytes > MINIAPP_JSON_MAX_BYTES - 8) { c->error = "too_large"; return; }
+    c->bytes += 8;
+    if (depth > MINIAPP_JSON_MAX_DEPTH) { c->error = "too_deep"; return; }
+    if (lua_type(L, index) == LUA_TLIGHTUSERDATA && lua_touserdata(L, index) == &null_key) {
+        out->type = cJSON_NULL;
+    } else switch (lua_type(L, index)) {
+    case LUA_TBOOLEAN:
+        out->type = lua_toboolean(L, index) ? cJSON_True : cJSON_False;
+        break;
+    case LUA_TNUMBER:
+        if (!isfinite(lua_tonumber(L, index))) { c->error = "invalid_value"; break; }
+        out->type = cJSON_Number;
+        cJSON_SetNumberValue(out, lua_tonumber(L, index));
+        break;
+    case LUA_TSTRING: {
+        size_t len;
+        const char *s = lua_tolstring(L, index, &len);
+        if (memchr(s, 0, len)) { c->error = "invalid_value"; break; }
+        if (len > MINIAPP_JSON_MAX_BYTES - c->bytes) { c->error = "too_large"; break; }
+        c->bytes += len;
+        out->valuestring = cJSON_malloc(len + 1);
+        if (!out->valuestring) { c->error = "unavailable"; break; }
+        memcpy(out->valuestring, s, len + 1);
+        out->type = cJSON_String;
+        break;
+    }
+    case LUA_TTABLE: {
+        const void *identity = lua_topointer(L, index);
+        for (unsigned i = 0; i < depth; ++i) if (c->ancestors[i] == identity) { c->error = "invalid_value"; return; }
+        c->ancestors[depth] = identity;
+        size_t count = 0, largest = 0;
+        bool strings = false, numbers = false, array = false;
+        if (lua_getmetatable(L, index)) {
+            lua_rawgetp(L, LUA_REGISTRYINDEX, &array_key);
+            array = lua_rawequal(L, -1, -2);
+            lua_pop(L, 2);
+        }
+        lua_pushnil(L);
+        while (lua_next(L, index)) {
+            ++count;
+            if (lua_type(L, -2) == LUA_TSTRING) strings = true;
+            else if (lua_isinteger(L, -2) && lua_tointeger(L, -2) > 0 &&
+                     lua_tointeger(L, -2) <= MINIAPP_JSON_MAX_BYTES) {
+                numbers = true;
+                size_t n = (size_t)lua_tointeger(L, -2);
+                if (n > largest) largest = n;
+            } else c->error = "invalid_value";
+            lua_pop(L, 1);
+        }
+        if ((strings && numbers) || (numbers && largest != count)) c->error = "invalid_value";
+        if (c->error) break;
+        array = numbers || (!count && array);
+        out->type = array ? cJSON_Array : cJSON_Object;
+        if (array) {
+            for (size_t i = 1; i <= count && !c->error; ++i) {
+                cJSON *item = cJSON_CreateNull();
+                if (!item || !cJSON_AddItemToArray(out, item)) { cJSON_Delete(item); c->error = "unavailable"; break; }
+                lua_rawgeti(L, index, i);
+                fill_json(L, -1, item, c, depth + 1);
+                lua_pop(L, 1);
+            }
+        } else {
+            lua_pushnil(L);
+            while (!c->error && lua_next(L, index)) {
+                size_t n;
+                const char *key = lua_tolstring(L, -2, &n);
+                if (memchr(key, 0, n)) { c->error = "invalid_value"; break; }
+                if (n > MINIAPP_JSON_MAX_BYTES - c->bytes) { c->error = "too_large"; break; }
+                c->bytes += n;
+                cJSON *item = cJSON_CreateNull();
+                if (!item || !cJSON_AddItemToObject(out, key, item)) { cJSON_Delete(item); c->error = "unavailable"; break; }
+                fill_json(L, -1, item, c, depth + 1);
+                lua_pop(L, 1);
+            }
+        }
+        break;
+    }
+    default: c->error = "invalid_value";
+    }
+}
+
+static void push_json(lua_State *L, const cJSON *item, unsigned depth)
+{
+    if (!lua_checkstack(L, 6)) { luaL_error(L, "not enough Lua stack"); return; }
+    if (cJSON_IsNull(item)) lua_pushlightuserdata(L, &null_key);
+    else if (cJSON_IsBool(item)) lua_pushboolean(L, cJSON_IsTrue(item));
+    else if (cJSON_IsNumber(item)) lua_pushnumber(L, item->valuedouble);
+    else if (cJSON_IsString(item)) lua_pushstring(L, item->valuestring);
+    else {
+        lua_newtable(L);
+        bool array = cJSON_IsArray(item);
+        if (array) { lua_rawgetp(L, LUA_REGISTRYINDEX, &array_key); lua_setmetatable(L, -2); }
+        int n = 1;
+        for (const cJSON *child = item->child; child; child = child->next) {
+            push_json(L, child, depth + 1);
+            if (array) lua_rawseti(L, -2, n++);
+            else lua_setfield(L, -2, child->string);
+        }
+    }
+}
+
+static bool valid_tree(const cJSON *item, unsigned depth, json_call_t *c)
+{
+    if (depth > MINIAPP_JSON_MAX_DEPTH) { c->error = "too_deep"; return false; }
+    if (cJSON_IsNumber(item) && !isfinite(item->valuedouble)) { c->error = "invalid_json"; return false; }
+    for (const cJSON *child = item->child; child; child = child->next) if (!valid_tree(child, depth + 1, c)) return false;
+    return true;
+}
+
+static int json_protected(lua_State *L)
+{
+    json_call_t *c = lua_touserdata(L, 1);
+    if (lua_toboolean(L, 3)) {
+        size_t length;
+        if (lua_type(L, 2) != LUA_TSTRING) { c->error = "invalid_json"; return 0; }
+        const char *text = lua_tolstring(L, 2, &length);
+        if (memchr(text, 0, length)) { c->error = "invalid_json"; return 0; }
+        if (length > MINIAPP_JSON_MAX_BYTES || length > MINIAPP_LUA_HEAP_LIMIT) { c->error = "too_large"; return 0; }
+        /* Bound parser recursion before allocating cJSON nodes. Reject escaped
+         * NUL explicitly: cJSON strings cannot represent embedded NUL bytes. */
+        unsigned depth = 0;
+        bool quoted = false;
+        for (size_t i = 0; i < length; ++i) {
+            if (quoted && text[i] == '\\') {
+                if (length - i >= 6 && !memcmp(text + i, "\\u0000", 6)) { c->error = "invalid_json"; return 0; }
+                ++i;
+            } else if (text[i] == '"') quoted = !quoted;
+            else if (!quoted && (text[i] == '[' || text[i] == '{')) {
+                if (++depth > MINIAPP_JSON_MAX_DEPTH + 1) { c->error = "too_deep"; return 0; }
+            } else if (!quoted && (text[i] == ']' || text[i] == '}') && depth) --depth;
+        }
+        const char *end = NULL;
+        c->root = cJSON_ParseWithLengthOpts(text, length + 1, &end, true);
+        if (!c->root) { c->error = "invalid_json"; return 0; }
+        if (valid_tree(c->root, 0, c)) { push_json(L, c->root, 0); return 1; }
+    } else {
+        c->root = cJSON_CreateNull();
+        if (!c->root) { c->error = "unavailable"; return 0; }
+        fill_json(L, 2, c->root, c, 0);
+        if (c->error) return 0;
+        /* cJSON documents five bytes of extra space for preallocated output. */
+        size_t capacity = c->bytes * 6 + 6;
+        if (capacity > MINIAPP_JSON_MAX_BYTES + 6) capacity = MINIAPP_JSON_MAX_BYTES + 6;
+        c->printed = lisa_mem_alloc(capacity);
+        if (!c->printed) { c->error = "unavailable"; return 0; }
+        if (!cJSON_PrintPreallocated(c->root, c->printed, capacity, false) ||
+            strlen(c->printed) > MINIAPP_JSON_MAX_BYTES || strlen(c->printed) > MINIAPP_LUA_HEAP_LIMIT) {
+            c->error = "too_large"; return 0;
+        }
+        lua_pushstring(L, c->printed);
+        return 1;
+    }
+    return 0;
+}
+
+static int json_call(lua_State *L, bool decode)
+{
+    json_call_t c = {0};
+    lua_pushcfunction(L, json_protected);
+    lua_pushlightuserdata(L, &c);
+    lua_pushvalue(L, 1);
+    lua_pushboolean(L, decode);
+    int result = lua_pcall(L, 3, 1, 0);
+    cJSON_Delete(c.root);
+    lisa_mem_free(c.printed);
+    if (result != LUA_OK) return lua_error(L);
+    if (c.error) { lua_pop(L, 1); lua_pushnil(L); lua_pushstring(L, c.error); return 2; }
+    return 1;
+}
+static int json_encode(lua_State *L) { return json_call(L, false); }
+static int json_decode(lua_State *L) { return json_call(L, true); }
+
+static void miniapp_json_open(lua_State *L)
+{
+    lua_newtable(L);
+    lua_pushliteral(L, "JSON array"); lua_setfield(L, -2, "__metatable");
+    lua_rawsetp(L, LUA_REGISTRYINDEX, &array_key);
+    lua_newtable(L);
+    lua_pushlightuserdata(L, &null_key); lua_setfield(L, -2, "null");
+    lua_pushcfunction(L, json_encode); lua_setfield(L, -2, "encode");
+    lua_pushcfunction(L, json_decode); lua_setfield(L, -2, "decode");
+    lua_setglobal(L, "json");
+}
+
+static void miniapp_lua_http_response(lua_State *L, miniapp_http_response_t *response)
+{
+    lua_pushinteger(L, response->request->id);
+    lua_newtable(L);
+    if (response->error) {
+        lua_newtable(L);
+        lua_pushstring(L, response->error_code[0] ? response->error_code : "network"); lua_setfield(L, -2, "code");
+        lua_pushstring(L, response->error_message[0] ? response->error_message : "缃戠粶璇锋眰澶辫触"); lua_setfield(L, -2, "message");
+        lua_setfield(L, -2, "error");
+    } else {
+        lua_pushinteger(L, response->status); lua_setfield(L, -2, "status");
+        lua_pushstring(L, response->content_type); lua_setfield(L, -2, "content_type");
+        lua_pushlstring(L, response->body ? response->body : "", response->body_len); lua_setfield(L, -2, "body");
+    }
+}
+
 static void miniapp_register_function(lua_State *L, const char *table,
                                       const char *name, lua_CFunction function)
 {
@@ -601,6 +1415,19 @@ static void miniapp_open_safe_libraries(lua_State *L)
     miniapp_register_function(L, "storage", "clear", miniapp_lua_storage_clear);
 
     lua_newtable(L);
+    lua_setglobal(L, "http");
+    miniapp_register_function(L, "http", "request", miniapp_lua_http_request);
+    miniapp_register_function(L, "http", "get", miniapp_lua_http_get);
+    miniapp_register_function(L, "http", "cancel", miniapp_lua_http_cancel);
+
+    miniapp_json_open(L);
+
+    lua_newtable(L);
+    lua_setglobal(L, "tts");
+    miniapp_register_function(L, "tts", "speak", miniapp_lua_tts_speak);
+    miniapp_register_function(L, "tts", "cancel", miniapp_lua_tts_cancel);
+
+    lua_newtable(L);
 #if MINIAPP_HAS_SCREEN
     lua_pushinteger(L, MINIAPP_SCREEN_WIDTH);
     lua_setfield(L, -2, "width");
@@ -659,6 +1486,7 @@ static lua_State *miniapp_vm_create(miniapp_vm_t *vm, bool validating)
 {
     memset(vm, 0, sizeof(*vm));
     vm->limit = MINIAPP_LUA_HEAP_LIMIT;
+    vm->http_generation = ++s_http_generation;
     vm->validating = validating;
     vm->pending_led = -1;
     vm->scene.background = 0;
@@ -698,7 +1526,11 @@ static int miniapp_run_chunk(lua_State *L, miniapp_vm_t *vm,
 typedef struct {
     const char *name;
     const char *button;
+    miniapp_http_response_t *http_response;
     lua_Integer argument;
+    const char *text_argument;
+    const char *error_code;
+    bool result_table;
     int nargs;
 } miniapp_callback_t;
 
@@ -712,8 +1544,25 @@ static int miniapp_callback_protected(lua_State *L)
     if (!lua_isfunction(L, -1)) {
         return luaL_error(L, "%s must be a function", call->name);
     }
-    if (call->button) lua_pushstring(L, call->button);
-    else if (call->nargs) lua_pushinteger(L, call->argument);
+    if (call->http_response) miniapp_lua_http_response(L, call->http_response);
+    else if (call->button) lua_pushstring(L, call->button);
+    else if (call->result_table) {
+        lua_pushinteger(L, call->argument);
+        lua_newtable(L);
+        lua_pushstring(L, call->text_argument);
+        lua_setfield(L, -2, "status");
+        if (call->error_code) {
+            lua_newtable(L);
+            lua_pushstring(L, call->error_code);
+            lua_setfield(L, -2, "code");
+            lua_pushstring(L, call->error_code);
+            lua_setfield(L, -2, "message");
+            lua_setfield(L, -2, "error");
+        }
+    } else if (call->text_argument) {
+        lua_pushinteger(L, call->argument);
+        lua_pushstring(L, call->text_argument);
+    } else if (call->nargs) lua_pushinteger(L, call->argument);
     lua_call(L, call->nargs, 0);
     return 0;
 }
@@ -752,8 +1601,52 @@ static int miniapp_call_button(lua_State *L, miniapp_vm_t *vm, const char *butto
     return miniapp_invoke(L, vm, &call);
 }
 
+static int miniapp_call_http_response(lua_State *L, miniapp_vm_t *vm,
+                                      miniapp_http_response_t *response)
+{
+    miniapp_callback_t call = {.name = "on_http_response", .nargs = 2,
+                               .http_response = response};
+    /* Release admission quota before Lua can chain its next request. */
+    miniapp_http_remove(response->request);
+    int result = miniapp_invoke(L, vm, &call);
+    miniapp_http_free(response->request, response);
+    return result;
+}
+
+static int miniapp_call_tts_result(lua_State *L, miniapp_vm_t *vm,
+                                   uint32_t speech_id, const char *result, const char *error)
+{
+    LISA_LOGI(TAG, "TTS result id=%u status=%s error=%s", (unsigned)speech_id, result, error ? error : "");
+    miniapp_callback_t call = {
+        .name = "on_tts_result",
+        .nargs = 2,
+        .argument = speech_id,
+        .text_argument = result,
+        .error_code = error,
+        .result_table = true,
+    };
+    return miniapp_invoke(L, vm, &call);
+}
+
+static void miniapp_tts_stop(void)
+{
+    uint32_t owner = 0;
+    taskENTER_CRITICAL();
+    for (unsigned i = 0; i < MINIAPP_TTS_RESULT_SLOTS; ++i) {
+        miniapp_tts_job_t *job = s_tts_requests[i];
+        if (job && job->generation == s_buzzer_generation) {
+            job->cancelled = true;
+            if (job->speech_id == s_tts_worker_id) owner = job->speech_id;
+        }
+    }
+    taskEXIT_CRITICAL();
+    if (owner) voice_player_tts_cancel_owned(owner);
+}
+
 static void miniapp_runtime_stop(lua_State **state, miniapp_vm_t *vm, bool navigate_home)
 {
+    miniapp_http_discard(vm);
+    miniapp_tts_stop();
     if (*state) {
         (void)miniapp_call(*state, vm, "on_exit", 0, 0);
         lua_close(*state);
@@ -819,15 +1712,18 @@ static int miniapp_replace(lua_State **current, miniapp_vm_t **current_vm,
     /* The candidate is now usable. Do not run old callbacks with device side
      * effects: they must not clear the new scene or enqueue old sounds. */
     if (*current) {
+        miniapp_tts_stop();
         (*current_vm)->validating = true;
         (*current_vm)->retiring = true;
         (void)miniapp_call(*current, *current_vm, "on_exit", 0, 0);
+        miniapp_http_discard(*current_vm);
         lua_close(*current);
         lisa_mem_free(*current_vm);
     }
     *current = next;
     *current_vm = candidate;
     candidate->validating = false;
+    miniapp_http_activate(candidate);
     if (candidate->storage_pending) {
         const char *error = candidate->storage_pending == 2 ? miniapp_storage_clear(candidate->id) :
             miniapp_storage_save(candidate->id, candidate->storage_data, candidate->storage_size, candidate->storage_ttl);
@@ -860,6 +1756,7 @@ static int miniapp_replace(lua_State **current, miniapp_vm_t **current_vm,
     }
     return 0;
 failed:
+    miniapp_http_discard(candidate);
     lua_close(next);
     lisa_mem_free(candidate);
     return -1;
@@ -874,7 +1771,7 @@ static void miniapp_task(void *argument)
     for (;;) {
         TickType_t now = xTaskGetTickCount();
         TickType_t wait = s_active ? ((int32_t)(next_tick - now) > 0 ? next_tick - now : 0)
-                                  : portMAX_DELAY;
+                                  : pdMS_TO_TICKS(MINIAPP_TICK_MS);
         miniapp_event_t event;
         if (xQueueReceive(s_event_queue, &event, wait) == pdTRUE) {
             if (event.type == MINIAPP_EVENT_INSTALL) {
@@ -901,7 +1798,34 @@ static void miniapp_task(void *argument)
                 miniapp_runtime_stop(&L, vm, true);
                 lisa_mem_free(vm);
                 vm = NULL;
+
             }
+        }
+        miniapp_http_response_t *response;
+        for (unsigned i = 0; i < MINIAPP_HTTP_MAX_REQUESTS &&
+             (response = miniapp_http_take_result(vm, alarm_ring_is_active())) != NULL; ++i) {
+            if (L && vm && response->request->generation == vm->http_generation &&
+                !miniapp_http_is_cancelled(response->request)) {
+                if (miniapp_call_http_response(L, vm, response) != 0) {
+                    miniapp_runtime_stop(&L, vm, true);
+                    lisa_mem_free(vm);
+                    vm = NULL;
+                }
+            } else miniapp_http_free(response->request, response);
+        }
+        miniapp_tts_job_t *tts_result;
+        /* A callback may immediately submit another busy request. Bound each
+         * drain so that callbacks cannot starve ticks or the exit event. */
+        for (unsigned i = 0; i < MINIAPP_TTS_RESULT_SLOTS &&
+             (tts_result = miniapp_tts_take_result(alarm_ring_is_active())) != NULL; ++i) {
+            if (L && !tts_result->cancelled && tts_result->generation == s_buzzer_generation &&
+                miniapp_call_tts_result(L, vm, tts_result->speech_id,
+                                       tts_result->result, tts_result->error) != 0) {
+                miniapp_runtime_stop(&L, vm, true);
+                lisa_mem_free(vm);
+                vm = NULL;
+            }
+            lisa_mem_free(tts_result);
         }
         /* Events must not starve ticks when the input queue remains busy. */
         now = xTaskGetTickCount();
@@ -928,15 +1852,22 @@ int miniapp_init(void)
         return 0;
     }
     s_event_queue = xQueueCreate(8, sizeof(miniapp_event_t));
+    s_http_queue = xQueueCreate(MINIAPP_HTTP_MAX_REQUESTS, sizeof(miniapp_http_request_t *));
+    s_http_lock = xSemaphoreCreateMutex();
 #if MINIAPP_HAS_BUZZER
     s_buzzer_queue = xQueueCreate(4, sizeof(miniapp_buzzer_command_t));
     if (!s_buzzer_queue) {
         goto failed;
     }
 #endif
-    if (!s_event_queue || miniapp_ui_init() != 0) {
+    if (!s_event_queue || !s_http_queue || !s_http_lock || miniapp_ui_init() != 0) {
         goto failed;
     }
+    if (xTaskCreate(miniapp_http_task, "miniapp.http", 4096, NULL, 4,
+                    &s_http_task) != pdPASS) {
+        goto failed;
+    }
+
 #if MINIAPP_HAS_BUZZER
     if (xTaskCreate(miniapp_buzzer_task, "miniapp.buzz", 2048, NULL, 4,
                     &s_buzzer_task) != pdPASS) {
@@ -948,6 +1879,18 @@ int miniapp_init(void)
     }
     return 0;
 failed:
+    if (s_http_task) {
+        vTaskDelete(s_http_task);
+        s_http_task = NULL;
+    }
+    if (s_http_lock) {
+        vSemaphoreDelete(s_http_lock);
+        s_http_lock = NULL;
+    }
+    if (s_http_queue) {
+        vQueueDelete(s_http_queue);
+        s_http_queue = NULL;
+    }
     if (s_buzzer_task) {
         vTaskDelete(s_buzzer_task);
         s_buzzer_task = NULL;
@@ -968,6 +1911,24 @@ bool miniapp_is_active(void) { return s_active; }
 const char *lsc_get_nlu_custom_mode(void)
 {
     return miniapp_is_active() ? "miniapp" : NULL;
+}
+
+bool lsc_get_nlu_custom_miniapp(char *id, size_t id_size,
+                                char *version, size_t version_size)
+{
+    bool active;
+
+    if (!id || !id_size || !version || !version_size) return false;
+    id[0] = '\0';
+    version[0] = '\0';
+    taskENTER_CRITICAL();
+    active = s_active && s_current.id[0] && s_current.version[0];
+    if (active) {
+        snprintf(id, id_size, "%s", s_current.id);
+        snprintf(version, version_size, "%s", s_current.version);
+    }
+    taskEXIT_CRITICAL();
+    return active;
 }
 
 bool miniapp_install_begin(void)

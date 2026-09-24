@@ -28,7 +28,7 @@ static void alarm_success_view_constructor(const lv_obj_class_t *class_p, lv_obj
     lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(obj, 0, LV_PART_MAIN);
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-    
+
     view->title_label = lv_label_create(obj);
     lv_label_set_text(view->title_label, _("Alarm set successfully"));
     lv_obj_set_style_text_color(view->title_label, lv_color_white(), LV_PART_MAIN);

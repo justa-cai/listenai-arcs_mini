@@ -6,6 +6,15 @@ menuconfig MINIAPP
 
 if MINIAPP
 
+config MINIAPP_ADB_DEBUG
+    bool "Start local Lua scripts with adb push"
+    depends on ADB && CHERRYUSB_APP_CLASS && !ADB_SYNC
+    default y
+    help
+      Register a small sync service for /miniapp/<id>.lua only. Receive
+      source in PSRAM and start it without a filesystem or cloud download.
+      Full ADB sync must stay disabled because both use the sync service.
+
 config MINIAPP_SOURCE_MAX_BYTES
     int "Maximum Lua source bytes"
     range 1024 65536
