@@ -1,6 +1,7 @@
 #define TAG "sessions_core"
 
 #include <stdio.h>
+#include <string.h>
 #include "lsc_errno.h"
 #include "lsc_conn.h"
 #include "lsc_common.h"
@@ -20,8 +21,18 @@ __attribute__((weak)) const char *lsc_get_nlu_custom_mode(void)
 	return NULL;
 }
 
+__attribute__((weak)) bool lsc_get_nlu_custom_miniapp(char *id, size_t id_size,
+									char *version, size_t version_size)
+{
+	(void)id;
+	(void)id_size;
+	(void)version;
+	(void)version_size;
+	return false;
+}
+
 /* Set to 1 temporarily when the complete start JSON is needed for debugging. */
-#define LSC_LOG_FULL_START_FRAME 0
+#define LSC_LOG_FULL_START_FRAME 1
 
 typedef struct {
 	SList *slist;
@@ -430,11 +441,17 @@ _err:
 
 static void sessions_core_conn_evt_cb(conn_event_e evt, void *data, uint32_t size, void *usr)
 {
+	sessions_core_t *core = g_sessions_core_obj;
+	if (evt == CONN_DISCONNECTED) {
+		lisa_mutex_lock(core->lock, LISA_WAIT_FOREVER);
+		core->cur_session = NULL;
+		lisa_mutex_unlock(core->lock);
+		return;
+	}
 	if (evt != CONN_DATA_CJSON){
 		return;
 	}
 
-	sessions_core_t *core = g_sessions_core_obj;
 	cJSON *root = (cJSON *)data;
 	CHECK_COND_RETURN(root, "json parse faild");
 
@@ -456,14 +473,15 @@ static void sessions_core_conn_evt_cb(conn_event_e evt, void *data, uint32_t siz
 	}
 
 	char *raw_data = cJSON_PrintUnformatted(root);
-	lisa_evt_publisher_publish(ss->pub, SESSION_RESULT_RAW_DATA, raw_data, strlen(raw_data) + 1);
+	if (raw_data) lisa_evt_publisher_publish(ss->pub, SESSION_RESULT_RAW_DATA, raw_data, strlen(raw_data) + 1);
 	cJSON_free(raw_data);
 
 	cJSON *root_action = cJSON_GetObjectItem(root, "action");
-	CHECK_COND_RETURN(root_action, "no found action(rid:%d)", rid);
+	CHECK_COND_GOTO(cJSON_IsString(root_action) && root_action->valuestring, _err, "no found action(rid:%d)", rid);
 	if (!strcmp(root_action->valuestring, "started")) {
 		lisa_evt_publisher_publish(ss->pub, SESSION_STARTED, NULL, 0);
 	} else if (!strcmp(root_action->valuestring, "finish")) {
+		if (core->cur_session == ss) core->cur_session = NULL;
 		lisa_evt_publisher_publish(ss->pub, SESSION_FINISH, NULL, 0);
 		lisa_timer_stop(ss->timer);
 	} else if (!strcmp(root_action->valuestring, "error")) {
@@ -476,6 +494,7 @@ static void sessions_core_conn_evt_cb(conn_event_e evt, void *data, uint32_t siz
 				lisa_evt_publisher_publish(ss->pub, SESSION_TOKEN_INVALIDATION, NULL, 0);
 			}
 		}
+		if (core->cur_session == ss) core->cur_session = NULL;
 		lisa_evt_publisher_publish(ss->pub, SESSION_ERR_FRAME, NULL, 0);
 		lisa_timer_stop(ss->timer);
 	} else if (!strcmp(root_action->valuestring, "result")) {
@@ -570,6 +589,22 @@ static char *session_build_start_frame(uint32_t rid, session_params_t *cfg, uint
 	if (mode && mode[0] && !cJSON_AddStringToObject(custom, "mode", mode)) {
 		cJSON_Delete(root);
 		return NULL;
+	}
+	if (mode && !strcmp(mode, "miniapp")) {
+		char miniapp_id[128] = {0};
+		char miniapp_version[128] = {0};
+		if (lsc_get_nlu_custom_miniapp(miniapp_id, sizeof(miniapp_id),
+									miniapp_version, sizeof(miniapp_version)) &&
+			miniapp_id[0] && miniapp_version[0]) {
+			cJSON *miniapp = cJSON_CreateObject();
+			if (!miniapp || !cJSON_AddStringToObject(miniapp, "id", miniapp_id) ||
+				!cJSON_AddStringToObject(miniapp, "version", miniapp_version)) {
+				cJSON_Delete(miniapp);
+				cJSON_Delete(root);
+				return NULL;
+			}
+			cJSON_AddItemToObject(custom, "miniapp", miniapp);
+		}
 	}
 
 	/* 添加当前选择的模型ID到请求中 */
@@ -708,7 +743,7 @@ int session_get_config(session_t *hdl, session_params_t *cfg)
 	return LSC_OK;
 }
 
-int session_start_ex(session_t *hdl, char *data, bool preserve_reply_sid)
+static int session_start_locked(session_t *hdl, char *data, bool preserve_reply_sid)
 {
 	sessions_core_t *core = g_sessions_core_obj;
 	uint32_t rid = lisa_rand32();
@@ -734,6 +769,7 @@ int session_start_ex(session_t *hdl, char *data, bool preserve_reply_sid)
 	session_destroy_start_frame(text);
 
 	hdl->rid = rid;
+	core->cur_session = hdl;
 
 	lisa_timer_stop(hdl->timer);
 	if (hdl->params.session_timeout != 0 && hdl->params.full_duplex == false) {
@@ -745,6 +781,31 @@ int session_start_ex(session_t *hdl, char *data, bool preserve_reply_sid)
 	return LSC_OK;
 }
 
+int session_start_ex(session_t *hdl, char *data, bool preserve_reply_sid)
+{
+	sessions_core_t *core = g_sessions_core_obj;
+	lisa_mutex_lock(core->lock, LISA_WAIT_FOREVER);
+	int ret = session_start_locked(hdl, data, preserve_reply_sid);
+	lisa_mutex_unlock(core->lock);
+	return ret;
+}
+
+/* Binary frames have no rid. Send a text start and its body atomically, only
+ * while the transport has no active session. Voice starts may supersede it. */
+int session_start_text_if_idle(session_t *hdl, const char *text)
+{
+	sessions_core_t *core = g_sessions_core_obj;
+	lisa_mutex_lock(core->lock, LISA_WAIT_FOREVER);
+	int ret = LSC_INVALID_STATE;
+	if (!core->cur_session) {
+		ret = session_start_locked(hdl, NULL, false);
+		if (ret == LSC_OK) ret = core->conn->send_bin((const uint8_t *)text, strlen(text) + 1);
+		if (ret != LSC_OK && core->cur_session == hdl) core->cur_session = NULL;
+	}
+	lisa_mutex_unlock(core->lock);
+	return ret;
+}
+
 int session_start(session_t *hdl, char *data)
 {
 	return session_start_ex(hdl, data, false);
@@ -752,16 +813,16 @@ int session_start(session_t *hdl, char *data)
 
 int session_cancel(session_t *hdl)
 {
-#define CANCEL_FORMAT "{\"action\":\"cancel\"}"
 	sessions_core_t *core = g_sessions_core_obj;
-
-	int ret = core->conn->send_text(CANCEL_FORMAT);
-	if (ret) {
-		LISA_NLOGE("send cancle frame faild(ret=%d)", ret);
-		return LSC_ERR;
+	lisa_mutex_lock(core->lock, LISA_WAIT_FOREVER);
+	/* The wire cancel frame is global; a retired handle must not send it. */
+	int ret = LSC_OK;
+	if (core->cur_session == hdl) {
+		ret = core->conn->send_text("{\"action\":\"cancel\"}");
+		core->cur_session = NULL;
 	}
-
-	return LSC_OK;
+	lisa_mutex_unlock(core->lock);
+	return ret == 0 ? LSC_OK : LSC_ERR;
 }
 
 int session_reply_interrupted(session_t *hdl, uint32_t sentence_index,
@@ -826,7 +887,9 @@ int session_send_bin(session_t *hdl, const uint8_t *data, uint32_t size)
 {
 	sessions_core_t *core = g_sessions_core_obj;
 
-	int ret = core->conn->send_bin(data, size);
+	lisa_mutex_lock(core->lock, LISA_WAIT_FOREVER);
+	int ret = core->cur_session == hdl ? core->conn->send_bin(data, size) : LSC_INVALID_STATE;
+	lisa_mutex_unlock(core->lock);
 	if (ret) {
 		LISA_NLOGE("send bin faild(ret=%d)", ret);
 		return LSC_ERR;
@@ -840,7 +903,9 @@ int session_end(session_t *hdl)
 #define END_FORMAT "{\"action\":\"end\"}"
 	sessions_core_t *core = g_sessions_core_obj;
 
-	int ret = core->conn->send_text(END_FORMAT);
+	lisa_mutex_lock(core->lock, LISA_WAIT_FOREVER);
+	int ret = core->cur_session == hdl ? core->conn->send_text(END_FORMAT) : LSC_OK;
+	lisa_mutex_unlock(core->lock);
 	if (ret) {
 		LISA_NLOGE("send end frame faild(ret=%d)", ret);
 		return LSC_ERR;
@@ -854,9 +919,13 @@ static void session_timeout_cb(struct lisa_timer *timer)
 	session_t *session = (session_t *)timer->arg;
 	LISA_NLOGD("ss timeout !");
 	if (session) {
+		sessions_core_t *core = g_sessions_core_obj;
+		lisa_mutex_lock(core->lock, LISA_WAIT_FOREVER);
+		if (core->cur_session == session) core->cur_session = NULL;
 		lisa_evt_publisher_publish(session->pub, SESSION_TIMEOUT, NULL, 0);
 		// invalid rid value
 		session->rid = 0;
+		lisa_mutex_unlock(core->lock);
 	}
 }
 
@@ -894,7 +963,7 @@ session_t *session_create(void)
 	session_t *session = lisa_mem_calloc(1, sizeof(session_t));
 	CHECK_COND_GOTO(session, _err, "no mem");
 
-	_register_session(session);
+	CHECK_COND_GOTO(_register_session(session) == LSC_OK, _err, "register session failed");
 
 	session->pub = lisa_evt_publisher_new();
 	CHECK_COND_GOTO(session->pub, _err, "lisa new publisher faild");
@@ -907,17 +976,10 @@ session_t *session_create(void)
 	return session;
 _err:
 	if (session) {
+		_remove_session(session);
+		if (session->pub) lisa_evt_publisher_destroy(session->pub);
+		if (session->timer) lisa_timer_delete(session->timer);
 		lisa_mem_free(session);
-	}
-
-	_remove_session(session);
-
-	if (session->pub) {
-		lisa_evt_publisher_destroy(session->pub);
-	}
-
-	if (session->timer != NULL) {
-		lisa_timer_delete(session->timer);
 	}
 
 	lisa_mutex_unlock(core->lock);
@@ -950,6 +1012,7 @@ int session_destroy(session_t *hdl)
 	}
 
 	_remove_session(hdl);
+	if (core->cur_session == hdl) core->cur_session = NULL;
 
 	lisa_mem_free(session);
 
@@ -978,7 +1041,7 @@ int sessions_core_init(lsc_conn_t *conn)
 
 	core->lock = lisa_mutex_create();
 
-	core->conn->add_evt_callback(sessions_core_conn_evt_cb, CONN_DATA_CJSON, NULL);
+	core->conn->add_evt_callback(sessions_core_conn_evt_cb, CONN_DATA_CJSON | CONN_DISCONNECTED, NULL);
 
 	g_sessions_core_obj = core;
 

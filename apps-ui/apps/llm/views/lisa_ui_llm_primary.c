@@ -26,10 +26,74 @@ LV_IMG_DECLARE(icons_icon_finger_png);
 
 #define LISA_UI_STATUS_USB_BATTERY_GAP     4
 
+#define LISA_UI_STATUS_ICON_WIFI          (1U << 0)
+#define LISA_UI_STATUS_ICON_DUPLEX        (1U << 1)
+#define LISA_UI_STATUS_ICON_TF            (1U << 2)
+#define LISA_UI_STATUS_ICON_USB           (1U << 3)
+#define LISA_UI_STATUS_ICON_ALARM         (1U << 4)
+#define LISA_UI_STATUS_ICON_BATTERY       (1U << 5)
+#define LISA_UI_STATUS_ICON_ALL           (LISA_UI_STATUS_ICON_WIFI | \
+                                           LISA_UI_STATUS_ICON_DUPLEX | \
+                                           LISA_UI_STATUS_ICON_TF | \
+                                           LISA_UI_STATUS_ICON_USB | \
+                                           LISA_UI_STATUS_ICON_ALARM | \
+                                           LISA_UI_STATUS_ICON_BATTERY)
+
+#if defined(CONFIG_BOARD_ARCS_MINI3) && CONFIG_BOARD_ARCS_MINI3
+#define POWER_KEY_HINT_SIZE 20
+static uint8_t s_power_key_hint_buf[LV_CANVAS_BUF_SIZE_TRUE_COLOR_ALPHA(
+    POWER_KEY_HINT_SIZE, POWER_KEY_HINT_SIZE)];
+#endif
+
 static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p, lv_obj_t *obj);
 static void lisa_ui_llm_primary_align_usb_icon(lisa_ui_llm_primary_t *llm_primary);
 static void lisa_ui_llm_primary_align_status_icon_container(lisa_ui_llm_primary_t *llm_primary);
 static void lisa_ui_llm_primary_reorder_status_icons(lisa_ui_llm_primary_t *llm_primary);
+static uint32_t lisa_ui_llm_primary_status_icons_visibility_get(
+    const lisa_ui_llm_primary_t *llm_primary);
+static void lisa_ui_llm_primary_status_icons_apply_visibility(
+    lisa_ui_llm_primary_t *llm_primary);
+
+lv_obj_t *lisa_ui_llm_primary_power_key_hint_create(lv_obj_t *parent)
+{
+#if !defined(CONFIG_BOARD_ARCS_MINI3) || !CONFIG_BOARD_ARCS_MINI3
+    LV_UNUSED(parent);
+    return NULL;
+#else
+    lv_obj_t *canvas;
+    lv_draw_rect_dsc_t draw_dsc;
+    lv_point_t points[3] = {
+        {POWER_KEY_HINT_SIZE - 1, 0},
+        {POWER_KEY_HINT_SIZE - 1, POWER_KEY_HINT_SIZE - 1},
+        {0, 0},
+    };
+
+    if (!parent) {
+        return NULL;
+    }
+
+    canvas = lv_canvas_create(parent);
+    if (!canvas) {
+        return NULL;
+    }
+
+    lv_canvas_set_buffer(canvas, s_power_key_hint_buf,
+                         POWER_KEY_HINT_SIZE, POWER_KEY_HINT_SIZE,
+                         LV_IMG_CF_TRUE_COLOR_ALPHA);
+    lv_canvas_fill_bg(canvas, lv_color_black(), LV_OPA_TRANSP);
+    lv_draw_rect_dsc_init(&draw_dsc);
+    draw_dsc.bg_color = lv_color_white();
+    draw_dsc.bg_opa = LV_OPA_COVER;
+    lv_canvas_draw_polygon(canvas, points, 3, &draw_dsc);
+
+    lv_obj_set_size(canvas, POWER_KEY_HINT_SIZE, POWER_KEY_HINT_SIZE);
+    lv_obj_clear_flag(canvas, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(canvas, LV_OBJ_FLAG_IGNORE_LAYOUT | LV_OBJ_FLAG_FLOATING);
+    lv_obj_align(canvas, LV_ALIGN_TOP_RIGHT, 0, 0);
+    lv_obj_move_foreground(canvas);
+    return canvas;
+#endif
+}
 
 const lv_obj_class_t lisa_ui_llm_primary_class = {
     .base_class = &lisa_ui_llm_base_class,
@@ -165,6 +229,13 @@ static void lisa_ui_llm_primary_class_constructor(const lv_obj_class_t *class_p,
     // 创建左下角操作提示图标和文本（默认隐藏）
     llm_primary->finger_hint_icon = lv_img_create(obj);
     llm_primary->finger_hint_label = lv_label_create(obj);
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    /* Keep the hint at the physical top-right corner. */
+    llm_primary->power_key_hint = lisa_ui_llm_primary_power_key_hint_create(obj);
+    if (llm_primary->power_key_hint) {
+        lv_obj_align(llm_primary->power_key_hint, LV_ALIGN_TOP_RIGHT, 0, 0);
+    }
+#endif
 
     // 创建内容文本容器（下半部分）
     llm_primary->content_container = lv_obj_create(container);
@@ -187,6 +258,8 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
 
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
     llm_primary->status_icons_usb_first = false;
+    llm_primary->status_icons_visibility = LISA_UI_STATUS_ICON_ALL;
+    llm_primary->status_icons_suppressed = false;
 
 #ifndef CONFIG_BOARD_ARCS_MINI
     // 设置图标初始化和位置（左边）
@@ -272,6 +345,12 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_add_flag(llm_primary->finger_hint_label, LV_OBJ_FLAG_IGNORE_LAYOUT | LV_OBJ_FLAG_FLOATING);
     lv_obj_align_to(llm_primary->finger_hint_label, llm_primary->finger_hint_icon, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
     lv_obj_move_foreground(llm_primary->finger_hint_label);
+
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    if (llm_primary->power_key_hint) {
+        lv_obj_add_flag(llm_primary->power_key_hint, LV_OBJ_FLAG_HIDDEN);
+    }
+#endif
 
     // 设置内容文本容器（放在屏幕底部，不遮挡表情）
     lv_coord_t content_text_height =
@@ -417,8 +496,15 @@ void lisa_ui_llm_primary_set_wifi_img(lv_obj_t *obj, const void *img_path)
     }
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
 
-    if (llm_primary->wifi_icon && img_path) {
-        lv_img_set_src(llm_primary->wifi_icon, img_path);
+    if (!llm_primary->wifi_icon || !img_path) {
+        return;
+    }
+
+    lv_img_set_src(llm_primary->wifi_icon, img_path);
+
+    if (llm_primary->status_icons_suppressed) {
+        llm_primary->status_icons_visibility |= LISA_UI_STATUS_ICON_WIFI;
+        lv_obj_add_flag(llm_primary->wifi_icon, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -435,6 +521,16 @@ void lisa_ui_llm_primary_set_battery_img(lv_obj_t *obj, const void *img_path)
 
     if (img_path) {
         lv_img_set_src(llm_primary->battery_icon, img_path);
+    }
+
+    if (llm_primary->status_icons_suppressed) {
+        if (img_path) {
+            llm_primary->status_icons_visibility |= LISA_UI_STATUS_ICON_BATTERY;
+        } else {
+            llm_primary->status_icons_visibility &= ~LISA_UI_STATUS_ICON_BATTERY;
+        }
+        lv_obj_add_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
+    } else if (img_path) {
         lv_obj_clear_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
@@ -450,6 +546,16 @@ void lisa_ui_llm_primary_set_full_duplex_icon_visible(lv_obj_t *obj, bool visibl
 
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
     if (!llm_primary->full_duplex_icon) {
+        return;
+    }
+
+    if (llm_primary->status_icons_suppressed) {
+        if (visible) {
+            llm_primary->status_icons_visibility |= LISA_UI_STATUS_ICON_DUPLEX;
+        } else {
+            llm_primary->status_icons_visibility &= ~LISA_UI_STATUS_ICON_DUPLEX;
+        }
+        lv_obj_add_flag(llm_primary->full_duplex_icon, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -485,6 +591,16 @@ void lisa_ui_llm_primary_set_tf_card_icon_visible(lv_obj_t *obj, bool visible)
         return;
     }
 
+    if (llm_primary->status_icons_suppressed) {
+        if (visible) {
+            llm_primary->status_icons_visibility |= LISA_UI_STATUS_ICON_TF;
+        } else {
+            llm_primary->status_icons_visibility &= ~LISA_UI_STATUS_ICON_TF;
+        }
+        lv_obj_add_flag(llm_primary->tf_card_icon, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
     if (visible) {
         lv_obj_clear_flag(llm_primary->tf_card_icon, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -500,6 +616,16 @@ void lisa_ui_llm_primary_set_usb_icon_visible(lv_obj_t *obj, bool visible)
 
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
     if (!llm_primary->usb_icon) {
+        return;
+    }
+
+    if (llm_primary->status_icons_suppressed) {
+        if (visible) {
+            llm_primary->status_icons_visibility |= LISA_UI_STATUS_ICON_USB;
+        } else {
+            llm_primary->status_icons_visibility &= ~LISA_UI_STATUS_ICON_USB;
+        }
+        lv_obj_add_flag(llm_primary->usb_icon, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -526,6 +652,16 @@ void lisa_ui_llm_primary_set_alarm_icon_visible(lv_obj_t *obj, bool visible)
 
     lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
     if (!llm_primary->alarm_icon) {
+        return;
+    }
+
+    if (llm_primary->status_icons_suppressed) {
+        if (visible) {
+            llm_primary->status_icons_visibility |= LISA_UI_STATUS_ICON_ALARM;
+        } else {
+            llm_primary->status_icons_visibility &= ~LISA_UI_STATUS_ICON_ALARM;
+        }
+        lv_obj_add_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
@@ -759,4 +895,167 @@ void lisa_ui_llm_primary_finger_hint_hide(lv_obj_t *obj)
 
     lv_obj_add_flag(llm_primary->finger_hint_icon, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(llm_primary->finger_hint_label, LV_OBJ_FLAG_HIDDEN);
+}
+
+static uint32_t lisa_ui_llm_primary_status_icons_visibility_get(
+    const lisa_ui_llm_primary_t *llm_primary)
+{
+    uint32_t visibility = 0;
+
+    if (!llm_primary) {
+        return visibility;
+    }
+
+    if (llm_primary->wifi_icon &&
+        !lv_obj_has_flag(llm_primary->wifi_icon, LV_OBJ_FLAG_HIDDEN)) {
+        visibility |= LISA_UI_STATUS_ICON_WIFI;
+    }
+    if (llm_primary->full_duplex_icon &&
+        !lv_obj_has_flag(llm_primary->full_duplex_icon, LV_OBJ_FLAG_HIDDEN)) {
+        visibility |= LISA_UI_STATUS_ICON_DUPLEX;
+    }
+    if (llm_primary->tf_card_icon &&
+        !lv_obj_has_flag(llm_primary->tf_card_icon, LV_OBJ_FLAG_HIDDEN)) {
+        visibility |= LISA_UI_STATUS_ICON_TF;
+    }
+    if (llm_primary->usb_icon &&
+        !lv_obj_has_flag(llm_primary->usb_icon, LV_OBJ_FLAG_HIDDEN)) {
+        visibility |= LISA_UI_STATUS_ICON_USB;
+    }
+    if (llm_primary->alarm_icon &&
+        !lv_obj_has_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN)) {
+        visibility |= LISA_UI_STATUS_ICON_ALARM;
+    }
+    if (llm_primary->battery_icon &&
+        !lv_obj_has_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN)) {
+        visibility |= LISA_UI_STATUS_ICON_BATTERY;
+    }
+
+    return visibility;
+}
+
+static void lisa_ui_llm_primary_status_icons_apply_visibility(
+    lisa_ui_llm_primary_t *llm_primary)
+{
+    if (!llm_primary) {
+        return;
+    }
+
+#define APPLY_STATUS_ICON_FLAG(icon, mask) \
+    do { \
+        if (llm_primary->icon) { \
+            if ((llm_primary->status_icons_visibility & (mask)) != 0U) { \
+                lv_obj_clear_flag(llm_primary->icon, LV_OBJ_FLAG_HIDDEN); \
+            } else { \
+                lv_obj_add_flag(llm_primary->icon, LV_OBJ_FLAG_HIDDEN); \
+            } \
+        } \
+    } while (0)
+
+    APPLY_STATUS_ICON_FLAG(wifi_icon, LISA_UI_STATUS_ICON_WIFI);
+    APPLY_STATUS_ICON_FLAG(full_duplex_icon, LISA_UI_STATUS_ICON_DUPLEX);
+    APPLY_STATUS_ICON_FLAG(tf_card_icon, LISA_UI_STATUS_ICON_TF);
+    APPLY_STATUS_ICON_FLAG(usb_icon, LISA_UI_STATUS_ICON_USB);
+    APPLY_STATUS_ICON_FLAG(alarm_icon, LISA_UI_STATUS_ICON_ALARM);
+    APPLY_STATUS_ICON_FLAG(battery_icon, LISA_UI_STATUS_ICON_BATTERY);
+
+#undef APPLY_STATUS_ICON_FLAG
+    lisa_ui_llm_primary_reorder_status_icons(llm_primary);
+    lisa_ui_llm_primary_align_status_icon_container(llm_primary);
+}
+
+void lisa_ui_llm_primary_set_status_icons_visible(lv_obj_t *obj, bool visible)
+{
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (!visible) {
+        if (!llm_primary->status_icons_suppressed) {
+            llm_primary->status_icons_visibility =
+                lisa_ui_llm_primary_status_icons_visibility_get(llm_primary);
+            llm_primary->status_icons_suppressed = true;
+        }
+
+        if (llm_primary->wifi_icon) {
+            lv_obj_add_flag(llm_primary->wifi_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (llm_primary->full_duplex_icon) {
+            lv_obj_add_flag(llm_primary->full_duplex_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (llm_primary->tf_card_icon) {
+            lv_obj_add_flag(llm_primary->tf_card_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (llm_primary->usb_icon) {
+            lv_obj_add_flag(llm_primary->usb_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (llm_primary->alarm_icon) {
+            lv_obj_add_flag(llm_primary->alarm_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (llm_primary->battery_icon) {
+            lv_obj_add_flag(llm_primary->battery_icon, LV_OBJ_FLAG_HIDDEN);
+        }
+        lisa_ui_llm_primary_align_status_icon_container(llm_primary);
+        return;
+    }
+
+    if (!llm_primary->status_icons_suppressed) {
+        return;
+    }
+
+    llm_primary->status_icons_suppressed = false;
+    lisa_ui_llm_primary_status_icons_apply_visibility(llm_primary);
+}
+
+void lisa_ui_llm_primary_finger_hint_icon_hide(lv_obj_t *obj)
+{
+#ifndef CONFIG_BOARD_ARCS_MINI3
+    LV_UNUSED(obj);
+    return;
+#else
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (llm_primary->finger_hint_icon) {
+        lv_obj_add_flag(llm_primary->finger_hint_icon, LV_OBJ_FLAG_HIDDEN);
+    }
+#endif
+}
+
+void lisa_ui_llm_primary_power_key_hint_show(lv_obj_t *obj)
+{
+#ifndef CONFIG_BOARD_ARCS_MINI3
+    LV_UNUSED(obj);
+    return;
+#else
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (llm_primary->power_key_hint) {
+        lv_obj_clear_flag(llm_primary->power_key_hint, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(llm_primary->power_key_hint);
+    }
+#endif
+}
+
+void lisa_ui_llm_primary_power_key_hint_hide(lv_obj_t *obj)
+{
+#ifndef CONFIG_BOARD_ARCS_MINI3
+    LV_UNUSED(obj);
+    return;
+#else
+    if (!lisa_ui_llm_primary_is_valid(obj)) {
+        return;
+    }
+
+    lisa_ui_llm_primary_t *llm_primary = (lisa_ui_llm_primary_t *)obj;
+    if (llm_primary->power_key_hint) {
+        lv_obj_add_flag(llm_primary->power_key_hint, LV_OBJ_FLAG_HIDDEN);
+    }
+#endif
 }

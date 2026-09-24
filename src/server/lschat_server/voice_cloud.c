@@ -70,6 +70,7 @@ static uint8_t *voice_cloud_token = NULL;
 static uint8_t full_duplex = 0;
 static volatile uint32_t g_objrec_request_seq = 0;
 static volatile uint32_t g_objrec_accept_seq = 0;
+static volatile bool g_tts_text_cancelled = false;
 
 /* 发起云端交互后延迟多少时间开始发送音频 */
 #define PCM_SEND_AFTER_CLOUD_CHAT_START_MS (0)
@@ -1286,6 +1287,10 @@ static void text_event_cb(session_text_event_e evt, void *data, uint32_t size, v
 {
     switch (evt) {
     case SESSION_TEXT_TTS_URL:
+        if (g_tts_text_cancelled) {
+            LOGI("drop canceled text TTS URL");
+            break;
+        }
         voice_msg_pub(VOICE_MSG_CLOUD_TTS_URL, (char *)data, size);
         break;
     default:
@@ -2018,6 +2023,13 @@ int voice_cloud_tts_synth(const char *txt)
         return -1;
     }
 
+    g_tts_text_cancelled = false;
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
     return session_text_tts_synth(txt);
+}
+
+int voice_cloud_tts_cancel(void)
+{
+    g_tts_text_cancelled = true;
+    return session_text_cancel();
 }

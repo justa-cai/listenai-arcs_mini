@@ -9,6 +9,7 @@ build*/
 tools/tone_tool/output
 tools/tone_tool/tts
 *.lpk
+/arcs_mini*/
 .agents/local/
 listenai-dev-tools/
 tmp/

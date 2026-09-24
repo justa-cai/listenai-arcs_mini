@@ -38,6 +38,9 @@ static cJSON *capabilities_call(const char *id, const char *name, cJSON *args)
     if (!cJSON_AddStringToObject(firmware, "version", PROJECT_VERSION_STR)) {
         goto failed;
     }
+    if (!cJSON_AddBoolToObject(hardware, "network", true)) {
+        goto failed;
+    }
 #ifdef CONFIG_LISA_DISPLAY_DEVICE
     lisa_display_capabilities_t caps;
     lisa_device_t *dev = lisa_device_get("display");
@@ -75,6 +78,28 @@ static cJSON *capabilities_call(const char *id, const char *name, cJSON *args)
     if (!sdk || !cJSON_AddNumberToObject(sdk, "version", MINIAPP_API_VERSION) ||
         !cJSON_AddNumberToObject(sdk, "source_max_bytes", MINIAPP_SOURCE_MAX) ||
         !cJSON_AddNumberToObject(sdk, "heap_max_bytes", MINIAPP_LUA_HEAP_LIMIT)) {
+        goto failed;
+    }
+    cJSON *http = cJSON_AddObjectToObject(sdk, "http");
+    cJSON *tts = cJSON_AddObjectToObject(sdk, "tts");
+    if (!http || !tts) goto failed;
+    cJSON *methods = cJSON_Parse("[\"GET\",\"POST\"]");
+    if (!methods || !cJSON_AddItemToObject(http, "methods", methods)) {
+        cJSON_Delete(methods);
+        goto failed;
+    }
+    if (!cJSON_AddNumberToObject(http, "max_pending", MINIAPP_HTTP_MAX_REQUESTS) ||
+        !cJSON_AddNumberToObject(http, "max_url_bytes", MINIAPP_HTTP_MAX_URL_BYTES) ||
+        !cJSON_AddNumberToObject(http, "max_headers", MINIAPP_HTTP_MAX_HEADERS) ||
+        !cJSON_AddNumberToObject(http, "max_headers_bytes", MINIAPP_HTTP_MAX_HEADER_BYTES) ||
+        !cJSON_AddNumberToObject(http, "max_body_bytes", MINIAPP_HTTP_MAX_BODY_BYTES) ||
+        !cJSON_AddNumberToObject(http, "max_response_bytes", MINIAPP_HTTP_MAX_RESPONSE_BYTES) ||
+        !cJSON_AddNumberToObject(http, "default_response_bytes", MINIAPP_HTTP_DEFAULT_RESPONSE_BYTES) ||
+        !cJSON_AddNumberToObject(http, "max_timeout_ms", MINIAPP_HTTP_MAX_TIMEOUT_MS) ||
+        !cJSON_AddNumberToObject(http, "default_timeout_ms", MINIAPP_HTTP_DEFAULT_TIMEOUT_MS) ||
+        !cJSON_AddNumberToObject(tts, "text_max_bytes", MINIAPP_TTS_TEXT_MAX) ||
+        !cJSON_AddNumberToObject(tts, "max_pending", MINIAPP_TTS_MAX_PENDING) ||
+        !cJSON_AddNumberToObject(tts, "timeout_ms", MINIAPP_TTS_TIMEOUT_MS)) {
         goto failed;
     }
     cJSON *storage = cJSON_AddObjectToObject(sdk, "storage");

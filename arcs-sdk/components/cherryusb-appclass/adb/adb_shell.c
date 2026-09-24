@@ -94,6 +94,9 @@ struct adb_shell_context {
     SemaphoreHandle_t exit_sem;
     SemaphoreHandle_t tx_ready_sem;
     volatile bool closing;
+    bool exit_only;
+    bool output_enabled;
+    char *command;
 };
 
 static bool adb_shell_wait_tx_ready(struct adb_shell_context *ctx)
@@ -126,7 +129,14 @@ static void adb_shell_log_output(const uint8_t *log, uint32_t len, void *data)
 
     struct adb_shell_context *ctx = curr_service->data;
 
-    shellWriteEndLine(&ctx->sh, (char *)log, len);
+    if (ctx->command != NULL) {
+        /* Non-interactive sessions have no input line or prompt to redraw. */
+        if (ctx->output_enabled) {
+            xStreamBufferSend(ctx->tx_stream, log, len, 0);
+        }
+    } else {
+        shellWriteEndLine(&ctx->sh, (char *)log, len);
+    }
 }
 
 /* ---- Early log flush (called after adb_shell backend is registered) ---- */
@@ -211,7 +221,9 @@ static signed short shell_write(char *data, unsigned short size)
         return 0;
     }
     struct adb_shell_context *ctx = curr_service->data;
-    xStreamBufferSend(ctx->tx_stream, data, size, 0);
+    if (ctx->output_enabled) {
+        xStreamBufferSend(ctx->tx_stream, data, size, 0);
+    }
 
     return size;
 }
@@ -231,24 +243,72 @@ static void shell_task_flush_tx(struct adb_shell_context *ctx)
     }
 }
 
+static bool shell_is_exit(const char *command)
+{
+    if (command == NULL) {
+        return false;
+    }
+    command += strspn(command, " \t\r\n");
+    if (strncmp(command, "exit", 4) != 0) {
+        return false;
+    }
+    command += 4;
+    return command[strspn(command, " \t\r\n")] == '\0';
+}
+
 static void shell_task(void *arg)
 {
     struct adb_shell_context *ctx = arg;
 
     vTaskDelay(50 / portTICK_PERIOD_MS);
-    ADB_LOGI("adb shell task start, arg:%p\n", arg);
+    /* Host completion scripts use `adb shell exit` as a liveness probe.
+     * This is an empty session, not a command for the embedded shell. Do not
+     * initialise its prompt or consume/forward the early boot log cache. */
+    if (ctx->exit_only) {
+        if (!ctx->closing) {
+            adb_close(ctx->s->local_id, ctx->s->remote_id);
+        }
+        xSemaphoreGive(ctx->exit_sem);
+        vTaskDelete(NULL);
+        return;
+    }
+    if (ctx->command == NULL) {
+        ADB_LOGI("adb shell task start, arg:%p\n", arg);
+    }
 
     ctx->sh.read = NULL;
     ctx->sh.write = shell_write;
 
+    /* shellInit also writes the greeting/prompt. Suppress just that output
+     * for one-shot commands; direct execution has no keyboard echo. */
+    ctx->output_enabled = ctx->command == NULL;
     shellInit(&ctx->sh, ctx->buf, CONFIG_ADB_SHELL_BUFFER_SIZE);
-    ADB_LOGD("shell init done\n");
+    ctx->output_enabled = true;
 
     lisa_log_backend_add("adb_shell", adb_shell_log_output, NULL);
 
 #if CONFIG_ADB_SHELL_EARLY_LOG
-    early_log_flush();
+    if (ctx->command == NULL) {
+        early_log_flush();
+    }
 #endif
+
+    if (ctx->command != NULL) {
+        char *saveptr;
+        char *token = strtok_r(ctx->command, ";", &saveptr);
+        while (token != NULL && !ctx->closing) {
+            if (shell_is_exit(token)) {
+                break;
+            }
+            shellRunNonInteractive(&ctx->sh, token);
+            shell_task_flush_tx(ctx);
+            token = strtok_r(NULL, ";", &saveptr);
+        }
+        if (adb_shell_wait_tx_ready(ctx)) {
+            adb_close(ctx->s->local_id, ctx->s->remote_id);
+        }
+        goto finished;
+    }
 
     uint8_t ch;
     while (!ctx->closing) {
@@ -268,7 +328,7 @@ static void shell_task(void *arg)
         shell_task_flush_tx(ctx);
     }
 
-    ADB_LOGI("adb shell task exit\n");
+finished:
     lisa_log_backend_remove("adb_shell");
     shellRemove(&ctx->sh);
     xSemaphoreGive(ctx->exit_sem);
@@ -296,6 +356,7 @@ static int adb_shell_close(struct adb_service *s)
         vSemaphoreDelete(ctx->tx_ready_sem);
         vStreamBufferDelete(ctx->rx_stream);
         vStreamBufferDelete(ctx->tx_stream);
+        ADB_FREE(ctx->command);
         ADB_FREE(ctx);
         curr_service = NULL;
         s->data = NULL;
@@ -354,6 +415,7 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
         return -1;
     }
     memset(ctx, 0, sizeof(struct adb_shell_context));
+    ctx->exit_only = shell_is_exit((const char *)args);
 
 
     ADB_LOGI("adb shell open, local_id:%d, remote_id:%d\n", s->local_id, s->remote_id);
@@ -402,6 +464,22 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
         return -1;
     }
 
+    if (args != NULL && args[0] != '\0') {
+        size_t len = strlen((const char *)args);
+        ctx->command = ADB_MALLOC(len + 1);
+        if (ctx->command == NULL) {
+            vStreamBufferDelete(ctx->rx_stream);
+            vStreamBufferDelete(ctx->tx_stream);
+            vSemaphoreDelete(ctx->tx_ready_sem);
+            vSemaphoreDelete(ctx->exit_sem);
+            ADB_FREE(ctx);
+            curr_service = NULL;
+            s->data = NULL;
+            return -1;
+        }
+        memcpy(ctx->command, args, len + 1);
+    }
+
     /* 2048-word stack: `recovery exit` -> boot_control_store_set_recovery()
      * places a 4 KB sector buffer on the stack. */
     BaseType_t xReturn = xTaskCreate(shell_task, "shell_task", 1024 * 2, ctx, CONFIG_ADB_TASK_PRIORITY - 1, &ctx->task);
@@ -410,47 +488,11 @@ static int adb_shell_open(struct adb_service *s, const uint8_t *args)
         vStreamBufferDelete(ctx->tx_stream);
         vSemaphoreDelete(ctx->tx_ready_sem);
         vSemaphoreDelete(ctx->exit_sem);
+        ADB_FREE(ctx->command);
         ADB_FREE(ctx);
         ADB_LOGE("shell task create failed\n");
         curr_service = NULL;
         return -1;
-    }
-
-    if (args) {
-        int len = strlen((char *)args);
-        ADB_LOGI("shell args: %s, len: %d\n", args, len);
-        if (len) {
-            char *token;
-            char *saveptr;
-            char *cmd = ADB_MALLOC(len + 1);
-            if (cmd == NULL) {
-                vTaskDelete(ctx->task);
-                vStreamBufferDelete(ctx->rx_stream);
-                vStreamBufferDelete(ctx->tx_stream);
-                vSemaphoreDelete(ctx->tx_ready_sem);
-                vSemaphoreDelete(ctx->exit_sem);
-                ADB_FREE(ctx);
-                curr_service = NULL;
-                ADB_LOGE("shell cmd alloc failed\n");
-                return -1;
-            }
-            memcpy(cmd, args, len);
-            cmd[len] = '\0';
-            token = strtok_r(cmd, ";", &saveptr);
-
-            uint8_t c;
-            while (token != NULL) {
-                ADB_LOGI("shell cmd: %s\n", token);
-                size_t token_len = strlen(token);
-                xStreamBufferSend(ctx->rx_stream, token, token_len, portMAX_DELAY);
-                c = '\r';
-                xStreamBufferSend(ctx->rx_stream, &c, 1, portMAX_DELAY);
-                token = strtok_r(NULL, ";", &saveptr);
-            }
-            ADB_FREE(cmd);
-            c = ETX;
-            xStreamBufferSend(ctx->rx_stream, &c, 1, portMAX_DELAY);
-        }
     }
 
     return 0;
@@ -500,7 +542,10 @@ static int adb_shell_write(struct adb_service *s, adb_packet_t *p)
             adb_packet_free(p);
             return -1;
         }
-        xStreamBufferSend(ctx->rx_stream, &data[i], 1, portMAX_DELAY);
+        /* One-shot execution does not consume interactive keyboard input. */
+        if (ctx->command == NULL) {
+            xStreamBufferSend(ctx->rx_stream, &data[i], 1, portMAX_DELAY);
+        }
     }
 
     adb_packet_free(p);

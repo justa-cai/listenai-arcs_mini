@@ -22,7 +22,9 @@ static void _freertos_timer_callback(TimerHandle_t xTimer)
 lisa_timer_t *lisa_timer_create(uint32_t period_ms, lisa_timercb_t cb, void *arg)
 {
     lisa_timer_t *timer = (lisa_timer_t *)lisa_mem_alloc(sizeof(lisa_timer_t));
-    assert(timer != NULL);
+    if (timer == NULL) {
+        return NULL;
+    }
 
     timer->handle =
         xTimerCreate("LISA-TIMER", period_ms / portTICK_PERIOD_MS, (UBaseType_t)0, timer, _freertos_timer_callback);

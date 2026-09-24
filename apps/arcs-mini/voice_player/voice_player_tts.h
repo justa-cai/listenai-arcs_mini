@@ -46,3 +46,16 @@ bool voice_player_tts_replay_prepared(void);
 
 /** @brief 查询是否存在已入队、正在预取或正在播放的 TTS 请求。 */
 bool voice_player_tts_is_active(void);
+
+/* Owned playback shares the same player but never cancels another owner. */
+typedef enum {
+    VOICE_TTS_OWNED_PENDING,
+    VOICE_TTS_OWNED_COMPLETED,
+    VOICE_TTS_OWNED_FAILED,
+    VOICE_TTS_OWNED_INTERRUPTED,
+} voice_tts_owned_result_t;
+bool voice_player_tts_claim(uint32_t owner);
+bool voice_player_tts_play_owned(uint32_t owner, const char *url);
+void voice_player_tts_cancel_owned(uint32_t owner);
+voice_tts_owned_result_t voice_player_tts_owned_result(uint32_t owner);
+void voice_player_tts_release_owned(uint32_t owner);

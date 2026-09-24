@@ -13,12 +13,21 @@
 
 #define INSTALL_NAME "ls.built_in.miniapp_install"
 #define INSTALL_CALL_ID_MAX 127
+#define DEVICE_CONTROL_NAME "ls.built_in.device_control"
+#define BRIGHTNESS_CONTROL_NAME "ls.display_set_brightness"
+#define VOLUME_CONTROL_NAME "ls.set_volume"
+#define DUPLEX_SWITCH_NAME "ls.built_in.switch_full_duplex_v2"
 
 bool app_mcp_tool_call_allowed(const char *name)
 {
     return !miniapp_is_active() || (name &&
            (strcmp(name, INSTALL_NAME) == 0 ||
-            strcmp(name, "ls.built_in.get_device_capabilities") == 0));
+            strcmp(name, "ls.built_in.miniapp_exit") == 0 ||
+            strcmp(name, "ls.built_in.get_device_capabilities") == 0 ||
+            strcmp(name, DEVICE_CONTROL_NAME) == 0 ||
+            strcmp(name, BRIGHTNESS_CONTROL_NAME) == 0 ||
+            strcmp(name, VOLUME_CONTROL_NAME) == 0 ||
+            strcmp(name, DUPLEX_SWITCH_NAME) == 0));
 }
 
 typedef struct {
@@ -27,7 +36,7 @@ typedef struct {
     char url[HTTP_CLIENT_MAX_URL_LENGTH];
 } install_job_t;
 
-static cJSON *miniapp_list(const char *name)
+static cJSON *miniapp_install_list(const char *name)
 {
     (void)name;
     cJSON *tool = cJSON_Parse(
@@ -186,7 +195,7 @@ static void install_worker(void *argument)
     vTaskDelete(NULL);
 }
 
-static cJSON *miniapp_call_tool(const char *id, const char *name, cJSON *args)
+static cJSON *miniapp_install_call(const char *id, const char *name, cJSON *args)
 {
     if (!id || !id[0] || strlen(id) > INSTALL_CALL_ID_MAX || !cJSON_IsObject(args)) {
         return miniapp_mcp_result(name, "invalid call ID or arguments", true);
@@ -230,4 +239,39 @@ static cJSON *miniapp_call_tool(const char *id, const char *name, cJSON *args)
     return NULL; /* Async response after download, verification and startup. */
 }
 
-MCP_TOOL_DEFINE(ls.built_in.miniapp_install, miniapp_list, miniapp_call_tool);
+MCP_TOOL_DEFINE(ls.built_in.miniapp_install, miniapp_install_list, miniapp_install_call);
+
+static cJSON *miniapp_exit_list(const char *name)
+{
+    cJSON *tool = mcp_tool_list_info_create_default(name,
+        "退出当前运行的小应用并返回桌面。用户要求退出小应用、关闭小游戏或返回桌面时调用。"
+        "无需参数；没有小应用运行时不执行操作。不删除小应用存档，不用于退出普通语音对话。");
+    if (!tool) {
+        return NULL;
+    }
+    cJSON *schema = cJSON_GetObjectItemCaseSensitive(tool, "inputSchema");
+    /* The common helper supplies this value as a string; use a JSON boolean. */
+    cJSON_DeleteItemFromObjectCaseSensitive(schema, "additionalProperties");
+    if (!cJSON_AddBoolToObject(schema, "additionalProperties", false)) {
+        cJSON_Delete(tool);
+        return NULL;
+    }
+    return tool;
+}
+
+static cJSON *miniapp_exit_call(const char *id, const char *name, cJSON *args)
+{
+    (void)id;
+    /* MCP permits omitting arguments for tools without parameters. */
+    if (args && (!cJSON_IsObject(args) || cJSON_GetArraySize(args) != 0)) {
+        return miniapp_mcp_result(name, "miniapp_exit takes no arguments", true);
+    }
+    if (!miniapp_is_active()) {
+        return miniapp_mcp_result(name, "no miniapp is running", false);
+    }
+    bool accepted = miniapp_exit() == 0;
+    return miniapp_mcp_result(name, accepted ? "miniapp exit requested" :
+                             "failed to request miniapp exit", !accepted);
+}
+
+MCP_TOOL_DEFINE(ls.built_in.miniapp_exit, miniapp_exit_list, miniapp_exit_call);

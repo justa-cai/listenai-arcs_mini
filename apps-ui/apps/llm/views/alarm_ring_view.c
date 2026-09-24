@@ -7,6 +7,9 @@
 #include "lisa_ui.h"
 #include "lisa_ui_assets.h"
 #include "lisa_ui_fonts.h"
+#ifdef CONFIG_BOARD_ARCS_MINI3
+#include "lisa_ui_llm_primary.h"
+#endif
 #include <stdio.h>
 
 #define TAG "alarm_ring_view"
@@ -27,6 +30,7 @@ typedef struct {
     lv_obj_t *text_label;
     lv_obj_t *finger_icon;
     lv_obj_t *hint_label;
+    lv_obj_t *power_key_hint;
     lv_obj_t *ring_icon;
     lv_obj_t *stop_btn;
     lv_obj_t *toast_obj;
@@ -229,6 +233,13 @@ static void alarm_ring_view_constructor(const lv_obj_class_t *class_p, lv_obj_t 
     }
     lv_img_set_src(view->finger_icon, &icons_icon_finger_png);
     lv_obj_align(view->finger_icon, LV_ALIGN_BOTTOM_LEFT, 0, -10);
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    lv_obj_add_flag(view->finger_icon, LV_OBJ_FLAG_HIDDEN);
+#endif
+
+#ifdef CONFIG_BOARD_ARCS_MINI3
+    view->power_key_hint = lisa_ui_llm_primary_power_key_hint_create(obj);
+#endif
 
     /* 创建提示文本 - 在手指图标右侧 */
     view->hint_label = lv_label_create(obj);

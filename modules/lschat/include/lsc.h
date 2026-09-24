@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include "lisa/ultis.h"
@@ -17,6 +18,10 @@ extern "C" {
 /* Optional application policy for each start frame. Return a static string or
  * NULL to omit nlu_properties.custom.mode. Called from the session task. */
 const char *lsc_get_nlu_custom_mode(void);
+
+/* Copy the foreground miniapp identity for the current start frame. */
+bool lsc_get_nlu_custom_miniapp(char *id, size_t id_size,
+					char *version, size_t version_size);
 
 /* clang-format off */
 #define STRINGS_LSC_EVT(evt)                                             	\

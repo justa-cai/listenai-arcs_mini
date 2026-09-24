@@ -239,7 +239,7 @@ int session_text_cancel(void)
 	session_text_t *obj = g_session_text_obj;
 	CHECK_COND_RETURN_VAL(obj, LSC_INVALID_STATE, "not init");
 
-	return LSC_OK;
+	return session_cancel(obj->ss);
 }
 
 int session_text_send(char *txt)
