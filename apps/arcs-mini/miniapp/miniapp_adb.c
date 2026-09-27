@@ -15,6 +15,7 @@
 #define TAG "miniapp.adb"
 #define SYNC_ID(a, b, c, d) ((uint32_t)(a) | (uint32_t)(b) << 8 | (uint32_t)(c) << 16 | (uint32_t)(d) << 24)
 #define SYNC_STAT SYNC_ID('S', 'T', 'A', 'T')
+#define SYNC_RECV           SYNC_ID('R', 'E', 'C', 'V')
 #define SYNC_SEND SYNC_ID('S', 'E', 'N', 'D')
 #define SYNC_DATA SYNC_ID('D', 'A', 'T', 'A')
 #define SYNC_DONE SYNC_ID('D', 'O', 'N', 'E')
@@ -36,6 +37,10 @@ typedef struct {
     char path[UPLOAD_PATH_MAX + 1];
     miniapp_package_t package;
     char *source;
+    miniapp_source_t *snapshot;
+    size_t read_offset;
+    bool downloading, waiting_ack;
+    uint8_t *download_packet;
 } miniapp_adb_t;
 
 static bool s_connection_open;
@@ -65,7 +70,11 @@ static void context_unref(miniapp_adb_t *ctx)
     taskENTER_CRITICAL();
     bool last = --ctx->refs == 0;
     taskEXIT_CRITICAL();
-    if (last) lisa_mem_free(ctx);
+    if (last) {
+        miniapp_source_release(ctx->snapshot);
+        lisa_mem_free(ctx->download_packet);
+        lisa_mem_free(ctx);
+    }
 }
 
 static void reply(miniapp_adb_t *ctx, uint32_t id, const char *error)
@@ -154,6 +163,39 @@ static void finish_upload(miniapp_adb_t *ctx)
     }
 }
 
+/* The ADB ready callback paces one DATA packet per host acknowledgement.
+ * All download state belongs to the receive task; no worker or full-file
+ * copy is needed. Keep a snapshot until CLSE, including during replacement. */
+static void download_next(miniapp_adb_t *ctx)
+{
+    uint8_t *packet = ctx->download_packet;
+    size_t size;
+    const char *data = miniapp_source_data(ctx->snapshot, &size);
+    size_t count = size - ctx->read_offset;
+    if (count > 1024 - 8) {
+        count = 1024 - 8;
+    }
+    if (count > MAX_PAYLOAD - 8) {
+        count = MAX_PAYLOAD - 8;
+    }
+    write_u32(packet, count ? SYNC_DATA : SYNC_DONE);
+    write_u32(packet + 4, count);
+    if (count) {
+        memcpy(packet + 8, data + ctx->read_offset, count);
+    }
+    ctx->read_offset += count;
+    ctx->waiting_ack = count != 0;
+    adb_write(ctx->local_id, ctx->remote_id, packet, count + 8);
+}
+
+static void local_sync_ready(struct adb_service *service)
+{
+    miniapp_adb_t *ctx = service->data;
+    if (ctx->downloading && ctx->waiting_ack) {
+        download_next(ctx);
+    }
+}
+
 static void path_received(miniapp_adb_t *ctx)
 {
     ctx->path[ctx->path_size] = '\0';
@@ -167,8 +209,40 @@ static void path_received(miniapp_adb_t *ctx)
         if (!strcmp(ctx->path, "/miniapp") || !strcmp(ctx->path, "/miniapp/")) {
             write_u32(stat + 4, 0040755); /* virtual directory */
         }
-        /* Scripts are transient: do not advertise a cached file for --sync. */
+        if (!strcmp(ctx->path, "/miniapp/miniapp.lua")) {
+            if (!ctx->snapshot) {
+                ctx->snapshot = miniapp_source_acquire();
+            }
+            if (ctx->snapshot) {
+                size_t size;
+                (void)miniapp_source_data(ctx->snapshot, &size);
+                write_u32(stat + 4, 0100444);
+                write_u32(stat + 8, size);
+            }
+        }
+        /* Other paths are upload entrances, not stored files. */
         adb_write(ctx->local_id, ctx->remote_id, stat, sizeof(stat));
+        return;
+    }
+    if (ctx->command == SYNC_RECV) {
+        if (strcmp(ctx->path, "/miniapp/miniapp.lua")) {
+            fail(ctx, "use adb pull /miniapp/miniapp.lua <local path>");
+            return;
+        }
+        if (!ctx->snapshot) {
+            ctx->snapshot = miniapp_source_acquire();
+        }
+        if (!ctx->snapshot) {
+            fail(ctx, "no miniapp is running");
+            return;
+        }
+        ctx->download_packet = lisa_mem_alloc(1024);
+        if (!ctx->download_packet) {
+            fail(ctx, "not enough memory for download");
+            return;
+        }
+        ctx->downloading = true;
+        download_next(ctx);
         return;
     }
     char *mode = strrchr(ctx->path, ',');
@@ -194,7 +268,7 @@ static void header_received(miniapp_adb_t *ctx)
     ctx->command = read_u32(ctx->header);
     uint32_t size = read_u32(ctx->header + 4);
     ctx->header_size = 0;
-    if (!ctx->receiving && (ctx->command == SYNC_STAT || ctx->command == SYNC_SEND)) {
+    if (!ctx->receiving && (ctx->command == SYNC_STAT || ctx->command == SYNC_SEND || ctx->command == SYNC_RECV)) {
         if (!size || size > UPLOAD_PATH_MAX) fail(ctx, "path too long or empty");
         else { ctx->remaining = size; ctx->path_size = 0; }
     } else if (ctx->receiving && ctx->command == SYNC_DATA) {
@@ -216,7 +290,7 @@ static void header_received(miniapp_adb_t *ctx)
         upload_release(ctx);
         adb_close(ctx->local_id, ctx->remote_id);
     } else {
-        fail(ctx, "unsupported sync request; use adb push to /miniapp/<id>.lua");
+        fail(ctx, "unsupported sync request; use adb push or pull under /miniapp");
     }
 }
 
@@ -228,7 +302,7 @@ static int local_sync_write(struct adb_service *service, adb_packet_t *packet)
     /* One file per connection. The normal client sends QUIT before CLSE.
      * Accept even a fragmented QUIT; reject a second upload, which otherwise
      * would wait forever for a result that will never be produced. */
-    if (ctx->installing) {
+    if (ctx->installing || ctx->downloading) {
         uint32_t n = sizeof(ctx->header) - ctx->header_size;
         if (size > n) {
             adb_packet_free(packet);
@@ -248,7 +322,7 @@ static int local_sync_write(struct adb_service *service, adb_packet_t *packet)
         adb_packet_free(packet);
         return -1;
     }
-    while (size && !ctx->failed && !ctx->installing) {
+    while (size && !ctx->failed && !ctx->installing && !ctx->downloading) {
         uint32_t n;
         if (!ctx->remaining) {
             n = sizeof(ctx->header) - ctx->header_size;
@@ -302,8 +376,11 @@ static int local_sync_close(struct adb_service *service)
 }
 
 static const struct adb_service_handle s_local_sync = {
-    .name = (uint8_t *)"sync", .open = local_sync_open,
-    .close = local_sync_close, .write = local_sync_write,
+    .name = (uint8_t *)"sync",
+    .open = local_sync_open,
+    .close = local_sync_close,
+    .write = local_sync_write,
+    .ready = local_sync_ready,
 };
 
 static int miniapp_adb_init(void)

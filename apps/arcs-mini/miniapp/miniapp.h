@@ -106,6 +106,13 @@ typedef struct {
 } miniapp_package_t;
 
 #ifdef CONFIG_MINIAPP
+#ifdef CONFIG_MINIAPP_ADB_DEBUG
+/* Immutable source snapshot; acquire/release may span replacement or exit. */
+typedef struct miniapp_source miniapp_source_t;
+miniapp_source_t *miniapp_source_acquire(void);
+void miniapp_source_release(miniapp_source_t *source);
+const char *miniapp_source_data(const miniapp_source_t *source, size_t *size);
+#endif
 int miniapp_init(void);
 bool miniapp_is_active(void);
 int miniapp_button_click(const char *button_id);

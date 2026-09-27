@@ -154,6 +154,54 @@ static uint32_t s_tts_next_id = 1;
 static uint32_t s_tts_worker_id;
 static miniapp_tts_job_t *s_tts_requests[MINIAPP_TTS_RESULT_SLOTS];
 
+#ifdef CONFIG_MINIAPP_ADB_DEBUG
+struct miniapp_source {
+    unsigned refs;
+    size_t size;
+    char data[];
+};
+static miniapp_source_t *s_source;
+
+miniapp_source_t *miniapp_source_acquire(void)
+{
+    taskENTER_CRITICAL();
+    miniapp_source_t *source = s_active ? s_source : NULL;
+    if (source) {
+        ++source->refs;
+    }
+    taskEXIT_CRITICAL();
+    return source;
+}
+
+void miniapp_source_release(miniapp_source_t *source)
+{
+    if (!source) {
+        return;
+    }
+    taskENTER_CRITICAL();
+    bool last = --source->refs == 0;
+    taskEXIT_CRITICAL();
+    if (last) {
+        lisa_mem_free(source);
+    }
+}
+
+const char *miniapp_source_data(const miniapp_source_t *source, size_t *size)
+{
+    *size = source->size;
+    return source->data;
+}
+
+static void miniapp_source_replace(miniapp_source_t *source)
+{
+    taskENTER_CRITICAL();
+    miniapp_source_t *previous = s_source;
+    s_source = source;
+    taskEXIT_CRITICAL();
+    miniapp_source_release(previous);
+}
+#endif
+
 static void miniapp_tts_cloud_event(sessions_event_e event, void *data, uint32_t size, void *user)
 {
     miniapp_tts_job_t *job = user;
@@ -1655,6 +1703,9 @@ static void miniapp_runtime_stop(lua_State **state, miniapp_vm_t *vm, bool navig
     ++s_buzzer_generation;
     service_led_off();
     miniapp_set_active(false);
+#ifdef CONFIG_MINIAPP_ADB_DEBUG
+    miniapp_source_replace(NULL);
+#endif
     taskENTER_CRITICAL();
     memset(&s_current, 0, sizeof(s_current));
     taskEXIT_CRITICAL();
@@ -1683,6 +1734,16 @@ static int miniapp_replace(lua_State **current, miniapp_vm_t **current_vm,
         lisa_mem_free(candidate);
         return -1;
     }
+#ifdef CONFIG_MINIAPP_ADB_DEBUG
+    miniapp_source_t *source = lisa_mem_alloc(sizeof(*source) + request->package->size);
+    if (!source) {
+        snprintf(request->error, sizeof(request->error), "not enough memory for source snapshot");
+        goto failed;
+    }
+    source->refs = 1;
+    source->size = request->package->size;
+    memcpy(source->data, request->source, source->size);
+#endif
     snprintf(candidate->id, sizeof(candidate->id), "%s", request->package->id);
     if (miniapp_run_chunk(next, candidate, request->source, request->package->size,
                          request->error, sizeof(request->error)) != 0) {
@@ -1741,6 +1802,9 @@ static int miniapp_replace(lua_State **current, miniapp_vm_t **current_vm,
     memset(&s_status, 0, sizeof(s_status));
     s_status.installed = true;
     s_status.source_size = request->package->size;
+#ifdef CONFIG_MINIAPP_ADB_DEBUG
+    miniapp_source_replace(source);
+#endif
     miniapp_set_active(true);
     if (candidate->pending_led == 1) service_led_on();
     if (candidate->pending_led == 2) service_led_blink(candidate->led_on_ms, candidate->led_off_ms);
@@ -1756,6 +1820,9 @@ static int miniapp_replace(lua_State **current, miniapp_vm_t **current_vm,
     }
     return 0;
 failed:
+#ifdef CONFIG_MINIAPP_ADB_DEBUG
+    miniapp_source_release(source);
+#endif
     miniapp_http_discard(candidate);
     lua_close(next);
     lisa_mem_free(candidate);
