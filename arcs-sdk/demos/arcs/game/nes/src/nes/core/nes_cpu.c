@@ -1037,43 +1037,24 @@ static inline void nes_branch(nes_t* nes,const uint16_t address) {
 #if CONFIG_NES_FAST_CPU_BRANCH
 static inline void NES_CPU_BRANCH_TEXT nes_branch_fast(nes_t* nes, const uint8_t branch, const uint16_t ticks)
 {
-    const uint16_t opcode_pc = (uint16_t)(nes->nes_cpu.PC - 1U);
+    (void)ticks;
     const int8_t offset = (int8_t)nes_fetch_cpu(nes);
     nes->nes_cpu.cycles += 2;
     if (branch) {
         const uint16_t pc_old = nes->nes_cpu.PC;
         const uint16_t target = (uint16_t)(pc_old + offset);
-        const uint16_t page_cross = (uint16_t)((target ^ pc_old) >> 8);
+        /* 注意: 跨页判定必须转成 0/1。(target ^ pc_old) >> 8 是异或掩码,
+           相邻页号非单比特差异时(如 FD->FE 为 3)直接累加会多收周期,
+           导致 CPU 时序系统性变慢, 游戏 vblank/NMI 时序错乱(花屏)。 */
+        const uint16_t page_cross = ((((uint16_t)(target ^ pc_old)) >> 8) != 0U) ? 1U : 0U;
         nes->nes_cpu.PC = target;
         nes->nes_cpu.cycles += (uint16_t)(1U + page_cross);
-
-        uint16_t loop_cycles = 0;
-        if (target >= 0x8000U) {
-            const uint16_t loop_bytes = (uint16_t)(opcode_pc - target);
-            if (loop_bytes == 2U && nes_read_prg(nes, target) == 0xA5U) {
-                loop_cycles = (uint16_t)(6U + page_cross);
-            } else if (loop_bytes == 3U) {
-                const uint8_t target_opcode = nes_read_prg(nes, target);
-                if ((target_opcode == 0xADU || target_opcode == 0x2CU) &&
-                    nes_read_prg(nes, (uint16_t)(target + 1U)) == 0x02U &&
-                    nes_read_prg(nes, (uint16_t)(target + 2U)) == 0x20U) {
-                    loop_cycles = (uint16_t)(7U + page_cross);
-                }
-            }
-        }
-        if (loop_cycles != 0U) {
-            if (ticks > nes->nes_cpu.cycles) {
-                const uint16_t remaining = (uint16_t)(ticks - nes->nes_cpu.cycles);
-                const uint16_t loops = (uint16_t)((remaining + loop_cycles - 1U) / loop_cycles);
-                nes->nes_cpu.cycles = (uint16_t)(nes->nes_cpu.cycles + (uint16_t)(loops * loop_cycles));
-            }
-        }
     }
 }
 
 static inline void NES_CPU_BRANCH_TEXT nes_branch_bne_fast(nes_t* nes, const uint16_t ticks)
 {
-    const uint16_t opcode_pc = (uint16_t)(nes->nes_cpu.PC - 1U);
+    (void)ticks;
     const int8_t offset = (int8_t)nes_fetch_cpu(nes);
     nes->nes_cpu.cycles += 2;
     if ((NES_CPU_P & (uint8_t)NES_FLAG_Z) != 0U) {
@@ -1082,86 +1063,11 @@ static inline void NES_CPU_BRANCH_TEXT nes_branch_bne_fast(nes_t* nes, const uin
 
     const uint16_t pc_old = nes->nes_cpu.PC;
     const uint16_t target = (uint16_t)(pc_old + offset);
-    const uint16_t page_cross = (uint16_t)((target ^ pc_old) >> 8);
+    /* 同 nes_branch_fast: 跨页判定必须转成 0/1, 异或掩码直接累加会多收周期 */
+    const uint16_t page_cross = ((((uint16_t)(target ^ pc_old)) >> 8) != 0U) ? 1U : 0U;
     nes->nes_cpu.PC = target;
     nes->nes_cpu.cycles += (uint16_t)(1U + page_cross);
 
-    uint16_t loop_cycles = 0;
-    if (target >= 0x8000U) {
-        const uint16_t loop_bytes = (uint16_t)(opcode_pc - target);
-        if (loop_bytes == 2U && nes_read_prg(nes, target) == 0xA5U) {
-            loop_cycles = (uint16_t)(6U + page_cross);
-        } else if (loop_bytes == 3U) {
-            const uint8_t target_opcode = nes_read_prg(nes, target);
-            if ((target_opcode == 0xADU || target_opcode == 0x2CU) &&
-                nes_read_prg(nes, (uint16_t)(target + 1U)) == 0x02U &&
-                nes_read_prg(nes, (uint16_t)(target + 2U)) == 0x20U) {
-                loop_cycles = (uint16_t)(7U + page_cross);
-            }
-        }
-    }
-    if (loop_cycles != 0U) {
-        if (ticks > nes->nes_cpu.cycles) {
-            const uint16_t remaining = (uint16_t)(ticks - nes->nes_cpu.cycles);
-            const uint16_t loops = (uint16_t)((remaining + loop_cycles - 1U) / loop_cycles);
-            nes->nes_cpu.cycles = (uint16_t)(nes->nes_cpu.cycles + (uint16_t)(loops * loop_cycles));
-        }
-        return;
-    }
-
-    if (target < 0x8000U || page_cross != 0U || (uint16_t)(target + 1U) != opcode_pc ||
-        ticks <= nes->nes_cpu.cycles) {
-        return;
-    }
-
-    uint8_t* loop_reg = NULL;
-    int8_t loop_delta = 0;
-    switch (nes_read_prg(nes, target)) {
-        case 0x88: // DEY
-            loop_reg = &nes->nes_cpu.Y;
-            loop_delta = -1;
-            break;
-        case 0xC8: // INY
-            loop_reg = &nes->nes_cpu.Y;
-            loop_delta = 1;
-            break;
-        case 0xCA: // DEX
-            loop_reg = &nes->nes_cpu.X;
-            loop_delta = -1;
-            break;
-        case 0xE8: // INX
-            loop_reg = &nes->nes_cpu.X;
-            loop_delta = 1;
-            break;
-        default:
-            return;
-    }
-
-    const uint8_t value = *loop_reg;
-    if (value == 0U) {
-        return;
-    }
-
-    const uint16_t remaining = (uint16_t)(ticks - nes->nes_cpu.cycles);
-    const uint16_t taken_loop_cycles = 5U; // one register op plus BNE taken
-    const uint16_t steps_to_zero = (loop_delta > 0) ? (uint16_t)(256U - value) : (uint16_t)value;
-    const uint16_t cycles_to_exit = (uint16_t)(((uint16_t)(steps_to_zero - 1U) * taken_loop_cycles) + 4U);
-
-    if (remaining >= cycles_to_exit) {
-        *loop_reg = 0;
-        nes_set_nz_fast(nes, 0);
-        nes->nes_cpu.PC = pc_old;
-        nes->nes_cpu.cycles = (uint16_t)(nes->nes_cpu.cycles + cycles_to_exit);
-        return;
-    }
-
-    const uint16_t loops = (uint16_t)(remaining / taken_loop_cycles);
-    if (loops != 0U) {
-        const uint8_t next_value = (loop_delta > 0) ? (uint8_t)(value + loops) : (uint8_t)(value - loops);
-        *loop_reg = next_value;
-        nes_set_nz_fast(nes, next_value);
-        nes->nes_cpu.cycles = (uint16_t)(nes->nes_cpu.cycles + (uint16_t)(loops * taken_loop_cycles));
-    }
 }
 
 static inline void NES_CPU_HOT_TEXT nes_jmp_abs_zp_adc_loop_fast(nes_t* nes, const uint16_t target, const uint16_t ticks)
