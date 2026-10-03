@@ -1023,9 +1023,10 @@ int app_wakeup_init(struct wakeup_algo_resources *algo_res)
         goto wakeup_started_failed;
     }
 
-    // TODO: arcs-mini 2.6版本使用
-    // ret = acomp_wakeup_set_timeout(app_wakeup_get_esr_timeout_ms()); 
-    ret = acomp_wakeup_set_timeout(0);
+    /* ESR 离线命令词窗口：唤醒后一段时间内可识别命令词（毫秒数可由
+     * KV_KEY_IDLE_EXIT_TIMEOUT_MS 覆盖，默认 CONFIG_CLOUD_IDLE_EXIT_TIMEOUT_MS）。
+     * 云端在线时 rcmd_router 在线优先策略会忽略离线命令词。 */
+    ret = acomp_wakeup_set_timeout(app_wakeup_get_esr_timeout_ms());
     LISA_LOGI(TAG, "acomp_wakeup_set_timeout ret:%d\r\n", ret);
     if (ret != ACOMP_ERR_OK) {
         goto wakeup_started_failed;
