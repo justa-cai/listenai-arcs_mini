@@ -36,16 +36,37 @@ bash adb_download.sh -S res/arcs-mini -B build-nes       # 全量资源
 
 ### 连接手柄（PC 端）
 
+![pad_gui 主界面](doc/pad_gui.png)
+
+`tools/pad_gui.py` 是仓库自带的 PC 端无线手柄（Qt，单文件无 UI 框架依赖）：
+
 ```bash
-python3 tools/pad_gui.py                 # 无参数启动 = 自动扫描并连接设备
+pip install websockets PyQt5                      # 依赖（PySide2 亦可）
+python3 tools/pad_gui.py                          # 无参数 = 自动扫描并连接设备
+python3 tools/pad_gui.py 192.168.31.101           # 指定 IP
+python3 tools/pad_gui.py <IP> <ROM目录>           # 亦可指定 ROM 目录
 ```
 
-- **键盘**：方向键/WASD 移动 · X/K=A · Z/J=B · Enter=Start · Space=Select ·
-  R=复位 · Esc=退出；焦点在输入框时打字不触发手柄键，Enter/Esc 或点击空白处返回
-- **鼠标**：直接点画布上的十字键 / A / B / SELECT / START / RESET
-- **ROM 库**（左侧）：递归扫描目录（默认项目自带 roms/，可用「目录...」更换并记忆），
-  过滤框即时筛选，双击或「推送到设备」热切换游戏
-- 状态栏显示连接状态 / RTT / UDP 丢包率
+界面分区（见上图）：
+
+| 区域 | 功能 |
+| --- | --- |
+| 左侧 ROM 库 | 递归扫描目录（默认项目自带 `roms/`，「目录...」更换并记忆）；过滤框即时筛选 + 计数；选中显示大小 / mapper / PRG / CHR 信息；双击或「推送到设备 ▶」热切换游戏 |
+| 顶部工具栏 | 设备 IP · 「扫描」UDP 广播发现 · 「连接/断开」 · 「载入ROM」文件选择推送 |
+| 手柄画布 | 鼠标直接点按十字键 / A / B / SELECT / START（按住型，按键高亮反馈）；RESET 点击即主机复位 |
+| 状态栏 | 连接状态 / 固件版本 / 帧率 / RTT / UDP 丢包率（绿 <1% / 黄 <5% / 红 ≥5%）；右侧快捷键提示 |
+
+键盘映射（焦点在输入框时打字不触发手柄键，Enter/Esc 或点空白处返回按键捕获）：
+
+| 键 | 手柄 | | 键 | 手柄 |
+| --- | --- | --- | --- | --- |
+| 方向键 / WASD | 十字键 | | Enter | START |
+| X / K | A | | Space / Tab | SELECT |
+| Z / J | B | | R | 主机复位 |
+| 鼠标点按画布 | 任意按键 | | Esc | 退出程序 |
+
+按键通道自动协商：固件 `welcome` 带 `udp_port` 时走 UDP 全量位图（低延迟 + 20Hz
+重发弱网自愈），否则回退 WS 差分事件；WS 始终保留 ROM 推送 / 状态 / 命令。
 
 Android 手机做手柄：按 `doc/gamepad-protocol.md` 实现客户端（BLE 配网 → UDP 发现 →
 WS/UDP 按键）。
