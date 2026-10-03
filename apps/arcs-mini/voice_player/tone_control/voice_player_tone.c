@@ -378,6 +378,14 @@ static bool voice_player_tone_submit(const char *url,
         .prompt = prompt,
     };
 
+#if !CONFIG_APP_VOICE_OUTPUT_ENABLE
+    /* 语音输出总开关关闭: 所有提示音 (网络成功/配网引导/OTA/闹铃 ...) 直接丢弃,
+     * 不触碰 audio0 —— 避免与独占音频流的功能 (如 NES 游戏) 抢占造成失真。 */
+    (void)request;
+    (void)url;
+    return false;
+#endif
+
     if (url == NULL) {
         LOGW("tone url is null, skip");
         return false;

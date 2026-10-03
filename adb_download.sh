@@ -54,6 +54,8 @@ RESOURCE_DIR="${RES_DIR:-res/arcs-mini}"
 # 使用极少出现在普通文本中的 ASCII 单元分隔符，方便在 bash 中安全拆字段
 readonly DEVICE_FIELD_SEP=$'\037'
 # 通过 adb shell 发送的升级准备命令，使设备进入可烧录模式
+NC=""
+YELLOW=""
 readonly UPGRADE_ENTER_CMD="root;listenai;upgrade enter"
 
 # =============================================================================
@@ -587,8 +589,9 @@ send_recovery_commands() {
     done
 
     if [ "$reboot_failures" -gt 0 ]; then
-        echo -e "${RED}错误: 有 $reboot_failures 台设备发送recovery命令失败${NC}"
-        exit 1
+        # 多设备共存时 (如手机同时在线), 单台失败不应中止整体烧录流程;
+        # 只要目标 BOOT 设备出现即可继续 (wait_for_boot_devices 会二次确认)
+        echo -e "${YELLOW}警告: 有 $reboot_failures 台设备发送recovery命令失败${NC}"
     fi
 }
 

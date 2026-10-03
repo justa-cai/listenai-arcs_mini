@@ -71,11 +71,24 @@ void nes_load_prgrom_32k(nes_t* nes,uint8_t des, uint16_t src) {
 
 /* load 1k CHR-ROM */
 void nes_load_chrrom_1k(nes_t* nes,uint8_t des, uint16_t src) {
-    const uint16_t count = nes_chrrom_1k_count(nes);
-    if (des >= 8U || count == 0U || nes->nes_rom.chr_rom == NULL) {
+    if (des >= 8U || nes->nes_rom.chr_rom == NULL) {
         if (des < 8U) {
             nes->nes_ppu.pattern_table[des] = NULL;
         }
+        return;
+    }
+    /* CHR-RAM 卡带 (header chr_size==0): 卡上是固定在 $0000-$1FFF 的 8KB RAM,
+     * CHR bank 寄存器被忽略, 始终恒等映射; 缓冲由 nes_load_rom/file 按 8KB 分配。
+     * 不能再走下面 count==0 的分支 —— 那会把 pattern_table 清成 NULL, 游戏用
+     * $2007 上传图案数据时会写空指针 (Store/AMO access fault, MTVAL=0)。
+     * 未处理时 mapper0/1/3/7 等 CHR-RAM 卡带一进游戏就崩。 */
+    if (nes->nes_rom.chr_rom_size == 0U) {
+        nes->nes_ppu.pattern_table[des] = nes->nes_rom.chr_rom + 1024U * des;
+        return;
+    }
+    const uint16_t count = nes_chrrom_1k_count(nes);
+    if (count == 0U) {
+        nes->nes_ppu.pattern_table[des] = NULL;
         return;
     }
     src = nes_wrap_bank(src, count);

@@ -22,6 +22,7 @@ enum {
 #endif
 
     LISA_UI_NAV_SCR_ID_MINIAPP,
+    LISA_UI_NAV_SCR_ID_NES_GAME,          /* NES 游戏屏 */
 };
 
 #endif

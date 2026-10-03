@@ -178,7 +178,11 @@ int model_sd_music_sync_init(void)
     voice_msg_sub(VOICE_MSG_APP_SD_MUSIC_PLAY_FAILED, handle_sd_music_notify, NULL);
 
 #ifdef LISA_UI_PLATFORM_ARCS
+#if defined(CONFIG_MIDDLEWARE_SD_MUSIC)
     g_model_sd_music_sync_ctx.card_available = service_sd_music_is_card_ready();
+#else
+    g_model_sd_music_sync_ctx.card_available = false;   /* SD 功能已关闭 */
+#endif
 #endif
 
     g_model_sd_music_sync_ctx.inited = true;

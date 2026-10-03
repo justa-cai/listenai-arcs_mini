@@ -52,8 +52,14 @@
         {
             "name": "ota",
             "addr": "0xA00000",
-            "size": 5242880,
+            "size": 4194304,
             "tags": []
+        },
+        {
+            "name": "nes_rom",
+            "addr": "0xE00000",
+            "file": "./nes_rom.bin",
+            "tags": ["lpk"]
         },
         {
             "name": "kv",

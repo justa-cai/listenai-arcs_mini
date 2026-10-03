@@ -11,4 +11,5 @@ rsource "usb/Kconfig"
 rsource "vendor_storage/Kconfig"
 rsource "ota/Kconfig"
 rsource "sd_music/Kconfig"
+rsource "gamepad/Kconfig"
 endmenu

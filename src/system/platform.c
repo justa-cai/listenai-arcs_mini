@@ -238,7 +238,10 @@ static int voice_platform_init(void)
     }
 #endif // CONFIG_BOARD_ARCS_MINI
 
-#if CONFIG_ACOMP_WAKEUP
+/* 唤醒词总开关 (CONFIG_APP_WAKEUP_ENABLE, 默认开): 关闭时不加载唤醒算法资源、
+ * 不调 app_wakeup_init —— 无拾音/唤醒引擎, 也不占用 audio0 做 AEC 参考。
+ * standby/sensitivity/唤醒词 OTA 等入口因内部状态未初始化自动退化为 no-op。 */
+#if CONFIG_ACOMP_WAKEUP && CONFIG_APP_WAKEUP_ENABLE
     struct wakeup_algo_resources res = {0};
 
 #ifdef CONFIG_BOARD_ARCS_MINI

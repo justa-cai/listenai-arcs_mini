@@ -16,7 +16,10 @@
 
 #include "nes.h"
 
+/* SRAM 紧张的平台可外部定义为 0, 走 nes_malloc 动态分配 (PSRAM) */
+#ifndef NES_STATIC_CHR_PACKED_ROW_CAPACITY
 #define NES_STATIC_CHR_PACKED_ROW_CAPACITY 4096U
+#endif
 #if CONFIG_NES_FAST_PPU_PACKED_PATTERN
 static uint16_t g_nes_chr_packed_rows[NES_STATIC_CHR_PACKED_ROW_CAPACITY];
 static const uint8_t* g_nes_chr_packed_bank_base[8];
@@ -133,6 +136,14 @@ static inline const uint16_t* nes_chr_packed_full_bank(nes_t* nes, const uint8_t
 const uint16_t* nes_chr_packed_mapper_bank(nes_t* nes, uint8_t bank)
 {
     if (!nes || bank >= 8U) {
+        return NULL;
+    }
+
+    /* 无 packed 缓存时必须直接返回: 设备端把静态容量设为 0 (省 SRAM) 且关闭动态
+     * 分配时, nes_chr_packed_cache_build 会留空缓存, 而 g_nes_chr_packed_rows 是
+     * 0 长数组。若继续走到下面的写入, 会向数组外写 512*2 字节 -> 破坏相邻内存
+     * (MMC1 等会切 CHR bank 的 mapper 触发; UxROM 不触发, 故此前未暴露)。 */
+    if (!nes->nes_chr_packed_rows || nes->nes_chr_packed_row_count == 0U) {
         return NULL;
     }
 

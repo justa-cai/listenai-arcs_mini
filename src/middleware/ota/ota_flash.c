@@ -50,7 +50,10 @@ static const ota_partition_t partition_map[] = {
     [OTA_PART_APP_STAGING] =
         {
             .addr = 0x00A00000,
-            .size = SIZE_K(5120),
+            /* 与 partition_table.json 的 ota 分区一致 (0xA00000..0xE00000, 4MB)。
+             * 必须 >= app 分区容量(4MB), 因为 staging 要暂存完整的 app 镜像;
+             * 若与分区表不符, OTA 写入可能越界覆盖后面的 nes_rom 分区。 */
+            .size = SIZE_M(4),
         },
 };
 

@@ -19,6 +19,66 @@ config TTS_TEXT_MS_PER_CHAR
         Display duration per spoken character for TTS subtitle text.
         Can be overridden at runtime via KV key user.tts_text_ms_per_char.
 
+menu "NES Game"
+    visible if APPLICATION_UI
+
+config GAME_NES_ENABLE
+    bool "Enable NES game screen"
+    default n
+
+config GAME_NES_AUDIO_ENABLE
+    bool "Enable NES APU audio playback"
+    default y
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_FRAME_SKIP
+    int "Logic frames per drawn frame (1 = draw every frame)"
+    default 1
+    range 0 4
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_PERF_LOG_ENABLE
+    bool "Enable periodic performance log"
+    default y
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_FAST_VISIBLE_RENDER
+    bool "Fast visible-region render"
+    default y
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_FAST_PPU_PACKED_PATTERN
+    bool "Pack CHR pattern rows into 16-bit words"
+    default y
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_FAST_CPU_BRANCH
+    bool "Fast CPU branch dispatch"
+    default y
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_FAST_CPU_JMP_IDLE
+    bool "Fast JMP idle detection"
+    default y
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_FAST_SKIP_SPRITES
+    bool "Skip sprite rendering when sprites hidden"
+    default y
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_MAPPER_INFONES_ENABLE
+    bool "Enable InfoNES mapper compatibility layer"
+    default y
+    depends on GAME_NES_ENABLE
+
+config GAME_NES_MAPPER_INFONES_DEFAULT_SET
+    bool "Enable the default InfoNES mapper set"
+    default y
+    depends on GAME_NES_MAPPER_INFONES_ENABLE
+
+endmenu
+
 endif
 
 endmenu

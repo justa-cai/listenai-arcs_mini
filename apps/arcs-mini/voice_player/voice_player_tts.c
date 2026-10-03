@@ -477,6 +477,14 @@ static bool voice_player_tts_submit_url(const char *url,
 {
     tts_play_request_t request = {0};
 
+#if !CONFIG_APP_VOICE_OUTPUT_ENABLE
+    /* 语音输出总开关关闭: TTS 一律不出声 (不触碰 audio0)。 */
+    (void)request;
+    (void)url;
+    (void)options;
+    return false;
+#endif
+
     if (s_tts_play_queue == NULL || url == NULL) {
         LOGE("async play queue not ready or url is null");
         return false;

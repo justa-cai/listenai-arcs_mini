@@ -1,4 +1,7 @@
-add_subdirectory(fonts)
+# fonts 子目录耦合固件 romfs(arcs_ap_base.h/romfs), sim 下跳过, 用 LVGL 内置字体
+if(NOT LISA_UI_IS_SIM)
+    add_subdirectory(fonts)
+endif()
 
 # Cross-platform Python discovery: CMake's find_package searches registry (Win), PATH, and common
 # install dirs. QUIET mode avoids noise when Python3_EXECUTABLE was already cached by the SDK.

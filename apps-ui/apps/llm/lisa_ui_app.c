@@ -14,6 +14,7 @@
 
 extern void alarm_navigation_init(void);
 extern const struct lisa_ui_nav_scr home_nav_scr;
+extern const struct lisa_ui_nav_scr nes_game_nav_scr;
 extern const struct lisa_ui_nav_scr info_nav_scr;
 extern const struct lisa_ui_nav_scr setting_nav_scr;
 extern const struct lisa_ui_nav_scr setting_common_nav_scr;
@@ -70,9 +71,17 @@ int lisa_ui_app_init(void)
 #ifdef CONFIG_LOG_UPLOAD
     lisa_ui_nav_scr_add(&log_upload_nav_scr);
 #endif
+#ifdef CONFIG_GAME_NES_ENABLE
+    lisa_ui_nav_scr_add(&nes_game_nav_scr);
+#endif
 
     /* fisrt src will be open and show now */
+#ifdef CONFIG_GAME_NES_ENABLE
+    /* MVP: 测试固件开机直接进入 NES 游戏屏 (产品入口待接设置页) */
+    lisa_ui_nav_scr_default_set(&nes_game_nav_scr);
+#else
     lisa_ui_nav_scr_default_set(&home_nav_scr);
+#endif
 
     return 0;
 }

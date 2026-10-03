@@ -1,0 +1,28 @@
+menu "Gamepad (WebSocket 手柄接入)"
+    visible if APPLICATION_UI
+
+config GAMEPAD_ENABLE
+    bool "Enable WebSocket gamepad server (UDP discovery + WS key input)"
+    default n
+
+config GAMEPAD_WS_PORT
+    int "WebSocket server port"
+    default 38200
+    depends on GAMEPAD_ENABLE
+
+config GAMEPAD_DISCOVERY_PORT
+    int "UDP discovery port"
+    default 38201
+    depends on GAMEPAD_ENABLE
+
+config GAMEPAD_UDP_PORT
+    int "UDP gamepad key input port"
+    default 38202
+    depends on GAMEPAD_ENABLE
+    help
+      Low-latency key input channel. The port is negotiated via the
+      WebSocket welcome/announce messages (field "udp_port"); clients
+      send full-state bitmap frames here while keeping WS for rom
+      transfer / state / heartbeat.
+
+endmenu

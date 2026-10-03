@@ -32,7 +32,11 @@ extern "C" {
 #define NES_ENABLE_SOUND        (0)
 #endif
 #define NES_AUDIO_MIX_S16_ENABLE (1)
-#define NES_USE_SRAM            (0)
+/* 卡带 SRAM ($6000-$7FFF, 8KB): MMC1 等 mapper 的存档/工作 RAM。需为 1, 否则
+ * CPU 对 $6000-$7FFF 的写入被忽略(读为 0), 存档类游戏(如 MMC1)行为异常。 */
+#ifndef NES_USE_SRAM
+#define NES_USE_SRAM            (1)
+#endif
 #define NES_FRAME_SKIP          (CONFIG_GAME_NES_FRAME_SKIP)
 
 /*

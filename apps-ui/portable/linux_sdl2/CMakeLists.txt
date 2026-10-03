@@ -2,10 +2,10 @@
 set(LV_DRIVERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lv_drivers")
 set(LVGL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lvgl")
 
-if(NOT EXISTS "${LV_DRIVERS_DIR}/.git")
+if(NOT EXISTS "${LV_DRIVERS_DIR}/CMakeLists.txt")
     message(STATUS "Cloning lv_drivers repository...")
     execute_process(
-        COMMAND git clone https://cloud.listenai.com/CSKG836746/arcs-sdk/modules/lisaui/lv_drivers.git lv_drivers -b release/v8.3
+        COMMAND git clone --depth 1 https://github.com/lvgl/lv_drivers.git lv_drivers -b release/v8.3
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         RESULT_VARIABLE GIT_RESULT
     )
@@ -14,10 +14,10 @@ if(NOT EXISTS "${LV_DRIVERS_DIR}/.git")
     endif()
 endif()
 
-if(NOT EXISTS "${LVGL_DIR}/.git")
+if(NOT EXISTS "${LVGL_DIR}/lvgl.h")
     message(STATUS "Cloning lvgl repository...")
     execute_process(
-        COMMAND git clone https://cloud.listenai.com/CSKG836746/arcs-sdk/modules/lvgl8.git lvgl -b release/v8.4
+        COMMAND git clone --depth 1 https://github.com/lvgl/lvgl.git lvgl -b release/v8.4
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         RESULT_VARIABLE GIT_RESULT
     )
@@ -31,6 +31,7 @@ find_package(SDL2 REQUIRED SDL2)
 include_directories(
     ${SDL2_INCLUDE_DIRS}
     ${SDL2_INCLUDE_DIRS}/../
+    ${LVGL_DIR}
 )
 
 target_sources(
@@ -58,6 +59,7 @@ target_link_libraries(
     ${LISA_UI_LIB_NAME}
     PUBLIC
     lv_drivers
+    lvgl
     ${SDL2_LIBRARIES}
     -lm
     -lpthread

@@ -15,3 +15,7 @@ listenai-dev-tools/
 tmp/
 *.log
 apps/factorytest/config.yaml
+
+# CodeGraph 索引缓存
+codegraph/
+.codegraph/

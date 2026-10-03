@@ -5,6 +5,27 @@ config SERVER_VOICE_LSCHAT
 
 if SERVER_VOICE_LSCHAT
 
+config APP_WAKEUP_ENABLE
+    bool "Enable wake word (wakeup engine)"
+    default y
+    help
+      Master switch for wake word functionality. When disabled, platform
+      init skips loading wakeup algo resources and never calls
+      app_wakeup_init(): no mic capture / wakeup engine / AEC reference
+      playback occupation. Related entry points (standby, sensitivity,
+      wake word OTA stop) degrade to no-ops.
+
+config APP_VOICE_OUTPUT_ENABLE
+    bool "Enable voice output (prompt tones + TTS)"
+    default y
+    help
+      Master switch for speech output. When disabled, voice_player_tone_submit
+      and voice_player_tts_submit_url return immediately: no prompt tones
+      (network success / netcfg guide / wakeup / OTA ...) and no LLM TTS
+      playback. Music player is not affected. Useful when the product path
+      owns audio0 (e.g. NES game) and any interleaved prompt would fight
+      over the audio stream (distortion).
+
 config MCP_TOOL_EMOJI_ENABLE
     bool "Enable emoji tool"
     default n

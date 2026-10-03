@@ -174,11 +174,13 @@ static void publish_button_event(uint8_t btn_id, lisa_btn_event_t action, bool f
     }
 #endif
 
+#if defined(CONFIG_MIDDLEWARE_SD_MUSIC)
     if (service_sd_music_is_syncing()) {
         LISA_LOGI(TAG, "Ignore button %d action=%d during SD music sync",
                   btn_id, action);
         return;
     }
+#endif
 
     service_image_waiting_cancel();
 
