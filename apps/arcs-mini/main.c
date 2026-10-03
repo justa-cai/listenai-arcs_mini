@@ -282,6 +282,12 @@ int main(int argc, char **argv)
         LOGE("Miniapp initialization failed");
     }
 #endif
+#ifdef CONFIG_PET
+    extern int pet_init(void);
+    if (pet_init() != 0) {
+        LOGE("Pet initialization failed");
+    }
+#endif
     app_show_initial_wifi_info_if_needed();
 
 

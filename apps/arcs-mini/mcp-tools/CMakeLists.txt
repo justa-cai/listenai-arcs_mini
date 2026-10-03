@@ -26,3 +26,7 @@ listenai_include_directories(
 if(CONFIG_MINIAPP)
     listenai_library_sources(mcp_tool_miniapp.c)
 endif()
+
+if(CONFIG_PET)
+    listenai_library_sources(mcp_tool_pet.c)
+endif()

@@ -1,0 +1,21 @@
+menuconfig PET
+    bool "Tamagotchi virtual pet"
+    depends on APPLICATION_UI
+    default y
+    help
+      Run a Tamagotchi P1 emulator (TamaLIB, GPLv2) as a full-screen pet on
+      the device. The pet is voice-controlled via the pet_care MCP tool,
+      survives power cycles through lisa_kv and beeps through the miniapp
+      player when MINIAPP_BUZZER is enabled.
+
+if PET
+
+config PET_BUZZER
+    bool "Pet piezo beep synthesis"
+    depends on MINIAPP_BUZZER
+    default y
+    help
+      Synthesize the original piezo beeps as 16 kHz square waves. Without
+      this (or without MINIAPP_BUZZER) the pet stays silent.
+
+endif

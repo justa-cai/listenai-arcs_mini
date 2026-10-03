@@ -28,9 +28,22 @@
 #include "button_factory_reset.h"
 #include "service_power_policy.h"
 
+#ifdef CONFIG_PET
+#include "pet/pet_core.h"
+#endif
+
 /* ==================== 模块配置与状态 ==================== */
 
 #define APP_BUTTON_PRIMARY_ID 0U
+
+#ifdef CONFIG_PET
+/* 宠物页在栈顶时接管电源键：单击=左键(下一个图标)、双击=中键(确认)、
+ * 三击=右键(取消)、四击=返回主页。 */
+static bool app_button_pet_on_top(void)
+{
+    return lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_PET;
+}
+#endif
 
 /* ==================== 版型相关展示策略 ==================== */
 
@@ -256,6 +269,16 @@ static void app_button_handle_click(void)
         return;
     }
 
+#ifdef CONFIG_PET
+    /* 宠物页单击 = 模拟左键（切换到下一个图标）。 */
+    if (app_button_pet_on_top()) {
+        if (pet_core_action(PET_ACTION_NEXT, PET_ITEM_MEAL, NULL) == 0) {
+            LISA_LOGI(TAG, "Single click: pet LEFT (next icon)");
+        }
+        return;
+    }
+#endif
+
     /* 当前不在主页时，单击只返回主页，不触发唤醒。 */
     if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
         LISA_LOGI(TAG, "Single click: not on home page, navigating home");
@@ -291,6 +314,16 @@ static void app_button_handle_click(void)
 /* 双击：进入按键拍照预览；若语音拍照流程已锁定，则取消并退出该流程。 */
 static void app_button_handle_double_click(void)
 {
+#ifdef CONFIG_PET
+    /* 宠物页双击 = 模拟中键（确认当前选中项）。 */
+    if (app_button_pet_on_top()) {
+        if (pet_core_action(PET_ACTION_CONFIRM, PET_ITEM_MEAL, NULL) == 0) {
+            LISA_LOGI(TAG, "Double click: pet MIDDLE (confirm)");
+        }
+        return;
+    }
+#endif
+
     button_camera_preview_handle_double_click();
 }
 
@@ -320,6 +353,16 @@ static void app_button_exit_voice_session_for_info(void)
 /* 三击：根据当前云端状态播报提示音，并打开对应的信息或二维码页。 */
 static void app_button_handle_triple_click(void)
 {
+#ifdef CONFIG_PET
+    /* 宠物页三击 = 模拟右键（取消/返回）。 */
+    if (app_button_pet_on_top()) {
+        if (pet_core_action(PET_ACTION_CANCEL, PET_ITEM_MEAL, NULL) == 0) {
+            LISA_LOGI(TAG, "Triple click: pet RIGHT (cancel)");
+        }
+        return;
+    }
+#endif
+
     uint32_t status = QR_STATUS_CONNECTED;
 
     /* 将云端异常状态转换为未联网、未绑定等页面状态；云端正常时保持已连接状态。 */
@@ -407,7 +450,13 @@ static void app_button_dispatch_action(voice_msg_button_action_t action)
         app_button_handle_triple_click();
         break;
     case VOICE_MSG_BUTTON_ACTION_QUADRUPLE_CLICK:
-        /* 四击：预留，当前无操作。 */
+        /* 四击：宠物页返回主页；其余场景预留。 */
+#ifdef CONFIG_PET
+        if (app_button_pet_on_top()) {
+            LISA_LOGI(TAG, "Quadruple click: leave pet page, navigating home");
+            lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
+        }
+#endif
         break;
     case VOICE_MSG_BUTTON_ACTION_QUINTUPLE_CLICK:
     case VOICE_MSG_BUTTON_ACTION_SEXTUPLE_CLICK:

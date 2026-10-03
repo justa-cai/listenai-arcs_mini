@@ -18,6 +18,14 @@ static void shutdown(void)
 {
     LISA_LOGI(TAG, "System shutting down...");
 
+#ifdef CONFIG_PET
+    /* let the pet persist its state before power is cut */
+    {
+        extern void pet_core_flush_save(void);
+        pet_core_flush_save();
+    }
+#endif
+
     pa_manager_control(0, 0);
 
     lisa_device_t *disp = lisa_device_get("display");

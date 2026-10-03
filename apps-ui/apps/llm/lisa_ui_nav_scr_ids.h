@@ -22,6 +22,9 @@ enum {
 #endif
 
     LISA_UI_NAV_SCR_ID_MINIAPP,
+#ifdef CONFIG_PET
+    LISA_UI_NAV_SCR_ID_PET,             // Tamagotchi 电子宠物页面（默认页）
+#endif
 };
 
 #endif
