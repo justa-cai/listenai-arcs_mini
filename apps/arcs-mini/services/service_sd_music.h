@@ -24,6 +24,8 @@
 extern "C" {
 #endif
 
+#ifdef CONFIG_DISK_DRIVER_SDMMC
+
 /**
  * @brief   初始化服务：创建互斥锁，异步处理启动 SD 状态并启动轮询线程
  * @return  0 成功拉起 sd_init 线程，-1 sd_init 线程创建失败
@@ -55,6 +57,31 @@ bool service_sd_music_is_syncing(void);
  * @return  true when the card has been identified and can be accessed.
  */
 bool service_sd_music_is_card_ready(void);
+
+#else /* !CONFIG_DISK_DRIVER_SDMMC: 板型无 SD 卡，接口退化为空实现 */
+
+static inline int service_sd_music_init(void)
+{
+    return 0;
+}
+
+static inline int service_sd_music_scan(const char *path)
+{
+    (void)path;
+    return -1;
+}
+
+static inline bool service_sd_music_is_syncing(void)
+{
+    return false;
+}
+
+static inline bool service_sd_music_is_card_ready(void)
+{
+    return false;
+}
+
+#endif /* CONFIG_DISK_DRIVER_SDMMC */
 
 #ifdef __cplusplus
 }

@@ -10,8 +10,12 @@ listenai_library_sources(
     mcp_tool_camera.c
     mcp_tool_image.c
     mcp_tool_duplex.c
-    mcp_tool_sd_music.c
 )
+
+# TF 卡音乐工具依赖 SDMMC 硬件，无卡座板型禁用
+if(CONFIG_DISK_DRIVER_SDMMC)
+    listenai_library_sources(mcp_tool_sd_music.c)
+endif()
 
 if(CONFIG_LOG_UPLOAD)
     listenai_library_sources(

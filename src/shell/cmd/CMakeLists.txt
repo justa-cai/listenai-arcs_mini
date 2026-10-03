@@ -12,11 +12,15 @@ listenai_library_sources(
     # log.c
     mic_bias.c
     # player.c
-    sd.c
     sys.c
     version.c
     wifi.c
 )
+
+# SD 卡 shell 命令依赖 SDMMC 硬件，无卡座板型禁用
+if(CONFIG_DISK_DRIVER_SDMMC)
+    listenai_library_sources(sd.c)
+endif()
 
 listenai_library_sources_ifdef(CONFIG_CHERRYUSB_HOST_CDC_ACM usb_serial.c)
 listenai_include_directories(${CMAKE_CURRENT_LIST_DIR}/../../middleware/usb)
