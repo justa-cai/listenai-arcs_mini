@@ -17,6 +17,10 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
+#include "lwip/sockets.h"
+#include "lwip/inet.h"
+#include "lwip/netdb.h"
 
 #include "cJSON.h"
 #include "FreeRTOS.h"
@@ -24,7 +28,6 @@
 #include "lisa_log.h"
 #include "lisa_mem.h"
 #include "lisa_thread.h"
-#include "lisa_websocket.h"
 #include "semphr.h"
 #include "task.h"
 
@@ -48,10 +51,7 @@ static struct {
     bool enabled;
     char server_url[128];
 
-    lisa_ws_t *ws;
     SemaphoreHandle_t lock;      /* protects counters + event ring */
-    SemaphoreHandle_t connected; /* ON_CONNECTED event */
-    SemaphoreHandle_t got_welcome;
 
     /* stats */
     uint32_t enable_tick;
@@ -128,59 +128,344 @@ static void ss_handle_result_msg(cJSON *root)
     xSemaphoreGive(st.lock);
 }
 
-static void ss_ws_on_data(lisa_ws_data_t *data)
+/* ------------------------------------------------------------------ */
+/* raw-socket minimal WebSocket client (RFC 6455)                      */
+/* bypasses lisa_websocket/nopoll: handshake + frame send/recv by hand */
+/* ------------------------------------------------------------------ */
+
+static int st_sock = -1;
+
+/* ---- SHA-1 (compact) + Base64 for the WS handshake key ---- */
+static uint32_t ss_rol(uint32_t val, int shift) { return (val << shift) | (val >> (32 - shift)); }
+
+static void ss_sha1(const uint8_t *data, size_t len, uint8_t out[20])
 {
-    if (!data || data->type != LISA_WS_TEXT || !data->buf || data->len == 0) {
-        return;
+    uint32_t h[5] = {0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0};
+    uint64_t total_bits = (uint64_t)len * 8;
+
+    /* pad: data + 0x80 + zeros + 8-byte length */
+    size_t padded_len = ((len + 8) / 64 + 1) * 64;
+    uint8_t *buf = lisa_mem_alloc(padded_len);
+    if (!buf) { return; }
+    memset(buf, 0, padded_len);
+    memcpy(buf, data, len);
+    buf[len] = 0x80;
+    for (int i = 0; i < 8; i++) {
+        buf[padded_len - 1 - i] = (uint8_t)(total_bits >> (i * 8));
     }
 
-    /* NUL-terminate safely (ws text is not guaranteed terminated) */
-    char text[512];
-    uint32_t n = data->len < sizeof(text) - 1 ? data->len : sizeof(text) - 1;
-    memcpy(text, data->buf, n);
-    text[n] = '\0';
+    for (size_t off = 0; off < padded_len; off += 64) {
+        uint32_t w[80];
+        for (int i = 0; i < 16; i++) {
+            w[i] = ((uint32_t)buf[off + 4 * i] << 24) | ((uint32_t)buf[off + 4 * i + 1] << 16) |
+                   ((uint32_t)buf[off + 4 * i + 2] << 8) | (uint32_t)buf[off + 4 * i + 3];
+        }
+        for (int i = 16; i < 80; i++) {
+            w[i] = ss_rol(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+        }
 
-    cJSON *root = cJSON_Parse(text);
-    if (!root) {
-        return;
+        uint32_t a = h[0], b = h[1], c = h[2], d = h[3], e = h[4];
+        for (int i = 0; i < 80; i++) {
+            uint32_t f, k;
+            if (i < 20)     { f = (b & c) | ((~b) & d);           k = 0x5A827999; }
+            else if (i < 40){ f = b ^ c ^ d;                       k = 0x6ED9EBA1; }
+            else if (i < 60){ f = (b & c) | (b & d) | (c & d);    k = 0x8F1BBCDC; }
+            else            { f = b ^ c ^ d;                       k = 0xCA62C1D6; }
+            uint32_t temp = ss_rol(a, 5) + f + e + k + w[i];
+            e = d; d = c; c = ss_rol(b, 30); b = a; a = temp;
+        }
+        h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e;
+    }
+    lisa_mem_free(buf);
+
+    for (int i = 0; i < 5; i++) {
+        out[4 * i] = (uint8_t)(h[i] >> 24);
+        out[4 * i + 1] = (uint8_t)(h[i] >> 16);
+        out[4 * i + 2] = (uint8_t)(h[i] >> 8);
+        out[4 * i + 3] = (uint8_t)h[i];
+    }
+}
+
+static const char k_b64_tab[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+static int ss_base64(const uint8_t *src, size_t len, char *dst, size_t dst_size)
+{
+    size_t out_len = ((len + 2) / 3) * 4 + 1;
+    if (out_len > dst_size) { return -1; }
+    size_t j = 0;
+    for (size_t i = 0; i < len; i += 3) {
+        uint32_t v = (uint32_t)src[i] << 16;
+        if (i + 1 < len) v |= (uint32_t)src[i + 1] << 8;
+        if (i + 2 < len) v |= src[i + 2];
+        dst[j++] = k_b64_tab[(v >> 18) & 0x3F];
+        dst[j++] = k_b64_tab[(v >> 12) & 0x3F];
+        dst[j++] = (i + 1 < len) ? k_b64_tab[(v >> 6) & 0x3F] : '=';
+        dst[j++] = (i + 2 < len) ? k_b64_tab[v & 0x3F] : '=';
+    }
+    dst[j] = '\0';
+    return 0;
+}
+
+/* simple SHA-1 + Base64 for the WS handshake key (RFC 6455 §4.2.2) */
+static void ss_sha1(const uint8_t *data, size_t len, uint8_t out[20]);
+static int ss_base64(const uint8_t *src, size_t len, char *dst, size_t dst_size);
+
+static int ss_ws_connect(const char *host, const char *port_str, const char *path)
+{
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)atoi(port_str));
+
+    if (inet_pton(AF_INET, host, &addr.sin_addr) != 1) {
+        LISA_LOGE(TAG, "ws: bad host '%s'", host);
+        return -1;
     }
 
-    cJSON *type = cJSON_GetObjectItem(root, "type");
-    if (cJSON_IsString(type)) {
-        const char *t = type->valuestring;
-        if (strcmp(t, "welcome") == 0) {
-            if (st.got_welcome) {
-                xSemaphoreGive(st.got_welcome);
+    st_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (st_sock < 0) {
+        LISA_LOGE(TAG, "ws: socket()=%d", st_sock);
+        return -1;
+    }
+
+    /* 5s connect timeout */
+    struct timeval tv = {.tv_sec = 5, .tv_usec = 0};
+    setsockopt(st_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(st_sock, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+    if (connect(st_sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        LISA_LOGE(TAG, "ws: connect() failed");
+        close(st_sock);
+        st_sock = -1;
+        return -1;
+    }
+    LISA_LOGI(TAG, "ws: TCP connected to %s:%s", host, port_str);
+
+    /* send HTTP upgrade: key = base64(16 random bytes), NOT sha1 of them */
+    uint8_t rand16[16];
+    for (int i = 0; i < 16; i++) {
+        rand16[i] = (uint8_t)(rand() & 0xFF);
+    }
+    char key_b64[32];
+    ss_base64(rand16, 16, key_b64, sizeof(key_b64));
+
+    char req[512];
+    int req_len = snprintf(req, sizeof(req),
+        "GET %s HTTP/1.1\r\n"
+        "Host: %s:%s\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: %s\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n",
+        path, host, port_str, key_b64);
+
+    if (send(st_sock, req, req_len, 0) != req_len) {
+        LISA_LOGE(TAG, "ws: send() upgrade failed");
+        close(st_sock);
+        st_sock = -1;
+        return -1;
+    }
+
+    /* read response until \r\n\r\n */
+    char resp[1024];
+    int resp_len = 0;
+    while (resp_len < (int)sizeof(resp) - 1) {
+        int n = recv(st_sock, resp + resp_len, sizeof(resp) - 1 - resp_len, 0);
+        if (n <= 0) {
+            LISA_LOGE(TAG, "ws: recv() upgrade resp failed n=%d", n);
+            close(st_sock);
+            st_sock = -1;
+            return -1;
+        }
+        resp_len += n;
+        resp[resp_len] = '\0';
+        if (strstr(resp, "\r\n\r\n")) {
+            break;
+        }
+    }
+
+    if (strncmp(resp, "HTTP/1.1 101", 12) != 0 && strncmp(resp, "HTTP/1.0 101", 12) != 0) {
+        LISA_LOGE(TAG, "ws: upgrade rejected: %.60s", resp);
+        close(st_sock);
+        st_sock = -1;
+        return -1;
+    }
+
+    LISA_LOGI(TAG, "ws: handshake 101 OK");
+    return 0;
+}
+
+/* build a masked WS frame header (RFC 6455: client frames MUST be masked) */
+static int ss_ws_build_hdr(uint8_t *hdr, uint8_t opcode, size_t len, uint8_t mask[4])
+{
+    int hdr_len = 0;
+    hdr[0] = 0x80 | opcode; /* FIN + opcode */
+    mask[0] = (uint8_t)(rand() & 0xFF); mask[1] = (uint8_t)(rand() & 0xFF);
+    mask[2] = (uint8_t)(rand() & 0xFF); mask[3] = (uint8_t)(rand() & 0xFF);
+
+    if (len < 126) {
+        hdr[1] = 0x80 | (uint8_t)len;
+        hdr_len = 2;
+    } else if (len < 65536) {
+        hdr[1] = 0x80 | 126;
+        hdr[2] = (uint8_t)(len >> 8);
+        hdr[3] = (uint8_t)(len & 0xFF);
+        hdr_len = 4;
+    } else {
+        return -1;
+    }
+    memcpy(hdr + hdr_len, mask, 4);
+    return hdr_len + 4;
+}
+
+/* send a WS text frame (masked, small payload fits on stack) */
+static int ss_ws_send_text(const char *text)
+{
+    if (st_sock < 0) {
+        return -1;
+    }
+    size_t len = strlen(text);
+    uint8_t hdr[8];
+    uint8_t mask[4];
+    int hdr_len = ss_ws_build_hdr(hdr, 0x01, len, mask);
+    if (hdr_len < 0) {
+        return -1;
+    }
+
+    char masked[256]; /* hello/welcome/pong are all < 256 bytes */
+    if (len > sizeof(masked)) {
+        return -1;
+    }
+    for (size_t i = 0; i < len; i++) {
+        masked[i] = text[i] ^ mask[i % 4];
+    }
+
+    if (send(st_sock, hdr, hdr_len, 0) != hdr_len) return -1;
+    if (len > 0 && send(st_sock, masked, len, 0) != (int)len) return -1;
+    return 0;
+}
+
+/* send a WS binary frame (masked in-place: the chunk buffer is scratch) */
+static int ss_ws_send_binary(uint8_t *data, size_t len)
+{
+    if (st_sock < 0) {
+        return -1;
+    }
+    uint8_t hdr[8];
+    uint8_t mask[4];
+    int hdr_len = ss_ws_build_hdr(hdr, 0x02, len, mask);
+    if (hdr_len < 0) {
+        return -1;
+    }
+
+    /* mask in-place: caller passes a scratch buffer we own this cycle */
+    for (size_t i = 0; i < len; i++) {
+        data[i] ^= mask[i % 4];
+    }
+
+    if (send(st_sock, hdr, hdr_len, 0) != hdr_len) return -1;
+    if (len > 0 && send(st_sock, data, len, 0) != (int)len) return -1;
+    return 0;
+}
+
+/* try to read a WS text frame (non-blocking, returns payload length or -1) */
+#define SS_WS_BUF_SIZE 2048
+static uint8_t *s_rx_buf; /* allocated in PSRAM at init (SRAM is scarce) */
+static uint32_t s_rx_len;
+
+static int ss_ws_read_text(char *out, size_t out_size)
+{
+    if (st_sock < 0) {
+        return -1;
+    }
+
+    /* try to read more data */
+    uint8_t tmp[1024];
+    int n = recv(st_sock, tmp, sizeof(tmp), MSG_DONTWAIT);
+    if (n > 0) {
+        if (s_rx_len + n > SS_WS_BUF_SIZE) {
+            s_rx_len = 0; /* overflow: drop */
+        }
+        memcpy(s_rx_buf + s_rx_len, tmp, n);
+        s_rx_len += n;
+    } else if (n == 0) {
+        return -2; /* connection closed */
+    }
+
+    /* try to parse a complete text frame */
+    if (s_rx_len < 2) {
+        return -1;
+    }
+
+    uint8_t opcode = s_rx_buf[0] & 0x0F;
+    bool is_masked = (s_rx_buf[1] & 0x80) != 0;
+    uint64_t payload_len = s_rx_buf[1] & 0x7F;
+    uint32_t hdr_size = 2;
+
+    if (payload_len == 126) {
+        if (s_rx_len < 4) return -1;
+        payload_len = (s_rx_buf[2] << 8) | s_rx_buf[3];
+        hdr_size = 4;
+    } else if (payload_len == 127) {
+        if (s_rx_len < 10) return -1;
+        payload_len = 0;
+        for (int i = 0; i < 8; i++) {
+            payload_len = (payload_len << 8) | s_rx_buf[2 + i];
+        }
+        hdr_size = 10;
+    }
+    if (is_masked) {
+        hdr_size += 4; /* skip mask key (server frames are typically unmasked) */
+    }
+
+    if (s_rx_len < hdr_size + payload_len) {
+        return -1; /* incomplete */
+    }
+
+    if (opcode == 0x1 && payload_len < out_size) { /* text */
+        const uint8_t *payload = s_rx_buf + hdr_size;
+        if (is_masked) {
+            const uint8_t *mask = s_rx_buf + hdr_size - 4;
+            for (uint64_t i = 0; i < payload_len; i++) {
+                out[i] = payload[i] ^ mask[i % 4];
             }
-        } else if (strcmp(t, "result") == 0) {
-            ss_handle_result_msg(root);
-        } else if (strcmp(t, "event") == 0) {
-            ss_handle_event_msg(root);
-        } else if (strcmp(t, "error") == 0) {
-            cJSON *msg = cJSON_GetObjectItem(root, "message");
-            LISA_LOGW(TAG, "server error: %s",
-                      cJSON_IsString(msg) ? msg->valuestring : "?");
+        } else {
+            memcpy(out, payload, payload_len);
         }
+        out[payload_len] = '\0';
+
+        /* consume this frame from the buffer */
+        uint32_t consumed = hdr_size + payload_len;
+        memmove(s_rx_buf, s_rx_buf + consumed, s_rx_len - consumed);
+        s_rx_len -= consumed;
+        return (int)payload_len;
     }
-    cJSON_Delete(root);
+
+    /* skip non-text frames */
+    uint32_t consumed = hdr_size + payload_len;
+    memmove(s_rx_buf, s_rx_buf + consumed, s_rx_len - consumed);
+    s_rx_len -= consumed;
+    return -1;
 }
 
-static void ss_ws_on_event(lisa_ws_event_t *event)
+static void ss_ws_close(void)
 {
-    if (!event) {
-        return;
+    if (st_sock >= 0) {
+        /* send WS close frame (opcode 8) */
+        uint8_t close_frame[2] = {0x88, 0x80}; /* FIN+close, MASK+len0 */
+        uint8_t mask[4] = {0, 0, 0, 0};
+        send(st_sock, close_frame, 2, 0);
+        send(st_sock, mask, 4, 0);
+        close(st_sock);
+        st_sock = -1;
     }
-    if (event->what == LISA_WS_ON_CONNECTED) {
-        if (st.connected) {
-            xSemaphoreGive(st.connected);
-        }
-    } else if (event->what == LISA_WS_ON_DISCONNECTED) {
-        if (st.state == SS_STATE_STREAMING || st.state == SS_STATE_CONNECTING) {
-            LISA_LOGW(TAG, "disconnected");
-            st.state = SS_STATE_RETRY_WAIT;
-        }
-    }
+    s_rx_len = 0;
 }
+
+/* ------------------------------------------------------------------ */
+/* downlink JSON handling                                              */
+/* ------------------------------------------------------------------ */
 
 /* ------------------------------------------------------------------ */
 /* session lifecycle (management task)                                 */
@@ -188,7 +473,16 @@ static void ss_ws_on_event(lisa_ws_event_t *event)
 
 static int ss_parse_url(const char *url, char *scheme, char *host, char *port, char *path)
 {
-    return sscanf(url, "%7[^:]://%63[^:/]:%7[0-9]/%63s", scheme, host, port, path) >= 3 ? 0 : -1;
+    if (sscanf(url, "%7[^:]://%63[^:/]:%7[0-9]/%63s", scheme, host, port, path) < 3) {
+        return -1;
+    }
+    /* nopoll sends "GET <path> HTTP/1.1" verbatim: the path MUST start
+     * with '/' or the request line is malformed and the server resets */
+    if (path[0] != '/') {
+        memmove(path + 1, path, strlen(path) + 1);
+        path[0] = '/';
+    }
+    return 0;
 }
 
 static int ss_connect_once(void)
@@ -199,46 +493,52 @@ static int ss_connect_once(void)
         return -1;
     }
 
-    (void)xSemaphoreTake(st.connected, 0);
-    (void)xSemaphoreTake(st.got_welcome, 0);
-
-    uint8_t *scheme_u = (uint8_t *)scheme, *host_u = (uint8_t *)host;
-    uint8_t *port_u = (uint8_t *)port, *path_u = (uint8_t *)path;
-    lisa_ws_request_t req = {
-        .scheme = scheme_u,
-        .host = host_u,
-        .port = port_u,
-        .path = path_u,
-        .timeout = 8000,
-        .user = NULL,
-        .on_event = ss_ws_on_event,
-        .on_data = ss_ws_on_data,
-    };
-    st.ws = lisa_ws_init(&req);
-    if (!st.ws) {
-        return -1;
-    }
-    if (lisa_ws_connect(st.ws) != LISA_WS_OK) {
-        lisa_ws_cleanup(st.ws);
-        st.ws = NULL;
+    if (ss_ws_connect(host, port, path) != 0) {
+        st.state = SS_STATE_RETRY_WAIT;
         return -1;
     }
     st.state = SS_STATE_CONNECTING;
-
-    if (xSemaphoreTake(st.connected, pdMS_TO_TICKS(10000)) != pdTRUE) {
-        LISA_LOGW(TAG, "handshake timeout");
-        goto fail;
-    }
 
     char hello[192];
     snprintf(hello, sizeof(hello),
              "{\"type\":\"hello\",\"protocol_version\":\"1.0\",\"sample_rate\":16000,"
              "\"channels\":1,\"format\":\"pcm_s16le\",\"client\":\"arcs-mini\"}");
-    if (lisa_ws_send_text(st.ws, (const uint8_t *)hello) != LISA_WS_OK) {
+    if (ss_ws_send_text(hello) != 0) {
         goto fail;
     }
 
-    if (xSemaphoreTake(st.got_welcome, pdMS_TO_TICKS(10000)) != pdTRUE) {
+    /* wait for welcome (read text frames until we see it, up to 10s) */
+    bool got_welcome = false;
+    TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(10000);
+    while (!got_welcome && xTaskGetTickCount() < deadline) {
+        char text[1024];
+        int n = ss_ws_read_text(text, sizeof(text));
+        if (n == -2) {
+            LISA_LOGW(TAG, "connection closed during welcome wait");
+            goto fail;
+        }
+        if (n > 0) {
+            cJSON *root = cJSON_Parse(text);
+            if (root) {
+                cJSON *type = cJSON_GetObjectItem(root, "type");
+                if (cJSON_IsString(type) && strcmp(type->valuestring, "welcome") == 0) {
+                    got_welcome = true;
+                } else if (cJSON_IsString(type) && strcmp(type->valuestring, "result") == 0) {
+                    ss_handle_result_msg(root);
+                } else if (cJSON_IsString(type) && strcmp(type->valuestring, "event") == 0) {
+                    ss_handle_event_msg(root);
+                } else if (cJSON_IsString(type) && strcmp(type->valuestring, "error") == 0) {
+                    cJSON *msg = cJSON_GetObjectItem(root, "message");
+                    LISA_LOGE(TAG, "server error: %s",
+                              cJSON_IsString(msg) ? msg->valuestring : "?");
+                }
+                cJSON_Delete(root);
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+
+    if (!got_welcome) {
         LISA_LOGW(TAG, "welcome timeout");
         goto fail;
     }
@@ -251,9 +551,7 @@ static int ss_connect_once(void)
     return 0;
 
 fail:
-    lisa_ws_disconnect(st.ws);
-    lisa_ws_cleanup(st.ws);
-    st.ws = NULL;
+    ss_ws_close();
     st.state = SS_STATE_RETRY_WAIT;
     return -1;
 }
@@ -272,11 +570,11 @@ static void ss_task(void *arg)
         }
 
         if (st.state == SS_STATE_STREAMING) {
-            /* drain the audio tap and push 50 ms frames */
+            /* 1. push audio */
             static uint8_t chunk[SS_SEND_CHUNK];
             uint32_t n = ss_audio_read(chunk, sizeof(chunk), SS_SEND_PERIOD_MS);
             if (n > 0) {
-                if (lisa_ws_send_binary(st.ws, chunk, n) == LISA_WS_OK) {
+                if (ss_ws_send_binary(chunk, n) == 0) {
                     xSemaphoreTake(st.lock, portMAX_DELAY);
                     st.send_frames++;
                     xSemaphoreGive(st.lock);
@@ -285,9 +583,47 @@ static void ss_task(void *arg)
                     xSemaphoreTake(st.lock, portMAX_DELAY);
                     st.send_drops++;
                     xSemaphoreGive(st.lock);
+                    LISA_LOGW(TAG, "send failed, reconnecting");
+                    ss_ws_close();
+                    st.state = SS_STATE_RETRY_WAIT;
+                    continue;
                 }
             }
-            continue; /* data-ready semaphore paces the loop */
+
+            /* 2. drain downlink text frames */
+            char text[1024];
+            int rn;
+            while ((rn = ss_ws_read_text(text, sizeof(text))) > 0) {
+                cJSON *root = cJSON_Parse(text);
+                if (root) {
+                    cJSON *type = cJSON_GetObjectItem(root, "type");
+                    if (cJSON_IsString(type)) {
+                        const char *t = type->valuestring;
+                        if (strcmp(t, "result") == 0) {
+                            ss_handle_result_msg(root);
+                        } else if (strcmp(t, "event") == 0) {
+                            ss_handle_event_msg(root);
+                        } else if (strcmp(t, "ping") == 0) {
+                            char pong[64];
+                            snprintf(pong, sizeof(pong), "{\"type\":\"pong\",\"ts\":%lld}",
+                                     (long long)xTaskGetTickCount() * 1000 / configTICK_RATE_HZ);
+                            ss_ws_send_text(pong);
+                        } else if (strcmp(t, "error") == 0) {
+                            cJSON *msg = cJSON_GetObjectItem(root, "message");
+                            LISA_LOGW(TAG, "server error: %s",
+                                      cJSON_IsString(msg) ? msg->valuestring : "?");
+                        }
+                    }
+                    cJSON_Delete(root);
+                }
+            }
+            if (rn == -2) { /* connection closed */
+                LISA_LOGW(TAG, "connection closed by server");
+                ss_ws_close();
+                st.state = SS_STATE_RETRY_WAIT;
+                continue;
+            }
+            continue;
         }
 
         if (st.state == SS_STATE_RETRY_WAIT) {
@@ -334,9 +670,8 @@ int ss_core_init(void)
     memset(&st, 0, sizeof(st));
     st.state = SS_STATE_OFF;
     st.lock = xSemaphoreCreateMutex();
-    st.connected = xSemaphoreCreateBinary();
-    st.got_welcome = xSemaphoreCreateBinary();
-    if (!st.lock || !st.connected || !st.got_welcome) {
+    s_rx_buf = lisa_mem_alloc(SS_WS_BUF_SIZE);
+    if (!st.lock || !s_rx_buf) {
         return -1;
     }
 
@@ -375,11 +710,9 @@ void ss_core_set_enabled(bool enable)
         st.state = SS_STATE_RETRY_WAIT;
     } else {
         ss_audio_stop();
-        if (st.ws && st.state == SS_STATE_STREAMING) {
-            lisa_ws_send_text(st.ws, (const uint8_t *)"{\"type\":\"bye\"}");
-            lisa_ws_disconnect(st.ws);
-            lisa_ws_cleanup(st.ws);
-            st.ws = NULL;
+        if (st.state == SS_STATE_STREAMING) {
+            ss_ws_send_text("{\"type\":\"bye\"}");
+            ss_ws_close();
         }
         st.state = SS_STATE_OFF;
     }
@@ -399,11 +732,9 @@ void ss_core_set_server(const char *url)
     snprintf(st.server_url, sizeof(st.server_url), "%s", url);
     lisa_kv_set_string(SS_KV_SERVER, st.server_url);
     /* force a reconnect with the new url */
-    if (st.ws && (st.state == SS_STATE_STREAMING || st.state == SS_STATE_CONNECTING)) {
+    if (st.state == SS_STATE_STREAMING || st.state == SS_STATE_CONNECTING) {
+        ss_ws_close();
         st.state = SS_STATE_RETRY_WAIT;
-        lisa_ws_disconnect(st.ws);
-        lisa_ws_cleanup(st.ws);
-        st.ws = NULL;
     }
 }
 
