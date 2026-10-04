@@ -43,12 +43,9 @@ enum {
     PET_TONE_R_MISS = 131,
 };
 
-/* Queue one clip on the tone player (safe from any thread). */
+/* Queue one clip on the tone player (safe from any thread). The tone
+ * channel has the highest audio priority and captures tts: pet lines
+ * interrupt a speaking cloud answer by design. */
 void pet_voice_play(uint8_t tone_id);
-
-/* True while the cloud TTS is speaking: device-initiated lines are held
- * (their event bits stay pending) until it finishes, so the pet never
- * interrupts an answer mid-sentence. */
-bool pet_voice_tts_active(void);
 
 #endif /* PET_VOICE_H */
