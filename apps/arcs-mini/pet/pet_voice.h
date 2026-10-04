@@ -9,6 +9,7 @@
 #ifndef PET_VOICE_H
 #define PET_VOICE_H
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* tone ids, keep in sync with apps/arcs-mini/tone/ file names */
@@ -44,5 +45,10 @@ enum {
 
 /* Queue one clip on the tone player (safe from any thread). */
 void pet_voice_play(uint8_t tone_id);
+
+/* True while the cloud TTS is speaking: device-initiated lines are held
+ * (their event bits stay pending) until it finishes, so the pet never
+ * interrupts an answer mid-sentence. */
+bool pet_voice_tts_active(void);
 
 #endif /* PET_VOICE_H */

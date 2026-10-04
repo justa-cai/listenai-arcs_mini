@@ -152,6 +152,20 @@ static void pet_consume_events(pet_page_t *page, uint32_t bits)
         {PET_REMIND_MISS, "好久没见到你了，我好想你呀", PET_TONE_R_MISS},
     };
 
+    /* device-initiated speaking events wait for the cloud TTS to finish
+     * instead of interrupting it; their bits stay pending and retry on the
+     * next 1 s tick */
+    const uint32_t k_speak_bits = PET_EVT_HATCH | PET_EVT_EVOLVE | PET_REMIND_HUNGRY |
+                                  PET_REMIND_SAD | PET_REMIND_DIRTY | PET_REMIND_TIRED |
+                                  PET_REMIND_SICK | PET_REMIND_MISS;
+    if ((bits & k_speak_bits) && pet_voice_tts_active()) {
+        bits &= ~k_speak_bits;
+        if (!bits) {
+            return;
+        }
+    }
+
+    uint32_t processed = 0;
     for (size_t i = 0; i < sizeof(k_evt_map) / sizeof(k_evt_map[0]); i++) {
         if (bits & k_evt_map[i].evt) {
             if (k_evt_map[i].evt <= PET_EVT_PAT) {
@@ -165,9 +179,10 @@ static void pet_consume_events(pet_page_t *page, uint32_t bits)
             }
             pet_ui_toast(k_evt_map[i].toast);
             LISA_LOGI(TAG, "evt 0x%x: %s", k_evt_map[i].evt, k_evt_map[i].toast);
+            processed |= k_evt_map[i].evt;
         }
     }
-    pet_core_evt_ack(bits);
+    pet_core_evt_ack(processed);
 }
 
 /* ---------------- timers ---------------- */

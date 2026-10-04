@@ -5,6 +5,7 @@
 
 #include "app_tone.h"
 #include "tone_control/voice_player_tone.h"
+#include "voice_player_tts.h"
 
 void pet_voice_play(uint8_t tone_id)
 {
@@ -16,4 +17,9 @@ void pet_voice_play(uint8_t tone_id)
         return;
     }
     voice_player_play_tone_url(url);
+}
+
+bool pet_voice_tts_active(void)
+{
+    return voice_player_tts_is_active();
 }
