@@ -244,6 +244,17 @@ static int pet_cmd_dispatch(int argc, char *argv[])
         return -1;
     }
 
+    if (strcmp(cmd, "tone") == 0 && argc >= 3) {
+        int id = (int)strtol(argv[2], NULL, 0);
+        if (id < 0 || id > 255) {
+            shellPrint(shellGetCurrent(), "pet: tone id out of range\n");
+            return -1;
+        }
+        pet_voice_play((uint8_t)id);
+        shellPrint(shellGetCurrent(), "pet: tone %d submitted\n", id);
+        return 0;
+    }
+
     if (strcmp(cmd, "save") == 0) {
         pet_core_flush_save();
         shellPrint(shellGetCurrent(), "pet: saved\n");
