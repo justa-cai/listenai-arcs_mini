@@ -5,6 +5,7 @@ listenai_library_sources(
     pet_core.c
     pet_draw.c
     pet_save.c
+    pet_shell.c
     pet_ui.c
     pet_buzzer.c
 )

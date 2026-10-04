@@ -824,3 +824,128 @@ void pet_core_flush_save(void)
     pet_save_write(&st);
     xSemaphoreGive(s_lock);
 }
+
+/* ---------------- debug/testing helpers ---------------- */
+
+int pet_core_debug_set_stat(int idx, int val)
+{
+    if (!s_lock || idx < 0 || idx > 3 || val < 0 || val > 100) {
+        return -1;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    uint64_t dt = elapsed_ms();
+    if (dt >= 1000) {
+        apply_elapsed(dt, 10);
+    }
+    uint16_t *stats[4] = {&st.satiety, &st.happy, &st.clean, &st.energy};
+    *stats[idx] = (uint16_t)(val * 10);
+    re_anchor();
+    pet_save_write(&st);
+    xSemaphoreGive(s_lock);
+    return 0;
+}
+
+int pet_core_debug_set_stage(int stage)
+{
+    if (!s_lock || stage < PET_STAGE_EGG || stage > PET_STAGE_ADULT) {
+        return -1;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    st.stage = (uint8_t)stage;
+    pet_save_write(&st);
+    xSemaphoreGive(s_lock);
+    return 0;
+}
+
+int pet_core_debug_set_field(int field, int val)
+{
+    if (!s_lock) {
+        return -1;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    switch (field) {
+    case PET_DBG_SLEEPING:
+        st.sleeping = val ? 1 : 0;
+        break;
+    case PET_DBG_SICK:
+        st.sick = val ? 1 : 0;
+        if (!st.sick) {
+            st.zero_duration_s = 0;
+        }
+        break;
+    case PET_DBG_POOPS:
+        st.poops = (uint8_t)(val < 0 ? 0 : (val > 3 ? 3 : val));
+        break;
+    case PET_DBG_EGG_AGE_S:
+        st.egg_age_s = (uint32_t)(val < 0 ? 0 : val);
+        break;
+    case PET_DBG_CARE_COUNT:
+        st.care_count = (uint16_t)(val < 0 ? 0 : val);
+        break;
+    case PET_DBG_AGE_DAYS:
+        st.age_days = (uint16_t)(val < 0 ? 0 : val);
+        break;
+    case PET_DBG_GOOD_DAYS:
+        st.good_days = (uint16_t)(val < 0 ? 0 : val);
+        break;
+    default:
+        xSemaphoreGive(s_lock);
+        return -1;
+    }
+    pet_save_write(&st);
+    xSemaphoreGive(s_lock);
+    return 0;
+}
+
+int pet_core_debug_time_travel(uint32_t seconds)
+{
+    if (!s_lock || seconds == 0 || seconds > OFFLINE_CAP_S) {
+        return -1;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    uint64_t dt = elapsed_ms();
+    if (dt >= 1000) {
+        apply_elapsed(dt, 10);
+    }
+    apply_elapsed((uint64_t)seconds * 1000u, 10);
+    re_anchor(); /* the real clock did not move; drop the tiny real gap */
+    pet_save_write(&st);
+    LISA_LOGI(TAG, "dbg: time-travel %u s", seconds);
+    xSemaphoreGive(s_lock);
+    return 0;
+}
+
+int pet_core_debug_evt(uint32_t bits)
+{
+    if (!s_lock || !bits) {
+        return -1;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_pending_evt |= bits;
+    xSemaphoreGive(s_lock);
+    return 0;
+}
+
+int pet_core_debug_reset(void)
+{
+    if (!s_lock) {
+        return -1;
+    }
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    memset(&st, 0, sizeof(st));
+    st.satiety = 800;
+    st.happy = 800;
+    st.clean = 1000;
+    st.energy = 900;
+    st.stage = PET_STAGE_EGG;
+    st.poop_due_s = -1;
+    st.born_wall_s = -1;
+    memset(s_below_latch, 0, sizeof(s_below_latch));
+    memset(s_remind_cd, 0, sizeof(s_remind_cd));
+    s_pending_evt = 0;
+    re_anchor();
+    pet_save_write(&st);
+    xSemaphoreGive(s_lock);
+    LISA_LOGI(TAG, "dbg: reset to a fresh egg");
+    return 0;
+}

@@ -167,4 +167,35 @@ void pet_core_on_clock_valid(void);
 /* Save immediately (power-off hook). */
 void pet_core_flush_save(void);
 
+/* ---------------- debug/testing helpers (pet shell command) ---------------- */
+
+enum {
+    PET_DBG_SLEEPING = 0,
+    PET_DBG_SICK,
+    PET_DBG_POOPS,
+    PET_DBG_EGG_AGE_S, /* egg age in seconds */
+    PET_DBG_CARE_COUNT,
+    PET_DBG_AGE_DAYS,
+    PET_DBG_GOOD_DAYS,
+};
+
+/* Set one stat directly: idx 0..3 = satiety/happy/clean/energy, val 0..100. */
+int pet_core_debug_set_stat(int idx, int val);
+
+/* Jump to a stage (0 egg / 1 baby / 2 adult) without the evolution event. */
+int pet_core_debug_set_stage(int stage);
+
+/* Set a misc field by PET_DBG_* id. */
+int pet_core_debug_set_field(int field, int val);
+
+/* Fast-forward the whole state machine by N seconds (decay, poops,
+ * sickness, day cut, evolution checks) without waiting for real time. */
+int pet_core_debug_time_travel(uint32_t seconds);
+
+/* Inject UI event bits (reaction animations / reminders). */
+int pet_core_debug_evt(uint32_t bits);
+
+/* Start over with a fresh egg (drops the save). */
+int pet_core_debug_reset(void);
+
 #endif /* PET_CORE_H */
