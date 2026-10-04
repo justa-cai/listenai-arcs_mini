@@ -84,6 +84,29 @@ DEVICE=<serial> ./auto.sh ...   # 多设备时显式指定
 
 `prj.conf` 已开 `CONFIG_OTA_DISABLE_WAKEWORD_UPDATE=y`，防止云端自动更新覆盖自定义资源。
 
+## 真机画面
+
+以下截图全部来自实机 `pet shot`（WebSocket 屏幕截图通道，见下）：蛋期三阶段 → 幼年各心情与事件反应 → 成年形态。
+
+| 蛋期 | | | |
+| --- | --- | --- | --- |
+| ![蛋](docs/images/pet_egg.png) | ![裂纹一](docs/images/pet_egg_crack1.png) | ![裂纹二·晃动](docs/images/pet_egg_crack2.png) | ![幼年](docs/images/pet_baby_normal.png) |
+
+| 幼年·心情与事件 | | | |
+| --- | --- | --- | --- |
+| ![开心](docs/images/pet_baby_content.png) | ![饿了](docs/images/pet_baby_hungry.png) | ![睡觉](docs/images/pet_baby_sleep.png) | ![吃饭动画](docs/images/pet_baby_eat.png) |
+
+| 成年 | | | |
+| --- | --- | --- | --- |
+| ![成年](docs/images/pet_adult_normal.png) | ![成年开心](docs/images/pet_adult_content.png) | ![成年睡觉](docs/images/pet_adult_sleep.png) | ![生病](docs/images/pet_baby_sick.png) |
+
+完整 16 张（含难过/脏便便/玩耍/爱心等）在 [`docs/images/`](docs/images/)。
+
+**抓取方法**：宿主起接收端 `python3 tmp/shot_server.py`，设备执行 `pet shot ws://<host-ip>:8899/shot`——
+设备侧对当前屏幕做 LVGL 离屏快照（240×240 RGB565），经 WebSocket 二进制帧推给宿主转 PNG。
+绕开了 adb shell 输出的 2KB 缓冲限制（`CONFIG_ADB_SHELL_BUFFER_SIZE`），单帧 115KB 稳定传输；
+`bash tmp/pet_scenes.sh <serial>` 一键抓全套场景。
+
 ## 宠物台词清单（tone 分区，`pet tone <id>` 可试听）
 
 26 条预合成台词（VoxCPM `voice_design`="软糯奶萌的小孩子声音，萌萌的"，16kHz mono mp3，
