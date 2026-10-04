@@ -23,6 +23,8 @@
 #include "task.h"
 #include "voice_msg.h"
 
+#include "app_display.h"
+
 #include "ss_screen.h"
 
 #define TAG "ss"
@@ -35,8 +37,7 @@
 
 static struct {
     bool blanked;
-    bool restored_brightness;
-    uint8_t saved_brightness;
+    uint8_t saved_brightness; /* user brightness before blanking */
     TickType_t last_activity;
     SemaphoreHandle_t lock;
     lisa_device_t *disp;
@@ -57,13 +58,18 @@ static void ss_blank(bool on)
         return;
     }
     if (on) {
+        /* turn off the backlight PWM first, then put the panel to sleep */
+        st.saved_brightness = app_display_get_brightness();
+        lisa_display_set_brightness(st.disp, 0);
         lisa_display_blanking_on(st.disp);
         st.blanked = true;
-        LISA_LOGI(TAG, "screen: blanked");
+        LISA_LOGI(TAG, "screen: blanked (backlight off)");
     } else {
         lisa_display_blanking_off(st.disp);
+        /* restore user brightness (set_brightness(0) is what turned it off) */
+        lisa_display_set_brightness(st.disp, st.saved_brightness);
         st.blanked = false;
-        LISA_LOGI(TAG, "screen: awake");
+        LISA_LOGI(TAG, "screen: awake (backlight %u)", st.saved_brightness);
     }
 }
 
