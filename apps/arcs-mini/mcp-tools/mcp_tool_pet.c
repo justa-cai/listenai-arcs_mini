@@ -14,6 +14,8 @@
 #include "mcp.h"
 
 #include "pet/pet_core.h"
+#include "pet/pet_ui.h"
+#include "pet/pet_voice.h"
 
 #define TAG "pet"
 
@@ -130,6 +132,14 @@ static cJSON *pet_care_call(const char *id, const char *name, cJSON *args)
     int rc = pet_core_action((uint8_t)action, (uint8_t)item, &result);
     snprintf(reply, sizeof(reply), "%s", result.tts);
     is_error = (rc != 0);
+
+    /* the pet's own line plays on-device too (tone channel captures tts,
+     * interrupting the cloud answer by design); the cloud reads the
+     * dynamic text (with live numbers) for the conversational reply */
+    pet_voice_play(result.tone_id);
+    /* refresh the screen (animation/toast) right away instead of waiting
+     * for the 1 s UI poll */
+    pet_ui_kick();
 
 out:;
     cJSON *result_json = mcp_tool_call_result_create(name);
