@@ -1,0 +1,17 @@
+menuconfig SOUNDSENSE
+    bool "SoundSense abnormal-sound detection (cry/snoring)"
+    default y
+    help
+      Stream microphone PCM to a LAN SoundSense server over WebSocket
+      (docs/SoundSense_PROTOCOL.md) and surface snoring/baby_cry events.
+
+if SOUNDSENSE
+
+config SOUNDSENSE_SCREEN
+    bool "Auto screen blanking + event wake"
+    default y
+    help
+      Blank the panel after inactivity (30 s daytime / 10 s after 22:00),
+      wake on button/voice/detection events.
+
+endif

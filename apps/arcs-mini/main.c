@@ -282,6 +282,20 @@ int main(int argc, char **argv)
         LOGE("Miniapp initialization failed");
     }
 #endif
+#ifdef CONFIG_SOUNDSENSE
+    {
+        extern int ss_core_init(void);
+        extern int ss_screen_init(void);
+        if (ss_core_init() != 0) {
+            LOGE("SoundSense core init failed");
+        }
+#ifdef CONFIG_SOUNDSENSE_SCREEN
+        if (ss_screen_init() != 0) {
+            LOGW("SoundSense screen manager disabled");
+        }
+#endif
+    }
+#endif
     app_show_initial_wifi_info_if_needed();
 
 
