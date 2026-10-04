@@ -37,6 +37,10 @@ typedef struct {
     uint32_t event_count;       /* total events (start+end) */
     uint32_t reconnect_count;
     int32_t last_probs_x1000[SS_CLASS_NUM]; /* most recent smoothed probs */
+    /* per-class running totals (updated on event receipt) */
+    uint32_t class_event_count[SS_CLASS_NUM];
+    uint32_t class_last_ts_ms[SS_CLASS_NUM];
+    bool class_last_is_start[SS_CLASS_NUM];
 } ss_status_t;
 
 int ss_core_init(void);

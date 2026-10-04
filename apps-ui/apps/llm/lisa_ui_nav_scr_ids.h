@@ -22,6 +22,9 @@ enum {
 #endif
 
     LISA_UI_NAV_SCR_ID_MINIAPP,
+#ifdef CONFIG_SOUNDSENSE
+    LISA_UI_NAV_SCR_ID_SS,               // SoundSense 异常声音检测面板（默认页）
+#endif
 };
 
 #endif

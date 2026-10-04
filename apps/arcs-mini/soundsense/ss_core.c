@@ -57,6 +57,9 @@ static struct {
     uint32_t enable_tick;
     uint32_t send_frames, send_drops, result_count, event_count, reconnect_count;
     int32_t last_probs_x1000[SS_CLASS_NUM];
+    uint32_t class_event_count[SS_CLASS_NUM];
+    uint32_t class_last_ts_ms[SS_CLASS_NUM];
+    bool class_last_is_start[SS_CLASS_NUM];
 
     /* event ring */
     ss_event_t ring[SS_EVENT_RING];
@@ -99,6 +102,14 @@ static void ss_handle_event_msg(cJSON *root)
         st.ring_count++;
     }
     st.event_count++;
+    /* per-class running totals */
+    for (int c = 0; c < SS_CLASS_NUM; c++) {
+        if (strcmp(ev.class_name, k_class_names[c]) == 0) {
+            st.class_event_count[c]++;
+            st.class_last_ts_ms[c] = ev.ts_ms;
+            st.class_last_is_start[c] = ev.is_start;
+        }
+    }
     xSemaphoreGive(st.lock);
 
     LISA_LOGI(TAG, "event: %s %s dur=%ums peak=%u%%", ev.class_name,
@@ -760,6 +771,9 @@ void ss_core_get_status(ss_status_t *out)
     out->reconnect_count = st.reconnect_count;
     for (int i = 0; i < SS_CLASS_NUM; i++) {
         out->last_probs_x1000[i] = st.last_probs_x1000[i];
+        out->class_event_count[i] = st.class_event_count[i];
+        out->class_last_ts_ms[i] = st.class_last_ts_ms[i];
+        out->class_last_is_start[i] = st.class_last_is_start[i];
     }
     xSemaphoreGive(st.lock);
 }

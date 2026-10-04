@@ -4,6 +4,7 @@ listenai_library_sources(
     ss_core.c
     ss_audio.c
     ss_shell.c
+    ss_panel.c
 )
 
 listenai_library_sources_ifdef(CONFIG_SOUNDSENSE_SCREEN ss_screen.c)

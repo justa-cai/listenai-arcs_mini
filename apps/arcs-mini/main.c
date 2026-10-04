@@ -286,8 +286,13 @@ int main(int argc, char **argv)
     {
         extern int ss_core_init(void);
         extern int ss_screen_init(void);
+        extern int ss_panel_init(void);
         if (ss_core_init() != 0) {
             LOGE("SoundSense core init failed");
+        }
+        /* panel takes over the default screen (must run after lisa_ui_init) */
+        if (ss_panel_init() != 0) {
+            LOGW("SoundSense panel not registered, home stays default");
         }
 #ifdef CONFIG_SOUNDSENSE_SCREEN
         if (ss_screen_init() != 0) {
