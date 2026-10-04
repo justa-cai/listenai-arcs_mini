@@ -17,13 +17,12 @@
 #include "lisa_display.h"
 #include "lisa_device.h"
 #include "lisa_log.h"
+#include "lisa_pwm.h"
 #include "lisa_thread.h"
 #include "listen_system.h"
 #include "semphr.h"
 #include "task.h"
 #include "voice_msg.h"
-
-#include "app_display.h"
 
 #include "ss_screen.h"
 
@@ -54,22 +53,30 @@ static bool ss_is_night(void)
 
 static void ss_blank(bool on)
 {
-    if (!st.disp || st.blanked == on) {
+    if (!st.disp) {
         return;
     }
-    if (on) {
-        /* turn off the backlight PWM first, then put the panel to sleep */
-        st.saved_brightness = app_display_get_brightness();
-        lisa_display_set_brightness(st.disp, 0);
+    if (on && !st.blanked) {
+        /* 1. stop the backlight PWM channel entirely (halting the timer
+         *    avoids any polarity/boundary ambiguity), 2. put the panel to
+         *    sleep. channel/pwm device match service_brightness.c config */
+        lisa_device_t *pwm = lisa_device_get("pwm0");
+        if (pwm) {
+            lisa_pwm_disable(pwm, 1); /* backlight PWM channel */
+        }
         lisa_display_blanking_on(st.disp);
         st.blanked = true;
-        LISA_LOGI(TAG, "screen: blanked (backlight off)");
-    } else {
+        LISA_LOGI(TAG, "screen: blanked (pwm ch1 disabled)");
+    } else if (!on && st.blanked) {
         lisa_display_blanking_off(st.disp);
-        /* restore user brightness (set_brightness(0) is what turned it off) */
-        lisa_display_set_brightness(st.disp, st.saved_brightness);
+        /* re-enable the PWM; brightness was never changed so the last duty
+         * cycle (user setting) is restored automatically */
+        lisa_device_t *pwm = lisa_device_get("pwm0");
+        if (pwm) {
+            lisa_pwm_enable(pwm, 1);
+        }
         st.blanked = false;
-        LISA_LOGI(TAG, "screen: awake (backlight %u)", st.saved_brightness);
+        LISA_LOGI(TAG, "screen: awake (pwm ch1 enabled)");
     }
 }
 
@@ -154,4 +161,22 @@ void ss_screen_on_event(const ss_event_t *ev)
         static const char alert_emoji[] = "等待";
         voice_msg_pub(VOICE_MSG_CLOUD_EMOJI, (void *)alert_emoji, sizeof(alert_emoji));
     }
+}
+
+/* manual blank control for the `ss blank <0|1>` debug command */
+void ss_screen_test_blank(int on)
+{
+    if (!st.lock) {
+        if (st.disp == NULL) {
+            st.disp = lisa_device_get("display");
+        }
+        if (!st.disp) {
+            return;
+        }
+        st.lock = xSemaphoreCreateMutex();
+        st.last_activity = xTaskGetTickCount();
+    }
+    xSemaphoreTake(st.lock, portMAX_DELAY);
+    ss_blank(on ? true : false);
+    xSemaphoreGive(st.lock);
 }

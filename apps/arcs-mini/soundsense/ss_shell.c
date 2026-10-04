@@ -91,8 +91,16 @@ static int ss_cmd_handler(int argc, char *argv[])
         return 0;
     }
 
+    if (strcmp(cmd, "blank") == 0 && argc >= 3) {
+        extern void ss_screen_test_blank(int on);
+        ss_screen_test_blank(atoi(argv[2]));
+        shellPrint(shellGetCurrent(), "ss: blank %s\n", atoi(argv[2]) ? "on" : "off");
+        return 0;
+    }
+
     shellPrint(shellGetCurrent(),
-               "usage: ss | ss on|off | ss server <url> | ss events [n] [snoring|baby_cry]\n");
+               "usage: ss | ss on|off | ss server <url> | ss events [n] [snoring|baby_cry]"
+               " | ss blank <0|1>\n");
     return -1;
 }
 
