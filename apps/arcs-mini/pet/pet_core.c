@@ -62,6 +62,11 @@ static bool s_below_latch[4];   /* reminder hysteresis per stat */
 static uint32_t s_save_throttle;
 static uint32_t s_rand_seed = 0x9E3779B9u;
 
+/* Fractional decay accumulator per stat (x10-points * ms). Rates are only
+ * a few x10-points per HOUR, so a 5 s tick would truncate to zero without
+ * carrying the remainder forward. 1 x10-point == 3_600_000 stat_ms units. */
+static uint64_t s_stat_acc[4];
+
 static uint32_t pet_rand(void)
 {
     s_rand_seed ^= s_rand_seed << 13;
@@ -256,6 +261,27 @@ static void check_evolution(void)
     }
 }
 
+/* Advance one stat by rate (x10-points/hour) over dt_ms, carrying the
+ * sub-point remainder. sign < 0 decays, sign > 0 recovers. */
+static void stat_advance(int idx, uint16_t *v, uint32_t rate_x10_per_hour, int sign,
+                         uint64_t dt_ms)
+{
+    if (rate_x10_per_hour == 0) {
+        return;
+    }
+    s_stat_acc[idx] += (uint64_t)rate_x10_per_hour * dt_ms;
+    uint32_t delta = (uint32_t)(s_stat_acc[idx] / 3600000u);
+    s_stat_acc[idx] %= 3600000u;
+    if (delta == 0) {
+        return;
+    }
+    if (sign < 0) {
+        stat_sub(v, delta);
+    } else {
+        stat_add(v, delta);
+    }
+}
+
 /* Advance everything by dt_ms. discount_x10 scales stat changes only. */
 static void apply_elapsed(uint64_t dt_ms, int discount_x10)
 {
@@ -271,21 +297,34 @@ static void apply_elapsed(uint64_t dt_ms, int discount_x10)
     int mult = st.sick ? SICK_MULT_X10 : 10;
     int dm = discount_x10;
 
-    /* stat deltas in x10 points for this dt */
-#define DELTA(per_hour) ((uint32_t)((uint64_t)(per_hour) * dt_s / 3600u * dm / 10u))
-    uint32_t poop_extra = (uint32_t)st.poops;
+    /* per-stat rates in x10-points/hour (poop penalties always apply) */
+    uint32_t poop_happy = (uint32_t)st.poops * RATE_HAPPY_PER_POOP;
+    uint32_t poop_clean = (uint32_t)st.poops * RATE_CLEAN_PER_POOP;
+    uint16_t *stats_x10[4] = {&st.satiety, &st.happy, &st.clean, &st.energy};
+    uint32_t decay_rate[4];
+    uint32_t recover_rate[4] = {0, 0, 0, 0};
+
     if (!st.sleeping) {
-        stat_sub(&st.satiety, DELTA(RATE_SATIETY_AWAKE) * mult / 10);
-        stat_sub(&st.happy, DELTA(RATE_HAPPY_AWAKE + RATE_HAPPY_PER_POOP * poop_extra) * mult / 10);
-        stat_sub(&st.clean, DELTA(RATE_CLEAN_BASE + RATE_CLEAN_PER_POOP * poop_extra) * mult / 10);
-        stat_sub(&st.energy, DELTA(RATE_ENERGY_AWAKE) * mult / 10);
+        decay_rate[0] = RATE_SATIETY_AWAKE;
+        decay_rate[1] = RATE_HAPPY_AWAKE + poop_happy;
+        decay_rate[2] = RATE_CLEAN_BASE + poop_clean;
+        decay_rate[3] = RATE_ENERGY_AWAKE;
     } else {
-        stat_sub(&st.satiety, DELTA(RATE_SATIETY_SLEEP) * mult / 10);
-        stat_sub(&st.happy, DELTA(RATE_HAPPY_SLEEP) * mult / 10);
-        stat_sub(&st.clean, DELTA(RATE_CLEAN_BASE + RATE_CLEAN_PER_POOP * poop_extra) * mult / 10);
-        stat_add(&st.energy, DELTA(RATE_ENERGY_SLEEP));
+        decay_rate[0] = RATE_SATIETY_SLEEP;
+        decay_rate[1] = RATE_HAPPY_SLEEP + poop_happy;
+        decay_rate[2] = RATE_CLEAN_BASE + poop_clean;
+        decay_rate[3] = 0;
+        recover_rate[3] = RATE_ENERGY_SLEEP;
     }
-#undef DELTA
+
+    for (int i = 0; i < 4; i++) {
+        if (decay_rate[i]) {
+            stat_advance(i, stats_x10[i], decay_rate[i] * mult / 10 * dm / 10, -1, dt_ms);
+        }
+        if (recover_rate[i]) {
+            stat_advance(i, stats_x10[i], recover_rate[i] * dm / 10, +1, dt_ms);
+        }
+    }
 
     /* time accumulators advance at full speed */
     if (st.stage == PET_STAGE_EGG) {
@@ -666,6 +705,12 @@ void pet_core_tick(void)
         return;
     }
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    /* clock became SNTP-valid after the anchor was taken (e.g. the probe
+     * callback raced ahead of settimeofday): switch the anchor to the wall
+     * domain now, dropping the sub-second gap. */
+    if (!st.anchor_wall_valid && ls_sys_time_is_valid()) {
+        re_anchor();
+    }
     uint64_t dt = elapsed_ms();
     if (dt >= 5000) {
         apply_elapsed(dt, 10);
@@ -738,6 +783,13 @@ void pet_core_on_clock_valid(void)
         return;
     }
     xSemaphoreTake(s_lock, portMAX_DELAY);
+    /* PROBE_SUCCESS is published just BEFORE settimeofday: if the wall clock
+     * is not valid yet, do nothing here; pet_core_tick() performs the domain
+     * switch once it sees a valid clock. */
+    if (!ls_sys_time_is_valid()) {
+        xSemaphoreGive(s_lock);
+        return;
+    }
     /* apply any small pending delta, then switch the anchor to the wall
      * clock; from here on elapsed_ms() uses wall time */
     uint64_t dt = elapsed_ms();
