@@ -183,7 +183,8 @@ static void voice_cloud_auth_failed(void *unused, uint32_t msg_id, void *data, u
 static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     service_alarm_init();
-    /* SD state must also be reconciled on modem-only devices. */
+    /* SD state must also be reconciled on modem-only devices.
+     * (no-op stub when the board has no SDMMC hardware) */
     (void)service_sd_music_init();
 }
 

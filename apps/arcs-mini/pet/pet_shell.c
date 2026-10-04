@@ -21,9 +21,16 @@
 
 #include "lisa_log.h"
 #include "pet_core.h"
+#include "pet_ui.h"
 #include "shell.h"
 
 #define TAG "pet"
+
+/* refresh the screen right after a mutation (no 1 s timer latency) */
+static void pet_kick(void)
+{
+    pet_ui_kick();
+}
 
 static const char *const k_stat_names[4] = {"sat", "hap", "cln", "ene"};
 static const char *const k_stat_full[4] = {"satiety", "happy", "clean", "energy"};
@@ -86,7 +93,7 @@ static const struct evt_name k_evts[] = {
     {"rsick", PET_REMIND_SICK},    {"rmiss", PET_REMIND_MISS},
 };
 
-static int pet_cmd_handler(int argc, char *argv[])
+static int pet_cmd_dispatch(int argc, char *argv[])
 {
     if (argc < 2) {
         pet_shell_print_state();
@@ -251,6 +258,16 @@ static int pet_cmd_handler(int argc, char *argv[])
 
     pet_shell_usage();
     return -1;
+}
+
+static int pet_cmd_handler(int argc, char *argv[])
+{
+    int rc = pet_cmd_dispatch(argc, argv);
+    /* mutations from the shell should show up on screen immediately */
+    if (argc >= 2) {
+        pet_kick();
+    }
+    return rc;
 }
 
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN) | SHELL_CMD_DISABLE_RETURN,

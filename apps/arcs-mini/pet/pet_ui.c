@@ -175,16 +175,14 @@ static void pet_anim_timer_cb(lv_timer_t *timer)
     pet_draw_scene(page->canvas, &page->last_snap, &page->draw_ctx);
 }
 
-static void pet_core_timer_cb(lv_timer_t *timer)
+static void pet_sync_widgets(pet_page_t *page)
 {
-    pet_page_t *page = timer ? timer->user_data : NULL;
     pet_snapshot_t snap;
     static const char *const stage_names[] = {"蛋", "幼年", "成年"};
 
     if (!page) {
         return;
     }
-    pet_core_tick();
     pet_core_snapshot(&snap);
 
     /* stats */
@@ -208,6 +206,16 @@ static void pet_core_timer_cb(lv_timer_t *timer)
 
     page->last_snap = snap;
     pet_consume_events(page, snap.evt_bits);
+}
+
+static void pet_core_timer_cb(lv_timer_t *timer)
+{
+    pet_page_t *page = timer ? timer->user_data : NULL;
+    if (!page) {
+        return;
+    }
+    pet_core_tick();
+    pet_sync_widgets(page);
 }
 
 /* ---------------- nav screen ---------------- */
@@ -419,4 +427,18 @@ static void pet_ui_default_worker(void *arg, uint32_t len)
 int pet_ui_become_default(void)
 {
     return LISA_UI_INVOKE_UI(pet_ui_default_worker, NULL, 0);
+}
+
+/* Immediate one-shot widget refresh (called after shell/debug mutations so
+ * the screen reflects them without waiting for the 1 s timer). */
+static void pet_ui_kick_worker(void *arg, uint32_t len)
+{
+    (void)arg;
+    (void)len;
+    pet_sync_widgets(s_page);
+}
+
+void pet_ui_kick(void)
+{
+    (void)LISA_UI_INVOKE_UI(pet_ui_kick_worker, NULL, 0);
 }

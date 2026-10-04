@@ -13,4 +13,7 @@ int pet_ui_become_default(void);
 /* Show a centered toast line for ~2 s (e.g. action result / reminder). */
 void pet_ui_toast(const char *text);
 
+/* Push an immediate widget refresh (used after debug/shell mutations). */
+void pet_ui_kick(void);
+
 #endif /* PET_UI_H */
