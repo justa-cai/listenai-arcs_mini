@@ -48,13 +48,8 @@ static void ss_append_class_summary(cJSON *obj, const char *key, int idx,
     cJSON_AddNumberToObject(cls, "event_count", st->class_event_count[idx]);
     cJSON_AddNumberToObject(cls, "probability", st->last_probs_x1000[idx] / 1000.0);
 
-    if (st->class_last_ts_ms[idx] > 0) {
-        char time_str[20];
-        time_t sec = st->class_last_ts_ms[idx] / 1000 + 8 * 3600; /* UTC+8 */
-        struct tm tm_s;
-        gmtime_r(&sec, &tm_s);
-        snprintf(time_str, sizeof(time_str), "%02d:%02d", tm_s.tm_hour, tm_s.tm_min);
-        cJSON_AddStringToObject(cls, "last_event", time_str);
+    if (st->class_last_time[idx][0] != '\0') {
+        cJSON_AddStringToObject(cls, "last_event", st->class_last_time[idx]);
         cJSON_AddBoolToObject(cls, "ongoing", st->class_last_is_start[idx]);
     } else {
         cJSON_AddNullToObject(cls, "last_event");
@@ -90,10 +85,10 @@ static cJSON *soundsense_status_call(const char *id, const char *name, cJSON *ar
              st.result_count, st.reconnect_count,
              st.class_event_count[0],
              st.last_probs_x1000[0] / 10.0,
-             st.class_last_ts_ms[0] > 0 ? "，最近有检测" : "",
+             st.class_last_time[0][0] != '\0' ? "，最近有检测" : "",
              st.class_event_count[1],
              st.last_probs_x1000[1] / 10.0,
-             st.class_last_ts_ms[1] > 0 ? "，最近有检测" : "");
+             st.class_last_time[1][0] != '\0' ? "，最近有检测" : "");
 
     cJSON *result = mcp_tool_call_result_create(name);
     if (!result) return NULL;

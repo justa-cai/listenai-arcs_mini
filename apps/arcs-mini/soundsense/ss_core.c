@@ -28,6 +28,7 @@
 #include "lisa_log.h"
 #include "lisa_mem.h"
 #include "lisa_thread.h"
+#include "listen_system.h"
 #include "semphr.h"
 #include "task.h"
 
@@ -58,7 +59,7 @@ static struct {
     uint32_t send_frames, send_drops, result_count, event_count, reconnect_count;
     int32_t last_probs_x1000[SS_CLASS_NUM];
     uint32_t class_event_count[SS_CLASS_NUM];
-    uint32_t class_last_ts_ms[SS_CLASS_NUM];
+    char class_last_time[SS_CLASS_NUM][8];
     bool class_last_is_start[SS_CLASS_NUM];
 
     /* event ring */
@@ -102,11 +103,22 @@ static void ss_handle_event_msg(cJSON *root)
         st.ring_count++;
     }
     st.event_count++;
-    /* per-class running totals */
+    /* per-class running totals: count only class_start = one detection episode;
+     * format time immediately via ls_sys_get_localtime (TZ-correct, no math) */
+    struct tm cal;
+    char time_str[8] = "";
+    if (ls_sys_time_is_valid() && ls_sys_get_localtime(&cal) == 0) {
+        snprintf(time_str, sizeof(time_str), "%02d:%02d", cal.tm_hour, cal.tm_min);
+    }
     for (int c = 0; c < SS_CLASS_NUM; c++) {
         if (strcmp(ev.class_name, k_class_names[c]) == 0) {
-            st.class_event_count[c]++;
-            st.class_last_ts_ms[c] = ev.ts_ms;
+            if (ev.is_start) {
+                st.class_event_count[c]++;
+            }
+            if (time_str[0] != '\0') {
+                snprintf(st.class_last_time[c], sizeof(st.class_last_time[c]),
+                         "%s", time_str);
+            }
             st.class_last_is_start[c] = ev.is_start;
         }
     }
@@ -772,7 +784,7 @@ void ss_core_get_status(ss_status_t *out)
     for (int i = 0; i < SS_CLASS_NUM; i++) {
         out->last_probs_x1000[i] = st.last_probs_x1000[i];
         out->class_event_count[i] = st.class_event_count[i];
-        out->class_last_ts_ms[i] = st.class_last_ts_ms[i];
+        memcpy(out->class_last_time[i], st.class_last_time[i], 8);
         out->class_last_is_start[i] = st.class_last_is_start[i];
     }
     xSemaphoreGive(st.lock);

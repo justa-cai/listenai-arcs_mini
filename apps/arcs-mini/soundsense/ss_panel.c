@@ -19,6 +19,7 @@
 #include "lisa_ui_fonts.h"
 #include "lisa_ui_nav_scr.h"
 #include "lisa_ui_nav_scr_ids.h"
+#include "listen_system.h"
 #include "lvgl.h"
 #include "models/model_voice.h"
 
@@ -91,12 +92,9 @@ static void ss_panel_refresh(void)
         snprintf(buf, sizeof(buf), "共 %u 次", st.class_event_count[c]);
         lv_label_set_text(s_panel->class_count[c], buf);
 
-        if (st.class_last_ts_ms[c] > 0) {
-            time_t sec = st.class_last_ts_ms[c] / 1000 + 8 * 3600;
-            struct tm tm_s;
-            gmtime_r(&sec, &tm_s);
-            snprintf(buf, sizeof(buf), "最近: %02d:%02d%s",
-                     tm_s.tm_hour, tm_s.tm_min,
+        if (st.class_last_time[c][0] != '\0') {
+            snprintf(buf, sizeof(buf), "最近: %s%s",
+                     st.class_last_time[c],
                      st.class_last_is_start[c] ? "" : " 止");
         } else {
             snprintf(buf, sizeof(buf), "暂无事件");
