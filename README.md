@@ -90,15 +90,15 @@ DEVICE=<serial> ./auto.sh ...   # 多设备时显式指定
 
 | 蛋期 | | | |
 | --- | --- | --- | --- |
-| ![蛋](docs/images/pet_egg.png) | ![裂纹一](docs/images/pet_egg_crack1.png) | ![裂纹二·晃动](docs/images/pet_egg_crack2.png) | ![幼年](docs/images/pet_baby_normal.png) |
+| ![蛋](docs/images/pet_egg.png?v=4) | ![裂纹一](docs/images/pet_egg_crack1.png?v=4) | ![裂纹二·晃动](docs/images/pet_egg_crack2.png?v=4) | ![幼年](docs/images/pet_baby_normal.png?v=4) |
 
 | 幼年·心情与事件 | | | |
 | --- | --- | --- | --- |
-| ![开心](docs/images/pet_baby_content.png) | ![饿了](docs/images/pet_baby_hungry.png) | ![睡觉](docs/images/pet_baby_sleep.png) | ![吃饭动画](docs/images/pet_baby_eat.png) |
+| ![开心](docs/images/pet_baby_content.png?v=4) | ![饿了](docs/images/pet_baby_hungry.png?v=4) | ![睡觉](docs/images/pet_baby_sleep.png?v=4) | ![吃饭动画](docs/images/pet_baby_eat.png?v=4) |
 
 | 成年 | | | |
 | --- | --- | --- | --- |
-| ![成年](docs/images/pet_adult_normal.png) | ![成年开心](docs/images/pet_adult_content.png) | ![成年睡觉](docs/images/pet_adult_sleep.png) | ![生病](docs/images/pet_baby_sick.png) |
+| ![成年](docs/images/pet_adult_normal.png?v=4) | ![成年开心](docs/images/pet_adult_content.png?v=4) | ![成年睡觉](docs/images/pet_adult_sleep.png?v=4) | ![生病](docs/images/pet_baby_sick.png?v=4) |
 
 完整 16 张（含难过/脏便便/玩耍/爱心等）在 [`docs/images/`](docs/images/)。
 
