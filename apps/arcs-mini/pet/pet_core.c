@@ -52,6 +52,7 @@
 #define CLEAN_SPOTLESS 950
 #define ENERGY_TIRED 150
 #define ENERGY_RESTED 950
+#define ENERGY_NAP 200 /* daytime auto-nap when energy drops below 2.0 pts */
 #define NIGHT_START_H 22
 #define NIGHT_END_H 7
 
@@ -389,10 +390,20 @@ static void autosleep_check(void)
     if (st.stage == PET_STAGE_EGG || !ls_sys_time_is_valid()) {
         return; /* never auto-sleep on a fake clock */
     }
-    if (!st.sleeping && is_night_wall() && st.energy < ENERGY_RESTED) {
-        st.sleeping = 1;
-        evt_raise(PET_EVT_SLEPT);
-    } else if (st.sleeping && !is_night_wall()) {
+    if (!st.sleeping) {
+        if (is_night_wall() && st.energy < ENERGY_RESTED) {
+            st.sleeping = 1;
+            evt_raise(PET_EVT_SLEPT);
+        } else if (!is_night_wall() && st.energy < ENERGY_NAP) {
+            /* daytime exhaustion nap: sleep until recharged, regardless
+             * of the wall clock (manual light wake still works) */
+            st.sleeping = 1;
+            evt_raise(PET_EVT_SLEPT);
+        }
+    } else if (!is_night_wall() && st.energy >= ENERGY_RESTED) {
+        /* wake only when the day has started AND the battery is full again:
+         * a night sleep naturally tops up before 7:00, while a daytime nap
+         * keeps sleeping until recharged instead of waking instantly */
         st.sleeping = 0;
         evt_raise(PET_EVT_WOKE);
     }
@@ -946,6 +957,7 @@ int pet_core_debug_time_travel(uint32_t seconds)
         apply_elapsed(dt, 10);
     }
     apply_elapsed((uint64_t)seconds * 1000u, 10);
+    autosleep_check();
     re_anchor(); /* the real clock did not move; drop the tiny real gap */
     pet_save_write(&st);
     LISA_LOGI(TAG, "dbg: time-travel %u s", seconds);
