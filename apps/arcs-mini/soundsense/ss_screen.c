@@ -14,8 +14,10 @@
 #include <time.h>
 
 #include "FreeRTOS.h"
+#include "IOMuxManager.h"
 #include "lisa_display.h"
 #include "lisa_device.h"
+#include "lisa_gpio.h"
 #include "lisa_log.h"
 #include "lisa_pwm.h"
 #include "lisa_thread.h"
@@ -23,6 +25,8 @@
 #include "semphr.h"
 #include "task.h"
 #include "voice_msg.h"
+
+#include "pinmux.h" /* LCD_PWM_PIN */
 
 #include "ss_screen.h"
 
@@ -57,26 +61,41 @@ static void ss_blank(bool on)
         return;
     }
     if (on && !st.blanked) {
-        /* 1. stop the backlight PWM channel entirely (halting the timer
-         *    avoids any polarity/boundary ambiguity), 2. put the panel to
-         *    sleep. channel/pwm device match service_brightness.c config */
+        /* 1. put the panel to sleep (display off) */
+        lisa_display_blanking_on(st.disp);
+
+        /* 2. kill the backlight at the pin level: stop the PWM timer,
+         *    then switch the IOMUX from PWM function to GPIO and drive
+         *    the pin LOW. PWM-disable alone leaves the pin in PWM IOMUX
+         *    mode where the pad may keep its last level (still HIGH). */
         lisa_device_t *pwm = lisa_device_get("pwm0");
         if (pwm) {
-            lisa_pwm_disable(pwm, 1); /* backlight PWM channel */
+            lisa_pwm_disable(pwm, 1);
         }
-        lisa_display_blanking_on(st.disp);
+        lisa_device_t *gpioa = lisa_device_get("gpioa");
+        if (gpioa) {
+            /* PAD_A pin 21, function 0 = GPIO (12 = PWM, see pinmux.c) */
+            IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, LCD_PWM_PIN, 0);
+            lisa_gpio_configure(gpioa, LCD_PWM_PIN,
+                                LISA_GPIO_OUTPUT | LISA_GPIO_OUTPUT_INIT_LOW);
+        }
+
         st.blanked = true;
-        LISA_LOGI(TAG, "screen: blanked (pwm ch1 disabled)");
+        LISA_LOGI(TAG, "screen: blanked (backlight pin driven LOW)");
     } else if (!on && st.blanked) {
+        /* restore PWM IOMUX + timer: the duty cycle is preserved in the
+         * channel state so brightness returns to the user setting */
+        lisa_device_t *gpioa = lisa_device_get("gpioa");
+        if (gpioa) {
+            IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, LCD_PWM_PIN, 12); /* PWM */
+        }
         lisa_display_blanking_off(st.disp);
-        /* re-enable the PWM; brightness was never changed so the last duty
-         * cycle (user setting) is restored automatically */
         lisa_device_t *pwm = lisa_device_get("pwm0");
         if (pwm) {
             lisa_pwm_enable(pwm, 1);
         }
         st.blanked = false;
-        LISA_LOGI(TAG, "screen: awake (pwm ch1 enabled)");
+        LISA_LOGI(TAG, "screen: awake (backlight PWM restored)");
     }
 }
 
