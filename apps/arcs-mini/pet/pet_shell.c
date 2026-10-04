@@ -22,6 +22,7 @@
 #include "lisa_log.h"
 #include "pet_core.h"
 #include "pet_ui.h"
+#include "pet_voice.h"
 #include "shell.h"
 
 #define TAG "pet"
@@ -219,6 +220,7 @@ static int pet_cmd_dispatch(int argc, char *argv[])
             if (strcmp(argv[2], acts[i].name) == 0) {
                 pet_result_t r;
                 pet_core_action(acts[i].action, acts[i].item, &r);
+                pet_voice_play(r.tone_id); /* hear the line while debugging */
                 shellPrint(shellGetCurrent(), "pet: act %s -> %s\n", argv[2], r.tts);
                 return 0;
             }

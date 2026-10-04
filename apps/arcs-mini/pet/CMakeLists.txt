@@ -8,6 +8,7 @@ listenai_library_sources(
     pet_shell.c
     pet_ui.c
     pet_buzzer.c
+    pet_voice.c
 )
 
 listenai_include_directories(

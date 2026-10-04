@@ -29,6 +29,7 @@
 #include "pet_core.h"
 #include "pet_draw.h"
 #include "pet_ui.h"
+#include "pet_voice.h"
 
 #define TAG "pet"
 
@@ -129,32 +130,38 @@ static void pet_consume_events(pet_page_t *page, uint32_t bits)
     static const struct {
         uint32_t evt;
         const char *toast;
+        uint8_t tone; /* PET_TONE_NONE = no clip */
     } k_evt_map[] = {
-        {PET_EVT_HATCH, "咔嚓……我出生啦！"},
-        {PET_EVT_EVOLVE, "哇！我长大了！"},
-        {PET_EVT_EAT, "啊呜啊呜~真好吃！"},
-        {PET_EVT_CLEAN, "洗得香香软软的~"},
-        {PET_EVT_PLAY, "耶！蹦蹦跳跳！"},
-        {PET_EVT_MEDICINE, "药苦苦的…好多了！"},
-        {PET_EVT_REJECT, "嗯……现在不太想"},
-        {PET_EVT_SLEPT, "晚安，做个好梦~"},
-        {PET_EVT_WOKE, "早上好！"},
-        {PET_EVT_GREET, "你好呀！"},
-        {PET_EVT_LOVE, "我也爱你！"},
-        {PET_EVT_PAT, "好舒服呀~"},
-        {PET_REMIND_HUNGRY, "我肚子饿得咕咕叫了，快喂我吃饭吧"},
-        {PET_REMIND_SAD, "好无聊呀，谁来陪我玩一会儿嘛"},
-        {PET_REMIND_DIRTY, "我这里臭臭的，帮我打扫一下啦"},
-        {PET_REMIND_TIRED, "我困了，说声关灯我就睡觉咯"},
-        {PET_REMIND_SICK, "呜…我好像生病了，给我吃点药吧"},
-        {PET_REMIND_MISS, "好久没见到你了，我好想你呀"},
+        {PET_EVT_HATCH, "咔嚓……我出生啦！", PET_TONE_HATCH},
+        {PET_EVT_EVOLVE, "哇！我长大了！", PET_TONE_EVOLVE},
+        {PET_EVT_EAT, "啊呜啊呜~真好吃！", PET_TONE_NONE},
+        {PET_EVT_CLEAN, "洗得香香软软的~", PET_TONE_NONE},
+        {PET_EVT_PLAY, "耶！蹦蹦跳跳！", PET_TONE_NONE},
+        {PET_EVT_MEDICINE, "药苦苦的…好多了！", PET_TONE_NONE},
+        {PET_EVT_REJECT, "嗯……现在不太想", PET_TONE_NONE},
+        {PET_EVT_SLEPT, "晚安，做个好梦~", PET_TONE_NONE},
+        {PET_EVT_WOKE, "早上好！", PET_TONE_NONE},
+        {PET_EVT_GREET, "你好呀！", PET_TONE_NONE},
+        {PET_EVT_LOVE, "我也爱你！", PET_TONE_NONE},
+        {PET_EVT_PAT, "好舒服呀~", PET_TONE_NONE},
+        {PET_REMIND_HUNGRY, "我肚子饿得咕咕叫了，快喂我吃饭吧", PET_TONE_R_HUNGRY},
+        {PET_REMIND_SAD, "好无聊呀，谁来陪我玩一会儿嘛", PET_TONE_R_SAD},
+        {PET_REMIND_DIRTY, "我这里臭臭的，帮我打扫一下啦", PET_TONE_R_DIRTY},
+        {PET_REMIND_TIRED, "我困了，说声关灯我就睡觉咯", PET_TONE_R_TIRED},
+        {PET_REMIND_SICK, "呜…我好像生病了，给我吃点药吧", PET_TONE_R_SICK},
+        {PET_REMIND_MISS, "好久没见到你了，我好想你呀", PET_TONE_R_MISS},
     };
 
     for (size_t i = 0; i < sizeof(k_evt_map) / sizeof(k_evt_map[0]); i++) {
         if (bits & k_evt_map[i].evt) {
             if (k_evt_map[i].evt <= PET_EVT_PAT) {
                 pet_draw_play_event(&page->draw_ctx, k_evt_map[i].evt);
-                pet_buzzer_post(1200, 80); /* short blip, audio assets later */
+                pet_buzzer_post(1200, 80); /* short blip, voice line came separately */
+            } else {
+                /* device-initiated lines (reminders/hatch/evolve) always
+                 * speak locally; action reactions are spoken by the caller
+                 * (offline command path) or the cloud (online path) */
+                pet_voice_play(k_evt_map[i].tone);
             }
             pet_ui_toast(k_evt_map[i].toast);
             LISA_LOGI(TAG, "evt 0x%x: %s", k_evt_map[i].evt, k_evt_map[i].toast);

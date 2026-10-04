@@ -24,6 +24,7 @@
 
 #include "pet/pet_core.h"
 #include "pet/pet_ui.h"
+#include "pet/pet_voice.h"
 
 #define TAG "offline.cmd"
 
@@ -76,6 +77,9 @@ static void pet_cmd_handle(const pet_cmd_t *cmd, const char *keyword)
     pet_result_t result;
     pet_core_action(cmd->action, cmd->item, &result);
     LISA_LOGI(TAG, "'%s' -> action %u/%u: %s", keyword, cmd->action, cmd->item, result.tts);
+
+    /* offline commands have no cloud TTS: play the pre-synthesized line */
+    pet_voice_play(result.tone_id);
 
     /* the pet page toasts the reaction events itself within ~1 s, but a
      * direct toast makes the voice feedback feel immediate */

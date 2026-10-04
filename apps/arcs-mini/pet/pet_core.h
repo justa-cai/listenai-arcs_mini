@@ -108,6 +108,7 @@ typedef struct {
 typedef struct {
     int code; /* 0 = applied, -1 = rejected, -2 = invalid arg */
     char tts[96];
+    uint8_t tone_id; /* PET_TONE_* voice clip (PET_TONE_NONE = silent) */
 } pet_result_t;
 
 /* ---------------- persistence (shared with pet_save.c) ---------------- */

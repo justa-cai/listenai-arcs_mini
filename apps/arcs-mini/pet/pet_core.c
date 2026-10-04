@@ -22,6 +22,7 @@
 #include "lisa_time.h"
 #include "pet_core.h"
 #include "pet_save.h"
+#include "pet_voice.h"
 #include "voice_msg.h"
 
 #define TAG "pet"
@@ -425,6 +426,7 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
 
     if (action >= PET_ACTION_NUM) {
         result_set(out, -2, "我不太明白这个指令");
+    out->tone_id = PET_TONE_NONE;
         return -2;
     }
 
@@ -446,20 +448,24 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
                                                     : PET_EVT_MEDICINE);
             if (st.stage != PET_STAGE_EGG) {
                 result_set(out, 0, "咔嚓……哇！我出生啦！");
+    out->tone_id = PET_TONE_HATCH;
             } else {
                 result_set(out, 0, "蛋好像轻轻晃了一下，再照顾 %d 次就能孵化啦",
                            HATCH_CARE_COUNT - st.care_count);
+    out->tone_id = PET_TONE_EGG_TOUCH;
             }
             goto save_out;
         case PET_ACTION_STATUS:
             result_set(out, 0, "蛋静静地躺着，好像有小生命在里面，再照顾 %d 次就能孵化啦",
                        HATCH_CARE_COUNT - st.care_count);
+    out->tone_id = PET_TONE_EGG_TOUCH;
             return 0;
         case PET_ACTION_LIGHT:
         case PET_ACTION_NEXT:
         case PET_ACTION_CONFIRM:
         case PET_ACTION_CANCEL:
             result_set(out, -1, "蛋还睡不醒，先等等它孵化吧");
+    out->tone_id = PET_TONE_EGG_TOUCH;
             return -1;
         default:
             break;
@@ -470,11 +476,13 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
     case PET_ACTION_FEED:
         if (st.sleeping) {
             result_set(out, -1, "zzZ……先说开灯叫醒它吧");
+    out->tone_id = PET_TONE_SLEEPING;
             return -1;
         }
         if (st.satiety >= SAT_REJECT) {
             evt_raise(PET_EVT_REJECT);
             result_set(out, -1, "我超级饱，一口都吃不下啦");
+    out->tone_id = PET_TONE_FULL;
             return -1;
         }
         if (item == PET_ITEM_SNACK) {
@@ -482,6 +490,7 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
             stat_add(&st.happy, 80);
             evt_raise(PET_EVT_EAT);
             result_set(out, 0, "小零食最开心了！开心度到 %d 啦", st.happy / 10);
+    out->tone_id = PET_TONE_SNACK_OK;
         } else {
             stat_add(&st.satiety, 450);
             stat_add(&st.happy, 20);
@@ -490,16 +499,19 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
             }
             evt_raise(PET_EVT_EAT);
             result_set(out, 0, "啊呜啊呜~真好吃！饱食度到 %d 啦", st.satiety / 10);
+    out->tone_id = PET_TONE_EAT_OK;
         }
         break;
 
     case PET_ACTION_CLEAN:
         if (st.sleeping) {
             result_set(out, -1, "zzZ……先说开灯叫醒它吧");
+    out->tone_id = PET_TONE_SLEEPING;
             return -1;
         }
         if (st.clean >= CLEAN_SPOTLESS && st.poops == 0) {
             result_set(out, 0, "我本来就很干净呀");
+    out->tone_id = PET_TONE_CLEAN_NONE;
             return 0;
         }
         st.clean = 1000;
@@ -507,21 +519,25 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
         stat_add(&st.happy, 60);
         evt_raise(PET_EVT_CLEAN);
         result_set(out, 0, "洗得香香软软的~清洁度到 %d 啦", 100);
+    out->tone_id = PET_TONE_CLEAN_OK;
         break;
 
     case PET_ACTION_PLAY:
         if (st.sleeping) {
             result_set(out, -1, "zzZ……先说开灯叫醒它吧");
+    out->tone_id = PET_TONE_SLEEPING;
             return -1;
         }
         if (st.sick) {
             evt_raise(PET_EVT_REJECT);
             result_set(out, -1, "我生病了没力气玩，先给我吃点药吧");
+    out->tone_id = PET_TONE_R_SICK;
             return -1;
         }
         if (st.energy < ENERGY_TIRED) {
             evt_raise(PET_EVT_REJECT);
             result_set(out, -1, "呼…跑不动了，让我先睡一觉吧（精力 %d）", st.energy / 10);
+    out->tone_id = PET_TONE_TIRED;
             return -1;
         }
         stat_add(&st.happy, 320);
@@ -529,49 +545,58 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
         stat_sub(&st.satiety, 40);
         evt_raise(PET_EVT_PLAY);
         result_set(out, 0, "耶！蹦蹦跳跳最开心了！开心度到 %d 啦", st.happy / 10);
+    out->tone_id = PET_TONE_PLAY_OK;
         break;
 
     case PET_ACTION_LIGHT:
         if (item == PET_ITEM_LIGHT_WAKE) {
             if (!st.sleeping) {
                 result_set(out, 0, "我已经醒着啦");
+    out->tone_id = PET_TONE_NOT_SLEEPY;
                 return 0;
             }
             st.sleeping = 0;
             evt_raise(PET_EVT_WOKE);
             result_set(out, 0, "早上好！精力 %d", st.energy / 10);
+    out->tone_id = PET_TONE_WAKE_OK;
             break;
         }
         if (item == PET_ITEM_LIGHT_SLEEP) {
             if (st.sleeping) {
                 result_set(out, 0, "zzZ……我已经睡着啦");
+    out->tone_id = PET_TONE_SLEEPING;
                 return 0;
             }
             st.sleeping = 1;
             evt_raise(PET_EVT_SLEPT);
             result_set(out, 0, "晚安，做个好梦~");
+    out->tone_id = PET_TONE_SLEEP_OK;
             break;
         }
         if (st.sleeping) {
             st.sleeping = 0;
             evt_raise(PET_EVT_WOKE);
             result_set(out, 0, "早上好！精力 %d", st.energy / 10);
+    out->tone_id = PET_TONE_WAKE_OK;
             break;
         }
         if (st.energy >= ENERGY_RESTED && !is_night_wall()) {
             evt_raise(PET_EVT_REJECT);
             result_set(out, -1, "一点都不困，还想再玩会儿！");
+    out->tone_id = PET_TONE_NOT_SLEEPY;
             return -1;
         }
         st.sleeping = 1;
         evt_raise(PET_EVT_SLEPT);
         result_set(out, 0, "晚安，做个好梦~");
+    out->tone_id = PET_TONE_SLEEP_OK;
         break;
 
     case PET_ACTION_MEDICINE:
         if (!st.sick) {
             evt_raise(PET_EVT_REJECT);
             result_set(out, -1, "我又没生病，不要吃药啦");
+    out->tone_id = PET_TONE_MED_NONE;
             return -1;
         }
         st.sick = 0;
@@ -580,6 +605,7 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
         stat_add(&st.happy, 100);
         evt_raise(PET_EVT_MEDICINE);
         result_set(out, 0, "药苦苦的…可是感觉好多了！");
+    out->tone_id = PET_TONE_MED_OK;
         break;
 
     case PET_ACTION_STATUS: {
@@ -594,46 +620,56 @@ static int pet_do_action(uint8_t action, uint8_t item, pet_result_t *out)
         result_set(out, 0, "现在是%s第 %u 天。饱食 %u、开心 %u、清洁 %u、精力 %u，%s",
                    stage_name[st.stage], st.age_days + 1, st.satiety / 10, st.happy / 10,
                    st.clean / 10, st.energy / 10, mood_word[derive_mood()]);
+    out->tone_id = PET_TONE_STATUS;
         return 0;
     }
 
     case PET_ACTION_NEXT:
         result_set(out, 0, "好的");
+    out->tone_id = PET_TONE_NONE;
         return 0;
     case PET_ACTION_CONFIRM:
         result_set(out, 0, "好的");
+    out->tone_id = PET_TONE_NONE;
         return 0;
     case PET_ACTION_CANCEL:
         result_set(out, 0, "好的，先不点啦");
+    out->tone_id = PET_TONE_NONE;
         return 0;
     case PET_ACTION_GREET:
     case PET_ACTION_LOVE:
     case PET_ACTION_PAT:
         if (st.stage == PET_STAGE_EGG) {
             result_set(out, -1, "蛋轻轻晃了一下，好像在回应你");
+    out->tone_id = PET_TONE_EGG_TOUCH;
             return -1;
         }
         if (st.sleeping) {
             result_set(out, -1, "zzZ……它睡得正香，先说开灯叫醒它吧");
+    out->tone_id = PET_TONE_NONE;
             return -1;
         }
         if (action == PET_ACTION_GREET) {
             stat_add(&st.happy, 50);
             evt_raise(PET_EVT_GREET);
             result_set(out, 0, "你好呀！见到你真开心！");
+    out->tone_id = PET_TONE_GREET;
         } else if (action == PET_ACTION_LOVE) {
             stat_add(&st.happy, 80);
             evt_raise(PET_EVT_LOVE);
             result_set(out, 0, "我也爱你！");
+    out->tone_id = PET_TONE_LOVE;
         } else {
             stat_add(&st.happy, 60);
             stat_add(&st.energy, 30);
             evt_raise(PET_EVT_PAT);
             result_set(out, 0, "好舒服呀~");
+    out->tone_id = PET_TONE_PAT;
         }
         break;
     default:
         result_set(out, -2, "我不太明白这个指令");
+    out->tone_id = PET_TONE_NONE;
         return -2;
     }
 
@@ -731,8 +767,10 @@ int pet_core_action(uint8_t action, uint8_t item, pet_result_t *out)
     if (!out) {
         out = &local;
     }
+    out->tone_id = PET_TONE_NONE;
     if (!s_lock) {
         result_set(out, -2, "宠物还在睡觉");
+    out->tone_id = PET_TONE_NONE;
         return -2;
     }
     xSemaphoreTake(s_lock, portMAX_DELAY);
