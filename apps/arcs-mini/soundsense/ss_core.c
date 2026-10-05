@@ -35,6 +35,8 @@
 #include "ss_audio.h"
 #include "ss_core.h"
 
+#include "sys_wifi.h"
+
 #define TAG "ss"
 
 #define SS_KV_ENABLED "ss.enabled"
@@ -567,6 +569,9 @@ static int ss_connect_once(void)
     }
 
     st.state = SS_STATE_STREAMING;
+    /* WiFi is up by now (connection succeeded): disable standby power save
+     * to prevent DTIM sleep from breaking the audio stream */
+    sys_wifi_set_standby_power_save(false);
     xSemaphoreTake(st.lock, portMAX_DELAY);
     st.reconnect_count++;
     xSemaphoreGive(st.lock);
@@ -733,6 +738,7 @@ void ss_core_set_enabled(bool enable)
         st.state = SS_STATE_RETRY_WAIT;
     } else {
         ss_audio_stop();
+        /* restore WiFi power save only if it was disabled during streaming */
         if (st.state == SS_STATE_STREAMING) {
             ss_ws_send_text("{\"type\":\"bye\"}");
             ss_ws_close();
