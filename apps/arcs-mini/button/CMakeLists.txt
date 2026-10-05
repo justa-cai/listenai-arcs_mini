@@ -10,3 +10,7 @@ listenai_library_sources(
 listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+if(CONFIG_SOUNDSENSE)
+    listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../soundsense)
+endif()

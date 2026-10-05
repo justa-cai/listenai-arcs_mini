@@ -6,6 +6,7 @@
 #include "apps/llm/models/model_qrcode.h"
 #include "apps/llm/models/model_voice.h"
 #include "lisa_log.h"
+#include "lisa_ui_invoke.h"
 #include "lisa_ui_nav_scr.h"
 #include "power/power_manager.h"
 #include "tone.h"
@@ -27,6 +28,10 @@
 #include "button_camera_preview.h"
 #include "button_factory_reset.h"
 #include "service_power_policy.h"
+
+#ifdef CONFIG_SOUNDSENSE
+#include "ss_screen.h"
+#endif
 
 /* ==================== 模块配置与状态 ==================== */
 
@@ -240,6 +245,18 @@ static bool app_button_redirect_to_cloud_info(voice_msg_button_action_t action)
 /* ==================== 按键动作 ==================== */
 
 /*
+ * 页面导航必须在 worq.ui 线程执行：本回调运行在 voice.ebus，直接调用
+ * nav_to 会与 lv_task_handler 的刷新循环并发增删 LVGL 对象，样式链指针
+ * 被并发改写后 worq.ui 在 lv_obj_style/lv_obj_pos 中读到脏指针直接死机。
+ */
+static void app_button_nav_home_worker(void *arg, uint32_t len)
+{
+    (void)arg;
+    (void)len;
+    (void)lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
+}
+
+/*
  * 处理电源键单击动作，并按当前交互场景依次分流：
  * 拍照流程 > 页面导航 > 云端会话。
  * 闹钟响铃由全局拦截策略优先处理，不会进入此函数。
@@ -251,6 +268,14 @@ static void app_button_handle_click(void)
         return;
     }
 
+#ifdef CONFIG_SOUNDSENSE
+    /* SoundSense 监测机：单击只负责唤醒屏幕，不导航、不拉起语音会话，
+     * 避免在监测面板和语音助手首页之间来回切换。 */
+    ss_screen_activity();
+    LISA_LOGI(TAG, "Single click: SoundSense screen wake");
+    return;
+#endif
+
     /* 拍照流程优先：预览中执行拍照，语音拍照锁定时退出拍照流程。 */
     if (button_camera_preview_handle_click()) {
         return;
@@ -259,7 +284,9 @@ static void app_button_handle_click(void)
     /* 当前不在主页时，单击只返回主页，不触发唤醒。 */
     if (lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
         LISA_LOGI(TAG, "Single click: not on home page, navigating home");
-        lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
+        if (lisa_ui_invoke_ui_delayed(app_button_nav_home_worker, NULL, 0, 0) != 0) {
+            LISA_LOGW(TAG, "Failed to queue home navigation on UI workq");
+        }
         return;
     }
 

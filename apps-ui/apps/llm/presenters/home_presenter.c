@@ -629,8 +629,13 @@ static void home_power_state_changed(model_common_power_state_t state,
     LISA_UI_LOGI("power policy state=%u, reason=%u", (unsigned int)state,
                  (unsigned int)reason);
 
+    /* reason==INIT 是注册时的同步回放，发生在 home_nav_scr_open 内部：
+     * 此时 home 尚未压入导航栈，top 一定不是 HOME，若在此刻 nav_to(HOME)
+     * 会在 open 未完成时重入导航，反复重建整页 UI 直到 LVGL 堆耗尽死机。
+     * 注册回放只做亮度/表情同步，页面归位交给真实的状态事件。 */
     if ((state == MODEL_COMMON_POWER_STATE_IDLE ||
          state == MODEL_COMMON_POWER_STATE_HIBERNATE) &&
+        reason != VOICE_MSG_POWER_POLICY_REASON_INIT &&
         lisa_ui_nav_scr_get_top_id() != LISA_UI_NAV_SCR_ID_HOME) {
         lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
     }
