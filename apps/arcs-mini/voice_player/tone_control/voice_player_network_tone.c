@@ -415,7 +415,7 @@ static void network_tone_start_unstable_grace(const sys_network_status_t *status
     }
 }
 
-static void network_tone_schedule_cloud_success(bool force_schedule)
+static void network_tone_schedule_cloud_success(void)
 {
     bool play_immediately = false;
 
@@ -426,11 +426,10 @@ static void network_tone_schedule_cloud_success(bool force_schedule)
     network_tone_clear_outage_locked();
 
     /*
-     * 普通 CLOUD_CONNECTED 只有在此前确实断线时才提示恢复；
-     * CLOUD_AUTH_SUCCESS 使用 force_schedule，允许首次鉴权成功也进行提示。
+     * 只有此前确实断线过（RECONNECT_PENDING）才提示恢复；
+     * 开机首次连接/鉴权成功不播报“网络连接成功”。
      */
-    if (!force_schedule &&
-        s_network_tone.recovery != CLOUD_RECOVERY_RECONNECT_PENDING) {
+    if (s_network_tone.recovery != CLOUD_RECOVERY_RECONNECT_PENDING) {
         network_tone_unlock();
         return;
     }
@@ -484,8 +483,8 @@ static void network_tone_on_cloud_message(void *unused, uint32_t msg_id,
         if (app_data != NULL) {
             app_data->auth_failed = 0;
         }
-        /* 鉴权成功是明确结果，无需依赖此前是否记录过云断线。 */
-        network_tone_schedule_cloud_success(true);
+        /* 鉴权成功只清除失败标记；成功提示仅在断线恢复时播报。 */
+        network_tone_schedule_cloud_success();
         break;
     }
 
@@ -539,7 +538,7 @@ static void network_tone_on_cloud_message(void *unused, uint32_t msg_id,
             network_tone_reset();
         } else {
             /* 普通连接事件只有在此前记录过断线时才会安排成功提示。 */
-            network_tone_schedule_cloud_success(false);
+            network_tone_schedule_cloud_success();
         }
         break;
     }
