@@ -3,8 +3,9 @@
  *
  * The panel blanks after inactivity: 30 s during the day, 10 s from
  * 22:00 to 07:00 (wall clock, default Asia/Shanghai timezone). Blanking
- * is display-only (lisa_display_blanking_on + brightness 0): the system,
- * audio tap and WebSocket stream keep running.
+ * is backlight-only (PWM off + pin driven low): the system, audio tap
+ * and WebSocket stream keep running, and the LED is turned off with it
+ * (its prior state is restored on wake).
  *
  * Wake sources (each restarts the blank timer):
  *   - ss_screen_activity(): button click, voice session start
@@ -28,6 +29,7 @@
 
 #include "pinmux.h" /* LCD_PWM_PIN */
 
+#include "service_led.h"
 #include "ss_screen.h"
 
 #define TAG "ss"
@@ -40,6 +42,7 @@
 
 static struct {
     bool blanked;
+    bool led_was_on; /* LED state before blanking, restored on wake */
     uint8_t saved_brightness; /* user brightness before blanking */
     TickType_t last_activity;
     SemaphoreHandle_t lock;
@@ -75,6 +78,8 @@ static void ss_blank(bool on)
             lisa_gpio_configure(gpioa, LCD_PWM_PIN,
                                 LISA_GPIO_OUTPUT | LISA_GPIO_OUTPUT_INIT_LOW);
         }
+        st.led_was_on = service_led_is_on();
+        service_led_off();
         st.blanked = true;
         LISA_LOGI(TAG, "screen: blanked (backlight off, LVGL running)");
     } else if (!on && st.blanked) {
@@ -85,6 +90,9 @@ static void ss_blank(bool on)
         lisa_device_t *pwm = lisa_device_get("pwm0");
         if (pwm) {
             lisa_pwm_enable(pwm, 1);
+        }
+        if (st.led_was_on) {
+            service_led_on();
         }
         st.blanked = false;
         LISA_LOGI(TAG, "screen: awake (backlight on)");

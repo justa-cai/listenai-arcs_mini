@@ -34,6 +34,7 @@ typedef struct {
 
 static lisa_thread_t *s_led_task = NULL;
 static QueueHandle_t s_led_queue = NULL;
+static volatile bool s_led_on = false; /* lit or blinking, updated by led_task */
 
 #ifdef CONFIG_BOARD_ARCS_MINI3
 typedef struct {
@@ -159,23 +160,27 @@ static void led_task(void *param)
                 blinking = 0;
                 led_state = 1;
                 led_hw_on();
+                s_led_on = true;
                 break;
             case LED_CMD_OFF:
                 blinking = 0;
                 led_state = 0;
                 led_hw_off();
+                s_led_on = false;
                 break;
             case LED_CMD_BLINK:
                 if (msg.on_ms == 0 && msg.off_ms == 0) {
                     blinking = 0;
                     led_state = 0;
                     led_hw_off();
+                    s_led_on = false;
                 } else {
                     on_ms = msg.on_ms ? msg.on_ms : 100;
                     off_ms = msg.off_ms ? msg.off_ms : 100;
                     blinking = 1;
                     led_state = 0;
                     next_toggle_time = xTaskGetTickCount();
+                    s_led_on = true;
                 }
                 break;
             case LED_CMD_STOP:
@@ -183,6 +188,7 @@ static void led_task(void *param)
                 blinking = 0;
                 led_state = 0;
                 led_hw_off();
+                s_led_on = false;
                 break;
             }
         }
@@ -247,4 +253,9 @@ void service_led_blink(uint32_t on_ms, uint32_t off_ms)
 void service_led_stop(void)
 {
     led_send_cmd(LED_CMD_STOP, 0, 0);
+}
+
+bool service_led_is_on(void)
+{
+    return s_led_on;
 }
