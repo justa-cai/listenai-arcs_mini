@@ -569,9 +569,10 @@ static int ss_connect_once(void)
     }
 
     st.state = SS_STATE_STREAMING;
-    /* WiFi is up by now (connection succeeded): disable standby power save
-     * to prevent DTIM sleep from breaking the audio stream */
-    sys_wifi_set_standby_power_save(false);
+    /* Do NOT call sys_wifi_set_standby_power_save(false) here!
+     * It fixes WebSocket disconnects but causes PSRAM/DMA timing changes
+     * that corrupt LVGL heap → random segfaults in lv_obj_style.c.
+     * Accept periodic disconnects; the reconnect logic handles them. */
     xSemaphoreTake(st.lock, portMAX_DELAY);
     st.reconnect_count++;
     xSemaphoreGive(st.lock);

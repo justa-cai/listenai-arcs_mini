@@ -11,6 +11,7 @@
 #include "lisa_log.h"
 #include "lisa_mem.h"
 #include "lisa_ui_fonts.h"
+#include "lisa_ui_invoke.h"
 #include "lisa_ui_nav_scr.h"
 #include "lisa_ui_nav_scr_ids.h"
 #include "lvgl.h"
@@ -210,11 +211,26 @@ static const struct lisa_ui_nav_scr s_ss_nav_scr = {
     .resume = ss_panel_resume,
 };
 
+/* default_set 会关闭 home 并新建本页的整套 LVGL 对象；ss_panel_init 在
+ * lisa_ui_lvgl_run 之后运行于 main 线程，必须投递到 worq.ui 执行，
+ * 否则与 lv_task_handler 刷新循环并发操作对象树会踩坏样式链。 */
+static void ss_panel_default_worker(void *arg, uint32_t len)
+{
+    (void)arg;
+    (void)len;
+    if (lisa_ui_nav_scr_default_set(&s_ss_nav_scr) != 0) {
+        LISA_LOGW(TAG, "panel: default_set failed, home stays default");
+    }
+}
+
 int ss_panel_init(void)
 {
     int ret = lisa_ui_nav_scr_add(&s_ss_nav_scr);
     if (ret != 0) return ret;
-    lisa_ui_nav_scr_default_set(&s_ss_nav_scr);
-    LISA_LOGI(TAG, "panel: registered as default screen");
+    if (lisa_ui_invoke_ui_delayed(ss_panel_default_worker, NULL, 0, 0) != 0) {
+        LISA_LOGW(TAG, "panel: failed to queue default_set, home stays default");
+        return 0;
+    }
+    LISA_LOGI(TAG, "panel: taking over as default screen");
     return 0;
 }

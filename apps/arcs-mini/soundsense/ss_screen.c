@@ -134,6 +134,9 @@ int ss_screen_init(void)
     st.lock = xSemaphoreCreateMutex();
     st.last_activity = xTaskGetTickCount();
 
+    /* 任意按键（按下/抬起/长按）都视为活动，唤醒屏幕 */
+    voice_msg_sub(VOICE_MSG_BUTTON_CHANGE, ss_wakeup_msg_cb, NULL);
+
     /* voice session start wakes the screen */
     voice_msg_sub(VOICE_MSG_CLOUD_SESSION_STARTING, ss_wakeup_msg_cb, NULL);
     voice_msg_sub(VOICE_MSG_WAKEUP_KEYWORD, ss_wakeup_msg_cb, NULL);
