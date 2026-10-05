@@ -61,41 +61,33 @@ static void ss_blank(bool on)
         return;
     }
     if (on && !st.blanked) {
-        /* 1. put the panel to sleep (display off) */
-        lisa_display_blanking_on(st.disp);
-
-        /* 2. kill the backlight at the pin level: stop the PWM timer,
-         *    then switch the IOMUX from PWM function to GPIO and drive
-         *    the pin LOW. PWM-disable alone leaves the pin in PWM IOMUX
-         *    mode where the pad may keep its last level (still HIGH). */
+        /* Only turn off the backlight — do NOT call lisa_display_blanking_on():
+         * it puts the panel to sleep and disrupts LVGL's refresh cycle,
+         * causing a NULL style crash when the screen wakes on button press.
+         * LVGL keeps rendering to the dark panel; we just kill the light. */
         lisa_device_t *pwm = lisa_device_get("pwm0");
         if (pwm) {
             lisa_pwm_disable(pwm, 1);
         }
         lisa_device_t *gpioa = lisa_device_get("gpioa");
         if (gpioa) {
-            /* PAD_A pin 21, function 0 = GPIO (12 = PWM, see pinmux.c) */
-            IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, LCD_PWM_PIN, 0);
+            IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, LCD_PWM_PIN, 0); /* GPIO mode */
             lisa_gpio_configure(gpioa, LCD_PWM_PIN,
                                 LISA_GPIO_OUTPUT | LISA_GPIO_OUTPUT_INIT_LOW);
         }
-
         st.blanked = true;
-        LISA_LOGI(TAG, "screen: blanked (backlight pin driven LOW)");
+        LISA_LOGI(TAG, "screen: blanked (backlight off, LVGL running)");
     } else if (!on && st.blanked) {
-        /* restore PWM IOMUX + timer: the duty cycle is preserved in the
-         * channel state so brightness returns to the user setting */
         lisa_device_t *gpioa = lisa_device_get("gpioa");
         if (gpioa) {
-            IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, LCD_PWM_PIN, 12); /* PWM */
+            IOMuxManager_PinConfigure(CSK_IOMUX_PAD_A, LCD_PWM_PIN, 12); /* PWM mode */
         }
-        lisa_display_blanking_off(st.disp);
         lisa_device_t *pwm = lisa_device_get("pwm0");
         if (pwm) {
             lisa_pwm_enable(pwm, 1);
         }
         st.blanked = false;
-        LISA_LOGI(TAG, "screen: awake (backlight PWM restored)");
+        LISA_LOGI(TAG, "screen: awake (backlight on)");
     }
 }
 
