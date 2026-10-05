@@ -13,7 +13,10 @@
  *   lisa_ws_send_binary; failures drop the frame (never block);
  * - downlink JSON (result/event) arrives on the ws thread via on_data:
  *   parsed there, events appended to the ring under a mutex;
- * - reconnect backoff: 5 s doubling up to 60 s, reset on welcome.
+ * - reconnect backoff: 5 s doubling up to 60 s, reset on welcome; retries
+ *   are held while WiFi is down and resume (at min backoff) once it is back;
+ * - monitoring is enabled at boot by default (`ss on`/`ss off` are
+ *   session-level debug switches).
  */
 #include <stdio.h>
 #include <string.h>
@@ -39,7 +42,6 @@
 
 #define TAG "ss"
 
-#define SS_KV_ENABLED "ss.enabled"
 #define SS_KV_SERVER "ss.server_url"
 #define SS_DEFAULT_SERVER "ws://192.168.1.169:8000/v1/stream"
 
@@ -589,6 +591,7 @@ static void ss_task(void *arg)
 {
     (void)arg;
     uint32_t backoff_s = SS_BACKOFF_MIN_S;
+    bool wifi_wait_logged = false;
 
     while (1) {
         if (!st.enabled) {
@@ -661,6 +664,24 @@ static void ss_task(void *arg)
             if (!st.enabled) {
                 continue;
             }
+
+            /* hold retries until the network is really up: connecting with
+             * WiFi/lwIP still down only burns backoff into a dead stack */
+            if (!sys_wifi_is_connected()) {
+                if (!wifi_wait_logged) {
+                    LISA_LOGI(TAG, "wifi not up, holding connect retries");
+                    wifi_wait_logged = true;
+                }
+                while (st.enabled && !sys_wifi_is_connected()) {
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                }
+                if (!st.enabled) {
+                    continue;
+                }
+                LISA_LOGI(TAG, "wifi up, resuming connect retries");
+                wifi_wait_logged = false;
+                backoff_s = SS_BACKOFF_MIN_S; /* link is fresh: retry now */
+            }
         }
 
         ss_connect_once();
@@ -683,10 +704,12 @@ static void ss_load_config(void)
     if (url) {
         lisa_kv_free(url);
     }
-    /* auto-enable disabled for now: boot-order race with WiFi init
-     * causes deadlock. User must run `ss on` after boot is complete. */
-    lisa_kv_set_int(SS_KV_ENABLED, 0);
-    st.enabled = false;
+    /* Monitoring is on by default: the device must stream as soon as it
+     * boots. `ss on`/`ss off` are session-level debug switches (not
+     * persisted). The old boot-order deadlock came from a WiFi power-save
+     * call made before network init — that call is gone, and ss_task now
+     * waits for sys_wifi_is_connected() before touching any socket. */
+    st.enabled = true;
 }
 
 int ss_core_init(void)
@@ -730,8 +753,7 @@ void ss_core_set_enabled(bool enable)
     if (enable == st.enabled) {
         return;
     }
-    st.enabled = enable;
-    lisa_kv_set_int(SS_KV_ENABLED, enable ? 1 : 0);
+    st.enabled = enable; /* session-level only: boot always re-enables */
 
     if (enable) {
         ss_audio_start();

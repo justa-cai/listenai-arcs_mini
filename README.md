@@ -60,7 +60,7 @@ mkdir -p ./tmp && adb shell reboot && adb wait-for-device && timeout 10 adb shel
 
 ```bash
 ss                     # 状态：开关/连接/时长/帧计数/丢帧/各类概率
-ss on | ss off         # 启停监测（KV 持久化）
+ss on | ss off         # 启停监测（本次开机有效，开机默认自动连接）
 ss server <url>        # 修改服务器地址（重连生效）
 ss events [n] [class]  # 最近事件列表（默认 10 条，可按 snoring|baby_cry 过滤）
 ss blank <0|1>         # 手动息屏/亮屏
