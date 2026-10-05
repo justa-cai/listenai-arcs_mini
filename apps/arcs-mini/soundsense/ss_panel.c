@@ -36,7 +36,7 @@ typedef struct {
 
 static ss_panel_t *s_panel;
 
-static const char *const k_class_display[SS_CLASS_NUM] = {"snoring", "cry"};
+static const char *const k_class_display[SS_CLASS_NUM] = {"鼾声", "哭声"};
 static const uint16_t k_class_color565[SS_CLASS_NUM] = {0x07E0, 0xF800};
 
 static void ss_panel_refresh(void)
@@ -47,13 +47,15 @@ static void ss_panel_refresh(void)
     ss_core_get_status(&st);
 
     const char *conn;
+    uint32_t conn_color;
     switch (st.state) {
-    case SS_STATE_STREAMING:  conn = LV_SYMBOL_OK; break;
-    case SS_STATE_CONNECTING:  conn = "?"; break;
-    case SS_STATE_RETRY_WAIT:  conn = "!"; break;
-    default:                   conn = "-"; break;
+    case SS_STATE_STREAMING:  conn = "在线";  conn_color = 0x2ea043; break;
+    case SS_STATE_CONNECTING:  conn = "连接中"; conn_color = 0xd29922; break;
+    case SS_STATE_RETRY_WAIT:  conn = "重试";  conn_color = 0xd29922; break;
+    default:                   conn = "离线";  conn_color = 0x6e7681; break;
     }
     lv_label_set_text(s_panel->conn_state, conn);
+    lv_obj_set_style_text_color(s_panel->conn_state, lv_color_hex(conn_color), 0);
 
     for (int i = 0; i < SS_CLASS_NUM; i++) {
         int32_t prom = st.last_probs_x1000[i];
@@ -63,22 +65,22 @@ static void ss_panel_refresh(void)
         lv_bar_set_value(s_panel->class_bar[i], pct, LV_ANIM_OFF);
 
         char buf[48];
-        snprintf(buf, sizeof(buf), "%s: %u", k_class_display[i],
+        snprintf(buf, sizeof(buf), "%s: %u 次", k_class_display[i],
                  st.class_event_count[i]);
         lv_label_set_text(s_panel->class_label[i], buf);
 
         if (st.class_last_time[i][0] != '\0') {
-            snprintf(buf, sizeof(buf), "%s%s", st.class_last_time[i],
-                     st.class_last_is_start[i] ? "" : " end");
+            snprintf(buf, sizeof(buf), "最近 %s%s", st.class_last_time[i],
+                     st.class_last_is_start[i] ? "" : " 结束");
         } else {
-            snprintf(buf, sizeof(buf), "none");
+            snprintf(buf, sizeof(buf), "暂无事件");
         }
         lv_label_set_text(s_panel->class_last[i], buf);
     }
 
     char footer[48];
-    snprintf(footer, sizeof(footer), "%us %u/%u", st.uptime_s,
-             st.send_frames, st.send_drops);
+    snprintf(footer, sizeof(footer), "运行 %us  丢帧 %u", st.uptime_s,
+             st.send_drops);
     lv_label_set_text(s_panel->footer, footer);
 }
 
@@ -109,14 +111,15 @@ static int ss_panel_open(const struct lisa_ui_nav_scr *scr, void **data)
     if (!p->title) goto fail;
     lv_obj_set_style_text_font(p->title, &lv_font_chinese_16, 0);
     lv_obj_set_style_text_color(p->title, lv_color_hex(0xe0e0e0), 0);
-    lv_label_set_text(p->title, "SoundSense");
+    lv_label_set_text(p->title, "声音监测");
     lv_obj_set_pos(p->title, 0, 2);
 
     p->conn_state = lv_label_create(p->root);
     if (!p->conn_state) goto fail;
+    lv_obj_set_style_text_font(p->conn_state, &lv_font_chinese_16, 0);
     lv_obj_set_style_text_color(p->conn_state, lv_color_hex(0x00ff00), 0);
-    lv_label_set_text(p->conn_state, "-");
-    lv_obj_set_pos(p->conn_state, 200, 4);
+    lv_label_set_text(p->conn_state, "离线");
+    lv_obj_set_pos(p->conn_state, 176, 2);
 
     for (int i = 0; i < SS_CLASS_NUM; i++) {
         int y = 36 + i * 76;
@@ -133,7 +136,7 @@ static int ss_panel_open(const struct lisa_ui_nav_scr *scr, void **data)
         if (!p->class_last[i]) goto fail;
         lv_obj_set_style_text_font(p->class_last[i], &lv_font_chinese_16, 0);
         lv_obj_set_style_text_color(p->class_last[i], lv_color_hex(0x888888), 0);
-        lv_label_set_text(p->class_last[i], "none");
+        lv_label_set_text(p->class_last[i], "暂无事件");
         lv_obj_set_pos(p->class_last[i], 0, y + 22);
 
         p->class_bar[i] = lv_bar_create(p->root);
