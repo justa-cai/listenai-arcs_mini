@@ -24,6 +24,8 @@
 extern "C" {
 #endif
 
+#ifdef CONFIG_DISK_DRIVER_SDMMC
+
 /**
  * @brief   初始化服务：创建互斥锁，异步处理启动 SD 状态并启动轮询线程
  * @return  0 成功拉起 sd_init 线程，-1 sd_init 线程创建失败
@@ -58,6 +60,8 @@ bool service_sd_music_is_card_ready(void);
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif
 
 #endif

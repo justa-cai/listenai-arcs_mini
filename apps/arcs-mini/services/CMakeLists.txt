@@ -7,10 +7,15 @@ listenai_library_sources(
     service_camera.c
     service_alarm.c
     service_image.c
-    service_sd_music.c
     service_power_policy.c
 )
 
 listenai_include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
+
+if(CONFIG_DISK_DRIVER_SDMMC)
+    listenai_library_sources(service_sd_music.c)
+else()
+    listenai_library_sources(service_sd_music_stub.c)
+endif()

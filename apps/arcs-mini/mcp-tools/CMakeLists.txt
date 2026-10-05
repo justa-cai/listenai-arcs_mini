@@ -10,7 +10,6 @@ listenai_library_sources(
     mcp_tool_camera.c
     mcp_tool_image.c
     mcp_tool_duplex.c
-    mcp_tool_sd_music.c
 )
 
 if(CONFIG_LOG_UPLOAD)
@@ -29,4 +28,8 @@ endif()
 
 if(CONFIG_SOUNDSENSE)
     listenai_library_sources(mcp_tool_soundsense.c)
+endif()
+
+if(CONFIG_DISK_DRIVER_SDMMC)
+    listenai_library_sources(mcp_tool_sd_music.c)
 endif()

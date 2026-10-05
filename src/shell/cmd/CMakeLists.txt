@@ -12,7 +12,6 @@ listenai_library_sources(
     # log.c
     mic_bias.c
     # player.c
-    sd.c
     sys.c
     version.c
     wifi.c
@@ -20,3 +19,7 @@ listenai_library_sources(
 
 listenai_library_sources_ifdef(CONFIG_CHERRYUSB_HOST_CDC_ACM usb_serial.c)
 listenai_include_directories(${CMAKE_CURRENT_LIST_DIR}/../../middleware/usb)
+
+if(CONFIG_DISK_DRIVER_SDMMC)
+    listenai_library_sources(sd.c)
+endif()
