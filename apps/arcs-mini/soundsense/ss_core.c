@@ -682,9 +682,10 @@ static void ss_load_config(void)
     if (url) {
         lisa_kv_free(url);
     }
-    if (lisa_kv_get_int(SS_KV_ENABLED, &enabled) == 0 && enabled == 1) {
-        st.enabled = true;
-    }
+    /* auto-enable disabled for now: boot-order race with WiFi init
+     * causes deadlock. User must run `ss on` after boot is complete. */
+    lisa_kv_set_int(SS_KV_ENABLED, 0);
+    st.enabled = false;
 }
 
 int ss_core_init(void)
