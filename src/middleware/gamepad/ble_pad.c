@@ -54,10 +54,10 @@ enum {
     CPAD_DOWN   = 1u << 1,
     CPAD_LEFT   = 1u << 2,
     CPAD_RIGHT  = 1u << 3,
-    CPAD_X      = 1u << 4,
-    CPAD_Y      = 1u << 5,
-    CPAD_A      = 1u << 6,
-    CPAD_B      = 1u << 7,
+    CPAD_X      = 1u << 4,   /* 方块/Square */
+    CPAD_Y      = 1u << 5,   /* 三角/Triangle */
+    CPAD_A      = 1u << 6,   /* 叉/Cross（手柄物理键名，非 NES A） */
+    CPAD_B      = 1u << 7,   /* 圆/Circle（手柄物理键名，非 NES B） */
     CPAD_L1     = 1u << 8,
     CPAD_L2     = 1u << 9,
     CPAD_L3     = 1u << 10,
@@ -94,12 +94,35 @@ _Static_assert(CPAD_SCAN_WIN <= CPAD_SCAN_INTV,
 /* 自动档按键掩码（Start+A 按住 ≥1s 触发连接，官方推荐组合） */
 #define CPAD_CONNECT_MASK  (CPAD_START | CPAD_A)
 
+/* 左摇杆（十字键下方那颗）→ 方向键。
+ *
+ * 纯轴向判定的角度死区取 15°：偏离轴向 < 15° 视为纯轴向，因此
+ *   0°  / 90° / 180° / 270°  → 单方向（左/右/上/下）
+ *   45° / 135° / 225° / 315° → 双方向（左上/右上/左下/右下）
+ * X/Y 两轴各自独立判定再按位或，对角线天然成立，不需要单独的表。
+ * 死区 = 128 * sin(15°) ≈ 33，即某轴偏移量小于它就不算该轴向生效。
+ * 文档口径：值小 = 左/下，值大 = 右/上（若实机上下相反，只翻 LY 两行）。 */
+#define CPAD_STICK_CENTER    128
+#define CPAD_STICK_DEADZONE  33
+_Static_assert(CPAD_STICK_DEADZONE > 0 &&
+               CPAD_STICK_DEADZONE < CPAD_STICK_CENTER,
+               "stick deadzone out of range");
+
+/* 按住不放的保活重发间隔：手柄是事件驱动上报（按键状态不变就不发帧），
+ * 这里周期性把最近一次位图重新写回 gamepad 层，确保「按住」在 NES 侧
+ * 持续有效（也覆盖输入层被其它手柄通道瞬间清零的情况）。 */
+#define CPAD_KEEPALIVE_MS  250
+
 /* 只凭名字命中时的自动连接阈值（连续出现次数） */
 #define CPAD_NAME_CONNECT_HITS 3
 
 /* 状态看门狗：连接/GATT 阶段卡住就退回扫描 */
 #define CPAD_CONNECT_TIMEOUT_MS 8000
 #define CPAD_GATT_TIMEOUT_MS    8000
+
+/* 开机自启时 BLE 栈可能尚未就绪（ipc 就绪后才 lisa_bluetooth_init），
+ * client init 失败后按此间隔重试，直到栈就绪。 */
+#define CPAD_INIT_RETRY_MS      1000
 
 /* ================================================================== */
 /* 驱动状态                                                             */
@@ -132,8 +155,16 @@ typedef struct {
     volatile int8_t last_rssi;
     volatile uint8_t dbg_buttons, dbg_lx, dbg_ly;
     volatile uint32_t dbg_raw;        /* 最近一帧原始 u32 按键位图 */
+    volatile uint16_t last_mask;      /* 最近一次写入 gamepad 层的 NES 位图 */
+    volatile uint16_t last_stick_dir; /* 上次摇杆方向（变化才打印） */
+    volatile uint32_t last_stick_btn; /* 上次摇杆按键 L3/R3（变化才打印） */
+    TickType_t keepalive_at;          /* 按住保活重发时刻 */
     volatile bool raw_log;            /* shell: blepad raw 开关 */
+    volatile bool stick_log;          /* shell: blepad stick 开关（默认关） */
+    volatile bool scan_diag;          /* shell: blepad diag 开关（默认关） */
     TickType_t connect_deadline;      /* 连接/GATT 阶段看门狗 */
+    TickType_t init_retry_at;         /* 开机 BLE 未就绪时重试 client init */
+    uint8_t    init_retries;          /* 重试次数（仅首次失败打日志） */
 } pad_t;
 
 static pad_t s_pad;
@@ -163,6 +194,8 @@ typedef enum {
     EV_WRITE_COMPLETE,
     EV_NOTIFICATION,
     EV_SET_RAW_LOG,      /* status: 1=on 0=off */
+    EV_SET_SCAN_DIAG,    /* status: 1=on 0=off，每秒一条广播流量总览 */
+    EV_SET_STICK_LOG,    /* status: 1=on 0=off，摇杆方向/摇杆按键事件 */
 } pad_evt_type_t;
 
 typedef struct {
@@ -186,6 +219,8 @@ typedef struct {
 static QueueHandle_t s_evq;
 static lisa_thread_t *s_task;
 
+static void pad_send_cmd(uint8_t cmd);   /* 定义在文件后部，看门狗会用到 */
+
 static void pad_post(const pad_evt_t *ev) {
     if (!s_evq) return;
     (void)xQueueSend(s_evq, ev, 0);
@@ -200,19 +235,74 @@ static void peer_to_str(const gap_bdaddr_t *a, char *out, size_t n) {
              a->addr[5], a->addr[4], a->addr[3], a->addr[2], a->addr[1], a->addr[0]);
 }
 
-/* CodexPad 按键位图 → NES 手柄位图 */
+/* CodexPad 按键位图 → NES 手柄位图
+ *
+ * 注意 CPAD_A/CPAD_B 是手柄物理键名（叉/Cross、圆/Circle），与 NES 的
+ * A/B 不是同一个概念。按实机手感，这里把两者对调：手柄"圆"当 NES A、
+ * "叉"当 NES B（与多数玩家拇指落位一致，需换回改这两行即可）。 */
 static uint16_t cpad_buttons_to_nes(uint32_t b) {
     uint16_t m = 0;
     if (b & CPAD_UP)     m |= GAMEPAD_KEY_UP;
     if (b & CPAD_DOWN)   m |= GAMEPAD_KEY_DOWN;
     if (b & CPAD_LEFT)   m |= GAMEPAD_KEY_LEFT;
     if (b & CPAD_RIGHT)  m |= GAMEPAD_KEY_RIGHT;
-    if (b & CPAD_A)      m |= GAMEPAD_KEY_A;
-    if (b & CPAD_B)      m |= GAMEPAD_KEY_B;
+    if (b & CPAD_A)      m |= GAMEPAD_KEY_B;   /* 叉/Cross → NES B */
+    if (b & CPAD_B)      m |= GAMEPAD_KEY_A;   /* 圆/Circle → NES A */
     if (b & CPAD_SELECT) m |= GAMEPAD_KEY_SELECT;
     if (b & CPAD_START)  m |= GAMEPAD_KEY_START;
     return m;
 }
+
+/*
+ * 摇杆 → 方向键（十字键）。
+ *
+ * 十字键下方那颗左摇杆（LX/LY，中心 0x80）在 NES 上无模拟量语义，直接
+ * 按阈值当方向键用：值 < 中心-死区 判左/下，> 中心+死区 判右/上，中间
+ * 死区不产生输入（手柄静止时输出接近但不必等于 0x80，没有死区会漂移）。
+ * 方向键本身按下时与摇杆结果按位或叠加，二者任一即可触发。
+ */
+static uint16_t cpad_stick_to_dpad(uint8_t lx, uint8_t ly) {
+    uint16_t m = 0;
+    const int center = CPAD_STICK_CENTER;
+    const int dz = CPAD_STICK_DEADZONE;
+
+    if ((int)lx < center - dz)      m |= GAMEPAD_KEY_LEFT;
+    else if ((int)lx > center + dz) m |= GAMEPAD_KEY_RIGHT;
+
+    /* 文档口径: 值小 = 下, 值大 = 上 */
+    if ((int)ly < center - dz)      m |= GAMEPAD_KEY_DOWN;
+    else if ((int)ly > center + dz) m |= GAMEPAD_KEY_UP;
+    return m;
+}
+
+/* 摇杆方向位图 → 可读字符串（写入调用方缓冲：app task 与 shell task 都会
+ * 调用，不能用共享静态缓冲）。最长 "UP+DOWN+LEFT+RIGHT"(18) + NUL，
+ * 调用方给 >= 24 字节即可。 */
+static void pad_dir_str(uint16_t dir, char *out, size_t n) {
+    static const struct { uint16_t bit; const char *name; } k_names[] = {
+        { GAMEPAD_KEY_UP,    "UP"    },
+        { GAMEPAD_KEY_DOWN,  "DOWN"  },
+        { GAMEPAD_KEY_LEFT,  "LEFT"  },
+        { GAMEPAD_KEY_RIGHT, "RIGHT" },
+    };
+    size_t w = 0;
+
+    if (out == NULL || n == 0) return;
+    if (dir == 0) {
+        snprintf(out, n, "CENTER");
+        return;
+    }
+    out[0] = 0;
+    for (size_t i = 0; i < sizeof(k_names) / sizeof(k_names[0]); i++) {
+        if (!(dir & k_names[i].bit)) continue;
+        if (w + 1 >= n) break;              /* 无空间，安全截断 */
+        int r = snprintf(out + w, n - w, "%s%s", w ? "+" : "", k_names[i].name);
+        if (r > 0) w += (size_t)r;
+    }
+}
+
+/* 8 字节输入帧在 EV_NOTIFICATION 里按「按键位图 | 摇杆方向」合成 NES 位图
+ * （见该处），这里不再单独封装，避免逻辑分散两处。 */
 
 /*
  * 广播数据（AD structure 序列）解析。
@@ -296,6 +386,35 @@ static uint16_t uuid16_get(const lisa_ble_uuid_t *u) {
     return (uint16_t)(u->value[0] | (u->value[1] << 8));
 }
 
+/* 广播报告流量总览（默认关闭，`blepad diag` 打开）。
+ * 放在 BT task 上下文执行是为了能看清「一包都收不到」这种情况；
+ * 打开时会同步执行 LISA_LOGI（UART 输出），故默认必须关闭。 */
+static void pad_log_scan_report(const pad_evt_t *ev) {
+    char nm[24] = {0};
+    uint8_t j = 0;
+    while (j + 1 < ev->u.scan.len) {
+        uint8_t ad_len = ev->u.scan.data[j];
+        if (ad_len == 0 || j + 1 + ad_len > ev->u.scan.len) break;
+        if ((ev->u.scan.data[j + 1] == 0x09 || ev->u.scan.data[j + 1] == 0x08) &&
+            ad_len > 1) {
+            uint8_t cp = (ad_len - 1) < 23 ? (ad_len - 1) : 23;
+            memcpy(nm, &ev->u.scan.data[j + 2], cp);
+            nm[cp] = 0;
+            break;
+        }
+        j += 1 + ad_len;
+    }
+    gap_bdaddr_t addr;
+    char ps[18];
+    memset(&addr, 0, sizeof(addr));
+    memcpy(addr.addr, ev->u.scan.addr, 6);
+    addr.addr_type = ev->u.scan.addr_type;
+    peer_to_str(&addr, ps, sizeof(ps));
+    LISA_LOGI(TAG, "scan: total=%u last=%s rssi=%d type=%u name=%s",
+              (unsigned)s_pad.scan_reports, ps, ev->u.scan.rssi,
+              (unsigned)(ev->u.scan.flags & 0x07), nm[0] ? nm : "-");
+}
+
 static void pad_on_scan_report(const lisa_ble_scan_report_t *r, void *ud) {
     pad_evt_t ev;
     (void)ud;
@@ -306,10 +425,14 @@ static void pad_on_scan_report(const lisa_ble_scan_report_t *r, void *ud) {
     memcpy(ev.u.scan.addr, r->addr.addr, 6);
     ev.u.scan.rssi = r->rssi;
     ev.u.scan.flags = r->flags;
-    uint8_t len = r->length;
-    if (len > PAD_ADV_DATA_MAX) len = PAD_ADV_DATA_MAX;
-    ev.u.scan.len = len;
-    if (len && r->data) memcpy(ev.u.scan.data, r->data, len);
+    size_t sz = r->length;
+    if (sz > PAD_ADV_DATA_MAX) sz = PAD_ADV_DATA_MAX;   /* 设备端只留前 31B */
+    ev.u.scan.len = (uint8_t)sz;
+    if (sz && r->data) memcpy(ev.u.scan.data, r->data, sz);
+    /* 计数与诊断都在 BT task 上下文完成：计数不判 state（扫描活动可能
+     * 已停但报告仍在途），诊断默认关闭、零开销。 */
+    s_pad.scan_reports++;
+    if (s_pad.scan_diag) pad_log_scan_report(&ev);
     pad_post(&ev);
 }
 
@@ -565,40 +688,10 @@ static void pad_handle_scan_report(const pad_evt_t *ev) {
     memcpy(addr.addr, ev->u.scan.addr, 6);
     addr.addr_type = ev->u.scan.addr_type;
 
-    s_pad.scan_reports++;
-
     cpad_peer_t *pe = cpad_peer_slot(&addr);
     pe->rssi = ev->u.scan.rssi;
     pe->update_tick = xTaskGetTickCount();
     cpad_adv_parse(ev->u.scan.data, ev->u.scan.len, pe);
-
-    /* 诊断：限频（1s）打印广播流量总览——用于区分「完全收不到报告」
-     * 与「收到了但没有 CodexPad」。 */
-    static TickType_t s_last_dump = 0;
-    TickType_t now = xTaskGetTickCount();
-    if (now - s_last_dump > pdMS_TO_TICKS(1000)) {
-        s_last_dump = now;
-        char nm[24] = {0};
-        uint8_t j = 0;
-        while (j + 1 < ev->u.scan.len) {
-            uint8_t ad_len = ev->u.scan.data[j];
-            if (ad_len == 0 || j + 1 + ad_len > ev->u.scan.len) break;
-            if ((ev->u.scan.data[j + 1] == 0x09 || ev->u.scan.data[j + 1] == 0x08) &&
-                ad_len > 1) {
-                uint8_t cp = (ad_len - 1) < 23 ? (ad_len - 1) : 23;
-                memcpy(nm, &ev->u.scan.data[j + 2], cp);
-                nm[cp] = 0;
-                break;
-            }
-            j += 1 + ad_len;
-        }
-        char ps[18];
-        peer_to_str(&addr, ps, sizeof(ps));
-        LISA_LOGI(TAG, "scan: total=%u last=%s rssi=%d type=%u name=%s cpad=%d",
-                  s_pad.scan_reports, ps, ev->u.scan.rssi,
-                  (unsigned)(ev->u.scan.flags & 0x07), nm[0] ? nm : "-",
-                  (int)pe->name_ok);
-    }
 
     if (!pe->name_ok) return;
 
@@ -643,16 +736,31 @@ static void pad_task(void *arg) {
                 s_pad.frames = s_pad.scan_matches = s_pad.scan_reports = 0;
                 s_pad.notify_count = 0;
                 s_pad.raw_log = false;
+                s_pad.scan_diag = false;
+                s_pad.stick_log = false;
+                s_pad.last_mask = 0;
+                s_pad.last_stick_dir = 0;
+                s_pad.last_stick_btn = 0;
                 memset(&s_pad.peer, 0, sizeof(s_pad.peer));
                 s_pad.peer_str[0] = 0;
                 memset(s_peers, 0, sizeof(s_peers));
                 int ret = lisa_ble_client_init(&s_pad_cb, NULL);
-                LISA_LOGI(TAG, "client init ret=%d", ret);
                 if (ret != 0 && ret != -EALREADY) {
-                    LISA_LOGE(TAG, "client init failed, abort");
+                    /* 开机自启时 BLE 栈可能尚未使能（ipc 就绪后才 init）。
+                     * 不放弃：稍后重试；仅首次失败打日志避免刷屏。 */
+                    if (s_pad.init_retries == 0) {
+                        LISA_LOGW(TAG, "client init ret=%d, retry later", ret);
+                    }
+                    s_pad.init_retries++;
                     s_pad.started = false;
+                    s_pad.init_retry_at =
+                        xTaskGetTickCount() + pdMS_TO_TICKS(CPAD_INIT_RETRY_MS);
                     break;
                 }
+                LISA_LOGI(TAG, "client init ret=%d (retries=%u)",
+                          ret, s_pad.init_retries);
+                s_pad.init_retries = 0;
+                s_pad.init_retry_at = 0;
             }
             /* 已连接/订阅中时不要打断；其余情况（重新）开始扫描 */
             if (s_pad.state == PAD_IDLE || s_pad.state == PAD_SCANNING) {
@@ -672,6 +780,9 @@ static void pad_task(void *arg) {
             break;
 
         case EV_CMD_STOP:
+            /* 无论是否已 started，都清掉开机自启的待重试，避免刚 off 又自启 */
+            s_pad.init_retry_at = 0;
+            s_pad.init_retries = 0;
             if (!s_pad.started) break;
             if (s_pad.state != PAD_SCANNING && s_pad.conidx != 0xFF) {
                 lisa_ble_disconnect(s_pad.conidx, 0x13);
@@ -681,6 +792,9 @@ static void pad_task(void *arg) {
             s_pad.started = false;
             s_pad.state = PAD_IDLE;
             s_pad.conidx = 0xFF;
+            s_pad.last_mask = 0;
+            s_pad.last_stick_dir = 0;
+            s_pad.last_stick_btn = 0;
             gamepad_input_on_disconnect();
             LISA_LOGI(TAG, "stopped");
             break;
@@ -771,18 +885,40 @@ static void pad_task(void *arg) {
             if (s_pad.state == PAD_RUNNING && ev.u.notify.len == CPAD_FRAME_LEN &&
                 ev.u.notify.hdl == s_pad.val_hdl) {
                 uint32_t buttons;
+                uint16_t dir, nes;
                 memcpy(&buttons, d, 4);
-                gamepad_input_set_mask(cpad_buttons_to_nes(buttons));
+                dir = cpad_stick_to_dpad(d[4], d[5]);
+                nes = (uint16_t)(cpad_buttons_to_nes(buttons) | dir);
+                gamepad_input_set_mask(nes);
+                s_pad.last_mask = nes;
+                s_pad.keepalive_at = xTaskGetTickCount() + pdMS_TO_TICKS(CPAD_KEEPALIVE_MS);
                 s_pad.frames++;
                 s_pad.dbg_raw = buttons;
                 s_pad.dbg_buttons = (uint8_t)buttons;
                 s_pad.dbg_lx = d[4];
                 s_pad.dbg_ly = d[5];
+
+                /* 摇杆事件：方向或摇杆按键（L3/R3）变化才打印，避免刷屏 */
+                if (s_pad.stick_log &&
+                    (dir != s_pad.last_stick_dir ||
+                     (buttons & (CPAD_L3 | CPAD_R3)) != s_pad.last_stick_btn)) {
+                    char ds[24];
+                    s_pad.last_stick_dir = dir;
+                    s_pad.last_stick_btn = buttons & (CPAD_L3 | CPAD_R3);
+                    pad_dir_str(dir, ds, sizeof(ds));
+                    LISA_LOGI(TAG, "stick: dir=%-12s LX=%3u LY=%3u "
+                              "L3=%u R3=%u -> nes=0x%04X",
+                              ds, d[4], d[5],
+                              (unsigned)((buttons & CPAD_L3) ? 1 : 0),
+                              (unsigned)((buttons & CPAD_R3) ? 1 : 0), nes);
+                }
                 if (s_pad.raw_log) {
-                    LISA_LOGI(TAG, "raw frame: btn=0x%05X -> nes=0x%04X "
-                              "LX=%u LY=%u RX=%u RY=%u",
-                              buttons, cpad_buttons_to_nes(buttons),
-                              d[4], d[5], d[6], d[7]);
+                    char ds[24];
+                    pad_dir_str(dir, ds, sizeof(ds));
+                    LISA_LOGI(TAG, "raw frame: btn=0x%05X LX=%u LY=%u RX=%u RY=%u "
+                              "-> nes=0x%04X (dpad=0x%04X stick=%s)",
+                              buttons, d[4], d[5], d[6], d[7], nes,
+                              (unsigned)cpad_buttons_to_nes(buttons), ds);
                 }
             }
             break;
@@ -793,11 +929,24 @@ static void pad_task(void *arg) {
             LISA_LOGI(TAG, "raw log %s", s_pad.raw_log ? "on" : "off");
             break;
 
+        case EV_SET_SCAN_DIAG:
+            s_pad.scan_diag = (ev.u.status != 0);
+            LISA_LOGI(TAG, "scan diag %s", s_pad.scan_diag ? "on" : "off");
+            break;
+
+        case EV_SET_STICK_LOG:
+            s_pad.stick_log = (ev.u.status != 0);
+            LISA_LOGI(TAG, "stick log %s", s_pad.stick_log ? "on" : "off");
+            break;
+
         case EV_DISCONNECTED:
             LISA_LOGI(TAG, "disconnected conidx=%u reason=0x%04X",
                       ev.u.disconnected.conidx, ev.u.disconnected.reason);
             gamepad_input_on_disconnect();
             s_pad.val_hdl = s_pad.cccd_hdl = 0;
+            s_pad.last_mask = 0;
+            s_pad.last_stick_dir = 0;
+            s_pad.last_stick_btn = 0;
             if (s_pad.started) {
                 s_pad.conidx = 0xFF;
                 pad_scan_start();
@@ -811,6 +960,23 @@ static void pad_task(void *arg) {
         }
 
 watchdog:
+        /* 按住保活：手柄是事件驱动上报，按住不放期间不会有新帧；周期性
+         * 把最近一次位图重写回 gamepad 层，保证 NES 侧持续看到「按住」，
+         * 同时覆盖输入层被其它手柄通道（WS 连接时 reset / UDP 静默松键）
+         * 意外清零的情况。位图未变时重写不会产生新的短按锁存。 */
+        if (s_pad.state == PAD_RUNNING && s_pad.last_mask != 0 &&
+            (int32_t)(xTaskGetTickCount() - s_pad.keepalive_at) >= 0) {
+            gamepad_input_set_mask(s_pad.last_mask);
+            s_pad.keepalive_at = xTaskGetTickCount() + pdMS_TO_TICKS(CPAD_KEEPALIVE_MS);
+        }
+
+        /* 开机自启但 BLE 栈尚未就绪：到点重投启动命令重试 client init */
+        if (!s_pad.started && s_pad.init_retry_at != 0 &&
+            (int32_t)(xTaskGetTickCount() - s_pad.init_retry_at) >= 0) {
+            s_pad.init_retry_at = 0;
+            pad_send_cmd(EV_CMD_START);
+        }
+
         /* 连接/发现/订阅阶段超时未推进 → 断开退回扫描，避免挂死 */
         if (s_pad.started &&
             (s_pad.state == PAD_CONNECTING || s_pad.state == PAD_DISCOVERING ||
@@ -822,6 +988,9 @@ watchdog:
             }
             s_pad.conidx = 0xFF;
             s_pad.val_hdl = s_pad.cccd_hdl = 0;
+            s_pad.last_mask = 0;
+            s_pad.last_stick_dir = 0;
+            s_pad.last_stick_btn = 0;
             gamepad_input_on_disconnect();
             pad_scan_start();
         }
@@ -904,6 +1073,20 @@ void ble_pad_shell_cmd(const char *sub) {
         ev.u.status = s_pad.raw_log ? 0 : 1;   /* toggle */
         pad_post(&ev);
     }
+    else if (strcmp(sub, "diag") == 0) {
+        pad_evt_t ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.type = EV_SET_SCAN_DIAG;
+        ev.u.status = s_pad.scan_diag ? 0 : 1;   /* toggle */
+        pad_post(&ev);
+    }
+    else if (strcmp(sub, "stick") == 0) {
+        pad_evt_t ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.type = EV_SET_STICK_LOG;
+        ev.u.status = s_pad.stick_log ? 0 : 1;   /* toggle */
+        pad_post(&ev);
+    }
 }
 
 /* ================================================================== */
@@ -913,26 +1096,30 @@ void ble_pad_shell_cmd(const char *sub) {
 static int blepad_shell_cmd(int argc, char **argv) {
     if (argc < 2) {
         shellPrint(shellGetCurrent(),
-                   "usage: blepad scan|conn|on|off|raw|status\n"
+                   "usage: blepad scan|conn|on|off|raw|stick|diag|status\n"
                    "  on     扫描→识别 CodexPad→连接→GATT→订阅（全自动）\n"
                    "  scan   开始扫描    conn   手动连接最近发现的 CodexPad\n"
-                   "  raw    切换原始输入帧打印（配按键核对键位）\n"
+                   "  raw    切换原始输入帧打印（含按键+摇杆，核对键位）\n"
+                   "  stick  切换摇杆事件打印（方向 / L3 R3，变化才打）\n"
+                   "  diag   切换广播流量总览打印（默认关，排查收不到广播用）\n"
                    "  off    停止        status 状态\n");
         return 0;
     }
     if (strcmp(argv[1], "status") == 0) {
         ble_pad_status_t st;
+        char ds[24];
         ble_pad_get_status(&st);
+        pad_dir_str(s_pad.last_stick_dir, ds, sizeof(ds));
         shellPrint(shellGetCurrent(),
-                   "blepad: state=%d running=%d connected=%d peer=%s raw=%d\n"
+                   "blepad: state=%d running=%d connected=%d peer=%s raw=%d stick=%d diag=%d\n"
                    "        reports=%u matches=%u frames=%u notifies=%u rssi=%d\n"
-                   "        raw_btn=0x%05X nes=0x%04X LX=%u LY=%u\n",
+                   "        raw_btn=0x%05X nes=0x%04X LX=%u LY=%u stick_dir=%s\n",
                    s_pad.state, st.running, st.connected, st.peer_addr,
-                   (int)s_pad.raw_log,
+                   (int)s_pad.raw_log, (int)s_pad.stick_log, (int)s_pad.scan_diag,
                    s_pad.scan_reports, st.scan_matches, st.frames,
                    s_pad.notify_count, st.last_rssi,
-                   s_pad.dbg_raw, cpad_buttons_to_nes(s_pad.dbg_raw),
-                   st.last_lx, st.last_ly);
+                   s_pad.dbg_raw, s_pad.last_mask,
+                   st.last_lx, st.last_ly, ds);
         return 0;
     }
     ble_pad_shell_cmd(argv[1]);

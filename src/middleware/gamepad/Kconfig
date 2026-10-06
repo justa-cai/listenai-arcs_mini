@@ -36,3 +36,14 @@ config GAMEPAD_BLE
       manufacturer data verification) -> connect (7.5~10ms low latency) ->
       GATT subscribe 0xFFA1 input frames -> merge into the NES input
       bitmap. Runs alongside the WiFi (WS/UDP) gamepad.
+
+config GAMEPAD_BLE_AUTOSTART
+    bool "Auto start BLE gamepad at boot"
+    default y
+    depends on GAMEPAD_BLE
+    help
+      Start the BLE gamepad driver during gamepad_init(), so the device
+      scans for the CodexPad right after power-on instead of waiting for
+      the `blepad on` shell command. The driver retries stack
+      registration until Bluetooth is enabled, so this is safe even
+      though BLE comes up after gamepad_init().

@@ -63,6 +63,18 @@ int gamepad_init(void)
               (unsigned)CONFIG_GAMEPAD_WS_PORT,
               (unsigned)CONFIG_GAMEPAD_DISCOVERY_PORT,
               (unsigned)CONFIG_GAMEPAD_UDP_PORT);
+
+#if CONFIG_GAMEPAD_BLE && CONFIG_GAMEPAD_BLE_AUTOSTART
+    /* 开机自启 BLE 手柄直连：扫描 → 识别 CodexPad → 连接 → 订阅。
+     * 此处 BLE 栈可能尚未使能（ipc 就绪后才 lisa_bluetooth_init），
+     * 驱动内部会按 CPAD_INIT_RETRY_MS 重试 client init。 */
+    extern int ble_pad_start(void);
+    if (ble_pad_start() == 0) {
+        LISA_LOGI(TAG, "ble pad autostart requested");
+    } else {
+        LISA_LOGW(TAG, "ble pad autostart failed");
+    }
+#endif
     return 0;
 }
 
