@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "H264 decoder"
+
+config H264DEC
+    bool "Enable the H264 software decoder"
+    default n
+    help
+        H.264 Baseline Profile (CAVLC, I/P slice) pure C software decoder,
+        ported from TinyH264. Outputs YUV420P planar frames, intended to be
+        paired with the DMA2D yuv420->RGB hardware converter for display.
+
+config H264DEC_MAX_W
+    int "Maximum supported video width"
+    default 240
+    range 16 1920
+    depends on H264DEC
+    help
+        Frame buffer allocation ceiling. Streams whose SPS declares a larger
+        resolution are rejected at runtime.
+
+config H264DEC_MAX_H
+    int "Maximum supported video height"
+    default 240
+    range 16 1920
+    depends on H264DEC
+    help
+        Frame buffer allocation ceiling. Streams whose SPS declares a larger
+        resolution are rejected at runtime.
+
+config H264DEC_MAX_REFS
+    int "Maximum reference frames"
+    default 3
+    range 1 3
+    depends on H264DEC
+    help
+        Compile-time upper bound of stored reference pictures. Total picture
+        memory is (1 + refs) * 1.5 * W * H bytes; the active count can be
+        lowered at runtime via h264_dec_set_max_refs().
+
+config H264DEC_MAX_NAL
+    int "Maximum single NAL payload size in bytes"
+    default 32768
+    range 4096 262144
+    depends on H264DEC
+    help
+        Scratch buffer size for emulation-prevention stripping, must cover
+        the largest NAL unit the caller feeds.
+
+endmenu
