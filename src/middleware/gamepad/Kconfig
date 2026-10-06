@@ -26,3 +26,13 @@ config GAMEPAD_UDP_PORT
       transfer / state / heartbeat.
 
 endmenu
+
+config GAMEPAD_BLE
+    bool "CodexPad-S10 BLE gamepad (Central)"
+    default n
+    depends on GAMEPAD_ENABLE && BLE
+    help
+      Direct BLE connection to CodexPad-S10 gamepad: scan (name prefix +
+      manufacturer data verification) -> connect (7.5~10ms low latency) ->
+      GATT subscribe 0xFFA1 input frames -> merge into the NES input
+      bitmap. Runs alongside the WiFi (WS/UDP) gamepad.

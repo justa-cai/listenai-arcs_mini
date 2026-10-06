@@ -60,9 +60,11 @@ typedef struct ble_scan_info
 
     uint8_t   scan_phy;
 
-    uint8_t   scan_intv;
+    /// scan interval, unit 0.625ms (BLE spec range 0x0004-0x4000)
+    uint16_t  scan_intv;
 
-    uint8_t   scan_win;
+    /// scan window, unit 0.625ms (must be <= scan_intv)
+    uint16_t  scan_win;
 }ble_scan_info_t;
 
 

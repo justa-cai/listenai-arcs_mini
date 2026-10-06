@@ -17,3 +17,9 @@ listenai_include_directories(
 )
 
 endif()
+
+if(CONFIG_GAMEPAD_BLE)
+    listenai_library_sources(
+        ble_pad.c
+    )
+endif()

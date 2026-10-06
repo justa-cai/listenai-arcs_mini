@@ -49,8 +49,10 @@ typedef struct {
     uint8_t  scan_param_dft;
     uint8_t  scan_type;
     uint8_t  scan_phy;
-    uint8_t  scan_intv;
-    uint8_t  scan_win;
+    /* 与 bt_app_hal.h / lisa_ble_api_local.c 保持一致：uint16_t，
+     * 避免 interval/window 被截断成 uint8_t。 */
+    uint16_t scan_intv;
+    uint16_t scan_win;
 } ble_scan_info_t;
 
 typedef struct {

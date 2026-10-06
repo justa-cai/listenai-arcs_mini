@@ -13,6 +13,11 @@ if (CONFIG_LISA_BLUETOOTH)
         .
     )
 
+    # GATT 客户端（Central）上层：官方 lisa_ble_client API + 本地栈适配
+    listenai_library_sources(
+        lisa_ble_client.c
+    )
+
     if (CONFIG_LISA_BLUETOOTH_BUILD_IPC_CLIENT)
         # IPC caller: forward Bluetooth API calls to the peer image.
         listenai_library_sources(
@@ -39,6 +44,7 @@ if (CONFIG_LISA_BLUETOOTH)
             bt_stack_cfg.c
             lisa_bluetooth.c
             lisa_ble_api_local.c
+            lisa_ble_client_stack_local.c
         )
 
         if ((CONFIG_LISA_BLUETOOTH_BUILD_NETCFG_BLE_SERVER OR CONFIG_BLE_PROFILE_NETCFG_BLES) AND NOT CONFIG_LISA_BLUETOOTH_CUSTOM_NETCFG)

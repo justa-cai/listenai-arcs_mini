@@ -32,6 +32,7 @@
 #include "bt_stack_hal.h"
 #include "bt_ble_hal.h"
 #include "lisa_bluetooth.h"
+#include "lisa_ble_client_internal.h"
 #include "hogpd_msg.h"
 #include "hogpd.h"
 #include "bass.h"
@@ -293,6 +294,19 @@ void bt_stack_ble_enable_cmp(uint16_t status)
 ///resquester   0:auto, 1:user
 void bt_stack_ble_actv_ind(uint8_t actv, uint8_t type, uint8_t actv_id, uint8_t resquester, int16_t status)
 {
+    /* 转发给 GATT 客户端上层（Central 流程状态机用） */
+    if (type == GAPM_ACTV_TYPE_SCAN) {
+        lisa_ble_client_stack_scan_activity(actv != 0, actv_id,
+                                            (uint16_t)status);
+    }
+    if (type == GAPM_ACTV_TYPE_INIT) {
+        lisa_ble_client_stack_connection_activity(actv != 0, actv_id,
+                                                  (uint16_t)status);
+        if (actv == 0 && status != 0) {
+            lisa_ble_client_stack_connection_failed((uint16_t)status);
+        }
+    }
+
     switch(type)
     {
         case GAPM_ACTV_TYPE_ADV :
@@ -356,6 +370,9 @@ void bt_stack_ble_disc_ind(uint8_t conidx, uint16_t conhdl, uint16_t reason)
     ble_gap_entry_latency(GAP_EXIT_LATENCY_ALL);
     ///clear hid count
     stack_env->bt_hid_send_cnt = 0;
+
+    /// clear pending GATT client state before notifying the application
+    lisa_ble_client_stack_disconnected(conidx);
 
     /// notify user of BLE disconnection
     lisa_ble_notify_disconnected(conidx, conhdl, reason);
@@ -443,7 +460,15 @@ void bt_stack_ble_bond_ind(uint8_t conidx, uint16_t status)
 
 void bt_stack_ble_para_update_ind(uint8_t conidx, uint16_t interval, uint16_t latency, uint16_t super_to)
 {
+    lisa_ble_conn_params_t params = {
+        .conidx = conidx,
+        .interval = interval,
+        .latency = latency,
+        .supervision_timeout = super_to,
+    };
+
     CLOGI("interval: %d; latency: %d; super: %d", interval, latency, super_to);
+    lisa_ble_client_stack_conn_params(&params);
 }
 
 void bt_stack_ble_info_ind(uint8_t conidx, uint8_t type, ble_info_data_t *data)
@@ -475,8 +500,22 @@ void bt_stack_ble_info_ind(uint8_t conidx, uint8_t type, ble_info_data_t *data)
 
 void bt_stack_ble_adv_report_ind(uint8_t flag, gap_bdaddr_t *peer_addr, int8_t rssi, uint8_t len, uint8_t *data)
 {
+    lisa_ble_scan_report_t report;
+
+    if (peer_addr == NULL) {
+        return;
+    }
     CLOGD("adv report ind, flag :%d, addr:%2x, %2x, %2x, %2x", flag, peer_addr->addr[0], peer_addr->addr[1], \
                                                                         peer_addr->addr[2], peer_addr->addr[3]);
+    /* 转发给 GATT 客户端上层（扫描结果） */
+    memset(&report, 0, sizeof(report));
+    memcpy(report.addr.addr, peer_addr->addr, sizeof(report.addr.addr));
+    report.addr.addr_type = peer_addr->addr_type;
+    report.rssi = rssi;
+    report.flags = flag;
+    report.length = len;
+    report.data = data;
+    lisa_ble_client_stack_scan_report(&report);
 }
 
 uint8_t bt_stack_ble_hid_send(uint8_t conidx, uint8_t report_idx, uint8_t length, uint8_t* value)
