@@ -11,7 +11,9 @@
 #include "service_camera.h"
 #include "service_alarm.h"
 #include "service_image.h"
+#ifdef CONFIG_MIDDLEWARE_SD_MUSIC
 #include "service_sd_music.h"
+#endif
 #include "service_power_policy.h"
 
 #include "app_button.h"
@@ -183,8 +185,10 @@ static void voice_cloud_auth_failed(void *unused, uint32_t msg_id, void *data, u
 static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     service_alarm_init();
+#ifdef CONFIG_MIDDLEWARE_SD_MUSIC
     /* SD state must also be reconciled on modem-only devices. */
     (void)service_sd_music_init();
+#endif
 }
 
 static void voice_wifi_provision_guard(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)

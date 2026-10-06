@@ -19,8 +19,10 @@
 #if CONFIG_FILE_SYSTEM
 #include "lsfs.h"
 #include "disk/disk_access.h"
+#ifdef CONFIG_LISA_SDMMC_DEVICE
 #include "lisa_sdmmc.h"
 #include "lisa_gpio.h"
+#endif
 #endif
 
 #include "romfs.h"
@@ -46,7 +48,7 @@ extern int user_usb_start(void);
 extern bool app_usb_msc_enabled(void);
 extern int boot_watchdog_feed(void);
 
-#if CONFIG_FILE_SYSTEM
+#if CONFIG_FILE_SYSTEM && defined(CONFIG_LISA_SDMMC_DEVICE)
 static struct lsfs_mount_t sdmmc_mnt = {
     .type = LSFS_FATFS,
     .mnt_point = SDMMC_MOUNT_POINT,
@@ -158,6 +160,7 @@ static int voice_platform_init(void)
 #endif
     lsfs_init();
 
+#if defined(CONFIG_LISA_SDMMC_DEVICE)
     if (platform_tf_card_inserted()) {
         lisa_sdmmc_probe(lisa_device_get("sdmmc0"));
 
@@ -176,6 +179,7 @@ static int voice_platform_init(void)
     } else {
         LOGI("TF card not inserted, skip SD mount");
     }
+#endif /* CONFIG_LISA_SDMMC_DEVICE */
 #endif
 
     // Check if KV storage is already initialized (e.g., from factory reset)

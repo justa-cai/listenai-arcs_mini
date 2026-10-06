@@ -8,7 +8,7 @@
 #include "lisa_ui_invoke.h"
 #include "voice_msg.h"
 
-#ifdef LISA_UI_PLATFORM_ARCS
+#if defined(LISA_UI_PLATFORM_ARCS) && defined(CONFIG_MIDDLEWARE_SD_MUSIC)
 #include "service_sd_music.h"
 #endif
 
@@ -177,7 +177,7 @@ int model_sd_music_sync_init(void)
     voice_msg_sub(VOICE_MSG_APP_SD_MUSIC_CARD_STATE, handle_sd_music_card_state, NULL);
     voice_msg_sub(VOICE_MSG_APP_SD_MUSIC_PLAY_FAILED, handle_sd_music_notify, NULL);
 
-#ifdef LISA_UI_PLATFORM_ARCS
+#if defined(LISA_UI_PLATFORM_ARCS) && defined(CONFIG_MIDDLEWARE_SD_MUSIC)
     g_model_sd_music_sync_ctx.card_available = service_sd_music_is_card_ready();
 #endif
 

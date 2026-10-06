@@ -10,8 +10,13 @@ listenai_library_sources(
     mcp_tool_camera.c
     mcp_tool_image.c
     mcp_tool_duplex.c
-    mcp_tool_sd_music.c
 )
+
+if(CONFIG_MIDDLEWARE_SD_MUSIC)
+    listenai_library_sources(
+        mcp_tool_sd_music.c
+    )
+endif()
 
 if(CONFIG_LOG_UPLOAD)
     listenai_library_sources(

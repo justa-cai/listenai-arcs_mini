@@ -8,7 +8,9 @@
 #include "app_datas.h"
 #include "app_wakeup.h"
 #include "app_tone.h"
+#ifdef CONFIG_MIDDLEWARE_SD_MUSIC
 #include "service_sd_music.h"
+#endif
 #include "sys_network_manager.h"
 #include "tone.h"
 #include "voice_cloud.h"
@@ -145,10 +147,12 @@ static void voice_player_wakeup_handle(uint32_t required_mode)
      * SD 卡插入后的扫描、文件列表上报及同步结果展示期间，UI 处于专用同步流程。
      * 此时忽略唤醒提示音，避免声音打断文件列表上传过程或造成用户误以为已进入语音交互。
      */
+#ifdef CONFIG_MIDDLEWARE_SD_MUSIC
     if (service_sd_music_is_syncing()) {
         LOGI("ignore wakeup tone during SD music sync");
         return;
     }
+#endif
 
     /* required_mode 区分按键/关键词来源；can_wakeup 是两种唤醒方式共用的总开关。 */
     if ((app_data->voice_work_mode & required_mode) == 0U ||
