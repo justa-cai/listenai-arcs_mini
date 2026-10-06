@@ -40,7 +40,9 @@ typedef struct {
     uint32_t last_decode_ms;/* 最近一帧解码耗时 */
     uint32_t last_csc_ms;   /* 最近一帧色彩转换耗时 */
     int video_width, video_height;
-    uint32_t declared_fps;  /* SPS 声明帧率（time_scale/(2*nuit)），0=未声明 */
+    uint32_t declared_fps;  /* 声明帧率，0=未知 */
+    int audio_start_retries; /* 音频流启动重试次数（焦点被拒等） */
+    int decode_errors;      /* JPEG 解码失败帧数 */
 } video_player_status_t;
 
 void video_player_get_status(video_player_status_t *out);

@@ -24,6 +24,14 @@ app_player_t *miniapp_player = NULL;
 /** 系统音量（1-100），Kconfig 配置默认值 */
 static int g_system_volume = CONFIG_VOICE_PLAYER_DEFAULT_VOLUME;
 
+/* 焦点通道可抢占列表（焦点配置数组为 static，捕获列表必须同生命周期） */
+static const char *focus_capture_tone[] = {"tts"};
+static const char *focus_capture_tts[] = {"alert"};
+static const char *focus_capture_alert[] = {"tts", "tone"};
+#ifdef CONFIG_VIDEO_PLAYER
+static const char *focus_capture_video[] = {"tts", "music", "alert", "miniapp"};
+#endif
+
 /** 音量线程句柄 */
 static TaskHandle_t g_volume_thread = NULL;
 /** 音量线程信号量 */
@@ -202,12 +210,17 @@ int voice_player_platform_init(void)
     }
 #endif
 
-    /* 定义焦点通道配置 */
-    app_player_focus_channel_config_t focus_configs[] = {
+    /* 定义焦点通道配置。
+     * 必须 static：app_player_init 只保存指针，运行时懒创建的播放器
+     * （如 video）注册焦点时会再次读取该数组，栈上生命周期会导致
+     * 悬垂指针（Load access fault in strcmp）。捕获列表同样提升为
+     * 文件级 static 数组（GCC 不接受 static 初始化器中 compound
+     * literal 的地址）。 */
+    static app_player_focus_channel_config_t focus_configs[] = {
         {
             .name = "tone",
             .priority = 0,  // 最高优先级（本地提示音）
-            .capture_names = (const char *[]){"tts"},
+            .capture_names = focus_capture_tone,
             .capture_count = 1,
             .behavior = {
                 .on_background = APP_PLAYER_FOCUS_LOSS_STOP,
@@ -217,7 +230,7 @@ int voice_player_platform_init(void)
         {
             .name = "tts",
             .priority = 10,  // 中等优先级
-            .capture_names = (const char *[]){"alert"},
+            .capture_names = focus_capture_tts,
             .capture_count = 1,
             .behavior = {
                 .on_background = APP_PLAYER_FOCUS_LOSS_STOP,
@@ -234,10 +247,23 @@ int voice_player_platform_init(void)
                 .on_focus_lost = APP_PLAYER_FOCUS_LOSS_PAUSE,
             }
         },
+#ifdef CONFIG_VIDEO_PLAYER
+        {
+            .name = "video",
+            .priority = 5,  // 在线视频：仅次于本地提示音 tone；可抢占
+                            // tts/music/alert/miniapp，被 tone/tts 打断即停播
+            .capture_names = focus_capture_video,
+            .capture_count = 2,
+            .behavior = {
+                .on_background = APP_PLAYER_FOCUS_LOSS_STOP,
+                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,
+            }
+        },
+#endif
         {
             .name = "alert",
             .priority = 40,  // 最低优先级
-            .capture_names = (const char *[]){"tts", "tone"},
+            .capture_names = focus_capture_alert,
             .capture_count = 2,
             .behavior = {
                 .on_background = APP_PLAYER_FOCUS_LOSS_PAUSE,

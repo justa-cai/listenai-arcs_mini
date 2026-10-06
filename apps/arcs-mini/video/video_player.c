@@ -3,7 +3,7 @@
  *
  * 任务模型：
  *   [net task]    lisa_http 分块拉流 → 环形 StreamBuffer（PSRAM 256KB）
- *   [player task] 环形缓冲 → tsdemux → 视频软解/色彩转换、音频解码
+ *   [player task] 环形缓冲 → TLV 解析 → JPEG 硬解(直出 RGB565)/音频解码
  *                 → UI 线程投递（lisa_ui_invoke）/ PCM 写入 app_player
  *
  * 直播滞后控制：环形缓冲超过 90% 时中断 HTTP 重连，重新对齐到直播沿；
@@ -23,11 +23,11 @@
 #include "sysheap.h"
 #include "shell.h"
 
-#include "h264dec.h"
+#include "lisa_jpeg.h"
 #include "aacdec.h"
 #include "app_player.h"
+#include "app_player_focus.h"
 
-#include "tsdemux.h"
 #include "video_player.h"
 
 #include "lisa_ui_invoke.h"
@@ -43,8 +43,9 @@
 #define VP_TASK_PRIO 3
 #define VP_HTTP_TIMEOUT_MS 15000
 #define VP_RING_HIGH_PCT 90                /* 高于此占用断开重连对齐直播沿 */
-#define VP_RECONNECT_DELAY_MS 2000
+#define VP_RECONNECT_DELAY_MS 500          /* 快速重连，缩短音视频断流窗口 */
 #define VP_MAX_URL 128
+#define VP_AUDIO_WRITE_FAIL_MAX 3          /* 连续写失败次数阈值，触发音频流重建 */
 
 /* ---- 状态 ---- */
 typedef enum {
@@ -65,10 +66,10 @@ static struct {
     uint8_t *ring_buf;
     StreamBufferHandle_t ring;
 
-    /* 解码器 */
-    h264_dec_t *dec;
-    tsdemux_t tsd;
-    uint8_t *ts_vbuf, *ts_abuf;
+    /* TLV 流解析（JPEG 帧累积）与解码 */
+    uint8_t *tlv_buf;      /* PSRAM，含 8 字节头的完整 TLV 帧累积 */
+    size_t tlv_len;
+    uint32_t decode_errors;
 
     /* 音频 */
     HAACDecoder aac;
@@ -78,6 +79,11 @@ static struct {
     uint8_t *aac_pend;                    /* ADTS 拼接缓冲 */
     size_t aac_pend_len;
     uint32_t audio_rate;
+    int audio_write_fails;                /* 连续写失败计数（流被 reset 自愈） */
+    int audio_start_retries;              /* 启动重试计数（焦点被拒/prepare 失败） */
+
+    /* 直播沿对齐请求：net 任务置位，play 任务清空积压后复位 */
+    volatile int seek_live;
 
     /* 显示双缓冲（RGB565，PSRAM） */
     uint16_t *frames[2];
@@ -88,35 +94,89 @@ static struct {
 } vp;
 
 /* ================================================================== */
-/* 色彩转换：YUV420P → RGB565（BT.601 limited range，定点）            */
+/* TLV 帧流解析：[0xA5][type][len:u16be][pts:u32be][payload]           */
+/*   V = JPEG 帧（硬件解码直出 RGB565），A = AAC ADTS 块               */
 /* ================================================================== */
 
-/* 系数 <<6：1.164→74，1.596→102，0.391→25，0.813→52，2.018→129 */
-static inline uint16_t vp_yuv_to_rgb565(int y, int cb, int cr) {
-    int c = y - 16, d = cb - 128, e = cr - 128;
-    int r = (74 * c + 102 * e) >> 6;
-    int g = (74 * c - 25 * d - 52 * e) >> 6;
-    int b = (74 * c + 129 * d) >> 6;
-    if (r < 0) r = 0; else if (r > 255) r = 255;
-    if (g < 0) g = 0; else if (g > 255) g = 255;
-    if (b < 0) b = 0; else if (b > 255) b = 255;
-    return (uint16_t)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+#define VP_TLV_HDR 8
+#define VP_TLV_PAYLOAD_MAX (48 * 1024)    /* 单帧上限，JPEG q≥2 时足够 */
+
+static void vp_ui_show_frame(void *unused, uint32_t len);
+
+static int vp_on_jpeg(const uint8_t *jpg, uint32_t len);
+
+static void vp_tlv_dispatch(uint8_t type, const uint8_t *payload,
+                            uint16_t len, uint32_t pts) {
+    if (type == 'V') {
+        vp_on_jpeg(payload, len);
+    } else if (type == 'A') {
+        extern int vp_on_aac_pub(const uint8_t *data, size_t len);
+        vp_on_aac_pub(payload, len);
+        (void)pts;
+    }
 }
 
-static void vp_convert_frame(const uint8_t *y, const uint8_t *u,
-                             const uint8_t *v, int w, int h, int stride_y,
-                             int stride_c, uint16_t *dst) {
-    for (int row = 0; row < h; row++) {
-        const uint8_t *yr = y + (size_t)row * stride_y;
-        const uint8_t *ur = u + (size_t)(row >> 1) * stride_c;
-        const uint8_t *vr = v + (size_t)(row >> 1) * stride_c;
-        uint16_t *dr = dst + (size_t)row * w;
-        for (int col = 0; col < w; col += 2) {
-            int cb = ur[col >> 1], cr = vr[col >> 1];
-            dr[col] = vp_yuv_to_rgb565(yr[col], cb, cr);
-            dr[col + 1] = vp_yuv_to_rgb565(yr[col + 1], cb, cr);
+static void vp_tlv_feed(const uint8_t *data, size_t n) {
+    while (n > 0) {
+        if (vp.tlv_len < VP_TLV_HDR) {
+            /* 凑帧头 */
+            size_t take = VP_TLV_HDR - vp.tlv_len;
+            if (take > n) take = n;
+            memcpy(vp.tlv_buf + vp.tlv_len, data, take);
+            vp.tlv_len += take;
+            data += take;
+            n -= take;
+            if (vp.tlv_len < VP_TLV_HDR) return;
+
+            /* 校验：失同步则丢 1 字节重扫 */
+            uint16_t plen = ((uint16_t)vp.tlv_buf[2] << 8) | vp.tlv_buf[3];
+            if (vp.tlv_buf[0] != 0xA5 || plen > VP_TLV_PAYLOAD_MAX) {
+                memmove(vp.tlv_buf, vp.tlv_buf + 1, VP_TLV_HDR - 1);
+                vp.tlv_len = VP_TLV_HDR - 1;
+            }
+            continue;
+        }
+        /* 凑载荷 */
+        uint16_t plen = ((uint16_t)vp.tlv_buf[2] << 8) | vp.tlv_buf[3];
+        size_t need = (size_t)plen + VP_TLV_HDR - vp.tlv_len;
+        size_t take = need < n ? need : n;
+        memcpy(vp.tlv_buf + vp.tlv_len, data, take);
+        vp.tlv_len += take;
+        data += take;
+        n -= take;
+        if (vp.tlv_len == (size_t)plen + VP_TLV_HDR) {
+            uint32_t pts = ((uint32_t)vp.tlv_buf[4] << 24) |
+                           ((uint32_t)vp.tlv_buf[5] << 16) |
+                           ((uint32_t)vp.tlv_buf[6] << 8) | vp.tlv_buf[7];
+            vp_tlv_dispatch(vp.tlv_buf[1], vp.tlv_buf + VP_TLV_HDR, plen, pts);
+            vp.tlv_len = 0;
         }
     }
+}
+
+/* JPEG 硬解直出 RGB565 到显示双缓冲（pixel_build 行距紧凑=width，
+ * 与 LVGL 帧缓冲布局一致，零拷贝） */
+static int vp_on_jpeg(const uint8_t *jpg, uint32_t len) {
+    TickType_t t0 = xTaskGetTickCount();
+
+    int back = 1 - vp.front;
+    uint16_t w = 0, h = 0;
+    Jpeg_DecoderCfg cfg = {.output_format = JPEG_PIXEL_FORMAT_RGB565};
+    int r = jpeg_decoder(jpg, len, (uint8_t *)vp.frames[back], &w, &h, cfg);
+    vp.st.last_decode_ms =
+        (uint32_t)(xTaskGetTickCount() - t0) * portTICK_PERIOD_MS;
+    if (r != 0 || w == 0 || h == 0) {
+        vp.decode_errors++;
+        return -1;
+    }
+
+    vp.st.video_width = w;
+    vp.st.video_height = h;
+    vp.front = back;
+    LISA_UI_INVOKE_UI(vp_ui_show_frame, NULL, 0);
+    vp.st.frames++;
+    vp.st.display_frames++;
+    return 0;
 }
 
 /* ================================================================== */
@@ -148,54 +208,38 @@ static void vp_ui_close_page(void *unused, uint32_t len) {
 }
 
 /* ================================================================== */
-/* tsdemux 回调（player task 上下文）                                   */
+/* 帧处理（player task 上下文）                                         */
 /* ================================================================== */
 
-static void vp_flush_display_frame(void) {
-    TickType_t t0 = xTaskGetTickCount();
-
-    int back = 1 - vp.front;
-    vp_convert_frame(h264_dec_y(vp.dec), h264_dec_u(vp.dec), h264_dec_v(vp.dec),
-                     vp.st.video_width, vp.st.video_height,
-                     h264_dec_stride_y(vp.dec), h264_dec_stride_c(vp.dec),
-                     vp.frames[back]);
-    vp.front = back;
-    LISA_UI_INVOKE_UI(vp_ui_show_frame, NULL, 0);
-    vp.st.display_frames++;
-
-    vp.st.last_csc_ms = (uint32_t)(xTaskGetTickCount() - t0) * portTICK_PERIOD_MS;
-}
-
-static int vp_on_h264(void *user, const uint8_t *data, size_t len,
-                      uint64_t pts) {
-    (void)user;
-    (void)pts;
-    if (!vp.dec) return 0;
-
-    TickType_t t0 = xTaskGetTickCount();
-    int r = h264_dec_stream_write(vp.dec, data, len);
-    uint32_t ms = (uint32_t)(xTaskGetTickCount() - t0) * portTICK_PERIOD_MS;
-    if (r < 0) {
-        /* 直播码流错误：IDR 会自愈，仅计数 */
-        vp.st.last_decode_ms = ms;
-        return 0;
-    }
-    if (r > 0) {
-        vp.st.frames += (uint32_t)r;
-        vp.st.last_decode_ms = ms / (uint32_t)r;
-        vp.st.video_width = h264_dec_width(vp.dec);
-        vp.st.video_height = h264_dec_height(vp.dec);
-        uint32_t nuit = h264_dec_num_units_in_tick(vp.dec);
-        vp.st.declared_fps = nuit ? h264_dec_time_scale(vp.dec) / (2 * nuit) : 0;
-        /* 解慢了只显示最新帧：多个帧完成也只投递最后一帧 */
-        vp_flush_display_frame();
-    }
-    return 0;
-}
-
 /* ---- 音频：ADTS 拼接 + 解码 + 播放 ---- */
+/* 会话结束的音频收尾：player 实例终身复用，绝不 destroy。
+ * 两个原因：
+ * 1. audiomgr 通道是终身制（无注销 API），destroy 后同名重注册必失败
+ *    （"Channel id already registered"），焦点从此永远拿不到；
+ * 2. destroy 会留下未收尾的 flow 线程访问已释放的信号量
+ *    （xQueueSend(NULL) assert 崩机）。
+ * 半死流由 play_stream 的内部 reset 自愈 + 写失败重试路径兜底。 */
+static void vp_audio_detach(void) {
+    if (!vp.player) return;
+    if (app_player_finish_stream(vp.player) == APP_PLAYER_OK) {
+        vTaskDelay(pdMS_TO_TICKS(300)); /* 等 flow 线程走完退出路径 */
+    }
+    vp.audio_started = 0;
+    vp.audio_write_fails = 0;
+}
+int vp_on_aac_pub(const uint8_t *data, size_t len) {
+    return vp_on_aac(data, len);
+}
 
 #define AAC_PEND_MAX 8192
+
+/* 首写水量：lisa_player 音频管线 prepare 需要积累 ≥6 个解码块
+ * （"decode count 6 not enough"），app_player 的 first write 又是同步
+ * 等 prepared（10s 超时）——只写 1 帧会互相等待死锁。先攒满 preroll
+ * 再一次性启动+首写。 */
+#define VP_AUDIO_PREROLL_FRAMES 8
+static int16_t *a_preroll;    /* PSRAM，8 帧 x 1024 样本 */
+static int a_preroll_samples; /* 已攒样本数（单声道） */
 
 static int vp_aac_start_stream(void) {
     AACFrameInfo info;
@@ -208,20 +252,70 @@ static int vp_aac_start_stream(void) {
     }
     AACGetLastFrameInfo(vp.aac, &info);
     vp.audio_rate = (uint32_t)info.sampRateOut;
-    if (app_player_play_stream(vp.player, info.sampRateOut, 1, 16) !=
-        APP_PLAYER_OK) {
+    vp.audio_start_retries++;
+    int ps = app_player_play_stream(vp.player, info.sampRateOut, 1, 16);
+    if (ps != APP_PLAYER_OK) {
+        LOGW("play_stream ret=%d focus=%d retry#%d", ps,
+             app_player_focus_get_state(vp.player), vp.audio_start_retries);
         LOGE("play_stream(%d Hz) failed", info.sampRateOut);
         return -1;
     }
+    /* 首写 preroll（一次性超过 prepare 水量） */
+    int written = app_player_write_stream(
+        vp.player, (const uint8_t *)a_preroll,
+        (uint32_t)a_preroll_samples * 2, 2000);
+    if (written < 0) {
+        LOGE("preroll write failed");
+        return -1;
+    }
     vp.audio_started = 1;
-    LOGI("audio stream started: %d Hz %d ch", info.sampRateOut, info.nChans);
+    vp.audio_write_fails = 0;
+    LOGI("audio stream started: %d Hz %d ch (preroll %d samples)",
+         info.sampRateOut, info.nChans, a_preroll_samples);
     return 0;
 }
 
-static int vp_on_aac(void *user, const uint8_t *data, size_t len,
-                     uint64_t pts) {
-    (void)user;
-    (void)pts;
+/* 解码出一帧单声道 PCM（mono/mono_samples）后的分发：preroll 攒够前
+ * 只入攒冲，攒够一次性启动；启动后直写 */
+static void vp_aac_deliver_pcm(const int16_t *mono, int mono_samples) {
+    if (!vp.audio_started) {
+        int room = AAC_MAX_NSAMPS * VP_AUDIO_PREROLL_FRAMES - a_preroll_samples;
+        int n = mono_samples < room ? mono_samples : room;
+        memcpy(a_preroll + a_preroll_samples, mono, (size_t)n * 2);
+        a_preroll_samples += n;
+        if (a_preroll_samples >= AAC_MAX_NSAMPS * VP_AUDIO_PREROLL_FRAMES) {
+            if (vp_aac_start_stream() != 0) {
+                /* 启动失败（焦点被拒/prepare 失败）：丢弃 preroll 重新攒；
+                 * 每 5 次退避 1s，给占用焦点的通道（如提示音）时间结束 */
+                a_preroll_samples = 0;
+                if (vp.audio_start_retries % 5 == 0) {
+                    vTaskDelay(pdMS_TO_TICKS(1000));
+                }
+            }
+        }
+        return;
+    }
+    int written = app_player_write_stream(vp.player, (const uint8_t *)mono,
+                                          (uint32_t)mono_samples * 2, 200);
+    if (written < 0) {
+        /* 流被底层 reset（如 10s 读超时）等场景：连续失败达阈值
+         * 后标记重建，避免每 2ms 一条错误把日志打爆 */
+        if (++vp.audio_write_fails >= VP_AUDIO_WRITE_FAIL_MAX) {
+            vp.audio_started = 0;
+            vp.audio_write_fails = 0;
+            a_preroll_samples = 0;
+            vp_audio_detach();
+            LOGW("audio write failed x%d, stream detached for restart",
+                 VP_AUDIO_WRITE_FAIL_MAX);
+        }
+        return;
+    }
+    vp.audio_write_fails = 0;
+    vp.st.audio_frames++;
+}
+
+int vp_on_aac(const uint8_t *data, size_t len);
+int vp_on_aac(const uint8_t *data, size_t len) {
     if (!vp.aac) return 0;
 
     /* 拼接到待解码缓冲（PES 边界不一定与 ADTS 帧对齐） */
@@ -255,14 +349,6 @@ static int vp_on_aac(void *user, const uint8_t *data, size_t len,
         AACGetLastFrameInfo(vp.aac, &info);
         int samples = info.outputSamps;
         if (samples > 0) {
-            if (!vp.audio_started) {
-                if (vp_aac_start_stream() != 0) {
-                    vp.audio_started = 0;
-                    memmove(vp.aac_pend, in, (size_t)left);
-                    vp.aac_pend_len = (size_t)left;
-                    return 0;
-                }
-            }
             const int16_t *src = vp.pcm;
             int chans = info.nChans > 1 ? 2 : 1;
             int mono_samples = samples / chans;
@@ -274,11 +360,7 @@ static int vp_on_aac(void *user, const uint8_t *data, size_t len,
             } else {
                 memcpy(mono, src, (size_t)mono_samples * 2);
             }
-            uint32_t bytes = (uint32_t)mono_samples * 2;
-            int written = app_player_write_stream(vp.player, (const uint8_t *)mono,
-                                                  bytes, 200);
-            (void)written;
-            vp.st.audio_frames++;
+            vp_aac_deliver_pcm(mono, mono_samples);
         }
     }
     /* 消耗完：残余清零或收尾 */
@@ -291,29 +373,44 @@ static int vp_on_aac(void *user, const uint8_t *data, size_t len,
     return 0;
 }
 
-static void vp_on_pmt_ready(void *user, uint16_t h264_pid, uint16_t aac_pid) {
-    (void)user;
-    LOGI("pmt: h264_pid=%u aac_pid=%u", h264_pid, aac_pid);
-}
-
-static const tsdemux_cb_t vp_ts_cb = {
-    .on_h264 = vp_on_h264,
-    .on_aac = vp_on_aac,
-    .on_ready = vp_on_pmt_ready,
-};
-
 /* ================================================================== */
 /* 播放任务：环形缓冲 → 解复用 → 解码                                  */
 /* ================================================================== */
+
+/* 追直播沿：清空全部积压（网络重连后从服务器最新位置重新起播）。
+ * 不清积压的话，旧数据持续占着环形缓冲，新数据立刻又触发高水位重连，
+ * 形成重连风暴；同时长时间消化旧数据会让音频流断供触发底层 reset。 */
+static void vp_seek_live_flush(void) {
+    /* 先收干：xStreamBufferReset 检测到挂起的读/写会返回失败，
+     * net 任务断连后不写，但保险起见先把残余读空 */
+    static uint8_t sink[1024];
+    while (xStreamBufferReceive(vp.ring, sink, sizeof(sink), 0) > 0) {
+    }
+    xStreamBufferReset(vp.ring);
+    vp.tlv_len = 0;
+    vp.aac_pend_len = 0;
+    vp.audio_write_fails = 0;
+    a_preroll_samples = 0;
+    /* 注意：这里绝不 stop/destroy 播放器——destroy 会 join 底层回调
+     * 线程，在流不完整时永不返回，把 vp_play 任务整个卡死（ring 无人
+     * 消费 -> 高水位 -> 重连风暴）。PCM 序列断档仅表现为短暂静音，
+     * 流仍存活可继续写。流真坏掉时由连续写失败路径重建。 */
+    vp.st.drop_chunks += 0; /* 积压丢弃不计入网络分片丢弃 */
+    LOGI("seek live: backlog flushed");
+}
 
 static void vp_play_task(void *arg) {
     (void)arg;
     static uint8_t chunk[4096];
     while (vp.state == VP_STATE_RUNNING) {
+        if (vp.seek_live) {
+            vp.seek_live = 0;
+            vp_seek_live_flush();
+        }
         size_t n = xStreamBufferReceive(vp.ring, chunk, sizeof(chunk),
                                         pdMS_TO_TICKS(200));
         if (n == 0) continue;
-        tsdemux_feed(&vp.tsd, chunk, n);
+        vp_tlv_feed(chunk, n);
     }
     vTaskDelete(NULL);
 }
@@ -325,11 +422,13 @@ static void vp_play_task(void *arg) {
 static int vp_http_on_chunk(lisa_http_data_t *data) {
     if (vp.state != VP_STATE_RUNNING) return 1;
 
-    /* 直播沿控制：缓冲接近满说明消费不过来，断开重连即对齐到最新 */
+    /* 直播沿控制：缓冲接近满说明消费不过来，断开重连并请求清空积压
+     * （play 任务在 seek_live 里执行，避免与 StreamBuffer 写端竞争） */
     size_t used = xStreamBufferBytesAvailable(vp.ring);
     if (used * 100 > VP_NET_RING_SIZE * VP_RING_HIGH_PCT) {
         LOGW("ring %zu/%d, reconnect to live edge", used, VP_NET_RING_SIZE);
         vp.st.http_hops++;
+        vp.seek_live = 1;
         return 1;
     }
 
@@ -341,6 +440,11 @@ static int vp_http_on_chunk(lisa_http_data_t *data) {
     return 0;
 }
 
+/* lisa_http_init 强制要求 on_data 非空（即使走 chunk 回调路径），给个空实现 */
+static void vp_http_ignore_data(lisa_http_data_t *data) {
+    (void)data;
+}
+
 static void vp_net_task(void *arg) {
     (void)arg;
     while (vp.state == VP_STATE_RUNNING) {
@@ -349,6 +453,7 @@ static void vp_net_task(void *arg) {
             .url = (uint8_t *)vp.url,
             .timeout = VP_HTTP_TIMEOUT_MS,
             .user = NULL,
+            .on_data = vp_http_ignore_data,
         };
         lisa_http_t *http = lisa_http_init(&req);
         if (http) {
@@ -372,19 +477,12 @@ static void vp_net_task(void *arg) {
 /* ================================================================== */
 
 static void vp_free_resources(void) {
-    if (vp.dec) {
-        h264_dec_destroy(vp.dec);
-        vp.dec = NULL;
-    }
+
     if (vp.aac) {
         AACFreeDecoder(vp.aac);
         vp.aac = NULL;
     }
-    if (vp.player) {
-        app_player_stop(vp.player);
-        app_player_destroy(vp.player);
-        vp.player = NULL;
-    }
+    /* player 终身复用（见 vp_audio_detach），此处仅收尾流 */
     if (vp.ring) {
         vStreamBufferDelete(vp.ring);
         vp.ring = NULL;
@@ -393,13 +491,9 @@ static void vp_free_resources(void) {
         psram_free(vp.ring_buf);
         vp.ring_buf = NULL;
     }
-    if (vp.ts_vbuf) {
-        psram_free(vp.ts_vbuf);
-        vp.ts_vbuf = NULL;
-    }
-    if (vp.ts_abuf) {
-        psram_free(vp.ts_abuf);
-        vp.ts_abuf = NULL;
+    if (vp.tlv_buf) {
+        psram_free(vp.tlv_buf);
+        vp.tlv_buf = NULL;
     }
     if (vp.pcm) {
         psram_free(vp.pcm);
@@ -408,6 +502,10 @@ static void vp_free_resources(void) {
     if (vp.aac_pend) {
         psram_free(vp.aac_pend);
         vp.aac_pend = NULL;
+    }
+    if (a_preroll) {
+        psram_free(a_preroll);
+        a_preroll = NULL;
     }
     if (vp.frames[0]) {
         psram_free(vp.frames[0]);
@@ -421,26 +519,19 @@ static void vp_free_resources(void) {
 
 static int vp_alloc_resources(void) {
     vp.ring_buf = psram_malloc(VP_NET_RING_SIZE);
-    vp.ts_vbuf = psram_malloc(64 * 1024);
-    vp.ts_abuf = psram_malloc(8 * 1024);
+    vp.tlv_buf = psram_malloc(VP_TLV_PAYLOAD_MAX + VP_TLV_HDR);
     vp.pcm = psram_malloc(AAC_MAX_NSAMPS * AAC_MAX_NCHANS * 2);
     vp.aac_pend = psram_malloc(AAC_PEND_MAX);
+    a_preroll = psram_malloc(AAC_MAX_NSAMPS * VP_AUDIO_PREROLL_FRAMES * 2);
     vp.frames[0] = psram_malloc(240 * 240 * 2);
     vp.frames[1] = psram_malloc(240 * 240 * 2);
-    if (!vp.ring_buf || !vp.ts_vbuf || !vp.ts_abuf || !vp.pcm ||
-        !vp.aac_pend || !vp.frames[0] || !vp.frames[1]) {
+    if (!vp.ring_buf || !vp.tlv_buf || !vp.pcm ||
+        !vp.aac_pend || !a_preroll || !vp.frames[0] || !vp.frames[1]) {
         LOGE("psram alloc failed");
         return -1;
     }
     vp.ring = xStreamBufferCreateStatic(VP_NET_RING_SIZE, 1, vp.ring_buf,
                                         &vp.ring_desc);
-
-    vp.dec = h264_dec_create(240, 240);
-    if (!vp.dec) {
-        LOGE("h264 decoder create failed");
-        return -1;
-    }
-    h264_dec_set_max_refs(vp.dec, 1);
 
     vp.aac = AACInitDecoder();
     if (!vp.aac) {
@@ -448,8 +539,6 @@ static int vp_alloc_resources(void) {
         return -1;
     }
 
-    tsdemux_init(&vp.tsd, &vp_ts_cb, NULL, vp.ts_vbuf, 64 * 1024, vp.ts_abuf,
-                 8 * 1024);
     return 0;
 }
 
@@ -459,16 +548,30 @@ static int vp_alloc_resources(void) {
 
 int video_player_start(const char *url) {
     if (!url || !url[0]) return -1;
+    if (vp.state == VP_STATE_STOPPING) {
+        LOGW("previous session still stopping, retry later");
+        return -1;
+    }
     if (vp.state == VP_STATE_RUNNING) {
         if (strcmp(vp.url, url) == 0) return 0;
         video_player_stop();
-        vTaskDelay(pdMS_TO_TICKS(100));
+        /* 等清理完成（清完 state 回 IDLE） */
+        for (int i = 0; i < 60 && vp.state != VP_STATE_IDLE; i++) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+        if (vp.state != VP_STATE_IDLE) return -1;
     }
 
     memset(&vp.st, 0, sizeof(vp.st));
     vp.front = 0;
     vp.audio_started = 0;
+    vp.audio_write_fails = 0;
+    vp.audio_start_retries = 0;
+    vp.decode_errors = 0;
     vp.aac_pend_len = 0;
+    vp.tlv_len = 0;
+    a_preroll_samples = 0;
+    vp.seek_live = 0;
     if (vp_alloc_resources() != 0) {
         vp_free_resources();
         return -1;
@@ -498,11 +601,11 @@ int video_player_start(const char *url) {
     return 0;
 }
 
-int video_player_stop(void) {
-    if (vp.state == VP_STATE_IDLE) return 0;
-    vp.state = VP_STATE_STOPPING;
-
-    /* 任务自行退出（http 回调/200ms 超时感知状态变化） */
+/* 清理任务：等 net/play 任务退出后释放全部资源。独立于调用线程，
+ * 使 UI 线程的 stop（presenter pause）立即返回，也避免跨线程销毁
+ * app_player 的竞态。 */
+static void vp_cleanup_task(void *arg) {
+    (void)arg;
     for (int i = 0; i < 50 && (vp.net_task || vp.play_task); i++) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -516,6 +619,22 @@ int video_player_stop(void) {
     LOGI("stopped: %u frames, %u audio, %u hops, %u drops",
          vp.st.frames, vp.st.audio_frames, vp.st.http_hops,
          vp.st.drop_chunks);
+    vTaskDelete(NULL);
+}
+
+int video_player_stop(void) {
+    if (vp.state == VP_STATE_IDLE) return 0;
+    if (vp.state == VP_STATE_STOPPING) return 0; /* 正在停，幂等 */
+
+    vp.state = VP_STATE_STOPPING;
+    TaskHandle_t t;
+    /* app_player_destroy 调用链深（stop 尝试/回调线程收尾/焦点释放），
+     * 栈不足会溢出踩内存（函数指针被字符串覆盖后跳数据区执行） */
+    if (xTaskCreate(vp_cleanup_task, "vp_clean", 16384 / 4, NULL,
+                    VP_TASK_PRIO, &t) != pdPASS) {
+        /* 极端情况起不了任务：退化为同步清理 */
+        vp_cleanup_task(NULL);
+    }
     return 0;
 }
 
@@ -527,6 +646,8 @@ void video_player_get_status(video_player_status_t *out) {
     if (!out) return;
     *out = vp.st;
     out->playing = (vp.state == VP_STATE_RUNNING);
+    out->audio_start_retries = (uint32_t)vp.audio_start_retries;
+    out->decode_errors = vp.decode_errors;
 }
 
 /* ================================================================== */
@@ -535,11 +656,12 @@ void video_player_get_status(video_player_status_t *out) {
 
 static int vp_shell_cmd(int argc, char **argv) {
     if (argc < 2) {
-        printf("usage: vp play <url> | vp stop | vp status\n");
+        shellPrint(shellGetCurrent(),
+                   "usage: vp play <url> | vp stop | vp status\n");
         return 0;
     }
     if (strcmp(argv[1], "play") == 0 && argc >= 3) {
-        printf("vp: starting %s\n", argv[2]);
+        shellPrint(shellGetCurrent(), "vp: starting %s\n", argv[2]);
         return video_player_start(argv[2]);
     }
     if (strcmp(argv[1], "stop") == 0) {
@@ -548,14 +670,17 @@ static int vp_shell_cmd(int argc, char **argv) {
     if (strcmp(argv[1], "status") == 0) {
         video_player_status_t st;
         video_player_get_status(&st);
-        printf("vp: playing=%d %dx%d fps=%u frames=%u disp=%u audio=%u "
-               "hops=%u drops=%u dec_ms=%u csc_ms=%u\n",
-               st.playing, st.video_width, st.video_height, st.declared_fps,
-               st.frames, st.display_frames, st.audio_frames, st.http_hops,
-               st.drop_chunks, st.last_decode_ms, st.last_csc_ms);
+        shellPrint(shellGetCurrent(),
+                   "vp: playing=%d %dx%d fps=%u frames=%u disp=%u audio=%u "
+                   "hops=%u drops=%u dec_ms=%u a_retry=%u dec_err=%u\n",
+                   st.playing, st.video_width, st.video_height,
+                   st.declared_fps, st.frames, st.display_frames,
+                   st.audio_frames, st.http_hops, st.drop_chunks,
+                   st.last_decode_ms, st.audio_start_retries,
+                   st.decode_errors);
         return 0;
     }
-    printf("vp: unknown '%s'\n", argv[1]);
+    shellPrint(shellGetCurrent(), "vp: unknown '%s'\n", argv[1]);
     return 0;
 }
 
