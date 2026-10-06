@@ -24,6 +24,9 @@ extern const struct lisa_ui_nav_scr alarm_success_nav_scr;
 extern const struct lisa_ui_nav_scr alarm_ring_nav_scr;
 extern const struct lisa_ui_nav_scr quota_qrcode_nav_scr;
 extern const struct lisa_ui_nav_scr sd_music_sync_nav_scr;
+#ifdef CONFIG_VIDEO_PLAYER
+extern const struct lisa_ui_nav_scr video_nav_scr;
+#endif
 #ifdef CONFIG_OTA
 extern const struct lisa_ui_nav_scr ota_nav_scr;
 #endif
@@ -64,6 +67,9 @@ int lisa_ui_app_init(void)
     lisa_ui_nav_scr_add(&alarm_ring_nav_scr);
     lisa_ui_nav_scr_add(&quota_qrcode_nav_scr);
     lisa_ui_nav_scr_add(&sd_music_sync_nav_scr);
+#ifdef CONFIG_VIDEO_PLAYER
+    lisa_ui_nav_scr_add(&video_nav_scr);
+#endif
 #ifdef CONFIG_OTA
     lisa_ui_nav_scr_add(&ota_nav_scr);
 #endif

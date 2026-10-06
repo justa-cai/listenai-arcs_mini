@@ -7,5 +7,6 @@ rsource "../../src/Kconfig"
 orsource "../../apps-ui/Kconfig"
 
 rsource "miniapp/Kconfig"
+rsource "video/Kconfig"
 
 endmenu

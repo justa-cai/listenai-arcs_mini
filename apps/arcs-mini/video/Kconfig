@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Video player"
+
+config VIDEO_PLAYER
+    bool "Enable online H264/AAC stream video player"
+    default n
+    help
+        Online H264+AAC stream player: pulls an HTTP MPEG-TS live stream,
+        decodes H264 in software (h264dec component), converts YUV420P to
+        RGB565 for the LVGL video page and plays AAC through app_player.
+        No local storage involved. Requires CONFIG_H264DEC and
+        CONFIG_LISA_HTTP to be enabled as well.
+
+if VIDEO_PLAYER
+
+config VIDEO_PLAYER_MAX_W
+    int "Maximum video width"
+    default 240
+    help
+        Playback ceiling; streams with larger resolution are rejected.
+
+config VIDEO_PLAYER_MAX_H
+    int "Maximum video height"
+    default 240
+    help
+        Playback ceiling; streams with larger resolution are rejected.
+
+endif # VIDEO_PLAYER
+
+endmenu

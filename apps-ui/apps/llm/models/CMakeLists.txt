@@ -21,6 +21,10 @@ if(CONFIG_LOG_UPLOAD)
     target_sources(${LISA_UI_LIB_NAME} PRIVATE model_log_upload.c)
 endif()
 
+if(CONFIG_VIDEO_PLAYER)
+    target_sources(${LISA_UI_LIB_NAME} PRIVATE model_video_player.c)
+endif()
+
 target_include_directories(
     ${LISA_UI_LIB_NAME}
     PRIVATE

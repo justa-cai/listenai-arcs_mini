@@ -47,6 +47,9 @@ endif()
 add_subdirectory(mcp-tools)
 add_subdirectory(voice_intent)
 add_subdirectory(voice_player)
+if(CONFIG_VIDEO_PLAYER)
+    add_subdirectory(video)
+endif()
 
 listenai_add_executable(${PROJECT_NAME})
 

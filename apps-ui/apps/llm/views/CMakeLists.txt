@@ -15,6 +15,10 @@ target_sources(
     sd_music_sync_view.c
 )
 
+if(CONFIG_VIDEO_PLAYER)
+    target_sources(${LISA_UI_LIB_NAME} PRIVATE video_player_view.c)
+endif()
+
 if(CONFIG_OTA)
     target_sources(${LISA_UI_LIB_NAME} PRIVATE ota_view.c)
 endif()
