@@ -732,12 +732,18 @@ int lsc_connect(void)
 		if (ret) {
 			LISA_NLOGE("lsc auth opt faild(ret = %d)", ret);
 			lsc_network_request_leave();
+			/* 首次连接失败原本不留任何状态，lsc_reconnect 线程只在
+			 * LSC_DISCONNECTED 时才会重试，于是失败一次就永久停在
+			 * "云端不可用"，直到重启或网络事件重来。这里补上状态，
+			 * 让自动重连线程按 reconn_interval_ms 接管。 */
+			lsc_set_status(LSC_DISCONNECTED);
 			return LSC_ERR;
 		}
 
 		if (lsc_if_got_token() == false) {
 			LISA_NLOGE("lsc auth faild !");
 			lsc_network_request_leave();
+			lsc_set_status(LSC_DISCONNECTED);
 			return LSC_ERR;
 		}
 	}
@@ -746,6 +752,7 @@ int lsc_connect(void)
 	if (ret) {
 		LISA_NLOGE("lsc connect faild(ret = %d)", ret);
 		lsc_network_request_leave();
+		lsc_set_status(LSC_DISCONNECTED);
 		return LSC_ERR;
 	}
 

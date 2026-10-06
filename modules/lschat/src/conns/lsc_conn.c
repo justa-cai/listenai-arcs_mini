@@ -13,6 +13,12 @@
 #include "lisa_log.h"
 #include "lisa_mem.h"
 
+#include <sys/time.h>
+
+/* 本地时间回退的下限：早于该时刻（2024-01-01 UTC）认为 RTC 从没同步过，
+ * 此时宁可让认证失败也不要拿一个明显错误的时间去算 checksum。 */
+#define LSC_MIN_VALID_UNIX_TIME 1704067200L
+
 __attribute__((weak)) const char *lsc_get_firmware_type(void);
 __attribute__((weak)) const char *lsc_get_firmware_version(void);
 
@@ -366,7 +372,21 @@ static int conn_auth(char *device_id, char *product_id, char *secret_id, char *e
 	struct lisa_sntp_time time = {0};
 	const char *servers[] = {"ntp.aliyun.com", "ntp.tencent.com", "ntp.ntsc.ac.cn"};
 	int err = lisa_sntp_query(servers, sizeof(servers) / sizeof(servers[0]), 2000, &time);
-	CHECK_COND_RETURN_VAL(err == 0, LSC_ERR, "sntp query faild");
+	if (err != 0) {
+		/* SNTP 在这里只用来给 checksum 提供 curtime，而设备联网后
+		 * sys.net.probe 已经同步过系统时钟（RTC 续走），本地时间是可用的。
+		 * 早期实现直接 return，导致任意一次 NTP 丢包（UDP 无重传，且
+		 * lisa_sntp_query 每台服务器只有一次读窗口）都会把云端连接钉死，
+		 * 直到重启才有机会恢复，所以这里回退本地时间。 */
+		struct timeval tv = {0};
+		bool time_ok = (gettimeofday(&tv, NULL) == 0) &&
+			       (tv.tv_sec >= LSC_MIN_VALID_UNIX_TIME);
+		CHECK_COND_RETURN_VAL(time_ok, LSC_ERR, "sntp query faild and local time invalid");
+		LISA_NLOGW("[%s] sntp query faild, fallback to local time:%ld", __FUNCTION__,
+			   (long)tv.tv_sec);
+		time.sec = (uint64_t)tv.tv_sec;
+		time.nsec = 0;
+	}
 
 	// 数据格式化后最大10位数字，再加上结束符
 	char current_time[12] = {0};
