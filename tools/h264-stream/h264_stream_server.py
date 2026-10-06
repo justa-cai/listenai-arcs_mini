@@ -9,12 +9,12 @@ h264_stream_server.py - ARCS-MINI 在线视频播放器的 Ubuntu 侧流媒体�
    服务器按请求参数实时转码为设备友好的 H264 Baseline + AAC TS 流：
 
      GET /list                                    媒体目录文件清单(JSON)
-     GET /play/<文件名>?w=240&h=240&fps=10&vb=300k
-                          &ar=16000&ac=1&ab=32k&loop=1&speed=1
-         w/h/fps/vb     视频分辨率/帧率/码率
-         ar/ac/ab       音频采样率/声道数/码率（ac=1 单声道混音）
-         loop=1         循环播放（默认 1）
-         speed=1        实时节奏（默认 1，按目标帧率推流；0=尽快推）
+     GET /mjpeg/<文件名>?w=240&h=240&fps=10&q=4        ← 推荐（JPEG 硬解）
+     GET /play/<文件名>?w=240&h=240&fps=10&vb=300k     ← H264 软解（弃用）
+         w/h/fps       视频分辨率/帧率
+         q             MJPEG 质量 2..31（小=好，默认 4≈41dB；12≈35dB 有块效应）
+         ar/ac/ab      音频采样率/声道数/码率（ac=1 单声道混音）
+         loop/speed    循环（默认开）/ 实时节奏（默认开）
 
 2. 测试源模式（默认）
      GET /live.ts     testsrc2 动图 + 440Hz 正弦，240x240@10fps 实时流
@@ -30,6 +30,8 @@ h264_stream_server.py - ARCS-MINI 在线视频播放器的 Ubuntu 侧流媒体�
 import argparse
 import http.server
 import json
+import os
+import time
 import re
 import shutil
 import socket
@@ -69,6 +71,7 @@ def parse_query(qs):
         "ab": q.get("ab", "32k"),
         "loop": q.get("loop", "1") not in ("0", "false"),
         "realtime": q.get("speed", "1") not in ("0", "false"),
+        "q": 4,  # MJPEG 质量：2=近无损(~45dB) 4=高质量(~41dB) 12=低(~35dB)
     }
     # 合法性钳位（设备软解上限与防呆）
     out["w"] = max(16, min(out["w"], 640))
@@ -93,6 +96,134 @@ def build_encoder(input_arg, spec, loop, realtime):
     print(f"[enc] {cmd}")
     return subprocess.Popen(cmd.split(), stdout=subprocess.PIPE,
                             bufsize=1024 * 1024)
+
+
+# ---------------- MJPEG TLV 流（设备 JPEG 硬解路线） ----------------
+# 帧格式: [0xA5][type 'V'|'A'][len:u16 BE][pts_ms:u32 BE][payload]
+#   V = 完整 JPEG 帧（RGB 输入按基线编码，设备硬件解码直出 RGB565）
+#   A = AAC ADTS 数据块（若干完整 ADTS 帧）
+TLV_MAGIC = 0xA5
+
+def tlv_frame(t, payload, t0):
+    pts = int((time.time() - t0) * 1000) & 0xFFFFFFFF
+    return bytes([TLV_MAGIC, ord(t)]) + len(payload).to_bytes(2, "big") + \
+        pts.to_bytes(4, "big") + payload
+
+def build_mjpeg_video(path, spec, loop):
+    cmd = (
+        "ffmpeg -hide_banner -loglevel error -re "
+        + ("-stream_loop -1 " if loop else "")
+        + f"-i {path} "
+        + f"-vf scale={spec['w']}:{spec['h']}:force_original_aspect_ratio=decrease,"
+        + f"pad={spec['w']}:{spec['h']}:(ow-iw)/2:(oh-ih)/2:color=black,fps={spec['fps']} "
+        + f"-c:v mjpeg -q:v {spec['q']} -an -f image2pipe pipe:1"
+    )
+    print(f"[enc-v] {cmd}")
+    return subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, bufsize=256 * 1024)
+
+def build_mjpeg_audio(path, spec, loop):
+    cmd = (
+        "ffmpeg -hide_banner -loglevel error -re "
+        + ("-stream_loop -1 " if loop else "")
+        + f"-i {path} -vn "
+        + f"-c:a aac -b:a {spec['ab']} -ar {spec['ar']} -ac {spec['ac']} "
+        + "-f adts pipe:1"
+    )
+    print(f"[enc-a] {cmd}")
+    return subprocess.Popen(cmd.split(), stdout=subprocess.PIPE, bufsize=64 * 1024)
+
+
+class JpegSplitter:
+    """image2pipe 输出按 SOI/EOI 切出完整 JPEG 帧（熵数据 FF 后有 00 填充，
+    FFD8/FFD9 只出现在真实边界）。"""
+
+    def __init__(self):
+        self.buf = bytearray()
+
+    def feed(self, data):
+        self.buf += data
+        frames = []
+        while True:
+            start = self.buf.find(b"\xff\xd8\xff")
+            if start < 0:
+                # 保留可能的半截 SOI
+                del self.buf[:max(0, len(self.buf) - 4)]
+                return frames
+            if start > 0:
+                del self.buf[:start]
+            end = self.buf.find(b"\xff\xd9", 2)
+            if end < 0:
+                return frames
+            frames.append(bytes(self.buf[:end + 2]))
+            del self.buf[:end + 2]
+
+
+class AdtsSplitter:
+    """ADTS 流按帧头解析切帧。"""
+
+    def __init__(self):
+        self.buf = bytearray()
+
+    def feed(self, data):
+        self.buf += data
+        frames = []
+        while True:
+            if len(self.buf) < 7:
+                return frames
+            if self.buf[0] != 0xFF or (self.buf[1] & 0xF0) != 0xF0:
+                # 失步：丢一字节重找
+                del self.buf[:1]
+                continue
+            framelen = ((self.buf[3] & 0x03) << 11) | (self.buf[4] << 3) | (self.buf[5] >> 5)
+            if framelen < 7:
+                del self.buf[:1]
+                continue
+            if len(self.buf) < framelen:
+                return frames
+            frames.append(bytes(self.buf[:framelen]))
+            del self.buf[:framelen]
+
+
+def pump_mjpeg_tlv(wfile, venc, aenc):
+    """视频/音频两条 pipe -> TLV 帧交错写出。"""
+    import select
+    t0 = time.time()
+    vs, asp = JpegSplitter(), AdtsSplitter()
+    try:
+        while True:
+            fds = []
+            if venc.poll() is None:
+                fds.append(venc.stdout)
+            if aenc.poll() is None:
+                fds.append(aenc.stdout)
+            if not fds:
+                return
+            r, _, _ = select.select(fds, [], [], 1.0)
+            if not r:
+                continue
+            for f in r:
+                # os.read: 单次系统调用有多少读多少；f.read(n) 会阻塞凑满
+                # n 字节，-re 实时流下首包要等数秒
+                data = os.read(f.fileno(), 65536)
+                if not data:
+                    continue
+                if f is venc.stdout:
+                    for jpeg in vs.feed(data):
+                        wfile.write(tlv_frame("V", jpeg, t0))
+                else:
+                    for adts in asp.feed(data):
+                        wfile.write(tlv_frame("A", adts, t0))
+            wfile.flush()
+    except (BrokenPipeError, ConnectionResetError, OSError):
+        return
+    finally:
+        for e in (venc, aenc):
+            try:
+                e.stdout.close()
+                e.terminate()
+                e.wait()
+            except Exception:
+                pass
 
 
 def media_dir() -> Path:
@@ -127,6 +258,14 @@ def pump_to(wfile, enc, stop_ev):
 
 class HandlerBase:
     protocol_version = "HTTP/1.1"
+
+    def _stream_tlv(self, venc, aenc):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Connection", "close")
+        self.close_connection = True
+        self.end_headers()
+        pump_mjpeg_tlv(self.wfile, venc, aenc)
 
     def _stream(self, enc):
         self.send_response(200)
@@ -176,6 +315,22 @@ def make_handler(args_ns):
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
+                return
+
+            m = re.fullmatch(r"/mjpeg/(.+)", route)
+            if m:
+                name = urllib.parse.unquote(m.group(1))
+                path = safe_media_path(name)
+                if not path:
+                    self.send_error(404, f"not in media dir: {name}")
+                    return
+                spec = parse_query(parsed.query)
+                spec["q"] = max(2, min(int(spec["q"]), 31))
+                print(f"[mjpeg] {name} -> {spec['w']}x{spec['h']}@{spec['fps']} "
+                      f"q={spec['q']} aac {spec['ar']}Hz ch{spec['ac']}")
+                venc = build_mjpeg_video(str(path), spec, spec["loop"])
+                aenc = build_mjpeg_audio(str(path), spec, spec["loop"])
+                self._stream_tlv(venc, aenc)
                 return
 
             m = re.fullmatch(r"/play/(.+)", route)
