@@ -19,6 +19,10 @@ ARCS 手柄 GUI (Ubuntu 桌面端, Qt 版)
         ROM 目录: 默认为项目自带 roms/, 可用按钮/第 2 个启动参数/PAD_ROM_DIR
         环境变量指向任意目录, 选择会记入 ~/.config/arcs_pad_gui.json。
         **只推送合法来源的 ROM** (自制/homebrew/已获授权)
+- ROM HTTP API (只读): 启动即在后台拉起一个轻量 HTTP 服务 (默认 0.0.0.0:38202),
+        供二次开发/网页端查询 ROM 文件信息并拉取 ROM 原始字节; 服务地址显示在
+        ROM 卡片内 (可选中复制)。端口用 PAD_HTTP_PORT 覆盖, 监听地址用 PAD_HTTP_BIND。
+        接口清单与调用示例见 doc/pad-http-api.md。
 
 依赖: PyQt5 或 PySide2 (任一), websockets
 用法:
@@ -27,6 +31,7 @@ ARCS 手柄 GUI (Ubuntu 桌面端, Qt 版)
 import asyncio
 import fcntl
 import glob
+import http.server
 import json
 import os
 import queue
@@ -36,6 +41,7 @@ import select
 import sys
 import threading
 import time
+import urllib.parse
 import zlib
 from pathlib import Path
 
@@ -51,6 +57,8 @@ except ImportError:
 
 WS_PORT = 38200
 DISC_PORT = 38201
+HTTP_PORT = 38202         # ROM 查询/下载 HTTP API 默认端口 (PAD_HTTP_PORT 可覆盖)
+JSON_CT = "application/json; charset=utf-8"
 PATH = "/gamepad"
 ROM_CHUNK = 4096          # ROM 推送分块 (二进制 WS 帧)
 ROM_MAX = 1024 * 1024     # 与设备端 nes_rom 分区对齐
@@ -412,13 +420,20 @@ def _subnet_broadcast(ip, mask):
     return socket.inet_ntoa(struct.pack("!I", (i & m) | (~m & 0xFFFFFFFF)))
 
 
-def discover(timeout=2.0):
+def discover(timeout=2.0, http_port=None):
     """在所有本机接口上做 UDP 广播探测, 返回 announce 列表。
 
     关键: 逐接口 bind 到该网卡 IP 再发定向广播 —— 多网卡/存在 VPN TUN
     (docker0 / Mihomo / anbox0 等) 时, 不绑定会让探测走错网卡, 应答回不来。
+
+    探测里自报 client 身份与 ROM HTTP API 端口: 设备据此反向确认"ROM 库服务
+    在哪台机器、哪个端口", 不必依赖 WebSocket 会话 (见 设备侧
+    gamepad_get_server_addr)。身份串含 "gui" 才被设备当作桌面端。
     """
-    probe = json.dumps({"t": "discover", "ver": 1, "client": "ubuntu-gui"}).encode()
+    probe_obj = {"t": "discover", "ver": 1, "client": "ubuntu-gui"}
+    if http_port:
+        probe_obj["http_port"] = int(http_port)
+    probe = json.dumps(probe_obj).encode()
     socks = []
     for name, ip, mask in _iface_ipv4():
         if ip.startswith("127."):
@@ -457,6 +472,367 @@ def discover(timeout=2.0):
     for s in socks:
         s.close()
     return list(found.values())
+
+
+# ======================================================================
+# ROM 元数据解析 (GUI 与 HTTP API 共用)
+# ======================================================================
+def _parse_ines_meta(path):
+    """解析 iNES / NES2.0 头, 返回结构化元数据 dict; 非 iNES 镜像返回 None。"""
+    try:
+        with open(path, "rb") as fp:
+            hdr = fp.read(16)
+    except OSError:
+        return None
+    if len(hdr) < 16 or hdr[:4] != b"NES\x1a":
+        return None
+    flags6, flags7 = hdr[6], hdr[7]
+    prg_kb = hdr[4] * 16
+    chr_kb = hdr[5] * 8
+    mapper = (flags6 >> 4) | (flags7 & 0xF0)
+    nes2 = (flags7 & 0x0C) == 0x08
+    return {
+        "format": "NES2.0" if nes2 else "iNES",
+        "mapper": mapper,
+        "prg_kb": prg_kb,
+        "chr_kb": chr_kb,
+        "chr_ram": chr_kb == 0,
+        "mirroring": "vertical" if (flags6 & 0x01) else "horizontal",
+        "battery": bool(flags6 & 0x02),
+        "trainer": bool(flags6 & 0x04),
+        "four_screen": bool(flags6 & 0x08),
+    }
+
+
+# ======================================================================
+# ROM HTTP API (只读; 供二次开发 / 网页端查询文件信息并拉取 ROM)
+# ======================================================================
+class RomHttpApi:
+    """ROM 查询/下载 HTTP 服务的只读后端。
+
+    与 GUI 完全解耦: 只通过 3 个回调取当前快照, 不直接触碰 Qt 对象。
+      get_roms()     -> [(rel_path, abs_path), ...]  当前 ROM 全量列表
+      get_device()   -> dict                          设备连接快照
+      get_rom_dir()  -> str                           当前 ROM 目录
+
+    路由 (全部 GET, 幂等只读):
+      GET /                          服务信息 + 端点清单
+      GET /api/info                  同上 (稳定入口)
+      GET /api/roms?q=&offset=&limit=&with_ines=   ROM 列表 (可过滤/分页)
+      GET /api/roms/{id}             单个 ROM 详情 (id = 相对路径)
+      GET /api/roms/{id}/download    下载 ROM 原始字节
+      GET /api/device                设备连接快照
+    """
+
+    def __init__(self, get_roms, get_device, get_rom_dir,
+                 bind="0.0.0.0", port=HTTP_PORT):
+        self._get_roms = get_roms
+        self._get_device = get_device
+        self._get_rom_dir = get_rom_dir
+        self.bind = bind
+        self.port = port
+        self.lan_ip = self._detect_lan_ip(bind)
+        self._ines_cache = {}       # abs_path -> ((mtime, size), meta|None)
+        self._httpd = None
+        self._thread = None
+
+    # ---- 生命周期 ----
+    @staticmethod
+    def _detect_lan_ip(bind):
+        """给 UI 展示用: 把 0.0.0.0 解析成本机首个非回环 IPv4。"""
+        if bind not in ("0.0.0.0", "", "::"):
+            return bind
+        for _name, ip, _mask in _iface_ipv4():
+            if not ip.startswith("127."):
+                return ip
+        return "127.0.0.1"
+
+    def start(self):
+        api = self
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"   # 每个响应都带 Content-Length, 可长连接
+
+            def do_GET(self):
+                api._serve(self)
+
+            def do_HEAD(self):
+                api._serve(self, head=True)
+
+            def do_OPTIONS(self):
+                self.send_response(204)
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "*")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, _fmt, *args):
+                pass    # 静音: 不向终端刷访问日志
+
+        self._httpd = http.server.ThreadingHTTPServer((self.bind, self.port), _Handler)
+        self._httpd.daemon_threads = True
+        self._thread = threading.Thread(target=self._httpd.serve_forever,
+                                        name="rom-http", daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        if self._httpd:
+            try:
+                self._httpd.shutdown()
+                self._httpd.server_close()
+            except Exception:
+                pass
+            self._httpd = None
+
+    # ---- HTTP 收发 ----
+    def _serve(self, h, head=False):
+        try:
+            parts = urllib.parse.urlsplit(h.path)
+            path = urllib.parse.unquote(parts.path)
+            query = urllib.parse.parse_qs(parts.query)
+            status, ctype, body, extra = self._route(path, query, h)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except Exception as e:                       # 兜底: 任何异常都回 JSON 而不是断连
+            status, ctype, extra = 500, JSON_CT, {}
+            body = _json({"error": str(e), "status": 500})
+        # HEAD: 仍按 GET 的实体长度回 Content-Length, 只是不写 body
+        h.send_response(status)
+        h.send_header("Content-Type", ctype)
+        h.send_header("Content-Length", str(len(body)))
+        h.send_header("Access-Control-Allow-Origin", "*")
+        for k, v in extra.items():
+            h.send_header(k, v)
+        h.end_headers()
+        if head:
+            return
+        try:
+            h.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    # ---- 路由 ----
+    def _route(self, path, q, h):
+        base = self._base_url(h)
+        if path in ("/", "/api", "/api/info"):
+            return 200, JSON_CT, _json(self._index(base)), {}
+        if path == "/api/device":
+            return 200, JSON_CT, _json(self._get_device()), {}
+        if path == "/api/roms":
+            return self._list_roms(base, q)
+        if path.startswith("/api/roms/"):
+            rest = path[len("/api/roms/"):]
+            if rest.endswith("/download"):
+                return self._download(rest[:-len("/download")])
+            return self._detail(rest, base)
+        return 404, JSON_CT, _json({"error": f"未知端点: {path}", "status": 404}), {}
+
+    def _base_url(self, h):
+        """优先用请求的 Host 头拼绝对地址, 便于客户端直接复用返回的 url 字段。"""
+        host = h.headers.get("Host")
+        return f"http://{host}" if host else f"http://{self.lan_ip}:{self.port}"
+
+    # ---- 各端点实现 ----
+    def _index(self, base):
+        roms = self._get_roms()
+        return {
+            "service": "ARCS Pad GUI ROM API",
+            "version": 1,
+            "base_url": base,
+            "rom_dir": self._get_rom_dir(),
+            "rom_count": len(roms),
+            "device": self._get_device(),
+            "endpoints": [
+                {"method": "GET", "path": "/api/info",
+                 "desc": "服务信息与端点清单"},
+                {"method": "GET", "path": "/api/roms",
+                 "desc": "ROM 列表", "query": {
+                     "q": "名称/路径子串过滤 (大小写不敏感)",
+                     "offset": "起始下标 (默认 0)",
+                     "limit": "返回上限, 1..2000 (默认 200)",
+                     "with_ines": "是否解析 iNES 头, 1/0 (默认 1)"}},
+                {"method": "GET", "path": "/api/roms/{id}",
+                 "desc": "单个 ROM 详情 (id = 相对路径, 可 URL 编码)"},
+                {"method": "GET", "path": "/api/roms/{id}/download",
+                 "desc": "下载 ROM 原始字节"},
+                {"method": "GET", "path": "/api/device",
+                 "desc": "设备连接快照"},
+            ],
+        }
+
+    def _list_roms(self, base, q):
+        items = self._get_roms()                       # 快照: [(rel, abs), ...]
+        total = len(items)
+        qtxt = (q.get("q", [""])[0] or "").strip().casefold()
+        if qtxt:
+            items = [(rel, p) for rel, p in items if qtxt in rel.casefold()]
+        offset = _int_arg(q, "offset", 0, 0)
+        limit = min(_int_arg(q, "limit", 200, 1), 2000)
+        with_ines = (q.get("with_ines", ["1"])[0] or "1") not in ("0", "false", "no")
+        page = items[offset:offset + limit]
+        return 200, JSON_CT, _json({
+            "total": total,
+            "matched": len(items),
+            "offset": offset,
+            "limit": limit,
+            "q": qtxt,
+            "roms": [self._entry(rel, p, base, with_ines) for rel, p in page],
+        }), {}
+
+    def _detail(self, rid, base):
+        abs_path = self._rom_map().get(rid)
+        if not abs_path:
+            return 404, JSON_CT, _json({"error": f"未找到 ROM: {rid}", "status": 404}), {}
+        return 200, JSON_CT, _json(self._entry(rid, abs_path, base, True)), {}
+
+    def _download(self, rid):
+        abs_path = self._rom_map().get(rid)
+        if not abs_path:
+            return 404, JSON_CT, _json({"error": f"未找到 ROM: {rid}", "status": 404}), {}
+        try:
+            with open(abs_path, "rb") as fp:
+                data = fp.read()
+        except OSError as e:
+            return 500, JSON_CT, _json({"error": str(e), "status": 500}), {}
+        fname = os.path.basename(rid)
+        ascii_fname = fname.encode("ascii", "replace").decode("ascii")
+        disp = (f"attachment; filename=\"{ascii_fname}\"; "
+                f"filename*=UTF-8''{urllib.parse.quote(fname)}")
+        return 200, "application/octet-stream", data, {"Content-Disposition": disp}
+
+    # ---- 工具 ----
+    def _rom_map(self):
+        """当前列表的 {rel_path: abs_path}; 只服务已知文件, 天然免疫路径穿越。"""
+        return {rel: p for rel, p in self._get_roms()}
+
+    def _entry(self, rel, abs_path, base, with_ines):
+        try:
+            st = os.stat(abs_path)
+            size, mtime = st.st_size, int(st.st_mtime)
+        except OSError:
+            size, mtime = 0, 0
+        qid = urllib.parse.quote(rel)
+        entry = {
+            "id": rel,
+            "name": os.path.basename(rel),
+            "dir": os.path.dirname(rel),
+            "rel_path": rel,
+            "ext": os.path.splitext(rel)[1].lstrip(".").lower(),
+            "size_bytes": size,
+            "size_kb": size // 1024,
+            "mtime": mtime,
+            "url": f"{base}/api/roms/{qid}",
+            "download_url": f"{base}/api/roms/{qid}/download",
+        }
+        if with_ines:
+            entry["ines"] = self._ines(abs_path)
+        return entry
+
+    def _ines(self, abs_path):
+        """按 (mtime, size) 缓存 iNES 解析结果, 避免重复读盘。"""
+        try:
+            st = os.stat(abs_path)
+            key = (st.st_mtime, st.st_size)
+        except OSError:
+            return None
+        cached = self._ines_cache.get(abs_path)
+        if cached and cached[0] == key:
+            return cached[1]
+        meta = _parse_ines_meta(abs_path)
+        self._ines_cache[abs_path] = (key, meta)
+        return meta
+
+
+def _json(obj):
+    return json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def _int_arg(q, name, default, minimum):
+    try:
+        return max(minimum, int(q.get(name, [default])[0]))
+    except (ValueError, TypeError):
+        return default
+
+
+# ======================================================================
+# 服务端发现 (设备主动找 GUI)
+# ======================================================================
+class RomDiscoveryServer:
+    """监听 UDP 38201 (与设备发现服务同端口), 应答设备发来的
+    {"t":"discover_server"}。
+
+    方向与 `discover()` 相反: 那个是 GUI 广播找设备, 这个是**设备广播找 GUI**
+    —— 设备据此拿到本机 ROM HTTP API 的地址与端口, 不必先由 GUI 扫描过设备
+    (设备的 MCP rom_search / rom_load 会主动探测)。
+
+    只应答, 不主动发包; 收到别的东西一律忽略 (例如自己的 discover 广播)。
+    """
+
+    def __init__(self, get_port, get_rom_count, bind="0.0.0.0", port=DISC_PORT):
+        self._get_port = get_port
+        self._get_rom_count = get_rom_count
+        self.bind = bind
+        self.port = port
+        self._sock = None
+        self._thread = None
+
+    def start(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        s.bind((self.bind, self.port))
+        self._sock = s
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self):
+        while True:
+            try:
+                self._sock.settimeout(0.5)
+                data, addr = self._sock.recvfrom(2048)
+            except socket.timeout:
+                continue
+            except OSError:
+                return          # socket 被关闭 / 出错, 线程退出
+            try:
+                msg = json.loads(data)
+            except ValueError:
+                continue
+            if not isinstance(msg, dict) or msg.get("t") != "discover_server":
+                continue
+            reply = {
+                "t": "server",
+                "ver": 1,
+                "client": "ubuntu-gui",
+                "ip": self._local_ip(addr),
+                "http_port": self._get_port(),
+                "rom_count": self._get_rom_count(),
+            }
+            try:
+                self._sock.sendto(json.dumps(reply).encode(), addr)
+            except OSError:
+                pass
+
+    def _local_ip(self, addr):
+        """本机与请求方同网段的接口 IP (供设备交叉核对, 设备实际以应答源地址为准)。"""
+        try:
+            probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                probe.connect((addr[0], self.port))
+                return probe.getsockname()[0]
+            finally:
+                probe.close()
+        except OSError:
+            return ""
+
+    def stop(self):
+        if self._sock:
+            try:
+                self._sock.close()
+            except OSError:
+                pass
+            self._sock = None
 
 
 # ======================================================================
@@ -630,6 +1006,12 @@ class PadGUI(QtWidgets.QWidget):
         self.setMinimumSize(930, 480)
         self._build_ui(ip)
 
+        # ROM 只读 HTTP API: 启动即拉起, 服务地址展示在 ROM 卡片内 (见 doc/pad-http-api.md)
+        self.http_api = None
+        # 服务端发现 (应答设备的 discover_server 广播), 随 HTTP API 一起起
+        self.discovery = None
+        self._start_http()
+
         # 后台事件汇入 (queue -> GUI 线程), 40ms 周期
         self._drain_timer = QtCore.QTimer(self)
         self._drain_timer.timeout.connect(self._drain_events)
@@ -646,6 +1028,60 @@ class PadGUI(QtWidgets.QWidget):
         """默认 ROM 目录: 项目自带的合法 roms/ (apps-ui/apps/game/roms)"""
         d = Path(__file__).resolve().parent.parent / "apps-ui" / "apps" / "game" / "roms"
         return str(d) if d.is_dir() else str(Path.cwd())
+
+    # ---------- ROM HTTP API (只读) ----------
+    def _start_http(self):
+        """启动只读 ROM HTTP API, 并把可访问地址显示到 ROM 卡片。
+        端口/监听地址可用 PAD_HTTP_PORT / PAD_HTTP_BIND 覆盖。"""
+        bind = os.environ.get("PAD_HTTP_BIND", "0.0.0.0")
+        try:
+            port = int(os.environ.get("PAD_HTTP_PORT", HTTP_PORT))
+        except ValueError:
+            port = HTTP_PORT
+        self.http_api = RomHttpApi(
+            get_roms=lambda: self.rom_all,
+            get_device=self._device_snapshot,
+            get_rom_dir=lambda: self.rom_dir,
+            bind=bind, port=port)
+        try:
+            self.http_api.start()
+        except OSError as e:
+            self.http_api = None
+            self.http_lbl.setStyleSheet(f"color: {DANGER};")
+            self.http_lbl.setText(f"HTTP API 未启动 ({bind}:{port}): {e}")
+            return
+        self.http_lbl.setText(f"HTTP API: http://{self.http_api.lan_ip}:{port}/")
+        self.http_lbl.setToolTip("只读 ROM 查询/下载接口, 同一局域网可直接访问; "
+                                 "端点清单与示例见 doc/pad-http-api.md")
+        self._start_discovery(port)
+
+    def _start_discovery(self, http_port):
+        """启动服务端发现监听: 设备广播 {"t":"discover_server"} 时回报本机
+        地址与 ROM HTTP API 端口, 使设备无需先被 GUI 扫描过就能查到 ROM 库。"""
+        self.discovery = RomDiscoveryServer(
+            get_port=lambda: http_port,
+            get_rom_count=lambda: len(self.rom_all))
+        try:
+            self.discovery.start()
+        except OSError as e:
+            # 端口被占用不致命: 设备仍可通过 GUI 扫描 (反向发现) 拿到地址
+            self.discovery = None
+            self._set_status(f"服务端发现未启动 (:38201 被占用? {e})", ok=False)
+            return
+        self._set_status(f"ROM API :{http_port} 就绪 (等待设备查找)", ok=True)
+
+    def _device_snapshot(self):
+        """HTTP API /api/device 的数据源 (从后台线程读取, 仅取原子快照)。"""
+        dev = self.dev or {}
+        return {
+            "connected": bool(self.client.connected),
+            "device": dev.get("dev"),
+            "firmware": dev.get("fw"),
+            "state": dev.get("state"),
+            "fps": dev.get("fps"),
+            "rtt_ms": self.rtt_ms,
+            "udp_port": self.client.udp_addr[1] if self.client.udp_addr else None,
+        }
 
     # ---------- UI 构建 ----------
     def _build_ui(self, ip=""):
@@ -711,6 +1147,12 @@ class PadGUI(QtWidgets.QWidget):
         self.rom_dir_lbl.setObjectName("dim")
         self.rom_dir_lbl.setWordWrap(True)
         dv.addWidget(self.rom_dir_lbl)
+        # ROM HTTP API 服务地址 (只读查询/下载; 可选中复制, 供二次开发接入)
+        self.http_lbl = QtWidgets.QLabel("HTTP API: 启动中 ...")
+        self.http_lbl.setObjectName("dim")
+        self.http_lbl.setWordWrap(True)
+        self.http_lbl.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        dv.addWidget(self.http_lbl)
         v.addWidget(details)
 
         # 主操作 (本区唯一 primary)
@@ -887,25 +1329,18 @@ class PadGUI(QtWidgets.QWidget):
 
     @staticmethod
     def _parse_ines(path):
-        """读 iNES/NES2.0 头, 返回信息串; 解析失败返回 None"""
-        try:
-            with open(path, "rb") as fp:
-                hdr = fp.read(16)
-        except OSError:
+        """读 iNES/NES2.0 头, 返回展示用信息串; 解析失败返回 None"""
+        meta = _parse_ines_meta(path)
+        if not meta:
             return None
-        if len(hdr) < 16 or hdr[:4] != b"NES\x1a":
-            return None
-        prg_kb = hdr[4] * 16
-        chr_kb = hdr[5] * 8
-        mapper = (hdr[6] >> 4) | (hdr[7] & 0xF0)
-        nes2 = (hdr[7] & 0x0C) == 0x08
         try:
             size_kb = os.path.getsize(path) // 1024
         except OSError:
             size_kb = 0
-        chr_txt = f"CHR {chr_kb}K" if chr_kb else "CHR-RAM"
-        return (f"{size_kb} KB · mapper {mapper}{' (NES2.0)' if nes2 else ''}\n"
-                f"PRG {prg_kb}K · {chr_txt}")
+        chr_txt = f"CHR {meta['chr_kb']}K" if meta["chr_kb"] else "CHR-RAM"
+        return (f"{size_kb} KB · mapper {meta['mapper']}"
+                f"{' (NES2.0)' if meta['format'] == 'NES2.0' else ''}\n"
+                f"PRG {meta['prg_kb']}K · {chr_txt}")
 
     def _selected_rom(self):
         row = self.rom_list.currentRow()
@@ -975,9 +1410,11 @@ class PadGUI(QtWidgets.QWidget):
 
     def _do_scan(self):
         self._set_status("扫描中 ...", ok=None)
+        # 探测里带上本机 ROM API 端口, 让设备知道去哪台机器查 ROM
+        http_port = self.http_api.port if self.http_api else None
 
         def worker():
-            res = discover(2.0)
+            res = discover(2.0, http_port)
             self.events.put(("scan", res))
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1098,6 +1535,11 @@ class PadGUI(QtWidgets.QWidget):
         try:
             self.client.release_all()
             self.client.disconnect()
+        except Exception:
+            pass
+        try:
+            if self.http_api:
+                self.http_api.stop()
         except Exception:
             pass
         super().closeEvent(ev)

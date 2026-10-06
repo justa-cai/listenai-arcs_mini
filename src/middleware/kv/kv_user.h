@@ -36,6 +36,11 @@
 #define KV_KEY_SD_STAMP             "sd.card.stamp"
 #define KV_KEY_SD_PRESENT           "sd.card.present"
 
+/* ROM 库查询 HTTP API 地址 (PC 端 pad_gui.py 的 38202 只读服务)。
+ * 可填完整 base (http://192.168.31.205:38202) 或裸 host:port, 缺省端口 38202。
+ * 未设置时回退到最近一次 WebSocket 对端 IP + 默认端口。 */
+#define KV_KEY_USER_ROM_API_URL     "user.rom_api_url"
+
 static inline void kv_user_clear_sd_card_sync(void)
 {
     (void)lisa_kv_del(KV_KEY_SD_CID);

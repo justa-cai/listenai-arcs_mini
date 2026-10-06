@@ -145,12 +145,23 @@ APP                                设备
 - APP 向子网定向广播（如 `192.168.1.255`）或 `255.255.255.255`:38201 发探测。
 - 设备收到探测后向来源地址**单播应答**。
 - 报文为 UTF-8 JSON 文本；容错：无法解析的包按 `{"t":"discover"}` 处理（只要长度合法即应答）。
+- 设备会**反向记录探测来源 IP**，用于定位 PC 端 ROM 库 HTTP 服务（见 §3.3）。
 
 ### 3.1 探测（APP → 设备）
 
 ```json
 {"t":"discover","ver":1,"client":"android"}
 ```
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| `t` | 是 | 固定 `discover` |
+| `ver` | 否 | 协议版本，当前 `1` |
+| `client` | 否 | 客户端身份串，如 `android` / `ubuntu-gui` |
+| `http_port` | 否 | **仅 PC 端 GUI**：本机 ROM 查询/下载 HTTP API 端口（见 `doc/pad-http-api.md`） |
+
+> `client` 含 `gui`（大小写不敏感）的探测会被设备视为**桌面端 GUI**；`http_port`
+> 让它一次就把 ROM 服务地址交代清楚，无需额外配置。
 
 ### 3.2 应答（设备 → APP，单播）
 
@@ -168,6 +179,51 @@ APP                                设备
 | `state` | `idle`（游戏未运行）/ `running`（游戏运行中） |
 
 可选增强（后续版本）：设备联网后周期（3~5s）广播 `announce`，APP 免探测即可发现。
+
+### 3.3 反向用途：设备确认 PC 端 ROM 服务地址
+
+设备侧要按关键词查 ROM 库时，需要知道「ROM 库服务在哪台机器、哪个端口」。
+两条路径，**以主动探测为主**：
+
+**① 设备主动探测（主路径）** —— 不要求 pad_gui 先扫过设备：
+
+```
+设备 ──广播 {"t":"discover_server"} ──► 局域网 :38201
+      ◄──单播 {"t":"server", "ip":..., "http_port":..., "rom_count":...} ── PC 端 pad_gui
+```
+
+```json
+// 设备 → 广播
+{"t":"discover_server","ver":1,"dev":"arcs-mini","did":"<device_id>"}
+
+// PC 端 → 单播应答
+{"t":"server","ver":1,"client":"ubuntu-gui","ip":"192.168.31.205",
+ "http_port":38202,"rom_count":1933}
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `t` | 固定 `server` |
+| `http_port` | 本机 ROM 查询/下载 HTTP API 端口（见 `doc/pad-http-api.md`） |
+| `rom_count` | 当前扫描到的 ROM 数量（仅提示用） |
+
+> 设备**以应答的源地址为准**（比报文里自报的 `ip` 可信）；`http_port` 缺省按 38202。
+> 探测同时走定向广播与本网段受限广播，单次等待约 800ms；结果会缓存，后续
+> 调用直接用缓存。pad_gui 未启动 / 不在同网段时才失败。
+
+**② 被动记录（快路径）** —— pad_gui 扫描设备时顺带回传身份，设备直接记下：
+
+| 设备记录 | 来源 | 用途 |
+| --- | --- | --- |
+| GUI 来源 IP + `http_port` | `client` 含 `gui` 的探测（pad_gui 点「扫描」时，§3.1） | ROM 库 HTTP API 地址 |
+| WS 手柄会话对端 IP | WebSocket 连接（§4） | 上面都没有时的兜底 |
+
+**地址优先级**：串口配置 `kv set string user.rom_api_url http://<PC-IP>:<port>`
+（显式覆盖，最优先）→ ①/② 得到的地址 → 失败（提示启动 pad_gui 或配置 KV）。
+
+设备侧按关键词查 ROM 库（MCP 工具 `rom_search`）或加载 ROM（`rom_load`）时都走这套
+解析。**推荐**：PC 端只要启动 pad_gui 即可 —— 它会同时监听 38201 应答设备的主动探测，
+不需要先点「扫描」。`-ip` 直接连接的模式下同样可用（主动探测与 WS 会话无关）。
 
 ---
 

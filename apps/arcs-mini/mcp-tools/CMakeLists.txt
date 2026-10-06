@@ -13,6 +13,19 @@ listenai_library_sources(
     mcp_tool_sd_music.c
 )
 
+if(CONFIG_LISA_HTTP)
+    listenai_library_sources(
+        mcp_tool_rom_search.c
+    )
+
+    # rom_load 复用 gamepad_rom 的 ROM 暂存通路, 故还依赖 GAMEPAD_ENABLE
+    if(CONFIG_GAMEPAD_ENABLE)
+        listenai_library_sources(
+            mcp_tool_rom_load.c
+        )
+    endif()
+endif()
+
 if(CONFIG_LOG_UPLOAD)
     listenai_library_sources(
         mcp_tool_upload.c

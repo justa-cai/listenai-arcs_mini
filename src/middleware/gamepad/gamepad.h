@@ -51,6 +51,20 @@ uint32_t gamepad_rom_staged_gen(void);
 /* 声明 <=gen 的 staged 不再被核心引用; 释放等待中的旧缓冲 (zombie) */
 void gamepad_rom_retire(uint32_t gen);
 
+/* --- 对端 (PC 端 pad_gui) 地址 (romlib 模块调用) ---
+ * 设备侧有两处能"确认" PC 端地址, 择优返回:
+ *   ① UDP 发现探测的来源 (pad_gui 在探测里自报 "client":"...gui" 与 ROM API 端口);
+ *   ② WebSocket 手柄会话的对端 IP。
+ * 有了 ①, 即使从未建立过 WS 会话 (或 WS 对端是手机 APP), 也能定位 ROM 库服务。
+ * 成功返回 true 并写入 ip_buf; *http_port 为对端自报的 ROM HTTP API 端口,
+ * 未自报时为 0 (表示"用调用方的默认端口")。http_port 可传 NULL。 */
+bool gamepad_get_server_addr(char *ip_buf, uint32_t ip_len, uint16_t *http_port);
+
+/* 同上, 但在「无从得知」时会**主动广播探测** PC 端 ROM 服务
+ * ({"t":"discover_server"} -> {"t":"server"}), 因此不依赖 pad_gui 先扫描过设备。
+ * 会阻塞最多约 0.8s (仅在没有缓存时), 只能在工作线程调用。 */
+bool gamepad_find_server_addr(char *ip_buf, uint32_t ip_len, uint16_t *http_port);
+
 #ifdef __cplusplus
 }
 #endif

@@ -33,6 +33,21 @@ void gamepad_input_net_on_disconnect(void);
 /* gamepad_util.c: 取本机 STA IP 点分字符串 (WiFi 未连返回 false) */
 bool gamepad_util_get_local_ip(char *buf, uint32_t buf_len);
 
+/* gamepad_ws_server.c: 最近一次 WebSocket 手柄会话的对端 IP (无则 false) */
+bool gamepad_ws_peer_ip(char *buf, uint32_t buf_len);
+
+/* gamepad_discovery.c: 最近一次 UDP 发现探测的来源 IP。
+ * 有自报为桌面 GUI 的来源时优先返回它, *is_gui 标志该来源是否自报为 GUI */
+bool gamepad_disc_peer_ip(char *buf, uint32_t buf_len, bool *is_gui);
+
+/* gamepad_discovery.c: 上述 GUI 来源自报的 ROM HTTP API 端口, 0 = 未自报 */
+uint16_t gamepad_disc_gui_http_port(void);
+
+/* gamepad_discovery.c: 设备主动广播 {"t":"discover_server"} 找 PC 端 ROM 服务,
+ * 收到 {"t":"server"} 应答则记录并返回 true (0 超时用默认 800ms)。
+ * 会阻塞调用者 (需 select 等待), 只能在工作线程里调。 */
+bool gamepad_disc_find_server(uint32_t timeout_ms);
+
 /* gamepad_udp.c: 当前 UDP 会话收包统计 (PC 端算丢包率用);
  * 无活跃 peer 返回 false */
 bool gamepad_udp_get_stats(uint32_t *last_seq, uint32_t *rx_frames);

@@ -79,6 +79,68 @@ int gamepad_init(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* 对端 (PC 端 pad_gui) 地址判定                                        */
+/* ------------------------------------------------------------------ */
+
+bool gamepad_get_server_addr(char *ip_buf, uint32_t ip_len, uint16_t *http_port)
+{
+    char ip[32];
+    bool is_gui = false;
+
+    if (http_port) {
+        *http_port = 0;
+    }
+    if (!ip_buf || ip_len == 0) {
+        return false;
+    }
+    ip_buf[0] = '\0';
+
+    /* ① UDP 发现里自报为桌面 GUI 的来源: 最可信 —— 它主动声明了身份和
+     *    ROM API 端口, 且不依赖 WebSocket 会话是否建立过 */
+    if (gamepad_disc_peer_ip(ip, sizeof(ip), &is_gui) && is_gui) {
+        snprintf(ip_buf, ip_len, "%s", ip);
+        if (http_port) {
+            *http_port = gamepad_disc_gui_http_port();
+        }
+        return true;
+    }
+
+    /* ② WebSocket 手柄会话对端: 正常流程里与 ① 同一台 PC (pad_gui 先扫描再连接) */
+    if (gamepad_ws_peer_ip(ip, sizeof(ip))) {
+        snprintf(ip_buf, ip_len, "%s", ip);
+        return true;
+    }
+
+    /* ③ 兜底: 任意 UDP 发现来源 (客户端身份未声明, 可能是脚本/第三方工具) */
+    if (gamepad_disc_peer_ip(ip, sizeof(ip), NULL)) {
+        snprintf(ip_buf, ip_len, "%s", ip);
+        return true;
+    }
+
+    ip_buf[0] = '\0';
+    return false;
+}
+
+bool gamepad_find_server_addr(char *ip_buf, uint32_t ip_len, uint16_t *http_port)
+{
+    if (http_port) {
+        *http_port = 0;
+    }
+
+    /* 先看已经确认过的 (UDP 探测来源 / WS 会话对端), 命中就不用广播 */
+    if (gamepad_get_server_addr(ip_buf, ip_len, http_port)) {
+        return true;
+    }
+
+    /* 都没有: 设备主动广播找服务端 (不依赖 pad_gui 先扫描过设备)。
+     * 结果写进同一个槽位, 后续调用走上面的缓存分支。 */
+    if (!gamepad_disc_find_server(0U)) {
+        return false;
+    }
+    return gamepad_get_server_addr(ip_buf, ip_len, http_port);
+}
+
+/* ------------------------------------------------------------------ */
 /* shell 诊断命令: gamepad [status|init|heap|mask]                       */
 /* ------------------------------------------------------------------ */
 static int gamepad_cmd_handler(int argc, char **argv)

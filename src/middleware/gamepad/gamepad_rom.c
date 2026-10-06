@@ -16,11 +16,17 @@
 
 #define TAG "gamepad"
 
-/* --- 传输态: 仅 WS 线程触碰, 无需加锁 --- */
+/* --- 传输态: 由"传输拥有者"任务独占访问, 见 s_rx_owner --- */
 static uint8_t *s_rx_buf = NULL;      /* 接收缓冲 (传输中) */
 static uint32_t s_rx_size = 0;        /* rom_begin 声明的总大小 */
 static uint32_t s_rx_recv = 0;        /* 已收字节数 */
 static uint32_t s_rx_crc = 0;         /* rom_begin 声明的 crc32 (0=跳过校验) */
+
+/* 传输拥有者: 一次传输 (begin..end/cancel) 只能由一个任务驱动。
+ * 驱动者有两条: ① WS 线程 (pad_gui 推送 §4.2.1) ② MCP rom_load 的异步任务 (HTTP 下载)。
+ * 两者同时跑会把同一块 s_rx_buf 交叉写入, 所以 begin 时登记拥有者,
+ * data/end/cancel 只认这个任务, 别人调直接拒绝。 */
+static TaskHandle_t s_rx_owner = NULL;
 
 /* --- staging 状态: WS 线程写 (swap), LVGL 线程读 (acquire/retire), 临界区保护 --- */
 static uint8_t *s_staged = NULL;      /* 当前生效的 staged ROM */
@@ -43,20 +49,38 @@ static uint32_t rom_crc32(const uint8_t *data, uint32_t len)
     return crc ^ 0xFFFFFFFFU;
 }
 
-/* --- WS 线程: 传输控制 --- */
+/* --- 传输控制 (仅传输拥有者任务可调用) --- */
+
+/* 调用方是否为当前传输的拥有者; 无进行中的传输时恒为 false */
+static bool rom_tx_owned_by_caller(void)
+{
+    return s_rx_owner != NULL && s_rx_owner == xTaskGetCurrentTaskHandle();
+}
+
 int gamepad_rom_begin(uint32_t size, uint32_t crc32)
 {
     if (size < 16U || size > GAMEPAD_ROM_MAX_BYTES) {
         LISA_LOGE(TAG, "rom_begin: bad size %u", (unsigned)size);
         return -1;
     }
-    gamepad_rom_cancel();
+
+    TaskHandle_t me = xTaskGetCurrentTaskHandle();
+    if (s_rx_owner != NULL) {
+        if (s_rx_owner != me) {
+            /* 另一条路径 (WS 推送 / MCP 加载) 正在传输: 拒绝, 不要动它的缓冲 */
+            LISA_LOGW(TAG, "rom_begin: transfer already owned by another task, reject");
+            return -1;
+        }
+        /* 自己重入: 丢弃上一次未完成的传输 */
+        gamepad_rom_cancel();
+    }
 
     s_rx_buf = (uint8_t *)exram_malloc(4, size);
     if (!s_rx_buf) {
         LISA_LOGE(TAG, "rom_begin: alloc %u failed", (unsigned)size);
         return -1;
     }
+    s_rx_owner = me;
     s_rx_size = size;
     s_rx_recv = 0;
     s_rx_crc = crc32;
@@ -66,7 +90,7 @@ int gamepad_rom_begin(uint32_t size, uint32_t crc32)
 
 int gamepad_rom_data(const uint8_t *data, uint32_t len)
 {
-    if (!s_rx_buf) {
+    if (!s_rx_buf || !rom_tx_owned_by_caller()) {
         return -1;
     }
     if (len > s_rx_size - s_rx_recv) {
@@ -82,13 +106,13 @@ int gamepad_rom_data(const uint8_t *data, uint32_t len)
 
 int gamepad_rom_end(const char **err_msg)
 {
-    /* 静态缓冲: 仅 WS 线程使用, 无并发 */
+    /* 静态缓冲: 仅传输拥有者使用, 无并发 */
     static char s_err[64];
 
     if (err_msg) {
         *err_msg = "";
     }
-    if (!s_rx_buf) {
+    if (!s_rx_buf || !rom_tx_owned_by_caller()) {
         if (err_msg) {
             *err_msg = "no transfer in progress";
         }
@@ -157,6 +181,7 @@ int gamepad_rom_end(const char **err_msg)
     s_rx_size = 0;
     s_rx_recv = 0;
     s_rx_crc = 0;
+    s_rx_owner = NULL;
 
     LISA_LOGI(TAG, "rom_end: staged gen=%u size=%u (zombie=%u)",
               (unsigned)s_gen, (unsigned)new_size, s_zombie ? 1U : 0U);
@@ -165,6 +190,11 @@ int gamepad_rom_end(const char **err_msg)
 
 void gamepad_rom_cancel(void)
 {
+    if (s_rx_buf && !rom_tx_owned_by_caller()) {
+        /* 不是自己的传输: 不动, 免得把正在传输的对方缓冲释放掉 */
+        LISA_LOGW(TAG, "rom_cancel: not the transfer owner, ignore");
+        return;
+    }
     if (s_rx_buf) {
         exram_free(s_rx_buf);
         s_rx_buf = NULL;
@@ -172,6 +202,7 @@ void gamepad_rom_cancel(void)
     s_rx_size = 0;
     s_rx_recv = 0;
     s_rx_crc = 0;
+    s_rx_owner = NULL;
 }
 
 /* --- LVGL 线程: 消费 --- */
