@@ -8,7 +8,7 @@
 # 执行流程：
 #   Phase 1 - 环境与 ADB 检测：解析参数、定位仓库根目录、构建烧录表、检测 ADB
 #   Phase 2 - 设备发现：扫描 ADB 设备，区分普通设备与 recovery (BOOT-*) 设备
-#   Phase 3 - 进入 recovery：向普通设备并发发送 recovery 命令
+#   Phase 3 - 进入 recovery：向普通设备并发发送 recovery 命令（失败不致命，由 Phase 4 兜底判定）
 #   Phase 4 - 等待 BOOT 设备：轮询等待设备进入 recovery，按 USB 端口/顺序匹配
 #   Phase 5 - 烧录：多设备并发推送固件
 #   Phase 6 - 重启与汇总：重启已完成设备，输出每台设备的烧录结果
@@ -23,6 +23,7 @@
 #   MAX_DEVICES      最多支持的设备数量（默认 10）
 #   RECOVERY_TIMEOUT 等待设备进入 recovery 的超时秒数（默认 120）
 #   POLL_INTERVAL    轮询 recovery 状态的间隔秒数（默认 2）
+#   RECOVERY_RETRY_INTERVAL  对仍停留在普通模式的设备重发 recovery 命令的间隔秒数（默认 10）
 #   ADB_CMD          手动指定 ADB 工具路径（默认自动检测）
 #   BUILD_DIR        app 固件所在构建目录（默认 build）
 #   RES_DIR          资源目录（默认 res/arcs-mini）
@@ -44,6 +45,7 @@ NC='\033[0m'
 MAX_DEVICES="${MAX_DEVICES:-10}"
 RECOVERY_TIMEOUT="${RECOVERY_TIMEOUT:-120}"
 POLL_INTERVAL="${POLL_INTERVAL:-2}"
+RECOVERY_RETRY_INTERVAL="${RECOVERY_RETRY_INTERVAL:-10}"
 RECOVERY_HANDSHAKE_SETTLE_SECONDS="${RECOVERY_HANDSHAKE_SETTLE_SECONDS:-4}"
 BUILD_DIR="${BUILD_DIR:-build}"
 RESOURCE_DIR="${RES_DIR:-res/arcs-mini}"
@@ -550,6 +552,11 @@ categorize_connected_devices() {
 # ---------------------------------------------------------------------------
 # 向所有普通模式设备并发发送进入 recovery 的命令
 # 优先尝试 `adb reboot recovery`，失败时回退到 `adb shell recovery`。
+#
+# 注意：设备收到 reboot 后立刻重启、ADB 连接随之中断，adb 客户端常以非零码
+# 退出（error: closed 等），但命令实际已生效。因此发送失败在这里不是致命
+# 错误：Phase 4 会以 BOOT 设备识别结果作为最终判定，期间还会对仍停留在
+# 普通模式的设备按 RECOVERY_RETRY_INTERVAL 重发命令。
 # ---------------------------------------------------------------------------
 send_recovery_commands() {
     if [ "${#normal_transport_ids[@]}" -eq 0 ]; then
@@ -572,24 +579,17 @@ send_recovery_commands() {
                 exit 0
             fi
 
-            echo "[transport_id:$tid] 进入recovery失败" >&2
             exit 1
         ) &
         pid=$!
         reboot_pid_to_tid["$pid"]="$tid"
     done
 
-    local reboot_failures=0
     for pid in "${!reboot_pid_to_tid[@]}"; do
         if ! wait "$pid"; then
-            reboot_failures=$((reboot_failures + 1))
+            echo -e "${YELLOW}警告: [transport_id:${reboot_pid_to_tid[$pid]}] recovery命令返回失败（设备可能已在重启、连接被断开），继续等待其进入recovery${NC}" >&2
         fi
     done
-
-    if [ "$reboot_failures" -gt 0 ]; then
-        echo -e "${RED}错误: 有 $reboot_failures 台设备发送recovery命令失败${NC}"
-        exit 1
-    fi
 }
 
 
@@ -658,6 +658,8 @@ wait_for_boot_devices() {
 
     echo "等待设备进入recovery并识别BOOT序列号..."
     local deadline=$((SECONDS + RECOVERY_TIMEOUT))
+    # 每台普通设备最近一次发送 recovery 命令的时刻（SECONDS），用于轮询期间重发
+    local -A recovery_last_retry=()
 
     while [ "$SECONDS" -lt "$deadline" ]; do
         # 重新扫描当前设备列表
@@ -666,6 +668,7 @@ wait_for_boot_devices() {
 
         local -a scan_boot_targets=()
         local -A scan_boot_by_usb=()
+        local -A scan_normal_tid_set=()
 
         local line serial usb tid
         for line in "${scan_lines[@]}"; do
@@ -680,6 +683,24 @@ wait_for_boot_devices() {
                 if [ -n "$usb" ]; then
                     scan_boot_by_usb["$usb"]="$current_boot_target"
                 fi
+            elif [ -n "$tid" ]; then
+                scan_normal_tid_set["$tid"]=1
+            fi
+        done
+
+        # 对仍未进入 recovery、但当前还能看到的普通模式设备，周期性重发 recovery
+        # 命令（覆盖首次发送真实失败的场景；正在重启的设备已不可见，不会重发）
+        local normal_tid retry_elapsed
+        for normal_tid in "${normal_transport_ids[@]}"; do
+            [ -n "${tid_to_boot_target[$normal_tid]:-}" ] && continue
+            [ -n "${scan_normal_tid_set[$normal_tid]:-}" ] || continue
+            retry_elapsed=$((SECONDS - ${recovery_last_retry[$normal_tid]:-0}))
+            if [ "$retry_elapsed" -ge "$RECOVERY_RETRY_INTERVAL" ]; then
+                echo "[transport_id:$normal_tid] 仍为普通模式，重发recovery命令..."
+                if ! "$adb_cmd" -t "$normal_tid" reboot recovery >/dev/null 2>&1; then
+                    "$adb_cmd" -t "$normal_tid" shell recovery >/dev/null 2>&1 || true
+                fi
+                recovery_last_retry["$normal_tid"]=$SECONDS
             fi
         done
 
@@ -737,6 +758,13 @@ wait_for_boot_devices() {
         for boot_target in "${selected_boot_targets[@]}"; do
             echo "- $(boot_target_display "$boot_target")"
         done
+        local unmatched_tids=""
+        for normal_tid in "${normal_transport_ids[@]}"; do
+            [ -n "${tid_to_boot_target[$normal_tid]:-}" ] || unmatched_tids="$unmatched_tids transport_id:$normal_tid"
+        done
+        if [ -n "$unmatched_tids" ]; then
+            echo "未进入recovery的设备:$unmatched_tids（请检查设备状态后重试）"
+        fi
         exit 1
     fi
 
@@ -792,14 +820,22 @@ flash_one_device() {
     fi
 
     # 逐个推送固件文件
+    local push_output
     for idx in "${!LOCAL_FILES[@]}"; do
         local_path="${LOCAL_FILES[$idx]}"
         remote_path="${REMOTE_PATHS[$idx]}"
 
         echo "[$display] push $local_path -> $remote_path"
-        if ! adb_for_target "$serial" "$tid" push "$local_path" "$remote_path" >/dev/null; then
-            echo "[$display] push失败: $local_path" >&2
-            return 1
+        if ! push_output=$(adb_for_target "$serial" "$tid" push "$local_path" "$remote_path" 2>&1 >/dev/null); then
+            # 本机设备已知误报：数据完整推送并写入 NAND 后设备不回最终应答，
+            # adb 报 "failed to read copy response: EOF" 但烧录实际成功
+            if [[ "$push_output" == *"failed to read copy response: EOF"* ]]; then
+                echo -e "${YELLOW}[$display] warning: push报EOF（已知误报，数据应已完整写入）: $local_path${NC}"
+            else
+                echo "[$display] push失败: $local_path" >&2
+                echo "[$display] adb输出: $push_output" >&2
+                return 1
+            fi
         fi
     done
 
@@ -846,15 +882,20 @@ flash_all_devices() {
     # Phase 6: 重启与汇总
     # =========================================================================
     local -a success_serials=()
+    local -a reboot_failed_serials=()
     local -a failed_serials=()
 
+    local flash_status
     for pid in "${!flash_pid_to_display[@]}"; do
         display="${flash_pid_to_display[$pid]}"
-        if wait "$pid"; then
-            success_serials+=("$display")
-        else
-            failed_serials+=("$display")
-        fi
+        flash_status=0
+        wait "$pid" || flash_status=$?
+        case "$flash_status" in
+            0) success_serials+=("$display") ;;
+            # 固件已完整 push，仅重启命令失败：不算烧录失败，提示手动重启即可
+            2) reboot_failed_serials+=("$display") ;;
+            *) failed_serials+=("$display") ;;
+        esac
     done
 
     echo
@@ -863,6 +904,13 @@ flash_all_devices() {
     for display in "${success_serials[@]}"; do
         echo "  [OK] $display"
     done
+
+    if [ "${#reboot_failed_serials[@]}" -gt 0 ]; then
+        echo "- 已烧录但重启失败: ${#reboot_failed_serials[@]} 台（固件已写入，请手动重启设备）"
+        for display in "${reboot_failed_serials[@]}"; do
+            echo "  [REBOOT-FAIL] $display"
+        done
+    fi
 
     echo "- 失败: ${#failed_serials[@]} 台"
     for display in "${failed_serials[@]}"; do
