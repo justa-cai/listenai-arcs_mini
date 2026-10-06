@@ -1618,9 +1618,10 @@ int app_player_play_stream(app_player_t *player, uint32_t sample_rate, uint8_t c
     // 检查焦点申请结果：如果不是前景焦点，则不继续播放
     app_player_focus_state_t focus_state = app_player_focus_get_state(player);
     if (focus_state != APP_PLAYER_FOCUS_FOREGROUND) {
-        LISA_LOGI(TAG, "Play stream cancelled: %s not in FOREGROUND (current state: %d)",
+        LISA_LOGW(TAG, "Play stream cancelled: %s not in FOREGROUND (current state: %d)",
                   player->name, focus_state);
-        return APP_PLAYER_OK;
+        /* 如实返回错误：调用方需要区分"被焦点拒绝"与"成功"来决策重试 */
+        return APP_PLAYER_ERR_INVALID_STATE;
     }
 #endif
 

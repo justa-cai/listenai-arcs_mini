@@ -2209,7 +2209,8 @@ error0:
     jpeg_decode_gpdma_stop(LISA_JPEG_DECODE_GPDMA_IN_CH, LISA_JPEG_DECODE_GPDMA_OUT_CH);
     if (ret != CSK_DRIVER_OK)
     {
-        (void)GPDMA_Uninitialize();
+        /* 不做全局 GPDMA_Uninitialize：音频 DAC/采集通道共用 GPDMA
+         * 控制器，全局反初始化会把正在使用的音频通道一并拆掉。 */
         jpeg_decode_gpdma_inited = 0;
     }
 error1:
