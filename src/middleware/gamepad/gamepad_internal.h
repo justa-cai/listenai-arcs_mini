@@ -20,6 +20,16 @@ void gamepad_input_set_reset(void);
 void gamepad_input_on_disconnect(void);
 void gamepad_get_game_state(bool *running, uint32_t *fps);
 
+/* gamepad_input.c: 手柄来源仲裁 —— BLE 直连优先, 网络手柄让位。
+ * ble_pad 在连接/断开时置位; 网络侧 (WS/UDP) 的写入一律走 *_net_* 版本,
+ * 让位期间它们整体被忽略 (不清键、不写位图), 从而不再破坏 BLE 的按住状态。 */
+void gamepad_input_ble_set_active(bool active);
+bool gamepad_input_ble_active(void);
+bool gamepad_input_net_key(const char *key, bool pressed);
+void gamepad_input_net_set_mask(uint16_t mask);
+void gamepad_input_net_reset(void);
+void gamepad_input_net_on_disconnect(void);
+
 /* gamepad_util.c: 取本机 STA IP 点分字符串 (WiFi 未连返回 false) */
 bool gamepad_util_get_local_ip(char *buf, uint32_t buf_len);
 

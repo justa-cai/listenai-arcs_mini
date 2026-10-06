@@ -125,6 +125,76 @@ void gamepad_input_on_disconnect(void)
     gamepad_input_reset();
 }
 
+/* ================================================================== */
+/* 手柄来源仲裁: BLE 直连优先, 网络手柄让位                              */
+/* ================================================================== */
+
+/*
+ * 按键有两条来源: BLE 直连 (ble_pad.c) 与网络 (WS 差分包 / UDP 全量位图)。
+ * BLE 连上后网络侧必须整体让位, 否则网络侧会持续破坏 BLE 的按键状态:
+ *   - WS 客户端一连上就 gamepad_input_reset();
+ *   - UDP 通道 500ms 收不到帧就按"发送端失联"清零全部按键;
+ *   - UDP 帧全量覆盖按下集合。
+ * 而 BLE 手柄是事件驱动上报, 按住期间不发帧, 被清掉后没法自己写回来 ——
+ * 表现就是"按住不放却断掉"。
+ * 因此这里按来源分入口: 网络侧走 gamepad_input_net_* (让位时整体忽略),
+ * BLE 侧继续用原名接口 (不受影响)。
+ */
+static volatile bool s_ble_active = false;
+
+bool gamepad_input_ble_active(void)
+{
+    return s_ble_active;
+}
+
+void gamepad_input_ble_set_active(bool active)
+{
+    if (active == s_ble_active) {
+        return;
+    }
+
+    s_ble_active = active;
+    if (active) {
+        /* 交棒给 BLE 前先清一次: 网络侧可能正按着键, 避免残留成"幽灵按键" */
+        gamepad_input_reset();
+        LISA_LOGI(TAG, "ble pad active, network gamepad input disabled");
+    } else {
+        LISA_LOGI(TAG, "ble pad inactive, network gamepad input enabled");
+    }
+}
+
+bool gamepad_input_net_key(const char *key, bool pressed)
+{
+    if (s_ble_active) {
+        return false;
+    }
+    return gamepad_input_key(key, pressed);
+}
+
+void gamepad_input_net_set_mask(uint16_t mask)
+{
+    if (s_ble_active) {
+        return;
+    }
+    gamepad_input_set_mask(mask);
+}
+
+void gamepad_input_net_reset(void)
+{
+    if (s_ble_active) {
+        return;
+    }
+    gamepad_input_reset();
+}
+
+void gamepad_input_net_on_disconnect(void)
+{
+    if (s_ble_active) {
+        return;
+    }
+    gamepad_input_on_disconnect();
+}
+
 /* 游戏状态上报 */
 void gamepad_notify_game_state(bool running, uint32_t fps)
 {

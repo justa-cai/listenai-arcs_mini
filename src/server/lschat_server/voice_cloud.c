@@ -65,6 +65,11 @@ static volatile uint8_t pcm_send_en = 0;
 static volatile uint8_t cloud_init_done = 0;
 /* 非全双工唤醒会话需等本地唤醒应答音播完后才允许上传麦克风数据。 */
 static volatile uint8_t g_wait_wakeup_tone = 0;
+/* 上面这个等待的兜底定时器: 提示音可能压根没播 (语音输出被关、音效资源缺失、
+ * 播放器报错、被更高优先级提示音抢占), 而唯一的清除点是播放完成事件 ——
+ * 没有兜底的话麦克风会一直不开, 会话哑到 idle 超时 (表现为"唤醒有反应但没应答")。 */
+static TimerHandle_t g_wakeup_tone_wait_timer = NULL;
+#define WAKEUP_TONE_WAIT_TIMEOUT_MS (2500U)
 static session_objrec_t objrec = NULL;
 static uint8_t *voice_cloud_token = NULL;
 static uint8_t full_duplex = 0;
@@ -293,6 +298,35 @@ static void voice_pcm_send_disable(void)
     pcm_send_en = 0;
 }
 
+/* 结束"等唤醒应答音"的等待: 清标志并停掉兜底定时器。
+ * 所有清除 g_wait_wakeup_tone 的地方都应走这里, 否则残留的定时器会在
+ * 下一个会话里提前把麦克风打开。 */
+static void voice_wakeup_tone_wait_cancel(void)
+{
+    g_wait_wakeup_tone = 0;
+    if (g_wakeup_tone_wait_timer != NULL) {
+        xTimerStop(g_wakeup_tone_wait_timer, 0);
+    }
+}
+
+/* 兜底: 唤醒应答音迟迟没播完 (或压根没播), 不能再让麦克风关着 ——
+ * 直接放行音频上传, 与正常播放完成走同一条恢复路径。 */
+static void wakeup_tone_wait_timeout_cb(TimerHandle_t xTimer)
+{
+    (void)xTimer;
+
+    if (!g_wait_wakeup_tone || !g_voice_session_active) {
+        return;
+    }
+
+    LOGW("wakeup tone wait timeout (%u ms), resume audio upload anyway",
+         (unsigned)WAKEUP_TONE_WAIT_TIMEOUT_MS);
+    voice_wakeup_tone_wait_cancel();
+    if (voice_cloud_upload_audio_resume() != 0) {
+        LOGW("resume audio upload after wakeup tone timeout failed");
+    }
+}
+
 static void voice_cloud_wakeup_tone_completed(void *unused, uint32_t msg_id,
                                               void *data, uint32_t len,
                                               void *user_data)
@@ -313,7 +347,7 @@ static void voice_cloud_wakeup_tone_completed(void *unused, uint32_t msg_id,
         return;
     }
 
-    g_wait_wakeup_tone = 0;
+    voice_wakeup_tone_wait_cancel();
     LOGI("wakeup tone completed, resume audio upload");
     if (voice_cloud_upload_audio_resume() != 0) {
         LOGW("resume audio upload after wakeup tone failed");
@@ -1161,7 +1195,7 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
         g_cloud_connected = 0;
         g_cloud_connecting = 0;
         g_voice_session_active = 0;
-        g_wait_wakeup_tone = 0;
+        voice_wakeup_tone_wait_cancel();
         voice_pcm_send_disable();
         xStreamBufferReset(g_record_stream_buffer);
         voice_msg_pub(VOICE_MSG_CLOUD_DISCONNECTED, NULL, 0);
@@ -1217,7 +1251,7 @@ static void voice_event_cb(session_voice_event_e evt, void *data, uint32_t size,
     switch (evt) {
     case SESSION_VOICE_FINISH:
         g_voice_session_active = 0;
-        g_wait_wakeup_tone = 0;
+        voice_wakeup_tone_wait_cancel();
         voice_pcm_send_disable();
         voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
         break;
@@ -1630,6 +1664,12 @@ int voice_cloud_init(struct voice_cloud_connect_config *config)
     assert(g_pcm_send_en_timer != NULL);
 #endif
 
+    /* 等唤醒应答音的兜底定时器 (one-shot), 见 wakeup_tone_wait_timeout_cb */
+    g_wakeup_tone_wait_timer = xTimerCreate("voice.cloud.wake.tone",
+                                            pdMS_TO_TICKS(WAKEUP_TONE_WAIT_TIMEOUT_MS),
+                                            pdFALSE, NULL, wakeup_tone_wait_timeout_cb);
+    assert(g_wakeup_tone_wait_timer != NULL);
+
     cloud_init_done = 1;
 
     return 0;
@@ -1735,14 +1775,14 @@ int voice_cloud_chat_start(struct voice_cloud_chat_config *config)
     ret = session_voice_set_config(&voice_config);
     if (ret != 0) {
         LOGE("session_voice_set_config failed");
-        g_wait_wakeup_tone = 0;
+        voice_wakeup_tone_wait_cancel();
         return ret;
     }
 
     ret = session_voice_start_ex(preserve_tts_timeline);
     if (ret != 0) {
         LOGE("session_voice_start failed");
-        g_wait_wakeup_tone = 0;
+        voice_wakeup_tone_wait_cancel();
         return ret;
     }
 
@@ -1760,6 +1800,14 @@ int voice_cloud_chat_start(struct voice_cloud_chat_config *config)
 #endif
     } else {
         LOGI("wakeup session: wait for wakeup tone before audio upload");
+        /* 兜底: 提示音没播或被丢弃时也要开麦, 否则整个会话收不到音频 */
+        if (g_wakeup_tone_wait_timer != NULL &&
+            xTimerStart(g_wakeup_tone_wait_timer,
+                        pdMS_TO_TICKS(WAKEUP_TONE_WAIT_TIMEOUT_MS)) != pdPASS) {
+            LOGW("wakeup tone fallback timer start failed, open mic now");
+            voice_wakeup_tone_wait_cancel();
+            voice_pcm_send_enable();
+        }
     }
 
     voice_msg_pub(VOICE_MSG_CLOUD_SESSION_STARTING, NULL, 0);
@@ -1777,7 +1825,7 @@ int voice_cloud_chat_stop(void)
         return ret;
     }
     g_voice_session_active = 0;
-    g_wait_wakeup_tone = 0;
+    voice_wakeup_tone_wait_cancel();
     voice_pcm_send_disable();
 
     return ret;
@@ -1794,7 +1842,7 @@ int voice_cloud_chat_stop_local(void)
     }
 
     g_voice_session_active = 0;
-    g_wait_wakeup_tone = 0;
+    voice_wakeup_tone_wait_cancel();
     return 0;
 }
 
@@ -1983,7 +2031,7 @@ int voice_cloud_audio_recognition_start(void)
     }
 
     g_voice_session_active = 1;
-    g_wait_wakeup_tone = 0;
+    voice_wakeup_tone_wait_cancel();
 
 #if PCM_SEND_AFTER_CLOUD_CHAT_START_MS > 0
     if (xTimerStart(g_pcm_send_en_timer, pdMS_TO_TICKS(20)) != pdPASS) {

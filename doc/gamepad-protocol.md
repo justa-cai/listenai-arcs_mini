@@ -183,16 +183,19 @@ APP                                设备
 
 ```json
 {"t":"welcome","ver":1,"proto":"gamepad","dev":"arcs-mini","fw":"v3.0.2",
- "state":"running","fps":60,"udp_port":38202}
+ "state":"running","fps":60,"udp_port":38202,"ble":false}
 ```
 
 `udp_port` 为 UDP 按键通道端口（§4.6）；旧固件不携带该字段，按键走 WS 差分事件。
+
+`ble`：**BLE 直连手柄是否正在接管输入**。为 `true` 时网络侧（WS `k` 事件 / `reset` /
+UDP 位图）的按键**一律被忽略**（见 §4.2），客户端应据此提示用户，而不是让用户以为按键失灵。
 
 **心跳应答 / 状态推送 / 错误：**
 
 ```json
 {"t":"pong","ts":12345}
-{"t":"state","run":true,"fps":60}
+{"t":"state","run":true,"fps":60,"ble":false}
 {"t":"err","code":-1,"msg":"unknown key"}
 {"t":"rom_ack","ok":true,"msg":"staged, game restarting"}
 ```
@@ -210,6 +213,17 @@ APP                                设备
 ```
 
 `hello` 必须为连接后首帧；`token` 首版留空。
+
+**BLE 手柄优先级**：设备同时支持 BLE 直连手柄（§见设备侧 BLE 手柄驱动）。BLE 手柄
+**已连接并订阅成功**时，网络侧的输入通路（`k` 按键事件、`reset` 清位图、UDP 全量位图，
+含 UDP 静默 500ms 自动松键）**整体让位、被忽略**，`welcome`/`state` 的 `ble` 字段为 `true`。
+
+原因：BLE 手柄是**事件驱动上报**，按住期间不发帧；网络侧一连上就清位图、UDP 静默又会
+自动松键，会把 BLE 正按住的键清掉且 BLE 无法写回（表现为"按住却断掉"）。
+
+不受影响、仍然可用：ROM 推送（§4.2.1）、心跳/遥测、以及 `cmd` 类显式操作
+（`exit` / `reset`）—— 它们不是手柄按键。断开 BLE 手柄（设备侧 `blepad off` 或手柄断开）
+后网络手柄输入立即恢复。
 
 ### 4.2.1 ROM 动态加载（PC/APP → 设备推送本地 ROM）
 
@@ -356,3 +370,51 @@ sequenceDiagram
 | BLE 前缀 | `0x03E4` |
 | 心跳建议间隔 | APP 5s |
 | 断开判定 | 30s 无帧 |
+
+---
+
+## 6. BLE 直连手柄（设备侧，CodexPad-S10）
+
+除 WiFi 上的 WS/UDP 手柄，设备还能以 **BLE Central** 直连 CodexPad-S10（`src/middleware/gamepad/ble_pad.c`，
+开机自启 `CONFIG_GAMEPAD_BLE_AUTOSTART`）。连接后订阅 `0xFFA1`（Notify，8 字节帧
+`[u32 按键][LX][LY][RX][RY]`），映射进同一套 NES 手柄位图。
+
+### 6.1 与网络手柄的关系（互斥）
+
+BLE 手柄**已连接并订阅成功**时，网络侧输入通路整体让位：WS `k` 按键事件、`reset` 清位图、
+UDP 全量位图（含静默 500ms 自动松键）全部被忽略；`welcome`/`state` 报文里 `ble` 字段为 `true`。
+原因：BLE 手柄是**事件驱动上报**（按住期间不发帧），而网络侧一连上就清位图、UDP 静默又会自动松键，
+会把 BLE 按住的键清掉且 BLE 无法写回。
+
+不受影响：ROM 推送（§4.2.1）、心跳/遥测、`cmd exit` / `cmd reset`。断开 BLE 后网络输入立即恢复。
+
+### 6.2 L1 / L2：进入与退出语音模式
+
+| 按键 | 动作 |
+| --- | --- |
+| **L1** | **进入语音模式**（等同设备按键单击唤醒）：先让游戏让出 `audio0`，再发布唤醒事件 |
+| **L2** | **退出语音模式**（回到唤醒等待）：打断进行中的会话/播报，会话结束后游戏自动收回 `audio0` |
+
+两键都**只在上升沿触发**（按住不重复），且不参与 NES 按键位图，不影响游戏操作。
+
+### 6.3 audio0 仲裁（游戏 ⇄ 语音助手）
+
+`audio0` 是单实例。**采样率已全机统一为 16kHz**（见 `lisa_player_adapter.h` 的
+`APP_AUDIO0_*` 共享契约）：语音链路本来就是 16k（预编译 lisa_player track 内置 16k），
+游戏侧把 APU 的 48k 降采样到 16k 后双方共用同一条播放流。
+
+- **只有一个地方配置** `audio0`：`app_audio0_ensure_play()`（16k / mono / 16bit /
+  12×256，幂等：已在跑就什么都不做）。所有人（app_player 输出适配、唤醒引擎、NES 端口）
+  都只调它，谁都不许改采样率 —— 从根上消除"16k PCM 灌进 48k 流 → 变调"这类问题。
+- **DMA 粒度对齐**：`arcs_audio_play_write()` 会为每个不足一个 DMA buffer 的写入补静音，
+  所以写入样本数必须是 `APP_AUDIO0_DMA_SAMPLES`(256) 的整数倍。游戏每帧 266 样本，
+  先在端口内累积再写（260→512），否则每帧会掺 ~246 样本静音（声音断续）。
+- **让出 = 静音，不停流**：唤醒词路径（`app_wakeup.c`）与手柄 L1（`ble_pad.c`）都会先调
+  `voice_audio_owner_yield()`；游戏侧收到后只是**停止喂数据**（并置 `g_audio_dev = NULL`
+  让模拟器切到时间兜底节拍，因为正常 60fps 节拍来自音频环的 DMA 背压）。
+  底层 DMA 队列空时会自动用静音 buffer 补位，所以不写就是静音 —— 不必 `play_stop`，
+  也就不会波及语音侧（历史故障：提示音写进已停的流 → 渲染线程永久阻塞 → 播放器卡在
+  PLAYING → TTS 被焦点策略取消 → 整条语音回放全哑）。
+- **收回**：NES 音频任务轮询 `voice_audio_in_use()`（会话进行中 / 提示音 / TTS 任一在播），
+  全空闲后重新"确保在跑"并重持 PA（无需重配采样率）；带 1.5s 宽限期与 90s 强制收回兜底。
+

@@ -119,7 +119,8 @@ static void udp_task(void *arg)
                 udp_now_ms() - last_rx_ms > GAMEPAD_UDP_SILENCE_RELEASE_MS) {
                 LISA_LOGW(TAG, "udp peer silent %ums, release all keys",
                           (unsigned)GAMEPAD_UDP_SILENCE_RELEASE_MS);
-                gamepad_input_set_mask(0);
+                /* 网络入口: BLE 手柄占用时不清键 (BLE 是事件上报, 清了它写不回来) */
+                gamepad_input_net_set_mask(0);
                 have_peer = false;
                 /* 会话结束: 清零统计, PC 端按非单调检测自动重定基线 */
                 s_stat_active = false;
@@ -156,7 +157,8 @@ static void udp_task(void *arg)
         s_stat_rx++;
         s_stat_active = true;
 
-        gamepad_input_set_mask(mask);
+        /* 网络入口: BLE 手柄占用时忽略整帧 (统计仍照常更新, PC 端丢包率不受影响) */
+        gamepad_input_net_set_mask(mask);
     }
 
     closesocket(s_sock);

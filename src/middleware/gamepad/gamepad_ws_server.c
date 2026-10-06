@@ -39,6 +39,10 @@ static noPollConn *s_conn = NULL;
 static noPollConnOpts *s_opts = NULL;   /* listener 只存指针不接管, 需存活到 stop */
 static volatile bool s_running = false;
 
+/* 最近一次成功连接的客户端 (pad_gui 所在 PC) 的 IPv4 文本形式。
+ * romlib 在没有显式配置 ROM API 地址时, 用它推导 pad_gui 的同机 HTTP 端口。 */
+static char s_last_peer_ip[16] = { 0 };   /* "255.255.255.255" + NUL */
+
 /* ------------------------------------------------------------------ */
 /* 报文发送                                                             */
 /* ------------------------------------------------------------------ */
@@ -62,13 +66,16 @@ static void ws_send_welcome(noPollConn *conn)
     gamepad_get_game_state(&running, &fps);
 
     char buf[192];
+    /* ble: BLE 手柄正在接管输入, 此时 WS/UDP 的按键会被忽略 —— 让 GUI 能提示用户,
+     * 而不是让用户以为按键坏了 */
     snprintf(buf, sizeof(buf),
              "{\"t\":\"welcome\",\"ver\":%d,\"proto\":\"gamepad\",\"dev\":\"%s\","
-             "\"fw\":\"%s\",\"state\":\"%s\",\"fps\":%u,\"udp_port\":%u}",
+             "\"fw\":\"%s\",\"state\":\"%s\",\"fps\":%u,\"udp_port\":%u,\"ble\":%s}",
              GAMEPAD_PROTO_VERSION, GAMEPAD_DEV_NAME,
              gamepad_util_get_fw_version(),
              running ? "running" : "idle", (unsigned)fps,
-             (unsigned)CONFIG_GAMEPAD_UDP_PORT);
+             (unsigned)CONFIG_GAMEPAD_UDP_PORT,
+             gamepad_input_ble_active() ? "true" : "false");
     ws_send_json(conn, buf);
 }
 
@@ -80,8 +87,10 @@ static void ws_send_state(noPollConn *conn)
     gamepad_get_game_state(&running, &fps);
 
     char buf[96];
-    snprintf(buf, sizeof(buf), "{\"t\":\"state\",\"run\":%s,\"fps\":%u}",
-             running ? "true" : "false", (unsigned)fps);
+    snprintf(buf, sizeof(buf),
+             "{\"t\":\"state\",\"run\":%s,\"fps\":%u,\"ble\":%s}",
+             running ? "true" : "false", (unsigned)fps,
+             gamepad_input_ble_active() ? "true" : "false");
     ws_send_json(conn, buf);
 }
 
@@ -112,7 +121,8 @@ static void ws_handle_text(const char *text, int len)
         const cJSON *k = cJSON_GetObjectItem(root, "k");
         const cJSON *v = cJSON_GetObjectItem(root, "v");
         if (cJSON_IsString(k)) {
-            gamepad_input_key(k->valuestring, cJSON_IsTrue(v) || (cJSON_IsNumber(v) && v->valueint != 0));
+            /* 走网络入口: BLE 手柄占用时整体让位 */
+            gamepad_input_net_key(k->valuestring, cJSON_IsTrue(v) || (cJSON_IsNumber(v) && v->valueint != 0));
         }
     } else if (type && strcmp(type, "ping") == 0) {
         const cJSON *ts = cJSON_GetObjectItem(root, "ts");
@@ -127,7 +137,8 @@ static void ws_handle_text(const char *text, int len)
         ws_send_json(s_conn, buf);
     } else if (type && strcmp(type, "reset") == 0) {
         LISA_LOGI(TAG, "rx reset");
-        gamepad_input_reset();
+        /* 走网络入口: 客户端复位不应清掉 BLE 手柄正按住的键 */
+        gamepad_input_net_reset();
     } else if (type && strcmp(type, "cmd") == 0) {
         const cJSON *c = cJSON_GetObjectItem(root, "c");
         if (cJSON_IsString(c) && strcmp(c->valuestring, "exit") == 0) {
@@ -195,6 +206,36 @@ static bool ws_poll_readable(noPollConn *conn)
     return (ret > 0) && FD_ISSET(fd, &rfds);
 }
 
+/* ------------------------------------------------------------------ */
+/* 客户端 IP 记录 (供 gamepad_get_server_addr 判定 ROM API 主机)         */
+/* ------------------------------------------------------------------ */
+
+bool gamepad_ws_peer_ip(char *buf, uint32_t len)
+{
+    if (!buf || len == 0 || s_last_peer_ip[0] == '\0') {
+        return false;
+    }
+    snprintf(buf, len, "%s", s_last_peer_ip);
+    return true;
+}
+
+/* 记录本连接对端 IP; 拿不到时保留旧值 (多半还是同一台 PC, 仍可用) */
+static void ws_record_peer_ip(noPollConn *conn)
+{
+    NOPOLL_SOCKET fd = nopoll_conn_socket(conn);
+    if (fd < 0) {
+        return;
+    }
+    struct sockaddr_in sa;
+    socklen_t slen = sizeof(sa);
+    memset(&sa, 0, sizeof(sa));
+    if (getpeername(fd, (struct sockaddr *)&sa, &slen) != 0 || sa.sin_family != AF_INET) {
+        return;
+    }
+    snprintf(s_last_peer_ip, sizeof(s_last_peer_ip), "%s", inet_ntoa(sa.sin_addr));
+    LISA_LOGI(TAG, "peer ip: %s", s_last_peer_ip);
+}
+
 static void ws_serve_conn(noPollConn *conn)
 {
     bool running = false;
@@ -202,8 +243,10 @@ static void ws_serve_conn(noPollConn *conn)
     bool rx_continuation_is_text = true;    /* continuation 片的类型跟随上一数据帧 */
 
     LISA_LOGI(TAG, "client connected");
+    ws_record_peer_ip(conn);
 
-    gamepad_input_reset();
+    /* 网络入口: BLE 手柄占用时让位 (连上就 reset 会把 BLE 按住的键清掉) */
+    gamepad_input_net_reset();
     ws_send_welcome(conn);
 
     uint32_t last_rx_ms = (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
@@ -279,7 +322,8 @@ static void ws_serve_conn(noPollConn *conn)
     }
 
     LISA_LOGI(TAG, "client disconnected");
-    gamepad_input_on_disconnect();
+    /* 走网络入口: 客户端断线只清网络侧按键, 不碰 BLE 手柄 */
+    gamepad_input_net_on_disconnect();
     gamepad_rom_cancel();   /* 半途断线: 丢弃未完成的 ROM 传输 */
     nopoll_conn_shutdown(conn);
     nopoll_conn_close(conn);

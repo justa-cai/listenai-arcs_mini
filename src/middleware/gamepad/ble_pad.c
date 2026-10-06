@@ -33,6 +33,14 @@
 
 #include "ble_pad.h"
 
+/* L1/L2 唤醒相关：与设备自身按键单击唤醒/结束唤醒走同一条消息（see app_button.c） */
+#include "voice_msg.h"
+#include "voice_cloud.h"        /* voice_cloud_is_session_active (L2 退出语音模式前判断) */
+#include "voice_player_comm.h"  /* voice_audio_owner_yield (唤醒前请游戏让出 audio0) */
+#if CONFIG_WIFI
+#include "sys_wifi.h"
+#endif
+
 /* SDK 官方 BLE 接口 */
 #include "lisa_ble_api.h"       /* 扫描/连接（线程安全的事件封装） */
 #include "lisa_ble_client.h"    /* GATT 客户端（Central） */
@@ -158,6 +166,8 @@ typedef struct {
     volatile uint16_t last_mask;      /* 最近一次写入 gamepad 层的 NES 位图 */
     volatile uint16_t last_stick_dir; /* 上次摇杆方向（变化才打印） */
     volatile uint32_t last_stick_btn; /* 上次摇杆按键 L3/R3（变化才打印） */
+    volatile bool l1_down;            /* L1 上一帧状态（上升沿触发唤醒） */
+    volatile bool l2_down;            /* L2 上一帧状态（上升沿退出语音模式） */
     TickType_t keepalive_at;          /* 按住保活重发时刻 */
     volatile bool raw_log;            /* shell: blepad raw 开关 */
     volatile bool stick_log;          /* shell: blepad stick 开关（默认关） */
@@ -273,6 +283,45 @@ static uint16_t cpad_stick_to_dpad(uint8_t lx, uint8_t ly) {
     if ((int)ly < center - dz)      m |= GAMEPAD_KEY_DOWN;
     else if ((int)ly > center + dz) m |= GAMEPAD_KEY_UP;
     return m;
+}
+
+/* 手柄 L1：触发一次唤醒（等同设备按键单击唤醒）。
+ *
+ * 复用设备自身按键的通路：先退 Wi-Fi 省电（待机时是最大监听间隔，不退的话
+ * 出站请求要等下一个 beacon），再发布唤醒词消息。关键词必须与
+ * apps/arcs-mini/button/app_button.c 一致——消费端 voice_wakeup_keyword()
+ * 会先做 is_valid_keyword() 校验，字面量不对会被静默丢弃。闸门（工作模式、
+ * 云端可用性、会话阻塞）全在消费端，这里不做判断。 */
+static void pad_trigger_wakeup(void) {
+    static const char keyword[] = "xiao ling xiao ling";
+
+#if CONFIG_WIFI
+    int ret = sys_wifi_set_standby_power_save(false);
+    if (ret != 0) {
+        LISA_LOGW(TAG, "WiFi standby resume before pad wake failed: %d", ret);
+    }
+#endif
+    /* 必须在唤醒消息之前: 让独占 audio0 的功能 (NES 游戏) 先停流,
+     * 否则语音侧的 16kHz 播放流会撞上还在跑的游戏 48kHz 流 (底层拒配) */
+    voice_audio_owner_yield();
+
+    LISA_LOGI(TAG, "L1: wakeup trigger");
+    voice_msg_pub(VOICE_MSG_WAKEUP_KEYWORD, (void *)keyword, sizeof(keyword));
+}
+
+/* 手柄 L2：退出语音模式，回到「唤醒等待」。
+ *
+ * 与设备按键的「结束当前唤醒」是同一个动作 —— 发会话中断消息，
+ * 消费端 voice_cloud_session_interrupt() 会打断正在播报的回复、
+ * 停止云端会话并弹出 VOICE_SESSION 意图，随后设备回到只等唤醒词的状态。
+ * 没有进行中的会话时不做任何事（避免无意义的 stop 与告警）。 */
+static void pad_trigger_voice_exit(void) {
+    if (!voice_cloud_is_session_active()) {
+        LISA_LOGI(TAG, "L2: no active voice session, ignore");
+        return;
+    }
+    LISA_LOGI(TAG, "L2: exit voice mode");
+    voice_msg_pub(VOICE_MSG_CLOUD_SESSION_INTERRUPT, NULL, 0);
 }
 
 /* 摇杆方向位图 → 可读字符串（写入调用方缓冲：app task 与 shell task 都会
@@ -741,6 +790,8 @@ static void pad_task(void *arg) {
                 s_pad.last_mask = 0;
                 s_pad.last_stick_dir = 0;
                 s_pad.last_stick_btn = 0;
+                s_pad.l1_down = false;
+                s_pad.l2_down = false;
                 memset(&s_pad.peer, 0, sizeof(s_pad.peer));
                 s_pad.peer_str[0] = 0;
                 memset(s_peers, 0, sizeof(s_peers));
@@ -795,7 +846,10 @@ static void pad_task(void *arg) {
             s_pad.last_mask = 0;
             s_pad.last_stick_dir = 0;
             s_pad.last_stick_btn = 0;
+            s_pad.l1_down = false;
+            s_pad.l2_down = false;
             gamepad_input_on_disconnect();
+            gamepad_input_ble_set_active(false);
             LISA_LOGI(TAG, "stopped");
             break;
 
@@ -870,6 +924,9 @@ static void pad_task(void *arg) {
             if (s_pad.state == PAD_SUBSCRIBING && ev.u.write.hdl == s_pad.cccd_hdl &&
                 ev.u.write.status == 0) {
                 s_pad.state = PAD_RUNNING;
+                /* BLE 手柄接管道: 网络手柄 (WS/UDP) 输入让位, 否则它的
+                 * reset/静默松键会持续清掉这里按住的键 */
+                gamepad_input_ble_set_active(true);
                 LISA_LOGI(TAG, "subscribed, pad RUNNING");
             }
             break;
@@ -897,6 +954,18 @@ static void pad_task(void *arg) {
                 s_pad.dbg_buttons = (uint8_t)buttons;
                 s_pad.dbg_lx = d[4];
                 s_pad.dbg_ly = d[5];
+
+                /* L1/L2 上升沿 → 进入/退出语音模式（按住不重复触发）。
+                 * 两键都不参与 NES 位图，只做语音交互、不影响游戏按键 */
+                if ((buttons & CPAD_L1) && !s_pad.l1_down) {
+                    pad_trigger_wakeup();
+                }
+                s_pad.l1_down = (buttons & CPAD_L1) != 0;
+
+                if ((buttons & CPAD_L2) && !s_pad.l2_down) {
+                    pad_trigger_voice_exit();
+                }
+                s_pad.l2_down = (buttons & CPAD_L2) != 0;
 
                 /* 摇杆事件：方向或摇杆按键（L3/R3）变化才打印，避免刷屏 */
                 if (s_pad.stick_log &&
@@ -943,10 +1012,13 @@ static void pad_task(void *arg) {
             LISA_LOGI(TAG, "disconnected conidx=%u reason=0x%04X",
                       ev.u.disconnected.conidx, ev.u.disconnected.reason);
             gamepad_input_on_disconnect();
+            gamepad_input_ble_set_active(false);
             s_pad.val_hdl = s_pad.cccd_hdl = 0;
             s_pad.last_mask = 0;
             s_pad.last_stick_dir = 0;
             s_pad.last_stick_btn = 0;
+            s_pad.l1_down = false;
+            s_pad.l2_down = false;
             if (s_pad.started) {
                 s_pad.conidx = 0xFF;
                 pad_scan_start();
@@ -991,7 +1063,10 @@ watchdog:
             s_pad.last_mask = 0;
             s_pad.last_stick_dir = 0;
             s_pad.last_stick_btn = 0;
+            s_pad.l1_down = false;
+            s_pad.l2_down = false;
             gamepad_input_on_disconnect();
+            gamepad_input_ble_set_active(false);
             pad_scan_start();
         }
     }
