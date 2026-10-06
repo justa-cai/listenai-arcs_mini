@@ -43,6 +43,30 @@ bool voice_player_is_music_active(void);
  */
 bool voice_player_is_audio_active(void);
 
+/* ==================== audio0 独占仲裁 ==================== */
+
+/**
+ * @brief 请求当前独占 audio0 的功能 (NES 游戏) 让出音频输出
+ *
+ * audio0 单实例且语音/游戏采样率不同 (16k / 48k), 底层 RUNNING 时拒绝重配,
+ * 因此唤醒时必须先让游戏把流停干净, 再让语音侧重建 16kHz 播放流 ——
+ * 这个调用要放在唤醒流程里、任何音频重建之前。
+ *
+ * 有界阻塞 (最多约 400ms) 等待对方确认停流; 没有独占者时立即返回。
+ * 实现由独占者提供 (weak 空实现), 语音侧调用方无需关心。
+ */
+void voice_audio_owner_yield(void);
+
+/**
+ * @brief 语音侧当前是否还在占用 audio0
+ *
+ * 会话进行中、TTS 正在播、或唤醒提示音未播完都算占用。
+ * 让出 audio0 的功能据此判断何时可以收回。
+ *
+ * @return true 仍在占用 (让出方应继续静音等待)
+ */
+bool voice_audio_in_use(void);
+
 /* ==================== 系统音量 API ==================== */
 
 /**

@@ -23,7 +23,9 @@
 #include "lisa_device.h"
 #include "lisa_display.h"
 #include "lisa_log.h"
+#include "lisa_player_adapter.h" /* audio0 整机共享播放契约 (16kHz) + 幂等打开 */
 #include "pa_manager.h"      /* SDK 功放使能: NES 直接写 audio0, 必须自己持有 PA 引用 */
+#include "voice_player_comm.h"  /* voice_audio_owner_yield / voice_audio_in_use: audio0 让出仲裁 */
 #include "lvgl.h"
 #include "esp_heap_caps.h"
 #include "heap_private.h"
@@ -248,19 +250,50 @@ static TaskHandle_t g_audio_task = NULL;
 static int32_t g_audio_lp_state = 0;
 static int32_t g_audio_dc_x_prev = 0;
 static int32_t g_audio_dc_y_prev = 0;
-static lisa_audio_play_config_t g_play_config;          /* 供健康检查重配时复用 */
 static volatile bool g_audio_pa_ref_held = false;       /* 是否已持有 PA 引用 */
 
-#define NES_AUDIO_OUT_RATE          LISA_AUDIO_RATE_48K
-#define NES_AUDIO_OUT_CHANNELS      LISA_AUDIO_CH_LEFT
-#define NES_AUDIO_OUT_BITS          LISA_AUDIO_BIT_16
-#define NES_AUDIO_OUT_BUF_COUNT     12
+/* ---- 让出 audio0 给语音助手 (实现 src/category 的 weak 钩子) ----
+ * 采样率已全机统一为 16kHz (见 lisa_player_adapter.h 的共享契约), 所以让出
+ * 不再需要停流/改采样率: 播放流保持运行, 停掉"喂数据"就是静音
+ * (底层在 DMA 队列空时会自动用静音 buffer 补位)。 */
+static volatile bool g_audio_yield_req = false;   /* 语音侧已请求让出 */
+static volatile bool g_audio_yielded = false;     /* 已让出 (游戏静音中) */
+/* 刚唤醒时会话/提示音还没起来, voice_audio_in_use() 会短暂为假;
+ * 这段宽限期内不判定"语音已放手", 避免刚让出就把声音抢回来。 */
+#define NES_AUDIO_YIELD_GRACE_MS 1500U
+/* 兜底: 语音侧状态万一卡住 (历史故障: 提示音写不进已停的 audio0 -> 播放线程阻塞
+ * -> 播放器永远停在 PLAYING), 不能让它把游戏静音拖到天荒地老。
+ * 超过这个时长就强制收回并告警。 */
+#define NES_AUDIO_YIELD_MAX_MS   90000U
+
+/* 输出采样率 16kHz: 与语音侧共用同一条播放流 (预编译 lisa_player track 内置 16k),
+ * APU 仍按 48kHz 生成, 由本端口的重采样器降到 16k, 避免为游戏单独霸占 audio0。
+ * 通道/位深/DMA 粒度由 lisa_player_adapter.h 的共享契约统一规定, 这里不再重复定义
+ * (采样率也必须与 APP_AUDIO0_SAMPLE_RATE 一致)。 */
+#define NES_AUDIO_OUT_RATE          LISA_AUDIO_RATE_16K
+_Static_assert(NES_AUDIO_OUT_RATE == APP_AUDIO0_SAMPLE_RATE,
+               "NES output rate must match the shared audio0 contract");
+/* 每帧输出样本数 = 16000/60 = 266 */
 #define NES_AUDIO_FRAME_SAMPLES     ((uint32_t)NES_AUDIO_OUT_RATE / 60U)
-#define NES_AUDIO_OUT_BUF_SAMPLES   NES_AUDIO_FRAME_SAMPLES
-#define NES_AUDIO_TMP_MAX_SAMPLES   NES_AUDIO_OUT_BUF_SAMPLES
+/* 混合/重采样缓冲按"每帧输出样本数"给, 必须 >= NES_AUDIO_FRAME_SAMPLES */
+#define NES_AUDIO_TMP_MAX_SAMPLES   NES_AUDIO_FRAME_SAMPLES
 #define NES_AUDIO_RING_DEPTH        8U
-#define NES_AUDIO_LP_SHIFT          3
+/* 一阶低通的 pole: y += (x-y) >> SHIFT。滤波在**输出采样率**上运行, 所以同一个
+ * SHIFT 在不同采样率下截止频率差 3 倍 —— 输出从 48k 改到 16k 时同步把 3 调成 2,
+ * 让截止频率与之前接近 (原 ~950Hz @48k, 现 ~640Hz @16k), 避免听感突然变闷。
+ * 这个值影响音色, 需要试听后微调。 */
+#define NES_AUDIO_LP_SHIFT          2
 #define NES_AUDIO_NOISE_GATE        96
+#endif
+
+#if (NES_ENABLE_SOUND == 1)
+/* 播放流是整机共享的 (见 lisa_player_adapter.h 契约), DMA 粒度固定
+ * APP_AUDIO0_DMA_SAMPLES; 每帧 266 样本先在这里累积到它的整数倍再写,
+ * 否则不足一个 DMA buffer 的写入会被底层补静音 -> 声音断续。
+ * 容量 = 一个整批 (2×256) + 一帧余量; 放 PSRAM (本任务栈只有 2KB)。 */
+static int16_t *g_audio_dma_buf = NULL;
+static uint32_t g_audio_dma_len = 0;
+#define NES_AUDIO_DMA_BUF_SAMPLES ((APP_AUDIO0_DMA_SAMPLES * 2U) + NES_AUDIO_FRAME_SAMPLES)
 #endif
 
 static inline int16_t game_nes_clip_s16(int32_t x)
@@ -407,28 +440,149 @@ int nes_log_printf(const char *format, ...)
 }
 
 #if (NES_ENABLE_SOUND == 1)
+
+/* ------------------------------------------------------------------ */
+/* audio0 让出 / 收回                                                   */
+/* ------------------------------------------------------------------ */
+
+/* 复位音频环 + 输出累积 (让出期间核心仍在写? 不会 —— 让出时 g_audio_dev 为 NULL,
+ * game_nes_sound_output_pcm 直接早退; 但恢复前清一次更保险) */
+static void game_nes_audio_reset_ring(void)
+{
+    taskENTER_CRITICAL();
+    g_audio_ring_wr = 0;
+    g_audio_ring_rd = 0;
+    g_audio_ring_count = 0;
+    taskEXIT_CRITICAL();
+    g_audio_dma_len = 0;
+    g_audio_lp_state = 0;
+    g_audio_dc_x_prev = 0;
+    g_audio_dc_y_prev = 0;
+}
+
+/* 确保共享播放流 (16kHz) 在跑。
+ * 不自己配置: 采样率与 DMA 粒度由 lisa_player_adapter.h 的共享契约统一定义,
+ * 谁先来谁配置, 后来者直接写 —— 这样任何一方都不需要停流/改采样率,
+ * 也就没有"对方停掉 audio0 导致自己写不进去"的整类问题。 */
+static int game_nes_audio_open_stream(void)
+{
+    if (app_audio0_ensure_play() != 0) {
+        LISA_LOGE(LOG_TAG, "audio0 ensure(%uHz) failed", (unsigned)NES_AUDIO_OUT_RATE);
+        return -1;
+    }
+    return 0;
+}
+
+/* 让出 (静音): 只停掉"喂数据", 不停流。
+ * - 不再 play_stop: 播放流是共享的, 停掉会波及语音侧 (历史故障: 提示音写进
+ *   已停的流 -> 渲染线程永久阻塞 -> 播放器卡在 PLAYING -> TTS 被焦点策略取消);
+ * - 底层在 DMA 队列空时会自动用静音 buffer 补位, 所以不写 = 静音;
+ * - g_audio_dev 置 NULL 让模拟器切到时间兜底节拍 (正常 60fps 节拍来自音频环的
+ *   DMA 背压; 让出后没有背压, 不切的话模拟器会全速空转)。 */
+static void game_nes_audio_hold(void)
+{
+    if (g_audio_pa_ref_held) {
+        pa_manager_control(0, 0);   /* 语音侧自己按需开关功放 */
+        g_audio_pa_ref_held = false;
+    }
+    g_audio_dev = NULL;
+    g_audio_dma_len = 0;
+    LISA_LOGI(LOG_TAG, "audio0 yielded to voice assistant (game audio muted)");
+}
+
+/* 收回: 重新以共享契约"确保在跑" + 重新持有 PA 引用 (采样率不变, 无需重配) */
+static void game_nes_audio_retake(void)
+{
+    g_audio_dev = lisa_device_get(AUDIO_DEVICE);
+    if (!g_audio_dev) {
+        LISA_LOGW(LOG_TAG, "audio0 device unavailable on retake");
+        return;
+    }
+    if (game_nes_audio_open_stream() != 0) {
+        g_audio_dev = NULL;
+        return;
+    }
+    game_nes_audio_reset_ring();
+
+    pa_manager_control(1, 0);
+    g_audio_pa_ref_held = true;
+    LISA_LOGI(LOG_TAG, "audio0 reclaimed, game audio restored");
+}
+
+/* src/category 的 weak 钩子 (音频独占者提供 strong 实现)。
+ * 唤醒词路径与手柄 L1 都会先调它, 请游戏把游戏声音静下来, 再开始语音交互。
+ * 这里做有界等待, 确认音频任务已经停止喂数据。 */
+void voice_audio_owner_yield(void)
+{
+    if (g_audio_yielded) {
+        return;                     /* 已经在让出态 */
+    }
+    if (!g_audio_task_running) {
+        return;                     /* 游戏音频没在跑 (未初始化 / 已 deinit) */
+    }
+
+    g_audio_yield_req = true;
+    for (uint32_t i = 0; i < 40U && !g_audio_yielded; i++) {
+        lisa_thread_mdelay(10);
+    }
+    if (!g_audio_yielded) {
+        LISA_LOGW(LOG_TAG, "audio0 yield not confirmed within 400ms");
+    }
+}
+
 static void game_nes_audio_task(void *arg)
 {
     (void)arg;
 
     uint32_t last_check_ms = game_nes_now_ms();
+    uint32_t hold_start_ms = 0;
 
     while (g_audio_task_running) {
-        /* 周期性健康检查 (每 1s, 限流): audio0 的播放流若被产品侧停止/抢走
-         * (状态非 RUNNING), 本任务作为唯一所有者把它重配回 48kHz 并重启。
+        uint32_t now = game_nes_now_ms();
+
+        if (!g_audio_dma_buf) {     /* 分配失败时不该起任务; 兜底防越界 */
+            lisa_thread_mdelay(50);
+            continue;
+        }
+
+        /* 让出态: 等语音侧不再用 audio0 (会话结束 / 提示音与 TTS 播完)。
+         * 会话自然结束、L2 主动退出、断网等路径都会收敛到"没人用了",
+         * 所以这里轮询判断比逐个订阅消息更不容易漏。 */
+        if (g_audio_yield_req) {
+            if (!g_audio_yielded) {
+                game_nes_audio_hold();
+                g_audio_yielded = true;
+                hold_start_ms = now;
+            } else if ((now - hold_start_ms) >= NES_AUDIO_YIELD_MAX_MS) {
+                LISA_LOGW(LOG_TAG, "voice still holds audio0 after %us, force reclaim",
+                          (unsigned)(NES_AUDIO_YIELD_MAX_MS / 1000U));
+                g_audio_yield_req = false;      /* 下一轮收回 */
+            } else if ((now - hold_start_ms) >= NES_AUDIO_YIELD_GRACE_MS &&
+                       !voice_audio_in_use()) {
+                g_audio_yield_req = false;      /* 下一轮收回 */
+                LISA_LOGI(LOG_TAG, "voice released audio0, restoring game audio");
+            }
+            lisa_thread_mdelay(50);
+            continue;
+        }
+
+        if (g_audio_yielded) {
+            game_nes_audio_retake();
+            g_audio_yielded = false;
+            last_check_ms = game_nes_now_ms();
+            continue;
+        }
+
+        /* 周期性健康检查 (每 1s, 限流): 共享播放流若被停掉/抢走 (状态非 RUNNING),
+         * 幂等把它按共享契约拉回来。采样率全机统一, 所以这里不再"重配 48kHz",
+         * 也不会改到语音侧正在用的参数。
          * 注意: 本任务优先级很高(-3), 任何分支都必须 sleep, 绝不能 busy-loop,
          * 否则会饿死 gp_disc/gp_ws/nes_game 及日志线程。 */
-        uint32_t now = game_nes_now_ms();
         if (g_audio_dev && (now - last_check_ms) >= 1000U) {
             last_check_ms = now;
 
-            lisa_audio_status_t st = LISA_AUDIO_STATUS_IDLE;
-            if (lisa_audio_ioctl(g_audio_dev, LISA_AUDIO_IOCTL_PLAY_GET_STATUS, &st) == LISA_DEVICE_OK
-                && st != LISA_AUDIO_STATUS_RUNNING) {
-                LISA_LOGW(LOG_TAG, "audio0 非运行态(%d), 重配 48kHz 并重启", (int)st);
-                lisa_audio_play_stop(g_audio_dev);
-                lisa_audio_play_config(g_audio_dev, &g_play_config);
-                lisa_audio_play_start(g_audio_dev);
+            if (game_nes_audio_open_stream() != 0) {
+                LISA_LOGW(LOG_TAG, "audio0 not running, ensure failed");
             }
 
             if (!g_audio_pa_ref_held) {     /* 兜底: 确认功放引用仍持有 */
@@ -450,10 +604,26 @@ static void game_nes_audio_task(void *arg)
         g_audio_ring_count--;
         taskEXIT_CRITICAL();
 
-        int16_t *frame = g_audio_ring + (slot * NES_AUDIO_FRAME_SAMPLES);
-        if (lisa_audio_play_write(g_audio_dev, frame, NES_AUDIO_FRAME_SAMPLES) <= 0) {
+        const int16_t *frame = g_audio_ring + (slot * NES_AUDIO_FRAME_SAMPLES);
+
+        /* 累积到 DMA 粒度的整数倍再写 (见 g_audio_dma_buf 注释):
+         * 每帧 266 样本, 直接写会让底层给每个不足 256 的 DMA buffer 补静音。 */
+        memcpy(g_audio_dma_buf + g_audio_dma_len, frame,
+               NES_AUDIO_FRAME_SAMPLES * sizeof(int16_t));
+        g_audio_dma_len += NES_AUDIO_FRAME_SAMPLES;
+        if (g_audio_dma_len < APP_AUDIO0_DMA_SAMPLES) {
+            continue;   /* 还不够一个 DMA buffer, 继续攒 */
+        }
+
+        uint32_t out = (g_audio_dma_len / APP_AUDIO0_DMA_SAMPLES) * APP_AUDIO0_DMA_SAMPLES;
+        if (lisa_audio_play_write(g_audio_dev, g_audio_dma_buf, out) <= 0) {
             /* 写入异常: 交给下一次健康检查恢复; 这里必须 sleep 再继续 */
             lisa_thread_mdelay(10);
+        }
+        g_audio_dma_len -= out;
+        if (g_audio_dma_len > 0U) {
+            memmove(g_audio_dma_buf, g_audio_dma_buf + out,
+                    g_audio_dma_len * sizeof(int16_t));
         }
     }
 
@@ -618,31 +788,6 @@ static int game_nes_audio_init(void)
         return 0;
     }
 
-    lisa_audio_play_config_t play_config = {
-        .format = {
-            .sample_rate = NES_AUDIO_OUT_RATE,
-            .channels = NES_AUDIO_OUT_CHANNELS,
-            .sample_bits = NES_AUDIO_OUT_BITS,
-        },
-        .gain = {
-            .analog_gain = -6,
-            .digital_gain = -6,
-        },
-        .buffer_count = NES_AUDIO_OUT_BUF_COUNT,
-        .buffer_samples = NES_AUDIO_OUT_BUF_SAMPLES,
-    };
-    g_play_config = play_config;    /* 保存: 抢占恢复时需要原样重配 */
-
-    /* 产品侧 (唤醒 AEC 参考) 开机即占用 audio0 播放; 先停才能重配 48kHz */
-    lisa_audio_play_stop(g_audio_dev);
-
-    int ret = lisa_audio_play_config(g_audio_dev, &play_config);
-    if (ret != LISA_DEVICE_OK) {
-        LISA_LOGE(LOG_TAG, "Audio play config failed: %d", ret);
-        g_audio_dev = NULL;
-        return 0;
-    }
-
     g_audio_pcm16 = (int16_t *)exram_malloc(4, sizeof(int16_t) * NES_AUDIO_TMP_MAX_SAMPLES);
     if (!g_audio_pcm16) {
         LISA_LOGE(LOG_TAG, "Audio buffer alloc failed");
@@ -658,16 +803,25 @@ static int game_nes_audio_init(void)
         g_audio_dev = NULL;
         return 0;
     }
-    g_audio_ring_wr = 0;
-    g_audio_ring_rd = 0;
-    g_audio_ring_count = 0;
-    g_audio_lp_state = 0;
-    g_audio_dc_x_prev = 0;
-    g_audio_dc_y_prev = 0;
+    game_nes_audio_reset_ring();
 
-    ret = lisa_audio_play_start(g_audio_dev);
-    if (ret != LISA_DEVICE_OK) {
-        LISA_LOGE(LOG_TAG, "Audio play start failed: %d", ret);
+    /* 写 DMA 对齐用 */
+    g_audio_dma_buf = (int16_t *)exram_malloc(4, sizeof(int16_t) * NES_AUDIO_DMA_BUF_SAMPLES);
+    if (!g_audio_dma_buf) {
+        LISA_LOGE(LOG_TAG, "Audio dma buffer alloc failed");
+        exram_free(g_audio_ring);
+        g_audio_ring = NULL;
+        exram_free(g_audio_pcm16);
+        g_audio_pcm16 = NULL;
+        g_audio_dev = NULL;
+        return 0;
+    }
+
+    /* 共享播放流: 已在跑就直接用 (通常是唤醒引擎开机建的 16k 流),
+     * 没在跑才按共享契约建。不停流、不改采样率。 */
+    if (game_nes_audio_open_stream() != 0) {
+        exram_free(g_audio_dma_buf);
+        g_audio_dma_buf = NULL;
         exram_free(g_audio_ring);
         g_audio_ring = NULL;
         exram_free(g_audio_pcm16);
@@ -680,7 +834,8 @@ static int game_nes_audio_init(void)
     if (xTaskCreate(game_nes_audio_task, "nes_audio", 2048, NULL, configMAX_PRIORITIES - 3, &g_audio_task) != pdPASS) {
         LISA_LOGE(LOG_TAG, "Audio task create failed");
         g_audio_task_running = 0;
-        lisa_audio_play_stop(g_audio_dev);
+        exram_free(g_audio_dma_buf);
+        g_audio_dma_buf = NULL;
         exram_free(g_audio_ring);
         g_audio_ring = NULL;
         exram_free(g_audio_pcm16);
@@ -689,7 +844,7 @@ static int game_nes_audio_init(void)
         return 0;
     }
 
-    LISA_LOGI(LOG_TAG, "Audio playback started (%dHz)", (int)NES_AUDIO_OUT_RATE);
+    LISA_LOGI(LOG_TAG, "Audio playback started (%dHz, shared stream)", (int)NES_AUDIO_OUT_RATE);
 
     /* 关键: NES 绕过产品 app_player 直接写 audio0, 产品功放 (PA) 只由 app_player
      * 打开, 提示音播完即关 -> 游戏中功放常闭, 听不到任何声音。
@@ -697,6 +852,14 @@ static int game_nes_audio_init(void)
     pa_manager_control(1, 0);
     g_audio_pa_ref_held = true;
     LISA_LOGI(LOG_TAG, "PA ref held for game audio");
+
+    /* 语音会话正在占用 audio0 (例如游戏中途被唤醒): 别抢, 直接进入让出态,
+     * 由音频任务在语音侧放手后收回。 */
+    if (g_audio_yield_req) {
+        LISA_LOGI(LOG_TAG, "voice owns audio0 during init, start in yielded state");
+        g_audio_yielded = true;
+        game_nes_audio_hold();
+    }
     return 0;
 }
 
@@ -708,15 +871,19 @@ static void game_nes_audio_deinit(void)
         g_audio_task = NULL;
     }
 
+    /* 让出态下 audio0 已经交回语音侧, 这里不能再碰它 */
+    g_audio_yield_req = false;
+    g_audio_yielded = false;
+
     if (g_audio_pa_ref_held) {
         pa_manager_control(0, 0);   /* 释放游戏持有的 PA 引用 */
         g_audio_pa_ref_held = false;
     }
 
-    if (g_audio_dev) {
-        lisa_audio_play_flush(g_audio_dev);
-        lisa_audio_play_stop(g_audio_dev);
-    }
+    /* 播放流是整机共享的 (语音侧随时可能在用), 停它会把别人一起弄哑,
+     * 所以这里只放弃自己的设备句柄, 不 stop/flush。 */
+    g_audio_dev = NULL;
+    g_audio_dma_len = 0;
     if (g_audio_ring) {
         exram_free(g_audio_ring);
         g_audio_ring = NULL;
@@ -725,7 +892,10 @@ static void game_nes_audio_deinit(void)
         exram_free(g_audio_pcm16);
         g_audio_pcm16 = NULL;
     }
-    g_audio_dev = NULL;
+    if (g_audio_dma_buf) {
+        exram_free(g_audio_dma_buf);
+        g_audio_dma_buf = NULL;
+    }
 }
 #endif
 

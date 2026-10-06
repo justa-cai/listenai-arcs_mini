@@ -1,5 +1,6 @@
 #include "voice_player_comm.h"
 #include "app_player.h"
+#include "voice_cloud.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -366,6 +367,38 @@ bool voice_player_is_audio_active(void)
            || voice_player_state_is_audio_active(miniapp_player)
 #endif
            ;
+}
+
+/* ==================== audio0 独占仲裁 ==================== */
+
+/*
+ * audio0 是单实例: 语音侧 (唤醒引擎的播放流 / 提示音 / TTS) 与"绕过 app_player
+ * 直接写 audio0"的功能 (目前是 NES 游戏) 都要用它, 且采样率不同 (16k vs 48k),
+ * 底层在 RUNNING 状态还会拒绝重配。所以唤醒时必须让独占者先把流停干净,
+ * 语音侧再重建 16kHz —— 顺序反了会话就直接哑掉。
+ *
+ * src 侧只暴露两个东西: 唤醒时调 voice_audio_owner_yield() 请对方让出;
+ * 让出方自己调 voice_audio_in_use() 判断语音侧什么时候不再占用。
+ * yield 的实现由独占者提供 (weak 空实现, NES port 里是 strong 版)。
+ */
+__attribute__((weak)) void voice_audio_owner_yield(void)
+{
+    /* 没有独占 audio0 的功能时无需做任何事 */
+}
+
+bool voice_audio_in_use(void)
+{
+    /* 会话进行中 (含等提示音阶段) —— 锁-free 读 */
+    if (voice_cloud_is_session_active()) {
+        return true;
+    }
+    /* TTS 用事件标志判断, 不取播放器锁 (该接口专门为时序敏感路径提供) */
+    if (voice_player_tts_is_active()) {
+        return true;
+    }
+    /* 其余 (唤醒提示音等) 只能查播放器状态, 会取一次 operation_lock;
+     * 只在前两项都不成立时才走到这里 */
+    return voice_player_is_audio_active();
 }
 
 

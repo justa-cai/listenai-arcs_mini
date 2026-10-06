@@ -16,6 +16,8 @@
 #include "voice_msg.h"
 #include "acomp_wakeup.h"
 #include "voice_cloud.h"
+#include "voice_player_comm.h"   /* voice_audio_owner_yield: 唤醒前请独占者让出 audio0 */
+#include "lisa_player_adapter.h" /* app_audio0_ensure_play: audio0 共享 16kHz 播放契约 */
 #include "app_wakeup_debug.h"
 #include "app_wakeup.h"
 
@@ -37,8 +39,7 @@
 #define SAMPLE_RATE         LISA_AUDIO_RATE_16K
 #define SAMPLE_BITS         LISA_AUDIO_BIT_16
 
-
-#define BUFFER_COUNT        12
+/* 录音侧一拍的样本数 (也是 stream 描述符粒度) */
 #define BUFFER_SAMPLES      256
 
 #ifdef CONFIG_BOARD_ARCS_MINI
@@ -229,6 +230,12 @@ static void wakeup_event_handler(uint32_t event, void *event_data, uint32_t even
                 if (now - s_last_wakeup_keyword_tick >= pdMS_TO_TICKS(WAKEUP_KEYWORD_PUB_MIN_INTERVAL_MS)) {
 #ifdef CONFIG_BOARD_ARCS_MINI
                     app_wakeup_audio_diag_begin_wake();
+                    /*
+                     * 先把 audio0 从"独占音频输出的功能"(NES 游戏) 手里要回来,
+                     * 再重建 16kHz 播放流. 顺序不能反: 底层在 RUNNING 状态拒绝
+                     * 重配采样率, 反了就会话收不到音频 (唤醒有反应但不应答).
+                     */
+                    voice_audio_owner_yield();
                     /*
                      * Restore playback before publishing the wake event. The wake tone is a
                      * direct subscriber and may start before the UI processes its activity
@@ -439,38 +446,24 @@ static int start_recording(lisa_device_t *audio_dev)
 
 /**
  * @brief Configure and start playback
+ *
+ * audio0 的采样率/通道/DMA 粒度是全机统一的 (见 lisa_player_adapter.h 的共享契约),
+ * 所以这里不再自己配置, 只做幂等的"确保在跑": 已经在跑 (游戏 / 别人建的共享流)
+ * 就不动它, 空闲才按契约建。增益仍按产品参数在运行时设置 (set_gain 不需要重配)。
  */
 static int start_playback(lisa_device_t *audio_dev)
 {
-    int ret;
+    int ret = app_audio0_ensure_play();
+    if (ret != 0) {
+        LISA_LOGE(LOG_TAG, "Playback ensure failed: %d", ret);
+        return ret;
+    }
 
-    /* Configure playback parameters */
-    lisa_audio_play_config_t play_config = {
-        .format = {
-            .sample_rate = SAMPLE_RATE,
-            .channels = LISA_AUDIO_CH_LEFT,
-            .sample_bits = SAMPLE_BITS,
-        },
-        .gain = {
-            .analog_gain = g_play_analog_gain,
-            .digital_gain = g_play_digital_gain,
-        },
-        .buffer_count = BUFFER_COUNT,
-        .buffer_samples = BUFFER_SAMPLES,
+    lisa_audio_gain_t gain = {
+        .analog_gain = g_play_analog_gain,
+        .digital_gain = g_play_digital_gain,
     };
-
-    ret = lisa_audio_play_config(audio_dev, &play_config);
-    if (ret != LISA_DEVICE_OK) {
-        LISA_LOGE(LOG_TAG, "Play config failed: %d", ret);
-        return ret;
-    }
-
-    /* Start playback */
-    ret = lisa_audio_play_start(audio_dev);
-    if (ret != LISA_DEVICE_OK) {
-        LISA_LOGE(LOG_TAG, "Play start failed: %d", ret);
-        return ret;
-    }
+    lisa_audio_play_set_gain(audio_dev, &gain);
 
 #ifdef CONFIG_LISA_AUDIO_PLAY_ECHO_ENABLE
     LISA_LOGI(LOG_TAG, "Playback started (Echo collection enabled)");
