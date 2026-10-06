@@ -159,9 +159,28 @@ _FAST_FUNC_SRAM void dma_cpy_async(int chn, void *dst, void *src, int32_t size)
     uint32_t dst_addr = (uint32_t)dst;
     uint32_t src_addr = (uint32_t)src;
 
+    /* 串行化：上一笔 async 未完成（事件未到）时先等完成再配置新传输。
+     * thinker tForward 入口的 dma_list 预取与首算子 DMA 会重叠，
+     * 而 dma_channel_configure 对使能中的通道直接返回 -1。
+     * 保守策略：事件未置位即等待（空闲时事件必为上一笔的完成态或已清零后
+     * 首次调用会短暂自旋——用 dma_copy_done 门控避免空等）。 */
+    if (dma_copy_done == false) {
+        /* 上一笔在途：等其完成（ISR 会置 dma_copy_done）并清事件 */
+        uint8_t end_event = DMA_EVENT_TRANSFER_COMPLETE | DMA_EVENT_ERROR;
+        while ((s_DMAEvents[chn] & end_event) == 0) {
+        }
+        s_DMAEvents[chn] = 0;
+        dma_copy_done = true;
+    }
+
     dma_cpy_start_cycle = __get_rv_cycle();
 
 #if (ALG_DMA_WIDTH == DMA_WIDTH_WORD)
+    if ((size & 0x3) || (src_addr & 0x3) || (dst_addr & 0x3)) {
+        /* DMA 对齐诊断：打印不满足 4 字节对齐的传输参数 */
+        printf("DMA-ALIGN-ERR: src=0x%08x dst=0x%08x size=%d\r\n",
+               src_addr, dst_addr, size);
+    }
     assert(size > 0 && !(size & 0x3));
     assert(!(src_addr & 0x3) && !(dst_addr & 0x3));
     //size = (size >> 2);

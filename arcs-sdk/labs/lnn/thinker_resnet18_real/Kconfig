@@ -7,7 +7,7 @@ orsource "$ARCS_BASE/labs/lnn/common/arcs/libraries/Kconfig"
 
 config THINKER_RESNET18_REAL_MODEL_ADDR
 	hex "Thinker ResNet18 real model flash address"
-	default 0x30500000
+	default 0x30200000
 	help
 	  XIP flash address of resnet18_arcs.bin. Burn the model at
 	  offset 0x500000 when MEM_FLASH_BASE is 0x30000000.
@@ -32,6 +32,6 @@ config THINKER_RESNET18_REAL_SHARE_POOL_SIZE
 
 config THINKER_RESNET18_REAL_CP_FLASH_BASE
 	hex "Thinker ResNet18 real CP image flash base"
-	default 0x30200000
+	default 0x30600000
 	help
 	  Flash XIP address used by AP Core to boot the CP image.

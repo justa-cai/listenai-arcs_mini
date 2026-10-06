@@ -50,5 +50,10 @@ int main(int argc, char **argv)
         return -1;
     }
 
+    /* ADB shell + reboot recovery：demo 下也能 adb reboot recovery 进 BOOT 烧录 */
+    if (lnn_usb_adb_init() != 0) {
+        LOGW("usb adb init failed (flash via burn_serial.sh)");
+    }
+
     return 0;
 }

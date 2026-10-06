@@ -13,7 +13,9 @@
 #include <lisa_display.h>
 #include <lisa_log.h>
 #include <lisa_thread.h>
+#ifdef CONFIG_LISA_TOUCH_DEVICE
 #include <lisa_touch.h>
+#endif
 #include <lv_port_disp.h>
 #include <lvgl.h>
 #include <stdbool.h>
@@ -26,31 +28,52 @@
 
 static lisa_device_t *display_device;
 static lisa_device_t *camera_device;
+#ifdef CONFIG_LISA_TOUCH_DEVICE
 static lisa_device_t *touch_device;
+#endif
 static lv_obj_t *preview_obj;
 static lv_obj_t *result_label;
 static lv_obj_t *status_label;
 static lv_obj_t *recognize_btn;
 static lv_obj_t *preview_btn;
 static lv_img_dsc_t preview_dsc;
+#ifdef CONFIG_LISA_TOUCH_DEVICE
 static lv_indev_drv_t touch_indev_drv;
+#endif
 
 static uint16_t preview_buf[PREVIEW_WIDTH * PREVIEW_HEIGHT]
     __attribute__((section(".psram.bss"), aligned(64)));
 
 static volatile bool preview_dirty;
+
+/* 帧率与耗时统计（每 5s 打印一次） */
+#define FPS_STAT_WINDOW_MS 5000U
+static volatile uint32_t stat_capture_cnt;
+static volatile uint32_t stat_scale_ms;
+static volatile uint32_t stat_scale_cnt;
+static volatile uint32_t stat_flush_cnt;
+static volatile uint32_t stat_lvhandler_ms;
+static volatile uint32_t stat_lvhandler_cnt;
+static volatile uint32_t stat_uitask_cnt;
+static volatile uint32_t stat_wait_ms;
+static volatile uint32_t stat_wait_max;
+static volatile uint32_t stat_poll_ms;
+static uint32_t stat_window_start;
 static volatile bool preview_frozen;
 static volatile bool recognize_requested;
 static volatile bool request_in_flight;
+#ifdef CONFIG_LISA_TOUCH_DEVICE
 static volatile uint16_t touch_last_x;
 static volatile uint16_t touch_last_y;
 static volatile uint8_t touch_last_state = LV_INDEV_STATE_REL;
+#endif
 
 static uint32_t min_u32(uint32_t a, uint32_t b)
 {
     return a < b ? a : b;
 }
 
+#ifdef CONFIG_LISA_TOUCH_DEVICE
 static void touch_transform_coordinates(lv_coord_t *x, lv_coord_t *y)
 {
     if (x == NULL || y == NULL) {
@@ -138,6 +161,7 @@ static int touch_interrupt_init(lisa_device_t *touch_dev)
     LOGI("touch interrupt mode enabled");
     return 0;
 }
+#endif
 
 static rgb565_window_t make_rgb565_center_window(const uint16_t *src, uint32_t width, uint32_t height)
 {
@@ -159,7 +183,11 @@ static rgb565_window_t make_rgb565_center_window(const uint16_t *src, uint32_t w
 
 static uint16_t rgb565_window_get_pixel(const rgb565_window_t *window, uint32_t x, uint32_t y)
 {
-    return window->pixels[(window->y + y) * window->stride + window->x + x];
+    /* 传感器相对屏幕旋转 90°（逆时针）：输出坐标 (x,y) 采样源窗口 (W-1-y, x)，
+     * 预览与 NN 输入共用同一映射，识别方向与显示方向一致 */
+    uint32_t sx = window->width - 1U - y;
+    uint32_t sy = x;
+    return window->pixels[(window->y + sy) * window->stride + window->x + sx];
 }
 
 static void scale_rgb565_to_preview(const rgb565_window_t *src)
@@ -208,6 +236,27 @@ static void recognize_event_cb(lv_event_t *e)
     lv_label_set_text(result_label, "--");
     update_control_states(false);
 }
+
+#ifndef CONFIG_LISA_TOUCH_DEVICE
+/* 无触摸板型：每 2s 自动触发一次识别（预览冻结 3s 后自动恢复） */
+static void auto_recognize_timer_cb(lv_timer_t *t)
+{
+    (void)t;
+
+    if (request_in_flight) {
+        return;
+    }
+
+    if (!lnn_ap_ready_for_request() || recognize_requested) {
+        return;
+    }
+
+    recognize_requested = true;
+    lv_label_set_text(status_label, "capturing...");
+    lv_label_set_text(result_label, "--");
+    update_control_states(false);
+}
+#endif
 
 static void preview_event_cb(lv_event_t *e)
 {
@@ -356,18 +405,34 @@ void lnn_task_ui(void *arg)
     while (1) {
         if (preview_dirty) {
             preview_dirty = false;
+            stat_flush_cnt++;
             lv_img_set_src(preview_obj, &preview_dsc);
             lv_obj_invalidate(preview_obj);
         }
 
+        stat_uitask_cnt++;
         TickType_t now = xTaskGetTickCount();
         if (lnn_ap_take_status_dirty() || (now - last_result_poll) >= pdMS_TO_TICKS(RESULT_POLL_INTERVAL_MS)) {
             last_result_poll = now;
+            uint32_t t_poll = (uint32_t)xTaskGetTickCount();
             refresh_status_from_ap();
+            stat_poll_ms += (uint32_t)xTaskGetTickCount() - t_poll;
         }
 
+        uint32_t t_lv = (uint32_t)xTaskGetTickCount();
         uint32_t wait_time = lv_task_handler();
-        lisa_thread_mdelay(wait_time > 0U ? wait_time : 5U);
+        stat_lvhandler_ms += (uint32_t)xTaskGetTickCount() - t_lv;
+        stat_lvhandler_cnt++;
+        /* 睡眠上限 15ms：LVGL 返回的 time_till_next 在无脏区时可能偏大，
+         * 免费跑高循环频率可及时消费 preview_dirty，预览不再卡顿 */
+        if (wait_time > 15U || wait_time == 0U) {
+            wait_time = (wait_time == 0U) ? 5U : 15U;
+        }
+        stat_wait_ms += wait_time;
+        if (wait_time > stat_wait_max) {
+            stat_wait_max = wait_time;
+        }
+        lisa_thread_mdelay(wait_time);
     }
 }
 
@@ -380,19 +445,23 @@ int lnn_display_touch_init(void)
 
     lisa_display_config_t display_config = {
         .bus_type = LISA_DISPLAY_BUS_SPI_4WIRE,
+        /* arcs_mini: LCD 挂 spi0，CS/CD/TE 在 gpioa(PAD_A)，RST 在 gpiob，
+         * 背光 PWM 通道 1 高有效（对齐产品 service_brightness 配置） */
         .bus_config = {.spi_4wire =
                            {
-                               .spi_dev = lisa_device_get("spi1"),
-                               .cs_gpio = gpiob_dev,
+                               .spi_dev = lisa_device_get("spi0"),
+                               .cs_gpio = gpioa_dev,
                                .cs_pin = LCD_CS_PIN,
-                               .dc_gpio = gpiob_dev,
+                               .dc_gpio = gpioa_dev,
                                .dc_pin = LCD_CD_PIN,
                                .spi_freq = 50 * 1000 * 1000,
                            }},
+        .te_gpio = gpioa_dev,
+        .te_pin = LCD_TE_PIN,
         .backlight = {.type = LISA_DISPLAY_BACKLIGHT_TYPE_PWM,
-                      .blacklight_polarity = LISA_DISPLAY_BLACKLIGHT_POLARITY_LOW,
-                      .config.pwm = {.channel = 0, .dev = lisa_device_get("pwm0"), .freq = 2000}},
-        .rst_gpio = gpioa_dev,
+                      .blacklight_polarity = LISA_DISPLAY_BLACKLIGHT_POLARITY_HIGH,
+                      .config.pwm = {.channel = 1, .dev = lisa_device_get("pwm0"), .freq = 2000}},
+        .rst_gpio = gpiob_dev,
         .rst_pin = LCD_RST_PIN,
     };
 
@@ -409,6 +478,8 @@ int lnn_display_touch_init(void)
     }
     lv_port_disp_init(display_device);
 
+#ifdef CONFIG_LISA_TOUCH_DEVICE
+    /* arcs_mini 无触摸屏：跳过触摸初始化，用定时自动识别代替按键 */
     touch_device = lisa_device_get(TOUCH_DEVICE);
     if (!lisa_device_ready(touch_device)) {
         LOGE("%s device not ready", TOUCH_DEVICE);
@@ -443,6 +514,12 @@ int lnn_display_touch_init(void)
     if (ret != 0) {
         return ret;
     }
+#else
+    lv_timer_t *auto_timer = lv_timer_create(auto_recognize_timer_cb, 2000, NULL);
+    if (!auto_timer) {
+        return -1;
+    }
+#endif
 
     lisa_display_set_brightness(display_device, 90);
 
@@ -467,8 +544,14 @@ int lnn_camera_init(void)
         .hw_config = {
             .mclk_pad = CSK_IOMUX_PAD_A,
             .mclk_pin = CAM_MCLK_PIN,
+#ifdef CAM_PWDN_PIN
             .pwdn_gpio_dev = lisa_device_get("gpiob"),
             .pwdn_pin = CAM_PWDN_PIN,
+#else
+            /* arcs_mini 板型摄像头无 PWDN 引脚 */
+            .pwdn_gpio_dev = NULL,
+            .pwdn_pin = -1,
+#endif
             .pwdn_delay_us = 0,
             .xclk_delay_us = 0,
             .i2c_dev = i2c_dev,
@@ -537,15 +620,18 @@ void lnn_task_camera(void *arg)
             continue;
         }
 
+        stat_capture_cnt++;
+        uint32_t now = (uint32_t)xTaskGetTickCount();
+
         if (fb->format == LISA_CAMERA_PIXFMT_RGB565 && fb->buf != NULL) {
             rgb565_window_t window = make_rgb565_center_window((const uint16_t *)fb->buf, fb->width, fb->height);
 
+            uint32_t t0 = (uint32_t)xTaskGetTickCount();
             if (recognize_requested) {
                 scale_rgb565_to_preview(&window);
                 if (lnn_ap_submit_window_for_inference(&window) == 0) {
                     recognize_requested = false;
-                    preview_frozen = true;
-                    request_in_flight = true;
+                    request_in_flight = true;   /* 预览继续，结果异步刷新标签 */
                     lnn_ap_mark_status_dirty();
                 } else {
                     recognize_requested = false;
@@ -555,11 +641,43 @@ void lnn_task_camera(void *arg)
             } else if (!preview_frozen) {
                 scale_rgb565_to_preview(&window);
             }
+            stat_scale_ms += (uint32_t)xTaskGetTickCount() - t0;
+            stat_scale_cnt++;
         } else {
             LOGW("unsupported camera frame format=%d", fb->format);
         }
 
         lisa_camera_release_fb(camera_device, fb);
-        vTaskDelay(pdMS_TO_TICKS(10));
+
+        if (stat_window_start == 0U) {
+            stat_window_start = now;
+        } else if (now - stat_window_start >= FPS_STAT_WINDOW_MS) {
+            LOGI("fps-stat: capture=%u.%02u fps, scale=%ums/call, ui-refresh=%u, busy=%u%%, "
+                 "lv_handler=%ums x%u, ui-loop=%u, sleep=%u(max%u), poll=%ums",
+                 (unsigned)((uint64_t)stat_capture_cnt * 100000U / FPS_STAT_WINDOW_MS / 100U),
+                 (unsigned)((uint64_t)stat_capture_cnt * 100000U / FPS_STAT_WINDOW_MS % 100U),
+                 stat_scale_cnt ? stat_scale_ms / stat_scale_cnt : 0U,
+                 stat_flush_cnt,
+                 stat_scale_ms * 100U / FPS_STAT_WINDOW_MS,
+                 stat_lvhandler_cnt ? stat_lvhandler_ms / stat_lvhandler_cnt : 0U,
+                 stat_lvhandler_cnt,
+                 stat_uitask_cnt,
+                 stat_wait_ms,
+                 stat_wait_max,
+                 stat_poll_ms);
+            stat_capture_cnt = 0;
+            stat_scale_ms = 0;
+            stat_scale_cnt = 0;
+            stat_flush_cnt = 0;
+            stat_lvhandler_ms = 0;
+            stat_lvhandler_cnt = 0;
+            stat_uitask_cnt = 0;
+            stat_wait_ms = 0;
+            stat_wait_max = 0;
+            stat_poll_ms = 0;
+            stat_window_start = now;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(3));
     }
 }

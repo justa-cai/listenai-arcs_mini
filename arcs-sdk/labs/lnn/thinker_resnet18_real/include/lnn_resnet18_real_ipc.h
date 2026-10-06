@@ -14,8 +14,8 @@
 #define LNN_RESNET18_REAL_MBOX_CH         (6U)
 
 #define LNN_RESNET18_REAL_INPUT_CHANNELS  (3U)
-#define LNN_RESNET18_REAL_INPUT_WIDTH     (32U)
-#define LNN_RESNET18_REAL_INPUT_HEIGHT    (32U)
+#define LNN_RESNET18_REAL_INPUT_WIDTH     (192U)
+#define LNN_RESNET18_REAL_INPUT_HEIGHT    (192U)
 #define LNN_RESNET18_REAL_INPUT_BYTES     \
     (LNN_RESNET18_REAL_INPUT_CHANNELS * LNN_RESNET18_REAL_INPUT_WIDTH * LNN_RESNET18_REAL_INPUT_HEIGHT)
 
@@ -45,7 +45,11 @@ typedef struct __attribute__((aligned(64))) {
     volatile uint32_t label_len;
     char result_label[LNN_RESNET18_REAL_LABEL_MAX];
     char message[LNN_RESNET18_REAL_MESSAGE_MAX];
-    int8_t input[LNN_RESNET18_REAL_INPUT_BYTES];
+    /* YOLO 输入张量 110KB 放不进 12KB 的 IPC RAM：
+     * 张量本体在 CP 侧共享 PSRAM（.lnn.input 段），此处只交接地址。
+     * CP 写入后 flush D-cache；AP 侧 DCache 常关，直接读。 */
+    volatile uint32_t input_addr;
+    volatile uint32_t reserved[15]; /* 补齐到 64 字节对齐 */
 } lnn_resnet18_real_ipc_t;
 
 typedef struct __attribute__((aligned(4))) {

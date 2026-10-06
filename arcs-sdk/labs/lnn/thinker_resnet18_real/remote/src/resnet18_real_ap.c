@@ -42,7 +42,10 @@
 
 static uint8_t thinker_psram_pool[CONFIG_THINKER_RESNET18_REAL_PSRAM_POOL_SIZE] __psram_noinit__
     __attribute__((aligned(MEMORY_ALIGN)));
-static int8_t input_tensor[LNN_RESNET18_REAL_INPUT_BYTES] __psram_noinit__ __attribute__((aligned(MEMORY_ALIGN)));
+/* 输入张量本池：Luna DMA 无法访问 CP 侧 PSRAM（PMP 隔离），
+ * 必须拷贝到 AP 自己的 PSRAM 再喂 tSetInput（对齐原版实现） */
+static int8_t input_tensor[LNN_RESNET18_REAL_INPUT_BYTES] __psram_noinit__ __attribute__((aligned(64)));
+static char latest_result[32];
 static uint8_t thinker_share_pool[CONFIG_THINKER_RESNET18_REAL_SHARE_POOL_SIZE]
     __attribute__((section(".thinker.apram.noinit"), aligned(MEMORY_ALIGN)));
 static tMemory memory_list[7];
@@ -52,6 +55,7 @@ static tExecHandle executor;
 static bool initialized;
 static bool dma_ready;
 
+#if 0 /* CIFAR 标签表：YOLO 结构验证阶段不用 */
 static const char *results[] = {
     "apple",      "aquarium_fish", "baby",         "bear",       "beaver",      "bed",         "bee",
     "beetle",     "bicycle",       "bottle",       "bowl",       "boy",         "bridge",      "bus",
@@ -68,6 +72,7 @@ static const char *results[] = {
     "table",      "tank",          "telephone",    "television", "tiger",       "tractor",     "train",
     "trout",      "tulip",         "turtle",       "wardrobe",   "whale",       "willow_tree", "wolf",
     "woman",      "worm"};
+#endif
 
 static uint32_t align_up(uint32_t value, uint32_t align)
 {
@@ -149,7 +154,13 @@ static void release_dma(void)
 int resnet18_real_init(void)
 {
     const int8_t *model_data = (const int8_t *)(uintptr_t)CONFIG_THINKER_RESNET18_REAL_MODEL_ADDR;
-    uint64_t model_size = CONFIG_THINKER_RESNET18_REAL_MODEL_SIZE;
+    /* pkg 头偏移 64 存真实总长：换模型无需改固件（CONFIG 仅作上限校验） */
+    uint64_t model_size = *(const uint32_t *)(const void *)(model_data + 64);
+    if (model_size == 0U || model_size > CONFIG_THINKER_RESNET18_REAL_MODEL_SIZE) {
+        LOGE("pkg size %llu out of range (max 0x%x)", (unsigned long long)model_size,
+             (uint32_t)CONFIG_THINKER_RESNET18_REAL_MODEL_SIZE);
+        return -1;
+    }
 
     if (initialized) {
         return 0;
@@ -228,54 +239,60 @@ int resnet18_real_run_tensor(const int8_t *input_data, const char **result_label
         return -1;
     }
 
-    memcpy(input_tensor, input_data, sizeof(input_tensor));
-
+    /* CPU 拷贝 CP 共享 PSRAM 输入 → AP 本池（Luna DMA 不可跨核访问） */
+    memcpy(input_tensor, input_data, LNN_RESNET18_REAL_INPUT_BYTES);
     if (input.dptr_ != NULL) {
         memcpy(input.dptr_, input_data, LNN_RESNET18_REAL_INPUT_BYTES);
     } else {
-        input.dptr_ = input_tensor;
+        input.dptr_ = (addr_type)(uintptr_t)input_tensor;
         input.dev_type_ = PSRAM;
     }
 
     LOGI("input: ptr=%p dev=%u dtype=0x%x ndim=%u bytes=%u", input.dptr_, input.dev_type_, input.dtype_,
          input.shape_.ndim_, input_bytes);
     RETURN_IF_THINKER_FAILED(tSetInput(executor, 0, &input));
-    LOGI("forward start");
+
+    int32_t out_cnt = tGetOutputCount(model);
+    LOGI("forward start (outputs=%d)", out_cnt);
     log_flush();
     RETURN_IF_THINKER_FAILED(tForward(executor));
     LOGI("forward done");
 
-    tData output;
-    RETURN_IF_THINKER_FAILED(tGetOutput(executor, 0, &output));
-
-    if (output.dptr_ == NULL || output.dtype_ != Int8 || output.shape_.ndim_ < 2U) {
-        LOGE("unexpected output: ptr=%p dtype=0x%x ndim=%u", output.dptr_, output.dtype_, output.shape_.ndim_);
-        return -1;
-    }
-
-    uint32_t scores_cnt = 1U;
-    for (uint32_t i = 0; i < output.shape_.ndim_; i++) {
-        scores_cnt *= output.shape_.dims_[i];
-    }
-
-    if (scores_cnt == 0U || scores_cnt > (sizeof(results) / sizeof(results[0])) || DTYPE_SIZE(output.dtype_) != 1U) {
-        LOGE("unexpected output size: %u", scores_cnt);
-        return -1;
-    }
-
-    int8_t *scores = (int8_t *)output.dptr_;
+    /* YOLO 结构验证阶段：打印全部输出 shape，对 out0 做 argmax 冒烟 */
     uint32_t best_index = 0;
-    int8_t best_score = scores[0];
-    for (uint32_t i = 1; i < scores_cnt; i++) {
-        if (scores[i] > best_score) {
-            best_index = i;
-            best_score = scores[i];
+    int8_t best_score = -128;
+
+    for (int32_t o = 0; o < out_cnt; o++) {
+        tData output;
+        RETURN_IF_THINKER_FAILED(tGetOutput(executor, o, &output));
+        if (output.dptr_ == NULL || DTYPE_SIZE(output.dtype_) != 1U) {
+            LOGE("unexpected output %d: ptr=%p dtype=0x%x", o, output.dptr_, output.dtype_);
+            return -1;
+        }
+        uint32_t total = 1U;
+        char dims[48] = "";
+        for (uint32_t i = 0; i < output.shape_.ndim_ && i < 5U; i++) {
+            total *= output.shape_.dims_[i];
+            char d[12];
+            snprintf(d, sizeof(d), "%s%u", i ? "x" : "", output.shape_.dims_[i]);
+            strncat(dims, d, sizeof(dims) - strlen(dims) - 1);
+        }
+        LOGI("out%d: shape=%s total=%u ptr=%p", o, dims, total, output.dptr_);
+        if (o == 0) {
+            int8_t *scores = (int8_t *)output.dptr_;
+            for (uint32_t i = 0; i < total; i++) {
+                if (scores[i] > best_score) {
+                    best_index = i;
+                    best_score = scores[i];
+                }
+            }
         }
     }
 
-    LOGI("best score: %d, index: %u, label: %s", best_score, best_index, results[best_index]);
+    LOGI("out0 argmax: score=%d index=%u", best_score, best_index);
 
-    *result_label = results[best_index];
+    snprintf(latest_result, sizeof(latest_result), "yolo o0 amax=%d@%u", best_score, best_index);
+    *result_label = latest_result;
     *result_score = best_score;
     *result_index = (int32_t)best_index;
 

@@ -7,6 +7,7 @@
 
 #include <lisa_log.h>
 #include <stdint.h>
+#include <cache.h>
 #include <stdio.h>
 
 #include "lnn_resnet18_real_cp.h"
@@ -15,27 +16,25 @@
 #define RGB565_GREEN(value) (uint8_t)((((value) >> 5) & 0x3FU) << 2)
 #define RGB565_BLUE(value)  (uint8_t)(((value) & 0x1FU) << 3)
 
-static const double cifar100_train_mean[] = {0.5070751592371323, 0.48654887331495095, 0.4409178433670343};
-static const double cifar100_train_std[] = {0.2673342858792401, 0.2564384629170883, 0.27615047132568404};
-
+/* YOLO 输入归一化 img/255 -> 双极性 int8（整数运算，避免 110K 次 double） */
 static int8_t quantize_input(uint8_t value, uint32_t channel)
 {
-    double normalized = ((double)value / 255.0 - cifar100_train_mean[channel]) / cifar100_train_std[channel];
-    double scaled = normalized * 64.0;
-    int32_t q = (int32_t)(scaled >= 0.0 ? (scaled + 0.5) : (scaled - 0.5));
-
-    if (q > 127) {
-        q = 127;
-    } else if (q < -128) {
-        q = -128;
-    }
-
+    (void)channel;
+    int32_t q = ((int32_t)value * 254 + 127) / 255 - 127;
     return (int8_t)q;
 }
 
+/* YOLO 输入张量 110KB：放 CP 共享 PSRAM，AP 直接经 input_addr 读取 */
+static int8_t lnn_input_tensor[LNN_RESNET18_REAL_INPUT_BYTES]
+    __attribute__((section(".psram.bss"), aligned(64)));
+
 static uint16_t rgb565_window_get_pixel(const rgb565_window_t *window, uint32_t x, uint32_t y)
 {
-    return window->pixels[(window->y + y) * window->stride + window->x + x];
+    /* 传感器相对屏幕旋转 90°（逆时针）：输出坐标 (x,y) 采样源窗口 (W-1-y, x)，
+     * 预览与 NN 输入共用同一映射，识别方向与显示方向一致 */
+    uint32_t sx = window->width - 1U - y;
+    uint32_t sy = x;
+    return window->pixels[(window->y + sy) * window->stride + window->x + sx];
 }
 
 static void preprocess_rgb565_to_tensor(const rgb565_window_t *src, int8_t *dst)
@@ -91,7 +90,7 @@ int lnn_ap_submit_window_for_inference(const rgb565_window_t *window)
     }
     prev_state = ipc->state;
 
-    int8_t *input = (int8_t *)ipc->input;
+    int8_t *input = lnn_input_tensor;
     preprocess_rgb565_to_tensor(window, input);
 
     ipc->seq++;
@@ -99,6 +98,8 @@ int lnn_ap_submit_window_for_inference(const rgb565_window_t *window)
     ipc->input_width = LNN_RESNET18_REAL_INPUT_WIDTH;
     ipc->input_height = LNN_RESNET18_REAL_INPUT_HEIGHT;
     ipc->input_bytes = LNN_RESNET18_REAL_INPUT_BYTES;
+    ipc->input_addr = (uint32_t)(uintptr_t)lnn_input_tensor;
+    HAL_FlushDCache_by_Addr((uint32_t *)lnn_input_tensor, sizeof(lnn_input_tensor));
     ipc->result_label[0] = '\0';
     ipc->label_len = 0;
     ipc->result_score = 0;

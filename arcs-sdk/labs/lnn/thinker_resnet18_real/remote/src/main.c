@@ -313,7 +313,7 @@ static void inference_task(void *arg)
         int8_t score = 0;
         int32_t index = -1;
         ap_phase = AP_PHASE_FORWARD;
-        int ret = resnet18_real_run_tensor((const int8_t *)ipc->input, &label, &score, &index);
+        int ret = resnet18_real_run_tensor((const int8_t *)(uintptr_t)ipc->input_addr, &label, &score, &index);
 
         if (ret == 0 && label != NULL) {
             char *dst = (char *)ipc->result_label;

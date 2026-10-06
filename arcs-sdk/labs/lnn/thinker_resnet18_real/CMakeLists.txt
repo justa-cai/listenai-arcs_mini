@@ -18,10 +18,16 @@ target_sources(${PROJECT_NAME} PRIVATE
     src/ipc_client.c
     src/ipc_shared.c
     src/main.c
+    src/lnn_usb_adb.c
+    src/usb_descriptors.c
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     include
+)
+
+listenai_include_directories(
+    src
 )
 
 include(ExternalProject)

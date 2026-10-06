@@ -1,100 +1,216 @@
 #!/bin/bash
-# =============================================================================
-# auto.sh - 一键烧录 arcs-mini app 分区 (单设备版, 自动识别正确的 adb 设备)
+# auto.sh - Yolo/master LNN demo 一键构建 + ADB 烧录脚本
 #
 # 用法:
-#   ./auto.sh                # 自动探测 listenai 开发板 (排除手机等无关设备)
-#   ./auto.sh FFBBCCDDEE001124   # 显式指定 adb serial
+#   ./auto.sh            # 只烧 AP+CP+模型（默认，不构建）
+#   ./auto.sh build      # 构建 demo + 烧录 AP+CP+模型
+#   ./auto.sh app        # 只烧 AP+CP（跳过 2MB 模型，快速迭代）
+#   ./auto.sh build app  # 构建 + 只烧 AP+CP
+#   ./auto.sh boot       # 额外烧录 boot 分区（res/arcs-mini/boot.bin → 0x0，
+#                        # 仅 boot 本身变更时用；烧错 boot 需串口救砖）
+#   ./auto.sh log        # 抓 15 秒串口日志到 ./tmp/run-log.txt
 #
-# 流程: 重置串口日志 -> 断开网络 adb 干扰源 -> 目标设备进 recovery -> push app 镜像 -> 重启
-# 注意: 构建目录是 build-nes (构建: ./build.sh -S ./apps/arcs-mini -B build-nes -DBOARD=arcs_mini)
-# =============================================================================
-set -euo pipefail
-set -x
+# 环境变量:
+#   BOARD        板型（默认 arcs_mini）
+#   BUILD_DIR    构建目录（默认 build-lnn）
+#   DEVICE       显式指定 adb 设备序列号（普通模式 or BOOT- 序列号）
+#   WAIT_DEVICE  等待设备插入的秒数（默认 15）
+#   WAIT_RECOVERY 等待进入 recovery 的秒数（默认 60）
+#   DEBUG=1      打印脚本执行轨迹（set -x）
+#
+# 设备模式自动侦测（按 adb devices 序列号前缀）:
+#   BOOT-*  → 已在 BOOT recovery 烧录模式，直接烧
+#   其他    → 普通模式（产品固件或带 ADB 的 demo），自动 reboot recovery 后烧
+#   无设备  → 等待插入；demo 无 ADB 时需 burn_serial.sh 串口救援
+#
+# 分区映射（产品分区表，0x0 boot 永不触碰）:
+#   AP@0x40000  CP@0x600000  模型@0x200000(借 wake_word 分区)
+
+set -e
+set -o pipefail
+[ -n "$DEBUG" ] && set -x
+
+# 通知正在运行的 picocom（USR1），避免串口被日志占用
+pkill -USR1 picocom 2>/dev/null || true
 
 cd "$(dirname "$0")"
 
-# ---- 0. 重置串口日志: 给 picocom 发 SIGUSR1, 使其重置 log.txt ----
-PICOCOM_PAT='^picocom .*--logfile log\.txt'
-if pgrep -f "$PICOCOM_PAT" >/dev/null 2>&1; then
-    # picocom 经 sudo 启动(root 属主), 需要 sudo 发信号
-    sudo pkill -USR1 -f "$PICOCOM_PAT" || true
-    sleep 0.3
-    echo "==> 已发送 SIGUSR1, picocom 重置 log.txt"
+BOARD="${BOARD:-arcs_mini}"
+BUILD_DIR="${BUILD_DIR:-build-lnn}"
+DEMO_DIR="arcs-sdk/labs/lnn/thinker_resnet18_real"
+WAIT_DEVICE="${WAIT_DEVICE:-15}"
+WAIT_RECOVERY="${WAIT_RECOVERY:-60}"
+MODE=""
+
+GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; NC='\033[0m'
+
+# 参数解析：build / app / boot / log 任意组合
+DO_BUILD=0
+FLASH_MODEL=1
+FLASH_BOOT=0
+for arg in "$@"; do
+    case "$arg" in
+    build) DO_BUILD=1 ;;
+    app) FLASH_MODEL=0 ;;
+    boot) FLASH_BOOT=1 ;;
+    log) MODE="log" ;;
+    *) echo "未知参数: $arg（可用: build | app | boot | log）"; exit 1 ;;
+    esac
+done
+[ "$MODE" = "log" ] && DO_BUILD=0
+
+# ---- 环境与工具链（build.sh 需要正确的 Nuclei 工具链）----------------------
+ROOT="$(pwd)"
+export ARCS_BASE="${ARCS_BASE:-$ROOT/arcs-sdk}"
+if [ -z "$NUCLEI_TOOLCHAIN_PATH" ] && [ -d "$ROOT/listenai-dev-tools/gcc" ]; then
+    export NUCLEI_TOOLCHAIN_PATH="$ROOT/listenai-dev-tools/gcc"
+fi
+if [ -d "$ROOT/listenai-dev-tools/listenai-tools" ]; then
+    export LISTENAI_TOOLS_PATH="$ROOT/listenai-dev-tools/listenai-tools"
+fi
+export PATH="$NUCLEI_TOOLCHAIN_PATH/bin:$LISTENAI_TOOLS_PATH/bin:$PATH"
+
+# ---- 镜像路径 --------------------------------------------------------------
+AP_BIN="$BUILD_DIR/remote/thinker_resnet18_real_ap.bin"
+CP_BIN="$BUILD_DIR/thinker_resnet18_real_cp.bin"
+MODEL_BIN="${MODEL_BIN:-tmp/yolo192f.pkg}"
+BOOT_BIN="res/arcs-mini/boot.bin"
+
+# ---- 分区地址 ---------------------------------------------------------------
+BOOT_ADDR=0         # 0x0      boot 分区（仅 boot 变更时烧，烧错需串口救砖）
+AP_ADDR=40000       # 0x40000  ap 分区
+MODEL_ADDR=200000   # 0x200000 wake_word 分区（demo 不用资源分区，借放模型）
+CP_ADDR=600000      # 0x600000 app 分区
+
+# ============================================================================
+# 日志模式
+# ============================================================================
+if [ "$MODE" = "log" ]; then
+    mkdir -p ./tmp
+    echo ">> 抓 15 秒串口日志 → ./tmp/run-log.txt（demo 日志在 UART0 921600）"
+    timeout 15 picocom -b 921600 /dev/ttyACM0 > ./tmp/run-log.txt 2>&1 || true
+    echo ">> 完成: $(wc -l < ./tmp/run-log.txt) 行"
+    exit 0
 fi
 
-BIN=build-nes/arcs-mini.bin
-RAW_PATH=/RAW/NAND/600000
-# NES ROM 独立 flash 分区 (partition_table.json: nes_rom @ 0xE00000)
-ROM_BIN=res/arcs-mini/nes_rom.bin
-ROM_RAW_PATH=/RAW/NAND/E00000
-BOOT_WAIT_SEC=30
+# ============================================================================
+# 构建
+# ============================================================================
+if [ "$DO_BUILD" = 1 ]; then
+    echo ">> build: $DEMO_DIR -> $BUILD_DIR (BOARD=$BOARD)"
+    ./build.sh -S "$DEMO_DIR" -B "$BUILD_DIR" -DBOARD="$BOARD"
+fi
 
-[ -f "$BIN" ] || { echo "!! 固件不存在: $BIN (先构建)"; exit 1; }
-
-# 推送 app + nes_rom 分区 (ROM 分区缺失会导致游戏 "ROM load failed")
-push_all() {
-    local dev="$1"
-    adb -s "$dev" push "$BIN" "$RAW_PATH" >/dev/null 2>&1 || { echo "!! app 推送失败"; return 1; }
-    if [ -f "$ROM_BIN" ]; then
-        adb -s "$dev" push "$ROM_BIN" "$ROM_RAW_PATH" >/dev/null 2>&1 || echo "!! nes_rom 推送失败 (游戏将无法加载)"
-    else
-        echo "!! 缺少 $ROM_BIN, 跳过 ROM 分区 (游戏将无法加载)"
+for f in "$AP_BIN" "$CP_BIN" \
+         $([ $FLASH_MODEL = 1 ] && echo "$MODEL_BIN") \
+         $([ $FLASH_BOOT = 1 ] && echo "$BOOT_BIN"); do
+    if [ ! -f "$f" ]; then
+        echo -e "${RED}错误: 缺少 $f（先运行: ./auto.sh build）${NC}"
+        exit 1
     fi
-    return 0
+done
+
+# ============================================================================
+# 设备模式侦测与烧录
+# ============================================================================
+# 在线设备列表（仅 state=device 的）
+adb_device_list() {
+    adb devices 2>/dev/null | awk 'NR>1 && $2=="device" {print $1}'
 }
 
-# ---- 1. 选定目标设备: 排除手机/网络 adb, 只认 listenai 开发板 ----
-adb disconnect >/dev/null 2>&1 || true
-sleep 1
+# 侦测当前模式：输出 recovery:<sn> | normal:<sn> | none
+# 规则：BOOT- 前缀 = BOOT recovery 烧录模式；其余 = 普通模式
+detect_mode() {
+    local sns boot normal
+    sns=$(adb_device_list)
+    [ -z "$sns" ] && { echo "none"; return; }
+    boot=$(echo "$sns" | grep -m1 '^BOOT-' || true)
+    if [ -n "$boot" ]; then
+        echo "recovery:$boot"
+        return
+    fi
+    if [ -n "$DEVICE" ]; then
+        normal=$(echo "$sns" | grep -m1 "^$DEVICE\$" || true)
+    else
+        normal=$(echo "$sns" | head -1)
+    fi
+    [ -n "$normal" ] && echo "normal:$normal" || echo "none"
+}
 
-SERIAL="${1:-}"
-if [ -z "$SERIAL" ]; then
-    # 排除手机与已处于 recovery 的 BOOT-* 设备
-    mapfile -t BOARDS < <(adb devices -l | awk '$2=="device" && !/BOOT-/ && /model:listenai/ {print $1}')
-    case ${#BOARDS[@]} in
-        0)
-            # 无普通模式设备: 若已有 listenai 板处于 recovery 则直接使用
-            if adb devices | awk '$2=="device"' | grep -q "^BOOT-"; then
-                SERIAL=$(adb devices | awk '$1 ~ /^BOOT-/ && $2=="device" {print $1; exit}')
-                echo "==> 开发板已在 recovery: $SERIAL"
-                BOOT="$SERIAL"
-                push_all "$BOOT"
-                sleep 1
-                adb -s "$BOOT" shell "reboot hard" >/dev/null 2>&1 || true
-                echo "==> 烧录完成, 设备重启中"
-                exit 0
-            fi
-            echo "!! 未发现 listenai 开发板 (adb devices -l 检查)"
-            exit 1 ;;
-        1) SERIAL="${BOARDS[0]}" ;;
-        *) echo "!! 发现多台开发板, 请指定: ./auto.sh <serial>"; printf '  %s\n' "${BOARDS[@]}"; exit 1 ;;
-    esac
-fi
-adb -s "$SERIAL" get-state >/dev/null 2>&1 || { echo "!! 设备不在线: $SERIAL"; exit 1; }
-echo "==> 目标设备: $SERIAL"
+adb_of() {
+    adb -s "$CUR_SN" "$@"
+}
 
-# ---- 2. 进入 recovery (boot 侧接受 /RAW/NAND push); 已在 recovery 则跳过 ----
-if [[ "$SERIAL" == BOOT-* ]]; then
-    BOOT="$SERIAL"
-    echo "==> 设备已在 recovery: $BOOT"
-else
-    adb -s "$SERIAL" shell "recovery" >/dev/null 2>&1 || \
-    adb -s "$SERIAL" reboot recovery >/dev/null 2>&1 || true
-fi
-
-# ---- 3. 等待 BOOT-* 枚举 ----
-BOOT=""
-for i in $(seq 1 "$BOOT_WAIT_SEC"); do
+# 1) 等待设备出现
+MODE_SN="none"
+for i in $(seq 1 "$WAIT_DEVICE"); do
+    MODE_SN=$(detect_mode)
+    [ "$MODE_SN" != "none" ] && break
+    [ "$i" = 1 ] && echo -e "${YELLOW}>> 未发现设备，等待插入（最多 ${WAIT_DEVICE}s）...${NC}"
     sleep 1
-    BOOT=$(adb devices | awk '$1 ~ /^BOOT-/ && $2 == "device" {print $1; exit}')
-    [ -n "$BOOT" ] && break
 done
-[ -n "$BOOT" ] || { echo "!! ${BOOT_WAIT_SEC}s 内未进入 recovery (BOOT-* 未枚举)"; exit 1; }
-echo "==> recovery: $BOOT"
 
-# ---- 4. push 固件并重启 ----
-push_all "$BOOT"
-sleep 1
-adb -s "$BOOT" shell "reboot hard" >/dev/null 2>&1 || true
-echo "==> 烧录完成, 设备重启中"
+if [ "$MODE_SN" = "none" ]; then
+    echo -e "${RED}错误: 没有可用 ADB 设备。${NC}"
+    echo "  - 检查设备自身 USB 线（非串口适配器那条）"
+    echo "  - 设备跑无 ADB 固件时: sudo ./burn_serial.sh 串口救援"
+    exit 1
+fi
+
+MODE_NAME="${MODE_SN%%:*}"
+CUR_SN="${MODE_SN#*:}"
+
+# 2) 普通模式 → 自动 reboot recovery
+if [ "$MODE_NAME" = "normal" ]; then
+    echo -e ">> 设备 ${GREEN}$CUR_SN${NC} 处于${YELLOW}普通模式${NC}，自动切换到 BOOT recovery ..."
+    adb -s "$CUR_SN" reboot recovery || true
+
+    TARGET_SN=""
+    for i in $(seq 1 "$WAIT_RECOVERY"); do
+        sleep 1
+        MODE_SN=$(detect_mode)
+        if [[ "$MODE_SN" == recovery:* ]]; then
+            TARGET_SN="${MODE_SN#*:}"
+            break
+        fi
+    done
+    if [ -z "$TARGET_SN" ]; then
+        echo -e "${RED}错误: ${WAIT_RECOVERY}s 内未进入 BOOT recovery（串口看 boot 日志）${NC}"
+        exit 1
+    fi
+    CUR_SN="$TARGET_SN"
+    echo -e ">> 已进入 ${GREEN}BOOT recovery${NC}（$CUR_SN）"
+else
+    echo -e ">> 设备 ${GREEN}$CUR_SN${NC} 已在${GREEN}BOOT recovery${NC} 模式"
+fi
+
+# 3) 烧录
+echo ">> 烧录目标: $CUR_SN"
+[ $FLASH_BOOT = 1 ] && echo -e "   BOOT → /RAW/NAND/$BOOT_ADDR     ($(du -h "$BOOT_BIN" | cut -f1)) ${RED}⚠️ 仅 boot 变更时使用${NC}"
+echo "   AP   → /RAW/NAND/$AP_ADDR   ($(du -h "$AP_BIN" | cut -f1))"
+echo "   CP   → /RAW/NAND/$CP_ADDR   ($(du -h "$CP_BIN" | cut -f1))"
+[ $FLASH_MODEL = 1 ] && echo "   模型 → /RAW/NAND/$MODEL_ADDR ($(du -h "$MODEL_BIN" | cut -f1))"
+
+mkdir -p ./tmp
+{
+    if [ $FLASH_BOOT = 1 ]; then
+        adb_of push "$BOOT_BIN" "/RAW/NAND/$BOOT_ADDR" || exit 1
+    fi
+    adb_of push "$AP_BIN" "/RAW/NAND/$AP_ADDR" || exit 1
+    adb_of push "$CP_BIN" "/RAW/NAND/$CP_ADDR" || exit 1
+    if [ $FLASH_MODEL = 1 ]; then
+        adb_of push "$MODEL_BIN" "/RAW/NAND/$MODEL_ADDR" || exit 1
+    fi
+} 2>&1 | tee ./tmp/flash-log.txt | grep -a "pushed\|error" | tail -5
+
+EXPECTED_PUSH=$((1 + 1 + FLASH_MODEL + FLASH_BOOT))
+PUSHED_OK=$(grep -c "1 file pushed" ./tmp/flash-log.txt || true)
+if [ "$PUSHED_OK" -lt "$EXPECTED_PUSH" ]; then
+    echo -e "${RED}错误: 烧录不完整（$PUSHED_OK/$EXPECTED_PUSH），查看 ./tmp/flash-log.txt${NC}"
+    exit 1
+fi
+
+# 4) 复位回业务固件
+echo ">> 烧录完成，重启设备 ..."
+adb_of shell reboot hard || adb_of reboot || true
+echo -e "${GREEN}>> flash ok${NC}（日志: ./tmp/flash-log.txt）"
