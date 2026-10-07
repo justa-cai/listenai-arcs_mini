@@ -6,6 +6,9 @@
 #ifdef CONFIG_LISA_DISPLAY_DEVICE
 #include "lisa_display.h"
 #endif
+#ifdef CONFIG_GAMEPAD_ENABLE
+#include "gamepad.h"
+#endif
 #include "mcp_miniapp_result.h"
 
 static cJSON *capabilities_list(const char *name)
@@ -59,12 +62,39 @@ static cJSON *capabilities_call(const char *id, const char *name, cJSON *args)
 #endif
     cJSON *buttons = cJSON_GetObjectItemCaseSensitive(
         cJSON_GetObjectItemCaseSensitive(hardware, "input"), "buttons");
-    cJSON *button = cJSON_Parse("{\"id\":\"function\",\"label\":\"功能键\",\"events\":[\"click\"],"
+    cJSON *button = cJSON_Parse("{\"id\":\"function\",\"label\":\"功能键\","
+                                 "\"events\":[\"click\",\"double_click\"],"
                                  "\"position\":\"lower_left\",\"reserved_hold_ms\":3000}");
     if (!button || !cJSON_AddItemToArray(buttons, button)) {
         cJSON_Delete(button);
         goto failed;
     }
+#ifdef CONFIG_GAMEPAD_ENABLE
+    /* 手柄在线时才列出它的按键：小应用可以在运行时按能力表决定 UI 提示。
+     * BLE 手柄的连接是动态的，所以这里每次都重新判断，不是启动期一次性写入。 */
+    if (gamepad_pad_active()) {
+        cJSON *pad = cJSON_Parse(
+            "[{\"id\":\"up\",\"label\":\"方向键上\",\"events\":[\"click\"]},"
+            "{\"id\":\"down\",\"label\":\"方向键下\",\"events\":[\"click\"]},"
+            "{\"id\":\"left\",\"label\":\"方向键左\",\"events\":[\"click\"]},"
+            "{\"id\":\"right\",\"label\":\"方向键右\",\"events\":[\"click\"]},"
+            "{\"id\":\"back\",\"label\":\"手柄返回\",\"events\":[\"click\"]},"
+            "{\"id\":\"settings\",\"label\":\"手柄设置\",\"events\":[\"click\"]}]");
+        if (!pad) {
+            goto failed;
+        }
+        /* 拆开逐个并入 buttons（cJSON_AddItemToArray 会把整个数组当一个元素） */
+        cJSON *item;
+        while ((item = cJSON_DetachItemFromArray(pad, 0)) != NULL) {
+            if (!cJSON_AddItemToArray(buttons, item)) {
+                cJSON_Delete(item);
+                cJSON_Delete(pad);
+                goto failed;
+            }
+        }
+        cJSON_Delete(pad);
+    }
+#endif
     cJSON *leds = cJSON_GetObjectItemCaseSensitive(
         cJSON_GetObjectItemCaseSensitive(hardware, "lighting"), "leds");
     cJSON *led = cJSON_Parse("{\"id\":\"status\",\"label\":\"状态灯\",\"color\":false}");

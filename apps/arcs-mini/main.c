@@ -26,6 +26,7 @@
 #include "apps/llm/models/model_qrcode.h"
 #include "voice_cloud.h"
 #include "miniapp.h"
+#include "gamepad.h"
 #include "app_ble_common.h"
 
 /* 被动网络提示的单次触发状态。 */
@@ -280,6 +281,14 @@ int main(int argc, char **argv)
 #ifdef CONFIG_MINIAPP
     if (miniapp_init() != 0) {
         LOGE("Miniapp initialization failed");
+    }
+#endif
+#ifdef CONFIG_GAMEPAD_ENABLE
+    /* 手柄输入: 只产生小应用按键事件 (miniapp_button_click), 不依赖小应用是否
+     * 正在运行 —— 事件由 miniapp 运行时自行丢弃。放在 miniapp_init 之后,
+     * 让 BLE 手柄自启时运行时已经就绪。 */
+    if (gamepad_init() != 0) {
+        LOGE("Gamepad initialization failed");
     }
 #endif
     app_show_initial_wifi_info_if_needed();

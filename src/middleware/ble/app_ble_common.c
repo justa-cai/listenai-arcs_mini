@@ -73,6 +73,16 @@ static void app_ble_send_wifi_provision_fail(uint8_t conidx, uint8_t reason);
 
 #define APP_BLE_NETCFG_ADV_DELAY_MS 1000U
 
+/* BLE 连接/断开事件的弱钩子（供 gamepad ble_pad 等模块按需接管，未实现时为空）。
+ * 钩子在 BT task 上下文被调用，实现方只能做「拷贝 + 入队」，不得在此发起
+ * 扫描/连接（见 ble_pad.c 的线程模型说明）。 */
+__attribute__((weak)) void ble_pad_gap_connected(uint8_t conidx, const gap_bdaddr_t *peer_addr) {
+    (void)conidx; (void)peer_addr;
+}
+__attribute__((weak)) void ble_pad_gap_disconnected(uint8_t conidx, uint16_t reason) {
+    (void)conidx; (void)reason;
+}
+
 void lisa_ble_netcfg_set_handler(lisa_ble_netcfg_handler_t handler)
 {
     s_netcfg_handler = handler;
@@ -81,11 +91,12 @@ void lisa_ble_netcfg_set_handler(lisa_ble_netcfg_handler_t handler)
 static void app_ble_on_connected(uint8_t conidx, uint16_t conhdl, const gap_bdaddr_t *peer_addr)
 {
     (void)conhdl;
-    (void)peer_addr;
 
     s_ble_connected = true;
     s_ble_conidx = conidx;
     LISA_LOGI(TAG, "BLE connected, conidx=%u", conidx);
+
+    ble_pad_gap_connected(conidx, peer_addr);
 }
 
 void netcfg_bles_con_cleanup(uint8_t conidx, uint16_t reason)
@@ -101,6 +112,8 @@ static void app_ble_on_disconnected(uint8_t conidx, uint16_t conhdl, uint16_t re
 {
     (void)conhdl;
     netcfg_bles_con_cleanup(conidx, reason);
+
+    ble_pad_gap_disconnected(conidx, reason);
 }
 
 static void app_ble_on_bond(uint8_t conidx, uint8_t info, uint8_t value)

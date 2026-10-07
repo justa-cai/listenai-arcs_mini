@@ -454,8 +454,14 @@ static void app_button_on_changed(void *unused, uint32_t msg_id, void *data,
 
 #ifdef CONFIG_MINIAPP
     if (miniapp_is_active()) {
+        /* 小应用活跃时独占按键：只放行单击与双击，其余动作（三击及以上、
+         * 短按/长按起落、长按保持）一律吞掉，避免与系统手势或退出逻辑打架。
+         * 按键驱动是"聚合多击"：静默 300ms 后才发一个事件，所以用户自然的
+         * 快速双击会合成 DOUBLE_CLICK —— 必须转发，否则脚本收不到任何事件。 */
         if (evt->action == VOICE_MSG_BUTTON_ACTION_CLICK) {
-            (void)miniapp_button_click("function");
+            (void)miniapp_button_click(MINIAPP_BUTTON_ID_FUNCTION);
+        } else if (evt->action == VOICE_MSG_BUTTON_ACTION_DOUBLE_CLICK) {
+            (void)miniapp_button_click(MINIAPP_BUTTON_ID_FUNCTION_DOUBLE);
         }
         return;
     }

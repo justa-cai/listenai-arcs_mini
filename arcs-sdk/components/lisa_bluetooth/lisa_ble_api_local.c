@@ -50,8 +50,13 @@ typedef struct {
     uint8_t  scan_param_dft;
     uint8_t  scan_type;
     uint8_t  scan_phy;
-    uint8_t  scan_intv;
-    uint8_t  scan_win;
+    /* 必须与 bt_app_hal.h 的 ble_scan_info_t 保持一致：uint16_t。
+     * 早前这里是 uint8_t，lisa_ble_scan_param() 传入的 0.625ms 单位
+     * interval/window（如 320/160）会被静默截断（320->64），导致
+     * window(160) > interval(64) 的非法组合，控制器起了扫描活动却
+     * 一条广播都不上报。 */
+    uint16_t scan_intv;
+    uint16_t scan_win;
 } ble_scan_info_t;
 
 typedef struct {

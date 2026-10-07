@@ -1,0 +1,49 @@
+menu "Gamepad (手柄接入: BLE 直连 + WebSocket/UDP)"
+
+config GAMEPAD_ENABLE
+    bool "Enable gamepad input (UDP discovery + WS/UDP key input)"
+    default n
+
+config GAMEPAD_WS_PORT
+    int "WebSocket server port"
+    default 38200
+    depends on GAMEPAD_ENABLE
+
+config GAMEPAD_DISCOVERY_PORT
+    int "UDP discovery port"
+    default 38201
+    depends on GAMEPAD_ENABLE
+
+config GAMEPAD_UDP_PORT
+    int "UDP gamepad key input port"
+    default 38202
+    depends on GAMEPAD_ENABLE
+    help
+      Low-latency key input channel. The port is negotiated via the
+      WebSocket welcome/announce messages (field "udp_port"); clients
+      send full-state bitmap frames here while keeping WS for
+      state / heartbeat.
+
+endmenu
+
+config GAMEPAD_BLE
+    bool "CodexPad-S10 BLE gamepad (Central)"
+    default n
+    depends on GAMEPAD_ENABLE && BLE
+    help
+      Direct BLE connection to CodexPad-S10 gamepad: scan (name prefix +
+      manufacturer data verification) -> connect (7.5~10ms low latency) ->
+      GATT subscribe 0xFFA1 input frames -> feed the shared gamepad
+      input layer. Runs alongside the WiFi (WS/UDP) gamepad; while the
+      BLE pad is connected the network input is ignored.
+
+config GAMEPAD_BLE_AUTOSTART
+    bool "Auto start BLE gamepad at boot"
+    default y
+    depends on GAMEPAD_BLE
+    help
+      Start the BLE gamepad driver during gamepad_init(), so the device
+      scans for the CodexPad right after power-on instead of waiting for
+      the `blepad on` shell command. The driver retries stack
+      registration until Bluetooth is enabled, so this is safe even
+      though BLE comes up after gamepad_init().
