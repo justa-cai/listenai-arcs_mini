@@ -6,6 +6,11 @@ PSRAM 中加载运行；操作既可以用设备功能键，也可以用手柄�
 
 原产品说明见 [README-original.MD](README-original.MD)。
 
+> **关于本分支的历史**：为满足 GitHub 的单文件 100 MB 限制，本分支的历史里剔除了 3 个
+> 重复的 SDK 样例二进制 `arcs-sdk/samples/algorithms/{spv,translation,xtts}/res/algo_emmc.bin`
+> （同一份 205 MB blob 的三个副本，与 arcs-mini 固件无关）。因此本分支的提交 SHA 与内部
+> 的 `master` 不同；内部仓库仍然保留这些文件。
+
 ## 为什么是"单文件桌面"
 
 小应用运行环境**一次只加载一个 Lua 文件**——沙箱里没有 `load`/`dofile`、没有文件
