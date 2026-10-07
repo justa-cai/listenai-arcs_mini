@@ -12,6 +12,8 @@
 #include "mcp_miniapp_result.h"
 
 #define INSTALL_NAME "ls.built_in.miniapp_install"
+/* 打开小应用。新增工具，按约定用无命名空间前缀的普通名字。 */
+#define OPEN_NAME "miniapp_open"
 #define INSTALL_CALL_ID_MAX 127
 #define DEVICE_CONTROL_NAME "ls.built_in.device_control"
 #define BRIGHTNESS_CONTROL_NAME "ls.display_set_brightness"
@@ -22,6 +24,9 @@ bool app_mcp_tool_call_allowed(const char *name)
 {
     return !miniapp_is_active() || (name &&
            (strcmp(name, INSTALL_NAME) == 0 ||
+            /* miniapp_open 就是把小应用呈现到最前，它**必须**能在小应用运行中
+             * 被调用 —— 不允许的话，人待在小应用里喊"打开桌面"就只能先退出。 */
+            strcmp(name, OPEN_NAME) == 0 ||
             strcmp(name, "ls.built_in.miniapp_exit") == 0 ||
             strcmp(name, "ls.built_in.get_device_capabilities") == 0 ||
             strcmp(name, DEVICE_CONTROL_NAME) == 0 ||
@@ -36,42 +41,72 @@ typedef struct {
     char url[HTTP_CLIENT_MAX_URL_LENGTH];
 } install_job_t;
 
-static cJSON *miniapp_install_list(const char *name)
+/* create_default 把 additionalProperties 写成了字符串 "false"，JSON Schema 里它
+ * 必须是布尔 —— 三个工具都要，统一在这里收口。 */
+static cJSON *miniapp_schema_finalize(cJSON *info)
 {
-    (void)name;
-    cJSON *tool = cJSON_Parse(
-        "{\"name\":\"" INSTALL_NAME "\","
-        "\"description\":\"下载并校验小应用 Lua 文件，启动成功后返回执行结果\","
-        "\"inputSchema\":{\"type\":\"object\",\"properties\":{"
-        "\"id\":{\"type\":\"string\",\"description\":\"小应用标识\"},"
-        "\"version\":{\"type\":\"string\",\"description\":\"不可变版本标识\"},"
-        "\"name\":{\"type\":\"string\",\"description\":\"小应用名称\"},"
-        "\"url\":{\"type\":\"string\",\"description\":\"有效期300秒的裸Lua签名下载地址\"},"
-        "\"size\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"准确文件字节数\"},"
-        "\"hash\":{\"type\":\"string\",\"pattern\":\"^[0-9a-f]{32}$\",\"description\":\"Lua文件MD5\"}},"
-        "\"required\":[\"id\",\"version\",\"name\",\"url\",\"size\",\"hash\"]}}");
-    if (!tool) {
+    cJSON *schema = info ? cJSON_GetObjectItemCaseSensitive(info, "inputSchema") : NULL;
+    if (!schema) {
+        cJSON_Delete(info);
         return NULL;
     }
-    cJSON *properties = mcp_tool_info_properties_get(tool);
+    cJSON_DeleteItemFromObjectCaseSensitive(schema, "additionalProperties");
+    if (!cJSON_AddBoolToObject(schema, "additionalProperties", false)) {
+        cJSON_Delete(info);
+        return NULL;
+    }
+    return info;
+}
+
+static cJSON *miniapp_install_list(const char *name)
+{
+    cJSON *info = mcp_tool_list_info_create_default(name,
+        "下载并校验小应用 Lua 文件，启动成功后返回执行结果。用于把云端的小应用"
+        "（含新版替换）装到设备上。同一个应用已在运行时不做处理，直接返回成功。"
+        "需要 id、version、name、url、size、hash 六项完整参数。");
+    if (!info) {
+        return NULL;
+    }
+
+    static const struct {
+        const char *key, *desc, *type;
+        uint8_t required;
+    } fields[] = {
+        {"id", "小应用标识", "string", 1},
+        {"version", "不可变版本标识", "string", 1},
+        {"name", "小应用名称", "string", 1},
+        {"url", "有效期300秒的裸Lua签名下载地址", "string", 1},
+        {"size", "准确文件字节数", "integer", 1},
+        {"hash", "Lua文件MD5", "string", 1},
+    };
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); ++i) {
+        mcp_tool_info_add_property(info, fields[i].key, fields[i].desc, fields[i].type,
+                                   fields[i].required);
+    }
+
+    cJSON *properties = mcp_tool_info_properties_get(info);
+    cJSON *hash = properties ? cJSON_GetObjectItemCaseSensitive(properties, "hash") : NULL;
+    cJSON *size = properties ? cJSON_GetObjectItemCaseSensitive(properties, "size") : NULL;
     const struct { const char *key; int max; } limits[] = {
         {"id", MINIAPP_ID_MAX}, {"version", MINIAPP_VERSION_MAX},
         {"url", HTTP_CLIENT_MAX_URL_LENGTH - 1},
     };
-    for (size_t i = 0; i < sizeof(limits) / sizeof(limits[0]); ++i) {
+    bool ok = properties && hash && size &&
+              cJSON_AddStringToObject(hash, "pattern", "^[0-9a-f]{32}$") != NULL;
+    for (size_t i = 0; ok && i < sizeof(limits) / sizeof(limits[0]); ++i) {
         cJSON *property = cJSON_GetObjectItemCaseSensitive(properties, limits[i].key);
-        if (!cJSON_AddNumberToObject(property, "minLength", 1) ||
-            !cJSON_AddNumberToObject(property, "maxLength", limits[i].max)) {
-            cJSON_Delete(tool);
-            return NULL;
-        }
+        ok = property && cJSON_AddNumberToObject(property, "minLength", 1) &&
+             cJSON_AddNumberToObject(property, "maxLength", limits[i].max);
     }
-    if (!cJSON_AddNumberToObject(cJSON_GetObjectItemCaseSensitive(properties, "size"),
-                                 "maximum", MINIAPP_SOURCE_MAX)) {
-        cJSON_Delete(tool);
+    if (ok) {
+        ok = cJSON_AddNumberToObject(size, "minimum", 1) != NULL &&
+             cJSON_AddNumberToObject(size, "maximum", MINIAPP_SOURCE_MAX) != NULL;
+    }
+    if (!ok) {
+        cJSON_Delete(info);
         return NULL;
     }
-    return tool;
+    return miniapp_schema_finalize(info);
 }
 
 static bool copy_string(cJSON *args, const char *key, char *out, size_t capacity)
@@ -183,8 +218,11 @@ static void install_worker(void *argument)
     }
     lisa_mem_free(source);
     char message[180];
-    snprintf(message, sizeof(message), success ? "miniapp installed and started" :
-             "miniapp install failed: %s", error);
+    if (success) {
+        snprintf(message, sizeof(message), "miniapp installed and started");
+    } else {
+        snprintf(message, sizeof(message), "miniapp install failed: %s", error);
+    }
     cJSON *result = miniapp_mcp_result(INSTALL_NAME, message, !success);
     if (result) {
         (void)mcp_tool_call_result_response(job->call_id, result);
@@ -195,6 +233,7 @@ static void install_worker(void *argument)
     vTaskDelete(NULL);
 }
 
+/* 校验安装参数、登记安装、起 worker 异步回结果。 */
 static cJSON *miniapp_install_call(const char *id, const char *name, cJSON *args)
 {
     if (!id || !id[0] || strlen(id) > INSTALL_CALL_ID_MAX || !cJSON_IsObject(args)) {
@@ -241,6 +280,73 @@ static cJSON *miniapp_install_call(const char *id, const char *name, cJSON *args
 
 MCP_TOOL_DEFINE(ls.built_in.miniapp_install, miniapp_install_list, miniapp_install_call);
 
+/* ---- miniapp_open: 把内存里已加载的小应用呈现到最前（不下载） ---- */
+
+typedef struct {
+    char call_id[INSTALL_CALL_ID_MAX + 1];
+} open_job_t;
+
+/* 源码和 VM 只在运行期驻留，退出即销毁、开机也不恢复 —— 设备手上没有能重新打开
+ * 的副本，所以"打开"只作用于内存里已有的那一个小应用。找不到就回报一句提示，
+ * 让云端改用 ls.built_in.miniapp_install 重新下发，本工具不替它下载。 */
+static void open_worker(void *argument)
+{
+    open_job_t *job = argument;
+    char message[256];
+    bool error = false;
+    if (!miniapp_is_active()) {
+        snprintf(message, sizeof(message),
+                 "内存里没有已加载的小应用 —— 小应用退出即销毁、不驻留、重启也不恢复。"
+                 "请先下载安装（ls.built_in.miniapp_install，需带 id/version/name/url/"
+                 "size/hash 完整安装包）再打开。");
+    } else if (miniapp_ui_open() != 0) {
+        snprintf(message, sizeof(message), "小应用仍在内存中，但切到前台失败");
+        error = true;
+    } else {
+        snprintf(message, sizeof(message), "已打开小应用桌面");
+    }
+    cJSON *result = miniapp_mcp_result(OPEN_NAME, message, error);
+    if (result) {
+        (void)mcp_tool_call_result_response(job->call_id, result);
+        cJSON_Delete(result);
+    }
+    lisa_mem_free(job);
+    vTaskDelete(NULL);
+}
+
+static cJSON *miniapp_open_list(const char *name)
+{
+    return miniapp_schema_finalize(mcp_tool_list_info_create_default(name,
+        "把设备内存里已加载的小应用（桌面）呈现到屏幕上。用户说\"打开桌面\""
+        "\"回到桌面\"\"打开小游戏\"时调用。只影响已在内存中的小应用、不下载；"
+        "没有已加载的小应用时返回提示，需改用 ls.built_in.miniapp_install 重新下发。"));
+}
+
+static cJSON *miniapp_open_call(const char *id, const char *name, cJSON *args)
+{
+    /* MCP 允许省略无参数工具的参数。 */
+    if (args && (!cJSON_IsObject(args) || cJSON_GetArraySize(args) != 0)) {
+        return miniapp_mcp_result(name, "miniapp_open takes no arguments", true);
+    }
+    if (!id || !id[0] || strlen(id) > INSTALL_CALL_ID_MAX) {
+        return miniapp_mcp_result(name, "invalid call ID", true);
+    }
+    /* miniapp_ui_open 最多阻塞 2 秒等 UI 线程导航完成；mcp_process 跑在 voice.ebus
+     * 的事件回调上，占住它会拖慢整条语音事件链 —— 所以交给一次性 worker。 */
+    open_job_t *job = lisa_mem_calloc(1, sizeof(*job));
+    if (!job) {
+        return miniapp_mcp_result(name, "not enough memory for open", true);
+    }
+    memcpy(job->call_id, id, strlen(id) + 1);
+    if (xTaskCreate(open_worker, "miniapp.open", 2048, job, 4, NULL) != pdPASS) {
+        lisa_mem_free(job);
+        return miniapp_mcp_result(name, "failed to start open worker", true);
+    }
+    return NULL; /* Async response after the UI switch. */
+}
+
+MCP_TOOL_DEFINE(miniapp_open, miniapp_open_list, miniapp_open_call);
+
 static cJSON *miniapp_exit_list(const char *name)
 {
     cJSON *tool = mcp_tool_list_info_create_default(name,
@@ -249,14 +355,7 @@ static cJSON *miniapp_exit_list(const char *name)
     if (!tool) {
         return NULL;
     }
-    cJSON *schema = cJSON_GetObjectItemCaseSensitive(tool, "inputSchema");
-    /* The common helper supplies this value as a string; use a JSON boolean. */
-    cJSON_DeleteItemFromObjectCaseSensitive(schema, "additionalProperties");
-    if (!cJSON_AddBoolToObject(schema, "additionalProperties", false)) {
-        cJSON_Delete(tool);
-        return NULL;
-    }
-    return tool;
+    return miniapp_schema_finalize(tool);
 }
 
 static cJSON *miniapp_exit_call(const char *id, const char *name, cJSON *args)
