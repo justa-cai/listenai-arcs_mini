@@ -1,6 +1,7 @@
 #include "miniapp.h"
 
 #include <stdio.h>
+#include <ctype.h>
 #include <math.h>
 #include <time.h>
 #include "cJSON.h"
@@ -46,7 +47,7 @@ typedef enum {
 
 typedef struct {
     miniapp_event_type_t type;
-    char button_id[16];
+    char button_id[MINIAPP_BUTTON_ID_MAX + 1];
     void *request;
     uint32_t generation;
 } miniapp_event_t;
@@ -68,7 +69,21 @@ typedef struct {
     uint16_t frequency_hz;
     uint16_t duration_ms;
     uint32_t generation;
+    uint8_t kind;              /* 见下面的 MINIAPP_BUZZER_KIND_* */
 } miniapp_buzzer_command_t;
+
+/* 队列里同时跑两种活: 单音(NOTE)和"去信箱取一首整曲"(SEQ)。放同一个队列是为了
+ * 只留一套唤醒/重置逻辑 —— SEQ 只是个唤醒令牌, 文本在下面的信箱里。 */
+enum {
+    MINIAPP_BUZZER_KIND_NOTE = 0,
+    MINIAPP_BUZZER_KIND_SEQ = 1,
+};
+
+/* 一个音符: freq = 0 表示休止。 */
+typedef struct {
+    uint16_t frequency_hz;
+    uint16_t duration_ms;
+} miniapp_note_t;
 
 typedef struct miniapp_http_request miniapp_http_request_t;
 
@@ -149,6 +164,20 @@ static miniapp_package_t s_current;
 static volatile bool s_active;
 static volatile bool s_install_busy;
 static volatile uint32_t s_buzzer_generation;
+/* 整曲播放的信箱。文本只由 Lua 任务写、buzzer 任务读, 两边都在临界区里搬;
+ * gen 每次提交 +1, buzzer 任务据此判断"手里这首是不是已经过时了"(newest wins)。
+ *
+ * 刻意不复用 s_buzzer_generation: 那个还被 TTS/HTTP 的异步结果校验用着, 每弹
+ * 一首曲子就递增会误杀无关的待回结果。
+ *
+ * 也不走队列: 队列只有 4 格且发送不等待, 满的时候唤醒令牌会被丢掉, 结果是"文本
+ * 更新了但没人来取"。放在队列外面还顺带免疫了 xQueueReset(xQueueReset 不会释放
+ * 任何东西, 指针式传参会在每次换应用时漏一块内存)。 */
+static char s_melody_text[MINIAPP_BUZZER_SEQ_MAX_BYTES];
+static volatile uint32_t s_melody_gen;
+/* 整曲正在响。由 Lua 侧在提交时**同步**置位 —— 放到 buzzer 任务里置位的话,
+ * 从提交到任务真正开始之间排进队列的音效会先响一下、再在整曲结束后爆出来。 */
+static volatile bool s_melody_playing;
 static uint32_t s_install_generation;
 static uint32_t s_tts_next_id = 1;
 static uint32_t s_tts_worker_id;
@@ -476,11 +505,20 @@ static int miniapp_lua_led_blink(lua_State *L)
     return 0;
 }
 
+/* 定义在下面的 buzzer 任务块里(那里才是它的使用者); Lua 绑定要先用它校验一遍,
+ * 所以在这里先声明。 */
+static int miniapp_buzzer_parse_notes(const char *text, miniapp_note_t *notes, unsigned max);
+
 static void miniapp_buzzer_enqueue(const miniapp_buzzer_command_t *command)
 {
     /* Sound effects are best effort. Audio contention must not fault the Lua
      * application or replay stale effects after a spoken reply or alarm. */
-    if (!s_buzzer_queue || voice_player_tts_is_active() || alarm_ring_is_active()) return;
+    if (!s_buzzer_queue) return;
+    /* 整曲播放期间丢掉单音音效: 一是它们会盖在曲子上, 二是它们会在队列里排队,
+     * 等整曲放完再一起爆出来。整曲自己的唤醒命令(kind=SEQ)不受这条限制 ——
+     * "换一首"就是靠它。 */
+    if (command->kind == MINIAPP_BUZZER_KIND_NOTE && s_melody_playing) return;
+    if (voice_player_tts_is_active() || alarm_ring_is_active()) return;
     (void)xQueueSend(s_buzzer_queue, command, 0);
 }
 
@@ -501,6 +539,7 @@ static int miniapp_lua_buzzer_play(lua_State *L)
         .frequency_hz = (uint16_t)frequency_hz,
         .duration_ms = (uint16_t)duration_ms,
         .generation = s_buzzer_generation,
+        .kind = MINIAPP_BUZZER_KIND_NOTE,
     };
     if (vm->validating) {
         if (vm->buzz_count == 4) return 0;
@@ -508,6 +547,66 @@ static int miniapp_lua_buzzer_play(lua_State *L)
     } else {
         miniapp_buzzer_enqueue(&command);
     }
+    return 0;
+}
+
+/* buzzer.play_seq(text) —— 整曲播放。text = "freq:ms,freq:ms,...", freq = 0 表示
+ * 休止, 空串表示停止。后到的请求直接顶掉正在播的那首。
+ *
+ * 为什么要有它: 单音接口是"一个音一个 WAV", 每个音都要 stop/重建/play, 设备实测
+ * 每次约 50ms 的死区, 而且是逐音累加的 —— 八分音符 250ms 被拉成 300ms、四分
+ * 500ms 变成 550ms, 时值比例被改掉, 听感就是"节奏不对"。整曲走流式 PCM,
+ * 音符之间没有缝。 */
+static int miniapp_lua_buzzer_play_seq(lua_State *L)
+{
+    size_t len = 0;
+    const char *text = luaL_checklstring(L, 1, &len);
+
+    if (len >= MINIAPP_BUZZER_SEQ_MAX_BYTES) {
+        return luaL_error(L, "melody is too long: %u bytes (limit %u)",
+                          (unsigned)len, MINIAPP_BUZZER_SEQ_MAX_BYTES - 1u);
+    }
+    if (memchr(text, '\0', len) || strpbrk(text, "\r\n")) {
+        return luaL_error(L, "invalid melody text");
+    }
+    /* 只允许数字、冒号和逗号 —— 解析器在任务侧, 这里就把字符集收窄, 免得那种
+     * "看着像音谱其实混了别的字符"的文本走完全程才被丢。 */
+    for (size_t i = 0; i < len; ++i) {
+        char c = text[i];
+        if (!isdigit((unsigned char)c) && c != ':' && c != ',') {
+            return luaL_error(L, "melody may only contain digits, ':' and ','");
+        }
+    }
+
+    miniapp_vm_t *vm = miniapp_vm_get(L);
+    /* 启动校验期不放整曲, 也不暂存(暂存要每个 VM 多扛 3KB) —— 现有代码对第 5 个
+     * 暂存单音也是静默丢弃, 语义一致。 */
+    if (vm->validating || vm->faulted || vm->retiring) return 0;
+
+    miniapp_note_t scratch[MINIAPP_BUZZER_SEQ_MAX_NOTES];
+    int count = miniapp_buzzer_parse_notes(text, scratch, MINIAPP_BUZZER_SEQ_MAX_NOTES);
+    if (count < 0) {
+        return luaL_error(L, "malformed melody: expected 'freq:ms' pairs separated by ','");
+    }
+
+    miniapp_buzzer_command_t wake = {
+        .generation = s_buzzer_generation,
+        .kind = MINIAPP_BUZZER_KIND_SEQ,
+    };
+    taskENTER_CRITICAL();
+    memcpy(s_melody_text, text, len);
+    memset(s_melody_text + len, 0, sizeof(s_melody_text) - len);   /* 尾部清零, 读侧按 C 串用 */
+    s_melody_gen++;                                             /* 提交后才算数 */
+    s_melody_playing = (count > 0);
+    taskEXIT_CRITICAL();
+
+    /* 队列只有 4 格且发送不等待: 满的时候唤醒会丢。清空再插到队首, 顺带把已经
+     * 排队的单音音效也清掉(它们本来就不该盖在新曲子前面)。 */
+    if (s_buzzer_queue) {
+        (void)xQueueReset(s_buzzer_queue);
+        (void)xQueueSendToFront(s_buzzer_queue, &wake, 0);
+    }
+    LISA_LOGI(TAG, "melody: queued %d notes, %u bytes", count, (unsigned)len);
     return 0;
 }
 
@@ -600,6 +699,355 @@ static bool miniapp_buzzer_player_active(void)
            state == APP_PLAYER_STATE_PLAYING || state == APP_PLAYER_STATE_PAUSED;
 }
 
+/* 把正在响的（单音或整曲）停掉。stop 在流式模式下不合法，所以失败就退到 reset
+ * —— 这里出现的失败基本只有"上一个流还没收尾"这一种。 */
+static void miniapp_buzzer_silence(void)
+{
+    if (!miniapp_player || !miniapp_buzzer_player_active()) return;
+    if (app_player_stop(miniapp_player) != APP_PLAYER_OK) {
+        (void)app_player_reset(miniapp_player);
+    }
+}
+
+/* 解析 "freq:ms,freq:ms,..." 到音符表; 返回音数, 语法或取值不对返回 -1。
+ *
+ * Lua 绑定侧已经完整校验过一遍(非法直接 luaL_error 打死实例), 这里是纵深防御 ——
+ * 不许 strtol, 因为要连"有没有越界、有没有多余字符"一起说清楚。只用乘加, 没有
+ * 除法取模, 所以即使将来被挪进临界区也不会拖长中断关闭时间。 */
+static int miniapp_buzzer_parse_notes(const char *text, miniapp_note_t *notes, unsigned max)
+{
+    unsigned count = 0;
+    const char *p = text;
+    while (*p) {
+        unsigned freq = 0, ms = 0;
+        if (!isdigit((unsigned char)*p)) return -1;
+        while (isdigit((unsigned char)*p)) {
+            freq = freq * 10u + (unsigned)(*p - '0');
+            if (freq > 0xFFFFu) return -1;
+            p++;
+        }
+        if (*p != ':') return -1;
+        p++;
+        if (!isdigit((unsigned char)*p)) return -1;
+        while (isdigit((unsigned char)*p)) {
+            ms = ms * 10u + (unsigned)(*p - '0');
+            if (ms > 0xFFFFu) return -1;
+            p++;
+        }
+        if (*p == ',') {
+            p++;
+        } else if (*p != '\0') {
+            return -1;
+        }
+        if (count == max) return -1;
+        if (ms < MINIAPP_BUZZER_MIN_MS || ms > MINIAPP_BUZZER_SEQ_MAX_MS) return -1;
+        if (freq != 0 && (freq < MINIAPP_BUZZER_MIN_HZ || freq > MINIAPP_BUZZER_MAX_HZ)) return -1;
+        notes[count].frequency_hz = (uint16_t)freq;
+        notes[count].duration_ms = (uint16_t)ms;
+        count++;
+    }
+    return (int)count;
+}
+
+/* 单音: 一个音 = 一个 WAV = 一次 app_player_play。音色是 16kHz 单声道方波。
+ * 保留给 buzzer.play 用(UI 反馈音、游戏音效), 同时兼作整曲流式播放失败时的
+ * 回退 —— 见下面的 miniapp_buzzer_run_melody。 */
+static void miniapp_buzzer_play_wav_note(uint8_t *wav, uint16_t frequency_hz,
+                                        uint16_t duration_ms, uint32_t generation)
+{
+    uint32_t count = (uint32_t)duration_ms * 16u;
+    uint32_t bytes = count * 2u;
+    memset(wav, 0, 44);
+    memcpy(wav, "RIFF", 4);
+    miniapp_wav_u32(wav + 4, 36u + bytes);
+    memcpy(wav + 8, "WAVEfmt ", 8);
+    miniapp_wav_u32(wav + 16, 16);
+    wav[20] = 1; /* PCM */
+    wav[22] = 1; /* mono */
+    miniapp_wav_u32(wav + 24, 16000);
+    miniapp_wav_u32(wav + 28, 32000);
+    wav[32] = 2;
+    wav[34] = 16;
+    memcpy(wav + 36, "data", 4);
+    miniapp_wav_u32(wav + 40, bytes);
+    uint32_t phase = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        phase = (phase + frequency_hz) % 16000u;
+        int16_t sample = phase < 8000u ? 12000 : -12000;
+        wav[44u + i * 2u] = (uint8_t)sample;
+        wav[45u + i * 2u] = (uint8_t)((uint16_t)sample >> 8);
+    }
+    char url[64];
+    snprintf(url, sizeof(url), "mem://addr=%usize=%u", (unsigned)(uintptr_t)wav, bytes + 44u);
+    if (app_player_play(miniapp_player, url) != APP_PLAYER_OK) {
+        LISA_LOGW(TAG, "failed to play buzzer");
+        return;
+    }
+    TickType_t started = xTaskGetTickCount();
+    while (s_active && generation == s_buzzer_generation &&
+           !alarm_ring_is_active() && !voice_player_tts_is_active() &&
+           xTaskGetTickCount() - started < pdMS_TO_TICKS(duration_ms + 500u)) {
+        app_player_state_t state = app_player_get_state(miniapp_player);
+        if (state != APP_PLAYER_STATE_PREPARING && state != APP_PLAYER_STATE_PREPARED &&
+            state != APP_PLAYER_STATE_PLAYING) break;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    if (miniapp_buzzer_player_active()) (void)app_player_stop(miniapp_player);
+}
+
+/* 整曲播放该不该让位: 应用退出了、被换掉了、来了一首新的、TTS 或闹钟插进来了。
+ * 写 PCM 的循环每写一块查一次, 播完之后的"等尾巴"循环每 20ms 查一次。 */
+static bool miniapp_buzzer_stream_should_abort(uint32_t generation, uint32_t melody_gen)
+{
+    return !s_active || generation != s_buzzer_generation || melody_gen != s_melody_gen ||
+           voice_player_tts_is_active() || alarm_ring_is_active();
+}
+
+/* 收尾。completed = true 表示音符都写完了, 发 EOS 让播放器把缓冲里的尾巴放完。
+ *
+ * 这里**绝对不能** reset: 实机实测一首 6 秒的曲子, 全部 PCM 会在 ~0.2s 内就写进
+ * 播放器缓冲区, 那时候缓冲区里还压着 5.9 秒的音频 —— reset 会把它们全部砍掉,
+ * 一首 6 秒的歌只剩 1 秒。
+ *
+ * 等多久也不能看播放器状态: finish_stream 一发出, 状态立刻变"结束", 而缓冲区还在
+ * 放 —— 拿状态当判据会让写线程在声音没停的时候就撒手, 之后"按停止"就没人搭理了。
+ * 所以按**时长**守着(期望时长 = 写进去的采样数), 期间随时可以被中止打断:
+ * 停止、换曲、退出、来了一首新的、TTS/闹钟插进来。 */
+/* 整曲开始处理的时刻，以及"播放位置第一次大于 0"的相对时刻。前者用来量端到端
+ * 延迟，后者用来量"从按下播放到声音真的响起来"那段固定延迟 —— Lua 侧的进度条和
+ * 计时是从按下播放起算的，UI 就是领先声音这么多。 */
+static TickType_t s_melody_start_tick;
+static volatile uint32_t s_melody_audio_start_ms;
+
+static void miniapp_buzzer_stream_end(bool completed, uint32_t expected_ms,
+                                      uint32_t generation, uint32_t melody_gen)
+{
+    if (!completed || app_player_finish_stream(miniapp_player) != APP_PLAYER_OK) {
+        (void)app_player_reset(miniapp_player);
+        return;
+    }
+    TickType_t started = xTaskGetTickCount();
+    TickType_t cap = pdMS_TO_TICKS(expected_ms + 3000u);
+    uint32_t played_max = 0;       /* 播放器自己报的播放位置（最大值） */
+    uint32_t ended_at = 0;         /* 播放位置走满的时刻 */
+    while (xTaskGetTickCount() - started < cap) {
+        if (miniapp_buzzer_stream_should_abort(generation, melody_gen)) {
+            miniapp_buzzer_silence();
+            LISA_LOGI(TAG, "melody: tail cut short by abort");
+            if (miniapp_buzzer_player_active()) {
+                LISA_LOGW(TAG, "melody: player still active after abort");
+            }
+            return;
+        }
+        /* 状态不再是"在播" = 声音真的放完了(比"位置走满"可靠: 位置比实际输出
+         * 大约超前一个解码缓冲区, 拿它当判据会掐掉最后一段)。 */
+        if (!miniapp_buzzer_player_active()) {
+            ended_at = xTaskGetTickCount() - s_melody_start_tick;
+            break;
+        }
+        uint32_t pos = 0;
+        if (app_player_get_position(miniapp_player, &pos) == APP_PLAYER_OK && pos > played_max) {
+            played_max = pos;
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    /* 这三条一起回答了"音乐到底放完没有、UI 差多少":
+     *   pos/expected —— 有没有丢音频(远小于 expected 就是丢了, 而不是曲谱有休止)
+     *   start +N ms  —— 从按下播放到**声音真的响起来**的固定延迟。Lua 侧的进度条
+     *                   和计时是从按下播放起算的, 所以 UI 就领先声音这么多。
+     *   end +M ms    —— 声音放完的时刻; 正常情况下 M ≈ N + expected。 */
+    LISA_LOGI(TAG,
+              "melody: played %u/%u ms, audio start +%u ms, end +%u ms (ui leads audio by %u ms)",
+              (unsigned)played_max, (unsigned)expected_ms,
+              (unsigned)s_melody_audio_start_ms, (unsigned)pdTICKS_TO_MS(ended_at),
+              (unsigned)s_melody_audio_start_ms);
+    /* 正常情况下声音这时候已经放完了; 真要是还响着也补一刀, 免得留个没人管的
+     * 尾巴。 */
+    if (miniapp_buzzer_player_active()) {
+        LISA_LOGW(TAG, "melody: still active after %u ms, silencing", (unsigned)expected_ms);
+        miniapp_buzzer_silence();
+    }
+}
+
+/* 流式播放一段音符表。返回 0 = 播完, 1 = 被中止, 2 = 流式不可用(调用方回退)。
+ *
+ * 写入要认返回值: app_player_write_stream 返回的是**实际写入的字节数**, 可能小于
+ * 请求量、也可能为 0(缓冲区满)。不认它就会静默丢音频。这里按实际写入量推进,
+ * 写不进去就等一会儿再试, 相位只按"真正送出去的采样数"推进, 重试时重新生成尾部。 */
+static int miniapp_buzzer_stream_notes(const miniapp_note_t *notes, unsigned count,
+                                       uint32_t generation, uint32_t melody_gen,
+                                       uint8_t *block)
+{
+    if (app_player_play_stream(miniapp_player, 16000u, 1u, 16u) != APP_PLAYER_OK) {
+        LISA_LOGW(TAG, "melody: play_stream failed, falling back to one WAV per note");
+        return 2;
+    }
+
+    const uint32_t block_samples = MINIAPP_BUZZER_SEQ_BLOCK_MS * 16u;
+    /* 写入的总时长兜底: 万一音频输出没起来(例如别的播放器占着 PA), 缓冲区就永远
+     * 排不空, write_stream 会把任务卡死在这儿。给"整曲时长 + 5 秒"的额度, 超了
+     * 就认输, 把控制权还给任务。 */
+    TickType_t write_started = xTaskGetTickCount();
+    uint32_t total_sane = 0;
+    for (unsigned i = 0; i < count; ++i) total_sane += notes[i].duration_ms;
+    uint32_t write_deadline_ticks = (uint32_t)pdMS_TO_TICKS(total_sane + 5000u);
+    uint32_t phase = 0;
+    bool first_write = true;
+    unsigned stalls = 0;
+    uint32_t written_samples = 0;   /* 真正送进播放器的采样数(用于核对有没有丢) */
+    uint32_t wanted_samples = 0;
+
+    for (unsigned i = 0; i < count; ++i) {
+        uint32_t total = (uint32_t)notes[i].duration_ms * 16u;   /* 16 采样/ms */
+        uint16_t freq = notes[i].frequency_hz;
+        wanted_samples += total;
+        uint32_t sent = 0;
+        while (sent < total) {
+            if (miniapp_buzzer_stream_should_abort(generation, melody_gen)) {
+                LISA_LOGI(TAG, "melody: aborted at note %u/%u", i, count);
+                miniapp_buzzer_stream_end(false, 0, generation, melody_gen);
+                return 1;
+            }
+            uint32_t batch = total - sent;
+            if (batch > block_samples) batch = block_samples;
+            /* 与单音路径逐字节一致的方波: 相位跨块、跨音符连续, 所以同一个音被切成
+             * 几块也不会在接缝处听到跳变。freq=0 是休止, 写静音(不是 0Hz 的方波)。 */
+            uint32_t ph = phase;
+            for (uint32_t s = 0; s < batch; ++s) {
+                int16_t sample = 0;
+                if (freq) {
+                    ph = (ph + freq) % 16000u;
+                    sample = ph < 8000u ? 12000 : -12000;
+                }
+                block[s * 2u] = (uint8_t)sample;
+                block[s * 2u + 1u] = (uint8_t)((uint16_t)sample >> 8);
+            }
+            int wrote = app_player_write_stream(miniapp_player, block, batch * 2u,
+                                                MINIAPP_BUZZER_SEQ_BLOCK_MS);
+            if (wrote < 0) {
+                LISA_LOGW(TAG, "melody: write_stream failed (%d) at note %u/%u", wrote, i, count);
+                miniapp_buzzer_stream_end(false, 0, generation, melody_gen);
+                /* 一块都没写进去, 说明这次流压根没起来(比如播放器不在
+                 * FOREGROUND 时 play_stream 会假成功) —— 交给回退路径。 */
+                return first_write ? 2 : 1;
+            }
+            first_write = false;
+            uint32_t accepted = (uint32_t)wrote / 2u;      /* 字节 -> 采样 */
+            if ((uint32_t)(xTaskGetTickCount() - write_started) > write_deadline_ticks) {
+                LISA_LOGW(TAG, "melody: write stalled past %u ms, giving up at note %u/%u",
+                          (unsigned)(total_sane + 5000u), i, count);
+                miniapp_buzzer_stream_end(false, 0, generation, melody_gen);
+                return 1;
+            }
+            if (accepted == 0) {
+                /* 缓冲区满了。等它被消费掉一点再重试同一块。 */
+                if (++stalls == 1) {
+                    LISA_LOGI(TAG, "melody: player buffer full at note %u/%u", i, count);
+                }
+                vTaskDelay(pdMS_TO_TICKS(MINIAPP_BUZZER_SEQ_BLOCK_MS));
+                continue;
+            }
+            if (freq) phase = (phase + freq * accepted) % 16000u;
+            sent += accepted;
+            written_samples += accepted;
+            /* 播放位置第一次大于 0 = 声音真的开始响了 */
+            if (!s_melody_audio_start_ms) {
+                uint32_t pos = 0;
+                if (app_player_get_position(miniapp_player, &pos) == APP_PLAYER_OK && pos > 0) {
+                    s_melody_audio_start_ms =
+                        (uint32_t)pdTICKS_TO_MS(xTaskGetTickCount() - s_melody_start_tick);
+                }
+            }
+        }
+    }
+    LISA_LOGI(TAG, "melody: done, %u notes, %u/%u samples(%u stalls)",
+              count, (unsigned)written_samples, (unsigned)wanted_samples, stalls);
+    /* 期望时长 = 写进去的采样数 / 16; 播放器把缓冲区放完大约就是这个时间 */
+    miniapp_buzzer_stream_end(true, written_samples / 16u, generation, melody_gen);
+    return 0;
+}
+
+/* 回退: 把同一段音符表按单音逐个放完。节奏会退化回"每音一个 WAV"(每音约
+ * 50ms 空隙), 但至少不是一片静音。只在流式起不来时走。 */
+static void miniapp_buzzer_play_notes_as_wavs(const miniapp_note_t *notes, unsigned count,
+                                              uint8_t *wav, uint32_t generation)
+{
+    for (unsigned i = 0; i < count; ++i) {
+        if (miniapp_buzzer_stream_should_abort(generation, s_melody_gen)) return;
+        if (notes[i].frequency_hz == 0) {
+            /* 休止: 单音路径没法"播静音", 用等长的延时代替 */
+            TickType_t started = xTaskGetTickCount();
+            while (xTaskGetTickCount() - started < pdMS_TO_TICKS(notes[i].duration_ms)) {
+                if (miniapp_buzzer_stream_should_abort(generation, s_melody_gen)) return;
+                vTaskDelay(pdMS_TO_TICKS(20));
+            }
+        } else {
+            miniapp_buzzer_play_wav_note(wav, notes[i].frequency_hz, notes[i].duration_ms, generation);
+        }
+    }
+}
+
+/* 整曲播放的主流程。返回后 s_melody_playing 一定被清掉(除非期间又来了一首,
+ * 那时会就地开始新的那首)。 */
+static void miniapp_buzzer_run_melody(uint8_t *wav, uint8_t *block, char *text,
+                                      miniapp_note_t *notes)
+{
+    for (unsigned round = 0; round < 4; ++round) {
+        uint32_t generation = s_buzzer_generation;
+        uint32_t melody_gen = 0;
+        int count = 0;
+
+        /* 文本只有这里和 Lua 侧会碰, 全在临界区里搬 —— 一次 memcpy(约 3KB),
+         * 解析放在临界区外面做(有乘加循环, 不该占着中断)。 */
+        taskENTER_CRITICAL();
+        melody_gen = s_melody_gen;
+        memcpy(text, s_melody_text, sizeof(s_melody_text));
+        taskEXIT_CRITICAL();
+
+        text[MINIAPP_BUZZER_SEQ_MAX_BYTES - 1] = '\0';
+        count = miniapp_buzzer_parse_notes(text, notes, MINIAPP_BUZZER_SEQ_MAX_NOTES);
+
+        /* 文本在解析期间又换了 → 重新来一遍, 以最新的为准。 */
+        if (melody_gen != s_melody_gen) continue;
+
+        if (count <= 0) {          /* 空串 = 停止 */
+            /* "停止"必须**自己**动手: 全部 PCM 在 ~0.2s 内就写完了, 之后播放器
+             * 状态立刻变"结束"而缓冲区里还压着整首歌 —— 写线程早就退出, 没人
+             * 再看管它。所以这里只是"顺手记一笔"是不行的, 实机表现就是
+             * "播放中按停止没反应"。 */
+            miniapp_buzzer_silence();
+            LISA_LOGI(TAG, "melody: stopped by request");
+            s_melody_playing = false;
+            return;
+        }
+        if (!s_active || generation != s_buzzer_generation ||
+            voice_player_tts_is_active() || alarm_ring_is_active()) {
+            miniapp_buzzer_silence();
+            s_melody_playing = false;
+            return;
+        }
+
+        /* 上一个音(单音或上一首整曲)可能还占着播放器 */
+        miniapp_buzzer_silence();
+
+        s_melody_start_tick = xTaskGetTickCount();
+        s_melody_audio_start_ms = 0;
+        LISA_LOGI(TAG, "melody: start, %d notes, gen=%u", count, (unsigned)melody_gen);
+        int rc = miniapp_buzzer_stream_notes(notes, (unsigned)count, generation, melody_gen, block);
+        if (rc == 2) {
+            miniapp_buzzer_play_notes_as_wavs(notes, (unsigned)count, wav, generation);
+        }
+
+        /* 播完/被中止之后再确认一次: 期间是否又来了一首? */
+        if (melody_gen == s_melody_gen) {
+            s_melody_playing = false;
+            return;
+        }
+    }
+    LISA_LOGW(TAG, "melody: gave up after repeated restarts");
+    s_melody_playing = false;
+}
+
 static void miniapp_buzzer_task(void *argument)
 {
     (void)argument;
@@ -607,10 +1055,37 @@ static void miniapp_buzzer_task(void *argument)
     /* The decoder retains the memory URL. Keep one bounded buffer alive and
      * synchronously stop its dedicated player before overwriting any bytes. */
     uint8_t *wav = NULL;
+    /* 整曲路径的两块内存: 送进播放器的 PCM 分块, 以及从信箱里搬出来的文本副本
+     * (不能在临界区里解析, 也不该把 3KB 放在这 8KB 的任务栈上)。 */
+    uint8_t *block = NULL;
+    char *text = NULL;
+    miniapp_note_t *notes = NULL;
     for (;;) {
         if (xQueueReceive(s_buzzer_queue, &command, portMAX_DELAY) != pdTRUE) continue;
-        if (voice_player_tts_is_active() || alarm_ring_is_active()) continue;
-        if (!s_active || command.generation != s_buzzer_generation || !miniapp_player) continue;
+        if (!s_buzzer_queue) continue;
+        if (voice_player_tts_is_active() || alarm_ring_is_active()) {
+            if (command.kind == MINIAPP_BUZZER_KIND_SEQ) s_melody_playing = false;
+            continue;
+        }
+        if (!s_active || command.generation != s_buzzer_generation || !miniapp_player) {
+            if (command.kind == MINIAPP_BUZZER_KIND_SEQ) s_melody_playing = false;
+            continue;
+        }
+        if (command.kind == MINIAPP_BUZZER_KIND_SEQ) {
+            if (!block) block = lisa_mem_alloc(MINIAPP_BUZZER_SEQ_BLOCK_MS * 32u);
+            if (!text) text = lisa_mem_alloc(MINIAPP_BUZZER_SEQ_MAX_BYTES);
+            if (!notes) notes = lisa_mem_alloc(MINIAPP_BUZZER_SEQ_MAX_NOTES * sizeof(*notes));
+            /* wav 只在"流式起不来"的回退路径上用得上, 但必须在进 run_melody
+             * 之前就备好 —— 回退是在里面发起的, 那里没有地方再分配。 */
+            if (!wav) wav = lisa_mem_alloc(44u + MINIAPP_BUZZER_MAX_MS * 32u);
+            if (!block || !text || !notes || !wav) {
+                LISA_LOGW(TAG, "melody: not enough memory, dropping");
+                s_melody_playing = false;
+                continue;
+            }
+            miniapp_buzzer_run_melody(wav, block, text, notes);
+            continue;
+        }
         if (miniapp_buzzer_player_active() && app_player_stop(miniapp_player) != APP_PLAYER_OK) {
             LISA_LOGW(TAG, "failed to stop previous buzzer");
             continue;
@@ -620,44 +1095,8 @@ static void miniapp_buzzer_task(void *argument)
             LISA_LOGW(TAG, "failed to allocate buzzer buffer");
             continue;
         }
-        uint32_t count = (uint32_t)command.duration_ms * 16u;
-        uint32_t bytes = count * 2u;
-        memset(wav, 0, 44);
-        memcpy(wav, "RIFF", 4);
-        miniapp_wav_u32(wav + 4, 36u + bytes);
-        memcpy(wav + 8, "WAVEfmt ", 8);
-        miniapp_wav_u32(wav + 16, 16);
-        wav[20] = 1; /* PCM */
-        wav[22] = 1; /* mono */
-        miniapp_wav_u32(wav + 24, 16000);
-        miniapp_wav_u32(wav + 28, 32000);
-        wav[32] = 2;
-        wav[34] = 16;
-        memcpy(wav + 36, "data", 4);
-        miniapp_wav_u32(wav + 40, bytes);
-        uint32_t phase = 0;
-        for (uint32_t i = 0; i < count; ++i) {
-            phase = (phase + command.frequency_hz) % 16000u;
-            int16_t sample = phase < 8000u ? 12000 : -12000;
-            wav[44u + i * 2u] = (uint8_t)sample;
-            wav[45u + i * 2u] = (uint8_t)((uint16_t)sample >> 8);
-        }
-        char url[64];
-        snprintf(url, sizeof(url), "mem://addr=%usize=%u", (unsigned)(uintptr_t)wav, bytes + 44u);
-        if (app_player_play(miniapp_player, url) != APP_PLAYER_OK) {
-            LISA_LOGW(TAG, "failed to play buzzer");
-            continue;
-        }
-        TickType_t started = xTaskGetTickCount();
-        while (s_active && command.generation == s_buzzer_generation &&
-               !alarm_ring_is_active() && !voice_player_tts_is_active() &&
-               xTaskGetTickCount() - started < pdMS_TO_TICKS(command.duration_ms + 500u)) {
-            app_player_state_t state = app_player_get_state(miniapp_player);
-            if (state != APP_PLAYER_STATE_PREPARING && state != APP_PLAYER_STATE_PREPARED &&
-                state != APP_PLAYER_STATE_PLAYING) break;
-            vTaskDelay(pdMS_TO_TICKS(20));
-        }
-        if (miniapp_buzzer_player_active()) (void)app_player_stop(miniapp_player);
+        miniapp_buzzer_play_wav_note(wav, command.frequency_hz, command.duration_ms,
+                                     command.generation);
     }
 }
 #endif
@@ -1450,6 +1889,7 @@ static void miniapp_open_safe_libraries(lua_State *L)
     lua_newtable(L);
     lua_setglobal(L, "buzzer");
     miniapp_register_function(L, "buzzer", "play", miniapp_lua_buzzer_play);
+    miniapp_register_function(L, "buzzer", "play_seq", miniapp_lua_buzzer_play_seq);
 #endif
 
     lua_newtable(L);
@@ -1556,12 +1996,19 @@ static int miniapp_run_chunk(lua_State *L, miniapp_vm_t *vm,
                              const char *source, size_t source_len,
                              char *error, size_t error_size)
 {
+    TickType_t started = xTaskGetTickCount();
     vm->instruction_left = MINIAPP_CHUNK_INSTRUCTION_LIMIT;
     miniapp_set_deadline(vm, MINIAPP_CHUNK_DEADLINE_MS);
     int rc = luaL_loadbufferx(L, source, source_len, "@cloud-miniapp", "t");
     if (rc == LUA_OK) {
         rc = lua_pcall(L, 0, 0, 0);
     }
+    /* 记录真实耗时：源码块的预算按解析算，只有量出来才知道 64 KiB 上限下
+     * 离 MINIAPP_CHUNK_DEADLINE_MS 还有多少余量。 */
+    LISA_LOGI(TAG, "chunk %u bytes: load+run %u ms (budget %u ms)",
+              (unsigned)source_len,
+              (unsigned)((xTaskGetTickCount() - started) * portTICK_PERIOD_MS),
+              (unsigned)MINIAPP_CHUNK_DEADLINE_MS);
     if (rc != LUA_OK) {
         miniapp_storage_fault(vm);
         snprintf(error, error_size, "%s", lua_type(L, -1) == LUA_TSTRING ? lua_tostring(L, -1) : "Lua error");
@@ -2062,15 +2509,55 @@ int miniapp_install(const miniapp_package_t *package, const char *source,
     return request.result;
 }
 
+/* 允许转发给脚本的按键 id 白名单。设备侧只放行单击与双击; 三击及以上、
+ * 长按等动作由 app_button.c 在转发前就丢掉, 这里再兜一层, 防止将来新增
+ * 转发点时把未上报给能力的 id 悄悄送进脚本。 */
+static bool miniapp_button_id_supported(const char *button_id)
+{
+    /* 设备功能键 + 手柄按键。新增取值时必须同时加到 miniapp.h 的宏和这里，
+     * 漏加的表现是"手柄按了没反应且日志里什么都没有"（见下面的告警日志兜底）。 */
+    static const char *const supported[] = {
+        MINIAPP_BUTTON_ID_FUNCTION,
+        MINIAPP_BUTTON_ID_FUNCTION_DOUBLE,
+        MINIAPP_BUTTON_ID_UP,
+        MINIAPP_BUTTON_ID_DOWN,
+        MINIAPP_BUTTON_ID_LEFT,
+        MINIAPP_BUTTON_ID_RIGHT,
+        MINIAPP_BUTTON_ID_BACK,
+        MINIAPP_BUTTON_ID_SETTINGS,
+    };
+
+    for (size_t i = 0; i < sizeof(supported) / sizeof(supported[0]); ++i) {
+        if (strcmp(button_id, supported[i]) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 int miniapp_button_click(const char *button_id)
 {
     if (!MINIAPP_HAS_BUTTONS) return 0;
-    if (!s_active || !button_id || strcmp(button_id, "function") != 0) {
+    if (!s_active || !button_id) {
+        return -1;
+    }
+    if (strlen(button_id) > MINIAPP_BUTTON_ID_MAX) {
+        LISA_LOGW(TAG, "button id too long: %s", button_id);
+        return -1;
+    }
+    if (!miniapp_button_id_supported(button_id)) {
+        /* 不静默丢弃: 漏配白名单的表现就是"按键没反应"，只有这条日志能说明
+         * "事件确实进来了、是被固件拒的"，而不是上游根本没发。 */
+        LISA_LOGW(TAG, "unsupported button id: %s", button_id);
         return -1;
     }
     miniapp_event_t event = {.type = MINIAPP_EVENT_CLICK, .generation = s_buzzer_generation};
     snprintf(event.button_id, sizeof(event.button_id), "%s", button_id);
-    return xQueueSend(s_event_queue, &event, 0) == pdTRUE ? 0 : -1;
+    int rc = xQueueSend(s_event_queue, &event, 0) == pdTRUE ? 0 : -1;
+    /* 这是"外部输入进入小应用沙箱"的唯一观测点：按键驱动聚合多击、回调失败即
+     * 静默丢弃，没有这行日志就无法判断双击到底有没有被转发进来。 */
+    LISA_LOGI(TAG, "button %s -> %s", button_id, rc == 0 ? "queued" : "dropped");
+    return rc;
 }
 
 int miniapp_exit(void)

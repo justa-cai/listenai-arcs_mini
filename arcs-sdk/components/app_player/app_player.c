@@ -1309,6 +1309,11 @@ int app_player_reset(app_player_t *player)
     player->stop_preparing_requested = false;
     player->wait_prepare_intercepted = false;
     player->pause_preparing = false;
+    // 流式模式必须在这里一起退出: reset 是流式播放唯一可用的中止手段
+    // (流式模式下 stop/pause/resume/seek 都不被支持), 漏掉这一句会让
+    // is_stream_mode 永远停在 true, 之后所有非流式的操作(如播放一个 WAV)
+    // 都会被判为 NOT_SUPPORTED 而静默失败。
+    player->is_stream_mode = false;
 
     // 调用底层reset
     PlayerErr ret = lisa_player_reset(player->hld);

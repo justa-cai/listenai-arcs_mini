@@ -20,8 +20,14 @@ config MINIAPP_ADB_DEBUG
 
 config MINIAPP_SOURCE_MAX_BYTES
     int "Maximum Lua source bytes"
-    range 1024 65536
+    range 1024 262144
     default 65536
+    help
+      Upper bound on one app's Lua source. Raising it also needs a matching
+      MINIAPP_CHUNK_DEADLINE_MS: parsing is charged to the chunk budget, and
+      the device parses about 130 bytes/ms, so 128 KiB already costs ~1 s
+      before a single statement runs. Application-level opt-in only; the
+      default keeps a startup stall under the original 1 s window.
 
 config MINIAPP_HEAP_MAX_BYTES
     int "Maximum heap bytes per Lua VM"

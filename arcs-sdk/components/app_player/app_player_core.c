@@ -453,6 +453,15 @@ int app_player_core_stop(app_player_t *player)
         return -1;
     }
 
+    /* 流式模式下不允许 stop（与 pause/resume 同规）。流式的唯一正当收尾是
+     * finish_stream，唯一的中止是 reset —— 走到这里最可能的是焦点策略
+     * (on_background/on_focus_lost = STOP) 在别的任务里对正在流式播放的
+     * 句柄下手，直接放行会拿着一份正在写的流去 stop_sync 底层句柄。 */
+    if (player->is_stream_mode) {
+        LISA_LOGW(TAG, "Core stop ignored: %s is streaming", player->name);
+        return -1;
+    }
+
     LISA_LOGI(TAG, "Core stop: %s", player->name);
 
     PLAYER_MUTEX_LOCK(player->core_lock, LISA_OS_WAIT_FOREVER);
@@ -477,6 +486,16 @@ int app_player_core_stop(app_player_t *player)
 int app_player_core_stop_sync(app_player_t *player)
 {
     if (!player) {
+        return -1;
+    }
+
+    /* 同 app_player_core_stop: 流式模式下 stop 不被支持。这里是焦点丢失
+     * 策略 (app_player_focus.c) 走的路径，而焦点桥是同步调用 —— 放行会在
+     * 触发焦点的那个任务(TTS 等)里，对一份正在被写线程使用的流式句柄调
+     * stop_sync。加一道守卫让这条路径对流式播放变成 no-op，改由写线程自己
+     * 收尾。 */
+    if (player->is_stream_mode) {
+        LISA_LOGW(TAG, "Core stop sync ignored: %s is streaming", player->name);
         return -1;
     }
 
