@@ -1,0 +1,16 @@
+config MIDDLEWARE_SIP
+    bool "LAN SIP video call middleware"
+    depends on LWIP
+    default n
+    help
+      Self-implemented minimal SIP stack plus G.711 audio and MJPEG/RTP
+      video, used for LAN peer-to-peer video calls between the device
+      and a host program built from the same core sources
+      (src/middleware/sip/host builds sip_peer on Ubuntu).
+
+      - core/ is pure C (BSD sockets via sip_osal only) and is shared
+        verbatim between the firmware and the host peer.
+      - device/sip_service.c owns FreeRTOS tasks, the audio tap, the
+        camera/JPEG pipeline and the call focus channel.
+
+      Enable together with WIFI and LWIP in the application config.

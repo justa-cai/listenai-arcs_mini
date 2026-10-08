@@ -273,6 +273,17 @@ int main(int argc, char **argv)
 
     app_button_init();
 
+#ifdef CONFIG_MIDDLEWARE_SIP
+    /* SIP 通话服务：常驻监听 5060 来电；媒体任务按需懒启动（仿 video_player）。
+     * 放在 app_button 之后，让按键拦截器先完成注册。 */
+    {
+        extern int sip_service_init(void);
+        if (sip_service_init() != 0) {
+            LOGE("SIP service initialization failed");
+        }
+    }
+#endif
+
     battery_init();
     service_power_policy_init();
 
