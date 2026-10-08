@@ -15,6 +15,7 @@ add_executable(sip_peer
     peer_alsa.c
     peer_vidsink.c
     peer_vidsrc.c
+    peer_v4l2.c
     ../core/sip_g711.c
     ../core/sip_jpeg_rtp.c
     ../core/sip_msg.c
@@ -30,6 +31,6 @@ target_include_directories(sip_peer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../ports
 )
 
-target_link_libraries(sip_peer PRIVATE asound pthread m)
+target_link_libraries(sip_peer PRIVATE asound pthread m jpeg)
 
 target_compile_options(sip_peer PRIVATE -O2 -Wall -Wextra)

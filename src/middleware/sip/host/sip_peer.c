@@ -27,6 +27,7 @@
 #include "peer_alsa.h"
 #include "peer_vidsink.h"
 #include "peer_vidsrc.h"
+#include "peer_v4l2.h"
 
 #define SIG_PORT_DEFAULT 5060
 #define AUDIO_PORT_DEFAULT 5062
@@ -37,6 +38,7 @@ static int s_manual = 0;
 static uint16_t s_audio_port = AUDIO_PORT_DEFAULT;
 static uint16_t s_video_port = VIDEO_PORT_DEFAULT;
 static const char *s_vidsrc_dir;
+static const char *s_v4l2_dev = "/dev/video0";
 
 static void on_state(void *user, sip_ua_state_t st)
 {
@@ -49,6 +51,10 @@ static void on_state(void *user, sip_ua_state_t st)
             if (s_vidsrc_dir) {
                 peer_vidsrc_start(s_vidsrc_dir, 0, 0, s->peer_ip,
                                   s->peer_video_port, s_video_port + 100, 5);
+            } else if (peer_v4l2_start(s_v4l2_dev, 240, 320, s->peer_ip,
+                                       s->peer_video_port, s_video_port + 100, 5) != 0) {
+                sip_osal_log(SIP_LOG_WARN, TAG,
+                             "no video source (-v dir or camera); rx only");
             }
         }
         peer_alsa_start(s->audio_pt, s->peer_ip, s->peer_audio_port, s_audio_port);
@@ -56,6 +62,7 @@ static void on_state(void *user, sip_ua_state_t st)
         peer_alsa_stop();
         peer_vidsink_stop();
         peer_vidsrc_stop();
+        peer_v4l2_stop();
     }
 }
 
@@ -85,6 +92,7 @@ static void usage(const char *prog)
             "  -m              manual answer (Enter)\n"
             "  -c <ip>         call the peer\n"
             "  -v <dir>        send MJPEG from dir after connect (device camera sim)\n"
+            "  -d <dev>        V4L2 camera (default /dev/video0, used when no -v)\n"
             "  -p <port>       signaling port (default %d)\n"
             "  -a <port>       audio RTP port (default %d)\n"
             "  -o <port>       video RTP port (default %d)\n",
@@ -106,6 +114,8 @@ int main(int argc, char **argv)
             call_ip = argv[++i];
         } else if (strcmp(argv[i], "-v") == 0 && i + 1 < argc) {
             s_vidsrc_dir = argv[++i];
+        } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
+            s_v4l2_dev = argv[++i];
         } else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
             sig_port = (uint16_t)atoi(argv[++i]);
         } else if (strcmp(argv[i], "-a") == 0 && i + 1 < argc) {

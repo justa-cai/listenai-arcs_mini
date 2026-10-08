@@ -29,6 +29,7 @@
 
 #include "app_player.h"
 #include "lisa_kv.h"
+#include "lisa_jpeg.h"
 
 #include "sip_osal.h"
 #include "sip_g711.h"
@@ -103,6 +104,11 @@ static sip_rtp_t s_rtp_vid;
 static volatile bool s_rtp_vid_open;
 static TaskHandle_t s_vid_task;
 static volatile bool s_vid_running;
+/* 下行：重组器 + RGB565 解码双缓冲（UI 换指针显示，同 video_player 手法） */
+static sip_jpeg_rx_t *s_jpeg_rx;
+static uint16_t *s_dec_frames[2];
+static int s_dec_front;
+static volatile uint32_t s_rx_vid_frames, s_dec_ms, s_rx_vid_drop;
 /* 统计（shell status） */
 static volatile uint32_t s_tx_pkts, s_rx_pkts, s_rx_loss;
 static volatile uint32_t s_vid_frames, s_vid_enc_ms, s_vid_bytes;
@@ -276,6 +282,48 @@ out:
  * 通话中二者互斥，软件编码彻底避开）→ RFC2435 分片发送。
  * 帧率自适应：周期 = max(200ms, 实测编码耗时 + 20ms)，上限 400ms（2.5fps）。
  */
+/*
+ * 下行视频：RTP 收包 → sip_jpeg_rx 重组 → jpeg_decoder 硬解直出 RGB565
+ * （GPDMA IN ch0/OUT ch5，与上行软件编码互不冲突）→ 双缓冲换指针 →
+ * UI 帧回调（模型层投 worq.ui 上屏）。
+ * 超过屏幕尺寸的帧直接丢弃（RTP 头里带 w/h，解码前就能判断）。
+ */
+static void vid_handle_downlink(void)
+{
+    uint8_t pkt[1500];
+    for (int i = 0; i < 16 && s_vid_running; ++i) {
+        int n = sip_osal_udp_recv(s_rtp_vid.fd, pkt, sizeof(pkt), 0, NULL, NULL);
+        if (n <= 0) {
+            break;
+        }
+        const uint8_t *frame;
+        uint32_t len;
+        int w = 0, h = 0;
+        int rc = sip_jpeg_rx_feed(s_jpeg_rx, pkt, n, SIP_JPEG_PT,
+                                  &frame, &len, &w, &h);
+        if (rc != 1 || len == 0) {
+            continue;
+        }
+        if (w <= 0 || h <= 0 || w > 240 || h > 320) {
+            s_rx_vid_drop++;
+            LISA_LOGW(TAG, "vid: drop frame %dx%d (screen 240x320)", w, h);
+            continue;
+        }
+        uint32_t t0 = sip_osal_now_ms();
+        int back = 1 - s_dec_front;
+        uint16_t dw = (uint16_t)w, dh = (uint16_t)h;
+        Jpeg_DecoderCfg cfg = {.output_format = JPEG_PIXEL_FORMAT_RGB565};
+        if (jpeg_decoder(frame, len, (uint8_t *)s_dec_frames[back], &dw, &dh, cfg) != 0) {
+            s_rx_vid_drop++;
+            continue;
+        }
+        s_dec_ms = sip_osal_now_ms() - t0;
+        s_dec_front = back;
+        s_rx_vid_frames++;
+        sip_service_push_frame(s_dec_frames[s_dec_front], dw, dh);
+    }
+}
+
 static void sip_vid_task(void *arg)
 {
     const sip_session_t *session = &s_ua->session;
@@ -299,6 +347,17 @@ static void sip_vid_task(void *arg)
         LISA_LOGE(TAG, "vid: camera buffer alloc failed (%u)", (unsigned)cam_bytes);
         goto out;
     }
+    /* 下行重组器 + 解码双缓冲（240x320 上限，同屏幕）。 */
+    s_jpeg_rx = psram_malloc(sizeof(*s_jpeg_rx));
+    s_dec_frames[0] = psram_malloc(240u * 320u * 2u);
+    s_dec_frames[1] = psram_malloc(240u * 320u * 2u);
+    if (!s_jpeg_rx || !s_dec_frames[0] || !s_dec_frames[1]) {
+        LISA_LOGE(TAG, "vid: downlink buffer alloc failed");
+        goto out;
+    }
+    memset(s_jpeg_rx, 0, sizeof(*s_jpeg_rx));
+    s_dec_front = 0;
+    s_rx_vid_frames = s_dec_ms = s_rx_vid_drop = 0;
 
     /* 等主页相机预览随导航让出（通话开始时 UI 切到通话页）。 */
     sip_osal_sleep_ms(SIP_VID_START_DELAY_MS);
@@ -310,6 +369,9 @@ static void sip_vid_task(void *arg)
 
     while (s_vid_running) {
         uint32_t t0 = sip_osal_now_ms();
+
+        /* 下行优先排空（实时通话宁丢帧不积压），再采上行。 */
+        vid_handle_downlink();
 
         if (service_camera_capture(cam, cam_bytes) != 0) {
             LISA_LOGW(TAG, "vid: capture failed");
@@ -347,9 +409,20 @@ static void sip_vid_task(void *arg)
         }
         interval = wait;
         sip_osal_sleep_ms(wait);
+        vid_handle_downlink();
     }
 
     psram_free(cam);
+    if (s_jpeg_rx) {
+        psram_free(s_jpeg_rx);
+        s_jpeg_rx = NULL;
+    }
+    for (int i = 0; i < 2; ++i) {
+        if (s_dec_frames[i]) {
+            psram_free(s_dec_frames[i]);
+            s_dec_frames[i] = NULL;
+        }
+    }
     (void)service_camera_stop();
 
 out:
@@ -357,7 +430,8 @@ out:
         sip_rtp_close(&s_rtp_vid);
         s_rtp_vid_open = false;
     }
-    LISA_LOGI(TAG, "vid: stopped (frames=%u enc_ms=%u)", s_vid_frames, s_vid_enc_ms);
+    LISA_LOGI(TAG, "vid: stopped (tx=%u enc_ms=%u rx=%u dec_ms=%u drop=%u)",
+              s_vid_frames, s_vid_enc_ms, s_rx_vid_frames, s_dec_ms, s_rx_vid_drop);
     s_vid_task = NULL;
     vTaskDelete(NULL);
 }
@@ -710,9 +784,10 @@ static int sip_shell_cmd(int argc, char **argv)
                    (s && sip_service_in_call()) ? " (in call)" : "");
         if (s && sip_service_in_call()) {
             shellPrint(shellGetCurrent(),
-                       "     audio pt=%d -> %s:%u | vid frames=%u enc_ms=%u bytes=%u\n",
+                       "     audio pt=%d -> %s:%u | vid tx=%u enc_ms=%u rx=%u dec_ms=%u drop=%u\n",
                        s->audio_pt, s->peer_ip, s->peer_audio_port,
-                       s_vid_frames, s_vid_enc_ms, s_vid_bytes);
+                       s_vid_frames, s_vid_enc_ms, s_rx_vid_frames, s_dec_ms,
+                       s_rx_vid_drop);
         }
         return 0;
     }
