@@ -23,6 +23,9 @@ enum {
 #ifdef CONFIG_VIDEO_PLAYER
     LISA_UI_NAV_SCR_ID_VIDEO,             // 在线视频播放页面
 #endif
+#ifdef CONFIG_MIDDLEWARE_SIP
+    LISA_UI_NAV_SCR_ID_SIP_CALL,          // SIP 视频通话页面
+#endif
 
     LISA_UI_NAV_SCR_ID_MINIAPP,
 };

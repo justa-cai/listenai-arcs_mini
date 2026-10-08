@@ -19,6 +19,10 @@ if(CONFIG_VIDEO_PLAYER)
     target_sources(${LISA_UI_LIB_NAME} PRIVATE video_player_view.c)
 endif()
 
+if(CONFIG_MIDDLEWARE_SIP)
+    target_sources(${LISA_UI_LIB_NAME} PRIVATE sip_call_view.c)
+endif()
+
 if(CONFIG_OTA)
     target_sources(${LISA_UI_LIB_NAME} PRIVATE ota_view.c)
 endif()

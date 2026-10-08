@@ -2,6 +2,9 @@
 
 #include "alarm_handler.h"
 #include "alarm_ring.h"
+#ifdef CONFIG_MIDDLEWARE_SIP
+#include "sip_service.h"
+#endif
 #include "apps/llm/lisa_ui_nav_scr_ids.h"
 #include "apps/llm/models/model_qrcode.h"
 #include "apps/llm/models/model_voice.h"
@@ -159,6 +162,56 @@ static bool app_button_intercept_ota_confirmation_action(voice_msg_button_action
     return false;
 #endif
 }
+
+#ifdef CONFIG_MIDDLEWARE_SIP
+/*
+ * SIP 通话期间的按键语义（插在闹钟拦截之后、默认分发之前）：
+ *   来电：单击接听，长按拒接并回主页；
+ *   呼出/通话：单击挂断，长按挂断并回主页（长按必须在此拦截，防止触发关机，
+ *              同 button_camera_preview 拦截长按的先例）；
+ *   拨号页（空闲）：单击呼叫，长按返回主页；
+ *   其余情况交回默认分发。
+ */
+static bool app_button_intercept_sip_call_action(voice_msg_button_action_t action)
+{
+    sip_svc_state_t st = sip_service_state();
+    bool on_sip_page = lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_SIP_CALL;
+
+    if (st == SIP_SVC_IDLE && !on_sip_page) {
+        return false; /* 与通话无关 */
+    }
+
+    if (action == VOICE_MSG_BUTTON_ACTION_LONG_HOLD) {
+        if (st == SIP_SVC_ACTIVE || st == SIP_SVC_INVITING || st == SIP_SVC_RINGING_OUT) {
+            sip_service_hangup();
+        } else if (st == SIP_SVC_RINGING_IN) {
+            sip_service_reject();
+        }
+        lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
+        LISA_LOGI(TAG, "SIP call: long press -> %s + home",
+                  st == SIP_SVC_RINGING_IN ? "reject" : "hangup");
+        return true;
+    }
+    if (action == VOICE_MSG_BUTTON_ACTION_CLICK) {
+        if (st == SIP_SVC_RINGING_IN) {
+            sip_service_answer();
+            return true;
+        }
+        if (st == SIP_SVC_ACTIVE || st == SIP_SVC_INVITING ||
+            st == SIP_SVC_RINGING_OUT) {
+            sip_service_hangup();
+            return true;
+        }
+        if (on_sip_page && st == SIP_SVC_IDLE) {
+            if (model_sip_call_dial() != 0) {
+                voice_player_play_prompt_tone_url(app_tone_get_url(TONE_ID_64));
+            }
+            return true;
+        }
+    }
+    return false;
+}
+#endif
 
 /*
  * 闹钟响铃期间独占按键输入：任意短按序列均视为一次稍后提醒，长按关闭闹钟，
@@ -352,6 +405,22 @@ static void app_button_handle_triple_click(void)
     app_button_open_cloud_info(status);
 }
 
+#ifdef CONFIG_MIDDLEWARE_SIP
+/* 四击进入 SIP 视频通话页。模型层头文件路径不跨层传播，按本文件引用
+ * lisa_ui_* 的既有做法用本地原型。 */
+extern int model_sip_call_dial(void);
+
+static void app_button_handle_sip_call_click(void)
+{
+    LISA_LOGI(TAG, "power button quadruple click, open sip call page");
+    /* 拍照预览与通话页互斥（相机归通话用）：先退出预览。 */
+    if (button_camera_preview_is_busy()) {
+        button_camera_preview_request_exit();
+    }
+    lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_SIP_CALL);
+}
+#endif
+
 /* 五至七击：交由 BLE 配网模块完成网络切换、清除 Wi-Fi 和配网页展示。 */
 static void app_button_handle_netcfg_click(void)
 {
@@ -407,7 +476,10 @@ static void app_button_dispatch_action(voice_msg_button_action_t action)
         app_button_handle_triple_click();
         break;
     case VOICE_MSG_BUTTON_ACTION_QUADRUPLE_CLICK:
-        /* 四击：预留，当前无操作。 */
+        /* 四击：进入 SIP 视频通话页（拨号/来电/通话中都在该页）。 */
+#ifdef CONFIG_MIDDLEWARE_SIP
+        app_button_handle_sip_call_click();
+#endif
         break;
     case VOICE_MSG_BUTTON_ACTION_QUINTUPLE_CLICK:
     case VOICE_MSG_BUTTON_ACTION_SEXTUPLE_CLICK:
@@ -451,6 +523,13 @@ static void app_button_on_changed(void *unused, uint32_t msg_id, void *data,
     if (app_button_intercept_alarm_action(evt->action)) {
         return;
     }
+
+#ifdef CONFIG_MIDDLEWARE_SIP
+    /* SIP 通话（含来电振铃、通话页）的按键语义。 */
+    if (app_button_intercept_sip_call_action(evt->action)) {
+        return;
+    }
+#endif
 
 #ifdef CONFIG_MINIAPP
     if (miniapp_is_active()) {

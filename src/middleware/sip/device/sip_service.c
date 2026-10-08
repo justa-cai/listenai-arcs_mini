@@ -28,12 +28,21 @@
 #include "sysheap.h"
 
 #include "app_player.h"
+#include "lisa_kv.h"
 
 #include "sip_osal.h"
 #include "sip_g711.h"
 #include "sip_rtp.h"
 #include "sip_ua.h"
 #include "sip_service.h"
+
+/* 铃声/提示音：定义在 apps/arcs-mini 的播放编排里，头文件路径不跨层传播，
+ * 按本仓库先例（video_player 引用 lisa_ui_*）用本地原型声明。 */
+extern void voice_player_play_prompt_tone_url(const char *url);
+extern void voice_player_tone_stop(void);
+extern char *app_tone_get_url(uint16_t tone_id);
+#define SIP_RING_TONE_ID 94u        /* 094_alarm.mp3 */
+#define SIP_RING_PERIOD_MS 3000u    /* 来电铃每 3s 重播一次 */
 
 #define SIP_SIG_STACK 6144u
 #define SIP_AUD_STACK 4096u
@@ -77,6 +86,37 @@ static sip_rtp_t s_rtp_aud;
 static volatile bool s_rtp_aud_open;
 /* 统计（shell status） */
 static volatile uint32_t s_tx_pkts, s_rx_pkts, s_rx_loss;
+/* UI 桥回调（模型层注册） */
+static sip_service_event_cb_t s_event_cb;
+static void *s_event_user;
+static sip_service_frame_cb_t s_frame_cb;
+static void *s_frame_user;
+
+void sip_service_set_event_cb(sip_service_event_cb_t cb, void *user)
+{
+    s_event_cb = cb;
+    s_event_user = user;
+}
+
+void sip_service_set_frame_cb(sip_service_frame_cb_t cb, void *user)
+{
+    s_frame_cb = cb;
+    s_frame_user = user;
+}
+
+static void notify_event(int svc_state)
+{
+    if (s_event_cb) {
+        s_event_cb(svc_state, s_event_user);
+    }
+}
+
+void sip_service_push_frame(const uint16_t *frame, int w, int h)
+{
+    if (s_frame_cb) {
+        s_frame_cb(frame, w, h, s_frame_user);
+    }
+}
 
 /* ============================ 音频任务 ============================ */
 
@@ -262,8 +302,9 @@ static void ua_on_state(void *user, sip_ua_state_t st)
         media_stop();
         break;
     default:
-        break; /* 振铃等中间态：M3 的 UI 桥接管 */
+        break; /* 振铃等中间态：UI 桥下面统一通知 */
     }
+    notify_event((int)st); /* sip_svc_state_t 与 sip_ua_state_t 取值一一对应 */
 }
 
 static void ua_on_incoming(void *user, const char *peer_ip, uint16_t sig_port)
@@ -271,8 +312,7 @@ static void ua_on_incoming(void *user, const char *peer_ip, uint16_t sig_port)
     (void)user;
     (void)sig_port;
     snprintf(s_peer_ip, sizeof(s_peer_ip), "%s", peer_ip);
-    LISA_LOGI(TAG, "incoming call from %s (shell: sip answer | sip reject)", peer_ip);
-    /* M3 起此处驱动 UI 来电页 + 铃声；M2 阶段未接听 60s 自动 486。 */
+    LISA_LOGI(TAG, "incoming call from %s (单击/按键接听，sip reject 拒接)", peer_ip);
 }
 
 static void sip_sig_task(void *arg)
@@ -304,6 +344,7 @@ static void sip_sig_task(void *arg)
     }
 
     sip_cmd_msg_t cmd;
+    uint32_t last_ring_ms = 0;
     while (1) {
         sip_ua_poll(s_ua, 50);
         while (s_cmd_q && xQueueReceive(s_cmd_q, &cmd, 0) == pdTRUE) {
@@ -331,6 +372,19 @@ static void sip_sig_task(void *arg)
             default:
                 break;
             }
+        }
+
+        /* 来电铃：Ringing 期间每 3s 重播一段（tone 通道 prio 0，此时 call
+         * 流尚未建立，无焦点冲突）；离开振铃态即停。 */
+        if (sip_ua_state(s_ua) == SIP_UA_RINGING_IN) {
+            uint32_t now = sip_osal_now_ms();
+            if (last_ring_ms == 0 || (int32_t)(now - last_ring_ms) >= (int32_t)SIP_RING_PERIOD_MS) {
+                voice_player_play_prompt_tone_url(app_tone_get_url(SIP_RING_TONE_ID));
+                last_ring_ms = now;
+            }
+        } else if (last_ring_ms != 0) {
+            voice_player_tone_stop();
+            last_ring_ms = 0;
         }
     }
 }
@@ -468,6 +522,43 @@ void sip_service_on_mic_pcm(const int16_t *pcm, uint32_t samples)
     }
 }
 
+/* ============================ 对端配置（KV） ============================ */
+
+#define SIP_KV_PEER_KEY "user.sip.peer"
+
+int sip_service_peer_cfg_get(char *buf, size_t len)
+{
+    if (!buf || len == 0) {
+        return -1;
+    }
+    buf[0] = '\0';
+    char *val = NULL;
+    if (lisa_kv_get_string(SIP_KV_PEER_KEY, &val) != 0 || !val || !val[0]) {
+        if (val) {
+            lisa_kv_free(val);
+        }
+        return -1;
+    }
+    snprintf(buf, len, "%s", val);
+    lisa_kv_free(val);
+    return buf[0] ? 0 : -1;
+}
+
+int sip_service_peer_cfg_set(const char *ip)
+{
+    if (!ip || !ip[0]) {
+        return -1;
+    }
+    return lisa_kv_set_string(SIP_KV_PEER_KEY, ip) == 0 ? 0 : -1;
+}
+
+void sip_service_debug_ring(void)
+{
+    /* 不发信令，只驱动 UI 桥（验证来电页/铃声/按键接听链路）。 */
+    snprintf(s_peer_ip, sizeof(s_peer_ip), "%s", "self-test");
+    notify_event((int)SIP_SVC_RINGING_IN);
+}
+
 /* ============================ shell ============================ */
 
 static int sip_shell_cmd(int argc, char **argv)
@@ -475,14 +566,16 @@ static int sip_shell_cmd(int argc, char **argv)
     if (argc < 2) {
         shellPrint(shellGetCurrent(),
                    "usage: sip status | call <ip> [port] | answer | reject | "
-                   "hangup | cancel | log <0-3>\n");
+                   "hangup | cancel | cfg [<ip>] | ring | log <0-3>\n");
         return 0;
     }
     if (strcmp(argv[1], "status") == 0) {
         const sip_session_t *s = s_ua ? sip_ua_session(s_ua) : NULL;
+        char peer[24];
+        sip_service_peer_cfg_get(peer, sizeof(peer));
         shellPrint(shellGetCurrent(),
-                   "sip: state=%s peer=%s tx=%u rx=%u loss=%u%s\n",
-                   sip_service_state_name(), s_peer_ip,
+                   "sip: state=%s peer=%s cfg=%s tx=%u rx=%u loss=%u%s\n",
+                   sip_service_state_name(), s_peer_ip, peer,
                    s_tx_pkts, s_rx_pkts, s_rx_loss,
                    (s && sip_service_in_call()) ? " (in call)" : "");
         if (s && sip_service_in_call()) {
@@ -507,6 +600,22 @@ static int sip_shell_cmd(int argc, char **argv)
     }
     if (strcmp(argv[1], "cancel") == 0) {
         sip_service_cancel();
+        return 0;
+    }
+    if (strcmp(argv[1], "cfg") == 0) {
+        if (argc >= 3) {
+            if (sip_service_peer_cfg_set(argv[2]) != 0) {
+                shellPrint(shellGetCurrent(), "sip: cfg set failed\n");
+                return -1;
+            }
+        }
+        char peer[24];
+        int rc = sip_service_peer_cfg_get(peer, sizeof(peer));
+        shellPrint(shellGetCurrent(), "sip: peer cfg = %s\n", rc == 0 ? peer : "(unset)");
+        return 0;
+    }
+    if (strcmp(argv[1], "ring") == 0) {
+        sip_service_debug_ring();
         return 0;
     }
     if (strcmp(argv[1], "log") == 0 && argc >= 3) {

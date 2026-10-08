@@ -27,6 +27,9 @@ extern const struct lisa_ui_nav_scr sd_music_sync_nav_scr;
 #ifdef CONFIG_VIDEO_PLAYER
 extern const struct lisa_ui_nav_scr video_nav_scr;
 #endif
+#ifdef CONFIG_MIDDLEWARE_SIP
+extern const struct lisa_ui_nav_scr sip_call_nav_scr;
+#endif
 #ifdef CONFIG_OTA
 extern const struct lisa_ui_nav_scr ota_nav_scr;
 #endif
@@ -45,6 +48,9 @@ static int lisa_ui_model_init(void)
     model_battery_init();
     model_modem_init();
     model_sd_music_sync_init();
+#ifdef CONFIG_MIDDLEWARE_SIP
+    model_sip_call_init();
+#endif
 
     return 0;
 }
@@ -69,6 +75,9 @@ int lisa_ui_app_init(void)
     lisa_ui_nav_scr_add(&sd_music_sync_nav_scr);
 #ifdef CONFIG_VIDEO_PLAYER
     lisa_ui_nav_scr_add(&video_nav_scr);
+#endif
+#ifdef CONFIG_MIDDLEWARE_SIP
+    lisa_ui_nav_scr_add(&sip_call_nav_scr);
 #endif
 #ifdef CONFIG_OTA
     lisa_ui_nav_scr_add(&ota_nav_scr);
