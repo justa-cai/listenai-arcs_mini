@@ -18,6 +18,12 @@
 #include "voice_cloud.h"
 #include "app_wakeup_debug.h"
 #include "app_wakeup.h"
+#ifdef CONFIG_MIDDLEWARE_SIP
+/* src/middleware/sip/device/sip_service.h —— 包含路径不跨层传播（lschat 的
+ * 编译目标在 sip 模块之前已固化 include 列表），这里按 video_player 引用
+ * lisa_ui_* 的先例用本地原型声明。 */
+extern void sip_service_on_mic_pcm(const short *pcm, unsigned int samples);
+#endif
 
 #define TAG "app_wakeup"
 #include "lisa_log.h"
@@ -870,6 +876,11 @@ static void wakeup_out_stream_to_cloud(uint8_t *data, int len)
         if (peak > 0U) {
             s_audio_diag.cloud_non_silent_frames_since_wake++;
         }
+#ifdef CONFIG_MIDDLEWARE_SIP
+        /* SIP 通话上行：post-AEC 干净单麦 16k（每帧 256 样本），交给 sip 服务
+         * 做 2:1 降采样 + G.711 编码。未通话时该调用立即返回。 */
+        sip_service_on_mic_pcm(algo_out, UAS_REC_FRM_SAMPS);
+#endif
         if (voice_cloud_chat_send_audio((uint8_t *)algo_out,
                                         LS_RECORD_ONE_CHNNEL_SIZE) != 0) {
             s_audio_diag.cloud_send_failures_since_wake++;

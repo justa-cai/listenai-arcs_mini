@@ -31,6 +31,11 @@ static const char *focus_capture_alert[] = {"tts", "tone"};
 #ifdef CONFIG_VIDEO_PLAYER
 static const char *focus_capture_video[] = {"tts", "music", "alert", "miniapp"};
 #endif
+#ifdef CONFIG_MIDDLEWARE_SIP
+/* 通话通道：与 video 同优先级（业务互斥，永不同时活跃）；被抢走 = PAUSE，
+ * 提示音播完后通话音频可恢复，不杀流。 */
+static const char *focus_capture_call[] = {"tts", "music", "alert", "miniapp"};
+#endif
 
 /** 音量线程句柄 */
 static TaskHandle_t g_volume_thread = NULL;
@@ -257,6 +262,19 @@ int voice_player_platform_init(void)
             .behavior = {
                 .on_background = APP_PLAYER_FOCUS_LOSS_STOP,
                 .on_focus_lost = APP_PLAYER_FOCUS_LOSS_STOP,
+            }
+        },
+#endif
+#ifdef CONFIG_MIDDLEWARE_SIP
+        {
+            .name = "call",
+            .priority = 5,  // SIP 通话：与 video 同级（二者业务互斥）；
+                            // 被提示音打断为 PAUSE，播完可恢复
+            .capture_names = focus_capture_call,
+            .capture_count = 4,
+            .behavior = {
+                .on_background = APP_PLAYER_FOCUS_LOSS_PAUSE,
+                .on_focus_lost = APP_PLAYER_FOCUS_LOSS_PAUSE,
             }
         },
 #endif

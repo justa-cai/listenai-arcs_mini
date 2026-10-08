@@ -12,7 +12,12 @@ set(CMAKE_C_STANDARD 11)
 
 add_executable(sip_peer
     sip_peer.c
+    peer_alsa.c
     ../core/sip_g711.c
+    ../core/sip_msg.c
+    ../core/sip_sdp.c
+    ../core/sip_rtp.c
+    ../core/sip_ua.c
     ../ports/sip_osal_posix.c
 )
 
@@ -21,5 +26,7 @@ target_include_directories(sip_peer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../core
     ${CMAKE_CURRENT_SOURCE_DIR}/../ports
 )
+
+target_link_libraries(sip_peer PRIVATE asound pthread m)
 
 target_compile_options(sip_peer PRIVATE -O2 -Wall -Wextra)
