@@ -13,7 +13,10 @@ set(CMAKE_C_STANDARD 11)
 add_executable(sip_peer
     sip_peer.c
     peer_alsa.c
+    peer_vidsink.c
+    peer_vidsrc.c
     ../core/sip_g711.c
+    ../core/sip_jpeg_rtp.c
     ../core/sip_msg.c
     ../core/sip_sdp.c
     ../core/sip_rtp.c

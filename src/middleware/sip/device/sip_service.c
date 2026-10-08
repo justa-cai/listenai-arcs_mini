@@ -33,16 +33,31 @@
 #include "sip_osal.h"
 #include "sip_g711.h"
 #include "sip_rtp.h"
+#include "sip_jpeg_rtp.h"
 #include "sip_ua.h"
 #include "sip_service.h"
 
-/* 铃声/提示音：定义在 apps/arcs-mini 的播放编排里，头文件路径不跨层传播，
- * 按本仓库先例（video_player 引用 lisa_ui_*）用本地原型声明。 */
+/* 相机/JPEG：头文件路径不跨层传播（services 与 utils 的 include 在
+ * sip 之后注册），按本仓库先例用本地原型声明，链接期解析。 */
+extern int service_camera_capture(uint8_t *buffer, uint32_t buffer_len);
+extern int service_camera_stop(void);
+extern int service_camera_get_framesize(uint16_t *width, uint16_t *height);
+extern int image_rgb565_to_jpeg(const uint8_t *rgb565, uint32_t len, int width, int height,
+                                uint8_t **jpeg_data, uint32_t *jpeg_len);
+extern void image_jpeg_free(void *jpeg);
+
 extern void voice_player_play_prompt_tone_url(const char *url);
 extern void voice_player_tone_stop(void);
 extern char *app_tone_get_url(uint16_t tone_id);
+
 #define SIP_RING_TONE_ID 94u        /* 094_alarm.mp3 */
 #define SIP_RING_PERIOD_MS 3000u    /* 来电铃每 3s 重播一次 */
+
+#define SIP_VID_STACK 16384u
+#define SIP_VID_PRIO 3u
+#define SIP_VID_INTERVAL_MS 200u    /* 上行目标 5fps，按编码耗时自适应 */
+#define SIP_VID_MAX_INTERVAL_MS 400u
+#define SIP_VID_START_DELAY_MS 500u /* 等主页预览让出相机 */
 
 #define SIP_SIG_STACK 6144u
 #define SIP_AUD_STACK 4096u
@@ -84,8 +99,13 @@ static app_player_t *s_player;         /* 懒创建，终身复用 */
 static char s_peer_ip[16];
 static sip_rtp_t s_rtp_aud;
 static volatile bool s_rtp_aud_open;
+static sip_rtp_t s_rtp_vid;
+static volatile bool s_rtp_vid_open;
+static TaskHandle_t s_vid_task;
+static volatile bool s_vid_running;
 /* 统计（shell status） */
 static volatile uint32_t s_tx_pkts, s_rx_pkts, s_rx_loss;
+static volatile uint32_t s_vid_frames, s_vid_enc_ms, s_vid_bytes;
 /* UI 桥回调（模型层注册） */
 static sip_service_event_cb_t s_event_cb;
 static void *s_event_user;
@@ -248,6 +268,100 @@ out:
     vTaskDelete(NULL);
 }
 
+/* ============================ 视频任务 ============================ */
+
+/*
+ * 上行视频：相机采集（RGB565 240x320）→ 软件 JPEG（tiny_jpeg，拍照上传
+ * 在用的同一条编码路径；不用硬编 —— JPEG 硬编与下行硬解共用 GPDMA ch0，
+ * 通话中二者互斥，软件编码彻底避开）→ RFC2435 分片发送。
+ * 帧率自适应：周期 = max(200ms, 实测编码耗时 + 20ms)，上限 400ms（2.5fps）。
+ */
+static void sip_vid_task(void *arg)
+{
+    const sip_session_t *session = &s_ua->session;
+
+    if (!session->video || session->peer_video_port == 0) {
+        LISA_LOGI(TAG, "vid: video not negotiated, task exits");
+        goto out;
+    }
+    if (sip_rtp_open(&s_rtp_vid, SIP_VIDEO_PORT, SIP_JPEG_PT) != 0) {
+        LISA_LOGE(TAG, "video rtp bind %u failed", SIP_VIDEO_PORT);
+        goto out;
+    }
+    s_rtp_vid_open = true;
+    sip_rtp_set_peer(&s_rtp_vid, session->peer_ip, session->peer_video_port);
+
+    uint16_t cw = 240, ch = 320;
+    (void)service_camera_get_framesize(&cw, &ch);
+    const uint32_t cam_bytes = (uint32_t)cw * ch * 2u;
+    uint8_t *cam = psram_malloc(cam_bytes);
+    if (!cam) {
+        LISA_LOGE(TAG, "vid: camera buffer alloc failed (%u)", (unsigned)cam_bytes);
+        goto out;
+    }
+
+    /* 等主页相机预览随导航让出（通话开始时 UI 切到通话页）。 */
+    sip_osal_sleep_ms(SIP_VID_START_DELAY_MS);
+
+    uint32_t vid_ts = 0;
+    uint32_t interval = SIP_VID_INTERVAL_MS;
+    LISA_LOGI(TAG, "vid: uplink %ux%u -> %s:%u", cw, ch,
+              session->peer_ip, session->peer_video_port);
+
+    while (s_vid_running) {
+        uint32_t t0 = sip_osal_now_ms();
+
+        if (service_camera_capture(cam, cam_bytes) != 0) {
+            LISA_LOGW(TAG, "vid: capture failed");
+            sip_osal_sleep_ms(200);
+            continue;
+        }
+
+        uint8_t *jpeg = NULL;
+        uint32_t jpeg_len = 0;
+        if (image_rgb565_to_jpeg(cam, cam_bytes, cw, ch, &jpeg, &jpeg_len) != 0 ||
+            !jpeg || jpeg_len == 0) {
+            LISA_LOGW(TAG, "vid: jpeg encode failed");
+            continue;
+        }
+
+        uint32_t enc_ms = sip_osal_now_ms() - t0;
+        int frags = sip_jpeg_rtp_send_frame(&s_rtp_vid, jpeg, (int)jpeg_len,
+                                            (int)cw, (int)ch, vid_ts);
+        image_jpeg_free(jpeg);
+        if (frags <= 0) {
+            LISA_LOGW(TAG, "vid: send failed (%u bytes)", jpeg_len);
+            sip_osal_sleep_ms(200);
+            continue;
+        }
+        vid_ts += 90000u / (1000u / interval); /* 按实际帧间隔推进 90kHz 时钟 */
+        s_vid_frames++;
+        s_vid_bytes += jpeg_len;
+        s_vid_enc_ms = enc_ms;
+
+        uint32_t elapsed = sip_osal_now_ms() - t0;
+        uint32_t wait = (elapsed + 20u > SIP_VID_INTERVAL_MS) ? elapsed + 20u
+                                                              : SIP_VID_INTERVAL_MS;
+        if (wait > SIP_VID_MAX_INTERVAL_MS) {
+            wait = SIP_VID_MAX_INTERVAL_MS;
+        }
+        interval = wait;
+        sip_osal_sleep_ms(wait);
+    }
+
+    psram_free(cam);
+    (void)service_camera_stop();
+
+out:
+    if (s_rtp_vid_open) {
+        sip_rtp_close(&s_rtp_vid);
+        s_rtp_vid_open = false;
+    }
+    LISA_LOGI(TAG, "vid: stopped (frames=%u enc_ms=%u)", s_vid_frames, s_vid_enc_ms);
+    s_vid_task = NULL;
+    vTaskDelete(NULL);
+}
+
 static void media_start(void)
 {
     if (s_aud_task) {
@@ -267,20 +381,36 @@ static void media_start(void)
         s_aud_task = NULL;
         LISA_LOGE(TAG, "create sip_aud failed");
     }
+    s_vid_frames = s_vid_enc_ms = s_vid_bytes = 0;
+    s_vid_running = true;
+    if (xTaskCreate(sip_vid_task, "sip_vid", SIP_VID_STACK / 4u, NULL,
+                    SIP_VID_PRIO, &s_vid_task) != pdPASS) {
+        s_vid_running = false;
+        s_vid_task = NULL;
+        LISA_LOGE(TAG, "create sip_vid failed");
+    }
 }
 
 static void media_stop(void)
 {
-    if (!s_aud_task) {
-        return;
+    if (s_aud_task) {
+        s_aud_running = false;
+        if (s_rtp_aud_open) {
+            sip_osal_udp_close(s_rtp_aud.fd); /* 解除 recv 阻塞（gamepad_udp 手法） */
+        }
+        /* 任务自清理（s_aud_task = NULL + vTaskDelete）。等待最多 2s。 */
+        for (int i = 0; i < 100 && s_aud_task; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
     }
-    s_aud_running = false;
-    if (s_rtp_aud_open) {
-        sip_osal_udp_close(s_rtp_aud.fd); /* 解除 recv 阻塞（gamepad_udp 手法） */
-    }
-    /* 任务自清理（s_aud_task = NULL + vTaskDelete）。等待最多 2s。 */
-    for (int i = 0; i < 100 && s_aud_task; ++i) {
-        vTaskDelay(pdMS_TO_TICKS(20));
+    if (s_vid_task) {
+        s_vid_running = false;
+        if (s_rtp_vid_open) {
+            sip_osal_udp_close(s_rtp_vid.fd);
+        }
+        for (int i = 0; i < 200 && s_vid_task; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
     }
 }
 
@@ -580,8 +710,9 @@ static int sip_shell_cmd(int argc, char **argv)
                    (s && sip_service_in_call()) ? " (in call)" : "");
         if (s && sip_service_in_call()) {
             shellPrint(shellGetCurrent(),
-                       "     audio pt=%d -> %s:%u\n", s->audio_pt, s->peer_ip,
-                       s->peer_audio_port);
+                       "     audio pt=%d -> %s:%u | vid frames=%u enc_ms=%u bytes=%u\n",
+                       s->audio_pt, s->peer_ip, s->peer_audio_port,
+                       s_vid_frames, s_vid_enc_ms, s_vid_bytes);
         }
         return 0;
     }
