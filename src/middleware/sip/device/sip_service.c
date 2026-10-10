@@ -140,6 +140,11 @@ static uint16_t *s_dec_scratch;         /* 32B 对齐后的解码输出（GPDMA 
 static uint16_t *s_dec_frames[2];       /* 显示双缓冲（memcpy 后才给 UI） */
 static int s_dec_front;
 static volatile uint32_t s_rx_vid_frames, s_dec_ms, s_rx_vid_drop;
+/* drop 分项（共用计数看不出丢在哪一环）：size=超尺寸 sampling=采样
+ * 不在白名单 dec=硬解返回错误；另有网络断片在 sip_jpeg_rx 内部整帧
+ * 丢弃、不进任何计数。 */
+static volatile uint32_t s_rx_drop_size, s_rx_drop_sampling, s_rx_drop_dec;
+static volatile uint32_t s_rx_drop_frag; /* 重组断片：网络丢包撕掉的整帧 */
 /* 统计（shell status） */
 static volatile uint32_t s_tx_pkts, s_rx_pkts, s_rx_loss;
 static volatile uint32_t s_vid_frames, s_vid_enc_ms, s_vid_bytes;
@@ -431,6 +436,8 @@ static void sip_vidrx_task(void *arg)
     memset(s_jpeg_rx, 0, sizeof(*s_jpeg_rx));
     s_dec_front = 0;
     s_rx_vid_frames = s_dec_ms = s_rx_vid_drop = 0;
+    s_rx_drop_size = s_rx_drop_sampling = s_rx_drop_dec = 0;
+    s_rx_drop_frag = 0;
     LISA_LOGI(TAG, "vid_rx: %s:%u", session->peer_ip, session->peer_video_port);
 
     while (s_vidrx_running) {
@@ -443,15 +450,22 @@ static void sip_vidrx_task(void *arg)
         int w = 0, h = 0;
         int rc = sip_jpeg_rx_feed(s_jpeg_rx, pkt, n, SIP_JPEG_PT,
                                   &frame, &len, &w, &h);
+        if (rc < 0) {
+            s_rx_vid_drop++;
+            s_rx_drop_frag++;
+            continue;
+        }
         if (rc != 1 || len == 0) {
             continue;
         }
         if (w <= 0 || h <= 0 || w > 240 || h > 320) {
             s_rx_vid_drop++;
+            s_rx_drop_size++;
             continue;
         }
         if (!jpeg_sampling_supported(frame, len)) {
             s_rx_vid_drop++;
+            s_rx_drop_sampling++;
             continue;
         }
         uint32_t t0 = sip_osal_now_ms();
@@ -467,6 +481,7 @@ static void sip_vidrx_task(void *arg)
         }
         if (dec_rc != 0) {
             s_rx_vid_drop++;
+            s_rx_drop_dec++;
             continue;
         }
         /* 拷贝到显示缓冲：此后 UI 读到的内容不再变化（消除渲染撕裂）。 */
@@ -1000,10 +1015,11 @@ static int sip_shell_cmd(int argc, char **argv)
                    (s && sip_service_in_call()) ? " (in call)" : "");
         if (s && sip_service_in_call()) {
             shellPrint(shellGetCurrent(),
-                       "     audio pt=%d -> %s:%u | vid tx=%u enc_ms=%u rx=%u dec_ms=%u drop=%u\n",
+                       "     audio pt=%d -> %s:%u | vid tx=%u enc_ms=%u rx=%u dec_ms=%u drop=%u (frag=%u size=%u sampling=%u dec=%u)\n",
                        s->audio_pt, s->peer_ip, s->peer_audio_port,
                        s_vid_frames, s_vid_enc_ms, s_rx_vid_frames, s_dec_ms,
-                       s_rx_vid_drop);
+                       s_rx_vid_drop, s_rx_drop_frag, s_rx_drop_size,
+                       s_rx_drop_sampling, s_rx_drop_dec);
         }
         return 0;
     }
