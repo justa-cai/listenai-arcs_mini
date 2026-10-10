@@ -73,9 +73,9 @@ static int send_to_peer(sip_ua_t *ua, const char *buf, int len)
 static void build_and_send_request(sip_ua_t *ua, const char *method, int cseq,
                                    const char *body, int body_len, int retransmits)
 {
-    /* 报文缓冲用静态：UA 是单线程 poll 模型（唯一入口 sip_ua_poll），
-     * 不可重入；设备侧 sip_sig 栈曾因这些 KB 级局部数组实测用到 94.5%。 */
-    static char buf[SIP_MSG_MAX] SIP_BSS;
+    /* 报文缓冲在 16KB 的 sip_sig 栈上（曾因 6KB 栈实测 94.5% 占用而爆栈，
+     * 栈已扩；再早版本放 .psram.bss 会平移 PSRAM 布局踩堆，见 sip_osal.h）。 */
+    char buf[SIP_MSG_MAX];
     char branch[28];
     char b[12];
     gen_hex(b, 8);
@@ -101,7 +101,7 @@ static void build_and_send_response(sip_ua_t *ua, const sip_msg_t *req,
                                     int code, const char *reason, const char *to_tag,
                                     const char *body, int body_len, int save_last)
 {
-    static char buf[SIP_MSG_MAX] SIP_BSS;  /* 同上：单线程，静态省栈 */
+    char buf[SIP_MSG_MAX];  /* 同上：栈上（16KB 任务栈） */
     int len = sip_msg_response(buf, sizeof(buf), req, code, reason, to_tag,
                                body, body_len);
     if (len <= 0) {
@@ -511,7 +511,7 @@ static void ua_timers(sip_ua_t *ua)
 
 void sip_ua_poll(sip_ua_t *ua, uint32_t wait_ms)
 {
-    static char buf[SIP_MSG_MAX] SIP_BSS;  /* 同上：单线程，静态省栈 */
+    char buf[SIP_MSG_MAX];  /* 同上：栈上（16KB 任务栈） */
     char from_ip[16];
     uint16_t from_port = 0;
     int n = sip_osal_udp_recv(ua->fd, buf, sizeof(buf), wait_ms, from_ip, &from_port);

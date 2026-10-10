@@ -63,14 +63,21 @@ int sip_osal_udp_send(int fd, const char *ip, uint16_t port,
 int sip_osal_udp_recv(int fd, void *buf, size_t len, uint32_t timeout_ms,
                       char *from_ip, uint16_t *from_port)
 {
-    struct timeval tv;
-    tv.tv_sec = timeout_ms / 1000u;
-    tv.tv_usec = (timeout_ms % 1000u) * 1000u;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    /* POSIX 的 SO_RCVTIMEO={0,0} 同样是无限等待；timeout 0 用
+     * MSG_DONTWAIT 表达"立即返回"。 */
+    int flags = 0;
+    if (timeout_ms == 0) {
+        flags = MSG_DONTWAIT;
+    } else {
+        struct timeval tv;
+        tv.tv_sec = timeout_ms / 1000u;
+        tv.tv_usec = (timeout_ms % 1000u) * 1000u;
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    }
 
     struct sockaddr_in from;
     socklen_t fromlen = sizeof(from);
-    ssize_t n = recvfrom(fd, buf, len, 0, (struct sockaddr *)&from, &fromlen);
+    ssize_t n = recvfrom(fd, buf, len, flags, (struct sockaddr *)&from, &fromlen);
     if (n < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
             return 0;

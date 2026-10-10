@@ -71,6 +71,11 @@ int sip_osal_udp_send(int fd, const char *ip, uint16_t port,
 int sip_osal_udp_recv(int fd, void *buf, size_t len, uint32_t timeout_ms,
                       char *from_ip, uint16_t *from_port)
 {
+    /* lwip 的 SO_RCVTIMEO=0 表示无限等待 —— timeout 0 的语义是"立即返回"，
+     * 映射成 1ms（曾因整层干等把音频循环拖成 ~178ms/圈）。 */
+    if (timeout_ms == 0) {
+        timeout_ms = 1;
+    }
     struct timeval tv;
     tv.tv_sec = timeout_ms / 1000u;
     tv.tv_usec = (timeout_ms % 1000u) * 1000u;

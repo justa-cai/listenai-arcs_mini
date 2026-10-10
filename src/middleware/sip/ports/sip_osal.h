@@ -15,13 +15,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* 大缓冲段属性：设备侧放 PSRAM（SRAM 紧张，静态 BSS 会挤爆链接），
- * 主机侧无此概念为空。由固件构建传入 -DSIP_OSAL_FREERTOS。 */
-#ifdef SIP_OSAL_FREERTOS
-#define SIP_BSS __attribute__((section(".psram.bss")))
-#else
+/* 大缓冲段属性。曾放 .psram.bss 省栈，但真机证明该段每 +8KB 会把整个
+ * PSRAM 布局平移（.psram.noinit/.psram.text/.miniapp.psram.* 全后移），
+ * 堆元数据被踩 → 之后任意 TLSF 大分配（如 lisa_thread 的线程栈）在
+ * 伪地址上 Store Fault。现在缓冲回到任务栈（sip_sig 16KB，余量充足），
+ * 宏保留为空以维持调用点写法。 */
 #define SIP_BSS
-#endif
 
 /* 日志级别。DBG 在设备侧走 LISA_LOGI（elog 无 D 级别）。 */
 enum {
