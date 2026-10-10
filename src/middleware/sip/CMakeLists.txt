@@ -14,6 +14,7 @@ listenai_library_sources(
     ports/sip_osal_freertos.c
     device/sip_jpeg_enc_tables.c
     device/sip_service.c
+    device/sip_screen.c
 )
 
 listenai_include_directories(

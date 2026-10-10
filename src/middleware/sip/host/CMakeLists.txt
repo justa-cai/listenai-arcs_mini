@@ -34,3 +34,8 @@ target_include_directories(sip_peer PRIVATE
 target_link_libraries(sip_peer PRIVATE asound pthread m jpeg)
 
 target_compile_options(sip_peer PRIVATE -O2 -Wall -Wextra)
+
+# LCD 回传接收器（调试工具，与设备侧 sip_screen.c 的自定义分片协议配套）：
+#   ./tmp/sip-host/screen_sink [port=5070] [outdir=tmp/sip_host]
+add_executable(screen_sink screen_sink.c)
+target_compile_options(screen_sink PRIVATE -O2 -Wall -Wextra)
