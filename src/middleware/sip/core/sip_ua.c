@@ -341,6 +341,13 @@ static void handle_request(sip_ua_t *ua, sip_msg_t *m)
                 sip_osal_udp_send(ua->fd, m->src_ip, m->src_port,
                                   ua->last_resp, (size_t)ua->last_resp_len);
             }
+        } else if (ua->state == SIP_UA_ACTIVE && strcmp(m->call_id, ua->call_id) == 0) {
+            /* 已应答的对话收到重传 INVITE（200 在路上丢了）：重发 200，
+             * 而不是回 486 —— 对端会把 486 当作呼叫失败而挂断。 */
+            if (ua->last_resp_len > 0) {
+                sip_osal_udp_send(ua->fd, m->src_ip, m->src_port,
+                                  ua->last_resp, (size_t)ua->last_resp_len);
+            }
         } else {
             build_and_send_response(ua, m, 486, "Busy Here", ua->local_tag, NULL, 0, 0);
         }
@@ -398,6 +405,10 @@ static void handle_response(sip_ua_t *ua, sip_msg_t *m)
         return; /* 不是当前对话的响应 */
     }
     if (strcmp(m->cseq_method, "INVITE") == 0 && m->cseq == ua->invite_cseq) {
+        if (ua->state == SIP_UA_ACTIVE) {
+            return; /* 200 已收到、事务已终结：迟到的 486（对端把我们的重传
+                     * INVITE 当新呼叫拒了）不得推翻已建立的对话 */
+        }
         switch (m->code / 100) {
         case 1:
             if (m->code == 180 && ua->state == SIP_UA_INVITING) {
