@@ -12,6 +12,7 @@ listenai_library_sources(
     core/sip_rtp.c
     core/sip_ua.c
     ports/sip_osal_freertos.c
+    device/sip_jpeg_enc_tables.c
     device/sip_service.c
 )
 

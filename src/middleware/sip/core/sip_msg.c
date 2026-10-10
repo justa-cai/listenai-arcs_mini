@@ -93,9 +93,8 @@ int sip_msg_parse(sip_msg_t *m, const char *buf, int len)
     }
     memset(m, 0, sizeof(*m));
 
-    /* 只在报文内部扫描，保证不越界读。缓冲用静态：解析只发生在 UA 的
-     * 单线程 poll 里，设备侧曾因此处的 KB 级局部数组逼近栈上限。 */
-    static char work[SIP_MSG_MAX + 1] SIP_BSS;
+    /* 只在报文内部扫描，保证不越界读（缓冲在调用方 16KB 任务栈上）。 */
+    char work[SIP_MSG_MAX + 1];
     memcpy(work, buf, (size_t)len);
     work[len] = '\0';
 

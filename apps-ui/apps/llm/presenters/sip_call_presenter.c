@@ -77,6 +77,7 @@ static int sip_call_nav_scr_close(const struct lisa_ui_nav_scr *scr, void *data)
         return 0;
     }
     if (scr_data->view) {
+        lisa_ui_sip_view_destroy();  /* 先删计时 timer/清指针，再删对象树 */
         lv_obj_del(scr_data->view);
     }
     lisa_ui_free(scr_data);

@@ -32,7 +32,7 @@ static struct sip_view_ctx s_view;
 static void sip_view_timer_cb(lv_timer_t *timer)
 {
     (void)timer;
-    if (s_view.state != SIP_UI_ACTIVE || !s_view.status_label) {
+    if (!s_view.root || s_view.state != SIP_UI_ACTIVE || !s_view.status_label) {
         return;
     }
     uint32_t elapsed = (lv_tick_get() - s_view.start_tick) / 1000u;
@@ -41,8 +41,17 @@ static void sip_view_timer_cb(lv_timer_t *timer)
     lv_label_set_text(s_view.status_label, text);
 }
 
+void lisa_ui_sip_view_destroy(void)
+{
+    if (s_view.timer) {
+        lv_timer_del(s_view.timer);
+    }
+    memset(&s_view, 0, sizeof(s_view));  /* root/labels 由 presenter 的 lv_obj_del 释放 */
+}
+
 lv_obj_t *lisa_ui_sip_view_create(lv_obj_t *parent)
 {
+    lisa_ui_sip_view_destroy();  /* 防御重入：清掉上一次会话的 timer/悬垂指针 */
     memset(&s_view, 0, sizeof(s_view));
 
     s_view.root = lv_obj_create(parent);

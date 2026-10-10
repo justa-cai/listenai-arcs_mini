@@ -319,6 +319,11 @@ int service_camera_init(void)
 
 int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
 {
+    return service_camera_capture_ex(buffer, buffer_len, CAMERA_CAPTURE_DROP_STALE_FRAMES);
+}
+
+int service_camera_capture_ex(uint8_t *buffer, uint32_t buffer_len, uint8_t drop_frames)
+{
     lisa_camera_fb_t *fb = NULL;
     int ret;
 
@@ -343,7 +348,7 @@ int service_camera_capture(uint8_t *buffer, uint32_t buffer_len)
         return ret;
     }
 
-    ret = service_camera_capture_frame(&fb, CAMERA_CAPTURE_DROP_STALE_FRAMES);
+    ret = service_camera_capture_frame(&fb, drop_frames);
     if (ret != 0) {
         service_camera_stop_stream();
         return ret;

@@ -4,8 +4,14 @@
  * 任务模型（栈按字节给出，xTaskCreate 时 /4）：
  *   sip_sig  6144B prio 6  常驻：5060 收发 + sip_ua_poll(50ms) + 命令队列
  *                              + 媒体生命周期管理 + （M3 起）UI 桥
+ *   sip_vid_rx 4096B prio 4 会话期间：专职下行收包（5064 → 重组 → 硬解 →
+ *                          UI 推帧）。曾与上行同任务：软件编码一帧 2.1s，
+ *                          期间完全不收包，下行完整帧率掉到 ~25%。
  *   sip_aud  4096B prio 5  会话期间：G.711 双向（mic 环 → RTP 上行；
- *                          RTP 下行 → 解码 → call 播放器流式写入）
+ *                          RTP 下行 → 解码 → 8k→16k 上采样 → call 播放器
+ *                          以 16000Hz 流式写入 —— 不用 8000Hz 直喂：那是
+ *                          预编译 lisa_player 从未被使用过的路径，实测在
+ *                          prepare 阶段（speex 8k 重采样初始化）Store Fault）
  *
  * 播放器：app_player_create("call") 首次通话懒创建、终身复用（audiomgr
  * 通道终身制，destroy 后无法重注册 —— 与 video_player 相同的铁律）。
@@ -21,6 +27,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "semphr.h"
 #include "stream_buffer.h"
 
 #include "lisa_log.h"
@@ -40,12 +47,17 @@
 
 /* 相机/JPEG：头文件路径不跨层传播（services 与 utils 的 include 在
  * sip 之后注册），按本仓库先例用本地原型声明，链接期解析。 */
-extern int service_camera_capture(uint8_t *buffer, uint32_t buffer_len);
+extern int service_camera_capture_ex(uint8_t *buffer, uint32_t buffer_len, uint8_t drop_frames);
 extern int service_camera_stop(void);
 extern int service_camera_get_framesize(uint16_t *width, uint16_t *height);
 extern int image_rgb565_to_jpeg(const uint8_t *rgb565, uint32_t len, int width, int height,
                                 uint8_t **jpeg_data, uint32_t *jpeg_len);
 extern void image_jpeg_free(void *jpeg);
+
+/* 电源策略：通话期间保持 NORMAL，不因 15s 无操作进 idle（否则 UI 导航回
+ * 主页 -> 通话页 pause -> 按设计挂断，实测 15s 整通话被切）。 */
+extern void service_power_policy_set_miniapp_active(bool active);
+static bool s_keep_awake_set;
 
 extern void voice_player_play_prompt_tone_url(const char *url);
 extern void voice_player_tone_stop(void);
@@ -56,12 +68,14 @@ extern char *app_tone_get_url(uint16_t tone_id);
 
 #define SIP_VID_STACK 16384u
 #define SIP_VID_PRIO 3u
+#define SIP_VID_RX_STACK 6144u
+#define SIP_VID_RX_PRIO 4u
 #define SIP_VID_INTERVAL_MS 200u    /* 上行目标 5fps，按编码耗时自适应 */
 #define SIP_VID_MAX_INTERVAL_MS 400u
 #define SIP_VID_START_DELAY_MS 500u /* 等主页预览让出相机 */
 
 #define SIP_SIG_STACK 16384u  /* poll+parse+构造链上多层 KB 级缓冲，6KB 实测 94.5% 占用 */
-#define SIP_AUD_STACK 6144u
+#define SIP_AUD_STACK 12288u  /* play_stream -> lisa_player -> speex 重采样初始化调用链深（vp_play 同链路用 16KB） */
 #define SIP_SIG_PRIO 6u
 #define SIP_AUD_PRIO 5u
 #define SIP_AUDIO_PORT 5062u
@@ -69,7 +83,9 @@ extern char *app_tone_get_url(uint16_t tone_id);
 #define SIP_PTIME_MS 20u
 #define SIP_PTIME_SAMPLES 160u       /* 8kHz 20ms */
 #define SIP_MIC_RING_BYTES 4096u     /* 8k 样本 2048 个 = 256ms */
-#define SIP_PREROLL_PKTS 4u          /* 80ms 预滚后再开流（防 prepare 水位死锁） */
+#define SIP_PREROLL_BYTES 8192u     /* 预滚水量：对齐 vp 的 8192 样本（16 个 512 样本轨道帧，prepare
+                                 * 需 ≥6 帧）。此前按包数攒（4/8 包 = 1280/2560 样本）都不够，
+                                 * 首写在 preparing_sem 上空等 ~10s 超时，循环被拖成 ~1 圈/秒 */
 #define SIP_RX_SILENCE_HANGUP_MS 30000u
 #define SIP_CALL_PLAYER_NAME "call"
 
@@ -104,6 +120,13 @@ static sip_rtp_t s_rtp_vid;
 static volatile bool s_rtp_vid_open;
 static TaskHandle_t s_vid_task;
 static volatile bool s_vid_running;
+static TaskHandle_t s_vidrx_task;
+static volatile bool s_vidrx_running;
+/* JPEG 硬件外设互斥：编码（上行）与解码（下行）是同一个 Jpeg0 IP，
+ * 两个任务并发操作会互相打断硬件状态机 —— 实测表现为下行花屏 +
+ * dec_ms 从 45ms 涨到 111ms（并发重试）。所有 jpeg_encoder/jpeg_decoder
+ * 调用必须持锁。 */
+static SemaphoreHandle_t s_jpeg_lock;
 /* 下行：重组器 + RGB565 解码双缓冲（UI 换指针显示，同 video_player 手法） */
 static sip_jpeg_rx_t *s_jpeg_rx;
 static uint16_t *s_dec_frames[2];
@@ -112,6 +135,7 @@ static volatile uint32_t s_rx_vid_frames, s_dec_ms, s_rx_vid_drop;
 /* 统计（shell status） */
 static volatile uint32_t s_tx_pkts, s_rx_pkts, s_rx_loss;
 static volatile uint32_t s_vid_frames, s_vid_enc_ms, s_vid_bytes;
+static volatile uint32_t s_vid_cap_ms;   /* capture 单项耗时（分项定位用） */
 /* UI 桥回调（模型层注册） */
 static sip_service_event_cb_t s_event_cb;
 static void *s_event_user;
@@ -151,9 +175,14 @@ static void sip_aud_task(void *arg)
     const sip_session_t *session = &s_ua->session;
     uint8_t enc[SIP_PTIME_SAMPLES];
     uint8_t net[SIP_PTIME_SAMPLES];
-    int16_t pcm[SIP_PTIME_SAMPLES];
-    uint8_t preroll[SIP_PREROLL_PKTS][SIP_PTIME_SAMPLES];
-    uint32_t preroll_count = 0;
+    int16_t pcm8[SIP_PTIME_SAMPLES];                 /* 8k 域 20ms = 160 样本 */
+    int16_t pcm16[SIP_PTIME_SAMPLES * 2];            /* 16k 域 20ms = 320 样本 */
+    uint8_t *preroll = psram_malloc(SIP_PREROLL_BYTES);  /* 8KB 预滚（栈放不下） */
+    uint32_t preroll_len = 0;
+    if (!preroll) {
+        LISA_LOGE(TAG, "aud: preroll buffer alloc failed");
+        goto out;
+    }
     uint32_t next_tick = sip_osal_now_ms();
     uint32_t last_rx = sip_osal_now_ms();
     uint32_t write_fail = 0;
@@ -176,11 +205,11 @@ static void sip_aud_task(void *arg)
             /* 上行：mic 环凑满 20ms 就发（凑不满发静音，维持节拍与 ts 连续）。 */
             size_t got = 0;
             if (s_mic_ring) {
-                got = xStreamBufferReceive(s_mic_ring, pcm,
+                got = xStreamBufferReceive(s_mic_ring, pcm8,
                                            SIP_PTIME_SAMPLES * sizeof(int16_t), 0);
             }
             if (got == SIP_PTIME_SAMPLES * sizeof(int16_t)) {
-                sip_g711_encode(session->audio_pt, pcm, enc, SIP_PTIME_SAMPLES);
+                sip_g711_encode(session->audio_pt, pcm8, enc, SIP_PTIME_SAMPLES);
                 if (sip_rtp_send_audio(&s_rtp_aud, enc, SIP_PTIME_SAMPLES) > 0) {
                     s_tx_pkts++;
                 }
@@ -205,16 +234,24 @@ static void sip_aud_task(void *arg)
             if (n != SIP_PTIME_SAMPLES) {
                 continue; /* 只接受 20ms 整包（本栈固定 ptime） */
             }
-            sip_g711_decode(session->audio_pt, net, pcm, SIP_PTIME_SAMPLES);
+            sip_g711_decode(session->audio_pt, net, pcm8, SIP_PTIME_SAMPLES);
+            /* 8k -> 16k 线性插值：偶数点直取，奇数点取相邻均值。 */
+            for (int i = 0; i < SIP_PTIME_SAMPLES; ++i) {
+                int16_t a = pcm8[i];
+                int16_t b = (i + 1 < SIP_PTIME_SAMPLES) ? pcm8[i + 1] : a;
+                pcm16[i * 2] = a;
+                pcm16[i * 2 + 1] = (int16_t)(((int32_t)a + b) / 2);
+            }
 
             if (!player_streaming) {
-                /* 预滚：攒够再开流 + 首写（对齐 vp_aac_start_stream 的手法）。 */
-                if (preroll_count < SIP_PREROLL_PKTS) {
-                    memcpy(preroll[preroll_count], pcm, sizeof(pcm));
-                    preroll_count++;
-                    if (preroll_count < SIP_PREROLL_PKTS) {
-                        continue;
-                    }
+                /* 预滚：攒够水量再开流 + 一次性首写（首写内部会等 prepare，
+                 * 水量不够就空等到 ~10s 超时 —— vp 的前车之鉴）。 */
+                if (preroll_len + sizeof(pcm16) <= SIP_PREROLL_BYTES) {
+                    memcpy(preroll + preroll_len, pcm16, sizeof(pcm16));
+                    preroll_len += sizeof(pcm16);
+                }
+                if (preroll_len + sizeof(pcm16) <= SIP_PREROLL_BYTES) {
+                    continue; /* 还没攒满 */
                 }
                 if (!s_player) {
                     s_player = app_player_create(SIP_CALL_PLAYER_NAME);
@@ -223,25 +260,27 @@ static void sip_aud_task(void *arg)
                         goto out;
                     }
                 }
-                if (app_player_play_stream(s_player, 8000, 1, 16) != APP_PLAYER_OK) {
+                if (app_player_play_stream(s_player, 16000, 1, 16) != APP_PLAYER_OK) {
                     LISA_LOGW(TAG, "play_stream refused (focus?), retry next pkt");
-                    preroll_count = 0;
+                    preroll_len = 0;
                     continue;
                 }
-                for (uint32_t k = 0; k < SIP_PREROLL_PKTS; ++k) {
-                    (void)app_player_write_stream(s_player, preroll[k],
-                                                  sizeof(pcm), 200);
+                if (app_player_write_stream(s_player, preroll, preroll_len, 200) != APP_PLAYER_OK) {
+                    LISA_LOGW(TAG, "preroll first write failed, retry");
+                    preroll_len = 0;
+                    continue;
                 }
                 player_streaming = true;
-                LISA_LOGI(TAG, "aud: downlink streaming started");
-            } else if (app_player_write_stream(s_player, (const uint8_t *)pcm,
-                                               sizeof(pcm), 200) != APP_PLAYER_OK) {
+                LISA_LOGI(TAG, "aud: downlink streaming started (%u bytes preroll)",
+                          (unsigned)preroll_len);
+            } else if (app_player_write_stream(s_player, (const uint8_t *)pcm16,
+                                               sizeof(pcm16), 200) != APP_PLAYER_OK) {
                 write_fail++;
                 if (write_fail >= 3) {
                     LISA_LOGW(TAG, "write_stream failed x3, restart stream");
                     (void)app_player_finish_stream(s_player);
                     player_streaming = false;
-                    preroll_count = 0;
+                    preroll_len = 0;
                     write_fail = 0;
                 }
             } else {
@@ -262,6 +301,9 @@ static void sip_aud_task(void *arg)
 
     if (player_streaming) {
         (void)app_player_finish_stream(s_player);
+    }
+    if (preroll) {
+        psram_free(preroll);
     }
 
 out:
@@ -291,13 +333,37 @@ out:
  * UI 帧回调（模型层投 worq.ui 上屏）。
  * 超过屏幕尺寸的帧直接丢弃（RTP 头里带 w/h，解码前就能判断）。
  */
-static void vid_handle_downlink(void)
+static void sip_vidrx_task(void *arg)
 {
+    const sip_session_t *session = &s_ua->session;
     uint8_t pkt[1500];
-    for (int i = 0; i < 16 && s_vid_running; ++i) {
-        int n = sip_osal_udp_recv(s_rtp_vid.fd, pkt, sizeof(pkt), 0, NULL, NULL);
+
+    if (!session->video || session->peer_video_port == 0) {
+        goto out;
+    }
+    if (sip_rtp_open(&s_rtp_vid, SIP_VIDEO_PORT, SIP_JPEG_PT) != 0) {
+        LISA_LOGE(TAG, "video rtp bind %u failed", SIP_VIDEO_PORT);
+        goto out;
+    }
+    s_rtp_vid_open = true;
+    sip_rtp_set_peer(&s_rtp_vid, session->peer_ip, session->peer_video_port);
+
+    s_jpeg_rx = psram_malloc(sizeof(*s_jpeg_rx));
+    s_dec_frames[0] = psram_malloc(240u * 320u * 2u);
+    s_dec_frames[1] = psram_malloc(240u * 320u * 2u);
+    if (!s_jpeg_rx || !s_dec_frames[0] || !s_dec_frames[1]) {
+        LISA_LOGE(TAG, "vid_rx: buffer alloc failed");
+        goto out;
+    }
+    memset(s_jpeg_rx, 0, sizeof(*s_jpeg_rx));
+    s_dec_front = 0;
+    s_rx_vid_frames = s_dec_ms = s_rx_vid_drop = 0;
+    LISA_LOGI(TAG, "vid_rx: %s:%u", session->peer_ip, session->peer_video_port);
+
+    while (s_vidrx_running) {
+        int n = sip_osal_udp_recv(s_rtp_vid.fd, pkt, sizeof(pkt), 50, NULL, NULL);
         if (n <= 0) {
-            break;
+            continue;
         }
         const uint8_t *frame;
         uint32_t len;
@@ -309,14 +375,20 @@ static void vid_handle_downlink(void)
         }
         if (w <= 0 || h <= 0 || w > 240 || h > 320) {
             s_rx_vid_drop++;
-            LISA_LOGW(TAG, "vid: drop frame %dx%d (screen 240x320)", w, h);
             continue;
         }
         uint32_t t0 = sip_osal_now_ms();
         int back = 1 - s_dec_front;
         uint16_t dw = (uint16_t)w, dh = (uint16_t)h;
         Jpeg_DecoderCfg cfg = {.output_format = JPEG_PIXEL_FORMAT_RGB565};
-        if (jpeg_decoder(frame, len, (uint8_t *)s_dec_frames[back], &dw, &dh, cfg) != 0) {
+        if (s_jpeg_lock) {
+            xSemaphoreTake(s_jpeg_lock, portMAX_DELAY);
+        }
+        uint32_t dec_rc = jpeg_decoder(frame, len, (uint8_t *)s_dec_frames[back], &dw, &dh, cfg);
+        if (s_jpeg_lock) {
+            xSemaphoreGive(s_jpeg_lock);
+        }
+        if (dec_rc != 0) {
             s_rx_vid_drop++;
             continue;
         }
@@ -325,97 +397,12 @@ static void vid_handle_downlink(void)
         s_rx_vid_frames++;
         sip_service_push_frame(s_dec_frames[s_dec_front], dw, dh);
     }
-}
 
-static void sip_vid_task(void *arg)
-{
-    const sip_session_t *session = &s_ua->session;
-
-    if (!session->video || session->peer_video_port == 0) {
-        LISA_LOGI(TAG, "vid: video not negotiated, task exits");
-        goto out;
+out:
+    if (s_rtp_vid_open) {
+        sip_rtp_close(&s_rtp_vid);
+        s_rtp_vid_open = false;
     }
-    if (sip_rtp_open(&s_rtp_vid, SIP_VIDEO_PORT, SIP_JPEG_PT) != 0) {
-        LISA_LOGE(TAG, "video rtp bind %u failed", SIP_VIDEO_PORT);
-        goto out;
-    }
-    s_rtp_vid_open = true;
-    sip_rtp_set_peer(&s_rtp_vid, session->peer_ip, session->peer_video_port);
-
-    uint16_t cw = 240, ch = 320;
-    (void)service_camera_get_framesize(&cw, &ch);
-    const uint32_t cam_bytes = (uint32_t)cw * ch * 2u;
-    uint8_t *cam = psram_malloc(cam_bytes);
-    if (!cam) {
-        LISA_LOGE(TAG, "vid: camera buffer alloc failed (%u)", (unsigned)cam_bytes);
-        goto out;
-    }
-    /* 下行重组器 + 解码双缓冲（240x320 上限，同屏幕）。 */
-    s_jpeg_rx = psram_malloc(sizeof(*s_jpeg_rx));
-    s_dec_frames[0] = psram_malloc(240u * 320u * 2u);
-    s_dec_frames[1] = psram_malloc(240u * 320u * 2u);
-    if (!s_jpeg_rx || !s_dec_frames[0] || !s_dec_frames[1]) {
-        LISA_LOGE(TAG, "vid: downlink buffer alloc failed");
-        goto out;
-    }
-    memset(s_jpeg_rx, 0, sizeof(*s_jpeg_rx));
-    s_dec_front = 0;
-    s_rx_vid_frames = s_dec_ms = s_rx_vid_drop = 0;
-
-    /* 等主页相机预览随导航让出（通话开始时 UI 切到通话页）。 */
-    sip_osal_sleep_ms(SIP_VID_START_DELAY_MS);
-
-    uint32_t vid_ts = 0;
-    uint32_t interval = SIP_VID_INTERVAL_MS;
-    LISA_LOGI(TAG, "vid: uplink %ux%u -> %s:%u", cw, ch,
-              session->peer_ip, session->peer_video_port);
-
-    while (s_vid_running) {
-        uint32_t t0 = sip_osal_now_ms();
-
-        /* 下行优先排空（实时通话宁丢帧不积压），再采上行。 */
-        vid_handle_downlink();
-
-        if (service_camera_capture(cam, cam_bytes) != 0) {
-            LISA_LOGW(TAG, "vid: capture failed");
-            sip_osal_sleep_ms(200);
-            continue;
-        }
-
-        uint8_t *jpeg = NULL;
-        uint32_t jpeg_len = 0;
-        if (image_rgb565_to_jpeg(cam, cam_bytes, cw, ch, &jpeg, &jpeg_len) != 0 ||
-            !jpeg || jpeg_len == 0) {
-            LISA_LOGW(TAG, "vid: jpeg encode failed");
-            continue;
-        }
-
-        uint32_t enc_ms = sip_osal_now_ms() - t0;
-        int frags = sip_jpeg_rtp_send_frame(&s_rtp_vid, jpeg, (int)jpeg_len,
-                                            (int)cw, (int)ch, vid_ts);
-        image_jpeg_free(jpeg);
-        if (frags <= 0) {
-            LISA_LOGW(TAG, "vid: send failed (%u bytes)", jpeg_len);
-            sip_osal_sleep_ms(200);
-            continue;
-        }
-        vid_ts += 90000u / (1000u / interval); /* 按实际帧间隔推进 90kHz 时钟 */
-        s_vid_frames++;
-        s_vid_bytes += jpeg_len;
-        s_vid_enc_ms = enc_ms;
-
-        uint32_t elapsed = sip_osal_now_ms() - t0;
-        uint32_t wait = (elapsed + 20u > SIP_VID_INTERVAL_MS) ? elapsed + 20u
-                                                              : SIP_VID_INTERVAL_MS;
-        if (wait > SIP_VID_MAX_INTERVAL_MS) {
-            wait = SIP_VID_MAX_INTERVAL_MS;
-        }
-        interval = wait;
-        sip_osal_sleep_ms(wait);
-        vid_handle_downlink();
-    }
-
-    psram_free(cam);
     if (s_jpeg_rx) {
         psram_free(s_jpeg_rx);
         s_jpeg_rx = NULL;
@@ -426,15 +413,129 @@ static void sip_vid_task(void *arg)
             s_dec_frames[i] = NULL;
         }
     }
+    LISA_LOGI(TAG, "vid_rx: stopped (rx=%u dec_ms=%u drop=%u)",
+              s_rx_vid_frames, s_dec_ms, s_rx_vid_drop);
+    s_vidrx_task = NULL;
+    vTaskDelete(NULL);
+}
+
+/*
+ * 上行视频：相机采集（RGB565 240x320）→ 跳采到 120x160 → 软件 JPEG
+ * （image_rgb565_to_jpeg，拍照上传同一路径）→ RFC2435 分片发送。
+ *
+ * 为什么不用硬件编码：JPEG 编/解是同一外设，GPDMA IN 只有 ch0~5 且全被
+ * 占（解码 IN/OUT=ch0/ch5、音频 ch1/2/3、DVP ch4），编解码共用 ch0 靠
+ * 交替 init 在实测中不稳定 —— 编码 DMA 等待 1s 超时（每次内部 malloc
+ * ~460KB），与预滚重试叠加把 6MB 大池吃到 OOM 断言死机。软编全画幅
+ * 2.1s/帧（0.5fps），跳采到 1/4 像素（19.2K px）后 ~0.5s/帧（≈2fps），
+ * 稳定优先。
+ */
+static void sip_vid_task(void *arg)
+{
+    const sip_session_t *session = &s_ua->session;
+
+    if (!session->video || session->peer_video_port == 0) {
+        LISA_LOGI(TAG, "vid: video not negotiated, task exits");
+        goto out;
+    }
+    /* 视频收发分 socket：上行独占一个，不再与下行收包互相阻塞。 */
+    sip_rtp_t up;
+    if (sip_rtp_open(&up, 0, SIP_JPEG_PT) != 0) {
+        LISA_LOGE(TAG, "vid: uplink socket failed");
+        goto out;
+    }
+    sip_rtp_set_peer(&up, session->peer_ip, session->peer_video_port);
+
+    uint16_t cw = 240, ch = 320;
+    (void)service_camera_get_framesize(&cw, &ch);
+    const uint32_t px = (uint32_t)cw * ch;
+    /* 上行发送尺寸：相机画幅的 1/2 边长（像素 1/4）。 */
+    const uint32_t sw = cw / 2u, sh = ch / 2u;
+    uint8_t *cam = psram_malloc(px * 2u);
+    uint8_t *sub = psram_malloc(sw * sh * 2u);
+    if (!cam || !sub) {
+        LISA_LOGE(TAG, "vid: uplink buffer alloc failed");
+        goto out_free;
+    }
+
+    /* 等主页相机预览随导航让出（通话开始时 UI 切到通话页）。 */
+    sip_osal_sleep_ms(SIP_VID_START_DELAY_MS);
+
+    uint32_t vid_ts = 0;
+    uint32_t interval = SIP_VID_INTERVAL_MS;
+    LISA_LOGI(TAG, "vid: uplink %ux%u sw-enc(sub) -> %s:%u", (unsigned)sw, (unsigned)sh,
+              session->peer_ip, session->peer_video_port);
+
+    while (s_vid_running) {
+        uint32_t t0 = sip_osal_now_ms();
+
+        if (service_camera_capture_ex(cam, px * 2u, 0) != 0) {
+            LISA_LOGW(TAG, "vid: capture failed");
+            sip_osal_sleep_ms(200);
+            continue;
+        }
+        uint32_t cap_ms = sip_osal_now_ms() - t0;
+
+        /* 跳采到 1/2 边长（整数倍取样，无插值），像素降为 1/4。 */
+        uint32_t cv_start = sip_osal_now_ms();
+        for (uint32_t y = 0; y < sh; ++y) {
+            const uint16_t *src = (const uint16_t *)cam + (y * 2u) * cw;
+            uint16_t *dst = (uint16_t *)sub + y * sw;
+            for (uint32_t x = 0; x < sw; ++x) {
+                dst[x] = src[x * 2u];
+            }
+        }
+        uint32_t cv_ms = sip_osal_now_ms() - cv_start;
+
+        /* 软件 JPEG（拍照上传同一路径；硬编在这套共享外设机制下不稳，见上）。 */
+        uint32_t enc_start = sip_osal_now_ms();
+        uint8_t *jpeg = NULL;
+        uint32_t jpeg_len = 0;
+        if (image_rgb565_to_jpeg(sub, sw * sh * 2u, (int)sw, (int)sh, &jpeg, &jpeg_len) != 0 ||
+            !jpeg || jpeg_len == 0) {
+            LISA_LOGW(TAG, "vid: sw encode failed");
+            continue;
+        }
+        uint32_t sw_ms = sip_osal_now_ms() - enc_start;
+
+        int frags = sip_jpeg_rtp_send_frame(&up, jpeg, (int)jpeg_len,
+                                            (int)sw, (int)sh, vid_ts);
+        image_jpeg_free(jpeg);
+        if (frags <= 0) {
+            LISA_LOGW(TAG, "vid: send failed (%u bytes)", jpeg_len);
+            sip_osal_sleep_ms(200);
+            continue;
+        }
+        vid_ts += 90000u / (1000u / interval);
+        s_vid_frames++;
+        s_vid_bytes += jpeg_len;
+        s_vid_enc_ms = cap_ms + cv_ms + sw_ms;
+        s_vid_cap_ms = cap_ms;
+        if ((s_vid_frames % 10u) == 1u) {
+            LISA_LOGI(TAG, "vid: cap=%ums sub=%ums enc=%ums size=%u (%ux%u)",
+                      (unsigned)cap_ms, (unsigned)cv_ms, (unsigned)sw_ms,
+                      jpeg_len, (unsigned)sw, (unsigned)sh);
+        }
+
+        uint32_t elapsed = sip_osal_now_ms() - t0;
+        uint32_t wait = (elapsed + 20u > SIP_VID_INTERVAL_MS) ? elapsed + 20u
+                                                              : SIP_VID_INTERVAL_MS;
+        if (wait > SIP_VID_MAX_INTERVAL_MS) {
+            wait = SIP_VID_MAX_INTERVAL_MS;
+        }
+        interval = wait;
+        sip_osal_sleep_ms(wait);
+    }
+
+out_free:
+    psram_free(cam);
+    psram_free(sub);
     (void)service_camera_stop();
+    sip_rtp_close(&up);
 
 out:
-    if (s_rtp_vid_open) {
-        sip_rtp_close(&s_rtp_vid);
-        s_rtp_vid_open = false;
-    }
-    LISA_LOGI(TAG, "vid: stopped (tx=%u enc_ms=%u rx=%u dec_ms=%u drop=%u)",
-              s_vid_frames, s_vid_enc_ms, s_rx_vid_frames, s_dec_ms, s_rx_vid_drop);
+    LISA_LOGI(TAG, "vid: stopped (tx=%u enc_ms=%u bytes=%u)",
+              s_vid_frames, s_vid_enc_ms, s_vid_bytes);
     s_vid_task = NULL;
     vTaskDelete(NULL);
 }
@@ -466,6 +567,13 @@ static void media_start(void)
         s_vid_task = NULL;
         LISA_LOGE(TAG, "create sip_vid failed");
     }
+    s_vidrx_running = true;
+    if (xTaskCreate(sip_vidrx_task, "sip_vidrx", SIP_VID_RX_STACK / 4u, NULL,
+                    SIP_VID_RX_PRIO, &s_vidrx_task) != pdPASS) {
+        s_vidrx_running = false;
+        s_vidrx_task = NULL;
+        LISA_LOGE(TAG, "create sip_vidrx failed");
+    }
 }
 
 static void media_stop(void)
@@ -482,10 +590,16 @@ static void media_stop(void)
     }
     if (s_vid_task) {
         s_vid_running = false;
+        for (int i = 0; i < 200 && s_vid_task; ++i) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+    }
+    if (s_vidrx_task) {
+        s_vidrx_running = false;
         if (s_rtp_vid_open) {
             sip_osal_udp_close(s_rtp_vid.fd);
         }
-        for (int i = 0; i < 200 && s_vid_task; ++i) {
+        for (int i = 0; i < 200 && s_vidrx_task; ++i) {
             vTaskDelay(pdMS_TO_TICKS(20));
         }
     }
@@ -502,11 +616,19 @@ static void ua_on_state(void *user, sip_ua_state_t st)
         LISA_LOGI(TAG, "call active with %s (pt=%d video=%d)", s_peer_ip,
                   sip_ua_session(s_ua)->audio_pt, sip_ua_session(s_ua)->video);
         s_tx_pkts = s_rx_pkts = s_rx_loss = 0;
+        if (!s_keep_awake_set) {
+            service_power_policy_set_miniapp_active(true);
+            s_keep_awake_set = true;
+        }
         media_start();
         break;
     case SIP_UA_IDLE:
     case SIP_UA_ENDED:
         media_stop();
+        if (s_keep_awake_set) {
+            service_power_policy_set_miniapp_active(false);
+            s_keep_awake_set = false;
+        }
         break;
     default:
         break; /* 振铃等中间态：UI 桥下面统一通知 */
@@ -603,6 +725,13 @@ int sip_service_init(void)
     sip_osal_set_log_level(SIP_LOG_INFO);
     if (s_sig_task) {
         return 0;
+    }
+    if (!s_jpeg_lock) {
+        s_jpeg_lock = xSemaphoreCreateMutex();
+        if (!s_jpeg_lock) {
+            LISA_LOGE(TAG, "jpeg lock create failed");
+            return -1;
+        }
     }
     s_cmd_q = xQueueCreate(4, sizeof(sip_cmd_msg_t));
     if (!s_cmd_q) {
