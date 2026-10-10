@@ -60,8 +60,8 @@ extern char *app_tone_get_url(uint16_t tone_id);
 #define SIP_VID_MAX_INTERVAL_MS 400u
 #define SIP_VID_START_DELAY_MS 500u /* 等主页预览让出相机 */
 
-#define SIP_SIG_STACK 6144u
-#define SIP_AUD_STACK 4096u
+#define SIP_SIG_STACK 16384u  /* poll+parse+构造链上多层 KB 级缓冲，6KB 实测 94.5% 占用 */
+#define SIP_AUD_STACK 6144u
 #define SIP_SIG_PRIO 6u
 #define SIP_AUD_PRIO 5u
 #define SIP_AUDIO_PORT 5062u
@@ -185,8 +185,11 @@ static void sip_aud_task(void *arg)
                     s_tx_pkts++;
                 }
             } else {
+                /* mic 环没凑满：发舒适静音维持节拍与时间戳连续。 */
                 memset(enc, session->audio_pt == 0 ? 0xFF : 0x55, sizeof(enc));
-                (void)sip_rtp_send_audio(&s_rtp_aud, enc, SIP_PTIME_SAMPLES);
+                if (sip_rtp_send_audio(&s_rtp_aud, enc, SIP_PTIME_SAMPLES) > 0) {
+                    s_tx_pkts++;
+                }
             }
         }
 

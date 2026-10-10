@@ -13,6 +13,7 @@
 int sip_rtp_open(sip_rtp_t *r, uint16_t local_port, uint8_t pt)
 {
     memset(r, 0, sizeof(*r));
+    r->fd = -1; /* memset 后 fd=0 会被 close 误当有效句柄关掉别人的 socket */
     r->fd = sip_osal_udp_open(local_port);
     if (r->fd < 0) {
         return -1;

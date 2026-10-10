@@ -39,6 +39,7 @@ static uint16_t s_audio_port = AUDIO_PORT_DEFAULT;
 static uint16_t s_video_port = VIDEO_PORT_DEFAULT;
 static const char *s_vidsrc_dir;
 static const char *s_v4l2_dev = "/dev/video0";
+static int s_audio_only = 0;   /* -A：应答时拒掉视频（调试隔离用） */
 
 static void on_state(void *user, sip_ua_state_t st)
 {
@@ -114,6 +115,8 @@ int main(int argc, char **argv)
             call_ip = argv[++i];
         } else if (strcmp(argv[i], "-v") == 0 && i + 1 < argc) {
             s_vidsrc_dir = argv[++i];
+        } else if (strcmp(argv[i], "-A") == 0) {
+            s_audio_only = 1;
         } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
             s_v4l2_dev = argv[++i];
         } else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
@@ -136,7 +139,7 @@ int main(int argc, char **argv)
         .sig_port = sig_port,
         .audio_port = s_audio_port,
         .video_port = s_video_port,
-        .offer_video = 1,
+        .offer_video = !s_audio_only,
         .local_user = "peer",
         .on_state = on_state,
         .on_incoming = on_incoming,

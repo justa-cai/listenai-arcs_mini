@@ -113,13 +113,14 @@ int sip_sdp_build_offer(char *out, int outlen, const char *ip,
 }
 
 int sip_sdp_build_answer(char *out, int outlen, const sip_sdp_t *offer,
-                         const char *ip, int audio_port, int video_port)
+                         const char *ip, int audio_port, int video_port,
+                         int with_video)
 {
     if (!offer->has_pcmu && !offer->has_pcma) {
         return -1; /* 无可用音频编解码 → 上层回 488 */
     }
     int pt = offer->has_pcmu ? 0 : 8;
-    int video = (offer->has_jpeg && offer->video_port > 0);
+    int video = (with_video && offer->has_jpeg && offer->video_port > 0);
 
     int n = snprintf(out, outlen,
                      "v=0\r\n"

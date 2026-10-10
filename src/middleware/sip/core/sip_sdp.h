@@ -33,7 +33,9 @@ int sip_sdp_build_offer(char *out, int outlen, const char *ip,
  *   音频选 PCMU（offer 无 PCMU 才选 PCMA），两者皆无返回 -1（上层回 488）；
  *   视频：offer 有 JPEG 则本端也回 JPEG，否则 m=video 0（降级纯音频）。
  */
+/* with_video=0 时强制 m=video 0（本端不收/不发视频的降级应答）。 */
 int sip_sdp_build_answer(char *out, int outlen, const sip_sdp_t *offer,
-                         const char *ip, int audio_port, int video_port);
+                         const char *ip, int audio_port, int video_port,
+                         int with_video);
 
 #endif /* SIP_SDP_H */

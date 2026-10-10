@@ -15,6 +15,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* 大缓冲段属性：设备侧放 PSRAM（SRAM 紧张，静态 BSS 会挤爆链接），
+ * 主机侧无此概念为空。由固件构建传入 -DSIP_OSAL_FREERTOS。 */
+#ifdef SIP_OSAL_FREERTOS
+#define SIP_BSS __attribute__((section(".psram.bss")))
+#else
+#define SIP_BSS
+#endif
+
 /* 日志级别。DBG 在设备侧走 LISA_LOGI（elog 无 D 级别）。 */
 enum {
     SIP_LOG_ERR = 0,

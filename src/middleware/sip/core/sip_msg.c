@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "sip_msg.h"
+#include "sip_osal.h"  /* SIP_BSS 段属性 */
 
 /* 把一行里 "name:" 后的值拷出来（去首尾空白），未找到返回 0。 */
 static int header_value(const char *line, const char *name, char *out, size_t outsz)
@@ -92,8 +93,9 @@ int sip_msg_parse(sip_msg_t *m, const char *buf, int len)
     }
     memset(m, 0, sizeof(*m));
 
-    /* 只在报文内部扫描，保证不越界读。 */
-    char work[SIP_MSG_MAX + 1];
+    /* 只在报文内部扫描，保证不越界读。缓冲用静态：解析只发生在 UA 的
+     * 单线程 poll 里，设备侧曾因此处的 KB 级局部数组逼近栈上限。 */
+    static char work[SIP_MSG_MAX + 1] SIP_BSS;
     memcpy(work, buf, (size_t)len);
     work[len] = '\0';
 

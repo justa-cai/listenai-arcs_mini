@@ -2,6 +2,8 @@ if(CONFIG_MIDDLEWARE_SIP)
 
 listenai_library_named(sip)
 
+add_definitions(-DSIP_OSAL_FREERTOS)  # 目录作用域：只影响 sip 模块自己的源文件
+
 listenai_library_sources(
     core/sip_g711.c
     core/sip_jpeg_rtp.c

@@ -73,12 +73,14 @@ static int send_to_peer(sip_ua_t *ua, const char *buf, int len)
 static void build_and_send_request(sip_ua_t *ua, const char *method, int cseq,
                                    const char *body, int body_len, int retransmits)
 {
+    /* 报文缓冲用静态：UA 是单线程 poll 模型（唯一入口 sip_ua_poll），
+     * 不可重入；设备侧 sip_sig 栈曾因这些 KB 级局部数组实测用到 94.5%。 */
+    static char buf[SIP_MSG_MAX] SIP_BSS;
     char branch[28];
     char b[12];
     gen_hex(b, 8);
     snprintf(branch, sizeof(branch), "z9hG4bK%s", b);
 
-    char buf[SIP_MSG_MAX];
     int len = sip_msg_request(buf, sizeof(buf), method,
                               ua->local_ip, ua->local_uri, ua->local_tag,
                               ua->peer_uri, ua->peer_tag,
@@ -99,7 +101,7 @@ static void build_and_send_response(sip_ua_t *ua, const sip_msg_t *req,
                                     int code, const char *reason, const char *to_tag,
                                     const char *body, int body_len, int save_last)
 {
-    char buf[SIP_MSG_MAX];
+    static char buf[SIP_MSG_MAX] SIP_BSS;  /* 同上：单线程，静态省栈 */
     int len = sip_msg_response(buf, sizeof(buf), req, code, reason, to_tag,
                                body, body_len);
     if (len <= 0) {
@@ -214,7 +216,7 @@ int sip_ua_answer(sip_ua_t *ua)
     char sdp[512];
     int sdp_len = sip_sdp_build_answer(sdp, sizeof(sdp), &ua->remote_offer,
                                        ua->local_ip, ua->cfg.audio_port,
-                                       ua->cfg.video_port);
+                                       ua->cfg.video_port, ua->cfg.offer_video);
     if (sdp_len <= 0) {
         sip_osal_log(SIP_LOG_ERR, "ua", "answer: no common codec, reject 488");
         sip_ua_reject(ua);
@@ -223,7 +225,8 @@ int sip_ua_answer(sip_ua_t *ua)
 
     /* 会话参数：音频 PT 按 offer 选择，视频按协商结果。 */
     ua->session.audio_pt = ua->remote_offer.has_pcmu ? 0 : 8;
-    ua->session.video = ua->remote_offer.has_jpeg && ua->remote_offer.video_port > 0;
+    ua->session.video = (ua->cfg.offer_video && ua->remote_offer.has_jpeg &&
+                         ua->remote_offer.video_port > 0);
     snprintf(ua->session.peer_ip, sizeof(ua->session.peer_ip), "%s", ua->peer_ip);
     ua->session.peer_audio_port = (uint16_t)ua->remote_offer.audio_port;
     ua->session.peer_video_port = (uint16_t)ua->remote_offer.video_port;
@@ -508,7 +511,7 @@ static void ua_timers(sip_ua_t *ua)
 
 void sip_ua_poll(sip_ua_t *ua, uint32_t wait_ms)
 {
-    char buf[SIP_MSG_MAX];
+    static char buf[SIP_MSG_MAX] SIP_BSS;  /* 同上：单线程，静态省栈 */
     char from_ip[16];
     uint16_t from_port = 0;
     int n = sip_osal_udp_recv(ua->fd, buf, sizeof(buf), wait_ms, from_ip, &from_port);

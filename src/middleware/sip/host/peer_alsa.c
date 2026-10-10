@@ -7,6 +7,7 @@
 #define _TAG "peer_alsa"
 
 #include <alsa/asoundlib.h>
+#include <stdlib.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,10 +32,14 @@ static volatile uint32_t s_tx, s_rx;
 
 static int alsa_open(snd_pcm_t **pcm, int stream)
 {
-    int err = snd_pcm_open(pcm, "default", (snd_pcm_stream_t)stream, 0);
+    const char *dev = getenv("SIP_ALSA_DEV");
+    if (!dev || !dev[0]) {
+        dev = "default";
+    }
+    int err = snd_pcm_open(pcm, dev, (snd_pcm_stream_t)stream, 0);
     if (err < 0) {
-        sip_osal_log(SIP_LOG_ERR, _TAG, "open %s failed: %s",
-                     stream == SND_PCM_STREAM_CAPTURE ? "capture" : "playback",
+        sip_osal_log(SIP_LOG_ERR, _TAG, "open %s(%s) failed: %s",
+                     stream == SND_PCM_STREAM_CAPTURE ? "capture" : "playback", dev,
                      snd_strerror(err));
         return -1;
     }
