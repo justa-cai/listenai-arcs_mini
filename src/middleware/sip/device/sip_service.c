@@ -44,6 +44,7 @@
 #include "sip_jpeg_rtp.h"
 #include "sip_ua.h"
 #include "sip_service.h"
+#include "sip_screen.h"
 
 /* 相机/JPEG：头文件路径不跨层传播（services 与 utils 的 include 在
  * sip 之后注册），按本仓库先例用本地原型声明，链接期解析。 */
@@ -127,9 +128,16 @@ static volatile bool s_vidrx_running;
  * dec_ms 从 45ms 涨到 111ms（并发重试）。所有 jpeg_encoder/jpeg_decoder
  * 调用必须持锁。 */
 static SemaphoreHandle_t s_jpeg_lock;
-/* 下行：重组器 + RGB565 解码双缓冲（UI 换指针显示，同 video_player 手法） */
+/* 下行：重组器 + 解码 scratch + 显示双缓冲。解码写 scratch、完成后 memcpy
+ * 到显示缓冲再推 UI —— UI 拿到的指针内容不会被下一次解码覆写（纯双缓冲
+ * 换指针时 LVGL 异步渲染仍读旧缓冲，实测表现为花屏/撕裂）。 */
 static sip_jpeg_rx_t *s_jpeg_rx;
-static uint16_t *s_dec_frames[2];
+static uint8_t *s_dec_scratch_raw;      /* 原始分配指针（释放用） */
+static uint16_t *s_dec_scratch;         /* 32B 对齐后的解码输出（GPDMA 写
+                                         * PSRAM 有对齐要求；库的编码路径自己
+                                         * 做对齐，解码路径直接用调用方指针，
+                                         * 不对齐时输出错位=花屏） */
+static uint16_t *s_dec_frames[2];       /* 显示双缓冲（memcpy 后才给 UI） */
 static int s_dec_front;
 static volatile uint32_t s_rx_vid_frames, s_dec_ms, s_rx_vid_drop;
 /* 统计（shell status） */
@@ -265,8 +273,15 @@ static void sip_aud_task(void *arg)
                     preroll_len = 0;
                     continue;
                 }
-                if (app_player_write_stream(s_player, preroll, preroll_len, 200) != APP_PLAYER_OK) {
-                    LISA_LOGW(TAG, "preroll first write failed, retry");
+                /* 注意：app_player_write_stream 成功时返回写入字节数
+                 * （>0），不是 APP_PLAYER_OK(0) —— 头文件注释与实现不符。
+                 * 只有 <0 才是错误。曾用 != APP_PLAYER_OK 判断：每次首写
+                 * 都被误判失败 → 每 ~260ms 重新 play_stream → flow_base_init
+                 * 反复新建 flow 不释放 → PSRAM 以 ~300KB/s 泄漏，20 余秒
+                 * 耗尽 6MB 后 heap_caps 分配失败断言死机。 */
+                if (app_player_write_stream(s_player, preroll, preroll_len, 200) < 0) {
+                    LISA_LOGW(TAG, "preroll first write failed, finish and retry");
+                    (void)app_player_finish_stream(s_player); /* 释放流资源再攒，防泄漏 */
                     preroll_len = 0;
                     continue;
                 }
@@ -274,7 +289,7 @@ static void sip_aud_task(void *arg)
                 LISA_LOGI(TAG, "aud: downlink streaming started (%u bytes preroll)",
                           (unsigned)preroll_len);
             } else if (app_player_write_stream(s_player, (const uint8_t *)pcm16,
-                                               sizeof(pcm16), 200) != APP_PLAYER_OK) {
+                                               sizeof(pcm16), 200) < 0) {
                 write_fail++;
                 if (write_fail >= 3) {
                     LISA_LOGW(TAG, "write_stream failed x3, restart stream");
@@ -333,6 +348,60 @@ out:
  * UI 帧回调（模型层投 worq.ui 上屏）。
  * 超过屏幕尺寸的帧直接丢弃（RTP 头里带 w/h，解码前就能判断）。
  */
+/*
+ * JPEG 采样白名单：设备硬解只正确处理 4:2:0 / 4:2:2（含 h2v1）与灰度。
+ * 4:4:4 帧（如 ffmpeg 默认从 RGB 源编码、libjpeg JCS_RGB 默认）会被
+ * 硬解解成规则水平条纹垃圾且返回成功 —— 实测条纹花屏一整轮才定位到。
+ * 解码前扫 SOF 采样因子，不支持的整帧丢弃计数，不喂解码器。
+ */
+static bool jpeg_sampling_supported(const uint8_t *jpg, uint32_t len)
+{
+    if (len < 4 || jpg[0] != 0xFF || jpg[1] != 0xD8) {
+        return false;
+    }
+    uint32_t i = 2;
+    while (i + 4 < len) {
+        if (jpg[i] != 0xFF) {
+            i++;
+            continue;
+        }
+        uint8_t m = jpg[i + 1];
+        if (m == 0xD8 || m == 0x01 || m == 0xD9 ||
+            (m >= 0xD0 && m <= 0xD7)) {
+            i += 2;
+            continue;
+        }
+        uint32_t seg = ((uint32_t)jpg[i + 2] << 8) | jpg[i + 3];
+        if (m == 0xC0 || m == 0xC1) { /* SOF0/1：基线/扩展 */
+            if (i + 10 > len) {
+                break;
+            }
+            int ncomp = jpg[i + 9];
+            if (ncomp == 1) {
+                return true; /* 灰度 */
+            }
+            if (ncomp != 3 || i + 10 + 3 * 3 > len) {
+                return false;
+            }
+            int yhv = jpg[i + 11];
+            int chv = jpg[i + 14];
+            /* 白名单：4:2:0(2x2/1x1)、4:2:2(2x2/1x2 或 2x1/1x1) */
+            if (yhv == 0x22 && (chv == 0x11 || chv == 0x12)) {
+                return true;
+            }
+            if (yhv == 0x21 && chv == 0x11) {
+                return true;
+            }
+            return false;
+        }
+        if (m == 0xC2 || m == 0xC3) { /* 渐进式/无损：硬解同样不吃 */
+            return false;
+        }
+        i += 2 + seg;
+    }
+    return true; /* 没扫到 SOF：交给解码器自己判断 */
+}
+
 static void sip_vidrx_task(void *arg)
 {
     const sip_session_t *session = &s_ua->session;
@@ -349,12 +418,16 @@ static void sip_vidrx_task(void *arg)
     sip_rtp_set_peer(&s_rtp_vid, session->peer_ip, session->peer_video_port);
 
     s_jpeg_rx = psram_malloc(sizeof(*s_jpeg_rx));
+    s_dec_scratch_raw = psram_malloc(240u * 320u * 2u + 31u);
+    s_dec_scratch = (uint16_t *)(((uintptr_t)s_dec_scratch_raw + 31u) & ~(uintptr_t)31u);
     s_dec_frames[0] = psram_malloc(240u * 320u * 2u);
     s_dec_frames[1] = psram_malloc(240u * 320u * 2u);
-    if (!s_jpeg_rx || !s_dec_frames[0] || !s_dec_frames[1]) {
+    if (!s_jpeg_rx || !s_dec_scratch_raw || !s_dec_frames[0] || !s_dec_frames[1]) {
         LISA_LOGE(TAG, "vid_rx: buffer alloc failed");
         goto out;
     }
+    LISA_LOGI(TAG, "vid_rx: scratch %p (raw %p)", (void *)s_dec_scratch,
+              (void *)s_dec_scratch_raw);
     memset(s_jpeg_rx, 0, sizeof(*s_jpeg_rx));
     s_dec_front = 0;
     s_rx_vid_frames = s_dec_ms = s_rx_vid_drop = 0;
@@ -377,6 +450,10 @@ static void sip_vidrx_task(void *arg)
             s_rx_vid_drop++;
             continue;
         }
+        if (!jpeg_sampling_supported(frame, len)) {
+            s_rx_vid_drop++;
+            continue;
+        }
         uint32_t t0 = sip_osal_now_ms();
         int back = 1 - s_dec_front;
         uint16_t dw = (uint16_t)w, dh = (uint16_t)h;
@@ -384,7 +461,7 @@ static void sip_vidrx_task(void *arg)
         if (s_jpeg_lock) {
             xSemaphoreTake(s_jpeg_lock, portMAX_DELAY);
         }
-        uint32_t dec_rc = jpeg_decoder(frame, len, (uint8_t *)s_dec_frames[back], &dw, &dh, cfg);
+        uint32_t dec_rc = jpeg_decoder(frame, len, (uint8_t *)s_dec_scratch, &dw, &dh, cfg);
         if (s_jpeg_lock) {
             xSemaphoreGive(s_jpeg_lock);
         }
@@ -392,6 +469,8 @@ static void sip_vidrx_task(void *arg)
             s_rx_vid_drop++;
             continue;
         }
+        /* 拷贝到显示缓冲：此后 UI 读到的内容不再变化（消除渲染撕裂）。 */
+        memcpy(s_dec_frames[back], s_dec_scratch, (size_t)dw * dh * 2u);
         s_dec_ms = sip_osal_now_ms() - t0;
         s_dec_front = back;
         s_rx_vid_frames++;
@@ -406,6 +485,11 @@ out:
     if (s_jpeg_rx) {
         psram_free(s_jpeg_rx);
         s_jpeg_rx = NULL;
+    }
+    if (s_dec_scratch_raw) {
+        psram_free(s_dec_scratch_raw);
+        s_dec_scratch_raw = NULL;
+        s_dec_scratch = NULL;
     }
     for (int i = 0; i < 2; ++i) {
         if (s_dec_frames[i]) {
@@ -902,7 +986,7 @@ static int sip_shell_cmd(int argc, char **argv)
     if (argc < 2) {
         shellPrint(shellGetCurrent(),
                    "usage: sip status | call <ip> [port] | answer | reject | "
-                   "hangup | cancel | cfg [<ip>] | ring | log <0-3>\n");
+                   "hangup | cancel | cfg [<ip>] | ring | screen <ip>|off | log <0-3>\n");
         return 0;
     }
     if (strcmp(argv[1], "status") == 0) {
@@ -954,6 +1038,17 @@ static int sip_shell_cmd(int argc, char **argv)
     }
     if (strcmp(argv[1], "ring") == 0) {
         sip_service_debug_ring();
+        return 0;
+    }
+    if (strcmp(argv[1], "screen") == 0) {
+        if (argc >= 3 && strcmp(argv[2], "off") == 0) {
+            return sip_screen_stop();
+        }
+        if (argc >= 3) {
+            uint16_t port = argc >= 4 ? (uint16_t)atoi(argv[3]) : 0;
+            return sip_screen_start(argv[2], port);
+        }
+        shellPrint(shellGetCurrent(), "sip: screen <ip> [port] | screen off\n");
         return 0;
     }
     if (strcmp(argv[1], "log") == 0 && argc >= 3) {

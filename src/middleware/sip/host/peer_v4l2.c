@@ -230,6 +230,10 @@ static int scale_jpeg_frame(const uint8_t *in, uint32_t in_len,
     c.input_components = 3;
     c.in_color_space = JCS_RGB;
     jpeg_set_defaults(&c);
+    /* RGB 输入的 libjpeg 默认按 4:4:4 采样，设备 JPEG 硬解不支持 4:4:4
+     * （实测解出规则条纹垃圾且返回成功）。显式切 YCbCr 让 libjpeg 采用
+     * 默认的 4:2:0（h2v2/h1v1/h1v1）。 */
+    jpeg_set_colorspace(&c, JCS_YCbCr);
     jpeg_set_quality(&c, 70, TRUE);
     jpeg_start_compress(&c, TRUE);
     while (c.next_scanline < (JDIMENSION)SCALE_DST_H) {
