@@ -11,6 +11,27 @@
 #include "wifi_manager/wifi_manager_storage.h"
 #endif
 
+/* 静态网关/路由配置：net_ip.h 在 HAL 层，shell 命令层的 include 路径
+ * 不含它（listenai_include_directories 的注册顺序），按仓库先例用本地
+ * extern 原型，链接期解析。 */
+#define WIFI_VIF_STA_IDX 0
+enum ip_addr_mode_local { IP_ADDR_NONE_L = 0, IP_ADDR_STATIC_IPV4_L, IP_ADDR_DHCP_CLIENT_L };
+struct ip_addr_cfg_local
+{
+    int mode;            /* enum ip_addr_mode */
+    int default_output;  /* bool */
+    struct
+    {
+        uint32_t addr;
+        uint32_t mask;
+        uint32_t gw;
+        uint32_t dns;
+    } ipv4;
+};
+extern int ls_get_ip(int vif_idx, struct ip_addr_cfg_local *cfg);
+extern int ls_set_static_ip(int vif_idx, struct ip_addr_cfg_local *cfg);
+extern uint32_t ipaddr_addr(const char *cp);
+
 static int wifi_cmd_help(int argc, char **argv);
 static int wifi_list(int argc, char **argv);
 static int wifi_scan(int argc, char **argv);
@@ -120,6 +141,63 @@ static int wifi_disconnect(int argc, char **argv)
     return wifi_mgr_sta_disconnect(true);
 }
 
+/*
+ * wifi gw [ip] —— 查看/设置默认网关（旁路由场景）。
+ * 保持 DHCP 拿到的地址与掩码不变，只把网关（含 DNS）切到指定 IP。
+ * 修改立即生效但非持久：重新连接 WiFi（或重启）后恢复 DHCP 下发值。
+ *   wifi gw               查看当前 IP/掩码/网关/DNS
+ *   wifi gw 192.168.31.2  网关与 DNS 都指向 192.168.31.2
+ */
+static void wifi_gw_ip_str(uint32_t a, char *out, size_t cap)
+{
+    snprintf(out, cap, "%u.%u.%u.%u",
+             (unsigned)(a & 0xFF), (unsigned)((a >> 8) & 0xFF),
+             (unsigned)((a >> 16) & 0xFF), (unsigned)((a >> 24) & 0xFF));
+}
+
+static int wifi_gw(int argc, char **argv)
+{
+    struct ip_addr_cfg_local cfg = {0};
+
+    if (ls_get_ip(WIFI_VIF_STA_IDX, &cfg) != 0) {
+        shellPrint(shellGetCurrent(), "wifi gw: sta interface not ready\n");
+        return -1;
+    }
+
+    if (argc < 1) {
+        char ip[16], mask[16], gw[16], dns[16];
+        wifi_gw_ip_str(cfg.ipv4.addr, ip, sizeof(ip));
+        wifi_gw_ip_str(cfg.ipv4.mask, mask, sizeof(mask));
+        wifi_gw_ip_str(cfg.ipv4.gw, gw, sizeof(gw));
+        wifi_gw_ip_str(cfg.ipv4.dns, dns, sizeof(dns));
+        shellPrint(shellGetCurrent(), "ip=%s mask=%s gw=%s dns=%s (mode=%d)\n",
+                   ip, mask, gw, dns, cfg.mode);
+        return 0;
+    }
+
+    uint32_t gw_addr = ipaddr_addr(argv[0]);
+    if (gw_addr == 0xFFFFFFFFu || gw_addr == 0) {
+        shellPrint(shellGetCurrent(), "wifi gw: invalid ip '%s'\n", argv[0]);
+        return -1;
+    }
+
+    /* 地址/掩码沿用当前值；网关与 DNS 一起指向旁路由 —— DNS 不跟着走
+     * 的话境外域名解析仍然会被主路由的上游卡住。 */
+    cfg.mode = IP_ADDR_STATIC_IPV4_L;
+    cfg.default_output = 1;
+    cfg.ipv4.gw = gw_addr;
+    cfg.ipv4.dns = gw_addr;
+    if (ls_set_static_ip(WIFI_VIF_STA_IDX, &cfg) != 0) {
+        shellPrint(shellGetCurrent(), "wifi gw: set static ip failed\n");
+        return -1;
+    }
+
+    char gw[16];
+    wifi_gw_ip_str(gw_addr, gw, sizeof(gw));
+    shellPrint(shellGetCurrent(), "gateway -> %s (dns too; non-persistent)\n", gw);
+    return 0;
+}
+
 static int wifi_auto_connect(int argc, char **argv)
 {
     if (argc < 1) {
@@ -148,6 +226,7 @@ static const struct listen_cmd_t g_wifi_cmds[] = {
     {"connect", wifi_connect, "connect wifi, ex: wifi connect ssid [password]"},
 #if CONFIG_WIFI_MANAGER
     {"disconnect", wifi_disconnect, "disconnect wifi, ex: wifi disconnect"},
+    {"gw", wifi_gw, "show/set default gateway, ex: wifi gw [192.168.31.2]"},
     {"auto", wifi_auto_connect, "auto connect wifi, interval_ms <=0 stop, ex: wifi auto interval_ms"},
     {"scan", wifi_scan, "scan and list available wifi networks"},
     {"list", wifi_list, "show saved wifi networks"},
