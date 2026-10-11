@@ -298,6 +298,21 @@ JSON 对象使用字符串键，数组使用从 1 开始的连续整数键；不
 对话占用时异步返回 `failed`，错误原因为 `busy`；不抢占对话，也不自动排队。
 `tts.cancel(speech_id)` 只取消当前实例的对应播报，不能停止对话或闹钟音频。
 
+### 网络音频播放
+
+`player.play(url)` 播放一个音频 URL（http/https 直链或 302 重定向，mp3
+等播放器支持的格式），返回播放 ID。结果通过可选的
+`on_player_result(play_id, result)` 回调交付，`result` 与 TTS 同构：
+
+- `completed`：播放完毕（电台类应用在此回调里续播下一首）。
+- `stopped`：被 `player.stop()` 或新 `player.play()` 主动停止。
+- `failed`：打不开（404/格式不支持等），电台类应用应跳下一首并做连败熔断。
+
+`player.stop()` 停止当前播放；`player.state()` 返回
+`"idle"|"preparing"|"playing"|"paused"`。播放走 miniapp 音频通道（与
+蜂鸣器共用实例，`player.play` 会抢占正在响的蜂鸣器）；退出实例自动停播。
+被打断（唤醒/闹钟/对话）同样回 `failed`，不自动恢复。
+
 ### 异步生命周期
 
 请求 ID 用于匹配结果和取消，不代表请求成功。普通参数错误、额度超限和繁忙通过结果

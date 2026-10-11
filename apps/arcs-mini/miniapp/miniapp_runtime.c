@@ -686,17 +686,161 @@ static int miniapp_lua_tts_cancel(lua_State *L)
     return 1;
 }
 
-#if MINIAPP_HAS_BUZZER
-static void miniapp_wav_u32(uint8_t *out, uint32_t value)
+/* ------------------------------------------------------------------ player
+ * 网络音频直播（Lua: player.play(url) / player.stop() / player.state()）。
+ * 复用蜂鸣器的 miniapp 通道实例；完成/停止/错误经 on_player_result(id,
+ * {status="completed"|"stopped"|"failed"}) 异步交付，结构与 tts 对齐：
+ * 事件回调跑在 player_td 线程，只写入结果槽，由运行时主循环 drain 到 VM。 */
+#define MINIAPP_PLAYER_RESULT_SLOTS 4u
+#define MINIAPP_PLAYER_URL_MAX 512u
+
+typedef struct {
+    uint32_t play_id;
+    uint32_t generation;
+    const char *status;
+} miniapp_player_result_t;
+
+static miniapp_player_result_t s_player_results[MINIAPP_PLAYER_RESULT_SLOTS];
+static uint32_t s_player_next_id;
+static volatile uint32_t s_player_current_id;   /* 正在播的请求（0 = 无） */
+static bool s_player_cb_registered;
+
+static bool miniapp_buzzer_player_active(void); /* 定义在蜂鸣器区（player.play 抢占用） */
+
+static void miniapp_player_push_result(uint32_t play_id, const char *status)
 {
-    for (unsigned i = 0; i < 4; ++i) out[i] = (uint8_t)(value >> (8u * i));
+    taskENTER_CRITICAL();
+    for (unsigned i = 0; i < MINIAPP_PLAYER_RESULT_SLOTS; ++i) {
+        if (!s_player_results[i].status) {
+            s_player_results[i].play_id = play_id;
+            s_player_results[i].generation = s_buzzer_generation;
+            s_player_results[i].status = status;
+            break;
+        }
+    }
+    taskEXIT_CRITICAL();
 }
 
+static miniapp_player_result_t *miniapp_player_take_result(void)
+{
+    /* 返回静态快照（单线程 drain，安全）：槽内 status 指向字符串常量。 */
+    static miniapp_player_result_t taken;
+    taskENTER_CRITICAL();
+    for (unsigned i = 0; i < MINIAPP_PLAYER_RESULT_SLOTS; ++i) {
+        if (s_player_results[i].status) {
+            taken = s_player_results[i];
+            s_player_results[i].status = NULL;
+            taskEXIT_CRITICAL();
+            return &taken;
+        }
+    }
+    taskEXIT_CRITICAL();
+    return NULL;
+}
+
+static void miniapp_player_event(app_player_t *player, app_player_event_t event, void *user)
+{
+    (void)player;
+    (void)user;
+    uint32_t id = s_player_current_id;
+    if (!id) return;                       /* 与 miniapp 播放无关的活动 */
+    switch (event) {
+    case APP_PLAYER_EVENT_COMPLETED:
+        miniapp_player_push_result(id, "completed");
+        s_player_current_id = 0;
+        break;
+    case APP_PLAYER_EVENT_STOPPED:
+        miniapp_player_push_result(id, "stopped");
+        s_player_current_id = 0;
+        break;
+    case APP_PLAYER_EVENT_ERROR:
+        miniapp_player_push_result(id, "failed");
+        s_player_current_id = 0;
+        break;
+    default:
+        break;                             /* PREPARED/PLAYING 等过程事件不下发 */
+    }
+}
+
+static int miniapp_lua_player_play(lua_State *L)
+{
+    size_t len = 0;
+    const char *url = luaL_checklstring(L, 1, &len);
+    if (!url || len == 0 || len >= MINIAPP_PLAYER_URL_MAX) {
+        return luaL_error(L, "invalid player url");
+    }
+    if (!miniapp_player) {
+        return luaL_error(L, "player unavailable");
+    }
+    if (!s_player_cb_registered) {
+        if (app_player_register_callback(miniapp_player, miniapp_player_event, NULL) != APP_PLAYER_OK) {
+            return luaL_error(L, "player callback register failed");
+        }
+        s_player_cb_registered = true;
+    }
+    /* 抢占同实例上的蜂鸣器播放（整曲流式播放由各自 generation 守卫） */
+    if (miniapp_buzzer_player_active()) {
+        (void)app_player_stop(miniapp_player);
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    s_player_current_id = 0;
+    if (app_player_play(miniapp_player, url) != APP_PLAYER_OK) {
+        return luaL_error(L, "play failed");
+    }
+    uint32_t id = ++s_player_next_id;
+    if (!id) id = s_player_next_id = 1;
+    s_player_current_id = id;
+    lua_pushinteger(L, id);
+    return 1;
+}
+
+static int miniapp_lua_player_stop(lua_State *L)
+{
+    if (miniapp_player && s_player_current_id) {
+        (void)app_player_stop(miniapp_player);   /* STOPPED 事件会补结果 */
+    }
+    lua_pushboolean(L, s_player_current_id != 0);
+    return 1;
+}
+
+static int miniapp_lua_player_state(lua_State *L)
+{
+    if (!miniapp_player || !s_player_current_id) {
+        lua_pushstring(L, "idle");
+        return 1;
+    }
+    const char *s;
+    switch (app_player_get_state(miniapp_player)) {
+    case APP_PLAYER_STATE_PREPARING:
+    case APP_PLAYER_STATE_PREPARED:
+        s = "preparing";
+        break;
+    case APP_PLAYER_STATE_PLAYING:
+        s = "playing";
+        break;
+    case APP_PLAYER_STATE_PAUSED:
+        s = "paused";
+        break;
+    default:
+        s = "idle";
+        break;
+    }
+    lua_pushstring(L, s);
+    return 1;
+}
+
+/* 播放器是否处于活跃态（player.play 抢占蜂鸣器时也要用，放条件块外） */
 static bool miniapp_buzzer_player_active(void)
 {
     app_player_state_t state = app_player_get_state(miniapp_player);
     return state == APP_PLAYER_STATE_PREPARING || state == APP_PLAYER_STATE_PREPARED ||
            state == APP_PLAYER_STATE_PLAYING || state == APP_PLAYER_STATE_PAUSED;
+}
+
+#if MINIAPP_HAS_BUZZER
+static void miniapp_wav_u32(uint8_t *out, uint32_t value)
+{
+    for (unsigned i = 0; i < 4; ++i) out[i] = (uint8_t)(value >> (8u * i));
 }
 
 /* 把正在响的（单音或整曲）停掉。stop 在流式模式下不合法，所以失败就退到 reset
@@ -1916,6 +2060,12 @@ static void miniapp_open_safe_libraries(lua_State *L)
     miniapp_register_function(L, "tts", "cancel", miniapp_lua_tts_cancel);
 
     lua_newtable(L);
+    lua_setglobal(L, "player");
+    miniapp_register_function(L, "player", "play", miniapp_lua_player_play);
+    miniapp_register_function(L, "player", "stop", miniapp_lua_player_stop);
+    miniapp_register_function(L, "player", "state", miniapp_lua_player_state);
+
+    lua_newtable(L);
 #if MINIAPP_HAS_SCREEN
     lua_pushinteger(L, MINIAPP_SCREEN_WIDTH);
     lua_setfield(L, -2, "width");
@@ -2123,6 +2273,20 @@ static int miniapp_call_tts_result(lua_State *L, miniapp_vm_t *vm,
     return miniapp_invoke(L, vm, &call);
 }
 
+static int miniapp_call_player_result(lua_State *L, miniapp_vm_t *vm,
+                                      uint32_t play_id, const char *status)
+{
+    LISA_LOGI(TAG, "player result id=%u status=%s", (unsigned)play_id, status);
+    miniapp_callback_t call = {
+        .name = "on_player_result",
+        .nargs = 2,
+        .argument = play_id,
+        .text_argument = status,
+        .result_table = true,
+    };
+    return miniapp_invoke(L, vm, &call);
+}
+
 static void miniapp_tts_stop(void)
 {
     uint32_t owner = 0;
@@ -2142,6 +2306,11 @@ static void miniapp_runtime_stop(lua_State **state, miniapp_vm_t *vm, bool navig
 {
     miniapp_http_discard(vm);
     miniapp_tts_stop();
+    /* 网络音频随应用退出而停（generation 已变，结果只丢不发） */
+    if (miniapp_player && s_player_current_id) {
+        (void)app_player_stop(miniapp_player);
+        s_player_current_id = 0;
+    }
     if (*state) {
         (void)miniapp_call(*state, vm, "on_exit", 0, 0);
         lua_close(*state);
@@ -2340,6 +2509,17 @@ static void miniapp_task(void *argument)
                 vm = NULL;
             }
             lisa_mem_free(tts_result);
+        }
+        /* player 播放结果（与 tts 同一代际守卫：应用退出/切换后旧结果只丢不发） */
+        miniapp_player_result_t *player_result;
+        while ((player_result = miniapp_player_take_result()) != NULL) {
+            if (L && player_result->generation == s_buzzer_generation &&
+                miniapp_call_player_result(L, vm, player_result->play_id,
+                                           player_result->status) != 0) {
+                miniapp_runtime_stop(&L, vm, true);
+                lisa_mem_free(vm);
+                vm = NULL;
+            }
         }
         /* Events must not starve ticks when the input queue remains busy. */
         now = xTaskGetTickCount();
