@@ -67,7 +67,11 @@ local PLAYED_MAX = 240
 local roam_word = nil        -- 漫游混合池的主展示词（最近一次抽取）
 local roam_tries = 0         -- 漫游批次"全为已播"的重拉次数（防死循环）
 local roam_reqs = {}         -- 漫游并发请求 {id -> word}（3 个风格词同时拉）
-local roam_staging = {}      -- 漫游已到齐的分片，聚齐后合并洗牌
+local roam_shards = {}       -- 漫游已到齐的分片 { {歌...}, {歌...} }：
+                             -- 聚齐后逐首轮转交织（A1 B1 C1 A2..），
+                             -- 确定性保证相邻两首必换风格——shuffle 的
+                             -- 伪随机在短间隔切歌时质量不够（实测连撞）
+local roam_word_seq = 0      -- 风格词递增序号：每批换不同组合
 
 -- 伪随机：clock.now() 除以质数步长取整再取模（除法结果是浮点，
 -- math.tointeger 会返回 nil —— 曾因此崩溃，必须 math.floor）
@@ -75,7 +79,7 @@ local function rand_below(n, salt)
     return math.floor(clock.now() / (700 + salt * 211)) % n
 end
 
--- Fisher-Yates 洗牌（混合池逐首都换风格的核心）
+-- Fisher-Yates 洗牌（保留给池内微扰动；相邻风格交替靠交织，不靠它）
 local function shuffle(t)
     for i = #t, 2, -1 do
         local j = rand_below(i, i % 7) + 1
@@ -217,11 +221,12 @@ local function fetch_channel(idx)
     if ch.kind == "roam" then
         roam_tries = 0
         roam_reqs = {}
-        roam_staging = {}
+        roam_shards = {}
         -- 3 个不同风格词 + 各自随机页并发：聚齐后合并洗牌成混合池，
         -- 逐首都换风格（单词一批会连播 30 首同风格，听感像卡专辑）
         for k = 1, 3 do
-            local word = ROAM_WORDS[rand_below(#ROAM_WORDS, k * 3) + 1]
+            roam_word_seq = (roam_word_seq + 1) % #ROAM_WORDS
+            local word = ROAM_WORDS[roam_word_seq + 1]
             local req = http.get(string.format(SEARCH, urlencode(word),
                                                rand_below(4, k * 5 + 2) * 30),
                                  { timeout_ms = 10000,
@@ -248,9 +253,10 @@ fetch_more = function()
     if ch.kind == "roam" then
         roam_tries = 0
         roam_reqs = {}
-        roam_staging = {}
+        roam_shards = {}
         for k = 1, 3 do
-            local word = ROAM_WORDS[rand_below(#ROAM_WORDS, 10 + k * 3) + 1]
+            roam_word_seq = (roam_word_seq + 1) % #ROAM_WORDS
+            local word = ROAM_WORDS[roam_word_seq + 1]
             local req = http.get(string.format(SEARCH, urlencode(word),
                                                rand_below(4, 10 + k * 5) * 30),
                                  { timeout_ms = 10000,
@@ -406,33 +412,46 @@ function on_start()
 end
 
 function on_http_response(id, response)
-    -- 漫游混合池分片：聚齐 3 路后合并洗牌
+    -- 漫游混合池分片：聚齐 3 路后逐首轮转交织（确定性换风格）
     if roam_reqs[id] ~= nil then
         local word = roam_reqs[id]
         roam_reqs[id] = nil
         if response and not response.error and response.status == 200 then
             local out = on_search(response.body)
             if type(out) == "table" then
+                local fresh = {}
                 for i = 1, #out do
-                    if not played[out[i].id] then
-                        roam_staging[#roam_staging + 1] = out[i]
-                    end
+                    if not played[out[i].id] then fresh[#fresh + 1] = out[i] end
                 end
+                if #fresh > 0 then roam_shards[#roam_shards + 1] = fresh end
             end
         end
         local left = 0
         for _ in pairs(roam_reqs) do left = left + 1 end
         if left == 0 then
-            -- 分片聚齐（或全部超时）：池非空则洗牌开播/续池
-            if #roam_staging > 0 then
-                shuffle(roam_staging)
+            -- 分片聚齐：轮转交织 A1 B1 C1 A2 B2 C2…（相邻必换风格）
+            local mixed, n = {}, #roam_shards
+            if n > 0 then
+                local idx = {}
+                for i = 1, n do idx[i] = 1 end
+                local done = false
+                while not done do
+                    done = true
+                    for i = 1, n do
+                        if idx[i] <= #roam_shards[i] then
+                            mixed[#mixed + 1] = roam_shards[i][idx[i]]
+                            idx[i] = idx[i] + 1
+                            done = false
+                        end
+                    end
+                end
+            end
+            if #mixed > 0 then
                 roam_tries = 0
                 if #songs > 0 then
-                    for i = 1, #roam_staging do
-                        songs[#songs + 1] = roam_staging[i]
-                    end
+                    for i = 1, #mixed do songs[#songs + 1] = mixed[i] end
                 else
-                    songs = roam_staging
+                    songs = mixed
                     fail_streak = 0
                     play_idx(1)
                 end
@@ -445,7 +464,7 @@ function on_http_response(id, response)
                     state = "曲库暂无新歌"
                 end
             end
-            roam_staging = {}
+            roam_shards = {}
             refresh()
         end
         return
