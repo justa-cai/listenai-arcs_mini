@@ -9,6 +9,16 @@ local C = { bg = 0x101923, bar = 0x1C2A3A, text = 0xFFFFFF,
 local W, H = 240, 240
 local _saved = {}
 local _app = nil
+-- rect 钳制包装：任何越界参数拉回屏幕内（沙箱无 pcall，越界=崩溃）
+local _raw_rect = screen.rect
+screen.rect = function(x, y, w, h, c)
+    if x < 0 then w = w + x; x = 0 end
+    if y < 0 then h = h + y; y = 0 end
+    if x + w > 240 then w = 240 - x end
+    if y + h > 240 then h = 240 - y end
+    if w > 0 and h > 0 then _raw_rect(x, y, w, h, c) end
+end
+
 ui = ui or {
     W = W, H = H, C = C,
     HAS_BUZZER = (type(buzzer) == "table"),
@@ -582,17 +592,20 @@ ui = ui or {
         for _, e in ipairs(enemies) do
             if not e.dead and e.y < H + TS then
                 local x = math.floor(e.x - cam_x)
-                if x >= 0 and x < W then
+                local ey = math.floor(e.y)
+                if ey > H - TS then ey = H - TS end
+                if ey < 0 then ey = 0 end
+                if x >= 0 and x < W and ey >= 0 and ey < H then
                     if e.squash > 0 then
-                        screen.rect(x, math.floor(e.y) - 4, TS - 1, 6, CLR.goomba)
+                        screen.rect(x, ey - 4, TS - 1, 6, CLR.goomba)
                     else
                         local col = e.kind == "goomba" and CLR.goomba or
                                     (e.shell and CLR.shell or CLR.koopa)
-                        screen.rect(x, math.floor(e.y) - TS + 1, TS - 1, TS - 1, col)
+                        screen.rect(x, ey - TS + 1, TS - 1, TS - 1, col)
                         -- Goomba 眼睛
                         if e.kind == "goomba" then
-                            screen.rect(x + 3, math.floor(e.y) - TS + 4, 2, 2, 0xFFFFFF)
-                            screen.rect(x + 7, math.floor(e.y) - TS + 4, 2, 2, 0xFFFFFF)
+                            screen.rect(x + 3, ey - TS + 4, 2, 2, 0xFFFFFF)
+                            screen.rect(x + 7, ey - TS + 4, 2, 2, 0xFFFFFF)
                         end
                     end
                 end
@@ -603,8 +616,11 @@ ui = ui or {
         if items_anim then
             for _, it in ipairs(items_anim) do
                 local x = math.floor(it.x - cam_x)
-                if x >= 0 and x < W then
-                    screen.rect(x, math.floor(it.y) - TS, TS - 2, TS - 2,
+                local iy = math.floor(it.y)
+                if iy > H then iy = H end
+                if iy < 0 then iy = 0 end
+                if x >= 0 and x < W and iy >= 0 and iy < H then
+                    screen.rect(x, iy - TS, TS - 2, TS - 2,
                                 it.kind == "mush" and CLR.mush or CLR.star)
                 end
             end
@@ -622,7 +638,7 @@ ui = ui or {
                         (player.big and CLR.marioB or CLR.marioS)
             screen.rect(x, y, pw, ph, col)
             -- 帽檐
-            screen.rect(x - 1, y, pw + 2, 3, col)
+            screen.rect(math.max(0, x - 1), y, pw + 2, 3, col)
             -- 眼睛（朝向）
             local ex = player.facing > 0 and x + pw - 5 or x + 3
             screen.rect(ex, y + 4, 2, 2, 0xFFFFFF)
