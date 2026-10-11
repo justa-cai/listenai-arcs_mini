@@ -1,98 +1,131 @@
-# ARCS-MINI 在线视频播放器（H264/master）
+# ARCS-MINI SIP 视频通话（sip/master）
 
-基于 master（mini-v3.0.2-m3）实现的在线视频播放器分支：设备通过网络拉取
-Ubuntu 流媒体服务器实时转码的 **MJPEG + AAC** 流，JPEG 硬件解码直出
-RGB565 上屏，AAC 软件解码经扬声器播出，全程不落任何本地存储。
+基于 H264/master 实现的**自研 SIP 协议栈**分支：局域网点对点音视频通话，
+ARCS-MINI 设备与 Ubuntu 主机**共用同一套 C 代码**（core 纯 C 零 OS 依赖，
+双端只换 OSAL 移植层），无任何第三方 SIP 库。
 
-原产品说明见 [README-original.MD](README-original.MD)。
+设备端完整 UI 拨号流程（四击入口/来电/接听/挂断/计时）+ 双向 G.711 音频 +
+**双向硬件 JPEG 编解码视频** + 调试工具链（LCD 回传看屏 / SDL 窗口）。
+
+原产品说明见 [README-original.MD](README-original.MD)；在线视频播放器见
+`h264/master` 分支。
 
 ## 架构
 
 ```
-Ubuntu (tools/h264-stream)                     ARCS-MINI (CP 核)
-┌────────────────────────────┐                 ┌──────────────────────────┐
-│ 媒体目录(任意分辨率 mp4 等) │                 │ vp_net  HTTP 拉流任务     │
-│   │  ffmpeg x2 (-re)       │   HTTP         │   └→ PSRAM 环形缓冲 256KB │
-│   ├─ mjpeg (可调 q/fps/wh) │ ───────────────▶│ vp_play 解码任务          │
-│   └─ aac adts              │  TLV 帧流       │   ├─ TLV 解析             │
-│ TLV: [A5][V/A][len][pts]   │                 │   ├─ JPEG 硬解→RGB565    │
-└────────────────────────────┘                 │   │   └→ 双缓冲→LVGL 页  │
-                                               │   └─ AAC→PCM→app_player │
-                                               │ shell: vp play/stop/status│
-                                               └──────────────────────────┘
+Ubuntu (sip_peer)                                ARCS-MINI (sip_service)
+┌────────────────────────────┐                  ┌───────────────────────────┐
+│ sip_ua（同一份 core 代码）  │   UDP 5060 SIP   │ sip_sig  信令/UI 桥/铃声   │
+│ peer_alsa  ALSA 全双工     │ ────────────────▶│ sip_aud   G.711 + 8k↔16k  │
+│ peer_v4l2  V4L2→4:2:0 编码 │   UDP 5062 RTP   │   └ 64KB ring 收发解耦    │
+│ peer_vidsink SDL 窗口(-W)  │   UDP 5064 RTP   │ sip_vid   Jpeg0 硬编(DMA2D)│
+│ screen_sink LCD 回传接收    │   UDP 5070 调试  │ sip_vidrx Jpeg0 硬解→双缓冲│
+└────────────────────────────┘                  │ sip_screen LCD 快照回传   │
+                                                │ UI: 通话页/四击/按键拦截  │
+                                                └───────────────────────────┘
 ```
+
+## 实测性能（RV32 300MHz，双向并发）
+
+| 环节 | 数值 |
+|---|---|
+| 上行视频（Jpeg0 硬编 240x320，DMA2D 路线） | **~200ms/帧 ≈ 3fps**（软编同幅 3.7s/帧） |
+| 下行视频（Jpeg0 硬解 240x240@5fps） | 25~70ms/帧 |
+| 双向音频（G.711 20ms/包） | 持续清晰，丢包个位数百分比 |
+| Jpeg0 编/解码时分复用占空比 | ~50%（互斥锁 + 脏标志） |
 
 ## 快速开始
 
-### 1. 启动流媒体服务器（Ubuntu）
+### 1. 主机侧构建
 
 ```bash
-python3 tools/h264-stream/h264_stream_server.py --media <视频目录>
-# 依赖 ffmpeg（含 libx264/aac），无需 Python 第三方包
+cmake -S src/middleware/sip/host -B tmp/sip-host
+cmake --build tmp/sip-host
 ```
 
-把任意分辨率/编码的 mp4 等文件拷进媒体目录即点即播。接口：
+产物：`tmp/sip-host/sip_peer`（对端程序）、`screen_sink`（LCD 回传接收）。
+依赖：libasound、libjpeg、SDL2（缺 SDL2 自动降级无窗口）。
 
-| 端点 | 说明 |
-|---|---|
-| `GET /list` | 媒体目录清单（JSON） |
-| `GET /mjpeg/<文件>?w=240&h=240&fps=10&q=4` | MJPEG+AAC TLV 流（**设备用**） |
-| `GET /play/<文件>?...` | H264 TS 流（保留，软解路线已弃用） |
-
-参数全部可选：`q` 为 JPEG 质量 2..31（小=好，默认 4≈41dB 近无损），
-`ar/ac/ab` 音频采样率/声道/码率，`loop` 循环，`speed` 实时/全速。
-
-### 2. 构建/烧录固件
+### 2. 设备固件构建/烧录
 
 ```bash
-./auto.sh -b          # 构建并烧录 app（详见脚本头注释）
+./build.sh -S ./apps/arcs-mini -B build-h264 -DBOARD=arcs_mini
+bash adb_download.sh -S res/arcs-mini -B build-h264 app
 ```
 
-### 3. 播放（adb shell）
+### 3. 通话
+
+```bash
+# 主机：守候 + USB 摄像头 + SDL 窗口显示设备上行画面
+DISPLAY=:0 ./tmp/sip-host/sip_peer -w -d /dev/video0 -W
+
+# 设备（adb shell，或设备上四击功能键进入通话页呼叫）
+sip call <主机IP>
+```
+
+接通后：设备屏幕显示主机摄像头画面，主机 SDL 窗口显示设备摄像头画面，
+双向语音通话；单击挂断。
+
+### 调试工具
+
+```bash
+adb shell "sip screen <主机IP>"        # 设备 LCD 每秒回传到主机
+./tmp/sip-host/screen_sink             # 主机接收 → tmp/sip_host/screen_NNN.jpg
+```
+
+lv_snapshot 抓的是 LVGL 渲染结果：回传图正常而实物异常 = flush/LCD 层
+问题；回传也异常 = 数据链路问题——远程二分定位显示类问题，免拍照。
+
+## 协议子集
+
+- **SIP**（UDP 5060）：INVITE/ACK/BYE/CANCEL + 100/180/200/481/486/487/488，
+  单对话状态机，T1=500ms 倍增重传，无 REGISTER（LAN 点对点直连）
+- **SDP**：m=audio PCMU/PCMA + m=video PT26(JPEG)，answer 支持拒视频降级纯音频
+- **RTP**：音频 20ms/160B；视频 RFC2435 子集，**Q=255 约定"载荷为完整 JFIF"**
+  （双端同栈，不自研量化表重建），1400B 分片、位图判洞重组、对称 RTP
+- **屏幕回传**：自定义 16B 头分片协议（magic/frame_id/w/h/total/offset，
+  小端裸拷，无重传，丢片整帧作废）
+
+## shell 命令（设备）
 
 ```
-vp play http://<服务器IP>:8000/mjpeg/movie.mp4
-vp play "http://<服务器IP>:8000/mjpeg/movie.mp4?fps=15&q=2"   # 高帧率高画质
-vp status             # 帧数/解码耗时/音频/重连/重试 统计
-vp stop
+sip status        状态/时长/音视频统计/丢帧分项(frag/size/sampling/dec)
+sip call <ip>     呼出          sip answer/reject/hangup/cancel
+sip cfg [ip]      对端 KV 配置  sip ring   自测伪造来电
+sip screen <ip>|off  LCD 回传   sip log <0-3>
 ```
 
-## 实测性能（240×240@10fps，RV32 300MHz）
+## 关键踩坑记录（真机两晚联调）
 
-| 环节 | 耗时 |
-|---|---|
-| JPEG 硬件解码（含 RGB565 pixel build） | ~16-20 ms/帧 |
-| 帧预算（10fps） | 100 ms，余量 5 倍 |
-| 码率（q=4） | ~93 KB/s |
-
-曾评估 H264 软解（自研纯 C 解码器，见 `arcs-sdk/components/h264dec/`，
-与 ffmpeg 逐像素一致），实测 62ms/帧贴死预算，最终切换为服务端转 MJPEG +
-设备 JPEG 硬解路线，h264dec 组件保留备用。
-
-## 关键踩坑记录（设备侧）
-
-- **GPDMA 通道冲突**：JPEG 硬解默认 ch2/3 与音频 DAC(ch2)/双麦采集(ch1/3)
-  相撞；解码通道改 ch0/ch5（prj.conf 配置），且 lisa_jpeg 失败路径不得
-  全局 `GPDMA_Uninitialize`（会拆掉音频通道）。
-- **音频流首写水量**：lisa_player 需 ≥6 个解码块才 prepared，首写 1 帧会
-  互相等待死锁；攒 8 帧 preroll 一次性启动。
-- **audiomgr 通道终身制**：无注销 API，player 实例必须终身复用，destroy
-  后同名重注册必失败（焦点永远拿不到）。
-- **焦点配置生命周期**：`focus_configs[]` 必须 static（app_player 只存
-  指针，懒创建的播放器运行期会再读）。
-- **直播沿重连**：环形缓冲高水位断线重连时必须清空积压并复位解复用
-  状态，否则旧数据立刻再次触顶形成重连风暴。
+- **JPEG 硬解不支持 4:4:4**：解出规则条纹却返回成功。ffmpeg 从 RGB 源、
+  libjpeg JCS_RGB 输入默认都编 4:4:4——发送侧强制 4:2:0，设备端 SOF 采样
+  白名单丢帧防御
+- **硬编 DMA 通道**：GPDMA 六通道全占（解码 ch0/ch5、音频 ch1/2/3、DVP
+  ch4），但 **DMA2D 只有 ch6~9 且被 LVGL blender 预订**——关掉 LVGL GPU
+  （软渲染开销可忽略）把 DMA2D 让给编码，绕开死局
+- **硬编配置**：`qt_index/ht_index` 表路由必须配（全 0 会让编码用的表与
+  JFIF 头声明不符 = 色度错乱条纹）；ECS 读取前必须 Invalidate（Flush 会被
+  cache 旧行遮蔽 = 首帧好后续花）；RGB565→YUV 的 5/6bit 分量必须先升 8bit
+- **`app_player_write_stream` 语义**：成功返回写入字节数（非 0），节流
+  超时返回 0（零写入，数据须保留重试）——只有 <0 是错误
+- **SDL2 会接管 SIGTERM**：带窗口的进程对 pkill 免疫，残留进程与
+  SO_REUSEADDR 叠加 = 多路流互相污染（假 40% 丢包），须显式 signal() 接管
+- **libjpeg 默认错误处理会 exit 进程**：摄像头偶发坏帧即炸，所有 decode
+  必须 setjmp 恢复
+- **ALSA default 设备（PipeWire 层）默认秒级缓冲**：须显式
+  set_buffer_size_near，否则语音延迟 10 秒以上
+- tiny_jpeg 质量参数是 1/2/3 三档，传 libjpeg 式 1-100 直接拒绝
 
 ## 代码地图
 
 | 路径 | 说明 |
 |---|---|
-| `apps/arcs-mini/video/video_player.c` | 播放服务：双任务拉流/解码、TLV 解析、音频 preroll、焦点处理 |
-| `arcs-sdk/components/h264dec/` | H264 Baseline 纯 C 软件解码器（保留备用） |
-| `apps-ui/apps/llm/{views,presenters,models}/video_player_*` | LVGL 视频页 |
-| `tools/h264-stream/` | 流媒体服务器 + README |
-| `src/category/comm/voice_player_comm.c` | 音频焦点通道配置（video: priority 5） |
-
-本分支同时**整机禁用了 SD 卡功能**（当前硬件无卡槽）：service/mcp/shell/
-底层驱动全链路 Kconfig 门控（`CONFIG_MIDDLEWARE_SD_MUSIC`），USB MSC 回退
-挂出 flash 盘。
+| `src/middleware/sip/core/` | SIP/SDP/RTP/G.711/JPEG-RTP 纯 C 实现（双端共用） |
+| `src/middleware/sip/ports/` | OSAL：FreeRTOS/lwip 与 glibc 两份移植 |
+| `src/middleware/sip/device/sip_service.c` | 设备服务：任务/音频/相机/UI 桥/shell |
+| `src/middleware/sip/device/sip_hw_jpeg.c` | Jpeg0 硬件编码（DMA2D 常驻路线） |
+| `src/middleware/sip/device/sip_screen.c` | LCD 快照 UDP 回传 |
+| `src/middleware/sip/host/` | sip_peer / ALSA / V4L2 / SDL 窗口 / screen_sink |
+| `apps-ui/apps/llm/*/{sip_call_*,model_sip_call.c}` | LVGL 通话页三件套 |
+| `apps/arcs-mini/button/app_button.c` | 四击入口 + 通话按键拦截 |
+| `src/utils/img_jpeg.c` | RGB565→JPEG 软编（拍照共用，支持质量分档） |
