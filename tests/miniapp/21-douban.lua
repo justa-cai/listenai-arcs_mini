@@ -64,13 +64,24 @@ local retry_pending = false  -- player.play 同步失败（坏歌 probe 挂）�
 local played = {}            -- 已播歌曲去重（id -> true，容量见 PLAYED_MAX）
 local played_count = 0
 local PLAYED_MAX = 240
-local roam_word = nil        -- 当前漫游批次的搜索词（界面展示用）
+local roam_word = nil        -- 漫游混合池的主展示词（最近一次抽取）
 local roam_tries = 0         -- 漫游批次"全为已播"的重拉次数（防死循环）
+local roam_reqs = {}         -- 漫游并发请求 {id -> word}（3 个风格词同时拉）
+local roam_staging = {}      -- 漫游已到齐的分片，聚齐后合并洗牌
 
 -- 伪随机：clock.now() 除以质数步长取整再取模（除法结果是浮点，
 -- math.tointeger 会返回 nil —— 曾因此崩溃，必须 math.floor）
 local function rand_below(n, salt)
     return math.floor(clock.now() / (700 + salt * 211)) % n
+end
+
+-- Fisher-Yates 洗牌（混合池逐首都换风格的核心）
+local function shuffle(t)
+    for i = #t, 2, -1 do
+        local j = rand_below(i, i % 7) + 1
+        t[i], t[j] = t[j], t[i]
+    end
+    return t
 end
 
 -- 封面：song/detail 拿 picUrl → CDN ?param=180y180 缩放 → 下载 jpeg
@@ -165,7 +176,7 @@ end
 local function next_track()
     if #songs == 0 then return end
     -- 曲库将尽：提前翻页/续批（推荐永远新批；搜索 offset 未到底时追加）
-    if playing >= #songs - 2 and not list_req then
+    if playing >= #songs - 2 and not list_req and next(roam_reqs) == nil then
         local ch = CHANNELS[channel]
         if ch.kind == "roam" or ch.kind == "newsong" or offset >= 0 then
             fetch_more()
@@ -205,11 +216,20 @@ local function fetch_channel(idx)
     state = "加载中…"
     if ch.kind == "roam" then
         roam_tries = 0
-        roam_word = ROAM_WORDS[rand_below(#ROAM_WORDS, 1) + 1]
-        list_req = http.get(string.format(SEARCH, urlencode(roam_word),
-                                          rand_below(4, 2) * 30),
-                            { timeout_ms = 10000, max_response_bytes = 32768,
-                              headers = HEADERS })
+        roam_reqs = {}
+        roam_staging = {}
+        -- 3 个不同风格词 + 各自随机页并发：聚齐后合并洗牌成混合池，
+        -- 逐首都换风格（单词一批会连播 30 首同风格，听感像卡专辑）
+        for k = 1, 3 do
+            local word = ROAM_WORDS[rand_below(#ROAM_WORDS, k * 3) + 1]
+            local req = http.get(string.format(SEARCH, urlencode(word),
+                                               rand_below(4, k * 5 + 2) * 30),
+                                 { timeout_ms = 10000,
+                                   max_response_bytes = 32768,
+                                   headers = HEADERS })
+            roam_reqs[req] = word
+            roam_word = word    -- 展示词取最后一个
+        end
     elseif ch.kind == "newsong" then
         list_req = http.get(NEWSONG,
                             { timeout_ms = 10000, max_response_bytes = 32768,
@@ -227,11 +247,18 @@ fetch_more = function()
     local ch = CHANNELS[channel]
     if ch.kind == "roam" then
         roam_tries = 0
-        roam_word = ROAM_WORDS[rand_below(#ROAM_WORDS, 3) + 1]
-        list_req = http.get(string.format(SEARCH, urlencode(roam_word),
-                                          rand_below(4, 4) * 30),
-                            { timeout_ms = 10000, max_response_bytes = 32768,
-                            headers = HEADERS })
+        roam_reqs = {}
+        roam_staging = {}
+        for k = 1, 3 do
+            local word = ROAM_WORDS[rand_below(#ROAM_WORDS, 10 + k * 3) + 1]
+            local req = http.get(string.format(SEARCH, urlencode(word),
+                                               rand_below(4, 10 + k * 5) * 30),
+                                 { timeout_ms = 10000,
+                                   max_response_bytes = 32768,
+                                   headers = HEADERS })
+            roam_reqs[req] = word
+            roam_word = word
+        end
     elseif ch.kind == "newsong" then
         -- 固定快照：不续批，回到本批开头循环
         list_req = nil
@@ -379,6 +406,50 @@ function on_start()
 end
 
 function on_http_response(id, response)
+    -- 漫游混合池分片：聚齐 3 路后合并洗牌
+    if roam_reqs[id] ~= nil then
+        local word = roam_reqs[id]
+        roam_reqs[id] = nil
+        if response and not response.error and response.status == 200 then
+            local out = on_search(response.body)
+            if type(out) == "table" then
+                for i = 1, #out do
+                    if not played[out[i].id] then
+                        roam_staging[#roam_staging + 1] = out[i]
+                    end
+                end
+            end
+        end
+        local left = 0
+        for _ in pairs(roam_reqs) do left = left + 1 end
+        if left == 0 then
+            -- 分片聚齐（或全部超时）：池非空则洗牌开播/续池
+            if #roam_staging > 0 then
+                shuffle(roam_staging)
+                roam_tries = 0
+                if #songs > 0 then
+                    for i = 1, #roam_staging do
+                        songs[#songs + 1] = roam_staging[i]
+                    end
+                else
+                    songs = roam_staging
+                    fail_streak = 0
+                    play_idx(1)
+                end
+            else
+                -- 三路全空（都为已播/失败）：限次重拉
+                if roam_tries < 3 then
+                    roam_tries = roam_tries + 1
+                    fetch_more()
+                else
+                    state = "曲库暂无新歌"
+                end
+            end
+            roam_staging = {}
+            refresh()
+        end
+        return
+    end
     if id == list_req then
         local appending = #songs > 0          -- 翻页/续批（非首拉）
         list_req = nil
