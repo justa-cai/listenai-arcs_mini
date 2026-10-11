@@ -317,7 +317,7 @@ local function render()
     local ch = CHANNELS[channel]
     screen.begin(COL.bg)
     screen.rect(0, 0, W, 26, COL.bar)
-    text("♪ " .. (ch.kind == "roam" and (roam_word and (ch.name .. "·" .. roam_word) or ch.name) or ch.name), 10, 5)
+    text("♪ 网易云音乐", 10, 5)
 
     if #songs == 0 then
         text(state, 12, 110, COL.warn)
@@ -354,9 +354,12 @@ local function render()
     end
 
     -- 右列 x=124 起（宽 104 ≈ 13 汉字）
-    text(song.t, 124, 48, COL.hi)
-    text(song.s ~= "" and song.s or "未知歌手", 124, 76, COL.text)
-    text(state, 124, 104, COL.dim)
+    -- 右列四行：频道（漫游带词）→ 歌名 → 歌手 → 状态（8 段预算满配）
+    text((ch.kind == "roam" and (roam_word and (ch.name .. "·" .. roam_word) or ch.name)) or ch.name,
+         124, 44, COL.dim)
+    text(song.t, 124, 70, COL.hi)
+    text(song.s ~= "" and song.s or "未知歌手", 124, 98, COL.text)
+    text(state, 124, 126, COL.dim)
 
     -- 底部进度区：整宽进度条 + 时间/提示行
     screen.rect(12, 170, 216, 6, COL.bar)
