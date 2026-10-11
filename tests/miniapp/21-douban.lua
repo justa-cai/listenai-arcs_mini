@@ -27,16 +27,24 @@ local HEADERS = {
                      .. "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
                      .. "Mobile/15E148 Safari/604.1",
 }
--- 频道两类来源：kind="rec" 走 newsong 推荐流（每批 6 首自带封面，播完
--- 拉下一批，永不循环）；kind="search" 按关键词搜索，播到曲库尾自动
--- offset 翻页追加（搜索不到更多则回到开头循环）。
+-- 频道三类来源：kind="roam" 随机漫游（默认"为你推荐"：随机风格词 +
+-- 随机搜索页拉一批，播完再漫游下一批，配已播去重——匿名 newsong
+-- 是固定快照（实测两次调用 6 首完全相同），靠它循环等于 6 首打转）；
+-- kind="newsong" 新歌速递（固定一批，循环）；kind="search" 固定关键词
+-- + offset 翻页追加。
+local ROAM_WORDS = {
+    "流行", "民谣", "摇滚", "电子", "爵士", "嘻哈", "乡村", "古风",
+    "治愈", "清晨", "夜晚", "旅行", "咖啡馆", "运动", "雨天", "怀旧",
+    "热门单曲", "经典老歌", "网络热歌", "翻唱",
+}
+
 local CHANNELS = {
-    { kind = "rec",    name = "为你推荐" },
+    { kind = "roam",    name = "为你推荐" },
+    { kind = "newsong", name = "新歌速递" },
     { kind = "search", kw = "华语热门",   name = "华语热门" },
     { kind = "search", kw = "欧美流行",   name = "欧美流行" },
     { kind = "search", kw = "粤语经典",   name = "粤语经典" },
     { kind = "search", kw = "轻音乐",     name = "轻音乐" },
-    { kind = "search", kw = "热门翻唱",   name = "热门翻唱" },
 }
 
 local channel = 1
@@ -51,6 +59,17 @@ local paused = false         -- 双击暂停标志
 local offset = 0             -- 搜索频道已拉到的 offset
 local fetch_more             -- 前向声明：next_track 引用（曾漏声明，
                              -- 第三首切第四首触发翻页时 nil 调用崩溃）
+local played = {}            -- 已播歌曲去重（id -> true，容量见 PLAYED_MAX）
+local played_count = 0
+local PLAYED_MAX = 240
+local roam_word = nil        -- 当前漫游批次的搜索词（界面展示用）
+local roam_tries = 0         -- 漫游批次"全为已播"的重拉次数（防死循环）
+
+-- 伪随机：clock.now() 除以质数步长取整再取模（除法结果是浮点，
+-- math.tointeger 会返回 nil —— 曾因此崩溃，必须 math.floor）
+local function rand_below(n, salt)
+    return math.floor(clock.now() / (700 + salt * 211)) % n
+end
 
 -- 封面：song/detail 拿 picUrl → CDN ?param=180y180 缩放 → 下载 jpeg
 local cover = nil            -- {jpeg=string} 当前已下载封面（歌曲切换时作废）
@@ -120,6 +139,14 @@ local function play_idx(idx)
                               { timeout_ms = 8000, max_response_bytes = 8192,
                                 headers = HEADERS })
     end
+    if not played[song.id] then
+        played[song.id] = true
+        played_count = played_count + 1
+        if played_count > PLAYED_MAX then
+            played = {}           -- 容量到顶整体清空：长听时允许自然重听
+            played_count = 0
+        end
+    end
     state = "播放中"
     play_id = player.play(string.format(OUTER, song.id))
     refresh()
@@ -130,15 +157,31 @@ local function next_track()
     -- 曲库将尽：提前翻页/续批（推荐永远新批；搜索 offset 未到底时追加）
     if playing >= #songs - 2 and not list_req then
         local ch = CHANNELS[channel]
-        if ch.kind == "rec" or offset >= 0 then
+        if ch.kind == "roam" or ch.kind == "newsong" or offset >= 0 then
             fetch_more()
         end
     end
     if playing >= #songs and offset < 0 then
-        play_idx(1)      -- 搜索到底：回开头循环
+        play_idx(1)      -- 搜索到底/newsong 固定批：回开头循环
         return
     end
-    play_idx(playing + 1)
+    -- 已播去重：跳到下一首没播过的
+    local idx = playing + 1
+    while idx <= #songs and played[songs[idx].id] do
+        idx = idx + 1
+    end
+    if idx > #songs then
+        -- 本批全部播过：漫游频道立刻换批（限次防死循环）
+        local ch = CHANNELS[channel]
+        if ch.kind == "roam" and roam_tries < 3 and not list_req then
+            roam_tries = roam_tries + 1
+            fetch_more()
+        else
+            play_idx(1)
+        end
+        return
+    end
+    play_idx(idx)
 end
 
 -- ---------------------------------------------------------------- 曲库
@@ -150,7 +193,14 @@ local function fetch_channel(idx)
     offset = 0
     stop_play()
     state = "加载中…"
-    if ch.kind == "rec" then
+    if ch.kind == "roam" then
+        roam_tries = 0
+        roam_word = ROAM_WORDS[rand_below(#ROAM_WORDS, 1) + 1]
+        list_req = http.get(string.format(SEARCH, urlencode(roam_word),
+                                          rand_below(4, 2) * 30),
+                            { timeout_ms = 10000, max_response_bytes = 32768,
+                              headers = HEADERS })
+    elseif ch.kind == "newsong" then
         list_req = http.get(NEWSONG,
                             { timeout_ms = 10000, max_response_bytes = 32768,
                               headers = HEADERS })
@@ -165,10 +215,17 @@ end
 -- 拉更多：搜索频道翻页追加；推荐频道永远拉新一批
 fetch_more = function()
     local ch = CHANNELS[channel]
-    if ch.kind == "rec" then
-        list_req = http.get(NEWSONG, { timeout_ms = 10000,
-                                       max_response_bytes = 32768,
-                                       headers = HEADERS })
+    if ch.kind == "roam" then
+        roam_tries = 0
+        roam_word = ROAM_WORDS[rand_below(#ROAM_WORDS, 3) + 1]
+        list_req = http.get(string.format(SEARCH, urlencode(roam_word),
+                                          rand_below(4, 4) * 30),
+                            { timeout_ms = 10000, max_response_bytes = 32768,
+                            headers = HEADERS })
+    elseif ch.kind == "newsong" then
+        -- 固定快照：不续批，回到本批开头循环
+        list_req = nil
+        return
     else
         offset = #songs
         list_req = http.get(string.format(SEARCH, urlencode(ch.kw), offset),
@@ -250,7 +307,7 @@ local function render()
     local ch = CHANNELS[channel]
     screen.begin(COL.bg)
     screen.rect(0, 0, W, 26, COL.bar)
-    text("♪ " .. ch.name, 10, 5)
+    text("♪ " .. (ch.kind == "roam" and (roam_word and (ch.name .. "·" .. roam_word) or ch.name) or ch.name), 10, 5)
 
     if #songs == 0 then
         text(state, 12, 110, COL.warn)
@@ -319,6 +376,15 @@ function on_http_response(id, response)
         else
             local out = on_search(response.body)
             if out and #out > 0 then
+                -- 漫游批次：过滤掉已播过的（其余频道保留全量，循环听合理）
+                if CHANNELS[channel].kind == "roam" then
+                    local fresh = {}
+                    for i = 1, #out do
+                        if not played[out[i].id] then fresh[#fresh + 1] = out[i] end
+                    end
+                    out = fresh
+                end
+                if #out > 0 then
                 if appending then
                     for i = 1, #out do songs[#songs + 1] = out[i] end
                     -- 追加批次不立即播：等当前首播完自然走到新歌
@@ -329,6 +395,7 @@ function on_http_response(id, response)
                 fail_streak = 0
                 play_idx(1)      -- 曲库到位：自动开播第 1 首
                 return
+                end
             end
             if appending then
                 -- 翻页拉空（搜索到底）：标记不再翻，回开头循环
