@@ -64,3 +64,24 @@ config MINIAPP_BUZZER
     default y
 
 endif
+
+config MINIAPP_BUILTIN_APP
+    bool "Autostart a Lua app from the luaapp flash partition"
+    default n
+    help
+      Boot the firmware with one Lua app preloaded in flash. The app lives
+      in a ROMFS image flashed at 0x580000 (partition "luaapp", between
+      respak and app). A delayed task mounts it ~15 s after boot, installs
+      /radio.lua under id "local:radio" and starts it. adb push to the
+      same id still replaces it at runtime; the builtin copy returns on
+      the next reboot. Skipped while a voice session is active.
+
+config MINIAPP_BUILTIN_DELAY_MS
+    int "Builtin app autostart delay"
+    depends on MINIAPP_BUILTIN_APP
+    range 3000 120000
+    default 15000
+    help
+      Boot grace period before the builtin app takes the screen. Wait for
+      network attach and the first UI paint, and keep voice interaction
+      responsive during startup.

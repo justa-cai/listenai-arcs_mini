@@ -259,6 +259,9 @@ static void miniapp_nav_open_worker(void *arg, uint32_t len)
          * state after navigation so that queued UI lifecycle work cannot
          * leave can_wakeup disabled. */
         model_voice_on();
+        /* 小应用独占前台：挡住语音结束/单击等"回主页"导航（长按退出
+         * 不走 nav_to，不受影响）；nav close 时清除。 */
+        lisa_ui_nav_set_sticky_home_block(LISA_UI_NAV_SCR_ID_MINIAPP);
         miniapp_render_timer_cb(s_page->render_timer);
     }
     taskENTER_CRITICAL();
@@ -272,6 +275,7 @@ static void miniapp_nav_close_worker(void *arg, uint32_t len)
 {
     (void)arg;
     (void)len;
+    lisa_ui_nav_set_sticky_home_block(-1);
     if (!miniapp_is_active() && lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_MINIAPP) {
         (void)lisa_ui_nav_scr_nav_default();
     }

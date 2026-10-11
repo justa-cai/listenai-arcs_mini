@@ -17,7 +17,8 @@ local COL = {
     warn = 0xFFB84D,
 }
 
-local SEARCH = "https://music.163.com/api/search/get?s=%s&type=1&limit=30&offset=0"
+local SEARCH = "https://music.163.com/api/search/get?s=%s&type=1&limit=30&offset=%d"
+local NEWSONG = "https://music.163.com/api/personalized/newsong?limit=6"
 local DETAIL = "https://music.163.com/api/song/detail?ids=%%5B%d%%5D"
 local OUTER = "https://music.163.com/song/media/outer/url?id=%d"
 local HEADERS = {
@@ -26,23 +27,28 @@ local HEADERS = {
                      .. "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
                      .. "Mobile/15E148 Safari/604.1",
 }
--- 频道 = 搜索关键词。url 转义只处理中文与空格（关键词表内可控）
+-- 频道两类来源：kind="rec" 走 newsong 推荐流（每批 6 首自带封面，播完
+-- 拉下一批，永不循环）；kind="search" 按关键词搜索，播到曲库尾自动
+-- offset 翻页追加（搜索不到更多则回到开头循环）。
 local CHANNELS = {
-    { kw = "华语热门",   name = "华语热门" },
-    { kw = "欧美流行",   name = "欧美流行" },
-    { kw = "粤语经典",   name = "粤语经典" },
-    { kw = "轻音乐",     name = "轻音乐" },
-    { kw = "热门翻唱",   name = "热门翻唱" },
+    { kind = "rec",    name = "为你推荐" },
+    { kind = "search", kw = "华语热门",   name = "华语热门" },
+    { kind = "search", kw = "欧美流行",   name = "欧美流行" },
+    { kind = "search", kw = "粤语经典",   name = "粤语经典" },
+    { kind = "search", kw = "轻音乐",     name = "轻音乐" },
+    { kind = "search", kw = "热门翻唱",   name = "热门翻唱" },
 }
 
 local channel = 1
-local songs = {}             -- { {id,t,s}, ... }
+local songs = {}             -- { {id,t,s,pic}, ... }（pic 为可带封面直链）
 local playing = 0            -- 正在播的下标（0 = 未开始）
 local play_id = nil          -- player.play 返回的请求 id
 local list_req = nil         -- http 请求 id
 local state = "加载中…"      -- 界面状态行
 local dirty = true
 local fail_streak = 0        -- 连续播放失败（自动跳过坏歌的熔断）
+local paused = false         -- 双击暂停标志
+local offset = 0             -- 搜索频道已拉到的 offset
 
 -- 封面：song/detail 拿 picUrl → CDN ?param=180y180 缩放 → 下载 jpeg
 local cover = nil            -- {jpeg=string} 当前已下载封面（歌曲切换时作废）
@@ -97,14 +103,21 @@ local function play_idx(idx)
     playing = idx
     local song = songs[idx]
     stop_play()
-    -- 封面作废并拉新：song/detail 拿 picUrl（失败静默，转盘占位）
+    paused = false
+    -- 封面：推荐频道自带 picUrl 直下；搜索频道 song/detail 换取
     cover = nil
     cover_song = song.id
     if cover_req then http.cancel(cover_req); cover_req = nil end
     if detail_req then http.cancel(detail_req); detail_req = nil end
-    detail_req = http.get(string.format(DETAIL, song.id),
-                          { timeout_ms = 8000, max_response_bytes = 8192,
-                            headers = HEADERS })
+    if type(song.pic) == "string" and #song.pic > 0 then
+        cover_req = http.get(song.pic .. "?param=100y100",
+                             { timeout_ms = 10000, max_response_bytes = 32768,
+                               headers = HEADERS })
+    else
+        detail_req = http.get(string.format(DETAIL, song.id),
+                              { timeout_ms = 8000, max_response_bytes = 8192,
+                                headers = HEADERS })
+    end
     state = "播放中"
     play_id = player.play(string.format(OUTER, song.id))
     refresh()
@@ -112,6 +125,17 @@ end
 
 local function next_track()
     if #songs == 0 then return end
+    -- 曲库将尽：提前翻页/续批（推荐永远新批；搜索 offset 未到底时追加）
+    if playing >= #songs - 2 and not list_req then
+        local ch = CHANNELS[channel]
+        if ch.kind == "rec" or offset >= 0 then
+            fetch_more()
+        end
+    end
+    if playing >= #songs and offset < 0 then
+        play_idx(1)      -- 搜索到底：回开头循环
+        return
+    end
     play_idx(playing + 1)
 end
 
@@ -120,32 +144,72 @@ local function fetch_channel(idx)
     local ch = CHANNELS[idx]
     songs = {}
     playing = 0
+    paused = false
+    offset = 0
     stop_play()
     state = "加载中…"
-    list_req = http.get(string.format(SEARCH, urlencode(ch.kw)),
-                        { timeout_ms = 10000, max_response_bytes = 32768,
-                          headers = HEADERS })
+    if ch.kind == "rec" then
+        list_req = http.get(NEWSONG,
+                            { timeout_ms = 10000, max_response_bytes = 32768,
+                              headers = HEADERS })
+    else
+        list_req = http.get(string.format(SEARCH, urlencode(ch.kw), 0),
+                            { timeout_ms = 10000, max_response_bytes = 32768,
+                              headers = HEADERS })
+    end
     refresh()
+end
+
+-- 拉更多：搜索频道翻页追加；推荐频道永远拉新一批
+local function fetch_more()
+    local ch = CHANNELS[channel]
+    if ch.kind == "rec" then
+        list_req = http.get(NEWSONG, { timeout_ms = 10000,
+                                       max_response_bytes = 32768,
+                                       headers = HEADERS })
+    else
+        offset = #songs
+        list_req = http.get(string.format(SEARCH, urlencode(ch.kw), offset),
+                            { timeout_ms = 10000, max_response_bytes = 32768,
+                              headers = HEADERS })
+    end
 end
 
 local function on_search(body)
     local data = json.decode(body)
     if type(data) ~= "table" then return nil end
     local result = data.result
-    if type(result) ~= "table" or type(result.songs) ~= "table" then
-        return nil
-    end
+    if type(result) ~= "table" then return nil end
     local out = {}
-    for i = 1, #result.songs do
-        local s = result.songs[i]
-        if type(s) == "table" and type(s.id) == "number" and
-           type(s.name) == "string" then
-            local artist = ""
-            if type(s.artists) == "table" and type(s.artists[1]) == "table" and
-               type(s.artists[1].name) == "string" then
-                artist = s.artists[1].name
+    if type(result.songs) == "table" then
+        -- 搜索：songs[] {id,name,artists[]}
+        for i = 1, #result.songs do
+            local s = result.songs[i]
+            if type(s) == "table" and type(s.id) == "number" and
+               type(s.name) == "string" then
+                local artist = ""
+                if type(s.artists) == "table" and type(s.artists[1]) == "table" and
+                   type(s.artists[1].name) == "string" then
+                    artist = s.artists[1].name
+                end
+                out[#out + 1] = { id = s.id, t = s.name, s = artist }
             end
-            out[#out + 1] = { id = s.id, t = s.name, s = artist }
+        end
+    elseif type(result) == "table" and type(result[1]) == "table" and
+           type(result[1].song) == "table" then
+        -- 推荐 newsong：result[] {song:{id,name,artists[],album.picUrl}, picUrl}
+        for i = 1, #result do
+            local s = result[i].song
+            if type(s.id) == "number" and type(s.name) == "string" then
+                local artist = ""
+                if type(s.artists) == "table" and type(s.artists[1]) == "table" and
+                   type(s.artists[1].name) == "string" then
+                    artist = s.artists[1].name
+                end
+                local pic = type(result[i].picUrl) == "string" and
+                            result[i].picUrl or nil
+                out[#out + 1] = { id = s.id, t = s.name, s = artist, pic = pic }
+            end
         end
     end
     return out
@@ -244,17 +308,30 @@ end
 
 function on_http_response(id, response)
     if id == list_req then
+        local appending = #songs > 0          -- 翻页/续批（非首拉）
         list_req = nil
         if not response or response.error then
-            state = "网络失败"
+            state = appending and "续拉失败" or "网络失败"
         elseif response.status ~= 200 then
             state = "HTTP " .. tostring(response.status)
         else
             local out = on_search(response.body)
             if out and #out > 0 then
+                if appending then
+                    for i = 1, #out do songs[#songs + 1] = out[i] end
+                    -- 追加批次不立即播：等当前首播完自然走到新歌
+                    refresh()
+                    return
+                end
                 songs = out
                 fail_streak = 0
                 play_idx(1)      -- 曲库到位：自动开播第 1 首
+                return
+            end
+            if appending then
+                -- 翻页拉空（搜索到底）：标记不再翻，回开头循环
+                offset = -1
+                refresh()
                 return
             end
             state = "曲库解析失败"
@@ -319,6 +396,18 @@ function on_button_click(id)
         fetch_channel(channel)
         return
     end
+    -- 双击 = 暂停/恢复
+    if id == "function_double" then
+        if play_id then
+            if paused then
+                if player.resume() then paused = false; state = "播放中" end
+            else
+                if player.pause() then paused = true; state = "已暂停" end
+            end
+            refresh()
+            return
+        end
+    end
     -- 频道切换
     if id == "left" or id == "right" then
         local d = (id == "right") and 1 or -1
@@ -326,7 +415,7 @@ function on_button_click(id)
         fetch_channel(channel)
         return
     end
-    -- 电台语义：任何其它按键 = 下一首
+    -- 电台语义：任何其它按键 = 下一首（暂停状态按键也切歌并恢复播放）
     fail_streak = 0
     next_track()
 end

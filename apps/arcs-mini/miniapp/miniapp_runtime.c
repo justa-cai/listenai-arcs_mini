@@ -839,6 +839,22 @@ static int miniapp_lua_player_stop(lua_State *L)
     return 1;
 }
 
+static int miniapp_lua_player_pause(lua_State *L)
+{
+    bool ok = miniapp_player && s_player_current_id &&
+              app_player_pause(miniapp_player) == APP_PLAYER_OK;
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
+static int miniapp_lua_player_resume(lua_State *L)
+{
+    bool ok = miniapp_player && s_player_current_id &&
+              app_player_resume(miniapp_player) == APP_PLAYER_OK;
+    lua_pushboolean(L, ok);
+    return 1;
+}
+
 static int miniapp_lua_player_state(lua_State *L)
 {
     if (!miniapp_player || !s_player_current_id) {
@@ -2122,6 +2138,8 @@ static void miniapp_open_safe_libraries(lua_State *L)
     lua_setglobal(L, "player");
     miniapp_register_function(L, "player", "play", miniapp_lua_player_play);
     miniapp_register_function(L, "player", "stop", miniapp_lua_player_stop);
+    miniapp_register_function(L, "player", "pause", miniapp_lua_player_pause);
+    miniapp_register_function(L, "player", "resume", miniapp_lua_player_resume);
     miniapp_register_function(L, "player", "state", miniapp_lua_player_state);
     miniapp_register_function(L, "player", "position", miniapp_lua_player_position);
     miniapp_register_function(L, "player", "duration", miniapp_lua_player_duration);

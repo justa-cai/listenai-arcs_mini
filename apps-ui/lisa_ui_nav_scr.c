@@ -16,6 +16,7 @@ struct lisa_ui_scr_node {
 };
 
 static struct lisa_ui_scr_node *scr_list_head = NULL;
+static int s_sticky_home_block = -1;   /* 该 id 在前台时禁止 nav 回主页(0) */
 
 struct lisa_ui_scr_stack_node {
     const struct lisa_ui_nav_scr *scr;
@@ -111,6 +112,15 @@ int lisa_ui_nav_scr_nav_to(int unique_id)
 
     if (from == NULL) {
         LISA_UI_LOGE("nav_to: from scr not found");
+        return -1;
+    }
+
+    /* 粘性页面：某 scr 占用前台时禁止导航回主页（HOME 恒为 0）。用于
+     * 独占式前台（如小应用）——语音结束/单击回主页等路径一律拒绝，
+     * 页面自己退出走的不是 nav_to，不受影响。其它目标放行。 */
+    if (s_sticky_home_block >= 0 &&
+        from->unique_id == s_sticky_home_block && unique_id == 0) {
+        LISA_UI_LOGW("nav_to home blocked: scr %d is sticky", s_sticky_home_block);
         return -1;
     }
 
@@ -331,4 +341,10 @@ int lisa_ui_nav_scr_get_top_id(void)
     }
 
     return scr->unique_id;
+}
+
+void lisa_ui_nav_set_sticky_home_block(int scr_id)
+{
+    /* scr_id < 0 清除；否则该页面前台时 nav 回主页被拒（见 nav_to） */
+    s_sticky_home_block = scr_id;
 }
