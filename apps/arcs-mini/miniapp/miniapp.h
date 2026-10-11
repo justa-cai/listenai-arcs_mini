@@ -118,10 +118,20 @@ typedef struct {
     char text[MINIAPP_TEXT_MAX + 1];
 } miniapp_text_t;
 
+/* 一帧最多一张位图（封面类场景）：pixels 为 RGB565，缓冲由 vm 持有，
+ * 生命周期与实例一致，scene 拷贝只带指针。 */
+typedef struct {
+    int16_t x, y;
+    uint16_t w, h;
+    const uint16_t *pixels;
+    uint8_t present;   /* 本帧是否有图（screen.begin 复位） */
+} miniapp_image_t;
+
 typedef struct {
     uint32_t background;
     uint16_t rect_count;
     uint16_t text_count;
+    miniapp_image_t image;
     miniapp_rect_t rects[MINIAPP_MAX_RECTS];
     miniapp_text_t texts[MINIAPP_MAX_TEXTS];
 } miniapp_scene_t;

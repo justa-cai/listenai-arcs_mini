@@ -18,6 +18,7 @@
 #include "alarm_handler.h"
 #include "alarm_ring.h"
 #include "app_player.h"
+#include "lisa_jpeg.h"
 #include "lisa_log.h"
 #include "lisa_mem.h"
 #include "lua.h"
@@ -135,6 +136,7 @@ typedef struct {
     uint32_t present_count;
     miniapp_scene_t scene;
     miniapp_scene_t presented_scene;
+    uint16_t *image_buf;      /* screen.image 的解码缓冲（懒分配） */
     int pending_led;
     uint32_t led_on_ms, led_off_ms;
     unsigned buzz_count;
@@ -408,7 +410,41 @@ static int miniapp_lua_screen_begin(lua_State *L)
     vm->scene.background = (uint32_t)luaL_checkinteger(L, 1) & 0xffffffu;
     vm->scene.rect_count = 0;
     vm->scene.text_count = 0;
+    vm->scene.image.present = 0;   /* 位图与矩形一样按帧声明 */
     return 0;
+}
+
+/* screen.image(x, y, jpeg)：JPEG 硬解到 vm 持有的 RGB565 缓冲并挂到
+ * 当前场景。返回 true/false（解码失败不抛错 —— 沙箱无 pcall，封面缺
+ * 失不该终止整个应用）。缓冲懒分配一次，随 vm 释放。 */
+static int miniapp_lua_screen_image(lua_State *L)
+{
+    miniapp_vm_t *vm = miniapp_vm_get(L);
+    lua_Integer x = miniapp_integer(L, 1, 0, MINIAPP_SCREEN_WIDTH - 1);
+    lua_Integer y = miniapp_integer(L, 2, 0, MINIAPP_SCREEN_HEIGHT - 1);
+    size_t len = 0;
+    const char *jpeg = luaL_checklstring(L, 3, &len);
+    if (!jpeg || len < 4) return luaL_error(L, "invalid image data");
+    if (!vm->image_buf) {
+        vm->image_buf = lisa_mem_alloc(MINIAPP_SCREEN_WIDTH * MINIAPP_SCREEN_HEIGHT * 2u);
+        if (!vm->image_buf) return luaL_error(L, "image buffer alloc failed");
+    }
+    uint16_t w = MINIAPP_SCREEN_WIDTH, h = MINIAPP_SCREEN_HEIGHT;
+    Jpeg_DecoderCfg cfg = {.output_format = JPEG_PIXEL_FORMAT_RGB565};
+    if (jpeg_decoder((const uint8_t *)jpeg, (uint32_t)len,
+                     (uint8_t *)vm->image_buf, &w, &h, cfg) != 0 ||
+        w == 0 || h == 0 || x + w > MINIAPP_SCREEN_WIDTH || y + h > MINIAPP_SCREEN_HEIGHT) {
+        lua_pushboolean(L, false);
+        return 1;
+    }
+    vm->scene.image.x = (int16_t)x;
+    vm->scene.image.y = (int16_t)y;
+    vm->scene.image.w = w;
+    vm->scene.image.h = h;
+    vm->scene.image.pixels = vm->image_buf;
+    vm->scene.image.present = 1;
+    lua_pushboolean(L, true);
+    return 1;
 }
 
 static int miniapp_lua_screen_rect(lua_State *L)
@@ -826,6 +862,28 @@ static int miniapp_lua_player_state(lua_State *L)
         break;
     }
     lua_pushstring(L, s);
+    return 1;
+}
+
+static int miniapp_lua_player_position(lua_State *L)
+{
+    uint32_t pos = 0;
+    if (miniapp_player && s_player_current_id &&
+        app_player_get_position(miniapp_player, &pos) != APP_PLAYER_OK) {
+        pos = 0;
+    }
+    lua_pushinteger(L, pos);
+    return 1;
+}
+
+static int miniapp_lua_player_duration(lua_State *L)
+{
+    uint32_t dur = 0;
+    if (miniapp_player && s_player_current_id &&
+        app_player_get_duration(miniapp_player, &dur) != APP_PLAYER_OK) {
+        dur = 0;
+    }
+    lua_pushinteger(L, dur);
     return 1;
 }
 
@@ -2019,6 +2077,7 @@ static void miniapp_open_safe_libraries(lua_State *L)
     miniapp_register_function(L, "screen", "rect", miniapp_lua_screen_rect);
     miniapp_register_function(L, "screen", "text", miniapp_lua_screen_text);
     miniapp_register_function(L, "screen", "present", miniapp_lua_screen_present);
+    miniapp_register_function(L, "screen", "image", miniapp_lua_screen_image);
 #endif
 
 #if MINIAPP_HAS_LEDS
@@ -2064,6 +2123,8 @@ static void miniapp_open_safe_libraries(lua_State *L)
     miniapp_register_function(L, "player", "play", miniapp_lua_player_play);
     miniapp_register_function(L, "player", "stop", miniapp_lua_player_stop);
     miniapp_register_function(L, "player", "state", miniapp_lua_player_state);
+    miniapp_register_function(L, "player", "position", miniapp_lua_player_position);
+    miniapp_register_function(L, "player", "duration", miniapp_lua_player_duration);
 
     lua_newtable(L);
 #if MINIAPP_HAS_SCREEN
@@ -2474,11 +2535,13 @@ static void miniapp_task(void *argument)
             } else if (event.type == MINIAPP_EVENT_CLICK && L && !alarm_ring_is_active()) {
                 if (miniapp_call_button(L, vm, event.button_id) != 0) {
                     miniapp_runtime_stop(&L, vm, true);
+                    if (vm->image_buf) { lisa_mem_free(vm->image_buf); vm->image_buf = NULL; }
                     lisa_mem_free(vm);
                     vm = NULL;
                 }
             } else if (event.type == MINIAPP_EVENT_EXIT && L) {
                 miniapp_runtime_stop(&L, vm, true);
+                if (vm->image_buf) { lisa_mem_free(vm->image_buf); vm->image_buf = NULL; }
                 lisa_mem_free(vm);
                 vm = NULL;
 
@@ -2491,6 +2554,7 @@ static void miniapp_task(void *argument)
                 !miniapp_http_is_cancelled(response->request)) {
                 if (miniapp_call_http_response(L, vm, response) != 0) {
                     miniapp_runtime_stop(&L, vm, true);
+                    if (vm->image_buf) { lisa_mem_free(vm->image_buf); vm->image_buf = NULL; }
                     lisa_mem_free(vm);
                     vm = NULL;
                 }
@@ -2505,6 +2569,7 @@ static void miniapp_task(void *argument)
                 miniapp_call_tts_result(L, vm, tts_result->speech_id,
                                        tts_result->result, tts_result->error) != 0) {
                 miniapp_runtime_stop(&L, vm, true);
+                if (vm->image_buf) { lisa_mem_free(vm->image_buf); vm->image_buf = NULL; }
                 lisa_mem_free(vm);
                 vm = NULL;
             }
@@ -2517,6 +2582,7 @@ static void miniapp_task(void *argument)
                 miniapp_call_player_result(L, vm, player_result->play_id,
                                            player_result->status) != 0) {
                 miniapp_runtime_stop(&L, vm, true);
+                if (vm->image_buf) { lisa_mem_free(vm->image_buf); vm->image_buf = NULL; }
                 lisa_mem_free(vm);
                 vm = NULL;
             }
@@ -2530,6 +2596,7 @@ static void miniapp_task(void *argument)
             }
             if (miniapp_call(L, vm, "on_tick", 1, MINIAPP_TICK_MS) != 0) {
                 miniapp_runtime_stop(&L, vm, true);
+                if (vm->image_buf) { lisa_mem_free(vm->image_buf); vm->image_buf = NULL; }
                 lisa_mem_free(vm);
                 vm = NULL;
             } else {

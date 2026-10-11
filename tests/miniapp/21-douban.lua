@@ -18,6 +18,7 @@ local COL = {
 }
 
 local SEARCH = "https://music.163.com/api/search/get?s=%s&type=1&limit=30&offset=0"
+local DETAIL = "https://music.163.com/api/song/detail?ids=%%5B%d%%5D"
 local OUTER = "https://music.163.com/song/media/outer/url?id=%d"
 local HEADERS = {
     ["Referer"] = "https://music.163.com/",
@@ -42,6 +43,13 @@ local list_req = nil         -- http 请求 id
 local state = "加载中…"      -- 界面状态行
 local dirty = true
 local fail_streak = 0        -- 连续播放失败（自动跳过坏歌的熔断）
+
+-- 封面：song/detail 拿 picUrl → CDN ?param=180y180 缩放 → 下载 jpeg
+local cover = nil            -- {jpeg=string} 当前已下载封面（歌曲切换时作废）
+local cover_song = nil       -- 封面对应的歌曲 id
+local cover_req = nil        -- 封面下载请求 id
+local detail_req = nil       -- 详情（picUrl）请求 id
+local COVER_SIZE = 100       -- 界面上封面区域（左侧竖版布局）
 
 local function clip(s, limit)
     s = tostring(s)
@@ -89,6 +97,14 @@ local function play_idx(idx)
     playing = idx
     local song = songs[idx]
     stop_play()
+    -- 封面作废并拉新：song/detail 拿 picUrl（失败静默，转盘占位）
+    cover = nil
+    cover_song = song.id
+    if cover_req then http.cancel(cover_req); cover_req = nil end
+    if detail_req then http.cancel(detail_req); detail_req = nil end
+    detail_req = http.get(string.format(DETAIL, song.id),
+                          { timeout_ms = 8000, max_response_bytes = 8192,
+                            headers = HEADERS })
     state = "播放中"
     play_id = player.play(string.format(OUTER, song.id))
     refresh()
@@ -136,27 +152,87 @@ local function on_search(body)
 end
 
 -- ---------------------------------------------------------------- 绘制
+local DISC_CX, DISC_CY, DISC_R = 120, 88, 46   -- 唱片转盘几何
+local spin = 0                                  -- 转盘角度（每 tick 递增）
+local last_spin_ms = 0
+
+local function fmt_ms(ms)
+    local s = math.floor(ms / 1000)
+    return string.format("%d:%02d", math.floor(s / 60), s % 60)
+end
+
+local function draw_disc(playing_now)
+    -- 黑胶转盘：三层同心方块 + 中心轴 + 绕圈高光点（近似圆形视觉）
+    screen.rect(DISC_CX - DISC_R, DISC_CY - DISC_R, DISC_R * 2, DISC_R * 2, COL.bar)
+    screen.rect(DISC_CX - DISC_R + 8, DISC_CY - DISC_R + 8,
+                (DISC_R - 8) * 2, (DISC_R - 8) * 2, 0x0D1520)
+    screen.rect(DISC_CX - 12, DISC_CY - 12, 24, 24, COL.hi)
+    -- 高光点绕中心旋转（预计算 16 相位坐标，避免 tick 里算三角）
+    local phase = (spin % 16) + 1
+    local QUADS = {
+        {1, 0}, {2, 0}, {3, 1}, {3, 2}, {3, 3}, {2, 3}, {1, 3}, {0, 3},
+        {0, 2}, {0, 1}, {0, 0}, {1, 0}, {2, 0}, {3, 1}, {3, 2}, {2, 3},
+    }
+    local q = QUADS[phase]
+    local rr = DISC_R - 16
+    local hx = DISC_CX - 4 + math.floor((q[1] - 1.5) / 1.5 * rr)
+    local hy = DISC_CY - 4 + math.floor((q[2] - 1.5) / 1.5 * rr)
+    screen.rect(hx, hy, 8, 8, playing_now and 0xFFFFFF or COL.dim)
+end
+
 local function render()
     local ch = CHANNELS[channel]
     screen.begin(COL.bg)
     screen.rect(0, 0, W, 26, COL.bar)
-    text("电台·" .. ch.name, 10, 5)
+    text("♪ " .. ch.name, 10, 5)
 
     if #songs == 0 then
         text(state, 12, 110, COL.warn)
         text("任意键重试", 12, 140, COL.dim)
-    else
-        local song = songs[playing]
-        if song then
-            text(tostring(playing) .. " / " .. #songs, 12, 44, COL.dim)
-            text(song.t, 12, 84, COL.hi)
-            text(song.s ~= "" and song.s or "未知歌手", 12, 118, COL.text)
-            text(state, 12, 152, COL.dim)
-        else
-            text("待播放", 12, 110, COL.dim)
-        end
-        text("任意键下一首  左右换频道", 10, H - 52, COL.dim)
+        screen.present()
+        return
     end
+
+    local song = songs[playing]
+    if not song then
+        text("待播放", 12, 110, COL.dim)
+        screen.present()
+        return
+    end
+
+    local pos, dur = 0, 0
+    if play_id then
+        pos = player.position()
+        dur = player.duration()
+    end
+    text(tostring(playing) .. "/" .. #songs, W - 56, 5, COL.dim)
+
+    -- 布局：左侧封面 100x100（转盘占位同区域），右侧信息栏；底部进度区
+    local cover_ok = false
+    if cover and cover.jpeg then
+        cover_ok = screen.image(12, 44, cover.jpeg)
+    end
+    if not cover_ok then
+        -- 转盘占位：中心 (62,94) 半径 42
+        local saved_cx, saved_cy, saved_r = DISC_CX, DISC_CY, DISC_R
+        DISC_CX, DISC_CY, DISC_R = 62, 94, 42
+        draw_disc(play_id ~= nil and state == "播放中")
+        DISC_CX, DISC_CY, DISC_R = saved_cx, saved_cy, saved_r
+    end
+
+    -- 右列 x=124 起（宽 104 ≈ 13 汉字）
+    text(song.t, 124, 48, COL.hi)
+    text(song.s ~= "" and song.s or "未知歌手", 124, 76, COL.text)
+    text(state, 124, 104, COL.dim)
+
+    -- 底部进度区：整宽进度条 + 时间/提示行
+    screen.rect(12, 170, 216, 6, COL.bar)
+    if dur > 0 and pos <= dur then
+        local w = math.floor(216 * pos / dur)
+        if w > 0 then screen.rect(12, 169, w, 8, COL.hi) end
+    end
+    text(pos > 0 and fmt_ms(pos) .. "/" .. fmt_ms(dur) or "--:--/--:--", 12, 188, COL.dim)
+    text("任意键下一首 左右换台", 12, 214, COL.dim)
     screen.present()
 end
 
@@ -167,23 +243,52 @@ function on_start()
 end
 
 function on_http_response(id, response)
-    if id ~= list_req then return end
-    list_req = nil
-    if not response or response.error then
-        state = "网络失败"
-    elseif response.status ~= 200 then
-        state = "HTTP " .. tostring(response.status)
-    else
-        local out = on_search(response.body)
-        if out and #out > 0 then
-            songs = out
-            fail_streak = 0
-            play_idx(1)      -- 曲库到位：自动开播第 1 首
-            return
+    if id == list_req then
+        list_req = nil
+        if not response or response.error then
+            state = "网络失败"
+        elseif response.status ~= 200 then
+            state = "HTTP " .. tostring(response.status)
+        else
+            local out = on_search(response.body)
+            if out and #out > 0 then
+                songs = out
+                fail_streak = 0
+                play_idx(1)      -- 曲库到位：自动开播第 1 首
+                return
+            end
+            state = "曲库解析失败"
         end
-        state = "曲库解析失败"
+        refresh()
+        return
     end
-    refresh()
+    -- 详情：提取 picUrl → 下载 180x180 封面（CDN param 缩放）
+    if id == detail_req then
+        detail_req = nil
+        if cover_song and response and not response.error and response.status == 200 then
+            local d = json.decode(response.body)
+            local songs_arr = type(d) == "table" and d.songs or nil
+            local pic = songs_arr and songs_arr[1] and songs_arr[1].album or nil
+            pic = pic and pic.picUrl or nil
+            if type(pic) == "string" and #pic > 0 then
+                cover_req = http.get(pic .. "?param=100y100",
+                                     { timeout_ms = 10000,
+                                       max_response_bytes = 32768,
+                                       headers = HEADERS })
+            end
+        end
+        return
+    end
+    -- 封面字节到达（二进制 body）
+    if id == cover_req then
+        cover_req = nil
+        if cover_song and response and not response.error and
+           response.status == 200 and type(response.body) == "string" and
+           #response.body > 100 then
+            cover = { jpeg = response.body }
+            refresh()
+        end
+    end
 end
 
 function on_player_result(id, result)
@@ -227,6 +332,15 @@ function on_button_click(id)
 end
 
 function on_tick()
+    -- 播放中：转盘旋转 + 进度条走动，按 ~150ms 节拍重绘（约每 2.4 相位一格）
+    if play_id then
+        local now = clock.now()
+        if now - last_spin_ms >= 150 then
+            last_spin_ms = now
+            spin = spin + 1
+            dirty = true
+        end
+    end
     if dirty then
         dirty = false
         render()

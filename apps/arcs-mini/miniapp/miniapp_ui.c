@@ -22,6 +22,8 @@ typedef struct {
     lv_timer_t *render_timer;
     lv_obj_t *rects[MINIAPP_MAX_RECTS];
     lv_obj_t *texts[MINIAPP_MAX_TEXTS];
+    lv_obj_t *image;          /* 封面位图（scene.image，一帧至多一张） */
+    lv_img_dsc_t image_dsc;
     uint16_t rect_count;
     uint16_t text_count;
     uint32_t applied_sequence;
@@ -70,6 +72,22 @@ static void miniapp_apply_scene(miniapp_page_t *page, const miniapp_scene_t *sce
         lv_obj_add_flag(page->texts[i], LV_OBJ_FLAG_HIDDEN);
     }
     page->text_count = scene->text_count;
+
+    /* 封面位图：换 data 指针后必须重设 src 才会重绘（LVGL8 缓存旧 dsc） */
+    if (scene->image.present && scene->image.pixels) {
+        page->image_dsc.header.always_zero = 0;
+        page->image_dsc.header.w = scene->image.w;
+        page->image_dsc.header.h = scene->image.h;
+        page->image_dsc.header.cf = LV_IMG_CF_TRUE_COLOR;
+        page->image_dsc.data = (const uint8_t *)scene->image.pixels;
+        page->image_dsc.data_size = (uint32_t)scene->image.w * scene->image.h * 2u;
+        lv_img_set_src(page->image, &page->image_dsc);
+        lv_obj_set_pos(page->image, scene->image.x, scene->image.y);
+        lv_obj_clear_flag(page->image, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(page->image);
+    } else {
+        lv_obj_add_flag(page->image, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void miniapp_render_timer_cb(lv_timer_t *timer)
@@ -144,6 +162,14 @@ static int miniapp_page_open(const struct lisa_ui_nav_scr *scr, void **data)
         lv_obj_set_style_text_align(page->texts[i], LV_TEXT_ALIGN_LEFT, 0);
         lv_obj_add_flag(page->texts[i], LV_OBJ_FLAG_HIDDEN);
     }
+    page->image = lv_img_create(page->root);
+    if (!page->image) {
+        lv_obj_del(page->root);
+        lisa_ui_free(page);
+        return -1;
+    }
+    lv_img_set_antialias(page->image, false);
+    lv_obj_add_flag(page->image, LV_OBJ_FLAG_HIDDEN);
     page->render_timer = lv_timer_create(miniapp_render_timer_cb, 20, page);
     if (!page->render_timer) {
         lv_obj_del(page->root);
