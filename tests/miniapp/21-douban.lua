@@ -387,9 +387,10 @@ local function render()
     end
 
     -- 右列 x=124 起（宽 104 ≈ 13 汉字）
-    -- 右列四行：频道（漫游带词）→ 歌名 → 歌手 → 状态（8 段预算满配）
-    text((ch.kind == "roam" and (roam_word and (ch.name .. "·" .. roam_word) or ch.name)) or ch.name,
-         124, 44, COL.dim)
+    -- 右列四行：频道（漫游显示当前歌的真实风格词，逐首刷新）→ 歌名 →
+    -- 歌手 → 状态（8 段预算满配）
+    local tag = song.tag or (ch.kind == "roam" and roam_word) or nil
+    text(tag and (ch.name .. "·" .. tag) or ch.name, 124, 44, COL.dim)
     text(song.t, 124, 70, COL.hi)
     text(song.s ~= "" and song.s or "未知歌手", 124, 98, COL.text)
     text(state, 124, 126, COL.dim)
@@ -421,7 +422,10 @@ function on_http_response(id, response)
             if type(out) == "table" then
                 local fresh = {}
                 for i = 1, #out do
-                    if not played[out[i].id] then fresh[#fresh + 1] = out[i] end
+                    if not played[out[i].id] then
+                        out[i].tag = word       -- 逐首风格标签（频道行实时显示）
+                        fresh[#fresh + 1] = out[i]
+                    end
                 end
                 if #fresh > 0 then roam_shards[#roam_shards + 1] = fresh end
             end
