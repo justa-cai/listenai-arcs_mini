@@ -59,6 +59,8 @@ local paused = false         -- 双击暂停标志
 local offset = 0             -- 搜索频道已拉到的 offset
 local fetch_more             -- 前向声明：next_track 引用（曾漏声明，
                              -- 第三首切第四首触发翻页时 nil 调用崩溃）
+local retry_pending = false  -- player.play 同步失败（坏歌 probe 挂）：经
+                             -- tick 限速跳下一首，防连环坏歌递归风暴
 local played = {}            -- 已播歌曲去重（id -> true，容量见 PLAYED_MAX）
 local played_count = 0
 local PLAYED_MAX = 240
@@ -147,8 +149,16 @@ local function play_idx(idx)
             played_count = 0
         end
     end
-    state = "播放中"
     play_id = player.play(string.format(OUTER, song.id))
+    if play_id then
+        state = "播放中"
+    else
+        -- 坏歌（外链非音频，prepare 同步失败）：不在这里直接 next_track
+        -- ——连环坏歌会递归。置标志由 on_tick 限速消费。
+        play_id = nil
+        state = "跳过坏歌…"
+        retry_pending = true
+    end
     refresh()
 end
 
@@ -490,6 +500,18 @@ function on_button_click(id)
 end
 
 function on_tick()
+    -- 坏歌重试：限速跳下一首（fail_streak 熔断兜底）
+    if retry_pending then
+        retry_pending = false
+        fail_streak = fail_streak + 1
+        if fail_streak >= 10 then
+            state = "连续失败 " .. fail_streak .. " 次"
+            fail_streak = 0
+        else
+            next_track()
+        end
+        dirty = true
+    end
     -- 播放中：转盘旋转 + 进度条走动，按 ~150ms 节拍重绘（约每 2.4 相位一格）
     if play_id then
         local now = clock.now()

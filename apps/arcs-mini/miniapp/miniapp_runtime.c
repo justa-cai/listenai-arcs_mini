@@ -829,7 +829,12 @@ static int miniapp_lua_player_play(lua_State *L)
     }
     s_player_current_id = 0;
     if (app_player_play(miniapp_player, url) != APP_PLAYER_OK) {
-        return luaL_error(L, "play failed");
+        /* 坏歌（外链 404/防盗链页，播放器 probe 报 not audio）会在
+         * prepare 阶段同步失败——绝不能 luaL_error：沙箱无 pcall，
+         * 一次坏歌就终止整个应用（实测"连按几次下一首就崩"）。
+         * 返回 nil 让 Lua 走 failed 分支跳下一首。 */
+        lua_pushnil(L);
+        return 1;
     }
     uint32_t id = ++s_player_next_id;
     if (!id) id = s_player_next_id = 1;
