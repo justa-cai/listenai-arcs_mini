@@ -15,6 +15,7 @@ listenai_library_sources(
     device/sip_jpeg_enc_tables.c
     device/sip_service.c
     device/sip_screen.c
+    device/sip_hw_jpeg.c
 )
 
 listenai_include_directories(

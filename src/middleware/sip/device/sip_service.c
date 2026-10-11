@@ -45,14 +45,15 @@
 #include "sip_ua.h"
 #include "sip_service.h"
 #include "sip_screen.h"
+#include "sip_hw_jpeg.h"
 
-/* 相机/JPEG：头文件路径不跨层传播（services 与 utils 的 include 在
+/* 头文件路径不跨层传播（services 与 utils 的 include 在
  * sip 之后注册），按本仓库先例用本地原型声明，链接期解析。 */
 extern int service_camera_capture_ex(uint8_t *buffer, uint32_t buffer_len, uint8_t drop_frames);
 extern int service_camera_stop(void);
 extern int service_camera_get_framesize(uint16_t *width, uint16_t *height);
-extern int image_rgb565_to_jpeg(const uint8_t *rgb565, uint32_t len, int width, int height,
-                                uint8_t **jpeg_data, uint32_t *jpeg_len);
+extern int image_rgb565_to_jpeg_q(const uint8_t *rgb565, uint32_t len, int width, int height,
+                                  int quality, uint8_t **jpeg_data, uint32_t *jpeg_len);
 extern void image_jpeg_free(void *jpeg);
 
 /* 电源策略：通话期间保持 NORMAL，不因 15s 无操作进 idle（否则 UI 导航回
@@ -84,6 +85,8 @@ extern char *app_tone_get_url(uint16_t tone_id);
 #define SIP_PTIME_MS 20u
 #define SIP_PTIME_SAMPLES 160u       /* 8kHz 20ms */
 #define SIP_MIC_RING_BYTES 4096u     /* 8k 样本 2048 个 = 256ms */
+#define SIP_PLAY_RING_BYTES 65536u   /* 下行播放解耦环 ~2s @32KB/s */
+#define SIP_PLAY_CHUNK 8192u         /* 每轮向播放器写一小段（短超时） */
 #define SIP_PREROLL_BYTES 8192u     /* 预滚水量：对齐 vp 的 8192 样本（16 个 512 样本轨道帧，prepare
                                  * 需 ≥6 帧）。此前按包数攒（4/8 包 = 1280/2560 样本）都不够，
                                  * 首写在 preparing_sem 上空等 ~10s 超时，循环被拖成 ~1 圈/秒 */
@@ -191,10 +194,23 @@ static void sip_aud_task(void *arg)
     int16_t pcm8[SIP_PTIME_SAMPLES];                 /* 8k 域 20ms = 160 样本 */
     int16_t pcm16[SIP_PTIME_SAMPLES * 2];            /* 16k 域 20ms = 320 样本 */
     uint8_t *preroll = psram_malloc(SIP_PREROLL_BYTES);  /* 8KB 预滚（栈放不下） */
-    uint32_t preroll_len = 0;
-    if (!preroll) {
-        LISA_LOGE(TAG, "aud: preroll buffer alloc failed");
-        goto out;
+    uint8_t *pend = psram_malloc(SIP_PLAY_CHUNK);        /* 未写完部分暂存 */
+    /* 下行收包与播放器写入解耦：write_stream 会因播放器水位阻塞（最长
+     * 200ms），若在同一循环里收包，阻塞期间 lwip 收包队列溢出 —— 实测
+     * 音频丢包 46%（修复 write 返回值误判、播放器进入正常节流后出现；
+     * 之前"低丢包"其实是播放器被反复重开、write 立即返回的 bug 副产品）。
+     * 现在收包只入 ring（非阻塞），播放器写入每轮一小段、20ms 短超时、
+     * 部分写入保留剩余。 */
+    uint8_t *ringbuf = psram_malloc(SIP_PLAY_RING_BYTES);
+    StaticStreamBuffer_t *ringcb = psram_malloc(sizeof(StaticStreamBuffer_t));
+    StreamBufferHandle_t play_ring = NULL;
+    uint32_t preroll_len = 0, pend_len = 0;
+    if (preroll && pend && ringbuf && ringcb) {
+        play_ring = xStreamBufferCreateStatic(SIP_PLAY_RING_BYTES, 1, ringbuf, ringcb);
+    }
+    if (!preroll || !pend || !play_ring) {
+        LISA_LOGE(TAG, "aud: downlink buffer alloc failed");
+        goto out_free_ring;
     }
     uint32_t next_tick = sip_osal_now_ms();
     uint32_t last_rx = sip_osal_now_ms();
@@ -203,7 +219,7 @@ static void sip_aud_task(void *arg)
 
     if (sip_rtp_open(&s_rtp_aud, SIP_AUDIO_PORT, (uint8_t)session->audio_pt) != 0) {
         LISA_LOGE(TAG, "audio rtp bind %u failed", SIP_AUDIO_PORT);
-        goto out;
+        goto out_free_ring;
     }
     s_rtp_aud_open = true;
     sip_rtp_set_peer(&s_rtp_aud, session->peer_ip, session->peer_audio_port);
@@ -235,7 +251,8 @@ static void sip_aud_task(void *arg)
             }
         }
 
-        /* 下行：非阻塞把积压的包全部收掉。 */
+        /* 下行：非阻塞把积压的包全部收掉，解码后只入 ring（不碰播放器，
+         * 保证 write 阻塞不住收包）。ring 满丢新数据（= 丢延迟）。 */
         for (int i = 0; i < 8; ++i) {
             int n = sip_rtp_recv_audio(&s_rtp_aud, net, sizeof(net), 0);
             if (n <= 0) {
@@ -255,58 +272,76 @@ static void sip_aud_task(void *arg)
                 pcm16[i * 2] = a;
                 pcm16[i * 2 + 1] = (int16_t)(((int32_t)a + b) / 2);
             }
+            xStreamBufferSend(play_ring, pcm16, sizeof(pcm16), 0);
+        }
 
-            if (!player_streaming) {
-                /* 预滚：攒够水量再开流 + 一次性首写（首写内部会等 prepare，
-                 * 水量不够就空等到 ~10s 超时 —— vp 的前车之鉴）。 */
-                if (preroll_len + sizeof(pcm16) <= SIP_PREROLL_BYTES) {
-                    memcpy(preroll + preroll_len, pcm16, sizeof(pcm16));
-                    preroll_len += sizeof(pcm16);
-                }
-                if (preroll_len + sizeof(pcm16) <= SIP_PREROLL_BYTES) {
-                    continue; /* 还没攒满 */
-                }
+        if (!player_streaming) {
+            /* 预滚：ring 攒够水量再开流 + 一次性首写（首写内部会等
+             * prepare，水量不够就空等到超时 —— vp 的前车之鉴）。 */
+            if (xStreamBufferBytesAvailable(play_ring) < SIP_PREROLL_BYTES) {
+                goto tail;
+            }
+            if (!s_player) {
+                s_player = app_player_create(SIP_CALL_PLAYER_NAME);
                 if (!s_player) {
-                    s_player = app_player_create(SIP_CALL_PLAYER_NAME);
-                    if (!s_player) {
-                        LISA_LOGE(TAG, "create '%s' player failed", SIP_CALL_PLAYER_NAME);
-                        goto out;
+                    LISA_LOGE(TAG, "create '%s' player failed", SIP_CALL_PLAYER_NAME);
+                    goto out_free_ring;
+                }
+            }
+            if (app_player_play_stream(s_player, 16000, 1, 16) != APP_PLAYER_OK) {
+                LISA_LOGW(TAG, "play_stream refused (focus?), retry later");
+                sip_osal_sleep_ms(100);
+                goto tail;
+            }
+            preroll_len = xStreamBufferReceive(play_ring, preroll,
+                                               SIP_PREROLL_BYTES, 0);
+            /* 注意：app_player_write_stream 成功时返回写入字节数
+             * （>0），不是 APP_PLAYER_OK(0) —— 头文件注释与实现不符。
+             * 只有 <0 才是错误。曾用 != APP_PLAYER_OK 判断：每次首写
+             * 都被误判失败 → 每 ~260ms 重新 play_stream → flow_base_init
+             * 反复新建 flow 不释放 → PSRAM 以 ~300KB/s 泄漏，20 余秒
+             * 耗尽 6MB 后 heap_caps 分配失败断言死机。 */
+            if (app_player_write_stream(s_player, preroll, preroll_len, 200) < 0) {
+                LISA_LOGW(TAG, "preroll first write failed, finish and retry");
+                (void)app_player_finish_stream(s_player); /* 释放流资源防泄漏 */
+                goto tail;
+            }
+            player_streaming = true;
+            LISA_LOGI(TAG, "aud: downlink streaming started (%u bytes preroll)",
+                      (unsigned)preroll_len);
+        } else {
+            /* 播放：每轮从 ring 取一小段写播放器。部分写入（返回值是
+             * 字节数）保留剩余下轮续写；20ms 短超时保证收包不被长阻塞。 */
+            if (pend_len == 0) {
+                pend_len = xStreamBufferReceive(play_ring, pend, SIP_PLAY_CHUNK, 0);
+            }
+            if (pend_len > 0) {
+                int w = app_player_write_stream(s_player, pend, pend_len, 50);
+                if (w < 0) {
+                    write_fail++;
+                    if (write_fail >= 3) {
+                        LISA_LOGW(TAG, "write_stream failed x3, restart stream");
+                        (void)app_player_finish_stream(s_player);
+                        player_streaming = false;
+                        write_fail = 0;
+                        pend_len = 0;
                     }
-                }
-                if (app_player_play_stream(s_player, 16000, 1, 16) != APP_PLAYER_OK) {
-                    LISA_LOGW(TAG, "play_stream refused (focus?), retry next pkt");
-                    preroll_len = 0;
-                    continue;
-                }
-                /* 注意：app_player_write_stream 成功时返回写入字节数
-                 * （>0），不是 APP_PLAYER_OK(0) —— 头文件注释与实现不符。
-                 * 只有 <0 才是错误。曾用 != APP_PLAYER_OK 判断：每次首写
-                 * 都被误判失败 → 每 ~260ms 重新 play_stream → flow_base_init
-                 * 反复新建 flow 不释放 → PSRAM 以 ~300KB/s 泄漏，20 余秒
-                 * 耗尽 6MB 后 heap_caps 分配失败断言死机。 */
-                if (app_player_write_stream(s_player, preroll, preroll_len, 200) < 0) {
-                    LISA_LOGW(TAG, "preroll first write failed, finish and retry");
-                    (void)app_player_finish_stream(s_player); /* 释放流资源再攒，防泄漏 */
-                    preroll_len = 0;
-                    continue;
-                }
-                player_streaming = true;
-                LISA_LOGI(TAG, "aud: downlink streaming started (%u bytes preroll)",
-                          (unsigned)preroll_len);
-            } else if (app_player_write_stream(s_player, (const uint8_t *)pcm16,
-                                               sizeof(pcm16), 200) < 0) {
-                write_fail++;
-                if (write_fail >= 3) {
-                    LISA_LOGW(TAG, "write_stream failed x3, restart stream");
-                    (void)app_player_finish_stream(s_player);
-                    player_streaming = false;
-                    preroll_len = 0;
+                } else if (w == 0) {
+                    /* 超时零写入（播放器节流）：数据保留下一轮再写。
+                     * 曾把 w==0 误当"写完"清空 —— 每 20ms 扔一段音频，
+                     * 设备端表现为持续跳变噪声。 */
+                } else if ((uint32_t)w < pend_len) {
+                    memmove(pend, pend + w, pend_len - (uint32_t)w);
+                    pend_len -= (uint32_t)w;
+                    write_fail = 0;
+                } else {
+                    pend_len = 0;
                     write_fail = 0;
                 }
-            } else {
-                write_fail = 0;
             }
         }
+
+tail:
 
         /* 静默看门狗：对端 30s 无 RTP（掉线/对端死了）→ 请求挂断。 */
         if (sip_osal_now_ms() - last_rx > SIP_RX_SILENCE_HANGUP_MS) {
@@ -322,9 +357,15 @@ static void sip_aud_task(void *arg)
     if (player_streaming) {
         (void)app_player_finish_stream(s_player);
     }
-    if (preroll) {
-        psram_free(preroll);
+
+out_free_ring:
+    if (play_ring) {
+        vStreamBufferDelete(play_ring);
     }
+    psram_free(preroll);
+    psram_free(pend);
+    psram_free(ringbuf);
+    psram_free(ringcb);
 
 out:
     if (s_rtp_aud_open) {
@@ -476,12 +517,16 @@ static void sip_vidrx_task(void *arg)
             xSemaphoreTake(s_jpeg_lock, portMAX_DELAY);
         }
         uint32_t dec_rc = jpeg_decoder(frame, len, (uint8_t *)s_dec_scratch, &dw, &dh, cfg);
+        sip_hw_jpeg_mark_decode(); /* 解码动过 Jpeg0：上行编码前需重配 */
         if (s_jpeg_lock) {
             xSemaphoreGive(s_jpeg_lock);
         }
         if (dec_rc != 0) {
             s_rx_vid_drop++;
             s_rx_drop_dec++;
+            LISA_LOGW(TAG, "vid_rx: dec fail rc=%u len=%u %ux%u ts=%u",
+                      (unsigned)dec_rc, (unsigned)len, w, h,
+                      (unsigned)sip_osal_now_ms());
             continue;
         }
         /* 拷贝到显示缓冲：此后 UI 读到的内容不再变化（消除渲染撕裂）。 */
@@ -519,15 +564,19 @@ out:
 }
 
 /*
- * 上行视频：相机采集（RGB565 240x320）→ 跳采到 120x160 → 软件 JPEG
- * （image_rgb565_to_jpeg，拍照上传同一路径）→ RFC2435 分片发送。
+ * 上行视频：相机采集（RGB565 240x320，本 SoC 的 GC0328 硬件跳采上限，
+ * 无 640x480 可用）→ 全画幅软件 JPEG（tiny_jpeg q75，见下）→ RFC2435
+ * 分片发送。
  *
  * 为什么不用硬件编码：JPEG 编/解是同一外设，GPDMA IN 只有 ch0~5 且全被
  * 占（解码 IN/OUT=ch0/ch5、音频 ch1/2/3、DVP ch4），编解码共用 ch0 靠
  * 交替 init 在实测中不稳定 —— 编码 DMA 等待 1s 超时（每次内部 malloc
- * ~460KB），与预滚重试叠加把 6MB 大池吃到 OOM 断言死机。软编全画幅
- * 2.1s/帧（0.5fps），跳采到 1/4 像素（19.2K px）后 ~0.5s/帧（≈2fps），
- * 稳定优先。
+ * ~460KB），与预滚重试叠加把 6MB 大池吃到 OOM 断言死机。
+ *
+ * 分辨率/质量权衡：tiny_jpeg 只有 1/2/3 三档质量（1 最小最快，传
+ * libjpeg 式的 1-100 会被直接拒绝 —— 曾传 75 导致上行 0 帧的回归）。
+ * 全幅 240x320 用第 1 档：帧率 ~0.3fps（软编 ~3.7s/帧），分辨率优先
+ * （"全幅导致 40% 音频丢包"曾是残留 peer 进程共享端口的假象，已排除）。
  */
 static void sip_vid_task(void *arg)
 {
@@ -548,21 +597,24 @@ static void sip_vid_task(void *arg)
     uint16_t cw = 240, ch = 320;
     (void)service_camera_get_framesize(&cw, &ch);
     const uint32_t px = (uint32_t)cw * ch;
-    /* 上行发送尺寸：相机画幅的 1/2 边长（像素 1/4）。 */
-    const uint32_t sw = cw / 2u, sh = ch / 2u;
     uint8_t *cam = psram_malloc(px * 2u);
-    uint8_t *sub = psram_malloc(sw * sh * 2u);
-    if (!cam || !sub) {
+    uint8_t *jpeg = psram_malloc(px * 2u + 640u); /* 硬编输出 + JFIF 头 */
+    if (!cam || !jpeg) {
         LISA_LOGE(TAG, "vid: uplink buffer alloc failed");
         goto out_free;
     }
+
+    /* 硬件编码（DMA2D 路线，一次 init 常驻）：失败自动回退软编。 */
+    bool hw_enc = (sip_hw_jpeg_init(cw, ch) == 0);
 
     /* 等主页相机预览随导航让出（通话开始时 UI 切到通话页）。 */
     sip_osal_sleep_ms(SIP_VID_START_DELAY_MS);
 
     uint32_t vid_ts = 0;
     uint32_t interval = SIP_VID_INTERVAL_MS;
-    LISA_LOGI(TAG, "vid: uplink %ux%u sw-enc(sub) -> %s:%u", (unsigned)sw, (unsigned)sh,
+    uint32_t hw_fail = 0;
+    LISA_LOGI(TAG, "vid: uplink %ux%u %s -> %s:%u", cw, ch,
+              hw_enc ? "hw-enc(DMA2D)" : "sw-enc(tje)",
               session->peer_ip, session->peer_video_port);
 
     while (s_vid_running) {
@@ -575,31 +627,44 @@ static void sip_vid_task(void *arg)
         }
         uint32_t cap_ms = sip_osal_now_ms() - t0;
 
-        /* 跳采到 1/2 边长（整数倍取样，无插值），像素降为 1/4。 */
-        uint32_t cv_start = sip_osal_now_ms();
-        for (uint32_t y = 0; y < sh; ++y) {
-            const uint16_t *src = (const uint16_t *)cam + (y * 2u) * cw;
-            uint16_t *dst = (uint16_t *)sub + y * sw;
-            for (uint32_t x = 0; x < sw; ++x) {
-                dst[x] = src[x * 2u];
-            }
-        }
-        uint32_t cv_ms = sip_osal_now_ms() - cv_start;
-
-        /* 软件 JPEG（拍照上传同一路径；硬编在这套共享外设机制下不稳，见上）。 */
+        /* 编码：优先硬件（Jpeg0 外设，与下行解码共用 —— 持互斥锁；
+         * 解码动过 Jpeg0 后编码前重配，见 sip_hw_jpeg_encode 的脏标志）。
+         * 连续 3 次失败回退软编（tje 全幅 ~3.7s/帧，保底可用）。 */
         uint32_t enc_start = sip_osal_now_ms();
-        uint8_t *jpeg = NULL;
         uint32_t jpeg_len = 0;
-        if (image_rgb565_to_jpeg(sub, sw * sh * 2u, (int)sw, (int)sh, &jpeg, &jpeg_len) != 0 ||
-            !jpeg || jpeg_len == 0) {
-            LISA_LOGW(TAG, "vid: sw encode failed");
-            continue;
+        if (hw_enc) {
+            if (s_jpeg_lock) {
+                xSemaphoreTake(s_jpeg_lock, portMAX_DELAY);
+            }
+            int rc = sip_hw_jpeg_encode(cam, jpeg, &jpeg_len);
+            if (s_jpeg_lock) {
+                xSemaphoreGive(s_jpeg_lock);
+            }
+            if (rc != 0) {
+                hw_fail++;
+                if (hw_fail >= 3) {
+                    LISA_LOGW(TAG, "vid: hw encode failed x%u, fallback to sw",
+                              (unsigned)hw_fail);
+                    hw_enc = false;
+                }
+                continue;
+            }
+            hw_fail = 0;
+        } else {
+            uint8_t *sw_jpeg = NULL;
+            if (image_rgb565_to_jpeg_q(cam, px * 2u, (int)cw, (int)ch, 1,
+                                       &sw_jpeg, &jpeg_len) != 0 ||
+                !sw_jpeg || jpeg_len == 0 || jpeg_len > px * 2u) {
+                LISA_LOGW(TAG, "vid: sw encode failed");
+                continue;
+            }
+            memcpy(jpeg, sw_jpeg, jpeg_len);
+            image_jpeg_free(sw_jpeg);
         }
         uint32_t sw_ms = sip_osal_now_ms() - enc_start;
 
         int frags = sip_jpeg_rtp_send_frame(&up, jpeg, (int)jpeg_len,
-                                            (int)sw, (int)sh, vid_ts);
-        image_jpeg_free(jpeg);
+                                            (int)cw, (int)ch, vid_ts);
         if (frags <= 0) {
             LISA_LOGW(TAG, "vid: send failed (%u bytes)", jpeg_len);
             sip_osal_sleep_ms(200);
@@ -608,12 +673,12 @@ static void sip_vid_task(void *arg)
         vid_ts += 90000u / (1000u / interval);
         s_vid_frames++;
         s_vid_bytes += jpeg_len;
-        s_vid_enc_ms = cap_ms + cv_ms + sw_ms;
+        s_vid_enc_ms = cap_ms + sw_ms;
         s_vid_cap_ms = cap_ms;
         if ((s_vid_frames % 10u) == 1u) {
-            LISA_LOGI(TAG, "vid: cap=%ums sub=%ums enc=%ums size=%u (%ux%u)",
-                      (unsigned)cap_ms, (unsigned)cv_ms, (unsigned)sw_ms,
-                      jpeg_len, (unsigned)sw, (unsigned)sh);
+            LISA_LOGI(TAG, "vid: cap=%ums enc=%ums size=%u (%ux%u)",
+                      (unsigned)cap_ms, (unsigned)sw_ms,
+                      jpeg_len, cw, ch);
         }
 
         uint32_t elapsed = sip_osal_now_ms() - t0;
@@ -628,7 +693,8 @@ static void sip_vid_task(void *arg)
 
 out_free:
     psram_free(cam);
-    psram_free(sub);
+    psram_free(jpeg);
+    sip_hw_jpeg_stop();
     (void)service_camera_stop();
     sip_rtp_close(&up);
 

@@ -33,8 +33,8 @@
 #include "sip_screen.h"
 
 /* 头文件路径不跨层传播，链接期解析（sip_service.c 同款手法）。 */
-extern int image_rgb565_to_jpeg(const uint8_t *rgb565, uint32_t len, int width, int height,
-                                uint8_t **jpeg_data, uint32_t *jpeg_len);
+extern int image_rgb565_to_jpeg_q(const uint8_t *rgb565, uint32_t len, int width, int height,
+                                  int quality, uint8_t **jpeg_data, uint32_t *jpeg_len);
 extern void image_jpeg_free(void *jpeg);
 
 #define SIP_SCREEN_PORT          5070u
@@ -139,8 +139,8 @@ static void sip_scr_task(void *arg)
         uint32_t t0 = sip_osal_now_ms();
         uint8_t *jpeg = NULL;
         uint32_t jpeg_len = 0;
-        if (image_rgb565_to_jpeg(snap, (uint32_t)w * h * 2u, (int)w, (int)h,
-                                 &jpeg, &jpeg_len) != 0 || !jpeg || jpeg_len == 0) {
+        if (image_rgb565_to_jpeg_q(snap, (uint32_t)w * h * 2u, (int)w, (int)h, 1,
+                                   &jpeg, &jpeg_len) != 0 || !jpeg || jpeg_len == 0) {
             LISA_LOGW(TAG, "sw encode failed (%ux%u)", w, h);
             sip_osal_sleep_ms(SIP_SCREEN_INTERVAL_MS);
             continue;
