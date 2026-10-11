@@ -24,7 +24,7 @@
 #include "romfs.h"
 #include "miniapp.h"
 
-#define BUILTIN_LUAAPP_ADDR ((const void *)0x35800000u)  /* flash 0x580000 */
+#define BUILTIN_LUAAPP_ADDR ((const void *)0x30580000u)  /* flash 0x580000 + 0x30000000 */
 #define BUILTIN_LUAAPP_SIZE (0x80000u)                   /* 512 KB */
 #define BUILTIN_ENTRY       "/radio.lua"
 #define BUILTIN_ID          "local:radio"
