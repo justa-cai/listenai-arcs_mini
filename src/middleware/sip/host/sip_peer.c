@@ -94,15 +94,32 @@ static void usage(const char *prog)
             "  -c <ip>         call the peer\n"
             "  -v <dir>        send MJPEG from dir after connect (device camera sim)\n"
             "  -d <dev>        V4L2 camera (default /dev/video0, used when no -v)\n"
+            "  -W              SDL window showing device uplink video\n"
             "  -p <port>       signaling port (default %d)\n"
             "  -a <port>       audio RTP port (default %d)\n"
             "  -o <port>       video RTP port (default %d)\n",
             prog, SIG_PORT_DEFAULT, AUDIO_PORT_DEFAULT, VIDEO_PORT_DEFAULT);
 }
 
+/*
+ * SIGTERM/SIGINT 处理：SDL2 的视频子系统初始化时会接管 SIGTERM（转成
+ * SDL_QUIT 事件），而我们的事件泵只在收帧时跑 —— 带视频窗口的进程
+ * 对 pkill 免疫，残留进程与新进程共享 SO_REUSEADDR 端口各自发流，
+ * 曾把音频变成多路叠加（听不清）+ seq 统计互相污染（假 40% 丢包）。
+ * 这里显式覆盖回来，收到即退出（OS 清理其余资源）。
+ */
+#include <signal.h>
+static void on_fatal_signal(int sig)
+{
+    (void)sig;
+    _exit(0);
+}
+
 int main(int argc, char **argv)
 {
     sip_osal_set_log_level(SIP_LOG_INFO);
+    signal(SIGTERM, on_fatal_signal);
+    signal(SIGINT, on_fatal_signal);
 
     const char *call_ip = NULL;
     uint16_t sig_port = SIG_PORT_DEFAULT;
@@ -117,6 +134,8 @@ int main(int argc, char **argv)
             s_vidsrc_dir = argv[++i];
         } else if (strcmp(argv[i], "-A") == 0) {
             s_audio_only = 1;
+        } else if (strcmp(argv[i], "-W") == 0) {
+            peer_vidsink_show_window(1);
         } else if (strcmp(argv[i], "-d") == 0 && i + 1 < argc) {
             s_v4l2_dev = argv[++i];
         } else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {

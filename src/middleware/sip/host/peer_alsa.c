@@ -54,6 +54,11 @@ static int alsa_open(snd_pcm_t **pcm, int stream)
     snd_pcm_hw_params_set_channels(*pcm, hw, ch);
     snd_pcm_uframes_t frames = FRAMES_PER_PERIOD;
     snd_pcm_hw_params_set_period_size_near(*pcm, hw, &frames, NULL);
+    /* 显式限制总缓冲（4 个 period = 80ms @8k）。不设的话 default 设备
+     * （PipeWire/Pulse 兼容层）会给出秒级大缓冲 —— 实测设备语音要
+     * 10 秒以上才出声。 */
+    snd_pcm_uframes_t bufsize = FRAMES_PER_PERIOD * 4;
+    snd_pcm_hw_params_set_buffer_size_near(*pcm, hw, &bufsize);
     err = snd_pcm_hw_params(*pcm, hw);
     if (err < 0) {
         sip_osal_log(SIP_LOG_ERR, _TAG, "hw_params failed: %s", snd_strerror(err));

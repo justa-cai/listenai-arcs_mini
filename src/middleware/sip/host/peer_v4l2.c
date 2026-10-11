@@ -19,12 +19,24 @@
 #include <unistd.h>
 #include <linux/videodev2.h>
 #include <jpeglib.h>
+#include <setjmp.h>
 
 #include "sip_osal.h"
 #include "sip_rtp.h"
 #include "sip_jpeg_rtp.h"
 
 #include "peer_v4l2.h"
+
+/* libjpeg 错误恢复（见 scale_jpeg_frame 内注释）。 */
+static void j4l_error_exit(j_common_ptr c)
+{
+    /* err 指针在扩展结构头部，见调用处的内联结构定义。 */
+    struct {
+        struct jpeg_error_mgr base;
+        jmp_buf jb;
+    } *e = (void *)c->err;
+    longjmp(e->jb, 1);
+}
 
 #define V4L2_BUF_COUNT 4
 
@@ -150,20 +162,33 @@ static void device_deinit(void)
 
 /*
  * 相机帧缩放：JPEG 解码 -> 最近邻缩放并信箱化（保持宽高比、黑边填充）
- * -> 重编码。相机往往给不出 <=240x320 的 MJPEG 分辨率，而设备端屏幕
- * 只有 240x320，超尺寸帧会被整帧丢弃 —— 必须在主机侧变换。
+ * -> 重编码。相机往往给不出 <=240x240 的 MJPEG 分辨率，而设备端屏幕
+ * 只有 240x240（收端上限 240x320），超尺寸帧会被整帧丢弃 —— 必须在
+ * 主机侧变换。
  */
 #define SCALE_DST_W 240
-#define SCALE_DST_H 320
+/* 屏幕就是 240x240：320 高的信箱里 80 行是黑边，白耗设备解码 DMA 与
+ * LVGL blit（实测 240x320 帧 dec 失败 ~10%、dec_ms 翻倍）。 */
+#define SCALE_DST_H 240
 
 static int scale_jpeg_frame(const uint8_t *in, uint32_t in_len,
                             uint8_t *out, uint32_t out_cap, uint32_t *out_len)
 {
-    /* 解码 */
+    /* 解码。libjpeg 默认错误处理会 exit() 整个进程 —— 摄像头偶发吐坏
+     * MJPEG 帧（实测 "Not a JPEG file: starts with 0xb6 0x05"），必须
+     * setjmp 恢复成跳过该帧。 */
     struct jpeg_decompress_struct d;
-    struct jpeg_error_mgr jerr;
-    d.err = jpeg_std_error(&jerr);
+    struct {
+        struct jpeg_error_mgr base;
+        jmp_buf jb;
+    } jerr;
+    d.err = jpeg_std_error(&jerr.base);
+    jerr.base.error_exit = j4l_error_exit;
     jpeg_create_decompress(&d);
+    if (setjmp(jerr.jb)) {
+        jpeg_destroy_decompress(&d);
+        return -1;
+    }
     jpeg_mem_src(&d, (unsigned char *)in, in_len);
     if (jpeg_read_header(&d, TRUE) != JPEG_HEADER_OK) {
         jpeg_destroy_decompress(&d);
@@ -234,7 +259,9 @@ static int scale_jpeg_frame(const uint8_t *in, uint32_t in_len,
      * （实测解出规则条纹垃圾且返回成功）。显式切 YCbCr 让 libjpeg 采用
      * 默认的 4:2:0（h2v2/h1v1/h1v1）。 */
     jpeg_set_colorspace(&c, JCS_YCbCr);
-    jpeg_set_quality(&c, 70, TRUE);
+    /* q70 的 240x320 帧实测 15-25KB：设备硬解 dec_ms 翻倍（41->80ms）且
+     * ~8% 返回失败（丢帧）。降到 q52 帧减半，解码压力骤降。 */
+    jpeg_set_quality(&c, 52, TRUE);
     jpeg_start_compress(&c, TRUE);
     while (c.next_scanline < (JDIMENSION)SCALE_DST_H) {
         unsigned char *rowp[1] = {dst + (size_t)c.next_scanline * SCALE_DST_W * 3};

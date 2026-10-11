@@ -33,6 +33,20 @@ target_include_directories(sip_peer PRIVATE
 
 target_link_libraries(sip_peer PRIVATE asound pthread m jpeg)
 
+# SDL2 窗口显示设备上行画面（-W）；没有 SDL2 时自动降级为纯落盘。
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(SDL2 sdl2)
+endif()
+if(SDL2_FOUND)
+    target_compile_definitions(sip_peer PRIVATE VIDSINK_SDL)
+    target_include_directories(sip_peer PRIVATE ${SDL2_INCLUDE_DIRS})
+    target_link_libraries(sip_peer PRIVATE ${SDL2_LIBRARIES})
+    message(STATUS "sip_peer: SDL2 ${SDL2_VERSION} -> video window enabled")
+else()
+    message(STATUS "sip_peer: SDL2 not found, video window disabled")
+endif()
+
 target_compile_options(sip_peer PRIVATE -O2 -Wall -Wextra)
 
 # LCD 回传接收器（调试工具，与设备侧 sip_screen.c 的自定义分片协议配套）：
