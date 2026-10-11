@@ -207,3 +207,31 @@ voice_host_set("listenai" | "muse" | "none")
    预计 `-fno-exceptions -fno-rtti` 可编，M0 验证）
 5. **配对协议逆向完整性**：GATT 特征 UUID/句柄需从 ble_server.c 全量核对
    （本设计仅记录 provision 载荷字段，M2 前完成字段级比对）
+
+## ⛔ 7. M0 实测阻塞（2026-10-11）
+
+**Muse AI 服务仅对美/加地区开放**，中国大陆不可用：
+
+| 验证项 | 结果 |
+|---|---|
+| SDK token 申请 | ✅ 能拿到（`mgst_` 前缀，48 字节） |
+| `api.muse.ai/fetch_vms` 直连（中国出口） | ❌ HTTP 401 Authentication Error |
+| `api.muse.ai/fetch_vms` 走旁路由（代理出口） | ❌ HTTP 401（同错误——**不是网络问题**） |
+| `hatch.metaaivm.com` TLS | ✅ 可达（但无有效 token 无法 upgrade） |
+| Muse App | 仅美/加 App Store / Google Play 上架 |
+
+根因：**SDK token 与账号地区强绑定**。401 是服务端拒绝认证（账号归属
+非美/加），与请求来源 IP 无关——代理能换 IP 但换不了账号归属。
+未找到公开的开发者/测试通道绕过。
+
+**技术侧结论（已完成部分不受影响）**：
+- noise_core 4.9K 行 C++ 在 Ubuntu/mbedtls 2.28/C++17
+  `-fno-exceptions -fno-rtti` 编译通过——移植技术路线已验证可行
+- TLS→WS→Noise 握手链路代码就绪（tmp/muse-host/muse_probe.cpp，
+  待有效 token 即可全链路验证）
+- BLE 配对协议、ADPCM/minimp3、chat 会话协议分析全部完成
+
+**恢复条件**（满足其一即可继续）：
+- Muse 向更多地区开放（Meta 官方宣布）
+- 获得美/加地区的账号 + SDK token（住宅 IP 更稳）
+- 官方推出开发者/测试通道
