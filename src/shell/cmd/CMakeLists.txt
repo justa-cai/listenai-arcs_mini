@@ -12,7 +12,7 @@ listenai_library_sources(
     # log.c
     mic_bias.c
     # player.c
-    # sd.c（分支禁用 SD：见 prj.conf 的 SDMMC 门控）
+    sd.c
     sys.c
     version.c
     wifi.c

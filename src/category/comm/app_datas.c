@@ -311,7 +311,7 @@ int app_datas_init(void)
 
     /* 本分支（网络电台）禁用唤醒：外放音乐会被麦克风拾音自唤醒。
      * 需要语音的分支恢复为 1。配套：miniapp_ui.c 不再 model_voice_on。 */
-    g_app_datas->can_wakeup = 0;
+    g_app_datas->can_wakeup = 1;
 
     LOGI("did: %s", g_app_datas->did);
     LOGI("int_mode: %d", g_app_datas->int_mode);
