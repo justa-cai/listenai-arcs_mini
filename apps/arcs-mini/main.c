@@ -282,6 +282,13 @@ int main(int argc, char **argv)
     if (miniapp_init() != 0) {
         LOGE("Miniapp initialization failed");
     }
+#ifdef CONFIG_MINIAPP_BUILTIN_APP
+    /* luaapp 分区里的内置脚本：延迟数秒后自动安装启动（见 miniapp_builtin.c） */
+    {
+        extern void miniapp_builtin_init(void);
+        miniapp_builtin_init();
+    }
+#endif
 #endif
 #ifdef CONFIG_GAMEPAD_ENABLE
     /* 手柄输入: 只产生小应用按键事件 (miniapp_button_click), 不依赖小应用是否

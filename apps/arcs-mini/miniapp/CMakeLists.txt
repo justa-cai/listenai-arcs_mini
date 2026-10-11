@@ -19,6 +19,7 @@ listenai_library_sources(
 )
 
 listenai_library_sources_ifdef(CONFIG_MINIAPP_ADB_DEBUG miniapp_adb.c)
+listenai_library_sources_ifdef(CONFIG_MINIAPP_BUILTIN_APP miniapp_builtin.c)
 
 add_library(miniapp_lua STATIC
     ${MINIAPP_LUA_DIR}/lapi.c
