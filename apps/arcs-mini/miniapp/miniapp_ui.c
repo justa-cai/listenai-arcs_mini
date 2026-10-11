@@ -30,6 +30,7 @@ typedef struct {
 } miniapp_page_t;
 
 static miniapp_page_t *s_page;
+static bool s_exit_locked;   /* 独占前台锁定：语音 MCP exit 也拒绝（与 sticky 同步） */
 static SemaphoreHandle_t s_nav_done;
 static int s_nav_result;
 static uint32_t s_nav_generation;
@@ -262,6 +263,7 @@ static void miniapp_nav_open_worker(void *arg, uint32_t len)
         /* 小应用独占前台：挡住语音结束/单击等"回主页"导航（长按退出
          * 不走 nav_to，不受影响）；nav close 时清除。 */
         lisa_ui_nav_set_sticky_home_block(LISA_UI_NAV_SCR_ID_MINIAPP);
+        s_exit_locked = true;
         miniapp_render_timer_cb(s_page->render_timer);
     }
     taskENTER_CRITICAL();
@@ -276,6 +278,7 @@ static void miniapp_nav_close_worker(void *arg, uint32_t len)
     (void)arg;
     (void)len;
     lisa_ui_nav_set_sticky_home_block(-1);
+    s_exit_locked = false;
     if (!miniapp_is_active() && lisa_ui_nav_scr_get_top_id() == LISA_UI_NAV_SCR_ID_MINIAPP) {
         (void)lisa_ui_nav_scr_nav_default();
     }
@@ -381,10 +384,16 @@ int miniapp_ui_wait_frame(uint32_t timeout_ms)
     } while (xTaskGetTickCount() - start < pdMS_TO_TICKS(timeout_ms));
     return -1;
 }
+
+bool miniapp_exit_locked(void)
+{
+    return s_exit_locked;
+}
 #else
 int miniapp_ui_init(void) { return 0; }
 int miniapp_ui_open(void) { return 0; }
 int miniapp_ui_close(void) { return 0; }
 int miniapp_ui_present(const miniapp_scene_t *scene) { (void)scene; return -1; }
 int miniapp_ui_wait_frame(uint32_t timeout_ms) { (void)timeout_ms; return 0; }
+bool miniapp_exit_locked(void) { return false; }
 #endif

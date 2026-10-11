@@ -368,6 +368,11 @@ static cJSON *miniapp_exit_call(const char *id, const char *name, cJSON *args)
     if (!miniapp_is_active()) {
         return miniapp_mcp_result(name, "no miniapp is running", false);
     }
+    /* 独占式前台（如内置电台）锁定期间语音也退不出去：与 nav 的
+     * sticky home block 同一语义 —— 只有设备长按 3 秒能退出。 */
+    if (miniapp_exit_locked()) {
+        return miniapp_mcp_result(name, "miniapp is locked in foreground", true);
+    }
     bool accepted = miniapp_exit() == 0;
     return miniapp_mcp_result(name, accepted ? "miniapp exit requested" :
                              "failed to request miniapp exit", !accepted);

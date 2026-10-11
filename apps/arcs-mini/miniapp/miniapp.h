@@ -190,6 +190,9 @@ int miniapp_ui_open(void);
 int miniapp_ui_close(void);
 int miniapp_ui_present(const miniapp_scene_t *scene);
 int miniapp_ui_wait_frame(uint32_t timeout_ms);
+/* 独占前台锁定期间为 true：语音 MCP 的 miniapp_exit 拒绝（长按退出
+ * 不受影响）。与 nav 的 sticky home block 同步设置/清除。 */
+bool miniapp_exit_locked(void);
 void miniapp_runtime_ui_closed(void);
 
 #endif
