@@ -46,6 +46,13 @@ static void rgb565_to_rgb888(const uint16_t *rgb565, uint8_t *rgb888, uint32_t p
 int image_rgb565_to_jpeg(const uint8_t *rgb565, uint32_t len, int width, int height,
 			 uint8_t **jpeg_data, uint32_t *jpeg_len)
 {
+	/* 拍照上传路径沿用历史行为（tje 第 1 档：最小最快）。 */
+	return image_rgb565_to_jpeg_q(rgb565, len, width, height, 1, jpeg_data, jpeg_len);
+}
+
+int image_rgb565_to_jpeg_q(const uint8_t *rgb565, uint32_t len, int width, int height,
+			   int quality, uint8_t **jpeg_data, uint32_t *jpeg_len)
+{
 	if (!rgb565 || !jpeg_data || !jpeg_len || width <= 0 || height <= 0) {
 		LISA_LOGE(TAG, "Invalid parameters");
 		return -1;
@@ -78,7 +85,7 @@ int image_rgb565_to_jpeg(const uint8_t *rgb565, uint32_t len, int width, int hei
 		.wrote = 0,
 	};
 
-	int result = tje_encode_with_func(jpeg_write, &ctx, 1, width, height, 3, rgb888);
+	int result = tje_encode_with_func(jpeg_write, &ctx, quality, width, height, 3, rgb888);
 	psram_free(rgb888);
 
 	if (result == 0) {
