@@ -739,6 +739,7 @@ typedef struct {
 static miniapp_player_result_t s_player_results[MINIAPP_PLAYER_RESULT_SLOTS];
 static uint32_t s_player_next_id;
 static volatile uint32_t s_player_current_id;   /* 正在播的请求（0 = 无） */
+static volatile bool s_player_stop_requested;   /* stop()/play 抢占主动停过 */
 static bool s_player_cb_registered;
 
 static bool miniapp_buzzer_player_active(void); /* 定义在蜂鸣器区（player.play 抢占用） */
@@ -784,14 +785,20 @@ static void miniapp_player_event(app_player_t *player, app_player_event_t event,
     case APP_PLAYER_EVENT_COMPLETED:
         miniapp_player_push_result(id, "completed");
         s_player_current_id = 0;
+        s_player_stop_requested = false;
         break;
     case APP_PLAYER_EVENT_STOPPED:
-        miniapp_player_push_result(id, "stopped");
+        /* lisa_player 的 http 流自然播完也走 STOPPED：按"有没有主动
+         * stop 过"分类，自然结束报 completed（电台据此续播下一首），
+         * 主动停止（stop()/play 抢占）才是 stopped。 */
+        miniapp_player_push_result(id, s_player_stop_requested ? "stopped" : "completed");
         s_player_current_id = 0;
+        s_player_stop_requested = false;
         break;
     case APP_PLAYER_EVENT_ERROR:
         miniapp_player_push_result(id, "failed");
         s_player_current_id = 0;
+        s_player_stop_requested = false;
         break;
     default:
         break;                             /* PREPARED/PLAYING 等过程事件不下发 */
@@ -816,6 +823,7 @@ static int miniapp_lua_player_play(lua_State *L)
     }
     /* 抢占同实例上的蜂鸣器播放（整曲流式播放由各自 generation 守卫） */
     if (miniapp_buzzer_player_active()) {
+        s_player_stop_requested = true;
         (void)app_player_stop(miniapp_player);
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -826,6 +834,7 @@ static int miniapp_lua_player_play(lua_State *L)
     uint32_t id = ++s_player_next_id;
     if (!id) id = s_player_next_id = 1;
     s_player_current_id = id;
+    s_player_stop_requested = false;
     lua_pushinteger(L, id);
     return 1;
 }
@@ -833,6 +842,7 @@ static int miniapp_lua_player_play(lua_State *L)
 static int miniapp_lua_player_stop(lua_State *L)
 {
     if (miniapp_player && s_player_current_id) {
+        s_player_stop_requested = true;     /* STOPPED 事件据此分类为主动停止 */
         (void)app_player_stop(miniapp_player);   /* STOPPED 事件会补结果 */
     }
     lua_pushboolean(L, s_player_current_id != 0);
@@ -841,6 +851,7 @@ static int miniapp_lua_player_stop(lua_State *L)
 
 static int miniapp_lua_player_pause(lua_State *L)
 {
+    if (miniapp_player && s_player_current_id) s_player_stop_requested = true;
     bool ok = miniapp_player && s_player_current_id &&
               app_player_pause(miniapp_player) == APP_PLAYER_OK;
     lua_pushboolean(L, ok);
@@ -851,6 +862,7 @@ static int miniapp_lua_player_resume(lua_State *L)
 {
     bool ok = miniapp_player && s_player_current_id &&
               app_player_resume(miniapp_player) == APP_PLAYER_OK;
+    if (ok) s_player_stop_requested = false;   /* 撤销 pause 预置的停止标志 */
     lua_pushboolean(L, ok);
     return 1;
 }
