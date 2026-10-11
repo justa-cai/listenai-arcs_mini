@@ -20,7 +20,9 @@
 #include "service_button.h"
 #include "miniapp.h"
 #include "alarm_ring.h"
+#ifdef CONFIG_MIDDLEWARE_SD_MUSIC
 #include "service_sd_music.h"
+#endif
 
 /* ---- 配置 --------------------------------------------------------------- */
 
@@ -174,11 +176,13 @@ static void publish_button_event(uint8_t btn_id, lisa_btn_event_t action, bool f
     }
 #endif
 
+#ifdef CONFIG_MIDDLEWARE_SD_MUSIC
     if (service_sd_music_is_syncing()) {
         LISA_LOGI(TAG, "Ignore button %d action=%d during SD music sync",
                   btn_id, action);
         return;
     }
+#endif
 
     service_image_waiting_cancel();
 

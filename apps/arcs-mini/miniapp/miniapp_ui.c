@@ -182,7 +182,8 @@ static int miniapp_page_open(const struct lisa_ui_nav_scr *scr, void **data)
     s_page_open = true;
     xSemaphoreGive(s_scene_lock);
     lv_timer_ready(page->render_timer);
-    model_voice_on();
+    /* 本分支禁用唤醒：miniapp 前台不再开语音（can_wakeup 保持 0，
+     * 见 app_datas.c 的分支级说明） */
     *data = page;
     return 0;
 }
@@ -225,7 +226,7 @@ static int miniapp_page_resume(const struct lisa_ui_nav_scr *scr, void *data)
     lv_obj_clear_flag(page->root, LV_OBJ_FLAG_HIDDEN);
     lv_timer_resume(page->render_timer);
     lv_timer_ready(page->render_timer);
-    model_voice_on();
+    /* 本分支禁用唤醒：不再 model_voice_on */
     return 0;
 }
 
@@ -255,11 +256,8 @@ static void miniapp_nav_open_worker(void *arg, uint32_t len)
         result = lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_MINIAPP);
     }
     if (result == 0 && s_page) {
-        /* home_nav_scr_pause() may have queued model_voice_off() before the
-         * miniapp page was opened. Re-assert the miniapp foreground voice
-         * state after navigation so that queued UI lifecycle work cannot
-         * leave can_wakeup disabled. */
-        model_voice_on();
+        /* 本分支禁用唤醒：home pause 排队的 model_voice_off 正是想要的
+         * 终态，不再重新打开语音。 */
         /* 小应用独占前台：挡住语音结束/单击等"回主页"导航（长按退出
          * 不走 nav_to，不受影响）；nav close 时清除。 */
         lisa_ui_nav_set_sticky_home_block(LISA_UI_NAV_SCR_ID_MINIAPP);

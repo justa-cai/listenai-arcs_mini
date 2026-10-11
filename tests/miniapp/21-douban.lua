@@ -49,6 +49,8 @@ local dirty = true
 local fail_streak = 0        -- 连续播放失败（自动跳过坏歌的熔断）
 local paused = false         -- 双击暂停标志
 local offset = 0             -- 搜索频道已拉到的 offset
+local fetch_more             -- 前向声明：next_track 引用（曾漏声明，
+                             -- 第三首切第四首触发翻页时 nil 调用崩溃）
 
 -- 封面：song/detail 拿 picUrl → CDN ?param=180y180 缩放 → 下载 jpeg
 local cover = nil            -- {jpeg=string} 当前已下载封面（歌曲切换时作废）
@@ -161,7 +163,7 @@ local function fetch_channel(idx)
 end
 
 -- 拉更多：搜索频道翻页追加；推荐频道永远拉新一批
-local function fetch_more()
+fetch_more = function()
     local ch = CHANNELS[channel]
     if ch.kind == "rec" then
         list_req = http.get(NEWSONG, { timeout_ms = 10000,

@@ -185,7 +185,10 @@ static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, 
 {
     service_alarm_init();
     /* SD state must also be reconciled on modem-only devices. */
+#ifdef CONFIG_MIDDLEWARE_SD_MUSIC
+    /* SD state must also be reconciled on modem-only devices. */
     (void)service_sd_music_init();
+#endif
 }
 
 static void voice_wifi_provision_guard(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)

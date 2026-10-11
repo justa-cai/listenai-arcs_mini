@@ -16,10 +16,18 @@
 #define APP_USB_MSC_BLOCK_SIZE     512U
 #define APP_USB_MSC_FALLBACK_BLOCKS 0x1000U
 
+/* 无 SD 卡硬件时回退挂出 flash 盘（CONFIG_DISK_DRIVER_SDMMC 关闭时
+ * SDMMC 卷名宏不存在） */
+#ifdef CONFIG_DISK_DRIVER_SDMMC
+#define APP_USB_MSC_DISK CONFIG_DISK_SDMMC_VOLUME_NAME
+#else
+#define APP_USB_MSC_DISK CONFIG_DISK_FLASH_VOLUME_NAME
+#endif
+
 void usbd_msc_get_cap(uint8_t busid, uint8_t lun,
                       uint32_t *block_num, uint32_t *block_size)
 {
-    const char *disk = CONFIG_DISK_SDMMC_VOLUME_NAME;
+    const char *disk = APP_USB_MSC_DISK;
     uint32_t sector_count = 0U;
     uint32_t sector_size = 0U;
 
@@ -42,7 +50,7 @@ void usbd_msc_get_cap(uint8_t busid, uint8_t lun,
 int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector,
                          uint8_t *buffer, uint32_t length)
 {
-    const char *disk = CONFIG_DISK_SDMMC_VOLUME_NAME;
+    const char *disk = APP_USB_MSC_DISK;
 
     (void)lun;
 
@@ -60,7 +68,7 @@ int usbd_msc_sector_read(uint8_t busid, uint8_t lun, uint32_t sector,
 int usbd_msc_sector_write(uint8_t busid, uint8_t lun, uint32_t sector,
                           uint8_t *buffer, uint32_t length)
 {
-    const char *disk = CONFIG_DISK_SDMMC_VOLUME_NAME;
+    const char *disk = APP_USB_MSC_DISK;
 
     (void)lun;
 
