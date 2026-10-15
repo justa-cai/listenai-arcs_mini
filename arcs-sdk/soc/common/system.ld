@@ -90,6 +90,22 @@ SECTIONS {
         . = ALIGN(4);
 #endif
 
+#if defined(CONFIG_CP_FIRMWARE_COMPAT) && CONFIG_CP_FIRMWARE_COMPAT
+        /* Pin the prj.conf CP PSRAM range immediately after the standard ARCS
+         * image header. AP validates it before releasing the CP core. */
+        . = ALIGN(4);
+        ASSERT(. <= CONFIG_CP_FIRMWARE_COMPAT_OFFSET,
+               ".vtable overlaps CP PSRAM range field");
+        . = CONFIG_CP_FIRMWARE_COMPAT_OFFSET;
+        PROVIDE(__cp_firmware_compat_start = .);
+        KEEP(*(.cp_firmware_compat))
+        KEEP(*(.cp_firmware_compat.*))
+        PROVIDE(__cp_firmware_compat_end = .);
+        ASSERT((__cp_firmware_compat_end - __cp_firmware_compat_start) == 8,
+               "CP firmware PSRAM range field must be 8 bytes");
+        . = ALIGN(4);
+#endif
+
         /* Starup Initialition Region */
         . = ALIGN(4);
         KEEP(startup.* (SORT_NONE(.init)))

@@ -1492,7 +1492,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
                 standby_text_timer_update(scr_data);
             } else {
                 const char *init_status =
-                    model_voice_cloud_is_connected() ? _("Please wake me") : _("service disconnected");
+                    model_voice_cloud_is_connected() ? LISA_UI_LLM_PRIMARY_STANDBY_TEXT : _("service disconnected");
                 home_enter_standby_state(scr_data, init_status, 1);
             }
         } else {
@@ -1514,7 +1514,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
 
     /* 会话结束时若 TTS 仍在播放，on_finished 会请求播完后再进入待机。
      * 再次唤醒会让旧 TTS 的 STOPPED 先于新 SESSION_STARTING 到达；这里
-     * 复用现有延迟复检，避免先显示一帧“请唤醒我”再切回“我在听”。 */
+     * 复用现有延迟复检，避免先显示一帧待机文案再切回“我在听”。 */
     if (home_try_enter_standby_after_tts(scr_data)) {
         return;
     }
@@ -1529,7 +1529,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
 
         if (!model_voice_cloud_is_running()) {
             const char *init_status =
-                model_voice_cloud_is_connected() ? _("Please wake me") : _("service disconnected");
+                model_voice_cloud_is_connected() ? LISA_UI_LLM_PRIMARY_STANDBY_TEXT : _("service disconnected");
             home_enter_standby_state(scr_data, init_status, 0);
         } else {
             standby_text_timer_update(scr_data);
@@ -1551,7 +1551,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
             lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
         } else {
             const char *init_status =
-                model_voice_cloud_is_connected() ? _("Please wake me") : _("service disconnected");
+                model_voice_cloud_is_connected() ? LISA_UI_LLM_PRIMARY_STANDBY_TEXT : _("service disconnected");
             home_enter_standby_state(scr_data, init_status, 0);
         }
     } else {
@@ -1563,7 +1563,7 @@ static void model_voice_on_tts_player_stoped(void *arg)
             lisa_ui_llm_primary_set_status_text(scr_data->view, _("listening"));
         } else {
             const char *init_status =
-                model_voice_cloud_is_connected() ? _("Please wake me") : _("service disconnected");
+                model_voice_cloud_is_connected() ? LISA_UI_LLM_PRIMARY_STANDBY_TEXT : _("service disconnected");
             home_enter_standby_state(scr_data, init_status, 0);
         }
     }
@@ -1706,7 +1706,7 @@ static void model_voice_on_connected(void *arg)
         lisa_ui_nav_scr_nav_to(LISA_UI_NAV_SCR_ID_HOME);
     }
 
-    lisa_ui_llm_primary_set_status_text(scr_data->view, _("Please wake me"));
+    lisa_ui_llm_primary_set_status_text(scr_data->view, LISA_UI_LLM_PRIMARY_STANDBY_TEXT);
 
     lisa_ui_llm_primary_set_content_text(scr_data->view, model_voice_role_propmt_get());
 }
@@ -1751,7 +1751,7 @@ static void model_voice_on_start(void *arg)
 
 static void enter_standby(struct home_nav_scr_data *scr_data)
 {
-    home_enter_standby_state(scr_data, _("Please wake me"), 0);
+    home_enter_standby_state(scr_data, LISA_UI_LLM_PRIMARY_STANDBY_TEXT, 0);
 }
 
 static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const char *status_text, uint8_t imm)
@@ -1777,7 +1777,7 @@ static void home_enter_standby_state(struct home_nav_scr_data *scr_data, const c
 
     if (!status_text || status_text[0] == '\0') {
         status_text =
-            model_voice_cloud_is_connected() ? _("Please wake me") : _("service disconnected");
+            model_voice_cloud_is_connected() ? LISA_UI_LLM_PRIMARY_STANDBY_TEXT : _("service disconnected");
     }
 
     /* Clear transient camera state before switching back to standby UI. */
@@ -2796,7 +2796,7 @@ static void oneshot_emoji_timer_cb(lv_timer_t *timer)
 void home_reset(struct home_nav_scr_data *scr_data)
 {
     const char *init_status =
-        model_voice_cloud_is_connected() ? _("Please wake me") : _("service disconnected");
+        model_voice_cloud_is_connected() ? LISA_UI_LLM_PRIMARY_STANDBY_TEXT : _("service disconnected");
     uint8_t alarm_stopped = 0;
 
     if (scr_data) {

@@ -7,7 +7,7 @@
 #
 # 执行流程：
 #   Phase 1 - 环境与 ADB 检测：解析参数、定位仓库根目录、构建烧录表、检测 ADB
-#   Phase 2 - 设备发现：扫描 ADB 设备，区分普通设备与 recovery (BOOT-*) 设备
+#   Phase 2 - 设备发现：扫描 ADB 设备，显示真实板型/芯片 ID，区分普通设备与 recovery (BOOT-*) 设备
 #   Phase 3 - 进入 recovery：向普通设备并发发送 recovery 命令
 #   Phase 4 - 等待 BOOT 设备：轮询等待设备进入 recovery，按 USB 端口/顺序匹配
 #   Phase 5 - 烧录：多设备并发推送固件
@@ -431,6 +431,39 @@ scan_connected_devices() {
     done < <(collect_devices_raw)
 }
 
+# CherryUSB 正常模式使用芯片 ID 作为 ADB serial，product/model/device 则来自真实板型。
+# 保留 adb devices -l 的完整输出，方便多板烧录前核对身份；进入 recovery 后 serial 会变为 BOOT-*。
+show_device_identity() {
+    echo "当前 ADB 设备身份（serial=芯片 ID，product/model/device=板型信息）："
+    "$adb_cmd" devices -l 2>/dev/null | tr -d '\r\000' | sed -n '/^[^[:space:]]\+[[:space:]]\+device[[:space:]]/p'
+}
+
+# 根据资源目录校验正常 ADB 设备的真实板型，避免把其它版型资源烧入设备。
+check_device_board_compatibility() {
+    local resource_leaf expected_board line
+    resource_leaf="${RESOURCE_DIR%/}"
+    resource_leaf="${resource_leaf##*/}"
+    case "$resource_leaf" in
+        arcs-mini) expected_board="arcs_mini" ;;
+        arcs-mini3) expected_board="arcs_mini3" ;;
+        arcs-mini_doll_v2) expected_board="arcs_mini_doll_v2" ;;
+        *) return 0 ;;
+    esac
+
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[^[:space:]]+[[:space:]]+device[[:space:]] ]] || continue
+        if [[ ! "$line" =~ (^|[[:space:]])product:${expected_board}([[:space:]]|$) ||
+              ! "$line" =~ (^|[[:space:]])model:${expected_board}([[:space:]]|$) ||
+              ! "$line" =~ (^|[[:space:]])device:${expected_board}([[:space:]]|$) ]]; then
+            echo -e "${RED}错误: ADB 设备板型与待烧录资源不匹配${NC}" >&2
+            echo -e "${RED}  待烧录资源: ${resource_leaf} (期望板型: ${expected_board})${NC}" >&2
+            echo -e "${RED}  实际设备身份: ${line}${NC}" >&2
+            echo -e "${RED}请确认 -S 资源目录与设备板型一致后再烧录。${NC}" >&2
+            exit 1
+        fi
+    done < <(collect_devices_raw)
+}
+
 # ---------------------------------------------------------------------------
 # BOOT 设备在量产时可能出现相同 serial，优先使用 transport_id 区分。
 # target 结构：serial <sep> usb <sep> transport_id <sep> key。
@@ -535,6 +568,8 @@ categorize_connected_devices() {
     fi
 
     echo "检测到设备总数: $target_count"
+    show_device_identity
+    check_device_board_compatibility
     echo "- 普通模式设备(需进recovery): ${#normal_transport_ids[@]}"
     echo "- 已在recovery(BOOT-*)设备: ${#initial_boot_targets[@]}"
     if [ "$missing_tid_count" -gt 0 ]; then

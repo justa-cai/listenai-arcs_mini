@@ -374,7 +374,7 @@ lv_obj_t *lisa_ui_llm_primary_create(lv_obj_t *parent)
     lv_obj_set_style_flex_cross_place(llm_primary->content_container, LV_FLEX_ALIGN_CENTER, LV_PART_MAIN);
 
     // 设置内容文本区域
-    lv_textarea_set_text(llm_primary->content_label, "请唤醒我");
+    lv_textarea_set_text(llm_primary->content_label, LISA_UI_LLM_PRIMARY_STANDBY_TEXT);
     lv_obj_set_style_text_color(llm_primary->content_label, lv_color_hex(0xFFFFFF), LV_PART_MAIN);
     lv_obj_set_style_text_font(llm_primary->content_label, &lv_font_chinese_16, LV_PART_MAIN);
     lv_obj_set_style_text_align(llm_primary->content_label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);

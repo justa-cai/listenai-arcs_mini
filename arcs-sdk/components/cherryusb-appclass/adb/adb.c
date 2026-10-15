@@ -88,9 +88,9 @@ done:
 static void adb_connect(void)
 {
     static const uint8_t conn_payload[] = "device::"
-                                          "ro.product.name=mido;"
-                                          "ro.product.model=listenai;"
-                                          "ro.product.device=mido;"
+                                          "ro.product.name=" CONFIG_BOARD_NAME ";"
+                                          "ro.product.model=" CONFIG_BOARD_NAME ";"
+                                          "ro.product.device=" CONFIG_BOARD_NAME ";"
                                           "features=cmd,shell_v1";
     struct message msg = {0};
 

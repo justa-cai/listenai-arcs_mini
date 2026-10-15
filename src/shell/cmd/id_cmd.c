@@ -8,6 +8,7 @@
 #include "stdint.h"
 #include "stdio.h"
 #include "kv_user.h"
+#include "sys/chip_id.h"
 
 #define TAG "id_cmd"
 #define PRODUCT_ID CONFIG_CLOUD_PRODUCT_ID_DEFAULT
@@ -159,22 +160,12 @@ static int device_cmd_get_device_id(int argc, char **argv)
     int ret = lisa_kv_get_string(KV_KEY_USER_DEVICE_ID, &device_id);
     
     // 直接从芯片读取ID
-    uint32_t *id_1 = (uint32_t *)0x48600208;
-    uint32_t *id_2 = (uint32_t *)0x4860020c;
-    uint8_t id_buffer[8];
-    char chip_id_str[17] = {0}; // 16个字符 + 结束符
+    const char *chip_id_str = sys_chip_id_get();
     
     // 读取芯片ID
-    if (*id_1 == 0 && *id_2 == 0) {
+    if (strcmp(chip_id_str, "0000000000000000") == 0) {
         shellPrint(shellGetCurrent(), "Chip ID is all zero\n");
     } else {
-        memcpy(id_buffer, id_1, sizeof(uint32_t));
-        memcpy(id_buffer + 4, id_2, sizeof(uint32_t));
-        
-        sprintf(chip_id_str, "%02x%02x%02x%02x%02x%02x%02x%02x", 
-                id_buffer[0], id_buffer[1], id_buffer[2], id_buffer[3],
-                id_buffer[4], id_buffer[5], id_buffer[6], id_buffer[7]);
-                
         shellPrint(shellGetCurrent(), "Chip ID: %s\n", chip_id_str);
     }
     

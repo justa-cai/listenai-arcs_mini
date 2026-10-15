@@ -34,6 +34,13 @@ extern "C" {
 /** 内容文本最大长度 */
 #define LISA_UI_LLM_PRIMARY_MAX_CONTENT_LENGTH 256
 
+/** 设备待机状态栏文案 */
+#ifdef CONFIG_BOARD_ARCS_MINI3
+#define LISA_UI_LLM_PRIMARY_STANDBY_TEXT "Arcs-Mini3"
+#else
+#define LISA_UI_LLM_PRIMARY_STANDBY_TEXT "Arcs-Mini2"
+#endif
+
 /** 类型检查宏 */
 #define LISA_UI_LLM_PRIMARY_CLASS_CHECK(obj) (lv_obj_has_class(obj, &lisa_ui_llm_primary_class))
 

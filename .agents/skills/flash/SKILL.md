@@ -117,6 +117,12 @@ powershell -ExecutionPolicy Bypass -File adb_download.ps1 -S res/arcs-mini boot
 
 `-S` 指向包含 `partition_table.json` 的资源目录；脚本会按该分区表读取镜像地址和文件路径，跳过没有 `file` 的保留分区。`-B` 或 `BUILD_DIR` 可覆盖 `${BUILD_DIR}` 对应的构建输出目录。
 
+**设备身份说明**：当前 CherryUSB 固件在正常模式下使用芯片 ID 作为 ADB serial，USB
+`product`、`model` 和 `device` 字段使用真实板型（例如 `arcs_mini3`）。两个 ADB 脚本在烧录前会输出
+`adb devices -l` 的身份行，接入多块板时先核对板型和芯片 ID；设备进入 recovery 后 serial 通常变为
+`BOOT-*`，脚本再通过 USB 端口和 `transport_id` 关联前后两种身份。不要再按固定的
+`FFBBCCDDEE001124` 序列号选择设备。
+
 **分区映射**（来自 `res/arcs-mini/partition_table.json`）：
 
 | 分区 | 地址 | 文件 |
