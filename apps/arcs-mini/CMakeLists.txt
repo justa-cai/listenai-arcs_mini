@@ -48,6 +48,7 @@ endif()
 add_subdirectory(mcp-tools)
 add_subdirectory(voice_intent)
 add_subdirectory(voice_player)
+add_subdirectory(llm)
 
 listenai_add_executable(${PROJECT_NAME})
 
@@ -106,6 +107,7 @@ target_sources(
 )
 
 target_link_options(${PROJECT_NAME} PRIVATE
+    -Wl,-Map,${CMAKE_BINARY_DIR}/arcs-mini.map
     -Wl,--wrap,gettimeofday
     -Wl,--wrap,settimeofday
     -Wl,--wrap,time

@@ -8,6 +8,7 @@ listenai_library_sources(
     id_cmd.c
     interact.c
     kv.c
+    llm.c
     # listen_cmd.c
     # log.c
     mic_bias.c
