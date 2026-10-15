@@ -14,9 +14,25 @@
 
 #include "cJSON.h"
 #include "voice_msg.h"
+#if CONFIG_ACOMP_WAKEUP
 #include "acomp_wakeup.h"
+#endif
 #include "voice_cloud.h"
 #include "app_wakeup_debug.h"
+
+#if !CONFIG_ACOMP_WAKEUP
+/* 唤醒裁剪（AP 桩固件无算法）：公开 API 全部降级为无操作。
+ * 消费方（platform/power_policy/ota/wakeup_tone）零改动。 */
+#include "app_wakeup.h"
+#include <string.h>
+int app_wakeup_init(struct wakeup_algo_resources *res) { (void)res; return -1; }
+int app_wakeup_stop(void) { return 0; }
+int app_wakeup_audio_standby_suspend(void) { return 0; }
+int app_wakeup_audio_standby_resume(void) { return 0; }
+void app_wakeup_audio_diag_get(app_wakeup_audio_diag_t *diag) { memset(diag, 0, sizeof(*diag)); }
+int app_wakeup_sensitivity_level_set(app_wakeup_sensitivity_level_e level) { (void)level; return -1; }
+app_wakeup_sensitivity_level_e app_wakeup_sensitivity_level_get(void) { return APP_WAKEUP_SENSITIVITY_LEVEL_2; }
+#else /* 以下为真实唤醒实现 */
 #include "app_wakeup.h"
 
 #define TAG "app_wakeup"
@@ -1557,3 +1573,4 @@ static int shell_play_gain(int argc, char **argv)
 SHELL_EXPORT_CMD(SHELL_CMD_PERMISSION(0) | SHELL_CMD_TYPE(SHELL_TYPE_CMD_MAIN) | SHELL_CMD_DISABLE_RETURN, play_gain,
                  shell_play_gain, "set play gain <analog> <digital>");
 #endif // CONFIG_BOARD_ARCS_MINI
+#endif /* CONFIG_ACOMP_WAKEUP */

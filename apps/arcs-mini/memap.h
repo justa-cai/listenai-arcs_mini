@@ -38,14 +38,16 @@
 #if defined(CONFIG_SOC_LS2663) || defined(CONFIG_SOC_LS2683)
 #define MEM_AP_PSRAM_SIZE  __MB__(3)
 #else
-#define MEM_AP_PSRAM_SIZE  __MB__(8)
+/* LLM 分支：AP 桩固件（apps/remote-ap）只留 1MB，CP 扩到 15MB。
+ * 契约同步：apps/remote-ap/memap.h。 */
+#define MEM_AP_PSRAM_SIZE  __MB__(1)
 #endif
 
 #define MEM_CP_PSRAM_BASE  ((MEM_AP_PSRAM_BASE) + (MEM_AP_PSRAM_SIZE))
 #if defined(CONFIG_SOC_LS2663) || defined(CONFIG_SOC_LS2683)
 #define MEM_CP_PSRAM_SIZE  __MB__(5)
 #else
-#define MEM_CP_PSRAM_SIZE  __MB__(8)
+#define MEM_CP_PSRAM_SIZE  __MB__(15)
 #endif
 
 #if CONFIG_ARCS_AP_CORE

@@ -18,8 +18,9 @@ if(CONFIG_CHERRYUSB)
     listenai_library_sources(
         app_usb_cherry.c
         app_usb_cherry_descriptors.c
-        app_usb_cherry_msc.c
     )
+    # MSC(U盘)依赖 SDMMC 盘符，SD 裁剪时随 CONFIG_CHERRYUSB_DEVICE_MSC 关闭
+    listenai_library_sources_ifdef(CONFIG_CHERRYUSB_DEVICE_MSC app_usb_cherry_msc.c)
     listenai_library_sources_ifdef(CONFIG_CHERRYUSB_HOST_HID app_usb_cherry_hid.c)
     listenai_library_sources_ifdef(CONFIG_APP_USB_AUDIO_ENABLE app_usb_cherry_audio.c)
 else()

@@ -8,6 +8,89 @@
 
 #include "model_camera_preview.h"
 
+#if !CONFIG_APP_CAMERA_SERVICE
+/* 摄像头整体裁剪（CONFIG_APP_CAMERA_SERVICE=n）：预览流程整体无操作化。
+ * 状态查询一律返回"未激活"，UI 分支自然走非相机路径。 */
+int model_camera_preview_evt_init(void) { return -1; }
+int model_camera_preview_cb_register(const struct model_camera_preview_cb *cb, void *arg)
+{
+    (void)cb;
+    (void)arg;
+    return -1;
+}
+int model_camera_preview_cb_unregister(const struct model_camera_preview_cb *cb)
+{
+    (void)cb;
+    return 0;
+}
+void model_camera_preview_init(model_camera_preview_t *preview) { memset(preview, 0, sizeof(*preview)); }
+void model_camera_preview_reset(model_camera_preview_t *preview) { memset(preview, 0, sizeof(*preview)); }
+void model_camera_preview_start_preview(model_camera_preview_t *preview,
+                                        model_camera_preview_source_t source,
+                                        uint32_t auto_capture_delay_ms,
+                                        uint32_t countdown_interval_ms)
+{
+    (void)preview;
+    (void)source;
+    (void)auto_capture_delay_ms;
+    (void)countdown_interval_ms;
+}
+void model_camera_preview_mark_result_tts_started(model_camera_preview_t *preview) { (void)preview; }
+bool model_camera_preview_is_active(const model_camera_preview_t *preview) { (void)preview; return false; }
+bool model_camera_preview_is_preview_active(const model_camera_preview_t *preview) { (void)preview; return false; }
+bool model_camera_preview_keep_preview_alive(const model_camera_preview_t *preview) { (void)preview; return false; }
+bool model_camera_preview_is_captured(const model_camera_preview_t *preview) { (void)preview; return false; }
+bool model_camera_preview_is_result_active(const model_camera_preview_t *preview) { (void)preview; return false; }
+bool model_camera_preview_is_result_tts_ready(const model_camera_preview_t *preview) { (void)preview; return false; }
+bool model_camera_preview_is_result_tts_started(const model_camera_preview_t *preview) { (void)preview; return false; }
+model_camera_preview_source_t model_camera_preview_source_get(const model_camera_preview_t *preview)
+{
+    (void)preview;
+    return MODEL_CAMERA_PREVIEW_SOURCE_NONE;
+}
+uint32_t model_camera_preview_countdown_remaining_get(const model_camera_preview_t *preview)
+{
+    (void)preview;
+    return 0;
+}
+bool model_camera_preview_should_start_countdown(const model_camera_preview_t *preview) { (void)preview; return false; }
+model_camera_preview_countdown_result_t model_camera_preview_countdown_tick(model_camera_preview_t *preview)
+{
+    (void)preview;
+    return MODEL_CAMERA_PREVIEW_COUNTDOWN_STOP;
+}
+model_camera_preview_capture_kind_t model_camera_preview_request_capture(model_camera_preview_t *preview)
+{
+    (void)preview;
+    return MODEL_CAMERA_PREVIEW_CAPTURE_NONE;
+}
+model_camera_preview_submit_kind_t model_camera_preview_prepare_submit(model_camera_preview_t *preview)
+{
+    (void)preview;
+    return MODEL_CAMERA_PREVIEW_SUBMIT_NONE;
+}
+bool model_camera_preview_restore_after_submit_failure(model_camera_preview_t *preview,
+                                                        model_camera_preview_submit_kind_t submit_kind)
+{
+    (void)preview;
+    (void)submit_kind;
+    return false;
+}
+bool model_camera_preview_handle_result_tts_ready(model_camera_preview_t *preview) { (void)preview; return false; }
+const char *model_camera_preview_source_name(model_camera_preview_source_t source)
+{
+    (void)source;
+    return "off";
+}
+void model_camera_preview_publish_state(const model_camera_preview_t *preview) { (void)preview; }
+void model_camera_preview_fill_voice_state(const model_camera_preview_t *preview,
+                                           voice_msg_camera_preview_state_t *state)
+{
+    (void)preview;
+    memset(state, 0, sizeof(*state));
+}
+#else
+
 #ifdef LISA_UI_PLATFORM_ARCS
 #include "voice_msg.h"
 #endif
@@ -483,3 +566,5 @@ void model_camera_preview_fill_voice_state(const model_camera_preview_t *preview
         state->phase = CAMERA_FLOW_PHASE_NONE;
     }
 }
+
+#endif /* CONFIG_APP_CAMERA_SERVICE */

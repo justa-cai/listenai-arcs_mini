@@ -7,11 +7,13 @@ listenai_library_sources(
     mcp_tool_device_control.c
     mcp_tool_alarm.c
     mcp_tool_led.c
-    mcp_tool_camera.c
     mcp_tool_image.c
     mcp_tool_duplex.c
     mcp_tool_sd_music.c
 )
+
+# 拍照工具依赖摄像头服务；随 CONFIG_APP_CAMERA_SERVICE 裁剪
+listenai_library_sources_ifdef(CONFIG_APP_CAMERA_SERVICE mcp_tool_camera.c)
 
 if(CONFIG_LOG_UPLOAD)
     listenai_library_sources(

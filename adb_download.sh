@@ -439,8 +439,10 @@ show_device_identity() {
 }
 
 # 根据资源目录校验正常 ADB 设备的真实板型，避免把其它版型资源烧入设备。
+# BOOT-* (recovery) 设备的 USB 身份来自 ROM（报参考板代号，如 mido），
+# 不反映真实板型，跳过比对——设备已在 recovery 时正是要烧录的状态。
 check_device_board_compatibility() {
-    local resource_leaf expected_board line
+    local resource_leaf expected_board line serial
     resource_leaf="${RESOURCE_DIR%/}"
     resource_leaf="${resource_leaf##*/}"
     case "$resource_leaf" in
@@ -452,6 +454,8 @@ check_device_board_compatibility() {
 
     while IFS= read -r line; do
         [[ "$line" =~ ^[^[:space:]]+[[:space:]]+device[[:space:]] ]] || continue
+        serial="$(awk '{print $1}' <<< "$line")"
+        [[ "$serial" == BOOT-* ]] && continue
         if [[ ! "$line" =~ (^|[[:space:]])product:${expected_board}([[:space:]]|$) ||
               ! "$line" =~ (^|[[:space:]])model:${expected_board}([[:space:]]|$) ||
               ! "$line" =~ (^|[[:space:]])device:${expected_board}([[:space:]]|$) ]]; then

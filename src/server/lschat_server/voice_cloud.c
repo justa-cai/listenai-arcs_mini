@@ -20,7 +20,9 @@
 #include "async_task.h"
 #include "voice_player/tone_control/voice_player_tone.h"
 
+#if CONFIG_ACOMP_WAKEUP
 #include "acomp_wakeup.h"
+#endif
 #include "power/power_manager.h"
 #include "uboot_features_api.h"
 

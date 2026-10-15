@@ -183,8 +183,10 @@ static void voice_cloud_auth_failed(void *unused, uint32_t msg_id, void *data, u
 static void voice_cloud_auth_success(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
 {
     service_alarm_init();
+#if CONFIG_MIDDLEWARE_SD_MUSIC
     /* SD state must also be reconciled on modem-only devices. */
     (void)service_sd_music_init();
+#endif
 }
 
 static void voice_wifi_provision_guard(void *unused, uint32_t msg_id, void *data, uint32_t len, void *user_data)
@@ -265,7 +267,9 @@ int main(int argc, char **argv)
     service_brightness_init();
     service_button_init();
     service_image_init();
+#if CONFIG_APP_CAMERA_SERVICE
     service_camera_init();
+#endif
 
     app_button_init();
 

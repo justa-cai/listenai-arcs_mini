@@ -8,6 +8,26 @@
 #include "lisa_ui_invoke.h"
 #include "lisa_ui_log.h"
 
+#include "model_camera.h"
+
+#if !CONFIG_APP_CAMERA_SERVICE
+/* 摄像头整体裁剪（CONFIG_APP_CAMERA_SERVICE=n）：驱动/服务未编入，
+ * model 层降级为无操作桩，UI 调用方零改动、相机流程静默失效。 */
+int model_camera_init(void) { return -1; }
+int model_camera_capture(uint8_t *in, uint32_t len) { (void)in; (void)len; return -1; }
+int model_camera_stop(void) { return 0; }
+int model_camera_suspend(void) { return 0; }
+int model_camera_resume(void) { return -1; }
+int model_camera_get_framesize(uint16_t *width, uint16_t *height)
+{
+    (void)width;
+    (void)height;
+    return -1;
+}
+bool model_camera_is_running(void) { return false; }
+bool model_camera_is_inited(void) { return false; }
+#else
+
 #ifdef LISA_UI_PLATFORM_ARCS
 #include "service_camera.h"
 #include "voice_msg.h"
@@ -278,3 +298,5 @@ bool model_camera_is_inited(void)
 {
     return model_camera_ctx.inited;
 }
+
+#endif /* CONFIG_APP_CAMERA_SERVICE */

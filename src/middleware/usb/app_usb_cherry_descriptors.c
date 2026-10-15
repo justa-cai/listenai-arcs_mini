@@ -217,12 +217,14 @@ void app_usb_cherry_descriptors_register(bool msc_mode)
     usb_msc_mode = msc_mode;
     usbd_desc_register(APP_USB_BUS_ID, &app_usb_descriptor);
 
+#if defined(CONFIG_CHERRYUSB_DEVICE_MSC) && CONFIG_CHERRYUSB_DEVICE_MSC
     if (msc_mode) {
         usbd_add_interface(APP_USB_BUS_ID,
                            usbd_msc_init_intf(APP_USB_BUS_ID, &msc_interface,
                                               APP_USB_MSC_OUT_EP, APP_USB_MSC_IN_EP));
         return;
     }
+#endif
 
     usbd_add_interface(APP_USB_BUS_ID,
                        adb_dev_init_intf(APP_USB_BUS_ID, &adb_interface,

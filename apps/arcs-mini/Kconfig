@@ -8,6 +8,14 @@ orsource "../../apps-ui/Kconfig"
 
 rsource "miniapp/Kconfig"
 
+config APP_CAMERA_SERVICE
+    bool "Start camera service at boot"
+    default y
+    help
+      Camera service allocates two DVP frame buffers (~1.2MB PSRAM) at
+      boot. Disable on memory-constrained builds (e.g. on-device LLM)
+      to reclaim the runtime heap; UI camera flows then fail gracefully.
+
 config CP_FIRMWARE_COMPAT
     bool "Embed CP PSRAM range"
     default y
