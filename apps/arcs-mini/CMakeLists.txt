@@ -24,6 +24,7 @@ add_definitions(-DLISTEN_CLOUD -DCONFIG_EXT_RAM)
 
 # Add project root directory to include path for app-config-tls-generic.h and memap.h
 listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+listenai_include_directories(${CMAKE_CURRENT_SOURCE_DIR}/..)
 # Get project root directory (two levels up from apps/aopu-yuba)
 get_filename_component(PROJECT_TOP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../.. ABSOLUTE)
 message (STATUS "PROJECT_TOP_DIR: ${PROJECT_TOP_DIR}")
@@ -101,6 +102,7 @@ add_dependencies(ota_txz ${PROJECT_NAME})
 target_sources(
     ${PROJECT_NAME} PRIVATE
     main.c
+    firmware_compat.c
 )
 
 target_link_options(${PROJECT_NAME} PRIVATE

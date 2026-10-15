@@ -8,4 +8,18 @@ orsource "../../apps-ui/Kconfig"
 
 rsource "miniapp/Kconfig"
 
+config CP_FIRMWARE_COMPAT
+    bool "Embed CP PSRAM range"
+    default y
+    help
+      Store the CP PSRAM base and size selected by prj.conf immediately after the
+      standard ARCS image header so AP can reject an incompatible CP image.
+
+config CP_FIRMWARE_COMPAT_OFFSET
+    hex "CP PSRAM range image offset"
+    default 0x180
+    depends on CP_FIRMWARE_COMPAT
+    help
+      Offset from the CP image base. Keep this synchronized with AP.
+
 endmenu

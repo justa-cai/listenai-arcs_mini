@@ -1,4 +1,4 @@
-[CmdletBinding(PositionalBinding = $false)]
+﻿[CmdletBinding(PositionalBinding = $false)]
 param(
     [Alias("S")]
     [string]$ResourceDirArg = "",
@@ -392,6 +392,46 @@ function Scan-ConnectedDevices {
     return $devices
 }
 
+# CherryUSB 正常模式使用芯片 ID 作为 ADB serial，product/model/device 来自真实板型。
+# 进入 recovery 后 serial 会变为 BOOT-*；烧录前输出完整身份供多板核对。
+function Show-DeviceIdentity {
+    Write-Host "Current ADB device identity (serial=chip ID, product/model/device=board):"
+    foreach ($line in Collect-DevicesRaw) {
+        if ($line -match "^\S+\s+device\s") {
+            Write-Host $line
+        }
+    }
+}
+
+function Test-DeviceBoardCompatibility {
+    $leaf = Split-Path -Leaf ($script:ResourceDir.TrimEnd("\", "/"))
+    $expectedBoard = switch ($leaf) {
+        "arcs-mini" { "arcs_mini"; break }
+        "arcs-mini3" { "arcs_mini3"; break }
+        "arcs-mini_doll_v2" { "arcs_mini_doll_v2"; break }
+        default { "" }
+    }
+    if ([string]::IsNullOrEmpty($expectedBoard)) { return }
+
+    $mismatch = @()
+    foreach ($line in Collect-DevicesRaw) {
+        if ($line -notmatch "^\S+\s+device\s") { continue }
+        if ($line -notmatch "(?:^|\s)product:$([regex]::Escape($expectedBoard))(?:\s|$)" -or
+            $line -notmatch "(?:^|\s)model:$([regex]::Escape($expectedBoard))(?:\s|$)" -or
+            $line -notmatch "(?:^|\s)device:$([regex]::Escape($expectedBoard))(?:\s|$)") {
+            $mismatch += $line
+        }
+    }
+    if ($mismatch.Count -gt 0) {
+        Write-Fail "错误: ADB 设备板型与待烧录资源不匹配"
+        Write-Fail "  待烧录资源: $leaf (期望板型: $expectedBoard)"
+        Write-Fail "  实际设备身份:"
+        $mismatch | ForEach-Object { Write-Fail "    $_" }
+        Write-Fail "请确认 -S 资源目录与设备板型一致后再烧录。"
+        exit 1
+    }
+}
+
 function Get-AdbDeviceKey {
     param($Device)
 
@@ -485,6 +525,8 @@ function Categorize-ConnectedDevices {
     }
 
     Write-Host "Detected devices: $script:TargetCount"
+    Show-DeviceIdentity
+    Test-DeviceBoardCompatibility
     Write-Host "- normal mode devices: $($script:NormalTransportIds.Count)"
     Write-Host "- recovery BOOT-* devices: $($script:InitialBootDevices.Count)"
     if ($script:MissingTidCount -gt 0) {

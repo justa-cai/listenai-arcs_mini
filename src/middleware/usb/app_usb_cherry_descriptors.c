@@ -7,12 +7,14 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "usbd_core.h"
 #include "adb_device.h"
 #include "app_usb_cherry.h"
 #include "usbd_audio.h"
 #include "usbd_msc.h"
+#include "sys/chip_id.h"
 
 #define APP_USB_VID     0x0483U
 #define APP_USB_ADB_PID 0x0ADBU
@@ -145,11 +147,13 @@ static const uint8_t msc_qualifier_descriptor[] = {
                                          0xFF, 0x00, 0x01),
 };
 
+static char usb_serial[17];
+
 static const char *string_descriptors[] = {
     (const char[]){ 0x09, 0x04 },
     "ListenAi",
-    "VoiceAssistant CherryUSB UAC1",
-    "FFBBCCDDEE001124",
+    CONFIG_BOARD_NAME,
+    usb_serial,
     "ADB Interface",
     "CherryUSB UAC1 Audio",
 };
@@ -206,6 +210,10 @@ static struct audio_entity_info audio_entity_table[] = {
 
 void app_usb_cherry_descriptors_register(bool msc_mode)
 {
+    /* Prepare stable storage before enumeration; callbacks may run in an ISR. */
+    if (usb_serial[0] == '\0') {
+        memcpy(usb_serial, sys_chip_id_get(), sizeof(usb_serial));
+    }
     usb_msc_mode = msc_mode;
     usbd_desc_register(APP_USB_BUS_ID, &app_usb_descriptor);
 
