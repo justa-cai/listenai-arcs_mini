@@ -22,7 +22,7 @@ static const char *TAG = "llm";
 llm_params_t llm_default_params(void)
 {
     llm_params_t p = {
-        .temperature = 0.3f,   // tuned on host battery (host/llm_battery.txt)
+        .temperature = 0.0f,   // chat 走贪心：事实类问题采样会丢分（esp_ai MODELS.md 15/16 vs 采样改错）
         .top_p = 0.9f,
         .soft_max_tokens = 48,
         .hard_max_tokens = 80,

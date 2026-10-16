@@ -216,8 +216,12 @@ static int voice_platform_init(void)
     }
 
 #if CONFIG_ACOMP
+    /* AP 桩无算法服务，acomp_init 连接远端每次超时 10s×2 = 启动慢 20s。
+     * 库保留编译（rcmd_router 等依赖其头文件），仅跳过运行时初始化。 */
+#if 0
     acomp_init();
-#if CONFIG_ACOMP_LOGGER
+#endif
+#if CONFIG_ACOMP_LOGGER && 0
     acomp_logger_init();
     acomp_logger_start();
     acomp_logger_set_output_callback(remote_log_output_printf);

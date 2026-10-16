@@ -14,6 +14,8 @@
 #define TAG "ap"
 #include "lisa_log.h"
 
+/* AP 日志走 UART0（PA3，与 CP 共用串口，按 tag 区分） */
+
 /* CP 镜像 flash 基址契约：必须与 apps/arcs-mini prj.conf 的
  * CONFIG_MEM_FLASH_BASE 一致，防止 AP/CP 分割错配后静默跑飞 */
 #ifndef EXPECTED_CP_FLASH_BASE
