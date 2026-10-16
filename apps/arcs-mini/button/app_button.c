@@ -246,6 +246,11 @@ static bool app_button_redirect_to_cloud_info(voice_msg_button_action_t action)
  */
 static void app_button_handle_click(void)
 {
+#if CONFIG_LLM_TERMINAL_UI
+    /* LLM 终端桌面：无常规页面/唤醒会话，单击不动作（长按关机保留） */
+    LISA_LOGI(TAG, "Single click: terminal UI, no action");
+    return;
+#else
     if (service_power_policy_handle_function_click()) {
         LISA_LOGI(TAG, "Single click: restored from hibernate without starting interaction");
         return;
@@ -286,6 +291,7 @@ static void app_button_handle_click(void)
                       (void *)wakeup_keyword,
                       sizeof(wakeup_keyword));
     }
+#endif /* !CONFIG_LLM_TERMINAL_UI */
 }
 
 /* 双击：进入按键拍照预览；若语音拍照流程已锁定，则取消并退出该流程。 */

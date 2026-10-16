@@ -281,12 +281,20 @@ int main(int argc, char **argv)
     lisa_ui_init();
 #endif
 
+#if CONFIG_LLM_TERMINAL_UI
+    /* LLM 终端：网络键盘 + LLM IPC 客户端（UI 由 lisa_ui_init 内创建） */
+    extern int llmterm_init(void);
+    llmterm_init();
+#endif
+
 #ifdef CONFIG_MINIAPP
     if (miniapp_init() != 0) {
         LOGE("Miniapp initialization failed");
     }
 #endif
+#if !CONFIG_LLM_TERMINAL_UI
     app_show_initial_wifi_info_if_needed();
+#endif
 
 
     vTaskDelay(pdMS_TO_TICKS(3000));

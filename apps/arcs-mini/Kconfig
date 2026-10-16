@@ -16,6 +16,15 @@ config APP_CAMERA_SERVICE
       boot. Disable on memory-constrained builds (e.g. on-device LLM)
       to reclaim the runtime heap; UI camera flows then fail gracefully.
 
+config LLM_TERMINAL_UI
+    bool "LLM terminal as the only desktop UI"
+    default n
+    help
+      Replace the standard app UI (home/standby/QR/emoji pages and their
+      models) with a fullscreen LVGL terminal chatting with the AP-side
+      LLM. Input comes from the network keyboard (UDP, tools/llmkb).
+      Single-click button navigation to HOME is disabled accordingly.
+
 config CP_FIRMWARE_COMPAT
     bool "Embed CP PSRAM range"
     default y
