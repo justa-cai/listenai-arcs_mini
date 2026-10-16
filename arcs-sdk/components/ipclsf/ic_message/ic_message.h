@@ -34,6 +34,7 @@ enum {
 	IC_MESSAGE_ID_DAC,
 	IC_MESSAGE_ID_ADC,
 	IC_MESSAGE_ID_ACOMP,
+	IC_MESSAGE_ID_LLM,     /* LLM chat service (AP side provider) */
 	IC_MESSAGE_ID_MAX,
 };
 

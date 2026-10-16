@@ -505,8 +505,11 @@ int llm_app_story(const char *topic)
     return run_answer(true, topic);
 }
 
+extern volatile uint32_t SystemCoreClock;
+
 void llm_app_info(void)
 {
+    LISA_LOGI(LOG_TAG, "clock=%u Hz", (unsigned)SystemCoreClock);
     LISA_LOGI(LOG_TAG, "loaded=%d split=%d model=%u tok=%u (head=%u body=%u wte@flash=%u)",
               S.loaded, S.split, (unsigned)S.model_len, (unsigned)S.tok_len,
               (unsigned)S.head_len, (unsigned)S.body_len,

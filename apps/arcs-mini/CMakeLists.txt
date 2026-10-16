@@ -48,7 +48,7 @@ endif()
 add_subdirectory(mcp-tools)
 add_subdirectory(voice_intent)
 add_subdirectory(voice_player)
-add_subdirectory(llm)
+# LLM 引擎已移至 AP 核（apps/remote-ap），CP 侧仅留 IPC 客户端
 
 listenai_add_executable(${PROJECT_NAME})
 

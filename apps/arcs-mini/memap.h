@@ -28,7 +28,7 @@
 #define MEM_AP_FLASH_BASE  0x30040000
 #define MEM_AP_FLASH_SIZE  __KB__(768)
 
-#define MEM_CP_FLASH_BASE  (0x30000000 + __MB__(6))
+#define MEM_CP_FLASH_BASE  (0x30000000 + __MB__(7))
 #define MEM_CP_FLASH_SIZE  __MB__(4)
  
 /* PSRAM 分配随 SoC 型号（LS26x3=8M → AP=3MB/CP=5MB，
@@ -38,16 +38,16 @@
 #if defined(CONFIG_SOC_LS2663) || defined(CONFIG_SOC_LS2683)
 #define MEM_AP_PSRAM_SIZE  __MB__(3)
 #else
-/* LLM 分支：AP 桩固件（apps/remote-ap）只留 1MB，CP 扩到 15MB。
- * 契约同步：apps/remote-ap/memap.h。 */
-#define MEM_AP_PSRAM_SIZE  __MB__(1)
+/* LLM 分支 v2：AP 跑 LLM 服务需完整 8MB（模型 5.85M + arena），
+ * CP 回到原厂 8MB。契约同步：apps/remote-ap/memap.h。 */
+#define MEM_AP_PSRAM_SIZE  __MB__(8)
 #endif
 
 #define MEM_CP_PSRAM_BASE  ((MEM_AP_PSRAM_BASE) + (MEM_AP_PSRAM_SIZE))
 #if defined(CONFIG_SOC_LS2663) || defined(CONFIG_SOC_LS2683)
 #define MEM_CP_PSRAM_SIZE  __MB__(5)
 #else
-#define MEM_CP_PSRAM_SIZE  __MB__(15)
+#define MEM_CP_PSRAM_SIZE  __MB__(8)
 #endif
 
 #if CONFIG_ARCS_AP_CORE
