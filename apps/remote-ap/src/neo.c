@@ -115,6 +115,63 @@ static void dequant_row(float *out, const uint8_t *wrow, int n)
 float dot_q4q8_pie(const uint8_t *nib, const int8_t *xq, const uint8_t *scales, const float *xs, int nb);
 #endif
 
+/* ---- ARCS AP 核 NICE 融合乘加（模拟器与芯片自定义指令） ----
+ * 语义：rd = rd ± (rs1 * rs2)（bit25=1 为减法），32 位整型。
+ * 编码：0xC400107F | (rs2<<20) | (rs1<<15) | (rd<<7)。
+ * 一条指令替代 mul+add 两条，点积内环省 ~25% 指令。
+ * 真机首发运行由 neo_init 的对拍自检把关，失败自动回退标量内核。 */
+#if defined(__riscv) && !defined(LLM_FORCE_SCALAR)
+#define LLM_HAVE_NICE 1
+/* t0=x5 t1=x6 t2=x7 t3=x28（ABI 临时寄存器，无 callee-save 负担） */
+#define NICE_MADD_W(rd, rs1, rs2) \
+    (0xC400107Fu | ((uint32_t)(rs2) << 20) | ((uint32_t)(rs1) << 15) | ((uint32_t)(rd) << 7))
+
+static uint8_t nice_ok;   /* 自检通过后启用 NICE 内核 */
+
+/* 单块（32 元素）整数部分和：rd += rs1*rs2 逐对融合乘加，
+ * 低/高半字节各自累加链（w 为解包后的 0..15） */
+static inline int nice_block(const uint8_t *restrict nk,
+                             const int8_t *restrict xlo,
+                             const int8_t *restrict xhi)
+{
+    register int32_t alo asm("t0") = 0;
+    register int32_t ahi asm("t1") = 0;
+    register int32_t w   asm("t2");
+    register int32_t x   asm("t3");
+    for (int k = 0; k < 16; k++) {
+        uint8_t bk = nk[k];
+        w = bk & 0x0F;
+        x = xlo[k];
+        /* x 必须列为输入操作数：不出现在模板文本里，但约束编译器
+         * 在指令前把 x 装入 t3（否则加载被当 dead store 删除） */
+        asm volatile(".word %3" : "+r"(alo) : "r"(w), "r"(x), "i"(NICE_MADD_W(5, 7, 28)));
+        w = bk >> 4;
+        x = xhi[k];
+        asm volatile(".word %3" : "+r"(ahi) : "r"(w), "r"(x), "i"(NICE_MADD_W(6, 7, 28)));
+    }
+    return alo + ahi;
+}
+
+/* dot_q4q8 的 NICE 版：整数块和走融合乘加，scale 累加与标量版一致 */
+static inline float dot_q4q8_nice(const uint8_t *restrict wrow,
+                                  const int8_t *restrict xq,
+                                  const float *restrict xs,
+                                  const int16_t *restrict xss,
+                                  int n)
+{
+    int nb = n >> 5;
+    const uint8_t *sc = wrow, *nib = wrow + nib_off(n);
+    float acc = 0;
+    for (int b = 0; b < nb; b++) {
+        int isum = nice_block(nib + 16 * b, xq + 32 * b, xq + 32 * b + 16);
+        uint16_t s;
+        memcpy(&s, sc + 2 * b, 2);
+        acc += bf16_f32(s) * xs[b] * (float)(isum - 8 * (int)xss[b]);
+    }
+    return acc;
+}
+#endif
+
 typedef struct {
     float *xout;
     const int8_t *xq;
@@ -134,10 +191,16 @@ static void mm_rows(const mm_args_t *a)
         const uint8_t *w = a->w + r * rb;
         a->xout[r] = dot_q4q8_pie(w + no, a->xq, w, a->xs, nb);
     }
-#else
-    for (int r = a->r0; r < a->r1; r++)
-        a->xout[r] = dot_q4q8(a->w + r * rb, a->xq, a->xs, a->xss, a->n);
+#elif defined(LLM_HAVE_NICE)
+    if (nice_ok) {
+        for (int r = a->r0; r < a->r1; r++)
+            a->xout[r] = dot_q4q8_nice(a->w + r * rb, a->xq, a->xs, a->xss, a->n);
+    } else
 #endif
+    {
+        for (int r = a->r0; r < a->r1; r++)
+            a->xout[r] = dot_q4q8(a->w + r * rb, a->xq, a->xs, a->xss, a->n);
+    }
 }
 
 // ---------------------------------------------------------------- worker
@@ -419,6 +482,26 @@ bool neo_init(neo_t *m, const uint8_t *b, size_t size, int kv_len, story_arena_t
     }
     m->worker = worker_start(fast ? fast : bulk);
     if (!m->worker) return false;
+#if defined(LLM_HAVE_NICE)
+    /* NICE 融合乘加自检：真实权重行对拍，超差即回退标量内核。
+     * 若芯片无此指令，这里会以非法指令异常终止（无法优雅回退），
+     * 需重新烧录并关闭 LLM_FORCE_SCALAR。 */
+    {
+        quantize_q8(m->x, m->xq, m->xs, m->xss, dim);
+        nice_ok = 1;
+        for (int r = 0; r < 8; r++) {
+            const uint8_t *w = m->wq + r * row_stride(dim);
+            float ref = dot_q4q8(w, m->xq, m->xs, m->xss, dim);
+            float got = dot_q4q8_nice(w, m->xq, m->xs, m->xss, dim);
+            if (fabsf(got - ref) > 1e-3f * (1.0f + fabsf(ref))) {
+                SLOGE(TAG, "NICE kernel parity FAILED row %d: %f vs %f", r, got, ref);
+                nice_ok = 0;
+                break;
+            }
+        }
+        SLOGI(TAG, "NICE fused madd kernel %s", nice_ok ? "enabled" : "disabled (parity fail)");
+    }
+#endif
 #ifdef USE_PIE
     // SIMD/scalar parity on real rows: a broken kernel must fail loudly.
     for (int i = 0; i < dim; i++) m->xq[i] = (int8_t)((i * 37 + 11) & 0xFF);

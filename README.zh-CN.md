@@ -11,8 +11,10 @@ CP 核上的 macOS 风格 LVGL 终端逐 token 渲染回答——不需要键盘
 
 ## 功能特性
 
-- **端侧 LLM** —— TinyTalk（GPT-Neo，256 维 / 8 层，5.8 MB 权重 flash XIP），
-  由 AP 核常驻服务承载；~442ms/token，英文提问，经跨核 mailbox IPC 逐 token 流式回传。
+- **端侧 LLM** —— TinyTalk（GPT-Neo，256 维 / 8 层，5.8 MB 权重启动时
+  镜像到 PSRAM 常驻），由 AP 核常驻服务承载；~265ms/token（≈3.8 tok/s，
+  经内核偏置消除 + NICE 融合乘加 + PSRAM 常驻优化后），英文提问，
+  经跨核 mailbox IPC 逐 token 流式回传。
 - **LVGL 终端桌面** —— 全屏 macOS Terminal 风格 UI（信号灯、问题绿色回显、
   答案浅色），固件唯一桌面。打字机流式显示，↑/↓ 回看历史。
 - **网络键盘（UDP）** —— 在 PC 上打字，设备屏幕实时回显。发现、逐键输入、

@@ -1,1 +1,12 @@
 osource "$ARCS_BASE/Kconfig"
+
+config LLM_WEIGHTS_PSRAM
+	bool "Mirror LLM weights to PSRAM at boot"
+	default n
+	help
+	  Flash XIP effective bandwidth (~13 MB/s measured) dominates decode
+	  time (every token streams the full 5.8 MB of weights). Copying the
+	  weight blob to PSRAM once at boot trades slower startup for a
+	  higher read bandwidth during generation. AP has 8 MB of PSRAM;
+	  arena/tokenizer/KV already use ~0.8 MB, leaving room for the
+	  ~5.9 MB mirror.

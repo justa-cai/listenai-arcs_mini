@@ -54,6 +54,13 @@ static void mb_invalidate(void)
 static uint8_t fast_buf[64 * 1024]  __attribute__((aligned(16), section(".psram.noinit")));
 static uint8_t bulk_buf[448 * 1024] __attribute__((aligned(16), section(".psram.noinit")));
 
+#if CONFIG_LLM_WEIGHTS_PSRAM
+/* 权重 PSRAM 镜像：flash XIP 有效带宽（实测 ~13MB/s）是 decode 瓶颈
+ * （每 token 流式读全部 5.8MB 权重），启动时一次性搬到 PSRAM 常驻。
+ * AP 侧 PSRAM 共 8MB，arena+tok+KV 已用 ~0.8MB，镜像后 ~6.7MB。 */
+static uint8_t model_mirror[6 * 1024 * 1024] __attribute__((aligned(16), section(".psram.noinit")));
+#endif
+
 static struct {
     llm_t llm;
     story_arena_t fast, bulk;
@@ -127,6 +134,19 @@ static void llm_service_task(void *arg)
         .tok = llm_tok_start,
         .tok_len = tok_len,
     };
+#if CONFIG_LLM_WEIGHTS_PSRAM
+    if (model_len > sizeof model_mirror) {
+        LISA_LOGE(TAG, "model %u B exceeds PSRAM mirror %u B",
+                  (unsigned)model_len, (unsigned)sizeof model_mirror);
+        vTaskDelete(NULL);
+        return;
+    }
+    int64_t tm = story_time_us();
+    memcpy(model_mirror, llm_model_start, model_len);
+    blobs.model = model_mirror;
+    LISA_LOGI(TAG, "weights mirrored flash->PSRAM %u B in %lld ms",
+              (unsigned)model_len, (long long)(story_time_us() - tm) / 1000);
+#endif
     llm_params_t params = llm_default_params();
 
     int64_t t0 = story_time_us();

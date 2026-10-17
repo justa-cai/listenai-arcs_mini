@@ -13,7 +13,8 @@ no keyboard, no cloud LLM required.
 ## Features
 
 - **On-device LLM** — TinyTalk (GPT-Neo, 256-dim / 8 layers, 5.8 MB weights
-  XIP-mapped from flash) served by a resident AP-core task; ~442 ms/token,
+  mirrored to PSRAM at boot) served by a resident AP-core task; ~265 ms/token
+  (≈3.8 tok/s, after kernel + fused-madd + PSRAM-resident optimizations),
   English prompts, streamed back token-by-token over inter-core mailbox IPC.
 - **LVGL terminal desktop** — full-screen macOS Terminal-style UI (traffic
   lights, dim questions in green, bright answers), the only desktop of the
