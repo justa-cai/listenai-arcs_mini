@@ -142,6 +142,10 @@ static void ring_render(void)
     if (used) used--;                             /* 去掉末尾换行 */
     render[used] = '\0';
     lv_label_set_text(lbl_out, render);
+    /* 文本增长（流式半行）时重跑一次对齐：LVGL8 对齐偏移缓存与
+     * recolor 解析在动态文本下会留下重叠残影（表现为输出期间上方
+     * 数行乱码，DONE 全量重绘后才消失），强制重对齐触发完整失效 */
+    lv_obj_align(lbl_out, LV_ALIGN_BOTTOM_LEFT, 3, 0);
 }
 
 static void term_append(const char *s, int len)
