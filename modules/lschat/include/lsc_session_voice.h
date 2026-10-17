@@ -200,6 +200,20 @@ int session_voice_deinit(void);
 int session_voice_set_config(session_voice_config_t *cfg);
 
 /**
+ * @brief 只覆盖 nlu / tts feature 开关（其余会话参数保持现状）
+ *
+ * 纯识别场景（如按住说话转文字）应 set_nlu_tts(false, false)：
+ * start frame 不带 nlu/tts features，云端只回 IAT 文本，
+ * 不产生 AIUI 语音回答（避免经 TTS 链路播出双回答）。
+ *
+ * @param nlu_enable 开启语义理解和回复
+ * @param tts_enable 开启云端下发 tts 音频链接
+ *
+ * @retval 0： 设置成功
+ */
+int session_voice_set_nlu_tts(bool nlu_enable, bool tts_enable);
+
+/**
  * @brief 获取设置参数
  *
  * @retval cfg： 配置参数

@@ -259,6 +259,26 @@ int session_voice_set_config(session_voice_config_t *cfg)
 	return LSC_OK;
 }
 
+int session_voice_set_nlu_tts(bool nlu_enable, bool tts_enable)
+{
+	session_voice_t *obj = g_session_voice_obj;
+	CHECK_COND_RETURN_VAL(obj, LSC_INVALID_STATE, "not init");
+
+	SESSION_VOICE_LOCK(obj->mutex);
+
+	/* 只覆盖 nlu/tts feature 开关，其余会话参数保持现状
+	 * （与 set_config 的 get→改→set 语义兼容，不会被冲掉） */
+	session_params_t config = {0};
+	session_get_config(obj->ss, &config);
+	config.nlu_params.enable = nlu_enable;
+	config.tts_params.enable = tts_enable;
+	session_set_config(obj->ss, &config);
+
+	SESSION_VOICE_UNLOCK(obj->mutex);
+
+	return LSC_OK;
+}
+
 int session_voice_get_config(session_voice_config_t *cfg)
 {
 	session_voice_t *obj = g_session_voice_obj;

@@ -185,6 +185,17 @@ int net_kb_test_inject(const char *str)
     return 0;
 }
 
+int net_kb_line_push(const char *line)
+{
+    char buf[NET_KB_LINE_MAX];
+    if (!S.line_q || !line || !line[0]) return -1;
+    unsigned int n = strlen(line);
+    if (n >= NET_KB_LINE_MAX) n = NET_KB_LINE_MAX - 1;
+    memcpy(buf, line, n);
+    buf[n] = '\0';
+    return xQueueSend(S.line_q, buf, 0) == pdPASS ? 0 : -1;
+}
+
 uint8_t net_kb_peer_alive(void)
 {
     return S.last_peer_tick != 0;

@@ -30,6 +30,11 @@ int net_kb_getline(char *buf, unsigned int len);
 /* 调试用：向按键队列注入一串字符 + 回车（adb shell 演示用） */
 int net_kb_test_inject(const char *str);
 
+/* 程序化注入整行输入（云端 ASR 结果 / 调试命令）；任意线程安全。
+ * 与 PC 的 LLMKB1:L 包同队列同路径，worq.ui 轮询后自动提交。
+ * 返回 0=入队；-1=参数空或队列满（终端 busy，调用方自行提示） */
+int net_kb_line_push(const char *line);
+
 /* PC 在线（30s 内有心跳/按键）；ipstr 返回本机 IP 字符串 */
 uint8_t net_kb_peer_alive(void);
 const char *net_kb_ip_str(void);

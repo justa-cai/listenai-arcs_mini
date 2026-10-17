@@ -5,6 +5,7 @@ listenai_library_sources(
     term_ui.c
     llmterm_cmd.c
     tts_speak.c
+    voice_asr.c
 )
 
 listenai_include_directories(.)

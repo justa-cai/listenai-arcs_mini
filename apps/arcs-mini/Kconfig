@@ -36,6 +36,17 @@ config LLMTERM_TTS
       LSC cloud session; silently skipped when offline. Runtime toggle:
       "llmterm tts on|off".
 
+config LLMTERM_ASR
+    bool "Push-to-talk cloud ASR input for the terminal"
+    default y
+    depends on LLM_TERMINAL_UI && LS_CHAT
+    help
+      Hold the power/function key (PB4) to record, recognize via the
+      AIUI cloud IAT session (NLU/TTS replies suppressed) and auto
+      submit the text as a question to the LLM. Requires WiFi and the
+      LSC cloud session; shows a hint and records nothing while
+      offline. Runtime toggle: "llmterm asr on|off".
+
 config CP_FIRMWARE_COMPAT
     bool "Embed CP PSRAM range"
     default y

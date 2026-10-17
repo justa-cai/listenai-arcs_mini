@@ -26,7 +26,13 @@
 
 #define MINI_POWER_KEY_SHORT_PRESS_MS 800U
 #define MINI_POWER_KEY_LONG_PRESS_MS  1600U
+#if CONFIG_LLM_TERMINAL_UI
+/* llmterm：PB4 用作按住说话（PTT 录音 5s 自动截断），长按关机阈值
+ * 放宽到 8s，避免正常说话误触发关机 */
+#define MINI_POWER_KEY_LONG_HOLD_MS   8000U
+#else
 #define MINI_POWER_KEY_LONG_HOLD_MS   1600U
+#endif
 #define MINI_POWER_KEY_ID             0U
 
 #ifdef CONFIG_MINIAPP

@@ -56,7 +56,7 @@
 #define TERM_LINES_RING  64          /* 环形缓冲行数（回看历史容量） */
 #define TERM_LINE_MAX    64          /* 单行容量；像素换行由 label WRAP 负责，
                                        * 仅缓冲满时按词断 */
-#define TERM_INPUT_MAX   64
+#define TERM_INPUT_MAX   96          /* 云端 ASR 识别文本较长；llm mailbox 上限 480B */
 
 static lv_obj_t *lbl_out, *lbl_in, *lbl_status;
 static lv_obj_t *cont_out;           /* 固定高度裁剪容器（自动滚屏） */
@@ -378,6 +378,24 @@ static void on_llm_evt(void *user, int evt, const char *delta,
     lisa_ui_invoke_ui_delayed(llm_evt_worker, &snap, sizeof snap, 0);
 }
 
+/* ------------------------------------------------ 跨线程系统提示（term_ui.h）
+ * 非 worq.ui 线程（voice_asr 的 ptt/ebus 等）输出灰字提示行：快照经
+ * workq 拷贝投递，与 llm_evt_snap 同模式。 */
+static void hint_worker(void *arg, uint32_t len)
+{
+    term_line_sys((const char *)arg);
+    input_render(1);
+    (void)len;
+}
+
+void term_ui_sys_hint(const char *s)
+{
+    char snap[80];
+    if (!s || !s[0]) return;
+    snprintf(snap, sizeof snap, "%s", s);
+    lisa_ui_invoke_ui_delayed(hint_worker, snap, strlen(snap) + 1, 0);
+}
+
 /* ------------------------------------------------ UI 构建（lisa_ui_init 内调用） */
 int llmterm_ui_init(void)
 {
@@ -486,6 +504,14 @@ int llmterm_init(void)
 #if CONFIG_LLMTERM_TTS
     if (tts_speak_init() != 0) {
         LISA_LOGE(TAG, "tts speak init failed");   /* 不阻断终端 */
+    }
+#endif
+#if CONFIG_LLMTERM_ASR
+    {
+        extern int voice_asr_init(void);
+        if (voice_asr_init() != 0) {
+            LISA_LOGE(TAG, "voice asr init failed");  /* 不阻断终端 */
+        }
     }
 #endif
     LISA_LOGI(TAG, "llmterm ready");
