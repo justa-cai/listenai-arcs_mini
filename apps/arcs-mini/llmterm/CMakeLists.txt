@@ -4,6 +4,7 @@ listenai_library_sources(
     net_kb.c
     term_ui.c
     llmterm_cmd.c
+    tts_speak.c
 )
 
 listenai_include_directories(.)

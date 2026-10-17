@@ -33,6 +33,9 @@
 
 #include "llm_client.h"
 #include "net_kb.h"
+#if CONFIG_LLMTERM_TTS
+#include "tts_speak.h"
+#endif
 
 /* macOS Terminal 深色主题配色 */
 #define COL_BG_TITLE   0x323233   /* 标题栏（比正文稍亮） */
@@ -270,6 +273,9 @@ static void submit_line(void)
     term_line(q, LT_Q);
     T.line_type = LT_ANS;                     /* 此后流式答案/结尾空行按答案色 */
     T.busy = 1;                                     /* 答案流直接追加 */
+#if CONFIG_LLMTERM_TTS
+    tts_speak_reset();                        /* 打断上一段朗读，开始新答案 */
+#endif
 }
 
 /* ------------------------------------------------ 输入轮询（worq.ui）
@@ -477,6 +483,11 @@ int llmterm_init(void)
         LISA_LOGE(TAG, "llm subscribe failed");
         return -1;
     }
+#if CONFIG_LLMTERM_TTS
+    if (tts_speak_init() != 0) {
+        LISA_LOGE(TAG, "tts speak init failed");   /* 不阻断终端 */
+    }
+#endif
     LISA_LOGI(TAG, "llmterm ready");
     return 0;
 }

@@ -25,6 +25,17 @@ config LLM_TERMINAL_UI
       LLM. Input comes from the network keyboard (UDP, tools/llmkb).
       Single-click button navigation to HOME is disabled accordingly.
 
+config LLMTERM_TTS
+    bool "Speak LLM answers via cloud TTS"
+    default y
+    depends on LLM_TERMINAL_UI
+    help
+      Subscribe to the streaming LLM answer in the terminal and speak
+      each finished sentence through the cloud TTS pipeline
+      (voice_cloud_tts_synth + voice_player_tts). Requires WiFi and the
+      LSC cloud session; silently skipped when offline. Runtime toggle:
+      "llmterm tts on|off".
+
 config CP_FIRMWARE_COMPAT
     bool "Embed CP PSRAM range"
     default y
