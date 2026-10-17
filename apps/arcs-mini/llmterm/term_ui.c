@@ -124,8 +124,10 @@ static void ring_render(void)
         const char *s = (idx < 0) ? T.cur : T.ring[idx];
         const char *pre = "", *suf = "";
         uint8_t t = (idx < 0) ? LT_ANS : T.type[idx];
-        if (t == LT_Q) { pre = "#" COL_Q_HEX; suf = "#"; }
-        else if (t == LT_SYS) { pre = "#" COL_SYS_HEX; suf = "#"; }
+        /* LVGL8 recolor 语法：#RRGGBB 后必须跟空格作参数终结符，
+         * 否则解析器把正文首词当参数吃掉（行首字符丢失） */
+        if (t == LT_Q) { pre = "#" COL_Q_HEX " "; suf = " #"; }
+        else if (t == LT_SYS) { pre = "#" COL_SYS_HEX " "; suf = " #"; }
         int pl = strlen(pre), sl = strlen(suf);
         int l = strlen(s);
         if (used + pl + l + sl + 1 >= sizeof render) break;
@@ -266,6 +268,7 @@ static void submit_line(void)
         return;
     }
     term_line(q, LT_Q);
+    T.line_type = LT_ANS;                     /* 此后流式答案/结尾空行按答案色 */
     T.busy = 1;                                     /* 答案流直接追加 */
 }
 
@@ -432,6 +435,7 @@ int llmterm_ui_init(void)
 
     lbl_out = lv_label_create(cont_out);
     lv_label_set_long_mode(lbl_out, LV_LABEL_LONG_WRAP);
+    lv_label_set_recolor(lbl_out, true);          /* 行级 #RRGGBB 问答配色 */
     lv_label_set_recolor(lbl_out, true);    /* 行级着色：#RRGGBB 文本# */
     lv_obj_set_style_text_color(lbl_out, lv_color_hex(COL_TEXT), 0);
     lv_obj_set_style_text_font(lbl_out, &lv_font_montserrat_14, 0);
