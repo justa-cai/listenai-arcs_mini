@@ -199,7 +199,9 @@ static void term_append(const char *s, int len)
     } else {
         T.new_cnt = 0;
     }
-    T.dirty = 1;                          /* key_timer 50ms 内统一重绘 */
+    ring_render();   /* 直接渲染：dirty 合并会让 workq 积压的多个
+                      * PIECE 一次冲刷出"一整行"，然后后续逐个修改，
+                      * 表现为乱码般的批量→逐字模式 */
 }
 
 /* 整行输出（type 决定行颜色：问题绿 / 系统灰 / 答案默认浅色） */
@@ -289,11 +291,7 @@ static void key_timer_cb(lv_timer_t *t)
     static uint8_t tick4s;                  /* 50ms × 40 = 2s 刷新一次状态 */
     char line[128];
 
-    if (T.dirty) {                          /* 流式输出统一冲刷（50ms 合并） */
-        T.dirty = 0;
-        ring_render();
-    }
-
+    /* dirty 冲刷已移到 term_append 内直接渲染（见函数尾注释） */
     while (net_kb_getline(line, sizeof line) == 0) {
         int n = strlen(line);
         if (n > TERM_INPUT_MAX) n = TERM_INPUT_MAX;
