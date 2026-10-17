@@ -171,6 +171,7 @@ static void term_append(const char *s, int len)
         if (c == '\n') {
             ring_put(T.cur, T.curlen, T.line_type);
             T.curlen = 0;
+            T.cur[0] = '\0';       /* 清除旧内容，否则 strlen 读到上次残留 */
             closed++;
             continue;
         }
@@ -189,9 +190,13 @@ static void term_append(const char *s, int len)
             ring_put(T.cur, T.curlen, T.line_type);
             memcpy(T.cur, tail, tail_len);
             T.curlen = tail_len;
+            T.cur[tail_len] = '\0';  /* 维护 NUL 终止 */
             closed++;
         }
-        if (T.curlen < TERM_LINE_MAX - 1) T.cur[T.curlen++] = c;
+        if (T.curlen < TERM_LINE_MAX - 1) {
+            T.cur[T.curlen++] = c;
+            T.cur[T.curlen] = '\0';  /* 每次追加后 NUL 终止 */
+        }
     }
     /* 滚动锚定：回看历史时不被新内容拽回底部，新行数累计成提示 */
     if (T.scroll > 0) {
