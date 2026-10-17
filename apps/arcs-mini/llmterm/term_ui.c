@@ -54,8 +54,10 @@
 
 #define TERM_LINES_KEEP  11          /* 渲染保留的逻辑行数（≈196px/17px） */
 #define TERM_LINES_RING  64          /* 环形缓冲行数（回看历史容量） */
-#define TERM_LINE_MAX    64          /* 单行容量；像素换行由 label WRAP 负责，
-                                       * 仅缓冲满时按词断 */
+#define TERM_LINE_MAX    64          /* 单行容量（环形缓冲逻辑行） */
+#define TERM_COL         26          /* 预换行列数（240px/8.8px≈27，留余量）；
+                                       * 不依赖 LVGL WRAP——动态文本增长时
+                                       * WRAP 断点漂移会产生行间交叠乱码 */
 #define TERM_INPUT_MAX   96          /* 云端 ASR 识别文本较长；llm mailbox 上限 480B */
 
 static lv_obj_t *lbl_out, *lbl_in, *lbl_status;
@@ -129,8 +131,10 @@ static void ring_render(void)
         uint8_t t = (idx < 0) ? LT_ANS : T.type[idx];
         /* LVGL8 recolor 语法：#RRGGBB 后必须跟空格作参数终结符，
          * 否则解析器把正文首词当参数吃掉（行首字符丢失） */
-        if (t == LT_Q) { pre = "#" COL_Q_HEX " "; suf = " #"; }
-        else if (t == LT_SYS) { pre = "#" COL_SYS_HEX " "; suf = " #"; }
+        /* A/B 测试：暂时去掉 recolor 标签，验证交叠是否由 recolor 引起 */
+        (void)t; (void)pre; (void)suf;
+        /* if (t == LT_Q) { pre = "#" COL_Q_HEX " "; suf = " #"; } */
+        /* else if (t == LT_SYS) { pre = "#" COL_SYS_HEX " "; suf = " #"; } */
         int pl = strlen(pre), sl = strlen(suf);
         int l = strlen(s);
         if (used + pl + l + sl + 1 >= sizeof render) break;
@@ -141,10 +145,9 @@ static void ring_render(void)
     }
     if (used) used--;                             /* 去掉末尾换行 */
     render[used] = '\0';
+    /* 先清空再设文本：确保完全重绘（LVGL8 动态文本下部分失效不可靠） */
+    lv_label_set_text(lbl_out, "");
     lv_label_set_text(lbl_out, render);
-    /* 文本增长（流式半行）时重跑一次对齐：LVGL8 对齐偏移缓存与
-     * recolor 解析在动态文本下会留下重叠残影（表现为输出期间上方
-     * 数行乱码，DONE 全量重绘后才消失），强制重对齐触发完整失效 */
     lv_obj_align(lbl_out, LV_ALIGN_BOTTOM_LEFT, 3, 0);
 }
 
@@ -173,9 +176,9 @@ static void term_append(const char *s, int len)
         }
         if ((uint8_t)c < 0x20 || c == 0x7f)      /* \r 等控制符丢弃 */
             continue;
-        if (T.curlen >= TERM_LINE_MAX - 2) {
-            /* 缓冲满：在最后一个空格处断行（保单词完整）；
-             * 像素级换行由 label 的 WRAP 模式负责，这里不做字符预换行 */
+        if (T.curlen >= TERM_COL) {
+            /* 预换行：在 TERM_COL 列处按词断行，不让 LVGL WRAP
+             * 自动断——WRAP 在文本增长时断点漂移产生交叠乱码 */
             int cut = T.curlen;
             while (cut > 0 && T.cur[cut - 1] != ' ') cut--;
             if (cut == 0) cut = T.curlen;      /* 无空格则硬断 */
@@ -461,8 +464,9 @@ int llmterm_ui_init(void)
 
     lbl_out = lv_label_create(cont_out);
     lv_label_set_long_mode(lbl_out, LV_LABEL_LONG_WRAP);
-    lv_label_set_recolor(lbl_out, true);          /* 行级 #RRGGBB 问答配色 */
-    lv_label_set_recolor(lbl_out, true);    /* 行级着色：#RRGGBB 文本# */
+    /* 不启用 recolor：LVGL8 的 cmd 解析在动态文本频繁 set_text 时
+     * 与内部宽度计算不一致，产生行间交叠（"dirty 的文字"）。
+     * 问题/答案的视觉区分靠 "> " 前缀而非颜色 */
     lv_obj_set_style_text_color(lbl_out, lv_color_hex(COL_TEXT), 0);
     lv_obj_set_style_text_font(lbl_out, &lv_font_montserrat_14, 0);
     lv_obj_set_width(lbl_out, 234);
