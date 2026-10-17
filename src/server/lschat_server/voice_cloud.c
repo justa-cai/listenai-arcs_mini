@@ -61,6 +61,11 @@ static volatile uint8_t g_cloud_connected = 0;
 static volatile uint8_t g_cloud_connecting = 0;
 static volatile uint8_t g_cloud_auth_failed = 0;
 static volatile uint8_t g_cloud_device_unbound = 0;
+/* 平台交互额度耗尽（云端 MCP show_qrcode err_code=OutOfChatLimit*）：
+ * 置位后拦截 TTS 合成/识别会话与云端话术 TTS 播放（额度推销话术
+ * 会被朗读出来，且每次请求都白耗一次交互）；重连成功时清除
+ * （充值/月初恢复后重连即恢复）。 */
+static volatile uint8_t g_cloud_quota_exhausted = 0;
 static volatile uint8_t g_voice_session_active = 0;
 
 static volatile uint8_t pcm_send_en = 0;
@@ -177,6 +182,11 @@ int voice_cloud_is_connected(void)
 int voice_cloud_is_device_unbound(void)
 {
     return g_cloud_device_unbound ? 1 : 0;
+}
+
+int voice_cloud_is_chat_quota_exhausted(void)
+{
+    return g_cloud_quota_exhausted ? 1 : 0;
 }
 
 voice_cloud_state_t voice_cloud_get_state(void)
@@ -1156,6 +1166,7 @@ static void lsc_event_cb(lsc_event_e evt, void *data, uint32_t size, void *usr)
         g_cloud_connecting = 0;
         g_cloud_auth_failed = 0;
         g_cloud_device_unbound = 0;
+        g_cloud_quota_exhausted = 0;    /* 重连后重新检测额度状态 */
         voice_msg_pub(VOICE_MSG_CLOUD_CONNECTED, NULL, 0);
     } break;
     case LSC_DISCONNECTED: {
@@ -1224,6 +1235,10 @@ static void voice_event_cb(session_voice_event_e evt, void *data, uint32_t size,
         voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
         break;
     case SESSION_VOICE_TTS:
+        if (g_cloud_quota_exhausted) {
+            LOGW("drop cloud TTS url: chat quota exhausted");
+            break;
+        }
         voice_msg_pub(VOICE_MSG_CLOUD_TTS_URL, (char *)data, size);
         break;
     case SESSION_VOICE_REPLY_URL:
@@ -1291,6 +1306,10 @@ static void text_event_cb(session_text_event_e evt, void *data, uint32_t size, v
     case SESSION_TEXT_TTS_URL:
         if (g_tts_text_cancelled) {
             LOGI("drop canceled text TTS URL");
+            break;
+        }
+        if (g_cloud_quota_exhausted) {
+            LOGW("drop text TTS url: chat quota exhausted");
             break;
         }
         voice_msg_pub(VOICE_MSG_CLOUD_TTS_URL, (char *)data, size);
@@ -1391,6 +1410,26 @@ static void mcp_msg_cb_handle(void *unused, uint32_t msg_id, void *data, uint32_
     if (root == NULL) {
         LOGE("mcp_msg_cb_handle, cJSON_Parse failed");
         return;
+    }
+
+    /* 额度耗尽探测：tools/call ls.built_in.show_qrcode + err_code=OutOfChatLimit* */
+    {
+        const cJSON *params = cJSON_GetObjectItem(root, "params");
+        const cJSON *name = params ? cJSON_GetObjectItem(params, "name") : NULL;
+        const cJSON *args = params ? cJSON_GetObjectItem(params, "arguments") : NULL;
+        const cJSON *err = args ? cJSON_GetObjectItem(args, "err_code") : NULL;
+        if (name && cJSON_IsString(name) && name->valuestring &&
+            strstr(name->valuestring, "show_qrcode") &&
+            err && cJSON_IsString(err) && err->valuestring &&
+            strstr(err->valuestring, "OutOfChatLimit")) {
+            if (!g_cloud_quota_exhausted) {
+                const cJSON *msg = args ? cJSON_GetObjectItem(args, "message") : NULL;
+                LOGW("cloud chat quota exhausted: %s (%s)",
+                     (msg && cJSON_IsString(msg)) ? msg->valuestring : "",
+                     err->valuestring);
+            }
+            g_cloud_quota_exhausted = 1;
+        }
     }
 
     cJSON *resp = mcp_process(root);
@@ -1948,6 +1987,10 @@ int voice_cloud_audio_recognition_start(void)
     if (!cloud_init_done) {
         return -1;
     }
+    if (g_cloud_quota_exhausted) {
+        LOGW("recognition start skipped: chat quota exhausted");
+        return -1;
+    }
 
     g_stream_text_generation++;
     if (g_stream_text_generation == 0U) {
@@ -2022,6 +2065,10 @@ int voice_cloud_tts_synth(const char *txt)
 {
     if (!txt || txt[0] == '\0') {
         LOGE("voice_cloud_tts_synth: invalid text (null or empty)");
+        return -1;
+    }
+    if (g_cloud_quota_exhausted) {
+        LOGW("voice_cloud_tts_synth: chat quota exhausted, skip");
         return -1;
     }
 

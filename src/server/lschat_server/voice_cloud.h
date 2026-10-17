@@ -65,6 +65,9 @@ int voice_cloud_tts_cancel(void);
 int voice_cloud_is_connected(void);
 voice_cloud_state_t voice_cloud_get_state(void);
 int voice_cloud_is_device_unbound(void);
+/* 平台交互额度耗尽（OutOfChatLimit*）：置位期间合成/识别请求被
+ * 本地拦截、云端话术 TTS 不播放；重连成功后自动清除 */
+int voice_cloud_is_chat_quota_exhausted(void);
 int voice_cloud_is_session_active(void);
 int voice_cloud_is_uploading_audio(void);
 #endif

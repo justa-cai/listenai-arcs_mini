@@ -158,6 +158,12 @@ static void ptt_begin(void)
         S.state = ASR_HELD_INERT;
         return;
     }
+    if (voice_cloud_is_chat_quota_exhausted()) {
+        S.offline_cnt++;
+        term_ui_sys_hint("(asr: quota exhausted)");   /* 扫码充值后重连恢复 */
+        S.state = ASR_HELD_INERT;
+        return;
+    }
     if (llm_client_busy()) {
         term_ui_sys_hint("(asr: llm busy)");
         S.state = ASR_HELD_INERT;
