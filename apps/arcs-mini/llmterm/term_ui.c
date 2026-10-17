@@ -131,10 +131,9 @@ static void ring_render(void)
         uint8_t t = (idx < 0) ? LT_ANS : T.type[idx];
         /* LVGL8 recolor 语法：#RRGGBB 后必须跟空格作参数终结符，
          * 否则解析器把正文首词当参数吃掉（行首字符丢失） */
-        /* A/B 测试：暂时去掉 recolor 标签，验证交叠是否由 recolor 引起 */
-        (void)t; (void)pre; (void)suf;
-        /* if (t == LT_Q) { pre = "#" COL_Q_HEX " "; suf = " #"; } */
-        /* else if (t == LT_SYS) { pre = "#" COL_SYS_HEX " "; suf = " #"; } */
+        /* LVGL8 recolor 语法：#RRGGBB 后必须跟空格作参数终结符 */
+        if (t == LT_Q) { pre = "#" COL_Q_HEX " "; suf = " #"; }
+        else if (t == LT_SYS) { pre = "#" COL_SYS_HEX " "; suf = " #"; }
         int pl = strlen(pre), sl = strlen(suf);
         int l = strlen(s);
         if (used + pl + l + sl + 1 >= sizeof render) break;
@@ -469,9 +468,7 @@ int llmterm_ui_init(void)
 
     lbl_out = lv_label_create(cont_out);
     lv_label_set_long_mode(lbl_out, LV_LABEL_LONG_WRAP);
-    /* 不启用 recolor：LVGL8 的 cmd 解析在动态文本频繁 set_text 时
-     * 与内部宽度计算不一致，产生行间交叠（"dirty 的文字"）。
-     * 问题/答案的视觉区分靠 "> " 前缀而非颜色 */
+    lv_label_set_recolor(lbl_out, true);   /* 问答配色（NUL 终止修复后恢复） */
     lv_obj_set_style_text_color(lbl_out, lv_color_hex(COL_TEXT), 0);
     lv_obj_set_style_text_font(lbl_out, &lv_font_montserrat_14, 0);
     lv_obj_set_width(lbl_out, 234);
