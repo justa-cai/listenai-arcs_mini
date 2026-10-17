@@ -39,6 +39,7 @@ typedef struct {
     float *x, *xb, *xb2, *hb, *q, *k, *v, *att, *logits;
     int8_t *xq;
     float *xs;
+    int16_t *xss;             // per-block sum(xq)（点积偏置消除用）
     uint8_t *kc4, *vc4;       // int4 KV [L, kv_len, dim/2]
     uint16_t *kgs, *vgs;      // bf16 group scales [L, kv_len, dim/32]
     void *worker;             // dual-core matmul worker (target only)

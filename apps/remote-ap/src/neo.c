@@ -46,36 +46,50 @@ static inline uint16_t f32_bf16(float f)
 }
 
 // ---------------------------------------------------------------- kernels
-static void quantize_q8(const float *x, int8_t *xq, float *xs, int n)
+static void quantize_q8(const float *x, int8_t *xq, float *xs, int16_t *xss, int n)
 {
     for (int b = 0; b < n / BLOCK; b++) {
         float mx = 0;
         for (int i = 0; i < BLOCK; i++) { float a = fabsf(x[i]); if (a > mx) mx = a; }
         float s = mx / 127.0f, inv = s > 0 ? 1.0f / s : 0;
         xs[b] = s;
-        for (int i = 0; i < BLOCK; i++) xq[i] = (int8_t)lrintf(x[i] * inv);
+        int sum = 0;
+        for (int i = 0; i < BLOCK; i++) {
+            int q = (int)lrintf(x[i] * inv);
+            xq[i] = (int8_t)q;
+            sum += q;
+        }
+        xss[b] = (int16_t)sum;   /* |sum| ≤ 32*127，int16 安全 */
         x += BLOCK;
         xq += BLOCK;
     }
 }
 
-static inline float dot_q4q8(const uint8_t *wrow, const int8_t *xq, const float *xs, int n)
+/* Q4×Q8 点积（偏置消除版）。
+ * sum((w-8)*x) = sum(w*x) - 8*sum(x)：块和 sum(x) 在量化时预计算到
+ * xss[]，内环每元素省一次减法；低/高半字节各用独立累加器打破
+ * 单条依赖链，便于 -O3 双发射调度。 */
+static inline float dot_q4q8(const uint8_t *restrict wrow,
+                             const int8_t *restrict xq,
+                             const float *restrict xs,
+                             const int16_t *restrict xss,
+                             int n)
 {
     int nb = n >> 5;
     const uint8_t *sc = wrow, *nib = wrow + nib_off(n);
     float acc = 0;
     for (int b = 0; b < nb; b++) {
-        int isum = 0;
+        const uint8_t *nk = nib + 16 * b;
+        const int8_t *xlo = xq + 32 * b, *xhi = xlo + 16;
+        int slo = 0, shi = 0;
         for (int k = 0; k < 16; k++) {
-            uint8_t bk = nib[k];
-            isum += ((int)(bk & 0x0F) - 8) * (int)xq[k];
-            isum += ((int)(bk >> 4) - 8) * (int)xq[k + 16];
+            uint8_t bk = nk[k];
+            slo += (bk & 0x0F) * (int)xlo[k];
+            shi += (bk >> 4) * (int)xhi[k];
         }
         uint16_t s;
         memcpy(&s, sc + 2 * b, 2);
-        acc += bf16_f32(s) * xs[b] * (float)isum;
-        nib += 16;
-        xq += BLOCK;
+        acc += bf16_f32(s) * xs[b] * (float)(slo + shi - 8 * (int)xss[b]);
     }
     return acc;
 }
@@ -105,6 +119,7 @@ typedef struct {
     float *xout;
     const int8_t *xq;
     const float *xs;
+    const int16_t *xss;
     const uint8_t *w;
     int n, r0, r1;
 } mm_args_t;
@@ -120,7 +135,8 @@ static void mm_rows(const mm_args_t *a)
         a->xout[r] = dot_q4q8_pie(w + no, a->xq, w, a->xs, nb);
     }
 #else
-    for (int r = a->r0; r < a->r1; r++) a->xout[r] = dot_q4q8(a->w + r * rb, a->xq, a->xs, a->n);
+    for (int r = a->r0; r < a->r1; r++)
+        a->xout[r] = dot_q4q8(a->w + r * rb, a->xq, a->xs, a->xss, a->n);
 #endif
 }
 
@@ -135,8 +151,8 @@ static void *worker_start(story_arena_t *a)
 static void worker_stop(void *p) { (void)p; }
 static void matmul(neo_t *m, float *out, const float *x, const uint8_t *w, int n, int d)
 {
-    quantize_q8(x, m->xq, m->xs, n);
-    mm_args_t a = {out, m->xq, m->xs, w, n, 0, d};
+    quantize_q8(x, m->xq, m->xs, m->xss, n);
+    mm_args_t a = {out, m->xq, m->xs, m->xss, w, n, 0, d};
     mm_rows(&a);
 }
 
@@ -389,6 +405,7 @@ bool neo_init(neo_t *m, const uint8_t *b, size_t size, int kv_len, story_arena_t
     m->v = place(fast, bulk, dim * 4, "neo.v");
     m->xq = place(fast, bulk, mx, "neo.xq");
     m->xs = place(fast, bulk, (mx / BLOCK) * 4, "neo.xs");
+    m->xss = place(fast, bulk, (mx / BLOCK) * 2, "neo.xss");
     m->att = place(fast, bulk, (size_t)p->n_heads * kvL * 4, "neo.att");
     m->kc4 = place(fast, bulk, nib, "neo.kcache");
     m->vc4 = place(fast, bulk, nib, "neo.vcache");
@@ -405,10 +422,15 @@ bool neo_init(neo_t *m, const uint8_t *b, size_t size, int kv_len, story_arena_t
 #ifdef USE_PIE
     // SIMD/scalar parity on real rows: a broken kernel must fail loudly.
     for (int i = 0; i < dim; i++) m->xq[i] = (int8_t)((i * 37 + 11) & 0xFF);
-    for (int bb = 0; bb < dim / BLOCK; bb++) m->xs[bb] = 0.5f + 0.25f * bb;
+    for (int bb = 0; bb < dim / BLOCK; bb++) {
+        m->xs[bb] = 0.5f + 0.25f * bb;
+        int sum = 0;
+        for (int i = 0; i < BLOCK; i++) sum += m->xq[bb * BLOCK + i];
+        m->xss[bb] = (int16_t)sum;
+    }
     for (int r = 0; r < 8; r++) {
         const uint8_t *w = m->wq + r * row_stride(dim);
-        float ref = dot_q4q8(w, m->xq, m->xs, dim);
+        float ref = dot_q4q8(w, m->xq, m->xs, m->xss, dim);
         float got = dot_q4q8_pie(w + nib_off(dim), m->xq, w, m->xs, dim / BLOCK);
         if (fabsf(got - ref) > 1e-3f * (1.0f + fabsf(ref))) {
             SLOGE(TAG, "PIE kernel parity FAILED row %d: %f vs %f", r, got, ref);
