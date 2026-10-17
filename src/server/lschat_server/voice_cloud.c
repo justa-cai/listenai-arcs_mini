@@ -1235,22 +1235,35 @@ static void voice_event_cb(session_voice_event_e evt, void *data, uint32_t size,
         voice_msg_pub(VOICE_MSG_CLOUD_SESSION_FINISHED, NULL, 0);
         break;
     case SESSION_VOICE_TTS:
+#if CONFIG_LLM_TERMINAL_UI
+        /* 终端场景：按住说话是纯识别会话（start frame 无 nlu/tts
+         * features），云端本不应回 TTS——回来的必是额度话术/推销
+         * （且先于额度二维码到达，不能靠标志拦）。答案朗读走
+         * session_text 合成通道，不经过这里。 */
+        LOGW("drop voice-session TTS url in terminal mode");
+        break;
+#else
         if (g_cloud_quota_exhausted) {
             LOGW("drop cloud TTS url: chat quota exhausted");
             break;
         }
         voice_msg_pub(VOICE_MSG_CLOUD_TTS_URL, (char *)data, size);
         break;
+#endif
     case SESSION_VOICE_REPLY_URL:
-        if (voice_tts_text_stream_start((char *)data, false) != 0) {
+    case SESSION_VOICE_REPLY_TIMELINE_URL:
+#if CONFIG_LLM_TERMINAL_UI
+        /* 终端场景：语音会话的 ls-llm 回复文本/时间轴流即额度话术的
+         * 另一半来源（流式 TTS 由它驱动），与答案朗读无关，丢弃 */
+        LOGW("drop voice-session reply stream in terminal mode");
+        break;
+#else
+        if (voice_tts_text_stream_start((char *)data,
+                                        evt == SESSION_VOICE_REPLY_TIMELINE_URL) != 0) {
             LOGE("start TTS text stream failed");
         }
         break;
-    case SESSION_VOICE_REPLY_TIMELINE_URL:
-        if (voice_tts_text_stream_start((char *)data, true) != 0) {
-            LOGE("start TTS timeline stream failed");
-        }
-        break;
+#endif
     case SESSION_VOICE_IAT:
         if (data != NULL && size > 0 && ((char *)data)[0] != '\0') {
             voice_msg_pub(VOICE_MSG_CLOUD_IAT_UPDATE, (char *)data, size);
@@ -1308,10 +1321,8 @@ static void text_event_cb(session_text_event_e evt, void *data, uint32_t size, v
             LOGI("drop canceled text TTS URL");
             break;
         }
-        if (g_cloud_quota_exhausted) {
-            LOGW("drop text TTS url: chat quota exhausted");
-            break;
-        }
+        /* 额度耗尽不影响 text 合成（实测照常返回 tts.iflyos.cn MP3），
+         * 不做额度拦截——答案朗读唯一依赖此通道 */
         voice_msg_pub(VOICE_MSG_CLOUD_TTS_URL, (char *)data, size);
         break;
     default:
@@ -1987,10 +1998,8 @@ int voice_cloud_audio_recognition_start(void)
     if (!cloud_init_done) {
         return -1;
     }
-    if (g_cloud_quota_exhausted) {
-        LOGW("recognition start skipped: chat quota exhausted");
-        return -1;
-    }
+    /* 额度耗尽不拦识别：云端 IAT 照常返回结果（真机日志实证），
+     * 只在播放层过滤额度话术即可 */
 
     g_stream_text_generation++;
     if (g_stream_text_generation == 0U) {
@@ -2065,10 +2074,6 @@ int voice_cloud_tts_synth(const char *txt)
 {
     if (!txt || txt[0] == '\0') {
         LOGE("voice_cloud_tts_synth: invalid text (null or empty)");
-        return -1;
-    }
-    if (g_cloud_quota_exhausted) {
-        LOGW("voice_cloud_tts_synth: chat quota exhausted, skip");
         return -1;
     }
 
