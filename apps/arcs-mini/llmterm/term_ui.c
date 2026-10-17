@@ -9,8 +9,13 @@
  *   │ > hello_                  │  输入行（实时逐键；↑↓ 滚动回看历史）
  *   └──────────────────────────┘
  *
- * 问答呈现：问题以 "> " 前缀回显，答案无前缀直接追加，问答对之间
- * 空行分组；纯文本渲染（不做 per-line recolor），像素换行交给 label。
+ * 问答呈现：问题以 "> " 前缀回显（绿色），答案无前缀直接追加（浅色），
+ * 系统提示灰显；问答对之间空行分组，像素换行交给 label（recolor 行标签）。
+ *
+ * 渲染节流：追加只写环形缓冲并置 dirty，由 key_timer 50ms 统一冲刷
+ * （流式 piece 高频到达时合并，不逐 token 重建 label）；未闭合的
+ * 当前行也参与渲染，流式半行立即可见（打字机效果完整）。
+ * 输入侧卫生：丢弃 \r/C0/DEL，剥离 ANSI CSI 转义序列。
  *
  * 数据流：net_kb 按键/整行 → lv_timer 轮询 → 输入行；
  * 回车 → llm_client_ask()；流式回包（rpc_client 线程）→
@@ -34,6 +39,8 @@
 #define COL_BG_SCREEN  0x1E1E1E   /* 正文背景 */
 #define COL_TEXT       0xE8E8E8   /* 正文文字（纯文本统一色） */
 #define COL_TITLE      0xB8B8B8   /* 标题文字 */
+#define COL_Q_HEX      "27C93F"   /* 问题回显 recolor 标签色（=信号灯绿） */
+#define COL_SYS_HEX    "8A8A8A"   /* 系统提示 recolor 标签色（灰） */
 #define COL_LIGHT_R    0xFF5F56   /* 信号灯红 */
 #define COL_LIGHT_Y    0xFFBD2E   /* 信号灯黄 */
 #define COL_LIGHT_G    0x27C93F   /* 信号灯绿 */
@@ -43,7 +50,7 @@
 #define TERM_INPUT_H     20
 
 #define TERM_LINES_KEEP  11          /* 渲染保留的逻辑行数（≈196px/17px） */
-#define TERM_LINES_RING  32          /* 环形缓冲行数 */
+#define TERM_LINES_RING  64          /* 环形缓冲行数（回看历史容量） */
 #define TERM_LINE_MAX    64          /* 单行容量；像素换行由 label WRAP 负责，
                                        * 仅缓冲满时按词断 */
 #define TERM_INPUT_MAX   64
@@ -51,46 +58,57 @@
 static lv_obj_t *lbl_out, *lbl_in, *lbl_status;
 static lv_obj_t *cont_out;           /* 固定高度裁剪容器（自动滚屏） */
 
+enum { LT_ANS = 0, LT_Q, LT_SYS };        /* 行颜色类型：答案/问题/系统 */
+
 static struct {
     char ring[TERM_LINES_RING][TERM_LINE_MAX];
+    uint8_t type[TERM_LINES_RING];        /* 各行颜色类型（LT_*） */
     int head;                             /* 下一写入行 */
     char cur[TERM_LINE_MAX];              /* 当前行（未闭合）部分缓冲 */
     int curlen;
+    uint8_t line_type;                    /* 当前行颜色类型 */
     char inbuf[TERM_INPUT_MAX + 1];       /* 输入行缓冲 */
     int inlen;
     uint8_t busy;                         /* LLM 生成中（回车忽略） */
     uint8_t scroll;                       /* 历史回滚行数（0=贴底） */
+    uint8_t new_cnt;                      /* 回看期间新到的行数（提示用） */
     uint8_t esc_pending;                  /* ↑↓ 转义序列状态 */
+    uint8_t ansi_st;                      /* 输出 ANSI CSI 剥离状态机 */
+    uint8_t dirty;                        /* 输出待重绘（key_timer 冲刷） */
 } T;
 
 /* ------------------------------------------------ 行环形缓冲 */
-static void ring_put(const char *s, int len)
+static void ring_put(const char *s, int len, uint8_t type)
 {
     if (len >= TERM_LINE_MAX) len = TERM_LINE_MAX - 1;
     char *dst = T.ring[T.head];
     memcpy(dst, s, len);
     dst[len] = '\0';
+    T.type[T.head] = type;
     T.head = (T.head + 1) % TERM_LINES_RING;
 }
 
-/* 渲染：从最老的非空行到最新（head-1）共 used 行，按 scroll 偏移取
- * 最后 KEEP 行的窗口（纯文本，颜色由 label 基础样式统一控制）。 */
+/* 渲染：环形缓冲非空行 + 未闭合当前行 → recolor 行标签 → 单 label。
+ * 追加侧只置 dirty，由 key_timer 50ms 统一冲刷（流式合并渲染）；
+ * ↑↓ 滚动键会直接调用（交互即时反馈）。 */
 static void ring_render(void)
 {
-    static char render[TERM_LINES_KEEP * TERM_LINE_MAX + 16];
+    static char render[TERM_LINES_KEEP * (TERM_LINE_MAX + 12) + 32];
 
-    int list[TERM_LINES_RING], used_lines = 0;
+    static int list[TERM_LINES_RING + 1];  /* static：timer 任务栈省 260B */
+    int used_lines = 0;
     int oldest = -1;
     for (int i = TERM_LINES_RING; i >= 1; i--) {
         int idx = (T.head - i + TERM_LINES_RING) % TERM_LINES_RING;
         if (T.ring[idx][0]) { oldest = i; break; }
     }
-    if (oldest < 0) {
+    for (int i = oldest; i >= 1; i--)
+        list[used_lines++] = (T.head - i + TERM_LINES_RING) % TERM_LINES_RING;
+    if (T.curlen)                                    /* 流式中的半行也上屏 */
+        list[used_lines++] = -1;
+    if (used_lines == 0) {
         lv_label_set_text(lbl_out, "");
         return;
-    }
-    for (int i = oldest; i >= 1; i--) {
-        list[used_lines++] = (T.head - i + TERM_LINES_RING) % TERM_LINES_RING;
     }
 
     /* 滚动窗口：末尾往前 scroll 行，再取 KEEP 行 */
@@ -103,10 +121,17 @@ static void ring_render(void)
     render[0] = '\0';
     for (int i = begin; i < end; i++) {
         int idx = list[i];
-        int l = strlen(T.ring[idx]);
-        if (used + l + 1 >= sizeof render) break;
-        memcpy(render + used, T.ring[idx], l);
-        used += l;
+        const char *s = (idx < 0) ? T.cur : T.ring[idx];
+        const char *pre = "", *suf = "";
+        uint8_t t = (idx < 0) ? LT_ANS : T.type[idx];
+        if (t == LT_Q) { pre = "#" COL_Q_HEX; suf = "#"; }
+        else if (t == LT_SYS) { pre = "#" COL_SYS_HEX; suf = "#"; }
+        int pl = strlen(pre), sl = strlen(suf);
+        int l = strlen(s);
+        if (used + pl + l + sl + 1 >= sizeof render) break;
+        memcpy(render + used, pre, pl); used += pl;
+        memcpy(render + used, s, l); used += l;
+        memcpy(render + used, suf, sl); used += sl;
         render[used++] = '\n';
     }
     if (used) used--;                             /* 去掉末尾换行 */
@@ -116,44 +141,69 @@ static void ring_render(void)
 
 static void term_append(const char *s, int len)
 {
+    int closed = 0;                       /* 本次闭合的行数（滚动锚定用） */
     if (len <= 0) return;
     for (int i = 0; i < len; i++) {
         char c = s[i];
-        if (c == '\n') {
-            ring_put(T.cur, T.curlen);
-            T.curlen = 0;
-        } else {
-            if (T.curlen >= TERM_LINE_MAX - 2) {
-                /* 缓冲满：在最后一个空格处断行（保单词完整）；
-                 * 像素级换行由 label 的 WRAP 模式负责，这里不做字符预换行 */
-                int cut = T.curlen;
-                while (cut > 0 && T.cur[cut - 1] != ' ') cut--;
-                if (cut == 0) cut = T.curlen;      /* 无空格则硬断 */
-                char tail[TERM_LINE_MAX];
-                int tail_len = T.curlen - cut;
-                memcpy(tail, T.cur + cut, tail_len);
-                T.curlen = cut;
-                ring_put(T.cur, T.curlen);
-                memcpy(T.cur, tail, tail_len);
-                T.curlen = tail_len;
-            }
-            if (T.curlen < TERM_LINE_MAX - 1) T.cur[T.curlen++] = c;
+
+        /* ANSI CSI 序列剥离：ESC '[' .. 终止字节(0x40..0x7E) */
+        if (T.ansi_st == 1) {
+            T.ansi_st = (c == '[') ? 2 : 0;
+            continue;
         }
+        if (T.ansi_st == 2) {
+            if (c >= 0x40 && c <= 0x7e) T.ansi_st = 0;
+            continue;
+        }
+        if (c == 0x1b) { T.ansi_st = 1; continue; }
+        if (c == '\n') {
+            ring_put(T.cur, T.curlen, T.line_type);
+            T.curlen = 0;
+            closed++;
+            continue;
+        }
+        if ((uint8_t)c < 0x20 || c == 0x7f)      /* \r 等控制符丢弃 */
+            continue;
+        if (T.curlen >= TERM_LINE_MAX - 2) {
+            /* 缓冲满：在最后一个空格处断行（保单词完整）；
+             * 像素级换行由 label 的 WRAP 模式负责，这里不做字符预换行 */
+            int cut = T.curlen;
+            while (cut > 0 && T.cur[cut - 1] != ' ') cut--;
+            if (cut == 0) cut = T.curlen;      /* 无空格则硬断 */
+            char tail[TERM_LINE_MAX];
+            int tail_len = T.curlen - cut;
+            memcpy(tail, T.cur + cut, tail_len);
+            T.curlen = cut;
+            ring_put(T.cur, T.curlen, T.line_type);
+            memcpy(T.cur, tail, tail_len);
+            T.curlen = tail_len;
+            closed++;
+        }
+        if (T.curlen < TERM_LINE_MAX - 1) T.cur[T.curlen++] = c;
     }
-    T.scroll = 0;                                /* 新内容回到底部 */
-    ring_render();
+    /* 滚动锚定：回看历史时不被新内容拽回底部，新行数累计成提示 */
+    if (T.scroll > 0) {
+        T.scroll += closed;
+        if (T.scroll > TERM_LINES_RING - 1) T.scroll = TERM_LINES_RING - 1;
+        T.new_cnt += closed;
+        if (T.new_cnt > 99) T.new_cnt = 99;
+    } else {
+        T.new_cnt = 0;
+    }
+    T.dirty = 1;                          /* key_timer 50ms 内统一重绘 */
 }
 
-/* 整行输出（纯文本，颜色统一为 label 基础样式） */
-static void term_line(const char *s)
+/* 整行输出（type 决定行颜色：问题绿 / 系统灰 / 答案默认浅色） */
+static void term_line(const char *s, uint8_t type)
 {
+    T.line_type = type;
     term_append(s, strlen(s));
     term_append("\n", 1);
 }
 
 static void term_line_sys(const char *s)
 {
-    term_line(s);
+    term_line(s, LT_SYS);
 }
 
 /* ------------------------------------------------ 输入行 */
@@ -162,19 +212,22 @@ static void input_render(uint8_t cursor_on)
     static char buf[TERM_INPUT_MAX + 24];
 
     if (T.scroll > 0) {
-        /* 回看历史中：提示滚动状态 */
-        snprintf(buf, sizeof buf, "[^ %u line%s up]",
-                 T.scroll, T.scroll > 1 ? "s" : "");
+        /* 回看历史中：提示滚动状态与期间新到内容数 */
+        if (T.new_cnt)
+            snprintf(buf, sizeof buf, "[^ %u up (+%u new)]", T.scroll, T.new_cnt);
+        else
+            snprintf(buf, sizeof buf, "[^ %u line%s up]",
+                     T.scroll, T.scroll > 1 ? "s" : "");
     } else if (T.busy) {
         /* 生成中：闪烁光标即活动指示 */
         snprintf(buf, sizeof buf, "%c", cursor_on ? '_' : ' ');
     } else {
         /* 只显示尾部（单行像素宽度内），按 inlen 精确渲染 */
         const char *show = T.inbuf;
-        int skip = T.inlen - 30;
-        if (skip > 0) show += skip;
+        int show_len = T.inlen;
+        if (show_len > 30) { show += show_len - 30; show_len = 30; }
         snprintf(buf, sizeof buf, "> %.*s%c",
-                 (int)T.inlen, show, cursor_on ? '_' : ' ');
+                 show_len, show, cursor_on ? '_' : ' ');
     }
     lv_label_set_text(lbl_in, buf);
 }
@@ -212,7 +265,7 @@ static void submit_line(void)
         term_line_sys("(llm not ready: AP service offline?)");
         return;
     }
-    term_line(q);
+    term_line(q, LT_Q);
     T.busy = 1;                                     /* 答案流直接追加 */
 }
 
@@ -222,6 +275,11 @@ static void key_timer_cb(lv_timer_t *t)
 {
     static uint8_t tick4s;                  /* 50ms × 40 = 2s 刷新一次状态 */
     char line[128];
+
+    if (T.dirty) {                          /* 流式输出统一冲刷（50ms 合并） */
+        T.dirty = 0;
+        ring_render();
+    }
 
     while (net_kb_getline(line, sizeof line) == 0) {
         int n = strlen(line);
@@ -242,6 +300,7 @@ static void key_timer_cb(lv_timer_t *t)
                 ring_render();
             } else if (k == 'B' && T.scroll > 0) {
                 T.scroll--;
+                if (T.scroll == 0) T.new_cnt = 0;   /* 回底，清新行计数 */
                 ring_render();
             }
             continue;
@@ -260,7 +319,7 @@ static void key_timer_cb(lv_timer_t *t)
                 T.inbuf[T.inlen] = '\0';
             }
         }
-        if (T.scroll) { T.scroll = 0; ring_render(); }   /* 普通键回底 */
+        if (T.scroll) { T.scroll = 0; T.new_cnt = 0; ring_render(); }  /* 普通键回底 */
     }
     input_render(1);
 
@@ -373,6 +432,7 @@ int llmterm_ui_init(void)
 
     lbl_out = lv_label_create(cont_out);
     lv_label_set_long_mode(lbl_out, LV_LABEL_LONG_WRAP);
+    lv_label_set_recolor(lbl_out, true);    /* 行级着色：#RRGGBB 文本# */
     lv_obj_set_style_text_color(lbl_out, lv_color_hex(COL_TEXT), 0);
     lv_obj_set_style_text_font(lbl_out, &lv_font_montserrat_14, 0);
     lv_obj_set_width(lbl_out, 234);
@@ -391,6 +451,7 @@ int llmterm_ui_init(void)
     term_line_sys("type + Enter to ask (english)");
     term_line_sys("up/down arrows scroll history");
 
+    ring_render();                          /* 欢迎语立即上屏（不等首拍定时器） */
     input_render(1);
     lv_timer_create(key_timer_cb, 50, NULL);
     lv_timer_create(cursor_timer_cb, 350, NULL);
